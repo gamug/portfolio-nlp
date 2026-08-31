@@ -150,6 +150,11 @@ activemq-data/
 # Environments
 .env
 .envrc
+# local SQLite databases (the real DB lives at D:\thesis\data\nlp.db)
+data/
+*.db
+*.db-shm
+*.db-wal
 .venv
 env/
 venv/
