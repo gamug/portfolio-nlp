@@ -58,7 +58,7 @@ def _seed_entity(conn: sqlite3.Connection, article_id: int = 1) -> int:
     return int(row["id"])
 
 
-def test_update_sentiment_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection) -> None:
+def test_update_sentiment_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_article(conn, id=1)
     conn.commit()
     _seed_sentiment(conn)
@@ -67,6 +67,7 @@ def test_update_sentiment_changes_label_and_refreshes_timestamp(conn: sqlite3.Co
         "SELECT processed_at FROM article_sentiment WHERE article_id = 1"
     ).fetchone()["processed_at"]
 
+    monkeypatch.setattr(corrections, "_now_iso", lambda: "2099-01-01T00:00:00+00:00")
     updated = corrections.update_sentiment(conn, 1, label="negative")
     conn.commit()
     assert updated is not None
@@ -163,7 +164,7 @@ def test_delete_entities_for_article_removes_all_and_returns_count(
     )
 
 
-def test_update_category_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection) -> None:
+def test_update_category_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_article(conn, id=1)
     conn.commit()
     _seed_category(conn)
@@ -172,6 +173,7 @@ def test_update_category_changes_label_and_refreshes_timestamp(conn: sqlite3.Con
         "SELECT processed_at FROM article_category WHERE article_id = 1"
     ).fetchone()["processed_at"]
 
+    monkeypatch.setattr(corrections, "_now_iso", lambda: "2099-01-01T00:00:00+00:00")
     updated = corrections.update_category(conn, 1, label="mergers_acquisitions")
     assert updated is not None
     conn.commit()
