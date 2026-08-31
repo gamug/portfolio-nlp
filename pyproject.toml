@@ -1,0 +1,52 @@
+[project]
+name = "portfolio-nlp"
+version = "0.1.0"
+description = "Financial-news NLP pipeline (FinBERT sentiment + SEC-BERT NER + zero-shot category + summarization), extracted from portfolio-data-mining"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    # --- shared web/runtime -----------------------------------------------
+    "httpx[http2]>=0.27.0",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.1",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0",
+    "numpy",
+    "tqdm>=4.66",
+    # --- news_nlp (sentiment + NER + category + summarization) -----------
+    # torch is pinned to what the cu124 wheel index (see [tool.uv.sources]
+    # below) publishes - that index stops at 2.6.0, so an unbounded/newer
+    # requirement here would make uv fall back to a plain PyPI build.
+    "torch>=2.4,<2.7",
+    "transformers>=4.40",
+    "datasets>=2.19",
+    "accelerate>=0.30",
+    "evaluate>=0.4",
+    "seqeval>=1.2",
+    "huggingface_hub>=0.24",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.24",
+    "pre-commit>=4.0",
+    "ruff==0.16.3",
+    "mypy>=1.13",
+]
+
+[tool.uv]
+package = false
+
+# torch is a direct [project] dependency, but uv still needs to know which
+# wheel to fetch. This pins it to the same cu124 build the old
+# `pip install torch --index-url https://download.pytorch.org/whl/cu124`
+# step used, so `uv sync`/`uv lock` reproduce it exactly. CI passes
+# `uv sync --no-sources` to ignore this and take CPU wheels from PyPI.
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
