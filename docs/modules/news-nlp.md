@@ -1,6 +1,6 @@
 # news_nlp — pipeline stage 3: sentiment + NER + categorization + summarization
 
-**Source:** `news-nlp/` → `src/news_nlp/` + `apps/news_nlp_api.py` + `tests/news_nlp/`
+**Extracted from** `portfolio-data-mining` (which had consolidated it from the standalone `news-nlp` project).
 
 Runs up to five sequential batch stages over the `articles` rows in
 `data/nlp.db` (override with `$DATABASE_URL`, see root `.env.example`), each stage owning
@@ -66,31 +66,23 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
   never gets summarized. This mirrors the original `query.sql` design this feature is
   based on.
 
-## Setup (module-specific — torch isn't in `requirements.txt`)
-
-torch isn't listed as a direct dependency (its install command depends on your CUDA
-version), but a CPU-only build may already get pulled in transitively by another
-package's dependency chain when you `pip install -r requirements.txt` — check
-`pip show torch` before assuming you need this step. If you want GPU acceleration, install
-the CUDA-matched wheel explicitly (this replaces whatever transitive build is present):
+## Setup
 
 ```bash
-.venv\Scripts\python.exe -m pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-# Pre-fetch all four models into the local Hugging Face cache (one-time, safe to re-run)
-.venv\Scripts\python.exe -m src.news_nlp.setup
+uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
+uv run python -m news_nlp.setup  # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
 ```
 
 ## Running
 
 ```bash
 # CLI (direct — no server)
-.venv\Scripts\python.exe cli\news_nlp_cli.py --limit 50
-.venv\Scripts\python.exe cli\news_nlp_cli.py   # process every pending article, sentiment + NER + category only
-.venv\Scripts\python.exe cli\news_nlp_cli.py --summarize   # also run c_summary/sector_summary
+uv run cli/news_nlp_cli.py --limit 50
+uv run cli/news_nlp_cli.py   # process every pending article, sentiment + NER + category only
+uv run cli/news_nlp_cli.py --summarize   # also run c_summary/sector_summary
 
 # API
-.venv\Scripts\python.exe apps\news_nlp_api.py
+uv run apps/news_nlp_api.py
 # -> http://127.0.0.1:8003/docs
 # POST /pipeline/run  {"limit": 50, "summarize": true}
 ```
@@ -110,24 +102,28 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 `GET /sectors/summary` (optional `sector`/`sub_industry`/`week_start` filters) lists
 `sector_summary` rows, newest week first.
 
+## Database
+
+`nlp.db` (`D:\thesis\data\nlp.db`, populated by `scripts/migrate_from_urls_db.py`) is a
+**results store**: the NLP result tables plus a `body_text`-free `articles` subset.
+
+The pipeline stages that read article text — sentiment, NER, category, and per-article
+summary (`fetch_pending_articles` / `fetch_pending_category_articles` /
+`fetch_pending_company_summaries`, i.e. `cli/news_nlp_cli.py` and `POST /pipeline/run`) —
+need `articles.body_text`, which `nlp.db` does not have. To run or re-run them, set
+`DATABASE_URL` to a database that has `articles.body_text` (the legacy shared `urls.db`);
+results are written to that database's result tables.
+
+Against `nlp.db` directly, the read/query surface works: `GET /articles/{id}`,
+`GET /stats/categories`, `GET /sectors/summary`, the correction (`PATCH`/`DELETE`)
+endpoints, and the `sector_summary` stage.
+
 ## Testing
 
 ```bash
-.venv\Scripts\python.exe -m pytest tests/news_nlp -q
+uv run pytest tests/news_nlp -q
 ```
 
-Requires torch installed (see Setup above). 98/100 pass once it's present (one previously
-stale test, `test_main.py`, was removed — it exercised the old `news-nlp/main.py`
-uvicorn-launcher module, whose one line folded into `apps/news_nlp_api.py`'s
-`if __name__ == "__main__":` block during migration, so there's no separate `main` module
-left to import). Two pre-existing failures, neither a regression:
-- `test_db_module.py::test_db_path_points_to_project_root_data_dir` — a pre-existing
-  `.env`/`DATABASE_URL` interaction; it also needed its own `parents[N]` index bumped by
-  one, for the same reason `db.DB_PATH` did, see the file-mapping note in the root README
-  about the `src/news_nlp/` nesting being one level deeper than the original
-  `news-nlp/src/`.
-- `test_summary_db.py::test_fetch_pending_sector_weeks_excludes_open_week` — a time-bomb
-  test: it hardcodes a date meant to fall inside "the still-open current week" at the time
-  it was written, which eventually becomes a closed week as real time passes (as it now
-  has). Needs a relative-to-`date('now')` fixture date rather than a hardcoded one to be
-  durably correct; out of scope for the category-stage work that surfaced it.
+The suite is hermetic — every model load is monkeypatched, so no torch download, GPU, or
+network is needed at test time. All tests pass (part of the repo's CI gate; see
+`.github/workflows/ci.yml`).
