@@ -60,6 +60,29 @@ def _lean_article_columns(src: sqlite3.Connection) -> list[str]:
     return [c for c in cols if c != "body_text"]
 
 
+def _copy_result_table(conn: sqlite3.Connection, t: str) -> int:
+    """Copy one result table from `src.<t>` into dest, returning rows added.
+
+    Copies by an explicit, symmetric column list taken from the *dest* schema
+    -- never `SELECT *` -- so the copy is immune to the physical column order
+    differing between src and dest. `sector_summary` in particular carries
+    `format_version` / `facts_json` / `intro_text` in a different position in
+    dest (they arrive via `db._migrate_sector_summary_schema`'s
+    `ALTER TABLE ADD COLUMN`) than in the legacy src, and every column is
+    NOT NULL, so a positional copy would silently shuffle values with no error.
+    Every table except `sector_summary` is filtered to article ids present in
+    `src.articles`.
+    """
+    before = _table_count(conn, t)
+    cols = [r[1] for r in conn.execute(f"PRAGMA table_info({t})")]
+    col_list = ", ".join(cols)
+    sql = f"INSERT OR IGNORE INTO {t} ({col_list}) SELECT {col_list} FROM src.{t}"  # noqa: S608
+    if t != "sector_summary":
+        sql += " WHERE article_id IN (SELECT id FROM src.articles)"
+    conn.execute(sql)
+    return _table_count(conn, t) - before
+
+
 def _referenced_article_ids_sql() -> str:
     parts = [
         f"SELECT article_id FROM src.{t}"  # noqa: S608
@@ -107,7 +130,9 @@ def migrate(source: Path, dest: Path, *, dry_run: bool = False) -> dict[str, int
     conn.execute("ATTACH DATABASE ? AS src", (src_ro,))
 
     counts = {}
-    art_cols = _lean_article_columns(sqlite3.connect(src_ro, uri=True))
+    src_probe = sqlite3.connect(src_ro, uri=True)
+    art_cols = _lean_article_columns(src_probe)
+    src_probe.close()
     col_list = ", ".join(art_cols)
     before = _table_count(conn, "articles")
     conn.execute(
@@ -119,15 +144,7 @@ def migrate(source: Path, dest: Path, *, dry_run: bool = False) -> dict[str, int
 
     conn.execute(f"DROP INDEX IF EXISTS {ENTITIES_INDEX}")
     for t in RESULT_TABLES:
-        before = _table_count(conn, t)
-        if t == "sector_summary":
-            conn.execute(f"INSERT OR IGNORE INTO {t} SELECT * FROM src.{t}")  # noqa: S608
-        else:
-            conn.execute(
-                f"INSERT OR IGNORE INTO {t} SELECT * FROM src.{t} "  # noqa: S608
-                f"WHERE article_id IN (SELECT id FROM src.articles)"
-            )
-        counts[t] = _table_count(conn, t) - before
+        counts[t] = _copy_result_table(conn, t)
     conn.execute(f"CREATE INDEX IF NOT EXISTS {ENTITIES_INDEX} ON article_entities(article_id)")
 
     conn.commit()

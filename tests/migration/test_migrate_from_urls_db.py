@@ -157,6 +157,14 @@ def test_migrate_copies_results_and_lean_articles(tmp_path: Path) -> None:
     assert d.execute("SELECT COUNT(*) FROM article_sentiment").fetchone()[0] == 2
     assert d.execute("SELECT COUNT(*) FROM article_entities").fetchone()[0] == 2
     assert d.execute("SELECT COUNT(*) FROM sector_summary").fetchone()[0] == 1
+    # values landed in the right columns -- dest `sector_summary` column order
+    # (SCHEMA + ALTER TABLE ADD COLUMN) differs from src, so a positional
+    # `SELECT *` copy would silently shuffle these
+    ss = d.execute(
+        "SELECT model_name, summary_text, processed_at, format_version, facts_json "
+        "FROM sector_summary"
+    ).fetchone()
+    assert ss == ("m", "s", "2024-01-01", 0, "{}")
     assert d.execute("PRAGMA foreign_key_check").fetchall() == []
     # the entities index is back
     idx = {r[1] for r in d.execute("PRAGMA index_list(article_entities)")}
