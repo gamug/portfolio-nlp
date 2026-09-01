@@ -1,18 +1,23 @@
+import importlib
 import sqlite3
 from pathlib import Path
 
+import pytest
 from conftest import seed_article
 
 from news_nlp import db
 
 
-def test_db_path_points_to_project_root_data_dir() -> None:
-    # parents[0]=tests/news_nlp, [1]=tests, [2]=repo root -- one level
-    # deeper than the original news-nlp repo's tests/test_db_module.py
-    # (tests/ directly at repo root there) since this suite is namespaced
-    # under tests/news_nlp/ alongside the other migrated modules' tests.
+def test_db_path_points_to_project_root_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    # parents[0]=tests/news_nlp, [1]=tests, [2]=repo root. Reload db with
+    # DATABASE_URL unset and load_dotenv() neutralized so this asserts the
+    # code default regardless of any local .env (README/.env.example tell
+    # users to point DATABASE_URL at D:/thesis/data/nlp.db).
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    reloaded = importlib.reload(db)
     project_root = Path(__file__).resolve().parents[2]
-    assert project_root / "data" / "nlp.db" == db.DB_PATH
+    assert project_root / "data" / "nlp.db" == reloaded.DB_PATH
 
 
 def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -> None:
