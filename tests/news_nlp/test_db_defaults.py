@@ -14,7 +14,7 @@ def _reload_db_with_env(monkeypatch: pytest.MonkeyPatch, value: str | None):
         monkeypatch.setenv("DATABASE_URL", value)
     import news_nlp.db as db_module  # noqa: PLC0415
 
-    monkeypatch.setattr("news_nlp.db.load_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     return importlib.reload(db_module)
 
 
