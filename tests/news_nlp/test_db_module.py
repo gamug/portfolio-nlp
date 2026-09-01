@@ -12,7 +12,7 @@ def test_db_path_points_to_project_root_data_dir() -> None:
     # (tests/ directly at repo root there) since this suite is namespaced
     # under tests/news_nlp/ alongside the other migrated modules' tests.
     project_root = Path(__file__).resolve().parents[2]
-    assert project_root / "data" / "urls.db" == db.DB_PATH
+    assert project_root / "data" / "nlp.db" == db.DB_PATH
 
 
 def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -> None:

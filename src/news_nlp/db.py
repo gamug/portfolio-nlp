@@ -1,9 +1,10 @@
 """SQLite access layer: schema creation + read/write helpers for the NLP pipeline.
 
-Reads from the existing `articles` table and writes to three results tables --
-`article_sentiment`, `article_entities`, and `article_category` -- each keyed
-by article_id. Also provides read-only query helpers backing the FastAPI
-query endpoints.
+Reads from an `articles` table and writes results tables --
+`article_sentiment`, `article_entities`, `article_category`, `article_summary`,
+`sector_summary` -- each keyed by `article_id`. The database is selected by
+`$DATABASE_URL` (unset -> `<repo>/data/nlp.db`). Also provides read-only query
+helpers backing the FastAPI query endpoints.
 """
 
 import json
@@ -28,7 +29,7 @@ load_dotenv()
 # string later (e.g. a hosted Postgres/libSQL DSN) is a one-line env change,
 # not a code change. Falls back to the pre-existing default when unset.
 #
-# A relative value (the .env.example default, "data/urls.db") is resolved
+# A relative value (e.g. "data/nlp.db") is resolved
 # against the project root rather than left relative to the process's CWD --
 # unlike the other DATABASE_URL call sites (extractor/, news_collector/),
 # this module gets imported by standalone CLI entrypoints
@@ -40,7 +41,7 @@ _db_path_env = os.environ.get("DATABASE_URL")
 DB_PATH = (
     (Path(_db_path_env) if Path(_db_path_env).is_absolute() else _PROJECT_ROOT / _db_path_env)
     if _db_path_env
-    else _PROJECT_ROOT / "data" / "urls.db"
+    else _PROJECT_ROOT / "data" / "nlp.db"
 )
 
 SCHEMA = """
