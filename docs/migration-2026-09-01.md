@@ -1,0 +1,40 @@
+# NLP data migration — `urls.db` → `nlp.db`
+
+**Date:** 2026-09-01
+**Script:** `scripts/migrate_from_urls_db.py`
+**Source:** `D:\thesis\data\urls.db` (4.7 GB, read-only) — the legacy shared pipeline DB in `portfolio-data-mining`
+**Destination:** `D:\thesis\data\nlp.db` (created; 2.54 GB after the run)
+
+## Run
+
+`python scripts/migrate_from_urls_db.py` (defaults), wall time **1m12s**, exit 0.
+
+| table | rows copied |
+|---|---:|
+| `articles` (lean — no `body_text`, only rows referenced by a copied result) | 459,112 |
+| `article_sentiment` | 459,112 |
+| `article_category` | 459,112 |
+| `article_summary` | 458,641 |
+| `article_entities` | 17,666,722 |
+| `sector_summary` | 3,628 |
+| **total** | **19,506,327** |
+
+`discovered_urls` / `discovery_progress` were **not** copied (out of scope — "articles processing, not articles mining").
+
+## Verification (post-run, against `nlp.db`)
+
+- Row counts match the `--dry-run` probe exactly.
+- `articles` has 15 columns; **`body_text` absent** (the heavy crawled-text column stays in `urls.db`).
+- `PRAGMA foreign_key_check` → **0 rows** (every migrated result row's `article_id` resolves).
+- `PRAGMA integrity_check` → `ok`.
+- `idx_article_entities_article_id` present.
+- `sector_summary`: the real `urls.db` column order differs from the schema `news_nlp.db.init_schema()` builds (`format_version` / `facts_json` / `intro_text` / `processed_at` ordering), so the copy uses **explicit column lists** on both sides of `INSERT … SELECT` — verified the 3,628 rows landed values in the correct columns (dates in date columns, ints in int columns, valid JSON in `facts_json`).
+- A 3-table join (`articles ⨝ article_sentiment ⨝ article_category`) returns real rows — the query endpoints that join article metadata work.
+
+## Config
+
+`.env` (git-ignored) now sets `DATABASE_URL=D:/thesis/data/nlp.db`. The code default (unset `DATABASE_URL`) remains `<repo>/data/nlp.db`; `.env.example` documents the absolute working path.
+
+## Re-running
+
+The script is idempotent (`INSERT OR IGNORE` on every copy, keyed by the source PKs). Re-running against the same `--source`/`--dest` copies 0 rows.
