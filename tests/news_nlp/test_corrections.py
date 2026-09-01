@@ -58,7 +58,9 @@ def _seed_entity(conn: sqlite3.Connection, article_id: int = 1) -> int:
     return int(row["id"])
 
 
-def test_update_sentiment_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_sentiment_changes_label_and_refreshes_timestamp(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seed_article(conn, id=1)
     conn.commit()
     _seed_sentiment(conn)
@@ -164,7 +166,9 @@ def test_delete_entities_for_article_removes_all_and_returns_count(
     )
 
 
-def test_update_category_changes_label_and_refreshes_timestamp(conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_category_changes_label_and_refreshes_timestamp(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seed_article(conn, id=1)
     conn.commit()
     _seed_category(conn)

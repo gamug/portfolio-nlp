@@ -26,6 +26,7 @@ exclude = [
     ".env",
     ".venv",
     "migrations",
+    "docs",
 ]
 
 #same as black
