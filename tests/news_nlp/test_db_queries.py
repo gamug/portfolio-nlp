@@ -2,7 +2,7 @@ import sqlite3
 
 from conftest import seed_article
 
-from news_nlp import db
+import db
 
 _CATEGORY_SCORES = {
     "earnings_performance": 0.5,

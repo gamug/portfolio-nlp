@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import apps.news_nlp_api as app_module
-from news_nlp.pipeline import ProgressCallback
+from pipeline import ProgressCallback
 
 
 def test_health_ok(client: TestClient) -> None:

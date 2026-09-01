@@ -3,7 +3,8 @@ import sqlite3
 import pytest
 from conftest import seed_article
 
-from news_nlp import corrections, db
+import corrections
+import db
 
 _CATEGORY_SCORES = {
     "earnings_performance": 0.5,

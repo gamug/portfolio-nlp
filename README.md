@@ -18,7 +18,7 @@ Reads an `articles` table and writes `article_sentiment`, `article_entities`,
 uv sync
 cp .env.example .env          # then set DATABASE_URL
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
-uv run python -m news_nlp.setup   # download the HF models
+uv run python -m setup            # download the HF models
 ```
 
 ## Run

@@ -3,7 +3,7 @@ summary stages (c_summary, sector_summary) are opt-in via `summarize`."""
 
 import pytest
 
-from news_nlp import pipeline
+import pipeline
 
 
 class FakeConn:

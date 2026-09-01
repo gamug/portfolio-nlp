@@ -46,7 +46,7 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    self-heals (regenerated via `INSERT OR REPLACE`) the next time the stage runs, no separate
    backfill needed.
 
-- **Sentence-aware chunking** (`src/news_nlp/chunking.py`) — articles run up to ~13K
+- **Sentence-aware chunking** (`src/chunking.py`) — articles run up to ~13K
   words, far past BERT's 512-token limit; chunks are packed on sentence boundaries. The
   category stage reuses it (with a tighter token budget, to leave headroom for the NLI
   hypothesis text) to take just the lead chunk; the summarization stages reuse it for
@@ -70,7 +70,7 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
 
 ```bash
 uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
-uv run python -m news_nlp.setup  # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
+uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
 ```
 
 ## Running
@@ -87,10 +87,10 @@ uv run apps/news_nlp_api.py
 # POST /pipeline/run  {"limit": 50, "summarize": true}
 ```
 
-`cli/news_nlp_cli.py` wraps `news_nlp.pipeline.run_pipeline()` directly with real
+`cli/news_nlp_cli.py` wraps `pipeline.run_pipeline()` directly with real
 `--limit`/`--summarize` flags, driving sentiment + NER + category (and, with `--summarize`,
-`c_summary` + `sector_summary`) in sequence. `src/news_nlp/pipeline.py` also still has its
-own bare `if __name__ == "__main__":` (usable via `python -m news_nlp.pipeline [limit]`, a
+`c_summary` + `sector_summary`) in sequence. `src/pipeline.py` also still has its
+own bare `if __name__ == "__main__":` (usable via `python -m pipeline [limit]`, a
 positional arg instead of a flag, sentiment + NER + category only — no way to opt into
 summarization from that entrypoint) — kept for backward compatibility, but
 `cli/news_nlp_cli.py` is the documented entrypoint going forward.

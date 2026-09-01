@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import seed_article
 
-from news_nlp import db
+import db
 
 
 def test_db_path_points_to_project_root_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:

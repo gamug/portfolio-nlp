@@ -23,8 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from news_nlp import corrections, db, pipeline
-from news_nlp.categories import CATEGORY_SLUGS, OTHER_LABEL
+import corrections
+import db
+import pipeline
+from categories import CATEGORY_SLUGS, OTHER_LABEL
 
 CATEGORY_LABEL_VALUES = (*CATEGORY_SLUGS, OTHER_LABEL)
 
