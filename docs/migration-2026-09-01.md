@@ -38,3 +38,9 @@
 ## Re-running
 
 The script is idempotent (`INSERT OR IGNORE` on every copy, keyed by the source PKs). Re-running against the same `--source`/`--dest` copies 0 rows.
+
+## Using nlp.db
+
+`nlp.db` is a **results store** for querying/serving, not a pipeline input. Its `articles` subset has no `body_text`, so the stages that read article text — sentiment, NER, category, per-article summary (`cli/news_nlp_cli.py`, `POST /pipeline/run`) — cannot run against it (`no such column: a.body_text`). Re-running the pipeline needs `DATABASE_URL` pointed at a DB that has `articles.body_text` (the legacy `urls.db`); results land in that DB's result tables.
+
+What works directly against `nlp.db`: the read/query endpoints (`GET /articles/{id}`, `GET /stats/categories`, `GET /sectors/summary`), the correction (`PATCH`/`DELETE`) endpoints, and the `sector_summary` pipeline stage.

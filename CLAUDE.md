@@ -51,9 +51,9 @@ Category taxonomy: `docs/category-taxonomy.md`. Per-module detail:
 uv sync
 uv run python -m news_nlp.setup           # download models
 uv run apps/news_nlp_api.py               # -> :8003/docs
-uv run cli/news_nlp_cli.py --limit 50
+uv run cli/news_nlp_cli.py --limit 50     # needs DATABASE_URL -> a DB with articles.body_text (nlp.db has none); see docs/modules/news-nlp.md
 uv run pytest
-uv run ruff check . && uv run ruff format --check . && uv run mypy
+uv run ruff check . && uv run ruff format --check . && uv run mypy --config-file=.code_quality/mypy.ini
 uv run pre-commit run --all-files
 ```
 
@@ -69,3 +69,6 @@ uv run pre-commit run --all-files
 
 Standalone SQLite. Working file: `D:\thesis\data\nlp.db`. Schema created by
 `news_nlp.db.init_schema()`. Not shared with any other service.
+
+`nlp.db` is a results/serving store; the text-reading pipeline stages need
+`DATABASE_URL` set to a `body_text`-bearing DB (`urls.db`).

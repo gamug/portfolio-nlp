@@ -26,7 +26,7 @@ uv run python -m news_nlp.setup   # download the HF models
 ```bash
 uv run apps/news_nlp_api.py            # FastAPI -> http://127.0.0.1:8003/docs
 uv run cli/news_nlp_cli.py --help      # batch pipeline, no server
-uv run cli/news_nlp_cli.py --limit 50  # process 50 pending articles
+uv run cli/news_nlp_cli.py --limit 50  # process 50 pending articles — needs DATABASE_URL pointed at a DB with articles.body_text (see docs/modules/news-nlp.md#database)
 ```
 
 ## Test / lint
@@ -35,7 +35,7 @@ uv run cli/news_nlp_cli.py --limit 50  # process 50 pending articles
 uv run pytest
 uv run ruff check .
 uv run ruff format .
-uv run mypy
+uv run mypy --config-file=.code_quality/mypy.ini
 ```
 
 ## Database
@@ -44,3 +44,7 @@ uv run mypy
 defaults to `data/nlp.db` under the repo root. The working database is
 `D:\thesis\data\nlp.db`. `scripts/migrate_from_urls_db.py` populates it from
 the legacy shared `urls.db`.
+
+`nlp.db` holds migrated results for querying/serving; the pipeline stages that
+read article text need `DATABASE_URL` pointed at a `body_text`-bearing database
+(`urls.db`). See `docs/modules/news-nlp.md`.
