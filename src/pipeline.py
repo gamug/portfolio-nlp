@@ -2,7 +2,7 @@
 category classification over `articles`.
 
 Run manually whenever new articles need processing:
-    .venv/Scripts/python.exe -m news_nlp.pipeline
+    .venv/Scripts/python.exe -m pipeline
 
 Idempotent/resumable: only processes articles missing from the results
 tables. Loads one model onto the GPU at a time (sentiment, then NER, then
@@ -26,9 +26,9 @@ from transformers import (
     AutoTokenizer,
 )
 
-from . import db
-from .categories import CATEGORY_LABELS, OTHER_LABEL
-from .chunking import chunk_text, merge_char_spans
+import db
+from categories import CATEGORY_LABELS, OTHER_LABEL
+from chunking import chunk_text, merge_char_spans
 
 SENTIMENT_MODEL = "ProsusAI/finbert"
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"

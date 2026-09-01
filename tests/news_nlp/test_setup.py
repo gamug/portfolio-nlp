@@ -1,6 +1,6 @@
 import pytest
 
-from news_nlp import setup
+import setup
 
 
 def test_download_models_fetches_every_model_and_verifies_config(

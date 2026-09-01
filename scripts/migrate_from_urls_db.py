@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from news_nlp import db as nlp_db
+import db as nlp_db
 
 DEFAULT_SOURCE = Path("D:/thesis/data/urls.db")
 DEFAULT_DEST = Path("D:/thesis/data/nlp.db")
@@ -43,7 +43,7 @@ ENTITIES_INDEX = "idx_article_entities_article_id"
 
 def _connect_dest(dest: Path) -> sqlite3.Connection:
     """Open the destination with the same pragma contract as
-    ``news_nlp.db.connect`` (busy_timeout + foreign_keys), but with
+    ``db.connect`` (busy_timeout + foreign_keys), but with
     ``uri=True`` so the read-only ``file:...?mode=ro`` ATTACH of the source is
     honored -- SQLite only interprets an ATTACH argument as a URI when the main
     connection was opened with URI filenames enabled.

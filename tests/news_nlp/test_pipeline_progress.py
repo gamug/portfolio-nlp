@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from news_nlp import pipeline
+import pipeline
 
 
 def test_run_sentiment_stage_reports_empty_progress_without_loading_model(

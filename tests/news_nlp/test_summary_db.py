@@ -3,8 +3,8 @@ from datetime import date
 
 from conftest import seed_article
 
-from news_nlp import db
-from news_nlp.categories import CATEGORY_SLUGS, OTHER_LABEL
+import db
+from categories import CATEGORY_SLUGS, OTHER_LABEL
 
 
 def seed_sentiment(

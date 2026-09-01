@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from news_nlp import db as db_module
+import db as db_module
 
 ARTICLES_SCHEMA = """
 CREATE TABLE articles (
@@ -90,7 +90,7 @@ def conn(test_db_path: Path) -> Iterator[sqlite3.Connection]:
 @pytest.fixture
 def client(test_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(db_module, "DB_PATH", test_db_path)
-    # Deliberately deferred: importing apps.news_nlp_api pulls in news_nlp.pipeline,
+    # Deliberately deferred: importing apps.news_nlp_api pulls in pipeline,
     # which imports torch/transformers -- fine for the tests that use this fixture,
     # but every other test in the suite would otherwise pay that import cost too.
     from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415

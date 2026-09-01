@@ -20,8 +20,11 @@ Category taxonomy: `docs/category-taxonomy.md`. Per-module detail:
 
 ## Layout
 
-- `src/news_nlp/` — the package. Relative imports internally
-  (`from .categories import ...`).
+- `src/` — flat modules, no package wrapper. Absolute imports internally
+  (`from categories import ...`); importable because `pytest.ini` /
+  `.code_quality/mypy.ini` put `src` on `pythonpath`/`mypy_path`, and
+  `apps/*.py` + `cli/*.py` + `scripts/*.py` prepend it to `sys.path` at
+  runtime.
   - `db.py` — SQLite access layer: `connect()`, `init_schema()`, read/write
     helpers, and the read-only query helpers behind the FastAPI query
     endpoints. `DB_PATH` is computed at import from `$DATABASE_URL`
@@ -32,7 +35,7 @@ Category taxonomy: `docs/category-taxonomy.md`. Per-module detail:
   - `categories.py` / `chunking.py` / `corrections.py` — taxonomy constants,
     text chunking + char-span merging, and the correction (manual-edit)
     helpers.
-  - `setup.py` — `python -m news_nlp.setup` pre-downloads the four HF models.
+  - `setup.py` — `python -m setup` pre-downloads the four HF models.
   - `train_ner.py` — standalone SEC-BERT NER fine-tuning script (not imported
     by the pipeline).
 - `apps/news_nlp_api.py` — FastAPI service (title `news-nlp`, port 8003).
@@ -49,7 +52,7 @@ Category taxonomy: `docs/category-taxonomy.md`. Per-module detail:
 
 ```bash
 uv sync
-uv run python -m news_nlp.setup           # download models
+uv run python -m setup                    # download models
 uv run apps/news_nlp_api.py               # -> :8003/docs
 uv run cli/news_nlp_cli.py --limit 50     # needs DATABASE_URL -> a DB with articles.body_text (nlp.db has none); see docs/modules/news-nlp.md
 uv run pytest
@@ -68,7 +71,7 @@ uv run pre-commit run --all-files
 ## Database
 
 Standalone SQLite. Working file: `D:\thesis\data\nlp.db`. Schema created by
-`news_nlp.db.init_schema()`. Not shared with any other service.
+`db.init_schema()`. Not shared with any other service.
 
 `nlp.db` is a results/serving store; the text-reading pipeline stages need
 `DATABASE_URL` set to a `body_text`-bearing DB (`urls.db`).

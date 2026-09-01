@@ -3,16 +3,17 @@ dedicated database), not the legacy shared data/urls.db."""
 
 import importlib
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 
-def _reload_db_with_env(monkeypatch: pytest.MonkeyPatch, value: str | None):
+def _reload_db_with_env(monkeypatch: pytest.MonkeyPatch, value: str | None) -> ModuleType:
     if value is None:
         monkeypatch.delenv("DATABASE_URL", raising=False)
     else:
         monkeypatch.setenv("DATABASE_URL", value)
-    import news_nlp.db as db_module  # noqa: PLC0415
+    import db as db_module  # noqa: PLC0415
 
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     return importlib.reload(db_module)

@@ -13,7 +13,7 @@ just an internal detail of the category stage — hence living at the top
 level of `docs/`, not nested under `docs/modules/`.
 
 Zero-shot NLI classification (the technique used here — see
-`src/news_nlp/pipeline.py`'s `run_category_stage`) needs a fixed
+`src/pipeline.py`'s `run_category_stage`) needs a fixed
 `candidate_labels` list; it doesn't invent categories, it only picks the
 best-fitting one(s) from a list supplied at inference time. So this
 taxonomy had to be designed up front, from real published sources, rather
@@ -57,7 +57,7 @@ single source's idiosyncrasies dominate the result:
 
 ## The taxonomy
 
-`src/news_nlp/categories.py`'s `CATEGORY_LABELS` is the canonical
+`src/categories.py`'s `CATEGORY_LABELS` is the canonical
 machine-readable source for this table — keep this doc in sync with it if
 the labels ever change.
 
@@ -96,7 +96,7 @@ This threshold is a reasoned starting point, not a validated one. The
 every article specifically so it can be retuned later: query for articles
 labeled `other` whose winning-slug score was just under 0.4 (near-misses)
 versus those with a flat distribution (genuinely ambiguous), and adjust the
-constant in `src/news_nlp/pipeline.py` accordingly.
+constant in `src/pipeline.py` accordingly.
 
 ## Classification input
 

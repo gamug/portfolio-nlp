@@ -16,11 +16,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .categories import CATEGORY_LABELS, OTHER_LABEL
+from categories import CATEGORY_LABELS, OTHER_LABEL
 
 # Called here (not just in apps/news_nlp_api.py) so DATABASE_URL is honored
 # by every entrypoint that imports this module -- including the standalone
-# `python -m news_nlp.setup` / `python -m news_nlp.pipeline` CLI paths,
+# `python -m setup` / `python -m pipeline` CLI paths,
 # which never go through the FastAPI app. Safe to call more than once.
 load_dotenv()
 
@@ -33,10 +33,10 @@ load_dotenv()
 # against the project root rather than left relative to the process's CWD --
 # unlike the other DATABASE_URL call sites (extractor/, news_collector/),
 # this module gets imported by standalone CLI entrypoints
-# (`python -m news_nlp.setup`/`.pipeline`) that aren't guaranteed to be
+# (`python -m setup`/`.pipeline`) that aren't guaranteed to be
 # launched from the repo root, so a CWD-relative path would silently point
 # at the wrong file depending on where the command was run from.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _db_path_env = os.environ.get("DATABASE_URL")
 DB_PATH = (
     (Path(_db_path_env) if Path(_db_path_env).is_absolute() else _PROJECT_ROOT / _db_path_env)
@@ -264,7 +264,7 @@ def write_category(
     scores: dict[str, float],
     model_name: str,
 ) -> None:
-    """`scores` must have one entry per src.news_nlp.categories.CATEGORY_SLUGS
+    """`scores` must have one entry per src.categories.CATEGORY_SLUGS
     slug (the full 9-way distribution) -- `label`/`score` are the winning
     slug (or 'other') and its probability, kept separately from the raw
     distribution so a human correction (see corrections.update_category) can

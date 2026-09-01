@@ -5,7 +5,8 @@ import pytest
 import torch
 from conftest import seed_article
 
-from news_nlp import db, pipeline
+import db
+import pipeline
 
 # --- classify_category_scores (pure function, no model needed) ------------
 

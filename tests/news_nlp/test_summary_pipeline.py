@@ -5,8 +5,9 @@ import pytest
 import torch
 from conftest import seed_article
 
-from news_nlp import db, pipeline
-from news_nlp.categories import CATEGORY_SLUGS
+import db
+import pipeline
+from categories import CATEGORY_SLUGS
 
 
 def seed_sentiment(
