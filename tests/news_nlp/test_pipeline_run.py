@@ -7,13 +7,17 @@ import pipeline
 
 
 class FakeConn:
+    articles_rel = "main"
+
     def close(self) -> None:
         pass
 
 
 def _stub_out_stages(monkeypatch: pytest.MonkeyPatch, calls: list[str]) -> None:
-    monkeypatch.setattr(pipeline.db, "connect", FakeConn)
+    monkeypatch.setattr(pipeline.db, "connect_pipeline", lambda **kwargs: FakeConn())
     monkeypatch.setattr(pipeline.db, "init_schema", lambda conn: None)
+    monkeypatch.setattr(pipeline.db, "require_source_text", lambda conn: None)
+    monkeypatch.setattr(pipeline.db, "detach_source", lambda conn: None)
     monkeypatch.setattr(pipeline, "run_sentiment_stage", lambda *a, **k: calls.append("sentiment"))
     monkeypatch.setattr(pipeline, "run_ner_stage", lambda *a, **k: calls.append("ner"))
     monkeypatch.setattr(pipeline, "run_category_stage", lambda *a, **k: calls.append("category"))

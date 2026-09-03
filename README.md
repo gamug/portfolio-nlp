@@ -16,7 +16,7 @@ Reads an `articles` table and writes `article_sentiment`, `article_entities`,
 
 ```bash
 uv sync
-cp .env.example .env          # then set DATABASE_URL
+cp .env.example .env          # then set DATABASE_URL (+ SOURCE_DATABASE_URL to run the pipeline)
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
 uv run python -m setup            # download the HF models
 ```
@@ -26,7 +26,7 @@ uv run python -m setup            # download the HF models
 ```bash
 uv run apps/news_nlp_api.py            # FastAPI -> http://127.0.0.1:8003/docs
 uv run cli/news_nlp_cli.py --help      # batch pipeline, no server
-uv run cli/news_nlp_cli.py --limit 50  # process 50 pending articles — needs DATABASE_URL pointed at a DB with articles.body_text (see docs/modules/news-nlp.md#database)
+uv run cli/news_nlp_cli.py --limit 50  # process 50 pending articles — needs SOURCE_DATABASE_URL set to a DB with articles.body_text (see docs/db-topology.md)
 ```
 
 ## Test / lint
@@ -40,11 +40,18 @@ uv run mypy --config-file=.code_quality/mypy.ini
 
 ## Database
 
-`DATABASE_URL` (a filesystem path today) selects the SQLite file; unset it
-defaults to `data/nlp.db` under the repo root. The working database is
-`D:\thesis\data\nlp.db`. `scripts/migrate_from_urls_db.py` populates it from
-the legacy shared `urls.db`.
+Two-tier (see `docs/db-topology.md`):
 
-`nlp.db` holds migrated results for querying/serving; the pipeline stages that
-read article text need `DATABASE_URL` pointed at a `body_text`-bearing database
-(`urls.db`). See `docs/modules/news-nlp.md`.
+- **`DATABASE_URL`** — the RESULTS / serving store (result tables + a
+  `body_text`-free `articles` subset). A filesystem path today; unset defaults to
+  `data/nlp.db` under the repo root. Working file: `D:\thesis\data\nlp.db`.
+- **`SOURCE_DATABASE_URL`** — the read-only SOURCE store, which must have
+  `articles.body_text` (the legacy crawl DB `urls.db`). **Required** by the
+  text-reading stages (sentiment / NER / category / c_summary); it is ATTACHed
+  read-only and never written. Not needed for serving/query endpoints or the
+  `sector_summary` stage.
+
+A pipeline run reads text from SOURCE and writes results — plus a lean
+`articles` row per processed article — into RESULTS.
+`scripts/migrate_from_urls_db.py` did the one-time backfill of pre-existing
+results (see `docs/migration-2026-09-01.md`).

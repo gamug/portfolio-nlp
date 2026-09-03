@@ -14,10 +14,12 @@ def test_db_path_points_to_project_root_data_dir(monkeypatch: pytest.MonkeyPatch
     # code default regardless of any local .env (README/.env.example tell
     # users to point DATABASE_URL at D:/thesis/data/nlp.db).
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     reloaded = importlib.reload(db)
     project_root = Path(__file__).resolve().parents[2]
     assert project_root / "data" / "nlp.db" == reloaded.DB_PATH
+    assert reloaded.SOURCE_DB_PATH is None
 
 
 def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -> None:

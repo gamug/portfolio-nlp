@@ -104,19 +104,31 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 
 ## Database
 
-`nlp.db` (`D:\thesis\data\nlp.db`, populated by `scripts/migrate_from_urls_db.py`) is a
-**results store**: the NLP result tables plus a `body_text`-free `articles` subset.
+Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
 
-The pipeline stages that read article text — sentiment, NER, category, and per-article
+- **RESULTS store** (`$DATABASE_URL`, unset → `<repo>/data/nlp.db`; working file
+  `D:\thesis\data\nlp.db`) — the NLP result tables plus a `body_text`-free
+  `articles` subset. Opened read/write as schema `main`.
+- **SOURCE store** (`$SOURCE_DATABASE_URL`, **required** for the text stages) —
+  `articles` including `body_text` (the legacy crawl DB `urls.db`). ATTACHed
+  read-only as schema `source`; never written.
+
+The stages that read article text — sentiment, NER, category, per-article
 summary (`fetch_pending_articles` / `fetch_pending_category_articles` /
-`fetch_pending_company_summaries`, i.e. `cli/news_nlp_cli.py` and `POST /pipeline/run`) —
-need `articles.body_text`, which `nlp.db` does not have. To run or re-run them, set
-`DATABASE_URL` to a database that has `articles.body_text` (the legacy shared `urls.db`);
-results are written to that database's result tables.
+`fetch_pending_company_summaries`, i.e. `cli/news_nlp_cli.py` and
+`POST /pipeline/run`) — read `source.articles`. Every result write also
+`INSERT OR IGNORE`s a lean `main.articles` row, so the RESULTS store stays
+foreign-key-consistent without a separate migration step. `db.require_source_text`
+fails the run fast (before any model loads) if `SOURCE_DATABASE_URL` is unset or
+points at a DB with no usable `body_text` — the old failure mode there was a
+silent *"0 pending"*.
 
-Against `nlp.db` directly, the read/query surface works: `GET /articles/{id}`,
-`GET /stats/categories`, `GET /sectors/summary`, the correction (`PATCH`/`DELETE`)
-endpoints, and the `sector_summary` stage.
+Against the RESULTS store alone (no SOURCE) the read/query surface works:
+`GET /articles/{id}`, `GET /stats/categories`, `GET /sectors/summary`, the
+correction (`PATCH`/`DELETE`) endpoints, and the `sector_summary` stage.
+
+`scripts/migrate_from_urls_db.py` did the one-time backfill of pre-existing
+results out of `urls.db` (see [`docs/migration-2026-09-01.md`](../migration-2026-09-01.md)).
 
 ## Testing
 

@@ -98,6 +98,10 @@ pipeline_status = RunStatus()
 
 
 def get_db() -> Iterator[sqlite3.Connection]:
+    # Query/correction endpoints read only the RESULTS store (result tables +
+    # lean `articles`) -- never article body_text -- so this deliberately opens
+    # a plain connection with no SOURCE attached. Only POST /pipeline/run needs
+    # SOURCE, and it goes through pipeline.run_pipeline -> db.connect_pipeline.
     conn = db.connect(db.DB_PATH)
     try:
         yield conn
