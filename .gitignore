@@ -211,6 +211,9 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
+# Claude Code project instructions (kept local, not version-controlled)
+CLAUDE.md
+
 # PyPI configuration file
 .pypirc
 
