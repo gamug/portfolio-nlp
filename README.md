@@ -55,3 +55,9 @@ A pipeline run reads text from SOURCE and writes results — plus a lean
 `articles` row per processed article — into RESULTS, so the RESULTS store stays
 self-consistent with no separate migration step. (The pre-existing results were
 backfilled once from `urls.db`; see `docs/migration-2026-09-01.md`.)
+
+**Upgrading:** the old single-knob recipe (`DATABASE_URL=urls.db` to run,
+`DATABASE_URL=nlp.db` to serve) now errors on a run — set
+`SOURCE_DATABASE_URL=…/urls.db` **and** `DATABASE_URL=…/nlp.db` instead. Serving
+is unchanged. Full table in `docs/db-topology.md` ("Upgrading from the
+single-`DATABASE_URL` setup").
