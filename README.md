@@ -52,6 +52,6 @@ Two-tier (see `docs/db-topology.md`):
   `sector_summary` stage.
 
 A pipeline run reads text from SOURCE and writes results — plus a lean
-`articles` row per processed article — into RESULTS.
-`scripts/migrate_from_urls_db.py` did the one-time backfill of pre-existing
-results (see `docs/migration-2026-09-01.md`).
+`articles` row per processed article — into RESULTS, so the RESULTS store stays
+self-consistent with no separate migration step. (The pre-existing results were
+backfilled once from `urls.db`; see `docs/migration-2026-09-01.md`.)
