@@ -127,8 +127,10 @@ Against the RESULTS store alone (no SOURCE) the read/query surface works:
 `GET /articles/{id}`, `GET /stats/categories`, `GET /sectors/summary`, the
 correction (`PATCH`/`DELETE`) endpoints, and the `sector_summary` stage.
 
-`scripts/migrate_from_urls_db.py` did the one-time backfill of pre-existing
-results out of `urls.db` (see [`docs/migration-2026-09-01.md`](../migration-2026-09-01.md)).
+The pre-existing results were backfilled once out of `urls.db` (see
+[`docs/migration-2026-09-01.md`](../migration-2026-09-01.md)); the one-shot
+script that did it has since been removed now that the pipeline populates the
+lean `articles` rows itself.
 
 ## Testing
 

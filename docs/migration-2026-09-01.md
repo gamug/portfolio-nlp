@@ -1,7 +1,14 @@
 # NLP data migration — `urls.db` → `nlp.db`
 
+> **Historical record.** This was a one-time backfill. `scripts/migrate_from_urls_db.py`
+> and `tests/migration/` were removed once the pipeline took over lean-`articles`
+> population itself (`db._ensure_article_row`, on every result write) — see
+> [`docs/db-topology.md`](db-topology.md). Recover the script from git history
+> (`git log -- scripts/migrate_from_urls_db.py`) if another bulk backfill is ever
+> needed. The run log below is kept as-is.
+
 **Date:** 2026-09-01
-**Script:** `scripts/migrate_from_urls_db.py`
+**Script:** `scripts/migrate_from_urls_db.py` (removed 2026-09-03)
 **Source:** `D:\thesis\data\urls.db` (4.7 GB, read-only) — the legacy shared pipeline DB in `portfolio-data-mining`
 **Destination:** `D:\thesis\data\nlp.db` (created; 2.54 GB after the run)
 
