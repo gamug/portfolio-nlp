@@ -1,0 +1,89 @@
+# Database topology: the two-tier contract
+
+`portfolio-nlp` uses **two** SQLite databases with distinct roles. They are
+selected by two environment variables and are never conflated in code.
+
+| | **SOURCE** | **RESULTS** |
+|---|---|---|
+| env var | `SOURCE_DATABASE_URL` | `DATABASE_URL` |
+| default | none — **required** for the text-reading stages | `<repo>/data/nlp.db` |
+| opened | read-only (`file:…?mode=ro`), ATTACHed as schema `source` | read/write, schema `main` |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables + a lean `articles` subset (**no `body_text`**) |
+| written by this repo | never | result rows, plus one lean `articles` row per processed article |
+
+Path resolution is the same for both vars: an **absolute** value is used as-is;
+a **relative** value resolves against the repo root (not the CWD); unset →
+`DATABASE_URL` falls back to `<repo>/data/nlp.db`, `SOURCE_DATABASE_URL` → `None`.
+
+## How a pipeline run uses both
+
+`pipeline.run_pipeline` → `db.connect_pipeline()`:
+
+1. opens the RESULTS store read/write (`main`);
+2. unless `SOURCE_DATABASE_URL` resolves to the **same path** as `DATABASE_URL`,
+   `ATTACH`es the SOURCE store read-only as `source` and flips
+   `conn.articles_rel` to `"source"`;
+3. `db.require_source_text()` then fails fast (before any model loads) if that
+   `articles` table has no `body_text` column or no non-empty `body_text` rows —
+   the common "pointed a text stage at the results store" mistake, which used to
+   surface as a silent *"0 pending"*.
+
+The three `body_text` readers (`fetch_pending_articles`,
+`fetch_pending_category_articles`, `fetch_pending_company_summaries`) qualify
+`articles` with `conn.articles_rel`, so they read `source.articles` during a
+two-tier run and `main.articles` otherwise. All result-table joins stay in
+`main`. Every result-table write (`db.write_sentiment` / `write_category` /
+`write_entities` / `write_company_summary`) first `INSERT OR IGNORE`s the lean
+`articles` row (metadata only) from `source` into `main`, so the RESULTS store
+stays foreign-key-consistent on its own — no separate migration step.
+
+The `sector_summary` stage and every query/correction endpoint read only result
+tables + `articles` metadata, never `body_text`, so they need **no** SOURCE.
+
+## Operator recipes
+
+**Two-tier run (the normal case).** SOURCE is the crawl DB, RESULTS is `nlp.db`:
+
+```bash
+export SOURCE_DATABASE_URL=D:/thesis/data/urls.db
+export DATABASE_URL=D:/thesis/data/nlp.db
+uv run cli/news_nlp_cli.py --limit 50        # or --summarize
+# one-off override without env vars:
+uv run cli/news_nlp_cli.py --source-db urls.db --results-db nlp.db --limit 50
+```
+
+**Serving / queries only.** No SOURCE needed:
+
+```bash
+export DATABASE_URL=D:/thesis/data/nlp.db
+uv run apps/news_nlp_api.py                  # GET /articles, /stats/*, /sectors/summary, PATCH/DELETE
+```
+
+`POST /pipeline/run` still needs `SOURCE_DATABASE_URL`; without it the run
+finishes with `status: "error"` and the `SOURCE_DATABASE_URL is not set…`
+message on `GET /pipeline/status` (the POST itself still returns 202).
+
+**Re-run / catch up.** Same as a two-tier run — every stage only processes rows
+missing from its result table, so re-pointing at the same SOURCE/RESULTS pair
+resumes where it left off.
+
+**Single physical file.** If one file genuinely has both `body_text` and the
+result tables, point *both* vars at it:
+
+```bash
+export SOURCE_DATABASE_URL=D:/thesis/data/urls.db
+export DATABASE_URL=D:/thesis/data/urls.db   # same path
+```
+
+`connect_pipeline` sees the paths match, skips the ATTACH, and reads/writes the
+one file (`articles_rel` stays `"main"`, the lean upsert is a no-op).
+
+## Caveats
+
+- **Stale WAL on the SOURCE.** A `mode=ro` open fails if the SOURCE was left with
+  an uncheckpointed `-wal` file and no writer to recover it. Checkpoint it (or
+  keep a live writer) before a run. Do not work around this with `immutable=1`.
+- **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
+  single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
+  clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the
+  same file).

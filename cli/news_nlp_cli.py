@@ -47,12 +47,32 @@ def parse_args() -> argparse.Namespace:
         "these stages load their own summarization model in addition to "
         "the sentiment/NER models.",
     )
+    parser.add_argument(
+        "--source-db",
+        type=Path,
+        default=None,
+        help="Read-only SOURCE database with articles.body_text. Overrides "
+        "$SOURCE_DATABASE_URL (the usual mechanism). Required by the "
+        "text-reading stages; see docs/db-topology.md.",
+    )
+    parser.add_argument(
+        "--results-db",
+        type=Path,
+        default=None,
+        help="RESULTS/serving database to write to. Overrides $DATABASE_URL "
+        "(default: <repo>/data/nlp.db).",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    run_pipeline(limit=args.limit, summarize=args.summarize)
+    run_pipeline(
+        limit=args.limit,
+        summarize=args.summarize,
+        source_db=args.source_db,
+        results_db=args.results_db,
+    )
 
 
 if __name__ == "__main__":

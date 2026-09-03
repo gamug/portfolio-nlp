@@ -9,12 +9,17 @@ tables. Loads one model onto the GPU at a time (sentiment, then NER, then
 category) to stay well within a 6GB VRAM budget, and frees each model before
 loading the next. If a stage has nothing pending, it skips loading that
 stage's model entirely.
+
+Two-tier DB: run_pipeline reads article text from the read-only SOURCE store
+($SOURCE_DATABASE_URL, required) and writes results to the RESULTS store
+($DATABASE_URL). See docs/db-topology.md.
 """
 
 import gc
 import sqlite3
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -665,11 +670,20 @@ def run_pipeline(
     limit: int | None = None,
     summarize: bool = False,
     on_progress: ProgressCallback | None = None,
+    results_db: Path | None = None,
+    source_db: Path | None = None,
 ) -> None:
+    """Run every stage against the RESULTS store, reading article text from the
+    read-only SOURCE store (ATTACHed by db.connect_pipeline). `results_db` /
+    `source_db` override $DATABASE_URL / $SOURCE_DATABASE_URL; SOURCE is
+    required -- db.connect_pipeline raises if none is configured. See
+    docs/db-topology.md.
+    """
     _warn_if_cpu()
-    conn = db.connect()
-    db.init_schema(conn)
+    conn = db.connect_pipeline(results_db=results_db, source_db=source_db)
     try:
+        db.init_schema(conn)
+        db.require_source_text(conn)  # fail fast, before any model loads
         run_sentiment_stage(conn, limit=limit, on_progress=on_progress)
         run_ner_stage(conn, limit=limit, on_progress=on_progress)
         run_category_stage(conn, limit=limit, on_progress=on_progress)
@@ -677,6 +691,7 @@ def run_pipeline(
             run_company_summary_stage(conn, limit=limit, on_progress=on_progress)
             run_sector_summary_stage(conn, limit=limit, on_progress=on_progress)
     finally:
+        db.detach_source(conn)
         conn.close()
     print("\nPipeline run complete.")
 

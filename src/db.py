@@ -1,10 +1,25 @@
 """SQLite access layer: schema creation + read/write helpers for the NLP pipeline.
 
-Reads from an `articles` table and writes results tables --
-`article_sentiment`, `article_entities`, `article_category`, `article_summary`,
-`sector_summary` -- each keyed by `article_id`. The database is selected by
-`$DATABASE_URL` (unset -> `<repo>/data/nlp.db`). Also provides read-only query
-helpers backing the FastAPI query endpoints.
+Two-tier DB contract (see docs/db-topology.md):
+
+* RESULTS store -- selected by `$DATABASE_URL` (unset -> `<repo>/data/nlp.db`),
+  opened read/write as schema `main`. Holds the five result tables
+  (`article_sentiment`, `article_entities`, `article_category`,
+  `article_summary`, `sector_summary`, each keyed by `article_id`) plus a lean
+  `articles` subset (every column except `body_text`). Everything the FastAPI
+  query/correction endpoints read comes from here.
+* SOURCE store -- selected by `$SOURCE_DATABASE_URL`, opened read-only
+  (`file:...?mode=ro`) and ATTACHed as schema `source`. Holds `articles`
+  including `body_text`, written by the upstream crawler. Required by the
+  text-reading pipeline stages (sentiment / NER / category / c_summary); never
+  written. Not needed for serving or the `sector_summary` stage.
+
+`connect()` opens a plain single-file connection (serving, tests, single-file
+runs). `connect_pipeline()` opens the RESULTS store and, unless SOURCE resolves
+to the same path, ATTACHes SOURCE read-only. The three `body_text` readers
+qualify `articles` with `conn.articles_rel` (`"source"` when attached, else
+`"main"`); the pipeline's write helpers upsert a lean `main.articles` row so the
+RESULTS store stays foreign-key-consistent.
 """
 
 import json
@@ -24,25 +39,37 @@ from categories import CATEGORY_LABELS, OTHER_LABEL
 # which never go through the FastAPI app. Safe to call more than once.
 load_dotenv()
 
-# $DATABASE_URL is a filesystem path today (this is still SQLite) -- kept as
-# an env var, not a hardcoded literal, so pointing this at a real connection
-# string later (e.g. a hosted Postgres/libSQL DSN) is a one-line env change,
-# not a code change. Falls back to the pre-existing default when unset.
+# $DATABASE_URL / $SOURCE_DATABASE_URL are filesystem paths today (this is still
+# SQLite) -- kept as env vars, not hardcoded literals, so pointing either at a
+# real connection string later (e.g. a hosted Postgres/libSQL DSN) is a one-line
+# env change, not a code change.
 #
-# A relative value (e.g. "data/nlp.db") is resolved
-# against the project root rather than left relative to the process's CWD --
-# unlike the other DATABASE_URL call sites (extractor/, news_collector/),
-# this module gets imported by standalone CLI entrypoints
-# (`python -m setup`/`.pipeline`) that aren't guaranteed to be
-# launched from the repo root, so a CWD-relative path would silently point
-# at the wrong file depending on where the command was run from.
+# A relative value (e.g. "data/nlp.db") is resolved against the project root
+# rather than left relative to the process's CWD -- unlike the other DATABASE_URL
+# call sites (extractor/, news_collector/), this module gets imported by
+# standalone CLI entrypoints (`python -m setup`/`.pipeline`) that aren't
+# guaranteed to be launched from the repo root, so a CWD-relative path would
+# silently point at the wrong file depending on where the command was run from.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_db_path_env = os.environ.get("DATABASE_URL")
-DB_PATH = (
-    (Path(_db_path_env) if Path(_db_path_env).is_absolute() else _PROJECT_ROOT / _db_path_env)
-    if _db_path_env
-    else _PROJECT_ROOT / "data" / "nlp.db"
-)
+
+
+def _resolve_db_path(value: str | None) -> Path | None:
+    """Resolve a $DATABASE_URL-style value: absolute -> as-is; relative ->
+    against the repo root; None/empty -> None."""
+    if not value:
+        return None
+    p = Path(value)
+    return p if p.is_absolute() else _PROJECT_ROOT / value
+
+
+# RESULTS store: read/write, holds the result tables + lean `articles`.
+# Falls back to the pre-existing default when $DATABASE_URL is unset.
+DB_PATH = _resolve_db_path(os.environ.get("DATABASE_URL")) or _PROJECT_ROOT / "data" / "nlp.db"
+
+# SOURCE store: read-only, has `articles.body_text`. `None` when
+# $SOURCE_DATABASE_URL is unset -- an honest "was it configured?" signal;
+# connect_pipeline() raises rather than guessing. Serving never needs it.
+SOURCE_DB_PATH: Path | None = _resolve_db_path(os.environ.get("SOURCE_DATABASE_URL"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS article_sentiment (
@@ -135,17 +162,50 @@ CREATE TABLE IF NOT EXISTS article_category (
 SECTOR_SUMMARY_FORMAT_VERSION = 2
 
 
-# This DB file is shared with news_collector and extractor (see CLAUDE.md).
 # Without a busy_timeout, a connection that finds the file locked by another
-# one's write transaction gets an immediate
-# `sqlite3.OperationalError: database is locked` instead of a retry. Not
-# persistent (like foreign_keys, unlike journal_mode), so it has to be set
-# on every connection.
+# writer gets an immediate `sqlite3.OperationalError: database is locked`
+# instead of a retry. Not persistent (like foreign_keys, unlike journal_mode),
+# so it has to be set on every connection.
 BUSY_TIMEOUT_MS = 30_000
 
+_NO_SOURCE_MSG = (
+    "SOURCE_DATABASE_URL is not set. The text-reading pipeline stages "
+    "(sentiment, NER, category, c_summary) require a read-only source database "
+    "that has articles.body_text (e.g. urls.db). Set SOURCE_DATABASE_URL. "
+    "Serving/query endpoints and the sector_summary stage do not need it. "
+    "See docs/db-topology.md."
+)
+_NO_SOURCE_TEXT_MSG = (
+    "SOURCE database has no usable article text: articles.body_text is missing "
+    "or entirely empty. Point SOURCE_DATABASE_URL at the crawl database "
+    "(e.g. urls.db), not the results store. See docs/db-topology.md."
+)
 
-def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+
+class _Connection(sqlite3.Connection):
+    """sqlite3.Connection that remembers which schema the `body_text` readers
+    should qualify `articles` with -- ``"source"`` once a read-only SOURCE DB is
+    ATTACHed by attach_source(), else ``"main"`` (single-file / serving). Base
+    sqlite3.Connection rejects instance attributes, hence the subclass."""
+
+    articles_rel: str = "main"
+    # `articles` columns to copy SOURCE -> RESULTS (see attach_source); None
+    # until a SOURCE DB is attached.
+    lean_article_cols: list[str] | None = None
+
+
+def _articles_rel(conn: sqlite3.Connection) -> str:
+    """The schema the `body_text` readers qualify `articles` with: ``"source"``
+    when a read-only SOURCE DB is attached, else ``"main"``. Only ever
+    ``"main"`` / ``"source"`` -- safe to interpolate into SQL."""
+    return getattr(conn, "articles_rel", "main")
+
+
+def connect(db_path: Path = DB_PATH) -> _Connection:
+    """Open one plain SQLite file read/write (serving, tests, single-file runs).
+    For a pipeline run that needs the SOURCE DB attached, use connect_pipeline().
+    """
+    conn = sqlite3.connect(f"file:{Path(db_path).as_posix()}", uri=True, factory=_Connection)
     # Row objects support both key access (row["col"], used by the query
     # helpers below) and positional unpacking (used by existing call sites
     # like `for article_id, body_text in fetch_pending_articles(...)`).
@@ -153,6 +213,84 @@ def connect(db_path: Path = DB_PATH) -> sqlite3.Connection:
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def connect_pipeline(results_db: Path | None = None, source_db: Path | None = None) -> _Connection:
+    """Open the RESULTS store read/write and, unless SOURCE resolves to the same
+    path, ATTACH the SOURCE store read-only as schema `source`.
+
+    Paths are read from the module globals in the body (not as default args) so
+    tests that monkeypatch db.DB_PATH / db.SOURCE_DB_PATH take effect. Raises
+    RuntimeError if no SOURCE is configured -- the text-reading stages cannot run
+    without one.
+    """
+    results = Path(results_db or DB_PATH)
+    source_value = source_db or SOURCE_DB_PATH
+    if source_value is None:
+        raise RuntimeError(_NO_SOURCE_MSG)
+    source = Path(source_value)
+    conn = connect(results)
+    if source.resolve() != results.resolve():
+        attach_source(conn, source)
+    return conn
+
+
+def _compute_lean_article_columns(conn: sqlite3.Connection) -> list[str]:
+    """`articles` columns present in both the attached SOURCE and RESULTS
+    schemas, minus `body_text`, in SOURCE column order."""
+    source_cols = [row[1] for row in conn.execute("PRAGMA source.table_info(articles)")]
+    main_cols = {row[1] for row in conn.execute("PRAGMA main.table_info(articles)")}
+    return [c for c in source_cols if c != "body_text" and c in main_cols]
+
+
+def attach_source(conn: _Connection, source: Path) -> None:
+    """ATTACH `source` read-only as schema `source`; flip `articles_rel` and
+    cache the lean column list for _ensure_article_row."""
+    conn.execute("ATTACH DATABASE ? AS source", (f"file:{Path(source).as_posix()}?mode=ro",))
+    conn.articles_rel = "source"
+    conn.lean_article_cols = _compute_lean_article_columns(conn)
+
+
+def detach_source(conn: _Connection) -> None:
+    """Undo attach_source(). Safe to call when nothing is attached."""
+    if conn.articles_rel == "source":
+        conn.execute("DETACH DATABASE source")
+        conn.articles_rel = "main"
+        conn.lean_article_cols = None
+
+
+def _ensure_article_row(conn: sqlite3.Connection, article_id: int) -> None:
+    """Copy the lean `articles` row (no `body_text`) for `article_id` from
+    SOURCE into RESULTS if it isn't there yet, so a result-table write for it
+    satisfies the `REFERENCES articles(id)` foreign key. No-op unless a SOURCE
+    DB is attached (single-file runs already have the full `articles` table)."""
+    if _articles_rel(conn) != "source":
+        return
+    lean_cols = getattr(conn, "lean_article_cols", None) or _compute_lean_article_columns(conn)
+    cols = ", ".join(lean_cols)
+    conn.execute(
+        f"INSERT OR IGNORE INTO main.articles ({cols}) "  # noqa: S608
+        f"SELECT {cols} FROM source.articles WHERE id = ?",
+        (article_id,),
+    )
+
+
+def require_source_text(conn: sqlite3.Connection) -> None:
+    """Fail fast (before any model loads) if the `articles` table the
+    `body_text` readers will hit has no usable text -- the common
+    misconfiguration of pointing a text stage at the results store. Structural
+    check ("does this DB hold article text at all"), not "is anything pending":
+    a fully caught-up pipeline still passes."""
+    schema = _articles_rel(conn)
+    cols = {row[1] for row in conn.execute(f"PRAGMA {schema}.table_info(articles)")}
+    if "body_text" not in cols:
+        raise RuntimeError(_NO_SOURCE_TEXT_MSG)
+    row = conn.execute(
+        f"SELECT 1 FROM {schema}.articles "  # noqa: S608
+        "WHERE body_text IS NOT NULL AND TRIM(body_text) != '' LIMIT 1"
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(_NO_SOURCE_TEXT_MSG)
 
 
 def _migrate_sector_summary_schema(conn: sqlite3.Connection) -> None:
@@ -193,10 +331,11 @@ def fetch_pending_articles(
     restricted to successfully fetched, non-empty articles."""
     if table not in _PENDING_ARTICLE_TABLES:
         raise ValueError(f"table must be one of {sorted(_PENDING_ARTICLE_TABLES)}, got {table!r}")
-    # S608: `table` is checked against the _PENDING_ARTICLE_TABLES allowlist above.
+    # S608: `table` is checked against the _PENDING_ARTICLE_TABLES allowlist
+    # above; _articles_rel(conn) is only ever "main" / "source".
     sql = f"""
         SELECT a.id, a.body_text
-        FROM articles a
+        FROM {_articles_rel(conn)}.articles a
         LEFT JOIN {table} r ON r.article_id = a.id
         WHERE r.article_id IS NULL
           AND a.fetch_status = 'ok'
@@ -219,16 +358,17 @@ def fetch_pending_category_articles(
     dedicated query (not a widened fetch_pending_articles) since that
     function's (id, body_text) two-tuple shape is unpacked directly at the
     sentiment/NER call sites -- widening it would break those."""
-    sql = """
+    # S608: _articles_rel(conn) is only ever "main" / "source"; `limit` is cast to int.
+    sql = f"""
         SELECT a.id, a.title, a.body_text
-        FROM articles a
+        FROM {_articles_rel(conn)}.articles a
         LEFT JOIN article_category r ON r.article_id = a.id
         WHERE r.article_id IS NULL
           AND a.fetch_status = 'ok'
           AND a.body_text IS NOT NULL
           AND TRIM(a.body_text) != ''
         ORDER BY a.id
-    """
+    """  # noqa: S608
     if limit:
         sql += f" LIMIT {int(limit)}"
     return conn.execute(sql).fetchall()
@@ -248,6 +388,7 @@ def write_sentiment(
     neutral: float,
     model_name: str,
 ) -> None:
+    _ensure_article_row(conn, article_id)
     conn.execute(
         """INSERT OR REPLACE INTO article_sentiment
            (article_id, label, score, positive, negative, neutral, model_name, processed_at)
@@ -269,6 +410,7 @@ def write_category(
     slug (or 'other') and its probability, kept separately from the raw
     distribution so a human correction (see corrections.update_category) can
     change the winner without touching the audit trail."""
+    _ensure_article_row(conn, article_id)
     conn.execute(
         """INSERT OR REPLACE INTO article_category
            (article_id, label, score, earnings_performance, mergers_acquisitions,
@@ -298,6 +440,7 @@ def write_category(
 def write_entities(
     conn: sqlite3.Connection, article_id: int, entities: list[dict], model_name: str
 ) -> None:
+    _ensure_article_row(conn, article_id)
     # Idempotency: clear any prior entities for this article before inserting fresh ones.
     conn.execute("DELETE FROM article_entities WHERE article_id = ?", (article_id,))
     ts = now_iso()
@@ -335,7 +478,9 @@ def fetch_pending_company_summaries(
     string literals don't interpret \\n as an escape (unlike Python), so
     template assembly happens in build_company_summary_input() instead.
     """
-    sql = """
+    # S608: _articles_rel(conn) is only ever "main" / "source"; every value is
+    # bound as a parameter. The result-table joins stay in `main`.
+    sql = f"""
         WITH entities AS (
             SELECT article_id, GROUP_CONCAT(text, ', ') AS entities
             FROM article_entities
@@ -346,13 +491,13 @@ def fetch_pending_company_summaries(
             a.id AS article_id, a.ticker, a.company, a.gics_sector, a.gics_sub_industry,
             a.title, a.body_text, s.label AS sentiment_label, s.score AS sentiment_confidence,
             e.entities
-        FROM articles a
+        FROM {_articles_rel(conn)}.articles a
         INNER JOIN article_sentiment s ON s.article_id = a.id
         INNER JOIN entities e ON e.article_id = a.id
         LEFT JOIN article_summary asum ON asum.article_id = a.id
         WHERE a.http_status_code = 200 AND asum.article_id IS NULL
         ORDER BY a.id
-    """
+    """  # noqa: S608
     params: list = []
     if limit is not None:
         sql += " LIMIT ?"
@@ -374,6 +519,7 @@ def build_company_summary_input(row: sqlite3.Row) -> str:
 def write_company_summary(
     conn: sqlite3.Connection, article_id: int, summary_text: str, num_chunks: int, model_name: str
 ) -> None:
+    _ensure_article_row(conn, article_id)
     conn.execute(
         """INSERT OR REPLACE INTO article_summary
            (article_id, summary_text, num_chunks, model_name, processed_at)
