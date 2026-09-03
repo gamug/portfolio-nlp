@@ -80,9 +80,14 @@ one file (`articles_rel` stays `"main"`, the lean upsert is a no-op).
 
 ## Caveats
 
-- **Stale WAL on the SOURCE.** A `mode=ro` open fails if the SOURCE was left with
-  an uncheckpointed `-wal` file and no writer to recover it. Checkpoint it (or
-  keep a live writer) before a run. Do not work around this with `immutable=1`.
+- **Stale WAL on the SOURCE.** A `mode=ro` open cannot replay a write-ahead log,
+  so a SOURCE left with an uncheckpointed `-wal` (crawler killed mid-run, or the
+  file copied without checkpointing) is unusable. `attach_source` checks for a
+  non-empty `<source>-wal` sidecar up front and raises a `RuntimeError` telling
+  you to run `sqlite3 <source> 'PRAGMA wal_checkpoint(TRUNCATE);'` (or let the
+  writer close cleanly) before re-running — rather than failing with a bare
+  `sqlite3.OperationalError` or, worse, silently reading stale data. Do not work
+  around this with `immutable=1`.
 - **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
   single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
   clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the

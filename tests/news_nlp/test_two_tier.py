@@ -180,6 +180,27 @@ def test_run_pipeline_raises_when_source_lacks_body_text(
         pipeline.run_pipeline()
 
 
+def test_attach_source_rejects_source_with_uncheckpointed_wal(
+    source_db_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Leave an un-checkpointed -wal next to the SOURCE: WAL mode, auto-checkpoint
+    # off, a real committed write, connection kept open so it is never flushed.
+    holder = sqlite3.connect(source_db_path)
+    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    holder.execute("PRAGMA wal_autocheckpoint=0")
+    holder.execute("INSERT INTO articles (id, ticker, company) VALUES (999, 'ZZZ', 'Z Co')")
+    holder.commit()
+    try:
+        assert Path(f"{source_db_path}-wal").stat().st_size > 0
+
+        monkeypatch.setattr(db, "DB_PATH", results_db_path)
+        monkeypatch.setattr(db, "SOURCE_DB_PATH", source_db_path)
+        with pytest.raises(RuntimeError, match="wal_checkpoint"):
+            db.connect_pipeline()
+    finally:
+        holder.close()
+
+
 # --- serving needs no SOURCE ----------------------------------------------------
 
 

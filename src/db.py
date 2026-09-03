@@ -180,6 +180,18 @@ _NO_SOURCE_TEXT_MSG = (
     "or entirely empty. Point SOURCE_DATABASE_URL at the crawl database "
     "(e.g. urls.db), not the results store. See docs/db-topology.md."
 )
+_STALE_WAL_MSG = (
+    "SOURCE database {source} has an un-checkpointed write-ahead log ({wal} "
+    "exists and is non-empty). It is ATTACHed read-only (mode=ro), which cannot "
+    "replay a WAL, so the newest data would be invisible. Checkpoint it first -- "
+    "`sqlite3 {source} 'PRAGMA wal_checkpoint(TRUNCATE);'`, or let its writer "
+    "close cleanly -- then re-run. See docs/db-topology.md."
+)
+_ATTACH_FAILED_MSG = (
+    "Could not open SOURCE database {source} read-only (mode=ro): {error}. "
+    "Check the path exists and is readable, and that it has no un-checkpointed "
+    "WAL sidecar. See docs/db-topology.md."
+)
 
 
 class _Connection(sqlite3.Connection):
@@ -245,8 +257,22 @@ def _compute_lean_article_columns(conn: sqlite3.Connection) -> list[str]:
 
 def attach_source(conn: _Connection, source: Path) -> None:
     """ATTACH `source` read-only as schema `source`; flip `articles_rel` and
-    cache the lean column list for _ensure_article_row."""
-    conn.execute("ATTACH DATABASE ? AS source", (f"file:{Path(source).as_posix()}?mode=ro",))
+    cache the lean column list for _ensure_article_row.
+
+    A read-only (`mode=ro`) open cannot replay a leftover write-ahead log, so a
+    SOURCE left with an un-checkpointed `-wal` (crawler killed mid-run, or the
+    file copied without checkpointing) would otherwise fail here with a bare
+    OperationalError -- or, worse, read stale data. Detect that up front and
+    raise a RuntimeError that says how to fix it.
+    """
+    source = Path(source)
+    wal = source.with_name(source.name + "-wal")
+    if wal.exists() and wal.stat().st_size > 0:
+        raise RuntimeError(_STALE_WAL_MSG.format(source=source, wal=wal))
+    try:
+        conn.execute("ATTACH DATABASE ? AS source", (f"file:{source.as_posix()}?mode=ro",))
+    except sqlite3.OperationalError as exc:
+        raise RuntimeError(_ATTACH_FAILED_MSG.format(source=source, error=exc)) from exc
     conn.articles_rel = "source"
     conn.lean_article_cols = _compute_lean_article_columns(conn)
 
