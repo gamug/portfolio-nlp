@@ -15,6 +15,30 @@ Path resolution is the same for both vars: an **absolute** value is used as-is;
 a **relative** value resolves against the repo root (not the CWD); unset →
 `DATABASE_URL` falls back to `<repo>/data/nlp.db`, `SOURCE_DATABASE_URL` → `None`.
 
+## Upgrading from the single-`DATABASE_URL` setup
+
+Before the two-tier contract there was one knob: you pointed `DATABASE_URL` at
+`urls.db` to run the pipeline and at `nlp.db` to serve. That recipe now **fails
+fast by design** — a text-reading run with no `SOURCE_DATABASE_URL` raises
+
+> `SOURCE_DATABASE_URL is not set. The text-reading pipeline stages … require a
+> read-only source database that has articles.body_text …`
+
+Fixes, by what you were doing:
+
+| Old | New |
+|---|---|
+| `DATABASE_URL=…/urls.db` to run the pipeline | `SOURCE_DATABASE_URL=…/urls.db` **and** `DATABASE_URL=…/nlp.db` (results land in `nlp.db`, not back in `urls.db`) |
+| `DATABASE_URL=…/nlp.db` to serve / query | unchanged — serving never needed a SOURCE |
+| a single file that genuinely has `body_text` **and** the result tables | set **both** vars to that one path (see *Single physical file* below) |
+| a `.env` with only `DATABASE_URL` | add `SOURCE_DATABASE_URL` (see `.env.example`) |
+| `POST /pipeline/run` on a serving box | that box now needs `SOURCE_DATABASE_URL` too, or the run ends `status: "error"` |
+
+No data migration is involved — the switch is purely which env var points where.
+`nlp.db` keeps every result row it already had; the pipeline now also writes a
+lean `articles` row per processed article, so it stays self-consistent without
+`scripts/migrate_from_urls_db.py` (removed).
+
 ## How a pipeline run uses both
 
 `pipeline.run_pipeline` → `db.connect_pipeline()`:
