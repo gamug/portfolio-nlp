@@ -4,8 +4,8 @@ from typing import Any
 import pytest
 import torch
 from conftest import seed_article
+from portfolio_common import news_nlp as db
 
-import db
 import pipeline
 
 # --- classify_category_scores (pure function, no model needed) ------------

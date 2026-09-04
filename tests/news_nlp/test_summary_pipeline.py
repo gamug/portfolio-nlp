@@ -4,10 +4,10 @@ from typing import Any
 import pytest
 import torch
 from conftest import seed_article
+from portfolio_common import news_nlp as db
+from portfolio_common.news_nlp.taxonomy import CATEGORY_SLUGS
 
-import db
 import pipeline
-from categories import CATEGORY_SLUGS
 
 
 def seed_sentiment(

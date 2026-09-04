@@ -21,12 +21,12 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from portfolio_common import news_nlp as db
+from portfolio_common.news_nlp import corrections
+from portfolio_common.news_nlp.taxonomy import CATEGORY_SLUGS, OTHER_LABEL
 from pydantic import BaseModel, Field
 
-import corrections
-import db
 import pipeline
-from categories import CATEGORY_SLUGS, OTHER_LABEL
 
 CATEGORY_LABEL_VALUES = (*CATEGORY_SLUGS, OTHER_LABEL)
 
@@ -102,7 +102,7 @@ def get_db() -> Iterator[sqlite3.Connection]:
     # lean `articles`) -- never article body_text -- so this deliberately opens
     # a plain connection with no SOURCE attached. Only POST /pipeline/run needs
     # SOURCE, and it goes through pipeline.run_pipeline -> db.connect_pipeline.
-    conn = db.connect(db.DB_PATH)
+    conn = db.connect(db.results_db_path())
     try:
         yield conn
     finally:

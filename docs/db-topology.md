@@ -1,7 +1,8 @@
 # Database topology: the two-tier contract
 
 The DB layer lives in **`portfolio_common.news_nlp`** (git-tag-pinned in
-`pyproject.toml`'s `[tool.uv.sources]`; `src/db.py` is a thin re-export facade).
+`pyproject.toml`'s `[tool.uv.sources]`; imported directly by `pipeline.py` /
+`apps/news_nlp_api.py` / tests — there is no local `db.py` re-export).
 The contract itself — the five result tables, the SOURCE/RESULTS roles, the
 `ATTACH` mechanics, the lean-`articles` FK invariant — is in
 [`portfolio-common/docs/news-nlp-db-topology.md`](https://github.com/gamug/portfolio-common/blob/master/docs/news-nlp-db-topology.md).
