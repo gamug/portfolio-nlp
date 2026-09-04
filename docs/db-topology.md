@@ -1,19 +1,28 @@
 # Database topology: the two-tier contract
 
-`portfolio-nlp` uses **two** SQLite databases with distinct roles. They are
-selected by two environment variables and are never conflated in code.
+The DB layer lives in **`portfolio_common.news_nlp`** (git-tag-pinned in
+`pyproject.toml`'s `[tool.uv.sources]`; `src/db.py` is a thin re-export facade).
+The contract itself — the five result tables, the SOURCE/RESULTS roles, the
+`ATTACH` mechanics, the lean-`articles` FK invariant — is in
+[`portfolio-common/docs/news-nlp-db-topology.md`](https://github.com/gamug/portfolio-common/blob/master/docs/news-nlp-db-topology.md).
+This page keeps the `portfolio-nlp` **operator recipes**.
+
+`portfolio-nlp` uses **two** SQLite databases with distinct roles, selected by
+two environment variables and never conflated in code.
 
 | | **SOURCE** | **RESULTS** |
 |---|---|---|
 | env var | `SOURCE_DATABASE_URL` | `DATABASE_URL` |
-| default | none — **required** for the text-reading stages | `<repo>/data/nlp.db` |
+| default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), ATTACHed as schema `source` | read/write, schema `main` |
 | holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables + a lean `articles` subset (**no `body_text`**) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
-Path resolution is the same for both vars: an **absolute** value is used as-is;
-a **relative** value resolves against the repo root (not the CWD); unset →
-`DATABASE_URL` falls back to `<repo>/data/nlp.db`, `SOURCE_DATABASE_URL` → `None`.
+Path resolution (`portfolio_common.news_nlp.env`): an **absolute** value is used
+as-is; a **relative** value is left relative — resolved against the process's
+**current working directory** (it used to resolve against the repo root; there is
+no repo root once the code lives in an installed package). Unset → `DATABASE_URL`
+falls back to `data/nlp.db`, `SOURCE_DATABASE_URL` → `None`.
 
 ## Upgrading from the single-`DATABASE_URL` setup
 

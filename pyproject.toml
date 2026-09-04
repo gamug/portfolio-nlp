@@ -3,8 +3,14 @@ name = "portfolio-nlp"
 version = "0.1.0"
 description = "Financial-news NLP pipeline (FinBERT sentiment + SEC-BERT NER + zero-shot category + summarization), extracted from portfolio-data-mining"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
+    # --- shared DB layer: the connection factory + the news_nlp results-DB
+    # contract (schema / two-tier SOURCE/RESULTS connection / queries /
+    # sector_summary / corrections / taxonomy), imported as
+    # `portfolio_common.news_nlp`. Pinned by tag in [tool.uv.sources] --
+    # bump the tag there to adopt a new schema/DB contract.
+    "portfolio-common",
     # --- shared web/runtime -----------------------------------------------
     "httpx[http2]>=0.27.0",
     "fastapi==0.141.1",
@@ -41,10 +47,20 @@ package = false
 # torch is a direct [project] dependency, but uv still needs to know which
 # wheel to fetch. This pins it to the same cu124 build the old
 # `pip install torch --index-url https://download.pytorch.org/whl/cu124`
-# step used, so `uv sync`/`uv lock` reproduce it exactly. CI passes
-# `uv sync --no-sources` to ignore this and take CPU wheels from PyPI.
+# step used, so `uv sync`/`uv lock` reproduce it exactly. (CI used to pass
+# `uv sync --no-sources` to take CPU torch from PyPI, but that also drops the
+# portfolio-common git pin below -> unresolvable, so CI now runs a plain
+# `uv sync`; the cu124 wheel imports fine on CPU and the suite monkeypatches
+# every model load.)
+#
+# portfolio-common lives in its own repo (github.com/gamug/portfolio-common)
+# and is pinned by tag -- bump the tag here to adopt a new schema/DB
+# contract. For local work against a checkout next to this repo, override
+# with an editable path source:
+#   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v0.3.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
