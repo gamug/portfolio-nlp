@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from dotenv import load_dotenv
+from portfolio_common import news_nlp as db
+from portfolio_common.news_nlp.taxonomy import CATEGORY_LABELS, OTHER_LABEL
 from tqdm import tqdm
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -31,9 +34,15 @@ from transformers import (
     AutoTokenizer,
 )
 
-import db
-from categories import CATEGORY_LABELS, OTHER_LABEL
 from chunking import chunk_text, merge_char_spans
+
+# Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
+# `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
+# SOURCE_DATABASE_URL are honored wherever they're set via .env. Used to live in
+# the since-deleted src/db.py facade; portfolio_common.news_nlp reads only real
+# env vars, so something in this repo has to load .env into them. Safe to call
+# more than once.
+load_dotenv()
 
 SENTIMENT_MODEL = "ProsusAI/finbert"
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"

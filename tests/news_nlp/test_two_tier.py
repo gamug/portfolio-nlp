@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from conftest import LEAN_ARTICLES_SCHEMA
 from fastapi.testclient import TestClient
+from portfolio_common import news_nlp as db
 
-import db
 import pipeline
 
 

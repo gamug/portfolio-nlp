@@ -2,8 +2,7 @@ import sqlite3
 
 from conftest import seed_article
 from fastapi.testclient import TestClient
-
-import db
+from portfolio_common import news_nlp as db
 
 
 def test_get_articles_filters_by_company(client: TestClient, conn: sqlite3.Connection) -> None:

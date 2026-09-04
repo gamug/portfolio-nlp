@@ -2,8 +2,7 @@ import sqlite3
 
 from conftest import seed_article
 from fastapi.testclient import TestClient
-
-import db
+from portfolio_common import news_nlp as db
 
 
 def _seed_sentiment(conn: sqlite3.Connection, article_id: int = 1) -> None:

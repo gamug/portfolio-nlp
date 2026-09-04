@@ -60,7 +60,7 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v0.3.0" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v0.4.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
