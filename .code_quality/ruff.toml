@@ -34,7 +34,7 @@ line-length = 100
 indent-width = 4
 
 # Assume Python 3.11
-target-version = "py311"
+target-version = "py312"
 
 # Include ipython notebooks
 extend-include = ["*.ipynb"]

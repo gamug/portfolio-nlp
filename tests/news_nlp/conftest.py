@@ -93,7 +93,7 @@ def conn(test_db_path: Path) -> Iterator[sqlite3.Connection]:
 
 @pytest.fixture
 def client(test_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    monkeypatch.setattr(db_module, "DB_PATH", test_db_path)
+    monkeypatch.setenv("DATABASE_URL", str(test_db_path))
     # Deliberately deferred: importing apps.news_nlp_api pulls in pipeline,
     # which imports torch/transformers -- fine for the tests that use this fixture,
     # but every other test in the suite would otherwise pay that import cost too.
@@ -147,12 +147,8 @@ def results_db_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def two_tier_conn(
-    source_db_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[sqlite3.Connection]:
-    monkeypatch.setattr(db_module, "DB_PATH", results_db_path)
-    monkeypatch.setattr(db_module, "SOURCE_DB_PATH", source_db_path)
-    conn = db_module.connect_pipeline()
+def two_tier_conn(source_db_path: Path, results_db_path: Path) -> Iterator[sqlite3.Connection]:
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
     yield conn
     db_module.detach_source(conn)
     conn.close()
@@ -162,8 +158,8 @@ def two_tier_conn(
 def two_tier_client(
     source_db_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[TestClient]:
-    monkeypatch.setattr(db_module, "DB_PATH", results_db_path)
-    monkeypatch.setattr(db_module, "SOURCE_DB_PATH", source_db_path)
+    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
+    monkeypatch.setenv("SOURCE_DATABASE_URL", str(source_db_path))
     from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415
 
     pipeline_status.reset()

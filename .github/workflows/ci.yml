@@ -14,10 +14,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - name: Sync (CPU torch — ignore the cu124 source pin)
-        run: uv sync --no-sources --group dev
+      # Plain `uv sync` (not `--no-sources`): the `[tool.uv.sources]` block now
+      # also pins `portfolio-common` to a git tag, and `--no-sources` would drop
+      # that pin -> unresolvable. This does pull the cu124 torch wheel (the
+      # `pytorch-cu124` index); it imports fine on CPU CI and the test suite
+      # monkeypatches every model load, so nothing touches CUDA.
+      - name: Sync
+        run: uv sync --group dev
 
       - name: Ruff lint
         run: uv run --no-sync ruff check .

@@ -104,7 +104,10 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 
 ## Database
 
-Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
+The DB layer lives in **`portfolio_common.news_nlp`** (git-tag-pinned in
+`pyproject.toml`; `src/db.py` / `src/corrections.py` / `src/categories.py` are
+thin re-export facades). Two-tier — full detail in
+[`docs/db-topology.md`](../db-topology.md):
 
 - **RESULTS store** (`$DATABASE_URL`, unset → `<repo>/data/nlp.db`; working file
   `D:\thesis\data\nlp.db`) — the NLP result tables plus a `body_text`-free
