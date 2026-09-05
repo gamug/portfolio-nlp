@@ -72,12 +72,7 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-# INTERIM: pinned to the feat/engine-agnostic-dialect-seam commit ahead of the
-# v1.2.0 tag -- gamug/portfolio-common#9 adds the Dialect seam, connect_url,
-# the Row alias, two_store, and the schema-introspection helpers that
-# src/news_nlp/ now routes every engine-specific fragment through. Re-pin to
-# `tag = "v1.2.0"` once that PR is merged and tagged.
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", rev = "53bc381c0455f90c5b39d921e7e550ef767f74ab" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.2.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
