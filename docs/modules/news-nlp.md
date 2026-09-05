@@ -43,8 +43,8 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    week (Mon–Sun) has fully ended, so a summary is never generated from a partial week and
    later need regenerating. `sector_summary.format_version` is bumped whenever this
    generation logic changes shape — a row below the current version is treated as stale and
-   self-heals (regenerated via `INSERT OR REPLACE`) the next time the stage runs, no separate
-   backfill needed.
+   self-heals (regenerated via an upsert on the `(gics_sector, gics_sub_industry, week_start)`
+   key) the next time the stage runs, no separate backfill needed.
 
 - **Sentence-aware chunking** (`src/chunking.py`) — articles run up to ~13K
   words, far past BERT's 512-token limit; chunks are packed on sentence boundaries. The
@@ -107,8 +107,12 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 The DB layer lives in **`src/news_nlp/`**, a local package vendored from
 `portfolio-common` (see `docs/portfolio-common-v1-migration-plan.md`); imported
 directly as `import news_nlp as db` / `from news_nlp import corrections` /
-`from news_nlp.taxonomy import ...` — no re-export facade. It still depends on
-`portfolio_common.db.Database` for the underlying connection engine.
+`from news_nlp.taxonomy import ...` — no re-export facade. As of
+`portfolio-common` v1.2.0 it names **no** database engine: connections, the
+two-tier attach, schema introspection, the row type, and every dialect SQL
+fragment go through `portfolio_common.db` (`connect_url`, `two_store`,
+`table_columns`, `Row`, `conn.dialect`). See
+[`docs/portfolio-common-v1.2-engine-agnostic.md`](../portfolio-common-v1.2-engine-agnostic.md).
 Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
 
 - **RESULTS store** (`$DATABASE_URL`, unset → `<repo>/data/nlp.db`; working file
@@ -122,8 +126,9 @@ The stages that read article text — sentiment, NER, category, per-article
 summary (`fetch_pending_articles` / `fetch_pending_category_articles` /
 `fetch_pending_company_summaries`, i.e. `cli/news_nlp_cli.py` and
 `POST /pipeline/run`) — read `source.articles`. Every result write also
-`INSERT OR IGNORE`s a lean `main.articles` row, so the RESULTS store stays
-foreign-key-consistent without a separate migration step. `db.require_source_text`
+copies a lean `main.articles` row (metadata only) from `source` if it isn't
+there yet, so the RESULTS store stays foreign-key-consistent without a
+separate migration step. `db.require_source_text`
 fails the run fast (before any model loads) if `SOURCE_DATABASE_URL` is unset or
 points at a DB with no usable `body_text` — the old failure mode there was a
 silent *"0 pending"*.

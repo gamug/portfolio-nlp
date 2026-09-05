@@ -21,27 +21,45 @@ The pure, no-SQL composition logic that turns these rows into a
 ``build_sector_intro_seed``, ``clean_generated_text``) lives in
 ``news_nlp.sector_summary.composition`` -- a separate module since none of it
 takes a ``conn``/``db`` argument or contains SQL text.
+
+The week-bucketing expressions, the "today" bound, the bare-digit entity
+filter and the upsert verb come from ``conn.dialect`` -- nothing here names a
+database engine.
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
+
+from portfolio_common.db import Row
 
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.queries import now_iso
 from news_nlp.schema import SECTOR_SUMMARY_FORMAT_VERSION
 
-# Monday-start ISO week containing a given date, via SQLite's 'weekday N'
-# modifier (0=Sunday): shift forward to the next Sunday (a no-op if the date
-# already is one), then step back 6 days to land on that week's Monday.
-_WEEK_START_EXPR = "date({col}, 'weekday 0', '-6 days')"
-_WEEK_END_EXPR = "date({col}, 'weekday 0')"
+# Weeks are bucketed off pub_date, falling back to fetched_at when pub_date is
+# NULL. The Monday-start / Sunday-end expressions themselves are the dialect's
+# (SQLite: date(col, 'weekday 0', ...)).
+_WEEK_DATE_COL = "COALESCE(a.pub_date, a.fetched_at)"
+
+_SECTOR_SUMMARY_COLS = (
+    "gics_sector",
+    "gics_sub_industry",
+    "week_start",
+    "week_end",
+    "summary_text",
+    "num_articles",
+    "num_companies",
+    "model_name",
+    "facts_json",
+    "intro_text",
+    "format_version",
+    "processed_at",
+)
+_SECTOR_SUMMARY_CONFLICT = ("gics_sector", "gics_sub_industry", "week_start")
 
 
-def fetch_pending_sector_weeks(
-    conn: NewsNlpDatabase, limit: int | None = None
-) -> list[sqlite3.Row]:
+def fetch_pending_sector_weeks(conn: NewsNlpDatabase, limit: int | None = None) -> list[Row]:
     """Return (gics_sector, gics_sub_industry, week_start, week_end) tuples
     ready for sector_summary generation: closed weeks (week_end already in
     the past, so a partial week is never summarized and later regenerated)
@@ -49,11 +67,10 @@ def fetch_pending_sector_weeks(
     Weeks are bucketed off pub_date, falling back to fetched_at when
     pub_date is NULL.
     """
-    date_col = "COALESCE(a.pub_date, a.fetched_at)"
-    week_start_expr = _WEEK_START_EXPR.format(col=date_col)
-    week_end_expr = _WEEK_END_EXPR.format(col=date_col)
-    # S608: week_start_expr/week_end_expr come from the hardcoded
-    # _WEEK_START_EXPR/_WEEK_END_EXPR templates, not caller input.
+    week_start_expr = conn.dialect.week_start_expr(_WEEK_DATE_COL)
+    week_end_expr = conn.dialect.week_end_expr(_WEEK_DATE_COL)
+    # S608: week_start_expr / week_end_expr / current_date_expr are dialect
+    # fragments, not caller input; the format_version below is bound.
     sql = f"""
         SELECT
             a.gics_sector AS gics_sector,
@@ -71,12 +88,12 @@ def fetch_pending_sector_weeks(
                 AND ss.format_version = ?
           )
         GROUP BY a.gics_sector, a.gics_sub_industry, week_start
-        HAVING week_end < date('now')
+        HAVING week_end < {conn.dialect.current_date_expr()}
         ORDER BY week_start, a.gics_sector, a.gics_sub_industry
     """  # noqa: S608
     # A row at an older format_version doesn't satisfy the NOT EXISTS check,
     # so it's treated as still-pending here -- the next sector_summary run
-    # naturally regenerates and overwrites it via INSERT OR REPLACE.
+    # naturally regenerates and overwrites it via the dialect upsert.
     params: list = [SECTOR_SUMMARY_FORMAT_VERSION]
     if limit is not None:
         sql += " LIMIT ?"
@@ -86,7 +103,7 @@ def fetch_pending_sector_weeks(
 
 def fetch_company_summaries_for_sector_week(
     conn: NewsNlpDatabase, gics_sector: str, gics_sub_industry: str, week_start: str
-) -> list[sqlite3.Row]:
+) -> list[Row]:
     """Return the article_summary rows (with company/ticker/category/sentiment)
     contributing to one (gics_sector, gics_sub_industry, week_start)
     sector_summary. INNER JOINs to article_category and article_sentiment:
@@ -99,11 +116,9 @@ def fetch_company_summaries_for_sector_week(
     (see fetch_pending_company_summaries's INNER JOIN), and sentiment rows
     are never deleted afterwards.
     """
-    date_col = "COALESCE(a.pub_date, a.fetched_at)"
-    week_start_expr = _WEEK_START_EXPR.format(col=date_col)
-    # S608: week_start_expr comes from the hardcoded _WEEK_START_EXPR
-    # template, not caller input; gics_sector/sub_industry/week_start below
-    # are bound as query params.
+    week_start_expr = conn.dialect.week_start_expr(_WEEK_DATE_COL)
+    # S608: week_start_expr is a dialect fragment, not caller input;
+    # gics_sector/sub_industry/week_start below are bound as query params.
     sql = f"""
         SELECT asum.article_id, asum.summary_text, a.ticker, a.company,
                c.label AS category_label, s.label AS sentiment_label
@@ -130,10 +145,9 @@ def fetch_sector_week_entity_stats(
     draws from (same week-bucketing, joined through article_summary). Same
     qualifying-entity filter (score>0.8, non-numeric) used by
     fetch_pending_company_summaries."""
-    date_col = "COALESCE(a.pub_date, a.fetched_at)"
-    week_start_expr = _WEEK_START_EXPR.format(col=date_col)
-    # S608: week_start_expr is from the hardcoded _WEEK_START_EXPR template;
-    # gics_sector/sub_industry/week_start/top below are all bound as params.
+    week_start_expr = conn.dialect.week_start_expr(_WEEK_DATE_COL)
+    # S608: week_start_expr and the bare-digit predicate are dialect
+    # fragments; gics_sector/sub_industry/week_start/top below are bound.
     sql = f"""
         SELECT e.text, e.entity_type, COUNT(*) AS count
         FROM article_entities e
@@ -141,7 +155,7 @@ def fetch_sector_week_entity_stats(
         JOIN article_summary asum ON asum.article_id = a.id
         WHERE a.gics_sector = ? AND a.gics_sub_industry = ?
           AND {week_start_expr} = ?
-          AND e.score > 0.8 AND e.text NOT GLOB '[0-9]'
+          AND e.score > 0.8 AND {conn.dialect.excludes_bare_digit("e.text")}
         GROUP BY e.text, e.entity_type
         ORDER BY count DESC
         LIMIT ?
@@ -170,11 +184,9 @@ def write_sector_summary(
     to pass them. See composition.build_sector_facts and
     composition.clean_generated_text."""
     conn.execute(
-        """INSERT OR REPLACE INTO sector_summary
-           (gics_sector, gics_sub_industry, week_start, week_end, summary_text,
-            num_articles, num_companies, model_name, facts_json, intro_text,
-            format_version, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        conn.dialect.upsert(
+            "sector_summary", _SECTOR_SUMMARY_COLS, conflict=_SECTOR_SUMMARY_CONFLICT
+        ),
         (
             gics_sector,
             gics_sub_industry,

@@ -14,7 +14,8 @@ that feeds them.
 from __future__ import annotations
 
 import re
-import sqlite3
+
+from portfolio_common.db import Row
 
 from news_nlp.taxonomy import CATEGORY_LABELS, OTHER_LABEL
 
@@ -28,16 +29,16 @@ _CATEGORY_DISPLAY_NAMES = {slug: display for slug, display, _ in CATEGORY_LABELS
 _CATEGORY_ORDER = [slug for slug, _, _ in CATEGORY_LABELS] + [OTHER_LABEL]
 
 
-def _group_rows_by_category(rows: list[sqlite3.Row]) -> list[tuple[str, list[sqlite3.Row]]]:
+def _group_rows_by_category(rows: list[Row]) -> list[tuple[str, list[Row]]]:
     """Group rows by category_label in taxonomy order. Categories with no
     contributing rows are omitted rather than emitted as empty sections."""
-    by_label: dict[str, list[sqlite3.Row]] = {}
+    by_label: dict[str, list[Row]] = {}
     for r in rows:
         by_label.setdefault(r["category_label"], []).append(r)
     return [(slug, by_label[slug]) for slug in _CATEGORY_ORDER if slug in by_label]
 
 
-def _sentiment_counts(rows: list[sqlite3.Row]) -> dict[str, int]:
+def _sentiment_counts(rows: list[Row]) -> dict[str, int]:
     counts = {"positive": 0, "negative": 0, "neutral": 0}
     for r in rows:
         counts[r["sentiment_label"]] = counts.get(r["sentiment_label"], 0) + 1
@@ -56,7 +57,7 @@ def compose_sector_summary(
     week_start: str,
     week_end: str,
     intro_text: str,
-    rows: list[sqlite3.Row],
+    rows: list[Row],
     entity_stats: list[dict],
 ) -> str:
     """Deterministic, non-generative composition of the sector_summary body:
@@ -121,7 +122,7 @@ def build_sector_facts(
     gics_sub_industry: str,
     week_start: str,
     week_end: str,
-    rows: list[sqlite3.Row],
+    rows: list[Row],
     entity_stats: list[dict],
 ) -> dict:
     """Structured, non-narrative counterpart to compose_sector_summary's
@@ -178,7 +179,7 @@ def build_sector_intro_seed(
     gics_sub_industry: str,
     week_start: str,
     week_end: str,
-    rows: list[sqlite3.Row],
+    rows: list[Row],
 ) -> str:
     """The *only* text ever handed to the summarization model for the
     sector-level intro sentence: one small templated sentence built purely
