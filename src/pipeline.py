@@ -24,8 +24,6 @@ from typing import Any
 
 import torch
 from dotenv import load_dotenv
-from portfolio_common import news_nlp as db
-from portfolio_common.news_nlp.taxonomy import CATEGORY_LABELS, OTHER_LABEL
 from tqdm import tqdm
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -34,12 +32,14 @@ from transformers import (
     AutoTokenizer,
 )
 
+import news_nlp as db
 from chunking import chunk_text, merge_char_spans
+from news_nlp.taxonomy import CATEGORY_LABELS, OTHER_LABEL
 
 # Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
 # `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
 # SOURCE_DATABASE_URL are honored wherever they're set via .env. Used to live in
-# the since-deleted src/db.py facade; portfolio_common.news_nlp reads only real
+# the since-deleted src/db.py facade; news_nlp.env reads only real
 # env vars, so something in this repo has to load .env into them. Safe to call
 # more than once.
 load_dotenv()
@@ -127,7 +127,7 @@ def free_gpu() -> None:
 
 
 def run_sentiment_stage(
-    conn: sqlite3.Connection, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
     rows = db.fetch_pending_articles(conn, "article_sentiment", limit=limit)
     total = len(rows)
@@ -223,7 +223,7 @@ def merge_bio_predictions(
 
 
 def run_ner_stage(
-    conn: sqlite3.Connection, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
     rows = db.fetch_pending_articles(conn, "article_entities", limit=limit)
     total = len(rows)
@@ -304,7 +304,7 @@ def classify_category_scores(entail_logits: list[float]) -> tuple[str, float, di
 
 
 def run_category_stage(
-    conn: sqlite3.Connection, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
     rows = db.fetch_pending_category_articles(conn, limit=limit)
     total = len(rows)
@@ -533,7 +533,7 @@ def hierarchical_summarize_batch(
 
 
 def run_company_summary_stage(
-    conn: sqlite3.Connection, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
     rows = db.fetch_pending_company_summaries(conn, limit=limit)
     total = len(rows)
@@ -571,7 +571,7 @@ def run_company_summary_stage(
 
 
 def run_sector_summary_stage(
-    conn: sqlite3.Connection, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
     groups = db.fetch_pending_sector_weeks(conn, limit=limit)
     total = len(groups)

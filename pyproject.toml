@@ -5,11 +5,14 @@ description = "Financial-news NLP pipeline (FinBERT sentiment + SEC-BERT NER + z
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # --- shared DB layer: the connection factory + the news_nlp results-DB
-    # contract (schema / two-tier SOURCE/RESULTS connection / queries /
-    # sector_summary / corrections / taxonomy), imported as
-    # `portfolio_common.news_nlp`. Pinned by tag in [tool.uv.sources] --
-    # bump the tag there to adopt a new schema/DB contract.
+    # --- shared DB engine only (v1.0.0+): `portfolio_common.db.Database` (the
+    # base class `news_nlp.db.NewsNlpDatabase` subclasses) plus the
+    # `in_clause`/`Allowlist` injection-safety helpers. The news_nlp
+    # results-DB contract itself (schema / two-tier SOURCE/RESULTS connection
+    # / queries / sector_summary / corrections / taxonomy) is vendored
+    # locally as `src/news_nlp/` -- see docs/portfolio-common-v1-migration-plan.md.
+    # Pinned by tag in [tool.uv.sources] -- bump the tag there to adopt a new
+    # DB-engine contract.
     "portfolio-common",
     # --- shared web/runtime -----------------------------------------------
     "httpx[http2]>=0.27.0",
@@ -60,7 +63,7 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v0.4.0" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.0.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"

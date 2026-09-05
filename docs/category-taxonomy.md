@@ -57,9 +57,9 @@ single source's idiosyncrasies dominate the result:
 
 ## The taxonomy
 
-`portfolio_common.news_nlp.taxonomy`'s `CATEGORY_LABELS` (re-exported by
-`src/categories.py`) is the canonical machine-readable source for this table —
-keep this doc in sync with it if the labels ever change.
+`news_nlp.taxonomy`'s `CATEGORY_LABELS` is the canonical machine-readable
+source for this table — keep this doc in sync with it if the labels ever
+change.
 
 | slug | display name | scope | sources |
 |---|---|---|---|
