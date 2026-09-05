@@ -47,16 +47,16 @@ same way.
   join. Same signature, same behavior, same tests — verified against
   `tests/news_nlp/test_queries.py`'s existing `fetch_processed_articles`
   coverage.
-- `pyproject.toml`'s `portfolio-common` pin moves to the `v1.1.0` line (see
-  that file's own comment for the interim commit pin used while
-  `gamug/portfolio-common#8` is still unmerged/untagged).
+- `pyproject.toml`'s `portfolio-common` pin bumps to `tag = "v1.1.0"`.
 
 ## Companion PRs
 
 - `portfolio-common`: [#8](https://github.com/gamug/portfolio-common/pull/8)
-  — adds `news_export`.
-- `portfolio-knowledge-graph`: retires `src/etl/queries.py`'s local copy,
-  imports `portfolio_common.news_export` directly.
+  — adds `news_export`. Merged and tagged `v1.1.0`.
+- `portfolio-knowledge-graph`:
+  [#8](https://github.com/gamug/portfolio-knowledge-graph/pull/8) — retires
+  `src/etl/queries.py`'s local copy, imports `portfolio_common.news_export`
+  directly.
 
 ---
 🤖 Generated with [Claude Code](https://claude.com/claude-code) as part of

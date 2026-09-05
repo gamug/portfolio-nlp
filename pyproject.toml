@@ -67,11 +67,7 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-# TEMPORARY: pinned to the feat/news-export-shared-read-contract commit ahead
-# of the v1.1.0 tag -- gamug/portfolio-common#8 adds portfolio_common.news_export,
-# which this repo's news_nlp.queries.fetch_processed_articles now delegates to.
-# Re-pin to `tag = "v1.1.0"` once that PR is merged and tagged.
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", rev = "2f8f93a76dfd1f8c163c53e3d1425a0f9ddd946a" }
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.1.0" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
