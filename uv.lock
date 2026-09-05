@@ -926,8 +926,8 @@ wheels = [
 
 [[package]]
 name = "portfolio-common"
-version = "1.1.0"
-source = { git = "https://github.com/gamug/portfolio-common?tag=v1.1.0#36e06937aa1d9820975d3b56d2787f93ce72bf9d" }
+version = "1.2.0"
+source = { git = "https://github.com/gamug/portfolio-common?rev=53bc381c0455f90c5b39d921e7e550ef767f74ab#53bc381c0455f90c5b39d921e7e550ef767f74ab" }
 
 [[package]]
 name = "portfolio-nlp"
@@ -969,7 +969,7 @@ requires-dist = [
     { name = "httpx", extras = ["http2"], specifier = ">=0.27.0" },
     { name = "huggingface-hub", specifier = ">=0.24" },
     { name = "numpy" },
-    { name = "portfolio-common", git = "https://github.com/gamug/portfolio-common?tag=v1.1.0" },
+    { name = "portfolio-common", git = "https://github.com/gamug/portfolio-common?rev=53bc381c0455f90c5b39d921e7e550ef767f74ab" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "seqeval", specifier = ">=1.2" },

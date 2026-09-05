@@ -10,11 +10,13 @@
                           the text-reading pipeline stages refuse to run without
                           it (see :func:`news_nlp.db.connect_pipeline`).
 
-Both are plain filesystem paths today (this is still SQLite). A **relative**
-value is left relative -- resolved against the process's current working
-directory when SQLite opens the file. (The pre-consolidation code resolved it
-against the repo root; there is no repo root once this lives in an installed
-package.) An **absolute** value is used as-is.
+Both resolve to whatever :meth:`portfolio_common.db.Database.connect_url`
+accepts. That is a filesystem path today (the engine is SQLite), and a
+``scheme://`` connection URL is the extension point when it isn't -- ``which
+database engine`` is a ``portfolio-common`` concern, not this module's. A
+**relative** path value is left relative (resolved against the process CWD
+when the file is opened); an **absolute** one is used as-is; unset falls back
+to :data:`DEFAULT_RESULTS_DB` for RESULTS and ``None`` for SOURCE.
 """
 
 from __future__ import annotations

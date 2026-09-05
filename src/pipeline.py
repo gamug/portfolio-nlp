@@ -16,7 +16,6 @@ Two-tier DB: run_pipeline reads article text from the read-only SOURCE store
 """
 
 import gc
-import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -24,6 +23,7 @@ from typing import Any
 
 import torch
 from dotenv import load_dotenv
+from portfolio_common.db import Row
 from tqdm import tqdm
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -594,7 +594,7 @@ def run_sector_summary_stage(
             # (cheap DB reads) -- a group with nothing to summarize (all its
             # articles excluded, see fetch_company_summaries_for_sector_week)
             # is skipped, same as the old per-group `if rows:` guard.
-            resolved: list[tuple[list[sqlite3.Row], list[dict]] | None] = []
+            resolved: list[tuple[list[Row], list[dict]] | None] = []
             for group in batch_groups:
                 group_rows = db.fetch_company_summaries_for_sector_week(
                     conn, group["gics_sector"], group["gics_sub_industry"], group["week_start"]

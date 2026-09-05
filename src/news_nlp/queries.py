@@ -36,33 +36,89 @@ qualify ``articles`` with ``db._articles_rel(conn)`` so they read
 ``source.articles`` during a two-tier pipeline run and ``main.articles`` when
 serving; every ``write_*`` first ``db._ensure_article_row`` copies the lean
 ``articles`` row from SOURCE so the ``REFERENCES articles(id)`` foreign key holds.
+
+Nothing here names a database engine: the upsert verb, the ``INSERT`` column
+list, ``GROUP_CONCAT``, the bare-digit predicate and the year/month grouping
+expressions all come from ``conn.dialect`` (``portfolio_common.db``). The
+remaining hand-assembled ``WHERE ... = ?`` / ``LIMIT ? OFFSET ?`` fragments use
+the DB-API qmark marker directly -- a future non-qmark engine would route those
+through ``conn.dialect.placeholder`` too; they are marked, not rewritten now.
 """
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from portfolio_common.db import Allowlist
+from portfolio_common.db import Allowlist, Row
 from portfolio_common.news_export import (
     fetch_processed_articles as _shared_fetch_processed_articles,
 )
 
 from news_nlp.db import NewsNlpDatabase, _articles_rel, _ensure_article_row
 
+if TYPE_CHECKING:
+    from portfolio_common.db import Dialect
+
 _PENDING_ARTICLE_TABLES = {"article_sentiment", "article_entities"}
 
-# `group_by` selects which SQL expression `sentiment_stats` groups by --
-# checked against this Allowlist (rather than a bare dict .get(), which
-# silently produced `NULL AS group_key` -- an ungrouped result -- for any
-# unrecognized `group_by` instead of telling the caller their argument was
-# wrong) before it ever reaches the f-string below.
-_SENTIMENT_STATS_GROUP_EXPR = {
-    "company": "a.company",
-    "year": "strftime('%Y', a.pub_date)",
-    "month": "strftime('%Y-%m', a.pub_date)",
-}
-_SENTIMENT_STATS_GROUP_BY = Allowlist(*_SENTIMENT_STATS_GROUP_EXPR)
+# Column tuples for the dialect-built INSERT / upsert statements -- kept next to
+# nothing else so the accompanying params tuple stays in the same order.
+_SENTIMENT_COLS = (
+    "article_id",
+    "label",
+    "score",
+    "positive",
+    "negative",
+    "neutral",
+    "model_name",
+    "processed_at",
+)
+_CATEGORY_COLS = (
+    "article_id",
+    "label",
+    "score",
+    "earnings_performance",
+    "mergers_acquisitions",
+    "leadership_governance",
+    "legal_regulatory",
+    "product_innovation",
+    "capital_shareholder_returns",
+    "labor_human_capital",
+    "market_analyst_sentiment",
+    "partnerships_business_dev",
+    "model_name",
+    "processed_at",
+)
+_ENTITY_COLS = (
+    "article_id",
+    "entity_type",
+    "text",
+    "start_char",
+    "end_char",
+    "score",
+    "model_name",
+    "processed_at",
+)
+_SUMMARY_COLS = ("article_id", "summary_text", "num_chunks", "model_name", "processed_at")
+
+# `group_by` selects which grouping to apply in `sentiment_stats` -- checked
+# against this Allowlist of keys (rather than a bare dict .get(), which silently
+# produced an ungrouped result for any unrecognized `group_by`) before the
+# matching SQL expression (from `_group_exprs`, dialect-built for year/month) is
+# ever interpolated.
+_SENTIMENT_STATS_GROUP_BY = Allowlist("company", "year", "month")
+
+
+def _group_exprs(dialect: Dialect) -> dict[str, str]:
+    """The SQL expression `sentiment_stats` groups by, per `group_by` key.
+    ``company`` is a plain column; ``year`` / ``month`` are the dialect's
+    date-truncation expressions (SQLite: ``strftime``)."""
+    return {
+        "company": "a.company",
+        "year": dialect.year_expr("a.pub_date"),
+        "month": dialect.year_month_expr("a.pub_date"),
+    }
 
 
 def now_iso() -> str:
@@ -71,7 +127,7 @@ def now_iso() -> str:
 
 def fetch_pending_articles(
     conn: NewsNlpDatabase, table: str, limit: int | None = None
-) -> list[sqlite3.Row]:
+) -> list[Row]:
     """Return (id, body_text) rows from `articles` not yet present in `table`,
     restricted to successfully fetched, non-empty articles."""
     if table not in _PENDING_ARTICLE_TABLES:
@@ -95,9 +151,7 @@ def fetch_pending_articles(
     return conn.execute(sql, params).fetchall()
 
 
-def fetch_pending_category_articles(
-    conn: NewsNlpDatabase, limit: int | None = None
-) -> list[sqlite3.Row]:
+def fetch_pending_category_articles(conn: NewsNlpDatabase, limit: int | None = None) -> list[Row]:
     """Return (id, title, body_text) rows from `articles` not yet present in
     article_category, same eligibility filter as fetch_pending_articles. A
     dedicated query (not a widened fetch_pending_articles) since that
@@ -122,7 +176,7 @@ def fetch_pending_category_articles(
     return conn.execute(sql, params).fetchall()
 
 
-def fetch_processed_articles(conn: NewsNlpDatabase, limit: int | None = None) -> list[sqlite3.Row]:
+def fetch_processed_articles(conn: NewsNlpDatabase, limit: int | None = None) -> list[Row]:
     """Every successfully-fetched article that has both a sentiment and a
     category result, as one flat row per article: ``id, ticker, pub_date,
     fetched_at, body_text, positive, negative, sent_processed_at, cat_label,
@@ -158,9 +212,7 @@ def write_sentiment(
 ) -> None:
     _ensure_article_row(conn, article_id)
     conn.execute(
-        """INSERT OR REPLACE INTO article_sentiment
-           (article_id, label, score, positive, negative, neutral, model_name, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        conn.dialect.upsert("article_sentiment", _SENTIMENT_COLS, conflict=("article_id",)),
         (article_id, label, score, positive, negative, neutral, model_name, now_iso()),
     )
 
@@ -180,12 +232,7 @@ def write_category(
     touching the audit trail."""
     _ensure_article_row(conn, article_id)
     conn.execute(
-        """INSERT OR REPLACE INTO article_category
-           (article_id, label, score, earnings_performance, mergers_acquisitions,
-            leadership_governance, legal_regulatory, product_innovation,
-            capital_shareholder_returns, labor_human_capital, market_analyst_sentiment,
-            partnerships_business_dev, model_name, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        conn.dialect.upsert("article_category", _CATEGORY_COLS, conflict=("article_id",)),
         (
             article_id,
             label,
@@ -213,9 +260,7 @@ def write_entities(
     conn.execute("DELETE FROM article_entities WHERE article_id = ?", (article_id,))
     ts = now_iso()
     conn.executemany(
-        """INSERT INTO article_entities
-           (article_id, entity_type, text, start_char, end_char, score, model_name, processed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        conn.dialect.insert("article_entities", _ENTITY_COLS),
         [
             (
                 article_id,
@@ -232,9 +277,7 @@ def write_entities(
     )
 
 
-def fetch_pending_company_summaries(
-    conn: NewsNlpDatabase, limit: int | None = None
-) -> list[sqlite3.Row]:
+def fetch_pending_company_summaries(conn: NewsNlpDatabase, limit: int | None = None) -> list[Row]:
     """Return raw fields for articles ready for c_summary generation: a
     successful fetch (http_status_code=200), a computed sentiment, at least
     one qualifying entity (score>0.8, non-numeric), and no article_summary
@@ -242,17 +285,18 @@ def fetch_pending_company_summaries(
     an article with sentiment but zero qualifying entities is never selected
     here, same as the original query.
 
-    Returns raw columns rather than the assembled template text: SQLite
-    string literals don't interpret \\n as an escape (unlike Python), so
-    template assembly happens in build_company_summary_input() instead.
+    Returns raw columns rather than the assembled template text: SQL string
+    literals don't interpret \\n as an escape (unlike Python), so template
+    assembly happens in build_company_summary_input() instead.
     """
-    # S608: _articles_rel(conn) is only ever "main" / "source"; every value is
-    # bound as a parameter. The result-table joins stay in `main`.
+    # S608: _articles_rel(conn) is only ever "main" / "source"; the
+    # GROUP_CONCAT / bare-digit fragments come from conn.dialect; every value
+    # is bound as a parameter. The result-table joins stay in `main`.
     sql = f"""
         WITH entities AS (
-            SELECT article_id, GROUP_CONCAT(text, ', ') AS entities
+            SELECT article_id, {conn.dialect.group_concat("text", ", ")} AS entities
             FROM article_entities
-            WHERE score > 0.8 AND text NOT GLOB '[0-9]'
+            WHERE score > 0.8 AND {conn.dialect.excludes_bare_digit("text")}
             GROUP BY article_id
         )
         SELECT
@@ -273,7 +317,7 @@ def fetch_pending_company_summaries(
     return conn.execute(sql, params).fetchall()
 
 
-def build_company_summary_input(row: sqlite3.Row) -> str:
+def build_company_summary_input(row: Row) -> str:
     """Assemble the METADATA/NLP FEATURES/TEXT BODY template (query.sql's
     intent) with real newlines, for one row from fetch_pending_company_summaries."""
     return (
@@ -289,9 +333,7 @@ def write_company_summary(
 ) -> None:
     _ensure_article_row(conn, article_id)
     conn.execute(
-        """INSERT OR REPLACE INTO article_summary
-           (article_id, summary_text, num_chunks, model_name, processed_at)
-           VALUES (?, ?, ?, ?, ?)""",
+        conn.dialect.upsert("article_summary", _SUMMARY_COLS, conflict=("article_id",)),
         (article_id, summary_text, num_chunks, model_name, now_iso()),
     )
 
@@ -307,6 +349,8 @@ def list_articles(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
+    # Constant fragments + bound `?` values only; a non-qmark engine would take
+    # the marker from conn.dialect.placeholder here.
     sql = """
         SELECT a.id, a.company, a.ticker, a.title, a.pub_date,
                s.label AS sentiment_label, s.score AS sentiment_score,
@@ -399,10 +443,10 @@ def sentiment_stats(
     for any unknown key, which produced `NULL AS group_key` with no error)."""
     if group_by is not None:
         _SENTIMENT_STATS_GROUP_BY.check(group_by)
-    # S608: `group_expr` only ever comes from the fixed
-    # _SENTIMENT_STATS_GROUP_EXPR literals above (group_by is validated
-    # against the same map's keys just above), never from `group_by` itself.
-    group_expr = _SENTIMENT_STATS_GROUP_EXPR.get(group_by) if group_by else None
+    # S608: `group_expr` only ever comes from `_group_exprs` -- a fixed column
+    # name or a dialect-built date expression, keyed by the already-validated
+    # `group_by`, never `group_by`'s raw text.
+    group_expr = _group_exprs(conn.dialect).get(group_by) if group_by else None
     select_group = f"{group_expr} AS group_key," if group_expr else "NULL AS group_key,"
     sql = f"""
         SELECT {select_group}

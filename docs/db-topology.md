@@ -5,11 +5,22 @@ The DB layer lives in **`src/news_nlp/`**, a local package owned by this repo
 see `docs/portfolio-common-v1-migration-plan.md`). It's imported directly by
 `pipeline.py` / `apps/news_nlp_api.py` / tests (`import news_nlp as db`, `from
 news_nlp import corrections`, `from news_nlp.taxonomy import ...`) — no
-`portfolio_common.news_nlp` and no local re-export facade. It still depends on
-`portfolio_common.db.Database` (a `Database` subclass, `NewsNlpDatabase`) and
-`portfolio_common.db.Allowlist`/`in_clause` as an ordinary package dependency —
-`portfolio-common` itself is now DB-engine-only and stays pinned by tag in
-`pyproject.toml`'s `[tool.uv.sources]`.
+`portfolio_common.news_nlp` and no local re-export facade.
+
+**No engine-specific code lives here.** As of `portfolio-common` v1.2.0 this
+package names no database engine: `NewsNlpDatabase` subclasses
+`portfolio_common.db.TwoTierDatabase` (itself a `Database`), connections are
+opened via `Database.connect_url` (a path today, a `scheme://` URL if the
+engine ever changes), the `main`/`source` schema handle is
+`TwoTierDatabase.read_schema` (kept available under the old name
+`db.articles_rel`), schema introspection goes through
+`Database.table_columns` / `.ensure_columns` / `.create_schema`, the lean
+cross-store row copy through `Database.copy_row_lean`, and every dialect SQL
+fragment (the upsert verb, `strftime`/`date(...)` week bucketing, `GLOB`, the
+`AUTOINCREMENT` DDL token) through `conn.dialect`. Swapping the engine is a
+change to `portfolio-common` alone — see `docs/engine-agnostic-rollout.md`
+and `docs/portfolio-common-v1.2-engine-agnostic.md`. `portfolio-common` stays
+pinned in `pyproject.toml`'s `[tool.uv.sources]`.
 
 `portfolio-nlp` uses **two** SQLite databases with distinct roles, selected by
 two environment variables and never conflated in code.
@@ -57,14 +68,15 @@ lean `articles` row per processed article, so it stays self-consistent without
 `pipeline.run_pipeline` → `news_nlp.db.connect_pipeline()`:
 
 1. opens the RESULTS store read/write (`main`) as a `NewsNlpDatabase` (a
-   `portfolio_common.db.Database` subclass) via `NewsNlpDatabase.connect(…,
-   uri=True, foreign_keys=True)`;
+   `portfolio_common.db.TwoTierDatabase` subclass) via
+   `portfolio_common.db.connect_two_store(results, source, alias="source",
+   factory=NewsNlpDatabase, foreign_keys=True)` — URI-mode, so a later
+   read-only `ATTACH` on it is honored;
 2. unless `SOURCE_DATABASE_URL` resolves to the **same path** as `DATABASE_URL`,
-   `ATTACH`es the SOURCE store read-only (`file:…?mode=ro`) as `source` and flips
-   `db.articles_rel` to `"source"` (`attach_source`, which delegates the ATTACH
-   itself -- including the stale-WAL preflight -- to
-   `Database.attach(source, "source", read_only=True)`). The read-only ATTACH is
-   only honored because the RESULTS connection was opened `uri=True`.
+   `connect_two_store` `ATTACH`es the SOURCE store read-only as `source` and
+   sets `db.read_schema` (aliased `db.articles_rel`) to `"source"` —
+   delegating the ATTACH and its stale-WAL preflight to
+   `Database.attach(source, "source", read_only=True)`.
 3. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
    that `articles` table has no `body_text` column or no non-empty `body_text`
    row — the common "pointed a text stage at the results store" mistake, which
@@ -76,10 +88,11 @@ The three `body_text` readers (`fetch_pending_articles`,
 `"source"` -- see `news_nlp/db.py`), so they read `source.articles` during a
 two-tier run and `main.articles` otherwise. All result-table joins stay in
 `main`. Every result-table write (`write_sentiment` / `write_category` /
-`write_entities` / `write_company_summary`) first `db._ensure_article_row`
-`INSERT OR IGNORE`s the lean `articles` row (metadata only) from `source` into
-`main`, so the RESULTS store stays foreign-key-consistent on its own — no
-separate migration step.
+`write_entities` / `write_company_summary`) first `db._ensure_article_row` →
+`Database.copy_row_lean` upserts the lean `articles` row (metadata only,
+SOURCE ∩ RESULTS columns minus `body_text`) from `source` into `main`, so the
+RESULTS store stays foreign-key-consistent on its own — no separate migration
+step.
 
 The `sector_summary` stage and every query/correction endpoint read only result
 tables + `articles` metadata, never `body_text`, so they need **no** SOURCE — a
@@ -120,8 +133,9 @@ export SOURCE_DATABASE_URL=D:/thesis/data/urls.db
 export DATABASE_URL=D:/thesis/data/urls.db   # same path
 ```
 
-`connect_pipeline` sees the paths match, skips the ATTACH, and reads/writes the
-one file (`articles_rel` stays `"main"`, the lean upsert is a no-op).
+`connect_two_store` (via `connect_pipeline`) sees the paths match, skips the
+ATTACH, and reads/writes the one file (`read_schema` / `articles_rel` stays
+`"main"`, the lean upsert is a no-op).
 
 ## External consumers
 

@@ -18,6 +18,13 @@ correction of model output rather than model-generated writes. Deleting a
 sentiment row (or all of an article's entities, or its category) makes that
 article eligible for reprocessing again, since queries.fetch_pending_articles /
 fetch_pending_category_articles select rows missing from the result table.
+
+Engine assumptions here, both DB-API level rather than SQLite-specific and so
+left as-is: the ``?`` qmark parameter marker (a non-qmark engine would take it
+from ``conn.dialect.placeholder``), and ``conn.execute(...).rowcount`` for
+"did the UPDATE/DELETE hit a row" -- reliable on SQLite; the DB-API permits a
+driver to return ``-1`` "unknown", which is the seam to revisit if that ever
+happens.
 """
 
 from datetime import UTC, datetime

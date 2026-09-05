@@ -38,9 +38,10 @@ def test_init_schema_is_idempotent(test_db_path: Path) -> None:
 
 def test_migrate_sector_summary_schema_adds_missing_columns(tmp_path: Path) -> None:
     path = tmp_path / "legacy.db"
-    conn = sqlite3.connect(path)
-    # a pre-format_version sector_summary table
-    conn.executescript(
+    # a pre-format_version sector_summary table, built the way the crawler /
+    # an older release would have -- raw sqlite3 is fine for test setup.
+    raw = sqlite3.connect(path)
+    raw.executescript(
         """
         CREATE TABLE sector_summary (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,17 +54,19 @@ def test_migrate_sector_summary_schema_adds_missing_columns(tmp_path: Path) -> N
         );
         """
     )
-    conn.commit()
+    raw.commit()
+    raw.close()
 
+    conn = db.connect(path)
     schema._migrate_sector_summary_schema(conn)
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(sector_summary)")}
+    cols = set(conn.table_columns("sector_summary"))
     conn.close()
     assert {"format_version", "facts_json", "intro_text"} <= cols
 
 
 def test_migrate_sector_summary_schema_noop_when_table_absent(tmp_path: Path) -> None:
-    conn = sqlite3.connect(tmp_path / "empty.db")
-    schema._migrate_sector_summary_schema(conn)  # must not raise
+    conn = db.connect(tmp_path / "empty.db")
+    schema._migrate_sector_summary_schema(conn)  # must not raise (table absent)
     conn.close()
 
 

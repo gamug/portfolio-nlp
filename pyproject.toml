@@ -14,9 +14,14 @@ dependencies = [
     # As of v1.1.0, `news_nlp.queries.fetch_processed_articles` delegates to
     # `portfolio_common.news_export` -- the one read join shared with
     # portfolio-knowledge-graph, not duplicated -- see
-    # docs/portfolio-common-v1.1-news-export.md. Pinned by tag in
-    # [tool.uv.sources] -- bump the tag there to adopt a new DB-engine
-    # contract.
+    # docs/portfolio-common-v1.1-news-export.md. As of v1.2.0, every
+    # engine-specific fragment in src/news_nlp/ (the upsert verb, date/week
+    # SQL, GLOB predicate, PRAGMA introspection, the ATTACH two-tier open,
+    # the Row type) goes through portfolio_common's Dialect / connect_url /
+    # two_store / table_columns -- so "which database engine" is a
+    # portfolio-common change, not a change here. See
+    # docs/engine-agnostic-rollout.md. Pinned in [tool.uv.sources] -- bump
+    # the pin there to adopt a new DB-engine contract.
     "portfolio-common",
     # --- shared web/runtime -----------------------------------------------
     "httpx[http2]>=0.27.0",
@@ -67,7 +72,12 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.1.0" }
+# INTERIM: pinned to the feat/engine-agnostic-dialect-seam commit ahead of the
+# v1.2.0 tag -- gamug/portfolio-common#9 adds the Dialect seam, connect_url,
+# the Row alias, two_store, and the schema-introspection helpers that
+# src/news_nlp/ now routes every engine-specific fragment through. Re-pin to
+# `tag = "v1.2.0"` once that PR is merged and tagged.
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", rev = "53bc381c0455f90c5b39d921e7e550ef767f74ab" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
