@@ -157,6 +157,9 @@ data/
 *.db-wal
 .venv
 env/
+
+# news_nlp.eval: local MLflow file store (uv run cli/news_nlp_eval.py)
+mlruns/
 venv/
 ENV/
 env.bak/

@@ -34,7 +34,7 @@ from transformers import (
 
 import news_nlp as db
 from chunking import chunk_text, merge_char_spans
-from news_nlp.taxonomy import CATEGORY_LABELS, OTHER_LABEL
+from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD, CATEGORY_LABELS, OTHER_LABEL
 
 # Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
 # `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
@@ -82,14 +82,10 @@ def _warn_if_cpu() -> None:
         )
 
 
-# 9 mutually-exclusive labels via softmax over entailment logits gives a
-# uniform-chance baseline of ~0.11; requiring the winner to clear 0.4
-# (~3.6x baseline) routes genuinely ambiguous/generic articles to "other"
-# without being so strict that on-topic articles with modest lexical overlap
-# to their hypothesis get miscategorized. Named constant specifically so
-# it's cheap to retune later using article_category's stored per-label score
-# distribution -- see docs/category-taxonomy.md.
-CATEGORY_CONFIDENCE_THRESHOLD = 0.4
+# CATEGORY_CONFIDENCE_THRESHOLD (0.4) now lives in news_nlp.taxonomy so
+# news_nlp.eval can read it without importing torch; imported above and
+# re-exported here for the existing call sites in this module.
+#
 # Tighter than the 510 used by sentiment/NER's single-sequence chunking:
 # this stage tokenizes (premise, hypothesis) *pairs*, so the premise needs
 # to leave headroom for the hypothesis text plus special tokens within the

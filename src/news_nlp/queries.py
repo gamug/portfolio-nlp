@@ -21,6 +21,7 @@ Read (FastAPI query endpoints -- paginated, dict-per-call):
     sentiment_stats                     -- 3-way sentiment pivot, optionally grouped by company/year/month
     entity_stats                        -- top mentioned entities by count
     category_stats                      -- per-category-label article counts
+    latest_eval_runs                    -- most recent news_nlp.eval run per stage (GET /eval/latest)
 
 Write (pipeline result writers -- each first upserts the lean `articles` row):
     write_sentiment                     -- upsert one article's sentiment result
@@ -47,6 +48,7 @@ through ``conn.dialect.placeholder`` too; they are marked, not rewritten now.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -525,3 +527,27 @@ def category_stats(
         params.append(date_to)
     sql += " GROUP BY c.label ORDER BY count DESC"
     return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def latest_eval_runs(conn: NewsNlpDatabase) -> list[dict]:
+    """The most recent ``eval_run`` row per stage (newest first), with
+    ``metrics_json`` decoded into a ``metrics`` object. Backs ``GET /eval/latest``.
+    Lives here (not in ``news_nlp.eval``) so the API path never imports the
+    ``eval`` dependency group (``strands`` / ``mlflow``)."""
+    rows = conn.execute(
+        """
+        SELECT r.stage, r.started_at, r.finished_at, r.status, r.sample_size,
+               r.judge_model, r.code_version, r.mlflow_run_id, r.metrics_json
+        FROM eval_run r
+        JOIN (
+            SELECT stage, MAX(started_at) AS mx FROM eval_run GROUP BY stage
+        ) latest ON latest.stage = r.stage AND latest.mx = r.started_at
+        ORDER BY r.started_at DESC
+        """
+    ).fetchall()
+    out: list[dict] = []
+    for row in rows:
+        d = dict(row)
+        d["metrics"] = json.loads(d.pop("metrics_json") or "{}")
+        out.append(d)
+    return out

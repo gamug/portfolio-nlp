@@ -52,3 +52,14 @@ CATEGORY_LABELS = [
 OTHER_LABEL = "other"
 
 CATEGORY_SLUGS = tuple(slug for slug, _, _ in CATEGORY_LABELS)
+
+# 9 mutually-exclusive labels via softmax over entailment logits gives a
+# uniform-chance baseline of ~0.11; requiring the winner to clear 0.4
+# (~3.6x baseline) routes genuinely ambiguous/generic articles to "other"
+# without being so strict that on-topic articles with modest lexical overlap
+# to their hypothesis get miscategorized. Named constant specifically so
+# it's cheap to retune later using article_category's stored per-label score
+# distribution -- see docs/category-taxonomy.md. Lives here (not in
+# pipeline.py) so news_nlp.eval can share the one value without importing
+# torch; pipeline.py re-imports it.
+CATEGORY_CONFIDENCE_THRESHOLD = 0.4

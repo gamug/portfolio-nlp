@@ -21,12 +21,16 @@ _RESULT_TABLES = {
     "article_category",
 }
 
+# news_nlp.eval run-log tables (see docs/evaluation.md)
+_EVAL_TABLES = {"eval_run", "eval_judgement"}
+
 
 def test_init_schema_creates_every_result_table(test_db_path: Path) -> None:
     conn = sqlite3.connect(test_db_path)
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     conn.close()
     assert names >= _RESULT_TABLES
+    assert names >= _EVAL_TABLES
 
 
 def test_init_schema_is_idempotent(test_db_path: Path) -> None:

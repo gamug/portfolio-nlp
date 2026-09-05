@@ -1,5 +1,7 @@
 """Canonical DDL for the news-NLP RESULTS store: the five result tables, each
-keyed by ``article_id`` and ``REFERENCES articles(id)``.
+keyed by ``article_id`` and ``REFERENCES articles(id)``, plus the two
+``eval_run`` / ``eval_judgement`` run-log tables written by ``news_nlp.eval``
+(the LLM-as-judge accuracy evaluation -- see ``docs/evaluation.md``).
 
 Does **not** create ``articles`` -- that table is owned by the crawler on the
 SOURCE side; on the RESULTS side a lean, ``body_text``-free subset is
@@ -105,6 +107,49 @@ CREATE TABLE IF NOT EXISTS article_category (
     model_name TEXT NOT NULL,
     processed_at TEXT NOT NULL
 );
+
+-- LLM-as-judge accuracy evaluation (news_nlp.eval). One eval_run per
+-- (stage, invocation); eval_judgement holds the per-sampled-row judge
+-- verdict. Not keyed to articles(id) by a foreign key: a run's sample is
+-- a point-in-time snapshot and rows can be re-processed/corrected after.
+-- The full metrics blob is also logged to MLflow; metrics_json here is the
+-- queryable copy behind GET /eval/latest. See docs/evaluation.md.
+CREATE TABLE IF NOT EXISTS eval_run (
+    id {autoincrement_pk},
+    stage         TEXT NOT NULL,   -- sentiment | category | ner | c_summary
+    started_at    TEXT NOT NULL,
+    finished_at   TEXT,
+    sample_size   INTEGER NOT NULL,
+    low_conf_n    INTEGER NOT NULL,
+    random_n      INTEGER NOT NULL,
+    seed          INTEGER,
+    judge_model   TEXT NOT NULL,
+    judge_url     TEXT NOT NULL,
+    code_version  TEXT NOT NULL,
+    mlflow_run_id TEXT,
+    metrics_json  TEXT NOT NULL DEFAULT '{}',
+    status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error
+    error         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_run_stage_started
+    ON eval_run(stage, started_at);
+
+CREATE TABLE IF NOT EXISTS eval_judgement (
+    id {autoincrement_pk},
+    run_id                INTEGER NOT NULL REFERENCES eval_run(id),
+    article_id            INTEGER NOT NULL,
+    bucket                TEXT NOT NULL,   -- low_conf | random
+    model_prediction_json TEXT NOT NULL,
+    verdict_json          TEXT NOT NULL,
+    correct               INTEGER,         -- 0/1 for label stages; NULL for ner/c_summary
+    severity              INTEGER,
+    rationale             TEXT,
+    judged_at             TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_judgement_run_id
+    ON eval_judgement(run_id);
 """
 
 
