@@ -24,16 +24,17 @@ It routes every engine-specific fragment through `portfolio-common`'s
 
 | Phase | Repo | State |
 |---|---|---|
-| 1 | `portfolio-common` v1.2.0 | **PR open** — [gamug/portfolio-common#9](https://github.com/gamug/portfolio-common/pull/9). Merge → tag `v1.2.0`. |
-| 2 | `portfolio-nlp` | **In progress** — branch `refactor/engine-agnostic-news-nlp`, pinned to the #9 commit interim; full suite green. Flip pin → `v1.2.0` after Phase 1 tags. |
-| 3 | `portfolio-knowledge-graph` | Not started. ~1 hour — see below. |
-| 4 | `portfolio-financial-analysis` | Not started. Largest — see below. |
-| 5 | `portfolio-data-mining` | Not started — see below. |
+| 1 | `portfolio-common` v1.2.0 | **Merged**, tagged `v1.2.0` — [#9](https://github.com/gamug/portfolio-common/pull/9). |
+| 1b | `portfolio-common` v1.2.1 | **Merged**, tagged `v1.2.1` — [#10](https://github.com/gamug/portfolio-common/pull/10). `upsert` `ON CONFLICT DO UPDATE`/`DO NOTHING`, `json_extract`/`json_each`, `relation_exists`/`relation_kind`/`relation_ddl`, `schema_version`, `DatabaseError` — the extra seam Phases 4–5 needed. |
+| 2 | `portfolio-nlp` | **Merged** — [#24](https://github.com/gamug/portfolio-nlp/pull/24) + re-pin [#25](https://github.com/gamug/portfolio-nlp/pull/25). `src/news_nlp/` names no engine; 143 tests green. |
+| 3 | `portfolio-knowledge-graph` | **PR open** — [#9](https://github.com/gamug/portfolio-knowledge-graph/pull/9). Pin → `v1.2.0`; one `import sqlite3` + one `Row` hint. |
+| 4 | `portfolio-financial-analysis` | **PR open** — [#32](https://github.com/gamug/portfolio-financial-analysis/pull/32). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA`/`sqlite_master`/`executescript` routed; 203 tests green. `INSERT OR IGNORE`/`ON CONFLICT`/`json_extract` string literals flagged as the remaining seam-adoption work (see that PR). |
+| 5 | `portfolio-data-mining` | **PR open** — [#26](https://github.com/gamug/portfolio-data-mining/pull/26). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA user_version`→`set_schema_version`, `executescript`→`create_schema`, the `articles` `INSERT OR REPLACE` + queue `INSERT OR IGNORE`/`ON CONFLICT` routed through `conn.dialect`; 213 tests green. |
 
-Also in this rollout: **normalise every consumer onto the `v1.2.0` tag**.
-Three of the five repos are pinned to loose `portfolio-common` *branch
-commits* (`-knowledge-graph` → `rev 2f8f93a`, `-data-mining` → `rev
-aa59a7ec`) or a stale tag (`-financial-analysis` → `v1.0.0`).
+Also done: **every consumer normalised onto a `v1.2.x` tag** — the three that
+were pinned to loose `portfolio-common` branch commits (`-knowledge-graph`,
+`-data-mining`) or a stale tag (`-financial-analysis` → `v1.0.0`) now point at
+`v1.2.0` / `v1.2.1`.
 
 ---
 
