@@ -151,3 +151,20 @@ uv run pytest tests/news_nlp -q
 The suite is hermetic — every model load is monkeypatched, so no torch download, GPU, or
 network is needed at test time. All tests pass (part of the repo's CI gate; see
 `.github/workflows/ci.yml`).
+
+## Evaluation
+
+`news_nlp.eval` measures how good the stage outputs actually are, using an
+LLM-as-judge over a 60 % low-confidence / 40 % random sample of the stored
+predictions, with metrics tracked in MLflow and in the `eval_run` /
+`eval_judgement` tables. It is a separate `eval` dependency group and needs an
+OpenAI-compatible LLM endpoint (`LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
+
+```bash
+uv sync --group eval
+uv run cli/news_nlp_eval.py --stage all --sample-size 80
+uv run mlflow ui
+```
+
+Full detail — sampling, per-stage metrics, the "judge is a model, not gold"
+caveat, and the CI / scheduled story — in `docs/evaluation.md`.

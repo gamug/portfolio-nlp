@@ -22,7 +22,10 @@ jobs:
       # `pytorch-cu124` index); it imports fine on CPU CI and the test suite
       # monkeypatches every model load, so nothing touches CUDA.
       - name: Sync
-        run: uv sync --group dev
+        # --group eval pulls in strands-agents + mlflow so the hermetic
+        # tests/news_nlp/test_eval_*.py run here too (they mock the LLM; the
+        # real eval is the separate eval.yml workflow).
+        run: uv sync --group dev --group eval
 
       - name: Ruff lint
         run: uv run --no-sync ruff check .

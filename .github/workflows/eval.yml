@@ -1,0 +1,68 @@
+name: LLM accuracy eval
+
+# Runs the REAL LLM-as-judge accuracy evaluation (news_nlp.eval) and checks for a
+# headline-metric regression vs the previous MLflow run. Unlike ci.yml this needs
+# an LLM endpoint (repo secrets) and the actual SOURCE/RESULTS databases, which
+# live on the working machine -- so this is a TEMPLATE:
+#
+#   * it assumes a self-hosted runner with the DBs mounted at $SOURCE_DATABASE_URL
+#     / $DATABASE_URL and a persistent $MLFLOW_TRACKING_URI (a tracking server or
+#     a synced dir) so --check-regression has a prior run to compare against;
+#   * on GitHub-hosted runners there is no data -- keep it on workflow_dispatch
+#     and point the env at a fixture DB, or just run `uv run cli/news_nlp_eval.py`
+#     on a local cron instead.
+#
+# See docs/evaluation.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample_size:
+        description: "Rows to judge per stage"
+        required: false
+        default: "80"
+      stages:
+        description: "Comma-separated stages, or 'all'"
+        required: false
+        default: "all"
+  schedule:
+    - cron: "0 6 * * 1" # 06:00 UTC every Monday
+
+jobs:
+  eval:
+    # runs-on: [self-hosted, thesis-data]   # <- a runner that can see the DBs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync
+        run: uv sync --group dev --group eval
+
+      - name: Run eval + regression gate
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          LLM_URL: ${{ secrets.LLM_URL }}
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          SOURCE_DATABASE_URL: ${{ secrets.SOURCE_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          STAGES="${{ github.event.inputs.stages || 'all' }}"
+          ARGS=""
+          for s in ${STAGES//,/ }; do ARGS="$ARGS --stage $s"; done
+          uv run --no-sync cli/news_nlp_eval.py $ARGS \
+            --sample-size "${{ github.event.inputs.sample_size || '80' }}" \
+            --check-regression
+
+      - name: Upload local mlruns (only if MLFLOW_TRACKING_URI is unset -> ./mlruns)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlruns
+          path: mlruns
+          if-no-files-found: ignore

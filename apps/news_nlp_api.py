@@ -221,6 +221,14 @@ def get_sector_summaries(
     )
 
 
+@app.get("/eval/latest")
+def get_latest_eval(conn: db.NewsNlpDatabase = Depends(get_db)) -> list[dict]:
+    """Most recent LLM-as-judge accuracy-eval run per stage (see news_nlp.eval /
+    docs/evaluation.md). Empty until `cli/news_nlp_eval.py` has been run against
+    this RESULTS store."""
+    return db.latest_eval_runs(conn)
+
+
 class SentimentUpdateRequest(BaseModel):
     label: Literal["positive", "negative", "neutral"] | None = None
     score: float | None = Field(None, ge=0, le=1)
