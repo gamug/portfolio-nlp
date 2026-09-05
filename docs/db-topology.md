@@ -126,15 +126,23 @@ one file (`articles_rel` stays `"main"`, the lean upsert is a no-op).
 ## External consumers
 
 `list_articles` / `get_article_detail` / the `*_stats` functions are shaped for
-`portfolio-nlp`'s own FastAPI endpoints (paginated, dict-per-call). A consumer
-outside `portfolio-nlp` entirely that just wants every fully-processed article as
-plain rows — e.g. `portfolio-knowledge-graph`'s ETL — should depend on this repo
-directly and use `news_nlp.fetch_processed_articles(conn, limit=...)` instead of
-writing its own join: `connect_pipeline(results_db=..., source_db=...)` then
-this one call hides the SOURCE/RESULTS split the same way the pipeline's own
-readers do. Don't import `news_nlp.db._articles_rel` (or any other
-underscore-prefixed name) directly from outside this package to build a bespoke
-query — it's internal; ask for (or add) a named export like this one instead.
+`portfolio-nlp`'s own FastAPI endpoints (paginated, dict-per-call). Within this
+repo, `fetch_processed_articles(conn, limit=...)` is the read-only export join
+for every fully-processed article as plain rows, still using
+`connect_pipeline(results_db=..., source_db=...)` to hide the SOURCE/RESULTS
+split from the caller the same way the pipeline's own readers do.
+
+As of `portfolio-common` v1.1.0, that join's SQL is no longer this repo's alone
+to own: it delegates to `portfolio_common.news_export.fetch_processed_articles`,
+the one piece of this read contract genuinely shared with a consumer outside
+`portfolio-nlp` — `portfolio-knowledge-graph`'s ETL, which imports
+`portfolio_common.news_export` directly rather than depending on this repo or
+carrying its own copy of the query. See
+`docs/portfolio-common-v1.1-news-export.md` for why. Don't import
+`news_nlp.db._articles_rel` (or any other underscore-prefixed name) directly
+from outside this package to build a bespoke query — it's internal; ask for
+(or add) a named export in `portfolio_common.news_export` instead if another
+repo needs a second shared read.
 
 ## Caveats
 

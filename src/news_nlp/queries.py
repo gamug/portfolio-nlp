@@ -12,6 +12,8 @@ Read (pipeline "pending" fetchers -- drive the "what's left to process" loop):
 
 Read (plain export join for consumers outside portfolio-nlp):
     fetch_processed_articles            -- every fully-processed article as flat rows, unpaginated
+                                            (thin wrapper over the shared portfolio_common.news_export
+                                            implementation -- see that function's docstring)
 
 Read (FastAPI query endpoints -- paginated, dict-per-call):
     list_articles                       -- filtered/paginated article list with sentiment+category
@@ -42,6 +44,9 @@ import sqlite3
 from datetime import UTC, datetime
 
 from portfolio_common.db import Allowlist
+from portfolio_common.news_export import (
+    fetch_processed_articles as _shared_fetch_processed_articles,
+)
 
 from news_nlp.db import NewsNlpDatabase, _articles_rel, _ensure_article_row
 
@@ -127,33 +132,18 @@ def fetch_processed_articles(conn: NewsNlpDatabase, limit: int | None = None) ->
     "what's left to process" loop) or ``list_articles``/``get_article_detail``
     (shaped for the FastAPI query endpoints, paginated and dict-per-call), this
     is a plain read-only export join meant for a consumer outside
-    ``portfolio-nlp`` entirely -- e.g. a downstream knowledge-graph ETL that
-    wants every processed article as rows, unpaginated. It still hides the
-    SOURCE/RESULTS split from that caller: `body_text` is read via
-    `db._articles_rel(conn)` the same way the pipeline's own readers do, so the
-    caller only needs `connect_pipeline()` and this function -- no query of its
-    own, no knowledge of `ATTACH`.
+    ``portfolio-nlp`` entirely -- e.g. ``portfolio-knowledge-graph``'s ETL,
+    which wants every processed article as rows, unpaginated.
+
+    A thin wrapper, not a second copy of the SQL: the join itself lives in
+    ``portfolio_common.news_export.fetch_processed_articles``, the one piece
+    of this schema's read contract that's genuinely shared across repos (see
+    that module's docstring). This wrapper's only job is resolving
+    ``_articles_rel(conn)`` -- hiding the SOURCE/RESULTS split from callers
+    the same way the pipeline's own readers do, so a caller here only needs
+    ``connect_pipeline()`` and this function, no knowledge of ``ATTACH``.
     """
-    # S608: _articles_rel(conn) is only ever "main" / "source"; `limit` is bound
-    # as a parameter, not interpolated.
-    sql = f"""
-        SELECT a.id AS id, a.ticker AS ticker, a.pub_date AS pub_date,
-               a.fetched_at AS fetched_at, a.body_text AS body_text,
-               s.positive AS positive, s.negative AS negative,
-               s.processed_at AS sent_processed_at,
-               c.label AS cat_label, c.score AS cat_score,
-               c.processed_at AS cat_processed_at
-        FROM {_articles_rel(conn)}.articles a
-        JOIN article_sentiment s ON s.article_id = a.id
-        JOIN article_category c ON c.article_id = a.id
-        WHERE a.fetch_status = 'ok'
-        ORDER BY a.id
-    """  # noqa: S608
-    params: list = []
-    if limit:
-        sql += " LIMIT ?"
-        params.append(limit)
-    return conn.execute(sql, params).fetchall()
+    return _shared_fetch_processed_articles(conn, _articles_rel(conn), limit=limit)
 
 
 def write_sentiment(
