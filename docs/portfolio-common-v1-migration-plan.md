@@ -112,6 +112,12 @@ point; coordinate before executing either plan in isolation, since
 knowledge-graph's plan currently assumes this repo will expose those two
 functions somehow.
 
+**Resolved** by `portfolio-common` v1.1.0's `portfolio_common.news_export`
+(`connect_readonly` + `fetch_processed_articles`): neither repo depends on
+the other, and `news_nlp.queries.fetch_processed_articles` here is now a thin
+delegate to that shared join. See
+`docs/portfolio-common-v1.1-news-export.md`.
+
 ## Verification
 
 - `uv sync`, `uv run pytest`, `uv run ruff check .`, `uv run mypy src` all
