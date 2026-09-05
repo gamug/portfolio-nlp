@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from portfolio_common import news_nlp as db_module
+
+import news_nlp as db_module
 
 ARTICLES_SCHEMA = """
 CREATE TABLE articles (

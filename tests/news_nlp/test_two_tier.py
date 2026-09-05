@@ -1,6 +1,6 @@
 """Two-tier DB behaviours that run through `pipeline.run_pipeline` / the FastAPI
-app. The pure connection/attach/query cases live in portfolio-common's
-`tests/test_news_nlp_db.py` now that the DB layer moved there.
+app. The pure connection/attach/query cases live in test_db.py, alongside the
+rest of the vendored news_nlp package's own unit tests.
 """
 
 import sqlite3
@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from conftest import LEAN_ARTICLES_SCHEMA
 from fastapi.testclient import TestClient
-from portfolio_common import news_nlp as db
 
+import news_nlp as db
 import pipeline
 
 

@@ -1,12 +1,15 @@
 # Database topology: the two-tier contract
 
-The DB layer lives in **`portfolio_common.news_nlp`** (git-tag-pinned in
-`pyproject.toml`'s `[tool.uv.sources]`; imported directly by `pipeline.py` /
-`apps/news_nlp_api.py` / tests — there is no local `db.py` re-export).
-The contract itself — the five result tables, the SOURCE/RESULTS roles, the
-`ATTACH` mechanics, the lean-`articles` FK invariant — is in
-[`portfolio-common/docs/news-nlp-db-topology.md`](https://github.com/gamug/portfolio-common/blob/master/docs/news-nlp-db-topology.md).
-This page keeps the `portfolio-nlp` **operator recipes**.
+The DB layer lives in **`src/news_nlp/`**, a local package owned by this repo
+(vendored from `portfolio-common`'s `business_folders/news_nlp/` staging area —
+see `docs/portfolio-common-v1-migration-plan.md`). It's imported directly by
+`pipeline.py` / `apps/news_nlp_api.py` / tests (`import news_nlp as db`, `from
+news_nlp import corrections`, `from news_nlp.taxonomy import ...`) — no
+`portfolio_common.news_nlp` and no local re-export facade. It still depends on
+`portfolio_common.db.Database` (a `Database` subclass, `NewsNlpDatabase`) and
+`portfolio_common.db.Allowlist`/`in_clause` as an ordinary package dependency —
+`portfolio-common` itself is now DB-engine-only and stays pinned by tag in
+`pyproject.toml`'s `[tool.uv.sources]`.
 
 `portfolio-nlp` uses **two** SQLite databases with distinct roles, selected by
 two environment variables and never conflated in code.
@@ -14,16 +17,16 @@ two environment variables and never conflated in code.
 | | **SOURCE** | **RESULTS** |
 |---|---|---|
 | env var | `SOURCE_DATABASE_URL` | `DATABASE_URL` |
+| resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
-| opened | read-only (`file:…?mode=ro`), ATTACHed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables + a lean `articles` subset (**no `body_text`**) |
+| opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables (`news_nlp.schema.SCHEMA`) + a lean `articles` subset (**no `body_text`**) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
-Path resolution (`portfolio_common.news_nlp.env`): an **absolute** value is used
-as-is; a **relative** value is left relative — resolved against the process's
-**current working directory** (it used to resolve against the repo root; there is
-no repo root once the code lives in an installed package). Unset → `DATABASE_URL`
-falls back to `data/nlp.db`, `SOURCE_DATABASE_URL` → `None`.
+Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
+**relative** value is left relative — resolved against the process's current
+working directory. Unset → `results_db_path()` falls back to `data/nlp.db`,
+`source_db_path()` → `None`.
 
 ## Upgrading from the single-`DATABASE_URL` setup
 
@@ -51,28 +54,36 @@ lean `articles` row per processed article, so it stays self-consistent without
 
 ## How a pipeline run uses both
 
-`pipeline.run_pipeline` → `db.connect_pipeline()`:
+`pipeline.run_pipeline` → `news_nlp.db.connect_pipeline()`:
 
-1. opens the RESULTS store read/write (`main`);
+1. opens the RESULTS store read/write (`main`) as a `NewsNlpDatabase` (a
+   `portfolio_common.db.Database` subclass) via `NewsNlpDatabase.connect(…,
+   uri=True, foreign_keys=True)`;
 2. unless `SOURCE_DATABASE_URL` resolves to the **same path** as `DATABASE_URL`,
-   `ATTACH`es the SOURCE store read-only as `source` and flips
-   `conn.articles_rel` to `"source"`;
-3. `db.require_source_text()` then fails fast (before any model loads) if that
-   `articles` table has no `body_text` column or no non-empty `body_text` rows —
-   the common "pointed a text stage at the results store" mistake, which used to
-   surface as a silent *"0 pending"*.
+   `ATTACH`es the SOURCE store read-only (`file:…?mode=ro`) as `source` and flips
+   `db.articles_rel` to `"source"` (`attach_source`, which delegates the ATTACH
+   itself -- including the stale-WAL preflight -- to
+   `Database.attach(source, "source", read_only=True)`). The read-only ATTACH is
+   only honored because the RESULTS connection was opened `uri=True`.
+3. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
+   that `articles` table has no `body_text` column or no non-empty `body_text`
+   row — the common "pointed a text stage at the results store" mistake, which
+   used to surface as a silent *"0 pending"*.
 
 The three `body_text` readers (`fetch_pending_articles`,
 `fetch_pending_category_articles`, `fetch_pending_company_summaries`) qualify
-`articles` with `conn.articles_rel`, so they read `source.articles` during a
+`articles` with `db._articles_rel(conn)` (Allowlist-checked against `"main"` /
+`"source"` -- see `news_nlp/db.py`), so they read `source.articles` during a
 two-tier run and `main.articles` otherwise. All result-table joins stay in
-`main`. Every result-table write (`db.write_sentiment` / `write_category` /
-`write_entities` / `write_company_summary`) first `INSERT OR IGNORE`s the lean
-`articles` row (metadata only) from `source` into `main`, so the RESULTS store
-stays foreign-key-consistent on its own — no separate migration step.
+`main`. Every result-table write (`write_sentiment` / `write_category` /
+`write_entities` / `write_company_summary`) first `db._ensure_article_row`
+`INSERT OR IGNORE`s the lean `articles` row (metadata only) from `source` into
+`main`, so the RESULTS store stays foreign-key-consistent on its own — no
+separate migration step.
 
 The `sector_summary` stage and every query/correction endpoint read only result
-tables + `articles` metadata, never `body_text`, so they need **no** SOURCE.
+tables + `articles` metadata, never `body_text`, so they need **no** SOURCE — a
+plain `news_nlp.db.connect()` is enough.
 
 ## Operator recipes
 
@@ -111,6 +122,19 @@ export DATABASE_URL=D:/thesis/data/urls.db   # same path
 
 `connect_pipeline` sees the paths match, skips the ATTACH, and reads/writes the
 one file (`articles_rel` stays `"main"`, the lean upsert is a no-op).
+
+## External consumers
+
+`list_articles` / `get_article_detail` / the `*_stats` functions are shaped for
+`portfolio-nlp`'s own FastAPI endpoints (paginated, dict-per-call). A consumer
+outside `portfolio-nlp` entirely that just wants every fully-processed article as
+plain rows — e.g. `portfolio-knowledge-graph`'s ETL — should depend on this repo
+directly and use `news_nlp.fetch_processed_articles(conn, limit=...)` instead of
+writing its own join: `connect_pipeline(results_db=..., source_db=...)` then
+this one call hides the SOURCE/RESULTS split the same way the pipeline's own
+readers do. Don't import `news_nlp.db._articles_rel` (or any other
+underscore-prefixed name) directly from outside this package to build a bespoke
+query — it's internal; ask for (or add) a named export like this one instead.
 
 ## Caveats
 

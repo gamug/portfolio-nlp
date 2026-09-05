@@ -10,7 +10,6 @@ Run:
     -> http://127.0.0.1:8003/docs
 """
 
-import sqlite3
 import sys
 import threading
 from collections.abc import Iterator
@@ -21,12 +20,12 @@ from typing import Literal
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from portfolio_common import news_nlp as db
-from portfolio_common.news_nlp import corrections
-from portfolio_common.news_nlp.taxonomy import CATEGORY_SLUGS, OTHER_LABEL
 from pydantic import BaseModel, Field
 
+import news_nlp as db
 import pipeline
+from news_nlp import corrections
+from news_nlp.taxonomy import CATEGORY_SLUGS, OTHER_LABEL
 
 CATEGORY_LABEL_VALUES = (*CATEGORY_SLUGS, OTHER_LABEL)
 
@@ -97,7 +96,7 @@ class RunStatus:
 pipeline_status = RunStatus()
 
 
-def get_db() -> Iterator[sqlite3.Connection]:
+def get_db() -> Iterator[db.NewsNlpDatabase]:
     # Query/correction endpoints read only the RESULTS store (result tables +
     # lean `articles`) -- never article body_text -- so this deliberately opens
     # a plain connection with no SOURCE attached. Only POST /pipeline/run needs
@@ -154,7 +153,7 @@ def get_articles(
     date_to: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    conn: sqlite3.Connection = Depends(get_db),
+    conn: db.NewsNlpDatabase = Depends(get_db),
 ) -> list[dict]:
     return db.list_articles(
         conn,
@@ -170,7 +169,7 @@ def get_articles(
 
 
 @app.get("/articles/{article_id}")
-def get_article(article_id: int, conn: sqlite3.Connection = Depends(get_db)) -> dict:
+def get_article(article_id: int, conn: db.NewsNlpDatabase = Depends(get_db)) -> dict:
     detail = db.get_article_detail(conn, article_id)
     if detail is None or detail["sentiment"] is None:
         raise HTTPException(status_code=404, detail="Article not found or not yet processed")
@@ -183,7 +182,7 @@ def get_sentiment_stats(
     date_from: str | None = None,
     date_to: str | None = None,
     group_by: Literal["company", "year", "month"] | None = None,
-    conn: sqlite3.Connection = Depends(get_db),
+    conn: db.NewsNlpDatabase = Depends(get_db),
 ) -> list[dict]:
     return db.sentiment_stats(
         conn, company=company, date_from=date_from, date_to=date_to, group_by=group_by
@@ -195,7 +194,7 @@ def get_entity_stats(
     company: str | None = None,
     entity_type: Literal["ORG", "PER", "LOC"] | None = None,
     top: int = Query(20, ge=1, le=200),
-    conn: sqlite3.Connection = Depends(get_db),
+    conn: db.NewsNlpDatabase = Depends(get_db),
 ) -> list[dict]:
     return db.entity_stats(conn, company=company, entity_type=entity_type, top=top)
 
@@ -205,7 +204,7 @@ def get_category_stats(
     company: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    conn: sqlite3.Connection = Depends(get_db),
+    conn: db.NewsNlpDatabase = Depends(get_db),
 ) -> list[dict]:
     return db.category_stats(conn, company=company, date_from=date_from, date_to=date_to)
 
@@ -215,7 +214,7 @@ def get_sector_summaries(
     sector: str | None = None,
     sub_industry: str | None = None,
     week_start: str | None = None,
-    conn: sqlite3.Connection = Depends(get_db),
+    conn: db.NewsNlpDatabase = Depends(get_db),
 ) -> list[dict]:
     return db.list_sector_summaries(
         conn, sector=sector, sub_industry=sub_industry, week_start=week_start
@@ -245,7 +244,7 @@ class CategoryUpdateRequest(BaseModel):
 
 @app.patch("/articles/{article_id}/sentiment")
 def patch_sentiment(
-    article_id: int, req: SentimentUpdateRequest, conn: sqlite3.Connection = Depends(get_db)
+    article_id: int, req: SentimentUpdateRequest, conn: db.NewsNlpDatabase = Depends(get_db)
 ) -> dict:
     fields = req.model_dump(exclude_unset=True)
     updated = corrections.update_sentiment(conn, article_id, **fields)
@@ -256,7 +255,7 @@ def patch_sentiment(
 
 
 @app.delete("/articles/{article_id}/sentiment", status_code=204)
-def remove_sentiment(article_id: int, conn: sqlite3.Connection = Depends(get_db)) -> None:
+def remove_sentiment(article_id: int, conn: db.NewsNlpDatabase = Depends(get_db)) -> None:
     deleted = corrections.delete_sentiment(conn, article_id)
     conn.commit()
     if not deleted:
@@ -265,7 +264,7 @@ def remove_sentiment(article_id: int, conn: sqlite3.Connection = Depends(get_db)
 
 @app.patch("/entities/{entity_id}")
 def patch_entity(
-    entity_id: int, req: EntityUpdateRequest, conn: sqlite3.Connection = Depends(get_db)
+    entity_id: int, req: EntityUpdateRequest, conn: db.NewsNlpDatabase = Depends(get_db)
 ) -> dict:
     fields = req.model_dump(exclude_unset=True)
     updated = corrections.update_entity(conn, entity_id, **fields)
@@ -276,7 +275,7 @@ def patch_entity(
 
 
 @app.delete("/entities/{entity_id}", status_code=204)
-def remove_entity(entity_id: int, conn: sqlite3.Connection = Depends(get_db)) -> None:
+def remove_entity(entity_id: int, conn: db.NewsNlpDatabase = Depends(get_db)) -> None:
     deleted = corrections.delete_entity(conn, entity_id)
     conn.commit()
     if not deleted:
@@ -284,7 +283,7 @@ def remove_entity(entity_id: int, conn: sqlite3.Connection = Depends(get_db)) ->
 
 
 @app.delete("/articles/{article_id}/entities")
-def remove_article_entities(article_id: int, conn: sqlite3.Connection = Depends(get_db)) -> dict:
+def remove_article_entities(article_id: int, conn: db.NewsNlpDatabase = Depends(get_db)) -> dict:
     count = corrections.delete_entities_for_article(conn, article_id)
     conn.commit()
     return {"deleted": count}
@@ -292,7 +291,7 @@ def remove_article_entities(article_id: int, conn: sqlite3.Connection = Depends(
 
 @app.patch("/articles/{article_id}/category")
 def patch_category(
-    article_id: int, req: CategoryUpdateRequest, conn: sqlite3.Connection = Depends(get_db)
+    article_id: int, req: CategoryUpdateRequest, conn: db.NewsNlpDatabase = Depends(get_db)
 ) -> dict:
     fields = req.model_dump(exclude_unset=True)
     updated = corrections.update_category(conn, article_id, **fields)
@@ -303,7 +302,7 @@ def patch_category(
 
 
 @app.delete("/articles/{article_id}/category", status_code=204)
-def remove_category(article_id: int, conn: sqlite3.Connection = Depends(get_db)) -> None:
+def remove_category(article_id: int, conn: db.NewsNlpDatabase = Depends(get_db)) -> None:
     deleted = corrections.delete_category(conn, article_id)
     conn.commit()
     if not deleted:

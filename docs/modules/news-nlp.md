@@ -104,12 +104,12 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 
 ## Database
 
-The DB layer lives in **`portfolio_common.news_nlp`** (git-tag-pinned in
-`pyproject.toml`; imported directly as `from portfolio_common import news_nlp
-as db` / `from portfolio_common.news_nlp import corrections` /
-`from portfolio_common.news_nlp.taxonomy import ...` — no local re-export
-facade). Two-tier — full detail in
-[`docs/db-topology.md`](../db-topology.md):
+The DB layer lives in **`src/news_nlp/`**, a local package vendored from
+`portfolio-common` (see `docs/portfolio-common-v1-migration-plan.md`); imported
+directly as `import news_nlp as db` / `from news_nlp import corrections` /
+`from news_nlp.taxonomy import ...` — no re-export facade. It still depends on
+`portfolio_common.db.Database` for the underlying connection engine.
+Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
 
 - **RESULTS store** (`$DATABASE_URL`, unset → `<repo>/data/nlp.db`; working file
   `D:\thesis\data\nlp.db`) — the NLP result tables plus a `body_text`-free
