@@ -23,8 +23,15 @@ from news_nlp.eval.verdicts import (
 )
 
 #: The single metric ``regression.check_regression`` compares between runs.
+#:
+#: ``sentiment`` is ``recall_negative``, not the balanced ``macro_f1_vs_judge``
+#: (still computed and logged, just not the gate): missing a real
+#: negative-sentiment article costs more here than over-flagging a neutral one
+#: as negative -- negative sentiment is the signal portfolio construction
+#: leans on, so false negatives are the regression that matters. See
+#: docs/evaluation.md's "Why recall, not F1, for sentiment negative" note.
 HEADLINE: dict[str, str] = {
-    "sentiment": "macro_f1_vs_judge",
+    "sentiment": "recall_negative",
     "category": "accuracy_vs_judge",
     "ner": "micro_f1",
     "c_summary": "mean_faithfulness",

@@ -38,12 +38,12 @@ def test_flags_a_drop_past_tolerance(tmp_path: Path) -> None:
 
 
 def test_small_drop_within_tolerance_is_ok(tmp_path: Path) -> None:
+    # sentiment's headline is recall_negative (see metrics.HEADLINE) -- missing
+    # real negative-sentiment articles is the regression that matters here.
     uri = str(tmp_path / "mlruns")
-    _seed_runs(uri, "sentiment", "macro_f1_vs_judge", [0.80, 0.78])
+    _seed_runs(uri, "sentiment", "recall_negative", [0.80, 0.78])
 
-    rr = check_regression(
-        "sentiment", {"macro_f1_vs_judge": 0.78}, tolerance=0.05, tracking_uri=uri
-    )
+    rr = check_regression("sentiment", {"recall_negative": 0.78}, tolerance=0.05, tracking_uri=uri)
     assert rr.regressed is False
 
 

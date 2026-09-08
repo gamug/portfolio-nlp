@@ -55,6 +55,37 @@ def test_sentiment_agreement_and_macro_f1() -> None:
     assert round(out["macro_f1_vs_judge"], 3) == round((0.8 + 0.0 + 1.0) / 3, 3)
 
 
+def test_sentiment_recall_negative_is_the_headline_metric() -> None:
+    """sentiment's HEADLINE is recall_negative (metrics.HEADLINE), not F1: a
+    missed real negative costs more here than an over-flagged neutral, so the
+    metric that matters is "how many true negatives did the model catch," not
+    a precision/recall balance. This locks in that recall_negative stays
+    perfect even when over-flagging tanks precision (and drags F1 down with
+    it) -- exactly the trade-off the headline choice is meant to reward."""
+    items = [
+        _item(1, "low_conf", {"label": "negative"}),  # true negative, caught
+        _item(2, "low_conf", {"label": "negative"}),  # true negative, caught
+        _item(3, "random", {"label": "negative"}),  # true neutral, over-flagged
+        _item(4, "random", {"label": "negative"}),  # true neutral, over-flagged
+        _item(5, "random", {"label": "negative"}),  # true positive, over-flagged
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="negative", severity=0),
+        SentimentVerdict(agrees=True, ideal_label="negative", severity=0),
+        SentimentVerdict(agrees=False, ideal_label="neutral", severity=1),
+        SentimentVerdict(agrees=False, ideal_label="neutral", severity=1),
+        SentimentVerdict(agrees=False, ideal_label="positive", severity=2),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+
+    # negative: tp=2 (articles 1,2) fp=3 (articles 3,4,5) fn=0 -> recall=1.0,
+    # but precision=0.4 and f1~0.571 -- F1 would read this as mediocre.
+    assert out["recall_negative"] == 1.0
+    assert round(out["precision_negative"], 3) == 0.4
+    assert round(out["f1_negative"], 3) == round(2 * 1.0 * 0.4 / (1.0 + 0.4), 3)
+    assert metrics.HEADLINE["sentiment"] == "recall_negative"
+
+
 def test_sentiment_excludes_parse_failures() -> None:
     items = [_item(1, "random", {"label": "positive"}), _item(2, "random", {"label": "negative"})]
     verdicts = [

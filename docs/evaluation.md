@@ -112,6 +112,42 @@ A fresh `--stage sentiment` eval run is needed to get a post-fix number; the
 0.4006 macro F1 above should not be compared against future runs without this
 context.
 
+### Why recall, not F1, for sentiment negative (2026-09-08)
+
+Digging into the confusion matrix behind the numbers above (judge
+`ideal_label` = truth, `article_sentiment.label` = prediction, n=1000, the
+same eval_run 10 / mlflow `823579c3` run):
+
+| truth ＼ pred | positive | negative | neutral | row total |
+|---|---|---|---|---|
+| positive | 102 | 59 | 84 | 245 |
+| negative | 11 | 75 | 35 | 121 |
+| neutral | 134 | 254 | 246 | 634 |
+
+`negative` precision 0.193 / recall 0.620 — FinBERT casts a wide net for
+negative and catches most of the true negatives (recall), but the net is
+stuffed with false positives (precision): of the 388 articles FinBERT calls
+`negative`, only 19.3% are actually negative per the judge, 65.5% are
+actually neutral, 15.2% are actually positive.
+
+For this pipeline's purpose, that's the *less* costly failure mode. Negative
+sentiment is a valuable signal for portfolio construction (risk flags,
+downgrades, adverse events) — an article that's actually neutral getting
+mislabeled `negative` costs a false alarm downstream; an article that's
+actually negative getting mislabeled anything else (missed) costs a blind
+spot. Missing a real negative is worse than over-flagging a neutral one, so
+**`sentiment`'s headline / `--check-regression` gate metric is now
+`recall_negative`** (`metrics.HEADLINE["sentiment"]` in
+`src/news_nlp/eval/metrics.py`), not the balanced `macro_f1_vs_judge`.
+`macro_f1_vs_judge` (and `precision_negative`) are still computed and logged
+every run — just no longer what gates a regression — so overall accuracy
+stays visible without being the thing that blocks a run.
+
+Retroactively, this run's `recall_negative` was 0.6198 (already logged to
+MLflow every run; only which metric is *treated as headline* changed here) —
+that's the number a future `--check-regression` run compares sentiment
+against going forward, not the 0.4006 macro F1 above.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -119,7 +155,7 @@ composition; only its one-sentence intro seed is generative.
 
 | stage | headline metric | also logged |
 |---|---|---|
-| `sentiment` | `macro_f1_vs_judge` | agreement rate (overall / low-conf / random), per-class P/R/F1, mean severity |
+| `sentiment` | `recall_negative`¹ | agreement rate (overall / low-conf / random), `macro_f1_vs_judge`, per-class P/R/F1, mean severity |
 | `category` | `accuracy_vs_judge` | macro-F1, per-slug accuracy, model vs judge `other`-rate, mean severity |
 | `ner` | `micro_f1` | span micro/macro P/R/F1, per-type F1, hallucination rate, miss rate. Error-only judge contract: it names just the `wrong` predicted spans + `missed` entities (not a verdict per span, which overflows on entity-dense articles); TP/FP/FN are derived from the predicted count. |
 | `c_summary` | `mean_faithfulness` | mean coverage / conciseness (1-5), `pct_with_hallucination` |
@@ -127,6 +163,11 @@ composition; only its one-sentence intro seed is generative.
 Every run also logs `n` (rows judged) and `parse_fail_rate` (judge replies that
 were not valid JSON after one repair attempt — excluded from the accuracy
 numbers).
+
+¹ Not F1 or accuracy: a missed real negative-sentiment article costs more for
+portfolio construction than an over-flagged neutral one, so `--check-regression`
+gates sentiment on recall specifically — see "Why recall, not F1, for
+sentiment negative" above.
 
 ## Sampling: 60 % low-confidence + 40 % random
 
