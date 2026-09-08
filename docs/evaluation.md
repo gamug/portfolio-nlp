@@ -148,6 +148,62 @@ MLflow every run; only which metric is *treated as headline* changed here) —
 that's the number a future `--check-regression` run compares sentiment
 against going forward, not the 0.4006 macro F1 above.
 
+### How much of the sentiment run-to-run swing is noise? (2026-09-08)
+
+An unseeded re-run after the text-scope fix (mlflow `775d89b9`, same
+1000-row sample size) landed `recall_negative` at 0.5566, down from 0.6198 —
+looked at first like the fix regressed the metric it was supposed to be
+gated on. Investigated with three checks, using the fact that the
+low-confidence 600 rows are the *same 600 article ids* in both runs
+(deterministic `ORDER BY score ASC`, and `article_sentiment` wasn't re-run):
+
+1. **Judge non-determinism is small.** Of the 458 low-conf rows whose article
+   body is ≤6000 chars (byte-identical text in both runs — the fix only
+   changes what the judge sees on longer articles), the judge's `ideal_label`
+   flipped on only 2.4% (11/458) of identical inputs. Not the driver.
+2. **The low-conf bucket skews toward exactly the articles the fix touched.**
+   23.7% of the low-conf 600 exceed 6000 chars, vs. 12.5% of the random 400 —
+   because FinBERT's lowest-confidence scores correlate with longer,
+   more-chunked articles (chunk-averaging drags a 3-way softmax toward
+   uniform as chunk count grows). So the low-conf bucket's own
+   `recall_negative` moved more (0.420→0.348) than the random bucket's
+   (0.761→0.717): it's disproportionately exposed to the fix's effect on
+   long articles (see the "Follow-up" section above — giving the judge more
+   text gave it more material for net-signal reasoning, not less
+   disagreement).
+3. **The sample just doesn't have enough true negatives for a stable
+   estimate.** `negative` is a minority *true* class: only 121 of 1000 rows
+   (baseline) / 106 of 1000 (new run) are actually negative per the judge,
+   even though FinBERT predicts `negative` on ~39% of rows. A Wilson 95% CI
+   on `recall_negative` at those sample sizes is **[0.531, 0.701]** (baseline)
+   vs. **[0.462, 0.648]** (new run) — half-width ~0.09 either way, and the two
+   intervals overlap substantially. The observed 0.063 point "drop" is not
+   distinguishable from sampling noise at the current `--sample-size`.
+
+**What would it take to tighten this?** Halving the CI to ±0.05 needs ~362
+true negatives. At the current ~11% true-negative-per-row yield, that means
+scaling `--sample-size` to **~3,200** under today's unstratified 60/40
+design — expensive in judge calls for a fix that mostly buys precision on
+classes you don't need it for. The corpus has ample room to do this more
+cheaply instead: `article_sentiment` currently holds 459,112 scored rows,
+188,822 (41.1%) of them labelled `negative` — a sample specifically
+stratified to pull more from FinBERT's own `negative` predictions (not just
+its lowest-confidence rows, which is what `_low_conf_ids` does today) would
+raise the true-negative yield per row without inflating `--sample-size`
+nearly as much. **Not implemented** — a sampling redesign, flagged here for a
+follow-up decision rather than made unilaterally.
+
+**One real (if currently benign) code gap found and fixed along the way:**
+`_all_ids()` (`src/news_nlp/eval/sampling.py`) built the random bucket's
+candidate pool with no `ORDER BY`, relying on SQLite's incidental table-scan
+order for the `--seed`-reproducibility this doc documents and
+`test_sampling_is_deterministic_under_seed` asserts. That order isn't
+SQL-guaranteed, so the seeded-reproducibility contract wasn't actually
+airtight — it happened to hold because the table hadn't been reorganized.
+Hardened with an explicit `ORDER BY article_id`. This wasn't the cause of the
+swing analyzed above (neither run passed a seed), but matters now that this
+doc recommends `--seed` for comparisons.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -184,6 +240,18 @@ Each run samples `--sample-size` rows per stage (default 80):
 
 Metrics are reported overall and split `*_low_conf` / `*_random`, so you see both
 headline and worst-case accuracy.
+
+**Pass `--seed` when comparing two runs.** With no seed, the random 40% is a
+fresh OS-entropy draw every time, so two unseeded runs differ in both *which*
+articles were judged and (per the LLM) how they were judged — any delta
+between them mixes real signal with resampling noise, and you can't tell how
+much of each. The low-confidence 60% is already deterministic (same rows every
+run, seed or not) since it's a fixed `ORDER BY ... LIMIT`; a shared `--seed`
+makes the random 40% deterministic too, so a before/after comparison (e.g.
+across a pipeline or eval-harness change) isolates the change's effect instead
+of conflating it with which random rows happened to get drawn. See "How much
+of the sentiment run-to-run swing is noise?" below for a worked example of
+how large that conflation can be.
 
 ## Running it
 

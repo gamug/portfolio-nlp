@@ -92,9 +92,19 @@ def _require_source(conn: NewsNlpDatabase) -> str:
 
 
 def _all_ids(conn: NewsNlpDatabase, stage: str) -> list[int]:
+    """Ids of every judged row for *stage*, in a fixed order.
+
+    ``sample_for_stage`` feeds this straight into ``rng.shuffle`` -- Fisher-Yates
+    over a fixed seed still needs a *stable* input order for two runs to draw
+    the same "random" rows, so this is explicitly ``ORDER BY article_id`` rather
+    than relying on SQLite's incidental (undocumented, not guaranteed) rowid
+    table-scan order.
+    """
     table = _RESULT_TABLE[stage]
     distinct = "DISTINCT " if stage == "ner" else ""
-    rows = conn.execute(f"SELECT {distinct}article_id FROM {table}").fetchall()  # noqa: S608
+    rows = conn.execute(
+        f"SELECT {distinct}article_id FROM {table} ORDER BY article_id"  # noqa: S608
+    ).fetchall()
     return [int(r[0]) for r in rows]
 
 
