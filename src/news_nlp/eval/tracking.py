@@ -14,7 +14,6 @@ from typing import Any
 import mlflow
 from mlflow.tracking import MlflowClient
 
-_BUCKET_SPLIT_TAG = "60/40 low_conf/random"
 _MIN_RUNS_TO_COMPARE = 2  # the fresh run plus one prior
 
 
@@ -35,7 +34,7 @@ def log_to_mlflow(
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name(stage))
     with mlflow.start_run() as run:
-        mlflow.set_tags({"stage": stage, "bucket_split": _BUCKET_SPLIT_TAG})
+        mlflow.set_tags({"stage": stage})
         mlflow.log_params(params)
         # mlflow rejects non-finite / non-numeric metric values; filter defensively.
         clean = {

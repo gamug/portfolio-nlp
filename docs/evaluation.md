@@ -204,6 +204,18 @@ Hardened with an explicit `ORDER BY article_id`. This wasn't the cause of the
 swing analyzed above (neither run passed a seed), but matters now that this
 doc recommends `--seed` for comparisons.
 
+### Follow-up (2026-09-08): stratified sampling implemented
+
+The section above flagged, but didn't implement, a sampling redesign to fix
+the true-negative scarcity behind sentiment's wide `recall_negative` CI. It's
+now implemented — see "Sampling" and "Statistical methodology" below for the
+design (a `target_negative` stratum, soft-probability-targeted, on top of the
+existing `low_conf`/random split) and "Sample-size floor" for updated,
+measured-not-just-estimated `--sample-size` guidance. The historical numbers
+in the "Baseline" and "How much of the sentiment run-to-run swing is noise?"
+sections above predate this and were produced by the old two-bucket design —
+left as-is (not rewritten) as the historical record.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -211,10 +223,10 @@ composition; only its one-sentence intro seed is generative.
 
 | stage | headline metric | also logged |
 |---|---|---|
-| `sentiment` | `recall_negative`¹ | agreement rate (overall / low-conf / random), `macro_f1_vs_judge`, per-class P/R/F1, mean severity |
-| `category` | `accuracy_vs_judge` | macro-F1, per-slug accuracy, model vs judge `other`-rate, mean severity |
+| `sentiment` | `recall_negative`¹ ² | agreement rate (per stratum), `macro_f1_vs_judge`, per-class P/R/F1, mean severity |
+| `category` | `accuracy_vs_judge` ² | macro-F1, per-slug accuracy, model vs judge `other`-rate, mean severity |
 | `ner` | `micro_f1` | span micro/macro P/R/F1, per-type F1, hallucination rate, miss rate. Error-only judge contract: it names just the `wrong` predicted spans + `missed` entities (not a verdict per span, which overflows on entity-dense articles); TP/FP/FN are derived from the predicted count. |
-| `c_summary` | `mean_faithfulness` | mean coverage / conciseness (1-5), `pct_with_hallucination` |
+| `c_summary` | `mean_faithfulness` ² | mean coverage / conciseness (1-5), `pct_with_hallucination` |
 
 Every run also logs `n` (rows judged) and `parse_fail_rate` (judge replies that
 were not valid JSON after one repair attempt — excluded from the accuracy
@@ -225,33 +237,163 @@ portfolio construction than an over-flagged neutral one, so `--check-regression`
 gates sentiment on recall specifically — see "Why recall, not F1, for
 sentiment negative" above.
 
-## Sampling: 60 % low-confidence + 40 % random
+² Every headline/"also logged" metric marked here has a `_naive_pooled`
+companion (e.g. `recall_negative_naive_pooled`, `accuracy_vs_judge_naive_pooled`,
+`mean_faithfulness_naive_pooled`) — the old flat pooled computation, kept for
+sanity-checking the Horvitz-Thompson reweighting below and for continuity with
+pre-redesign runs. `ner`'s metrics have no such companion because they're
+mathematically identical to it already (see "Statistical methodology" below).
 
-Each run samples `--sample-size` rows per stage (default 80):
+## Sampling: low-confidence + targeted + representative strata
 
-- **low-confidence bucket** (`round(size * 0.6)` rows) — the *least-confident*
-  stored rows, deterministically, so every run re-checks the true worst case:
-  lowest `article_sentiment.score`; category picks within ±0.1 of
-  `CATEGORY_CONFIDENCE_THRESHOLD` (0.4) or labelled `other`; lowest per-article
-  `MIN(article_entities.score)`; for `c_summary` (no score), articles whose
-  sentiment/NER inputs were themselves low-confidence.
-- **random bucket** (the rest) — a `--seed`-reproducible uniform draw from the
-  remaining predictions. This is where run-to-run variety comes from.
+Each run draws `--sample-size` rows per stage as a **disjoint,
+priority-ordered stack of strata** (`src/news_nlp/eval/sampling.py`), each
+excluding every earlier-priority stratum's already-drawn ids:
 
-Metrics are reported overall and split `*_low_conf` / `*_random`, so you see both
-headline and worst-case accuracy.
+1. **`low_conf`** (`--low-conf-frac` of `--sample-size`, default 0.2) — the
+   *least-confident* stored rows, deterministically, so every run re-checks
+   the true worst case: lowest `article_sentiment.score`; category picks
+   within ±0.1 of `CATEGORY_CONFIDENCE_THRESHOLD` (0.4) or labelled `other`;
+   lowest per-article `MIN(article_entities.score)`; for `c_summary` (no
+   score), articles whose sentiment/NER inputs were themselves low-confidence.
+   **Diagnostic-only**: deliberately biased toward hard cases, so it's
+   excluded from every headline/population-estimate metric (see "Statistical
+   methodology" below) — reported only as a `*_low_conf` per-stratum split.
+2. **`target_<x>`** (`--target-frac` of the post-`low_conf` budget, default
+   0.6; sentiment and category only) — rows clearing a threshold on a *raw
+   per-class score*, regardless of which class won the argmax:
+   - **sentiment**: `target_negative` (weight 0.6, `negative >= 0.35`),
+     `target_positive` (0.2, `positive >= 0.35`), `target_neutral` (0.2,
+     `neutral >= 0.35`). `negative` is weighted highest — it's the headline
+     class.
+   - **category**: one stratum per the 6 worst 2026-09-08-baseline per-slug
+     accuracies plus `legal_regulatory`, all thresholded at `>= 0.2`, weights
+     summing to 1.0: `partnerships_business_dev` 0.20,
+     `labor_human_capital` 0.18, `leadership_governance` 0.16,
+     `mergers_acquisitions` 0.14, `capital_shareholder_returns` 0.13,
+     `product_innovation` 0.12, `legal_regulatory` 0.07.
+   - **c_summary** has no discrete classes, so its "targets" instead
+     partition on `num_chunks` (a TRUE partition — every row has exactly
+     one, so c_summary draws no `representative` bucket at all): `1` (weight
+     0.10), `2` (0.30), `>= 3` (0.60) — weighted toward the rare multi-chunk
+     tail (~4.6% of the corpus) since `mean_coverage` is the weakest
+     c_summary metric and multi-chunk articles pass through more
+     hierarchical-reduce steps.
+   - **ner** has none: its type imbalance (ORG 55% / PER 25% / LOC 20% of
+     spans) is far milder than sentiment's/category's article-level
+     imbalance, and there's no secondary per-entity score to target.
+   - **Why these thresholds are well below each stage's winning bar** (0.5
+     for sentiment's 3-way softmax; `CATEGORY_CONFIDENCE_THRESHOLD` 0.4 for
+     category): a distribution over mutually exclusive classes can have at
+     most one class exceed 0.5, so a threshold at or above that would
+     mathematically exclude every false-negative candidate for that class —
+     silently defeating the whole point (catching rows the model *almost*
+     called this class but didn't, not just rows it did call this class).
+3. **`representative`** (the remainder) — a `--seed`-reproducible uniform
+   draw from whatever's left. The only bucket that's a plain, unweighted
+   random sample of the population (`low_conf` and `target_<x>` are each
+   deliberately non-representative by construction).
 
-**Pass `--seed` when comparing two runs.** With no seed, the random 40% is a
-fresh OS-entropy draw every time, so two unseeded runs differ in both *which*
-articles were judged and (per the LLM) how they were judged — any delta
-between them mixes real signal with resampling noise, and you can't tell how
-much of each. The low-confidence 60% is already deterministic (same rows every
-run, seed or not) since it's a fixed `ORDER BY ... LIMIT`; a shared `--seed`
-makes the random 40% deterministic too, so a before/after comparison (e.g.
+Metrics are reported both as a population estimate (`headline_metric`,
+Horvitz-Thompson-reweighted across every non-`low_conf` stratum — see below)
+and per-stratum (`*_low_conf`, `*_target_negative`, `*_representative`, …),
+so you see both the population number and where it's weak.
+
+**Pass `--seed` when comparing two runs.** With no seed, `target_<x>` and
+`representative` are fresh OS-entropy draws every time, so two unseeded runs
+differ in both *which* articles were judged and (per the LLM) how they were
+judged — any delta between them mixes real signal with resampling noise, and
+you can't tell how much of each. `low_conf` is already deterministic (same
+rows every run, seed or not) since it's a fixed `ORDER BY ... LIMIT`; a shared
+`--seed` makes the rest deterministic too, so a before/after comparison (e.g.
 across a pipeline or eval-harness change) isolates the change's effect instead
-of conflating it with which random rows happened to get drawn. See "How much
-of the sentiment run-to-run swing is noise?" below for a worked example of
-how large that conflation can be.
+of conflating it with which rows happened to get drawn. See "How much of the
+sentiment run-to-run swing is noise?" below for a worked example of how large
+that conflation can be.
+
+**Migration note**: a run against pre-redesign code isn't seed-reproducible
+against this code even with the same seed — drawing `target_<x>` strata
+inserts extra RNG draws before the final `representative` shuffle. `eval_run`
+rows from before this redesign have `strata_json = '{}'`.
+
+## Statistical methodology: Horvitz–Thompson reweighting
+
+Naively pooling a deliberately-oversampled `target_<x>` stratum with
+`representative` would be just as statistically invalid as the old design's
+`low_conf`+`random` pooling (see the "run-to-run swing" section above for why
+that mattered). The fix is a standard stratified-sampling ratio estimator.
+
+For any population total (e.g. total true negatives across the whole
+corpus), each non-excluded stratum `h` contributes `(N_h / n_h') *
+(count within h)`, where `N_h` is that stratum's population size (computed
+from the exact SQL result the sample was drawn from, never a second
+independently-written count) and `n_h'` is the count of rows *actually
+judged* in that stratum (post-parse-failure — a deliberate MCAR assumption:
+a judge JSON-parse failure is treated as independent of the row's true
+label, so survivors of stratum `h` are still ~a uniform sample of size `n_h'`
+from `N_h`; this is an accepted, unverified risk, not solved). A ratio metric
+(recall, precision, accuracy, a mean) is the ratio of two such weighted sums.
+`low_conf` is always excluded — it's diagnostic by design, never part of a
+population estimate.
+
+Implementation: `_ht_sum` / `_ht_ratio` / `_prf_ht` / `_macro_f1_ht` in
+`src/news_nlp/eval/metrics.py`. Worked example (also a unit test,
+`test_ht_sum_and_ht_ratio_hand_computed_example`): stratum A `N=100,n=4`
+(TP=2, FN=1), stratum B `N=900,n=6` (TP=1, FN=0):
+
+```
+TP_hat = (100/4)*2 + (900/6)*1 = 200
+FN_hat = (100/4)*1 + (900/6)*0 = 25
+recall_hat = 200 / 225 = 0.8889          (vs. naive pooled 3/4 = 0.75)
+```
+
+`ner` needs no such reweighting: with only `representative` as a non-excluded
+stratum, `N_h/n_h` is a constant that cancels identically in any ratio, so
+`aggregate_ner` is mathematically unchanged from the old pooled computation —
+confirmed by leaving its code untouched rather than adding a no-op HT call.
+
+## Sample-size floor
+
+`n_stratum(class c) = n_true_target(c) / purity_target(c)`, where
+`n_true_target` is the Wilson-CI true-example count needed for a target
+recall/precision confidence interval (±0.05 needs ~362 true examples at
+sentiment's ~55-62% base recall; category's worst slugs need ~200-370), and
+`purity_target` is the fraction of a threshold stratum a judge actually
+confirms as class `c`. Below are *planning* estimates from population share +
+baseline precision, not measured purity — re-solve with a pilot run's actual
+per-stratum agreement before locking in a permanent default (a pilot's
+`agreement_rate_target_negative` etc., or the `strata_json` blob, gives you
+the real `n`/`N` to recompute this from).
+
+- **Sentiment**: `negative >= 0.35` population is 213,604 (46.5% of the
+  corpus) vs. argmax-`negative`'s 41.1% baseline precision of 19.3% — purity
+  should land a bit below that (looser threshold, more true negatives).
+  Planning range 15-19% → `n_stratum ≈ 1,905-2,413` — a real but modest
+  ~30-45% reduction vs. the ~3,289 an unstratified design would need (the
+  threshold is deliberately loose to keep catching FN candidates, which
+  dilutes purity by design).
+- **Category**: e.g. `partnerships_business_dev >= 0.2` population is 24,390
+  (5.31%, vs. 2.95% true share) → purity roughly 6-12% → `n_stratum ≈
+  1,667-6,167`. Because the 7 target strata **share one weighted budget**
+  rather than running independently, hitting the single worst slug's own
+  ±0.05 target inside one regular run can still need a total `--sample-size`
+  in the same range the unstratified design would — an honest result, not
+  oversold.
+- **Recommendation** (two-tier, not one asserted number):
+  1. Regular regression-tracked runs: `--sample-size` floor **~1,800-2,200**
+     for sentiment, **~2,500-3,000** for category (targets a looser
+     ±0.07-0.10 CI — still tight enough to catch a real move against the
+     existing 0.05 `--regression-tolerance`).
+  2. Occasional deep-dive runs (manual): 5,000+, or a temporary
+     single-slug-weighted `_CATEGORY_TARGET_WEIGHTS` override, when chasing a
+     specific rare-class regression.
+  3. Before locking in either number: run a pilot at `--sample-size 800`
+     under this design, read the actual purity per `target_<x>` stratum from
+     that run's metrics, and re-solve the formula above with measured (not
+     estimated) purity.
+  4. `ner` and `c_summary` need no floor increase — `ner`'s stratification is
+     unchanged, and c_summary's `target_chunks_ge3` (4.6% of the corpus)
+     already gets outsized attention (weight 0.6) at today's sizes.
 
 ## Running it
 
@@ -274,28 +416,39 @@ uv run cli/news_nlp_eval.py --stage all --sample-size 80
 # one stage, reproducible sample
 uv run cli/news_nlp_eval.py --stage sentiment --seed 1 --sample-size 40
 
+# a regression-tracked run at the recommended sentiment sample-size floor
+uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1
+
 # fail (exit 1) if a headline metric dropped > 0.05 vs the previous MLflow run
 uv run cli/news_nlp_eval.py --stage all --check-regression
 
 uv run mlflow ui            # browse runs at http://127.0.0.1:5000
 ```
 
-Flags: `--stage` (repeatable; `all` = every stage), `--sample-size`, `--seed`,
-`--max-workers` (concurrent judge calls, default 4), `--source-db` /
-`--results-db` (override `$SOURCE_DATABASE_URL` / `$DATABASE_URL`),
-`--mlflow-uri`, `--check-regression`, `--regression-tolerance` (default 0.05).
+Flags: `--stage` (repeatable; `all` = every stage), `--sample-size`,
+`--low-conf-frac` (default 0.2), `--target-frac` (default 0.6, no-op for
+`ner`), `--seed`, `--max-workers` (concurrent judge calls, default 4),
+`--source-db` / `--results-db` (override `$SOURCE_DATABASE_URL` /
+`$DATABASE_URL`), `--mlflow-uri`, `--check-regression`,
+`--regression-tolerance` (default 0.05).
 
 ## Where results go
 
 - **MLflow** — one run per `(stage, invocation)` in experiment
-  `news_nlp_eval/<stage>`. Params (judge model/url, sample size, bucket counts,
-  seed, git SHA), metrics, a `judgements.json` artifact (every sampled row: the
-  model prediction + the parsed judge verdict) and the `judge_prompt.md` used.
+  `news_nlp_eval/<stage>`. Params (judge model/url, sample size, per-stratum
+  `n_<bucket>` counts, seed, git SHA), metrics, a `judgements.json` artifact
+  (every sampled row: the model prediction + the parsed judge verdict) and the
+  `judge_prompt.md` used.
 - **RESULTS store** — `eval_run` (one row per invocation: stage, timestamps,
-  bucket counts, judge model, `code_version`, `mlflow_run_id`, the metrics blob,
-  `status`) and `eval_judgement` (one row per sampled article). DDL in
-  `news_nlp.schema`; `init_schema` creates them. `GET /eval/latest` on the
-  FastAPI service returns the newest `eval_run` per stage.
+  `low_conf_n`/`random_n` — the latter now "every non-`low_conf` stratum
+  combined" — `strata_json` (`{bucket: {"population": N_h, "n": n_h}}`, the
+  Horvitz-Thompson bookkeeping; `'{}'` for pre-redesign rows), judge model,
+  `code_version`, `mlflow_run_id`, the metrics blob, `status`) and
+  `eval_judgement` (one row per sampled article, `bucket` now one of
+  `low_conf` / `representative` / a stage-specific `target_<x>`). DDL in
+  `news_nlp.schema`; `init_schema` creates them (additive migration for
+  `strata_json` on a pre-existing table). `GET /eval/latest` on the FastAPI
+  service returns the newest `eval_run` per stage.
 
 ## CI
 
