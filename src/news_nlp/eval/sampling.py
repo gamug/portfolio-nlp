@@ -37,9 +37,29 @@ _RESULT_TABLE = {
 }
 
 # Cap the article text handed to the judge, to bound token cost. News articles
-# are inverted-pyramid, so the head carries the topic; sentiment/category run on
-# the lead anyway.
+# are inverted-pyramid, so the head carries the topic -- that's a good proxy for
+# `category`, which deliberately classifies only the lead chunk in the pipeline
+# (docs/modules/news-nlp.md). It is NOT a good proxy for `sentiment`:
+# `run_sentiment_stage` (src/pipeline.py) chunks and scores the ENTIRE
+# body_text (a token-weighted average of per-chunk softmax probabilities), so
+# capping the judge's view to the lead compares it against text FinBERT never
+# saw the whole of -- confirmed as the dominant cause of the low 2026-09-08
+# sentiment eval score (docs/evaluation.md). `sentiment` is therefore judged on
+# the full, uncapped body_text (see _UNCAPPED_STAGES); no cap is applied there
+# because the longest observed article body (~35K chars, ~7-9K tokens) is well
+# within a modern chat model's context window -- an explicit assumption, not a
+# measured DeepSeek cost/context budget.
+#
+# `ner` and `c_summary` also chunk/reduce over the full article in the
+# pipeline and are *suspected* of the same lead-only-judge mismatch, but that
+# has not been empirically verified the way sentiment was -- left capped for
+# now; see docs/evaluation.md's sentiment follow-up note.
 _MAX_BODY_CHARS = 6000
+
+# Stages judged on the full body_text (no cap) because the pipeline stage
+# itself scores/reduces over the whole article, not just the lead. Every
+# other stage in STAGES stays capped at _MAX_BODY_CHARS.
+_UNCAPPED_STAGES: frozenset[str] = frozenset({"sentiment"})
 # Cap the entity list shown to the NER judge -- some articles have 100s.
 _MAX_NER_ENTITIES = 60
 # For c_summary: how wide a low-confidence net to cast over the upstream stages.
@@ -152,7 +172,9 @@ def _prediction(conn: NewsNlpDatabase, stage: str, article_id: int) -> dict[str,
     raise ValueError(f"unknown stage {stage!r}")
 
 
-def _text(conn: NewsNlpDatabase, schema: str, article_id: int) -> tuple[str, str] | None:
+def _text(
+    conn: NewsNlpDatabase, schema: str, article_id: int, stage: str
+) -> tuple[str, str] | None:
     row = conn.execute(
         f"SELECT title, body_text FROM {schema}.articles WHERE id = ?",  # noqa: S608
         (article_id,),
@@ -160,7 +182,7 @@ def _text(conn: NewsNlpDatabase, schema: str, article_id: int) -> tuple[str, str
     if row is None or not row["body_text"]:
         return None
     body = row["body_text"]
-    if len(body) > _MAX_BODY_CHARS:
+    if stage not in _UNCAPPED_STAGES and len(body) > _MAX_BODY_CHARS:
         body = body[:_MAX_BODY_CHARS] + "\n[... truncated ...]"
     return (row["title"] or "", body)
 
@@ -193,7 +215,7 @@ def sample_for_stage(
     items: list[EvalItem] = []
     for bucket, ids in (("low_conf", chosen_low), ("random", chosen_random)):
         for article_id in ids:
-            text = _text(conn, schema, article_id)
+            text = _text(conn, schema, article_id, stage)
             pred = _prediction(conn, stage, article_id)
             if text is None or pred is None:
                 continue

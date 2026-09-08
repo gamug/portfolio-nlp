@@ -61,6 +61,57 @@ Per-stage notes from the full metric set (not just the headline):
   summaries are accurate but not very complete, a terse/extractive tendency
   of `distilbart-cnn-12-6` more than a correctness problem.
 
+### Follow-up (2026-09-08): sentiment judge text-scope bug found and fixed
+
+The sentiment bullet above ("skewing negative on full article bodies where
+the judge leans neutral") undersold the cause. Investigation found the judge
+was shown only the first 6000 chars of `body_text` (`_MAX_BODY_CHARS` in
+`src/news_nlp/eval/sampling.py`), while `run_sentiment_stage`
+(`src/pipeline.py`) scores the **entire** `body_text` via chunking and a
+token-weighted average across all chunks — a text-scope mismatch between what
+the model saw and what the judge saw. Fixed: `sentiment` is now judged on the
+full, uncapped `body_text`; `category` is unaffected (its cap is correct and
+intentional — `run_category_stage` deliberately classifies only the lead
+chunk, per `docs/modules/news-nlp.md`).
+
+Empirically, truncation only explains part of the gap (pulled the actual
+`judgements.json` for eval_run 10 / mlflow `823579c3`, cross-referenced
+against source article length):
+- Only 19.2% of the 1000 sampled articles exceeded 6000 chars (median body
+  length 3397 chars, max 34884).
+- Agreement rate, truncated vs. non-truncated: `positive` 0.276 vs. 0.455,
+  `neutral` 0.570 vs. 0.703 (truncation clearly hurt these) — but `negative`
+  0.200 vs. 0.192, essentially unchanged by truncation, despite `negative`
+  having the worst per-class F1 (0.295) and being the single biggest driver
+  of the low macro F1.
+- On short (non-truncated) articles, sampled rationales for `negative`
+  disagreements show a distinct pattern: the judge applies entity/company-
+  focus and net-signal reasoning (e.g. "not about a specific company's
+  performance", "mixed positive+negative nets to neutral") that FinBERT's
+  whole-article softmax average has no mechanism to replicate. This is a
+  deeper, likely larger mismatch than truncation, rooted in the judge
+  prompt's per-company framing (`src/news_nlp/eval/prompts/sentiment.md`) vs.
+  FinBERT's lack of any entity-scoping or net-signal logic. **Flagged as a
+  pipeline-level follow-up (out of scope here) — not implemented.**
+
+The low-confidence bucket's much worse agreement (0.322 vs. 0.575 for random)
+was checked for a stratification bug (e.g. the global `ORDER BY score ASC`
+skewing toward `negative`) and **ruled out**: `negative` is 38.2% of the
+low_conf bucket vs. 39.8% of random vs. 38.8% overall — roughly proportional.
+The gap is fully explained by low-confidence (near-tied 3-way softmax) rows
+being inherently more error-prone, i.e. the sampling design working as
+intended.
+
+`ner` and `c_summary` are suspected of the same full-article-vs-lead-cap
+mismatch (`run_ner_stage` and the summary stage's hierarchical reduce both
+process the whole article, per `docs/modules/news-nlp.md`), but this has not
+been empirically investigated the way sentiment was, and their sampling cap
+was left unchanged.
+
+A fresh `--stage sentiment` eval run is needed to get a post-fix number; the
+0.4006 macro F1 above should not be compared against future runs without this
+context.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

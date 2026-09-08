@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 from conftest import EVAL_LOW_IDS
 
 import news_nlp as db_module
+from news_nlp.eval import sampling
 from news_nlp.eval.sampling import EvalItem, sample_for_stage
 
 
@@ -64,6 +66,41 @@ def test_every_item_carries_body_text_and_prediction(
             assert it.body_text.strip()
             assert isinstance(it.prediction, dict)
             assert it.prediction
+
+
+def test_sentiment_uses_full_body_text_category_stays_capped(
+    eval_store_paths: tuple[Path, Path],
+) -> None:
+    """sentiment must see the body_text FinBERT actually scored (the whole
+    article, per run_sentiment_stage's chunk-and-average) -- category stays
+    capped at _MAX_BODY_CHARS since it deliberately classifies the lead
+    chunk only (see src/news_nlp/eval/sampling.py's _UNCAPPED_STAGES note)."""
+    source, results = eval_store_paths
+    long_body = "Acme Corp reported strong quarterly results. " * 400
+    assert len(long_body) > sampling._MAX_BODY_CHARS
+
+    # eval_conn attaches SOURCE read-only, so mutate it directly first.
+    raw = sqlite3.connect(source)
+    raw.execute("UPDATE articles SET body_text = ? WHERE id = 1", (long_body,))
+    raw.commit()
+    raw.close()
+
+    conn = db_module.connect_pipeline(results_db=results, source_db=source)
+    try:
+        # id 1 is the single lowest-scoring row for both stages in eval_store_paths.
+        sentiment_items = sample_for_stage(conn, "sentiment", size=1, low_conf_frac=1.0, seed=1)
+        category_items = sample_for_stage(conn, "category", size=1, low_conf_frac=1.0, seed=1)
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+    assert sentiment_items[0].article_id == 1
+    assert sentiment_items[0].body_text == long_body
+    assert "truncated" not in sentiment_items[0].body_text
+
+    assert category_items[0].article_id == 1
+    assert category_items[0].body_text != long_body
+    assert category_items[0].body_text.endswith("[... truncated ...]")
 
 
 def test_requires_article_body_text(results_db_path: Path) -> None:
