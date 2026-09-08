@@ -17,6 +17,50 @@ the rows most likely to be wrong, and every verdict's `rationale` is stored for
 manual spot-checking. Treat a *drop* between runs as the signal, not the
 absolute value.
 
+## Baseline (2026-09-08)
+
+First full-corpus run (`--sample-size 1000`, all four stages), taken as the
+baseline for future `--check-regression` comparisons. Run IDs are the
+`eval_run` primary key (RESULTS store); MLflow run ID is the artifact/param
+store (`news_nlp_eval/<stage>`).
+
+| stage | n | headline metric | value | eval_run / mlflow |
+|---|---|---|---|---|
+| `sentiment` | 1000 | `macro_f1_vs_judge` | 0.4006 | 10 / `823579c3` |
+| `category` | 1000 | `accuracy_vs_judge` | 0.6890 | 11 / `e40ed7d6` |
+| `ner` | 1000 | `micro_f1` | 0.7418 | 12 / `3b41cbec` |
+| `c_summary` | 1000 | `mean_faithfulness` | 4.8670 | 13 / `053079fd` |
+
+Per-stage notes from the full metric set (not just the headline):
+
+- **sentiment (weakest stage)** — overall agreement is only 42.3%
+  (`agreement_rate`), and even the random bucket is 57.5% (low-conf bucket:
+  32.2%). Per-class P/R shows a specific skew, not generic noise: `negative`
+  precision 0.19 / recall 0.62 (FinBERT over-calls negative vs. the judge),
+  `neutral` precision 0.67 / recall 0.39 (under-predicted). Reads as FinBERT
+  skewing negative on full article bodies where the judge leans neutral —
+  worth a manual spot-check of disagreed `negative` rows before treating the
+  score as "the model is wrong" vs. "the judge's neutrality bar differs."
+- **category** — `accuracy_vs_judge_low_conf` (0.833) is *higher* than
+  `accuracy_vs_judge_random` (0.4725), backwards from what the sampling
+  design expects. Cause: the low-conf bucket is dominated by near-threshold
+  `other` calls, and `other` is both the most common label (66% rate on
+  model and judge alike) and the best-scoring slug (`acc_other` 0.815). The
+  random-bucket accuracy (47%) is the more representative number. Worst
+  per-slug accuracy: `product_innovation` 0.14, `partnerships_business_dev`
+  0.16, `capital_shareholder_returns` 0.20, `leadership_governance` 0.33 —
+  the zero-shot model is mostly guessing on these four.
+- **ner** — recall (0.84) well above precision (0.66): the model
+  over-predicts. `hallucination_rate` 0.338 — about a third of predicted
+  spans are wrong per judge. `PER` is the weakest type (F1 0.66 vs. `LOC`
+  0.82 / `ORG` 0.75). `parse_fail_rate` 4.7% (n=953 of 1000 sampled) —
+  expected per the error-only judge contract on entity-dense articles (see
+  below).
+- **c_summary (strongest stage)** — faithfulness 4.87/5 and
+  `pct_with_hallucination` only 5.4%, but `mean_coverage` is just 3.02/5:
+  summaries are accurate but not very complete, a terse/extractive tendency
+  of `distilbart-cnn-12-6` more than a correctness problem.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
