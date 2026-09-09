@@ -216,6 +216,64 @@ in the "Baseline" and "How much of the sentiment run-to-run swing is noise?"
 sections above predate this and were produced by the old two-bucket design —
 left as-is (not rewritten) as the historical record.
 
+### Pilot run and why this error shape is the right one (2026-09-09)
+
+First stratified-sampling run (`--stage sentiment --sample-size 800 --seed 1`,
+eval_run 18 / mlflow `c8c69f48`, `code_version` `9bca8da`). Strata drawn (and
+their population sizes, from `strata_json`): `low_conf` 160/459,112,
+`target_negative` 230/213,604, `target_positive` 77/91,485, `target_neutral`
+77/226,253, `representative` 256/458,568.
+
+| class | precision | recall | F1 |
+|---|---|---|---|
+| negative | 0.359 | **0.783** | 0.493 |
+| neutral | **0.733** | 0.526 | 0.613 |
+| positive | **0.628** | 0.462 | 0.532 |
+
+(`macro_f1_vs_judge` 0.546, up from `macro_f1_vs_judge_naive_pooled` 0.480 —
+both well above the pre-redesign baseline's 0.401.)
+
+**This is the error shape the redesign was aimed at, not an accident**:
+excellent recall on `negative`, good precision on `positive` and `neutral`.
+Three business reasons this specific trade-off is the one worth having,
+tying back to "Why recall, not F1, for sentiment negative" above:
+
+- **Risk aversion drives the negative-recall priority.** A missed negative
+  (a real downgrade, lawsuit, or demand-weakness signal the pipeline never
+  surfaces) is a blind spot in whatever leans on this data for risk
+  flagging — silent, and only discovered after the fact. An over-flagged
+  negative (a neutral article mislabeled negative) is a false alarm — visible
+  immediately as noise, and cheap to dismiss on a second look. 78.3% recall
+  means the pipeline is now catching roughly 4 out of 5 real negative-signal
+  articles; the 35.9% precision that comes with casting that wide a net is
+  the deliberate, cheaper side of the trade.
+- **Confidence in opportunities requires precision, not recall, on
+  `positive`.** Unlike negative sentiment (a risk flag you want to see even
+  at the cost of noise), positive sentiment more directly informs *acting* on
+  an opportunity — chasing a false positive costs more than missing a true
+  one, since capital gets deployed on the strength of the signal, not just
+  attention. 62.8% precision means when the pipeline says "positive," it's
+  right close to two-thirds of the time; that's the number that matters more
+  than positive's recall (46.2%) here.
+- **Neutral needs to be identified, not just left over.** Neutral is not "we
+  had nothing better to say" — it's the pipeline actively recognizing
+  administrative/non-material news (policy updates, routine filings, general
+  market commentary not about a specific company's performance) so it can be
+  triaged out rather than treated as a signal at all. 73.3% precision on
+  neutral means a "neutral" label is trustworthy for that filtering job; its
+  lower recall (52.6%) mostly reflects negative's wide net pulling some
+  genuinely-neutral articles across the boundary — the same deliberate trade
+  as above, not a separate problem.
+
+Net: the pipeline is tuned to over-warn on risk and under-claim on reward,
+which is the asymmetry a portfolio-construction consumer of this data should
+want. `precision_negative`/`recall_positive`/`recall_neutral` are the numbers
+to watch for future regressions in the *other* direction (e.g. negative
+precision collapsing further, or positive precision dropping) — see
+`--check-regression`, still gated on `recall_negative` per `metrics.HEADLINE`,
+but these companion numbers are worth eyeballing on every run, not just the
+gate.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
