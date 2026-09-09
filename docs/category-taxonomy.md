@@ -167,6 +167,34 @@ processes rows absent from `article_category`). A bulk re-classification of
 existing rows, if ever wanted, is a separate, not-yet-built follow-up (no
 reusable bulk-backfill script currently exists in `scripts/`).
 
+### Per-slug precision/recall, and why precision is the metric that matters (2026-09-09)
+
+Full methodology, the per-slug table, and the `other`-bucket caveat live in
+`docs/evaluation.md`'s "corrected post-calibration numbers" / "Why
+precision, not recall, for category" / "The `other` bucket" sections
+(eval_run 21, mlflow `0a18577e`) — summarized here because it bears directly
+on how to read this taxonomy's categories in practice:
+
+- **Precision matters more than recall for this stage.** Unlike sentiment
+  (where a missed negative is a blind spot with no fallback), every article
+  that isn't confidently a specific category already has a safe one:
+  `other`. A model too cautious about a slug just under-fills that slug —
+  recoverable. A model too eager actively mislabels an article with a
+  specific, actionable-sounding wrong category — not recoverable by a
+  downstream consumer reading `article_category.label`. So "when the model
+  commits to a label, is it right" (precision) is the number that matters
+  most per slug, not "did it catch every instance" (recall).
+  `capital_shareholder_returns` (precision 0.074) and `mergers_acquisitions`
+  (precision 0.926, recall 0.481 — conservative, not wrong) are the two
+  slugs furthest apart on this axis right now.
+- **`other` is not yet a trustworthy "no category" signal.** Its own
+  precision is 0.474 — over half the time the model says `other`, the judge
+  says there was a real category. The failure *direction* still matches the
+  business preference (no false specific claim reaches a consumer), but
+  `other` today reads more like "not confident enough to commit" than
+  "verified no relevant category" — anything downstream filtering out
+  `other` rows as irrelevant is discarding a lot of real hits along with it.
+
 ## Classification input
 
 The classifier runs on the article's title plus the lead chunk of its body
