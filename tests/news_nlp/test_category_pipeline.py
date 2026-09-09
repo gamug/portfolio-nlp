@@ -54,7 +54,7 @@ def test_classify_category_scores_picks_highest_entailment_among_candidates() ->
 
 def test_classify_category_scores_falls_back_to_other_below_threshold() -> None:
     candidates = pipeline.CATEGORY_GROUP_CHILDREN["corporate_actions"]
-    entail_logits = [0.0, 0.0, 0.0]  # uniform -> ~0.333 each, below 0.4
+    entail_logits = [0.0, 0.0, 0.0]  # uniform -> ~0.333 each, below CATEGORY_CONFIDENCE_THRESHOLD
 
     label, score, _scores = pipeline.classify_category_scores(entail_logits, candidates)
 

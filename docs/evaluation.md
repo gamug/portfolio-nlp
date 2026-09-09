@@ -311,6 +311,178 @@ rewritten. A fresh category eval pilot is needed post-merge for numbers
 comparable to the new design (see `docs/category-taxonomy.md`'s "Hierarchical
 classification" for the measured-not-guessed threshold caveat).
 
+### Follow-up (2026-09-09): first post-hierarchy pilot and threshold calibration
+
+First eval run under the hierarchical classifier (`--stage category
+--sample-size 2800 --seed 1`, eval_run 19 / mlflow `8c470ea1`, against a
+100,152-article batch freshly reclassified under `feat/hierarchical-category-
+classification`). The redesign's own target confirmed working:
+
+| slug | old (flat 9-way) | new (hierarchical, launch threshold 0.4) |
+|---|---|---|
+| `product_innovation` | 0.14-0.21 | 0.613 |
+| `partnerships_business_dev` | 0.16-0.22 | 0.510 |
+| `leadership_governance` | 0.28-0.33 | 0.526 |
+
+But the headline `accuracy_vs_judge` (0.442) came in *below* the old
+baseline (0.687-0.711) — `acc_other` collapsed from ~0.80-0.83 (previously
+the best-performing class) to 0.215 (the worst): 701 of 1,322
+judge-confirmed true-`other` articles got assigned a specific wrong label
+instead. Checked before concluding anything: those 701 weren't
+near-threshold misses (mean/median winning score 0.661/0.641, only 22.7%
+even close to 0.4) — reducing per-decision competition to rescue real
+signal for the weak target categories also let spurious signal through for
+genuinely generic/ambiguous articles the old, stricter 9-way contest used
+to correctly route to `other`. Level 1 was checked and ruled out too: even
+correctly-resolved true-`other` articles clear `CATEGORY_GROUP_FLOOR`
+comfortably (mean group_score 0.50) — the gap was at level 2's threshold,
+not level 1's floor.
+
+Action taken: raised `CATEGORY_CONFIDENCE_THRESHOLD` 0.4→0.6 (full
+before/after math in `docs/category-taxonomy.md`'s "Threshold calibration"
+section) — checked to recover 43% of the false-`other` losses at an
+8-18% cost to the newly-won target-category recall before making the
+change, not applied blind. A fresh pilot post-calibration is the next step
+to confirm the trade landed as estimated; this run's numbers (both the
+per-slug wins and the `accuracy_vs_judge`/`acc_other` collapse) predate the
+calibration and stay as the historical record of why it happened, not
+rewritten.
+
+### Follow-up (2026-09-09): corrected post-calibration numbers, and per-slug precision/recall/F1
+
+eval_run 19 above was judged *before* the `CATEGORY_CONFIDENCE_THRESHOLD`
+0.4→0.6 calibration landed, so its stored `article_category` predictions
+went stale the moment the threshold changed (28,618 rows in the eval run's
+underlying batch flipped label to `other`). Rather than re-spend judge calls
+on identical article text, the correction reused the fact that a judge's
+verdict (`ideal_slug`, read from the article's *content*) never depended on
+the model's prediction: **eval_run 20** (mlflow `2bdecd21`) re-paired eval_run
+19's 2,800 stored judge verdicts against the *corrected* `article_category`
+labels and re-ran `aggregate_category()` — same judged sample, zero new LLM
+calls. Corrected headline: `accuracy_vs_judge` 0.442→**0.487**, `acc_other`
+0.215→**0.545** (the specific number the calibration targeted). Several
+individual slugs got worse in exchange (`capital_shareholder_returns`
+0.407→0.293, `market_analyst_sentiment` 0.610→0.378, `mergers_acquisitions`
+0.580→0.481) — the exact 8-18%-recall cost the calibration decision already
+priced in, now visible per-slug instead of as an aggregate estimate.
+
+`aggregate_category()` was already computing per-class precision/recall/F1
+internally (inside `_macro_f1_ht`/`_macro_f1`, for the macro-F1 average) and
+discarding everything but the scalar. Surfaced as real fields —
+`precision_<slug>` / `recall_<slug>` / `f1_<slug>` (HT-weighted, +
+`_naive_pooled` companions, mirroring `aggregate_sentiment`'s existing
+per-class convention) plus `accuracy_ovr_<slug>` (one-vs-rest binary
+accuracy: this slug vs. all 9 others collapsed into one negative class) —
+because `accuracy_vs_judge`/`acc_other` alone can't tell "the model
+over-triggers this slug" apart from "the model is too conservative but
+trustworthy when it does fire." (`acc_<slug>`, the old field, is recall by
+another name — kept for backward compat; `recall_<slug>` is the same number,
+correctly named, proven identical in `test_category_per_slug_precision_
+recall_and_ovr_accuracy`.) Re-aggregated as **eval_run 21** (mlflow
+`0a18577e`) against the same eval_run 20 data — a metric-surface change, not
+a data or prediction change, so again zero new judge calls:
+
+| category | precision | recall | f1 | accuracy (one-vs-rest) |
+|---|---|---|---|---|
+| `capital_shareholder_returns` | **0.074** | 0.293 | **0.118** | 0.920 |
+| `earnings_performance` | 0.585 | 0.508 | 0.544 | 0.961 |
+| `labor_human_capital` | 0.561 | 0.651 | 0.602 | 0.958 |
+| `leadership_governance` | 0.442 | 0.503 | 0.471 | 0.971 |
+| `legal_regulatory` | 0.490 | 0.460 | 0.474 | 0.929 |
+| `market_analyst_sentiment` | 0.565 | 0.378 | 0.453 | 0.771 |
+| `mergers_acquisitions` | **0.926** | 0.481 | 0.633 | 0.980 |
+| `partnerships_business_dev` | 0.466 | 0.449 | 0.457 | 0.963 |
+| `product_innovation` | 0.619 | 0.509 | 0.559 | 0.939 |
+| `other` | 0.474 | 0.545 | 0.507 | 0.581 |
+
+Two standouts: `capital_shareholder_returns` (precision 0.074 — wrong 93% of
+the times the model predicts it; likely confused with its own hierarchy
+group-mates `earnings_performance`/`mergers_acquisitions`, not yet root-caused)
+and `mergers_acquisitions` (the mirror image — precision 0.926 but recall
+only 0.481, i.e. conservative rather than wrong). `other`'s own row is
+discussed separately below — it isn't one of the 9 taxonomy slugs, but it's
+in `classes` (every value that appears as either a judge verdict or a model
+prediction) so `aggregate_category` computes it the same way.
+
+Read `accuracy_ovr_<slug>` with the imbalance caveat baked into its own
+docstring in `metrics.py`: it's a one-vs-rest binary call ("is this X or
+not"), so a rare slug's accuracy is dominated by true negatives and reads
+high (0.92-0.98) almost regardless of how good the model actually is at that
+slug — `other`'s own 0.581 is the illustration: it's the *only* row where
+the one-vs-rest split isn't lopsided (~40% prevalence vs. 3-15% for a single
+specific slug), so its accuracy isn't inflated the same way and actually
+tracks how hard the binary call is. Precision/recall are the metrics to read
+for real signal; `accuracy_ovr` is a secondary check, not the headline.
+
+### Why precision, not recall, for category (2026-09-09)
+
+Sentiment's headline metric prioritizes recall (`recall_negative`) because a
+missed real negative is a blind spot — costly, and there's no cheap fallback
+once the article's been scored positive/neutral. Category is the opposite
+shape: every article that isn't confidently a specific category already has
+a safe fallback — `other`. A model that's too *cautious* about a specific
+category (low recall, like `mergers_acquisitions` at 0.481) just leaves some
+M&A articles sitting in the uncategorized pile — recoverable, low-cost,
+correctable with a threshold retune. A model that's too *eager* (low
+precision, like `capital_shareholder_returns` at 0.074) actively tells a
+downstream consumer — a dashboard, a category filter, a portfolio-
+construction rule keyed off `article_category.label` — that an article is
+about capital returns when the judge says it almost certainly isn't. That's
+not a gap, it's misinformation with a specific, actionable-sounding label
+attached. **Being sure the label is right, when the model commits to one,
+matters more here than catching every possible instance of that label** —
+the inverse priority from sentiment, for the inverse reason (category has a
+safe catch-all to fall back to; sentiment negative does not).
+
+This is why `category`'s headline stays `accuracy_vs_judge`
+(`metrics.HEADLINE["category"]`) rather than switching to a recall-style
+average: exact-match accuracy penalizes a confidently wrong label exactly as
+much as a missed one, so it can't be gamed by under-triggering everything
+into `other` (which would tank recall-per-slug but wouldn't show up in a
+recall-only metric the way it hurts `accuracy_vs_judge`). `precision_<slug>`
+is the diagnostic lens for the business question in this section's title —
+"when the model commits to a label, do we trust it" — read stage-wide via
+`accuracy_vs_judge` and per-slug via the table above, not a metric to
+optimize against `--check-regression` on its own (a model that never fires a
+given slug has perfect, meaningless precision on it).
+
+### The `other` bucket: a precision problem of its own (2026-09-09)
+
+The precision-over-recall framing above treats "falls back to `other`" as
+the safe failure mode — no false information reaches a downstream consumer.
+That's only true if `other` itself is trustworthy, and right now it isn't
+quite: `other`'s own precision is **0.474** — of the articles the model
+labels `other`, the judge agrees for less than half of them. The other
+52.6% are articles the judge says *do* have a real, specific category that
+the model suppressed (a direct, now-quantified view of the same 0.4→0.6
+threshold trade documented above: raising the bar to fix `acc_other`
+necessarily means some genuinely-categorizable articles get pushed into
+`other` too — that's exactly what a 0.474 precision reading looks like from
+the other side).
+
+Two implications, not fully aligned with each other:
+
+1. **The failure direction still matches the business preference above.**
+   A real category article landing in `other` degrades gracefully — a
+   consumer sees "uncategorized," not a wrong specific claim. This is the
+   same asymmetry the precision-priority argument rests on, and it's working
+   as intended.
+2. **But `other` can't yet be read as "verified no category."** A consumer
+   treating `article_category.label == "other"` as ground truth "this
+   article has no relevant business category" is wrong more than half the
+   time. Until `other`'s own precision improves, the honest reading of
+   `other` is "the model isn't confident enough to commit to a specific
+   label" — closer to a low-confidence signal than a negative one. Anywhere
+   downstream that filters *out* `other` articles as irrelevant should know
+   that filter is discarding a substantial number of real category hits
+   along with the true negatives.
+
+No action taken on this yet — flagged as the next natural calibration target
+(likely `CATEGORY_GROUP_FLOOR` or a slug-specific threshold rather than
+another global `CATEGORY_CONFIDENCE_THRESHOLD` move, since the global lever
+was already spent getting `acc_other` from 0.215 to 0.545) once more
+post-calibration data accumulates.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -348,7 +520,9 @@ excluding every earlier-priority stratum's already-drawn ids:
 1. **`low_conf`** (`--low-conf-frac` of `--sample-size`, default 0.2) — the
    *least-confident* stored rows, deterministically, so every run re-checks
    the true worst case: lowest `article_sentiment.score`; category picks
-   within ±0.1 of `CATEGORY_CONFIDENCE_THRESHOLD` (0.4) or labelled `other`;
+   within ±0.1 of `CATEGORY_CONFIDENCE_THRESHOLD` (0.6 as of the 2026-09-09
+   calibration — see "Follow-up: hierarchical category classification"
+   above) or labelled `other`;
    lowest per-article `MIN(article_entities.score)`; for `c_summary` (no
    score), articles whose sentiment/NER inputs were themselves low-confidence.
    **Diagnostic-only**: deliberately biased toward hard cases, so it's
@@ -381,7 +555,7 @@ excluding every earlier-priority stratum's already-drawn ids:
      spans) is far milder than sentiment's/category's article-level
      imbalance, and there's no secondary per-entity score to target.
    - **Why these thresholds are well below each stage's winning bar** (0.5
-     for sentiment's 3-way softmax; `CATEGORY_CONFIDENCE_THRESHOLD` 0.4 for
+     for sentiment's 3-way softmax; `CATEGORY_CONFIDENCE_THRESHOLD` 0.6 for
      category): a distribution over mutually exclusive classes can have at
      most one class exceed 0.5, so a threshold at or above that would
      mathematically exclude every false-negative candidate for that class —

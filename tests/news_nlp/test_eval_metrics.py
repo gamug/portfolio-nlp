@@ -256,6 +256,35 @@ def test_category_coerces_unknown_ideal_slug_to_other() -> None:
     assert v.ideal_slug == "other"
 
 
+def test_category_per_slug_precision_recall_and_ovr_accuracy() -> None:
+    """One-vs-rest per-slug precision/recall/F1/binary-accuracy for
+    ``earnings_performance``, hand-computed: 1 TP, 1 FP, 1 FN, 1 TN out of 4
+    single-bucket (unweighted) items -- precision == recall == f1 == 0.5,
+    accuracy_ovr counts both the TP and the TN as correct -> 2/4 == 0.5.
+    ``recall_<slug>`` must equal the pre-existing ``acc_<slug>`` exactly (same
+    HT algebra, two different code paths)."""
+    items = [
+        _item(1, "representative", {"label": "earnings_performance"}),  # TP
+        _item(2, "representative", {"label": "mergers_acquisitions"}),  # FN / FP(MA)
+        _item(3, "representative", {"label": "earnings_performance"}),  # FP / FN(MA)
+        _item(4, "representative", {"label": "capital_shareholder_returns"}),  # TN
+    ]
+    verdicts = [
+        CategoryVerdict(agrees=True, ideal_slug="earnings_performance"),
+        CategoryVerdict(agrees=False, ideal_slug="earnings_performance"),
+        CategoryVerdict(agrees=False, ideal_slug="mergers_acquisitions"),
+        CategoryVerdict(agrees=True, ideal_slug="capital_shareholder_returns"),
+    ]
+    out = metrics.aggregate_category(items, verdicts)
+    assert out["precision_earnings_performance"] == pytest.approx(0.5)
+    assert out["recall_earnings_performance"] == pytest.approx(0.5)
+    assert out["f1_earnings_performance"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_earnings_performance"] == pytest.approx(0.5)
+    assert out["recall_earnings_performance"] == out["acc_earnings_performance"]
+    assert out["precision_earnings_performance_naive_pooled"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_earnings_performance_naive_pooled"] == pytest.approx(0.5)
+
+
 def test_ner_error_only_contract_prf() -> None:
     items = [
         _item(
