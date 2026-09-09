@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import news_nlp as db_module
+from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD
 
 ARTICLES_SCHEMA = """
 CREATE TABLE articles (
@@ -209,7 +210,11 @@ def eval_store_paths(tmp_path: Path) -> tuple[Path, Path]:
                     i,
                     sentiment_score=0.30 + i * 0.015,
                     category_label="earnings_performance",
-                    category_score=0.33 + i * 0.01,
+                    # relative to CATEGORY_CONFIDENCE_THRESHOLD (not a fixed
+                    # 0.3-0.5 range) so this stays within _low_conf_ids'
+                    # +-0.1 near-threshold window even if the threshold is
+                    # retuned; i=1..8 -> THRESHOLD-0.06..THRESHOLD+0.01.
+                    category_score=CATEGORY_CONFIDENCE_THRESHOLD - 0.07 + i * 0.01,
                     ner_score=0.40 + i * 0.02,
                 )
             else:
@@ -239,24 +244,55 @@ def write_stage_predictions(
     *,
     sentiment_score: float = 0.92,
     sentiment_label: str = "positive",
+    sentiment_negative: float | None = None,
+    sentiment_positive: float | None = None,
+    sentiment_neutral: float | None = None,
     category_label: str = "earnings_performance",
     category_score: float = 0.81,
+    category_distribution: dict[str, float] | None = None,
     ner_score: float = 0.95,
+    num_chunks: int = 1,
     with_summary: bool = True,
 ) -> None:
     """Write one row per per-article result table for *article_id* (via the real
-    ``news_nlp.queries`` writers, so the lean ``articles`` row is copied too)."""
+    ``news_nlp.queries`` writers, so the lean ``articles`` row is copied too).
+
+    ``sentiment_negative``/``_positive``/``_neutral`` and
+    ``category_distribution`` override the raw per-class score columns
+    independently of the winning ``label`` -- needed to exercise
+    ``news_nlp.eval.sampling``'s soft-probability ``target_<x>`` strata, which
+    threshold on those raw columns regardless of the argmax. Default (``None``)
+    reproduces the pre-stratification behavior: the winning label's raw score
+    is ``sentiment_score``/``category_score``, everything else a low filler.
+    """
     dist = {slug: 0.02 for slug in db_module.CATEGORY_SLUGS}
     if category_label in dist:
         dist[category_label] = category_score
+    if category_distribution:
+        dist.update(category_distribution)
+    positive = (
+        sentiment_positive
+        if sentiment_positive is not None
+        else (sentiment_score if sentiment_label == "positive" else 0.1)
+    )
+    negative = (
+        sentiment_negative
+        if sentiment_negative is not None
+        else (sentiment_score if sentiment_label == "negative" else 0.1)
+    )
+    neutral = (
+        sentiment_neutral
+        if sentiment_neutral is not None
+        else (sentiment_score if sentiment_label == "neutral" else 0.1)
+    )
     db_module.write_sentiment(
         conn,
         article_id,
         label=sentiment_label,
         score=sentiment_score,
-        positive=sentiment_score if sentiment_label == "positive" else 0.1,
-        negative=sentiment_score if sentiment_label == "negative" else 0.1,
-        neutral=sentiment_score if sentiment_label == "neutral" else 0.1,
+        positive=positive,
+        negative=negative,
+        neutral=neutral,
         model_name="test-finbert",
     )
     db_module.write_category(
@@ -283,7 +319,7 @@ def write_stage_predictions(
     )
     if with_summary:
         db_module.write_company_summary(
-            conn, article_id, f"Summary of article {article_id}.", 1, "test-distilbart"
+            conn, article_id, f"Summary of article {article_id}.", num_chunks, "test-distilbart"
         )
     conn.commit()
 

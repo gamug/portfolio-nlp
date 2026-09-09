@@ -1,7 +1,8 @@
 """Orchestrate an eval run: sample -> judge (concurrently) -> aggregate -> persist.
 
 ``run_eval`` opens one two-tier ``connect_pipeline`` connection, then per stage
-samples the fixed 60/40 split, judges every row through a ``ThreadPoolExecutor``
+draws the stratified ``low_conf`` / ``target_<x>`` / ``representative`` sample
+(``news_nlp.eval.sampling``), judges every row through a ``ThreadPoolExecutor``
 (each task builds its own stateless ``Agent`` over a shared ``OpenAIModel``),
 aggregates, writes ``eval_run`` / ``eval_judgement`` rows + an MLflow run, and
 optionally checks for a headline-metric regression against the previous run.
@@ -9,6 +10,8 @@ optionally checks for a headline-metric regression against the previous run.
 
 from __future__ import annotations
 
+import json
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -49,10 +52,19 @@ def _run_stage(
         stage,
         size=settings.sample_size,
         low_conf_frac=settings.low_conf_frac,
+        target_frac=settings.target_frac,
         seed=settings.seed,
     )
-    low_conf_n = sum(1 for it in items if it.bucket == "low_conf")
-    random_n = len(items) - low_conf_n
+    bucket_counts = Counter(it.bucket for it in items)
+    low_conf_n = bucket_counts.get("low_conf", 0)
+    random_n = len(items) - low_conf_n  # sum of every non-low_conf stratum
+    population_by_bucket: dict[str, int] = {}
+    for it in items:
+        population_by_bucket.setdefault(it.bucket, it.stratum_population)
+    strata_meta = {
+        bucket: {"population": population_by_bucket[bucket], "n": n}
+        for bucket, n in bucket_counts.items()
+    }
 
     run_id = create_eval_run(
         conn,
@@ -64,6 +76,7 @@ def _run_stage(
         judge_model=settings.llm_model,
         judge_url=settings.llm_url,
         code_version=code_version(),
+        strata_json=json.dumps(strata_meta),
     )
     conn.commit()
 
@@ -115,6 +128,7 @@ def _run_stage(
                 "n_judged": len(items),
                 "low_conf_n": low_conf_n,
                 "random_n": random_n,
+                **{f"n_{bucket}": n for bucket, n in bucket_counts.items()},
                 "seed": settings.seed,
                 "judge_model": settings.llm_model,
                 "judge_url": settings.llm_url,

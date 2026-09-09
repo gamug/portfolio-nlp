@@ -8,7 +8,7 @@ from news_nlp.eval.store import create_eval_run, finish_eval_run, record_judgeme
 
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
     cols = set(conn.table_columns("eval_run"))
-    assert {"stage", "metrics_json", "mlflow_run_id", "status"} <= cols
+    assert {"stage", "metrics_json", "strata_json", "mlflow_run_id", "status"} <= cols
     assert {"run_id", "bucket", "verdict_json", "correct"} <= set(
         conn.table_columns("eval_judgement")
     )
@@ -25,6 +25,8 @@ def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
         judge_model="deepseek-chat",
         judge_url="https://example.test",
         code_version="abc1234",
+        strata_json='{"low_conf": {"population": 459112, "n": 1}, '
+        '"representative": {"population": 245508, "n": 1}}',
     )
     conn.commit()
     assert isinstance(run_id, int)
@@ -44,7 +46,7 @@ def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
         conn,
         run_id,
         article_id=2,
-        bucket="random",
+        bucket="representative",
         prediction={"label": "neutral", "score": 0.8},
         verdict={"agrees": True, "ideal_label": "neutral", "severity": 0},
         correct=True,
@@ -61,20 +63,22 @@ def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
     conn.commit()
 
     row = conn.execute(
-        "SELECT status, metrics_json, mlflow_run_id, finished_at FROM eval_run WHERE id = ?",
+        "SELECT status, metrics_json, strata_json, mlflow_run_id, finished_at "
+        "FROM eval_run WHERE id = ?",
         (run_id,),
     ).fetchone()
     assert row["status"] == "ok"
     assert row["mlflow_run_id"] == "mlf123"
     assert row["finished_at"] is not None
     assert '"macro_f1_vs_judge": 0.5' in row["metrics_json"]
+    assert '"representative": {"population": 245508, "n": 1}' in row["strata_json"]
 
     judgements = conn.execute(
         "SELECT article_id, bucket, correct, severity FROM eval_judgement "
         "WHERE run_id = ? ORDER BY article_id",
         (run_id,),
     ).fetchall()
-    assert [tuple(r) for r in judgements] == [(1, "low_conf", 0, 2), (2, "random", 1, 0)]
+    assert [tuple(r) for r in judgements] == [(1, "low_conf", 0, 2), (2, "representative", 1, 0)]
 
 
 def test_latest_eval_runs_picks_newest_per_stage(conn: db_module.NewsNlpDatabase) -> None:

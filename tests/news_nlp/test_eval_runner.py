@@ -76,7 +76,7 @@ def test_run_eval_writes_db_rows_and_mlflow_runs(
         assert r["mlflow_run_id"]
         assert r["headline_metric"] in r["metrics"]
         assert r["regressed"] is False
-    assert out["sentiment"]["headline_metric"] == "macro_f1_vs_judge"
+    assert out["sentiment"]["headline_metric"] == "recall_negative"
 
     check = db_module.connect(results)
     try:
@@ -99,11 +99,13 @@ def test_run_eval_exits_nonzero_on_regression(
 ) -> None:
     source, results = eval_store_paths
     settings = _settings(tmp_path)
-    # a strong prior run so the stub's macro-F1 (~0.33, one class only) looks like a drop
+    # A strong prior recall_negative so the stub's 0.0 (it only ever returns
+    # ideal_label="positive", so there's no true negative for it to recall)
+    # looks like a drop.
     log_to_mlflow(
         stage="sentiment",
         params={"stage": "sentiment"},
-        metrics={"macro_f1_vs_judge": 0.95},
+        metrics={"recall_negative": 0.90},
         judgements=[],
         system_prompt="p",
         tracking_uri=settings.mlflow_tracking_uri,
