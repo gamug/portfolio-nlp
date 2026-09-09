@@ -95,7 +95,11 @@ CREATE TABLE IF NOT EXISTS article_category (
     article_id INTEGER PRIMARY KEY REFERENCES articles(id),
     label TEXT NOT NULL,   -- winning category slug, or 'other'
     score REAL NOT NULL,   -- winning slug's NLI entailment probability (pre-threshold)
-    earnings_performance REAL NOT NULL,
+    group_label TEXT NOT NULL DEFAULT '',   -- winning level-1 group slug (taxonomy.CATEGORY_GROUPS);
+                                             -- set even when label='other' via the flat-level-1 short-circuit
+    group_score REAL NOT NULL DEFAULT 0.0,  -- winning group's NLI entailment probability (pre-floor)
+    earnings_performance REAL NOT NULL,   -- 0.0 placeholder if this slug's group wasn't in the
+                                           -- article's top-2 groups (see pipeline.run_category_stage)
     mergers_acquisitions REAL NOT NULL,
     leadership_governance REAL NOT NULL,
     legal_regulatory REAL NOT NULL,
@@ -212,8 +216,30 @@ def _migrate_eval_run_schema(conn: Database) -> None:
     conn.ensure_columns("eval_run", _EVAL_RUN_ADDED_COLUMNS)
 
 
+_CATEGORY_ADDED_COLUMNS = {
+    "group_label": "TEXT NOT NULL DEFAULT ''",
+    "group_score": "REAL NOT NULL DEFAULT 0.0",
+}
+
+
+def _migrate_category_schema(conn: Database) -> None:
+    """Bring a pre-existing `article_category` table (created before the
+    two-level hierarchical classifier added group_label/group_score) up to
+    the current schema. Additive only, same `ensure_columns`
+    no-op-when-missing/already-current pattern as `_migrate_eval_run_schema`.
+    Legacy rows read back group_label=''/group_score=0.0 (the column
+    defaults). Unlike sector_summary's format_version self-heal,
+    fetch_pending_category_articles only checks row-presence, so these
+    legacy rows do NOT automatically get reprocessed -- see
+    docs/category-taxonomy.md for the (separate, not-yet-built) backfill
+    this implies if one is ever wanted.
+    """
+    conn.ensure_columns("article_category", _CATEGORY_ADDED_COLUMNS)
+
+
 def init_schema(conn: Database) -> None:
     conn.create_schema(build_schema(conn.dialect))
     _migrate_sector_summary_schema(conn)
     _migrate_eval_run_schema(conn)
+    _migrate_category_schema(conn)
     conn.commit()

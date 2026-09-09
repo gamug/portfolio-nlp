@@ -178,8 +178,8 @@ def test_category_priority_order_resolves_dual_threshold_row(
             conn,
             16,
             category_distribution={
-                "partnerships_business_dev": 0.25,
-                "labor_human_capital": 0.25,
+                "partnerships_business_dev": 0.40,
+                "labor_human_capital": 0.40,
             },
         )
         items = sample_for_stage(

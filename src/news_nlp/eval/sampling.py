@@ -108,7 +108,17 @@ _CSUMMARY_WEAK_MULT = 4
 # threshold is ever retuned, it MUST stay below that boundary -- see
 # test_eval_sampling.py's threshold-boundary tests.
 _SENTIMENT_TARGET_THRESHOLD = 0.35  # just above the 3-way uniform baseline (0.333)
-_CATEGORY_TARGET_THRESHOLD = 0.2  # ~1.8x the 9-way uniform baseline (0.111)
+# Was 0.2 (~1.8x the flat classifier's 9-way uniform baseline of 0.111) before
+# the hierarchical category classifier (pipeline.run_category_stage,
+# docs/category-taxonomy.md) replaced that flat 9-way softmax with two levels
+# of 3-way-or-narrower softmaxes. article_category's 9 leaf-slug columns are
+# now populated from 3-way child-group softmaxes for whichever slugs' group
+# made an article's top-2 -- baseline there is 0.333, so the old 0.2 sat
+# BELOW no-signal, not above it: target_<slug> >= 0.2 would fire on a large,
+# uninformative fraction of rows by chance, defeating the near-miss
+# selectivity stratification exists for. Raised to sit just above the new
+# 0.333 baseline, mirroring _SENTIMENT_TARGET_THRESHOLD's own placement.
+_CATEGORY_TARGET_THRESHOLD = 0.35
 
 # Per-class weight of the sentiment target budget. `negative` is weighted
 # highest: it's HEADLINE["sentiment"]'s class (metrics.py) -- see

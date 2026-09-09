@@ -278,6 +278,39 @@ precision collapsing further, or positive precision dropping) — see
 but these companion numbers are worth eyeballing on every run, not just the
 gate.
 
+### Follow-up (2026-09-09): hierarchical category classification
+
+Investigation into the category stage's own worrying per-slug numbers
+(`acc_product_innovation` 0.14-0.21, `acc_partnerships_business_dev`
+0.16-0.22, `acc_leadership_governance` 0.28-0.33 in the baseline/5000-row
+runs above) found the cause was primarily the classifier's flat 9-way
+softmax diluting real signal, not unbalanced data or a sampling artifact:
+recall on those three slugs stayed low at n=359/170/85 true examples across
+two differently-sized runs (rules out small-sample noise), and the model's
+own raw score for the correct slug on missed rows averaged only 0.14-0.16 —
+barely above the 9-way uniform baseline of 0.111 (rules out threshold
+miscalibration as the primary fix; <5% of misses were even close to the 0.4
+bar). `run_category_stage` now classifies through `news_nlp.taxonomy.
+CATEGORY_GROUPS`' two-level hierarchy instead — see
+`docs/category-taxonomy.md`'s "Hierarchical classification" section for the
+full design.
+
+This changes `article_category`'s score-column semantics for **future**
+pipeline runs: the 9 leaf-slug columns are now populated from 3-way
+child-group softmaxes (baseline ~0.333) for whichever slugs' group made an
+article's top-2, not a flat 9-way softmax (baseline ~0.111) — raw magnitudes
+aren't directly comparable across this boundary. `_CATEGORY_TARGET_THRESHOLD`
+(the stratified-sampling `target_<slug>` mechanism above) was raised from 0.2
+to 0.35 accordingly — the old value sat *below* the new no-signal baseline,
+which would have defeated that stratification's near-miss selectivity for
+any slug whose group ran level 2.
+
+The 2026-09-08 baseline table and per-slug notes above predate this change
+and stay as the historical record for the old flat-classifier design — not
+rewritten. A fresh category eval pilot is needed post-merge for numbers
+comparable to the new design (see `docs/category-taxonomy.md`'s "Hierarchical
+classification" for the measured-not-guessed threshold caveat).
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -329,11 +362,14 @@ excluding every earlier-priority stratum's already-drawn ids:
      `neutral >= 0.35`). `negative` is weighted highest — it's the headline
      class.
    - **category**: one stratum per the 6 worst 2026-09-08-baseline per-slug
-     accuracies plus `legal_regulatory`, all thresholded at `>= 0.2`, weights
-     summing to 1.0: `partnerships_business_dev` 0.20,
-     `labor_human_capital` 0.18, `leadership_governance` 0.16,
-     `mergers_acquisitions` 0.14, `capital_shareholder_returns` 0.13,
-     `product_innovation` 0.12, `legal_regulatory` 0.07.
+     accuracies plus `legal_regulatory`, all thresholded at `>= 0.35` (raised
+     from an original 0.2 once the hierarchical category classifier changed
+     the leaf-score baseline from ~0.111 to ~0.333 — see the "hierarchical
+     category classification" follow-up above), weights summing to 1.0:
+     `partnerships_business_dev` 0.20, `labor_human_capital` 0.18,
+     `leadership_governance` 0.16, `mergers_acquisitions` 0.14,
+     `capital_shareholder_returns` 0.13, `product_innovation` 0.12,
+     `legal_regulatory` 0.07.
    - **c_summary** has no discrete classes, so its "targets" instead
      partition on `num_chunks` (a TRUE partition — every row has exactly
      one, so c_summary draws no `representative` bucket at all): `1` (weight
@@ -440,7 +476,11 @@ the real `n`/`N` to recompute this from).
   rather than running independently, hitting the single worst slug's own
   ±0.05 target inside one regular run can still need a total `--sample-size`
   in the same range the unstratified design would — an honest result, not
-  oversold.
+  oversold. **Predates the hierarchical category classifier** (the follow-up
+  above) and its `>= 0.2` → `>= 0.35` threshold change — both the population
+  count and the threshold in this bullet are stale; re-derive against the new
+  classifier's actual score distribution once enough articles have been
+  reclassified under it, rather than trusting this number as-is.
 - **Recommendation** (two-tier, not one asserted number):
   1. Regular regression-tracked runs: `--sample-size` floor **~1,800-2,200**
      for sentiment, **~2,500-3,000** for category (targets a looser

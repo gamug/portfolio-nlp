@@ -59,7 +59,9 @@ single source's idiosyncrasies dominate the result:
 
 `news_nlp.taxonomy`'s `CATEGORY_LABELS` is the canonical machine-readable
 source for this table — keep this doc in sync with it if the labels ever
-change.
+change. `CATEGORY_GROUPS` (see "Hierarchical classification" below) groups
+these same 9 slugs into 3 classification groups; it doesn't add or remove
+any category here.
 
 | slug | display name | scope | sources |
 |---|---|---|---|
@@ -74,33 +76,76 @@ change.
 | `partnerships_business_dev` | Partnerships & Business Development | Strategic alliances, joint ventures, distribution deals | RavenPack (partnerships, marketing) |
 | `other` | Other | Catch-all — anything below the confidence threshold against every category above | n/a — the below-threshold fallback |
 
-## The "other" fallback and confidence threshold
+## Hierarchical classification (2026-09-09)
 
-`other` is not itself an NLI candidate label — there is no hypothesis text
-for it. The classifier runs the article against the 9 substantive labels,
-takes the highest-scoring one via softmax over NLI entailment logits, and
-only assigns that label if its score clears
-`pipeline.CATEGORY_CONFIDENCE_THRESHOLD` (currently **0.4**). Below that,
-the article is labeled `other`.
+The classifier does NOT run all 9 substantive labels against each other in
+one softmax. It used to (a flat 9-way softmax), but that empirically starved
+real signal for several labels: with 9 mutually-exclusive candidates, the
+no-signal uniform baseline is only ~0.11, and `product_innovation`
+(recall 0.209 at n=359 true examples in an eval run), `partnerships_business_dev`
+(0.224, n=170), and `leadership_governance` (0.282, n=85) were predicted
+`other` on 48-74% of their true instances — on those misses the model's own
+raw score for the *correct* slug averaged only 0.14-0.16, barely above the
+0.111 baseline (i.e. genuinely no signal, not a near-miss on the threshold —
+under 5% of misses were even ≥0.3). Sampled judge rationales confirmed these
+were unambiguous articles (a product launch, clinical trial data, a
+cloud-strategy piece), not genuine edge cases — the model just couldn't
+produce a confident signal while competing against 8 other candidates at
+once.
 
-Rationale for 0.4: with 9 mutually-exclusive labels, a uniform/no-signal
-distribution puts every label at ~0.11. Requiring the winner to clear 0.4
-(~3.6x that baseline) is a middle ground — strict enough to route genuinely
-ambiguous or generic articles (market-wrap roundups, listicles, tangential
-mentions) to `other`, without being so strict that legitimately on-topic
-articles with modest lexical overlap to their hypothesis get
-miscategorized.
+Fix: classify in two smaller softmax passes instead of one big one. `news_nlp.taxonomy.CATEGORY_GROUPS`
+groups the 9 slugs into 3 groups of 3, each mixing at least one strong and
+one weak performer from the numbers above:
 
-This threshold is a reasoned starting point, not a validated one. The
-`article_category` table stores the full 9-way score distribution for
-every article specifically so it can be retuned later: query for articles
-labeled `other` whose winning-slug score was just under 0.4 (near-misses)
-versus those with a flat distribution (genuinely ambiguous), and adjust the
-constant in `src/pipeline.py` accordingly.
+| group slug | children |
+|---|---|
+| `corporate_actions` | `earnings_performance`, `mergers_acquisitions`, `capital_shareholder_returns` |
+| `governance_legal_workforce` | `leadership_governance`, `legal_regulatory`, `labor_human_capital` |
+| `market_product_partnerships` | `product_innovation`, `market_analyst_sentiment`, `partnerships_business_dev` |
+
+1. **Level 1**: a 3-way softmax over the 3 groups' own hypotheses
+   (uniform baseline ~0.33, ~3x higher signal-to-noise than the old flat
+   design). If the winning group's score is below `CATEGORY_GROUP_FLOOR`
+   (**0.40**, ~1.2x that baseline), the distribution is treated as flat/
+   uninformative and the article is labeled `other` directly — level 2 is
+   skipped entirely for it, and every leaf score column is `0.0`.
+2. **Level 2** (only for articles that didn't short-circuit): the **top-2**
+   groups from level 1 — not just the winner — combine their 6 children into
+   one candidate set for a second softmax (baseline ~0.17). The final
+   `label` is that softmax's winner if it clears
+   `pipeline.CATEGORY_CONFIDENCE_THRESHOLD` (unchanged, **0.4**, now ~2.4x
+   its own 6-way baseline instead of ~3.6x the old 9-way one), else `other`.
+   Using the *top-2* groups, not just the top-1, means a narrow level-1 miss
+   can still be recovered at level 2 as long as the true group was 2nd
+   place — a strict single-path cascade could never recover from that.
+
+**What gets persisted**: `article_category` gains `group_label`/`group_score`
+(the winning level-1 group and its probability, set even when the final
+`label` is `other`), alongside the same 9 leaf-slug score columns as before.
+The 3rd-place group's 3 children — the group that didn't make an article's
+top-2 — never get a level-2 forward pass at all, so their columns are `0.0`.
+**This `0.0` means "not evaluated," not "confidently rejected"** — don't
+read it as the model having ruled that category out; it just never got
+asked. The same is true, for all 9 leaf columns, on the flat-level-1
+short-circuit path.
+
+Both new thresholds (`CATEGORY_GROUP_FLOOR` and the reinterpreted
+`CATEGORY_CONFIDENCE_THRESHOLD`) are reasoned starting points, not validated
+ones — same honesty as the value below always had. Retune using
+`article_category`'s stored `group_score` and per-slug score columns once
+enough two-level classification data exists.
+
+This changes what gets written for *future* pipeline runs only — it does not
+retroactively reclassify already-scored articles (`run_category_stage` only
+processes rows absent from `article_category`). A bulk re-classification of
+existing rows, if ever wanted, is a separate, not-yet-built follow-up (no
+reusable bulk-backfill script currently exists in `scripts/`).
 
 ## Classification input
 
 The classifier runs on the article's title plus the lead chunk of its body
 (not the full article, and not the opt-in `article_summary` — see
 `docs/modules/news-nlp.md` for why). News articles are inverted-pyramid, so
-the opening sentences almost always establish the dominant topic.
+the opening sentences almost always establish the dominant topic. Unaffected
+by the hierarchical redesign above — both levels classify the same premise,
+just against different (smaller) hypothesis sets.
