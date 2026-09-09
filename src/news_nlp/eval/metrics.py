@@ -209,8 +209,8 @@ def aggregate_category(
     ones = [1.0] * len(it_ok)
     pairs = [(v.ideal_slug, str(it.prediction.get("label", "other"))) for it, v in ok]
     classes = sorted({t for t, _ in pairs} | {p for _, p in pairs})
-    macro_ht, _ = _macro_f1_ht(it_ok, pairs, classes)
-    macro_naive, _ = _macro_f1(pairs, classes)
+    macro_ht, per_ht = _macro_f1_ht(it_ok, pairs, classes)
+    macro_naive, per_naive = _macro_f1(pairs, classes)
     out["accuracy_vs_judge"] = _ht_ratio(it_ok, correct_f, ones)
     out["accuracy_vs_judge_naive_pooled"] = _rate(correct)
     for bucket, rate in _per_bucket(it_ok, correct_f).items():
@@ -224,13 +224,37 @@ def aggregate_category(
     out["other_rate_judge"] = _ht_ratio(it_ok, judge_other_f, ones)
     out["other_rate_judge_naive_pooled"] = _rate([bool(f) for f in judge_other_f])
     out["mean_severity"] = fmean(v.severity for _, v in ok)
-    # per-judge-slug accuracy (recall of the model on that slug)
+    # per-judge-slug accuracy (recall of the model on that slug) -- kept for
+    # backward compat with earlier runs/dashboards; identical to recall_<slug>
+    # below (same HT algebra), just computed by hand instead of reused from
+    # per_ht.
     for slug in sorted({v.ideal_slug for _, v in ok}):
         truth_f = [1.0 if v.ideal_slug == slug else 0.0 for _, v in ok]
         hit_f = [c if t else 0.0 for c, t in zip(correct_f, truth_f, strict=True)]
         out[f"acc_{slug}"] = _ht_ratio(it_ok, hit_f, truth_f)
         hits = [c for (it, v), c in zip(ok, correct, strict=True) if v.ideal_slug == slug]
         out[f"acc_{slug}_naive_pooled"] = _rate(hits)
+    # One-vs-rest per-slug precision/recall/F1 (already computed inside
+    # _macro_f1_ht/_macro_f1 for the macro average, previously discarded) --
+    # precision is the number `acc_<slug>` above can't give you: of the times
+    # the model predicted this slug, how often was that actually right.
+    for slug, (prec, rec, f1) in per_ht.items():
+        out[f"precision_{slug}"] = prec
+        out[f"recall_{slug}"] = rec
+        out[f"f1_{slug}"] = f1
+    for slug, (prec, rec, f1) in per_naive.items():
+        out[f"precision_{slug}_naive_pooled"] = prec
+        out[f"recall_{slug}_naive_pooled"] = rec
+        out[f"f1_{slug}_naive_pooled"] = f1
+    # One-vs-rest binary accuracy per slug: "is this article <slug> or not",
+    # collapsing the other 9 possible labels into a single negative class --
+    # the literal "this category vs. the total others" framing. Skews high
+    # for rare slugs (dominated by true negatives), so read alongside
+    # precision/recall above, not instead of them.
+    for slug in classes:
+        ovr_hit_f = [1.0 if (t == slug) == (p == slug) else 0.0 for t, p in pairs]
+        out[f"accuracy_ovr_{slug}"] = _ht_ratio(it_ok, ovr_hit_f, ones)
+        out[f"accuracy_ovr_{slug}_naive_pooled"] = _rate([bool(f) for f in ovr_hit_f])
     return out
 
 
