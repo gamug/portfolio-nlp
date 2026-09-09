@@ -43,12 +43,14 @@ _RESULT_TABLE = {
 # `run_sentiment_stage` (src/pipeline.py) chunks and scores the ENTIRE
 # body_text (a token-weighted average of per-chunk softmax probabilities), so
 # capping the judge's view to the lead compares it against text FinBERT never
-# saw the whole of -- confirmed as the dominant cause of the low 2026-09-08
-# sentiment eval score (docs/evaluation.md). `sentiment` is therefore judged on
-# the full, uncapped body_text (see _UNCAPPED_STAGES); no cap is applied there
-# because the longest observed article body (~35K chars, ~7-9K tokens) is well
-# within a modern chat model's context window -- an explicit assumption, not a
-# measured DeepSeek cost/context budget.
+# saw the whole of. `sentiment` is therefore judged on (in practice) the full
+# body_text -- see _UNCAPPED_STAGES / _SENTIMENT_MAX_BODY_CHARS below.
+#
+# Empirically (docs/evaluation.md's "Follow-up" note), this truncation
+# explained part of the 2026-09-08 score gap -- clearly for `positive`/
+# `neutral` -- but left `negative` agreement essentially unchanged, even
+# though `negative` drives most of the low macro F1; the deeper cause there is
+# a separate, still-open pipeline-capability gap, not this cap.
 #
 # `ner` and `c_summary` also chunk/reduce over the full article in the
 # pipeline and are *suspected* of the same lead-only-judge mismatch, but that
@@ -56,10 +58,23 @@ _RESULT_TABLE = {
 # now; see docs/evaluation.md's sentiment follow-up note.
 _MAX_BODY_CHARS = 6000
 
-# Stages judged on the full body_text (no cap) because the pipeline stage
+# Stages judged on (in practice) the full body_text -- the pipeline stage
 # itself scores/reduces over the whole article, not just the lead. Every
 # other stage in STAGES stays capped at _MAX_BODY_CHARS.
 _UNCAPPED_STAGES: frozenset[str] = frozenset({"sentiment"})
+
+# A safety ceiling for _UNCAPPED_STAGES, distinct from (and far more generous
+# than) _MAX_BODY_CHARS: the longest article body observed as of 2026-09-08 is
+# ~35K chars (~7-9K tokens), so this never engages against real data today --
+# it exists so a future pathological/malformed body_text can't produce an
+# oversized judge request that fails outright (silently degrading that row to
+# parse_failed) instead of just losing some tail context, which is the
+# acceptable-degradation failure mode a plain length cap gives us. ~2.9x the
+# longest observed body; comfortably inside any modern chat model's context
+# window, but not a measured DeepSeek token budget -- if judge failures ever
+# correlate with body length near this ceiling, that's the signal to replace
+# it with an actual tokenizer-based budget instead of a char-count proxy.
+_SENTIMENT_MAX_BODY_CHARS = 100_000
 # Cap the entity list shown to the NER judge -- some articles have 100s.
 _MAX_NER_ENTITIES = 60
 # For c_summary: how wide a low-confidence net to cast over the upstream stages.
@@ -100,6 +115,11 @@ def _all_ids(conn: NewsNlpDatabase, stage: str) -> list[int]:
     than relying on SQLite's incidental (undocumented, not guaranteed) rowid
     table-scan order.
     """
+    # `table`/`distinct` are drawn from the fixed internal _RESULT_TABLE dict /
+    # a literal above -- never caller or user input -- so this isn't a SQL
+    # injection risk despite the f-string; flagged by generic static scanners
+    # that pattern-match any interpolated-string execute() call regardless of
+    # where the interpolated value comes from (this project uses no ORM).
     table = _RESULT_TABLE[stage]
     distinct = "DISTINCT " if stage == "ner" else ""
     rows = conn.execute(
@@ -192,8 +212,9 @@ def _text(
     if row is None or not row["body_text"]:
         return None
     body = row["body_text"]
-    if stage not in _UNCAPPED_STAGES and len(body) > _MAX_BODY_CHARS:
-        body = body[:_MAX_BODY_CHARS] + "\n[... truncated ...]"
+    cap = _SENTIMENT_MAX_BODY_CHARS if stage in _UNCAPPED_STAGES else _MAX_BODY_CHARS
+    if len(body) > cap:
+        body = body[:cap] + "\n[... truncated ...]"
     return (row["title"] or "", body)
 
 

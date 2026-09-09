@@ -70,9 +70,13 @@ was shown only the first 6000 chars of `body_text` (`_MAX_BODY_CHARS` in
 (`src/pipeline.py`) scores the **entire** `body_text` via chunking and a
 token-weighted average across all chunks — a text-scope mismatch between what
 the model saw and what the judge saw. Fixed: `sentiment` is now judged on the
-full, uncapped `body_text`; `category` is unaffected (its cap is correct and
-intentional — `run_category_stage` deliberately classifies only the lead
-chunk, per `docs/modules/news-nlp.md`).
+full `body_text` in practice — capped only at a generous 100,000-char safety
+ceiling (`_SENTIMENT_MAX_BODY_CHARS`, ~2.9x the longest article observed as of
+this fix), so a future pathological body can't produce an oversized judge
+request that fails outright rather than just losing some tail context.
+`category` is unaffected (its cap is correct and intentional —
+`run_category_stage` deliberately classifies only the lead chunk, per
+`docs/modules/news-nlp.md`).
 
 Empirically, truncation only explains part of the gap (pulled the actual
 `judgements.json` for eval_run 10 / mlflow `823579c3`, cross-referenced
