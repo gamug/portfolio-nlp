@@ -334,6 +334,11 @@ def _prediction(conn: NewsNlpDatabase, stage: str, article_id: int) -> dict[str,
 def _text(
     conn: NewsNlpDatabase, schema: str, article_id: int, stage: str
 ) -> tuple[str, str] | None:
+    # S608: `schema` is always the return value of `_require_source` ->
+    # `_articles_rel(conn)`, allowlist-checked to be only "main" / "source"
+    # (see news_nlp/db.py's `_articles_rel` docstring) -- never caller or user
+    # input, despite the f-string. Same false-positive class already
+    # documented on `_all_ids` above.
     row = conn.execute(
         f"SELECT title, body_text FROM {schema}.articles WHERE id = ?",  # noqa: S608
         (article_id,),
