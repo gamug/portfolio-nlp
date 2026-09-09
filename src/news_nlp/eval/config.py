@@ -18,7 +18,14 @@ _REQUIRED_LLM_VARS = ("LLM_API_KEY", "LLM_MODEL", "LLM_URL")
 
 DEFAULT_TRACKING_URI = "./mlruns"
 DEFAULT_SAMPLE_SIZE = 80
-DEFAULT_LOW_CONF_FRAC = 0.6
+# Lowered from 0.6 (pre-stratification, when low_conf was the only mechanism
+# surfacing informative rows) now that dedicated target_* strata
+# (sampling.py) do the "surface likely-wrong rows" job more precisely. 60% of
+# every run's budget going to the diagnostic-only low_conf bucket is no
+# longer the right split; still fully available via --low-conf-frac for
+# anyone who wants the old ratio. See docs/evaluation.md.
+DEFAULT_LOW_CONF_FRAC = 0.2
+DEFAULT_TARGET_FRAC = 0.6
 DEFAULT_MAX_WORKERS = 4
 DEFAULT_REGRESSION_TOLERANCE = 0.05
 
@@ -32,6 +39,7 @@ class EvalSettings(BaseModel):
     mlflow_tracking_uri: str = DEFAULT_TRACKING_URI
     sample_size: int = Field(default=DEFAULT_SAMPLE_SIZE, gt=0)
     low_conf_frac: float = Field(default=DEFAULT_LOW_CONF_FRAC, ge=0.0, le=1.0)
+    target_frac: float = Field(default=DEFAULT_TARGET_FRAC, ge=0.0, le=1.0)
     seed: int | None = None
     max_workers: int = Field(default=DEFAULT_MAX_WORKERS, gt=0)
 
@@ -42,6 +50,8 @@ class EvalSettings(BaseModel):
         env_file: str | os.PathLike[str] | None = None,
         mlflow_tracking_uri: str | None = None,
         sample_size: int | None = None,
+        low_conf_frac: float | None = None,
+        target_frac: float | None = None,
         seed: int | None = None,
         max_workers: int | None = None,
     ) -> EvalSettings:
@@ -62,6 +72,8 @@ class EvalSettings(BaseModel):
             llm_url=os.environ["LLM_URL"],
             mlflow_tracking_uri=uri,
             sample_size=sample_size if sample_size is not None else DEFAULT_SAMPLE_SIZE,
+            low_conf_frac=low_conf_frac if low_conf_frac is not None else DEFAULT_LOW_CONF_FRAC,
+            target_frac=target_frac if target_frac is not None else DEFAULT_TARGET_FRAC,
             seed=seed,
             max_workers=max_workers if max_workers is not None else DEFAULT_MAX_WORKERS,
         )

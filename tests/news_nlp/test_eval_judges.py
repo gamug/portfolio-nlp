@@ -21,7 +21,12 @@ class FakeAgent:
 
 def _item(prediction: dict) -> EvalItem:
     return EvalItem(
-        article_id=1, bucket="random", title="T", body_text="Body.", prediction=prediction
+        article_id=1,
+        bucket="representative",
+        stratum_population=1,
+        title="T",
+        body_text="Body.",
+        prediction=prediction,
     )
 
 

@@ -24,6 +24,7 @@ _RUN_COLS = (
     "judge_url",
     "code_version",
     "status",
+    "strata_json",
 )
 _JUDGEMENT_COLS = (
     "run_id",
@@ -53,8 +54,15 @@ def create_eval_run(
     judge_model: str,
     judge_url: str,
     code_version: str,
+    strata_json: str = "{}",
 ) -> int:
-    """Insert a ``running`` ``eval_run`` row; return its id."""
+    """Insert a ``running`` ``eval_run`` row; return its id.
+
+    ``strata_json`` is the per-stratum ``{bucket: {"population": N_h, "n":
+    n_h}}`` bookkeeping the Horvitz-Thompson reweighting in
+    ``news_nlp.eval.metrics`` needs (see ``docs/evaluation.md``); defaults to
+    ``'{}'`` for callers that don't (yet) have it.
+    """
     cur = conn.execute(
         conn.dialect.insert("eval_run", _RUN_COLS),
         (
@@ -68,6 +76,7 @@ def create_eval_run(
             judge_url,
             code_version,
             "running",
+            strata_json,
         ),
     )
     row_id = cur.lastrowid

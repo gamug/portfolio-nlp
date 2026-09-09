@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """CLI entrypoint: LLM-as-judge accuracy evaluation of the news-NLP stages.
 
-Samples a fixed 60% low-confidence + 40% random slice of the stored
-sentiment / category / NER / c_summary predictions, has an LLM judge (a
-strands-agents agent over an OpenAI-compatible endpoint) score each one
-against the source article text, and writes aggregate metrics + per-row
-verdicts to MLflow and to the eval_run / eval_judgement tables in the
-RESULTS store. See docs/evaluation.md.
+Samples a stratified low_conf / target_<x> / representative slice of the
+stored sentiment / category / NER / c_summary predictions (soft-probability
+class-targeted for sentiment/category, num_chunks-tiered for c_summary), has
+an LLM judge (a strands-agents agent over an OpenAI-compatible endpoint)
+score each one against the source article text, and writes aggregate
+metrics + per-row verdicts to MLflow and to the eval_run / eval_judgement
+tables in the RESULTS store. See docs/evaluation.md.
 
 The judge is itself a model, so the numbers are agreement-with-a-judge, not
 ground truth. Needs LLM_API_KEY / LLM_MODEL / LLM_URL in the environment
@@ -46,7 +47,23 @@ def parse_args() -> argparse.Namespace:
         "--sample-size",
         type=int,
         default=None,
-        help="Rows to judge per stage (default 80 -> ~48 low-confidence + ~32 random).",
+        help="Rows to judge per stage (default 80). See docs/evaluation.md for the "
+        "recommended floor on a regression-tracked run.",
+    )
+    parser.add_argument(
+        "--low-conf-frac",
+        type=float,
+        default=None,
+        help="Share of --sample-size spent on the deterministic worst-case "
+        "low_conf bucket (default 0.2). Diagnostic-only -- excluded from every "
+        "headline/population-estimate metric.",
+    )
+    parser.add_argument(
+        "--target-frac",
+        type=float,
+        default=None,
+        help="Share of the post-low_conf budget spent on soft-probability-targeted "
+        "strata (default 0.6; no-op for ner, which has none). See docs/evaluation.md.",
     )
     parser.add_argument("--seed", type=int, default=None, help="Sampling seed (reproducible runs).")
     parser.add_argument(
@@ -84,6 +101,8 @@ def main() -> None:
     settings = EvalSettings.load(
         mlflow_tracking_uri=args.mlflow_uri,
         sample_size=args.sample_size,
+        low_conf_frac=args.low_conf_frac,
+        target_frac=args.target_frac,
         seed=args.seed,
         max_workers=args.max_workers,
     )
