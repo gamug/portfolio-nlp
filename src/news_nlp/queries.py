@@ -80,6 +80,8 @@ _CATEGORY_COLS = (
     "article_id",
     "label",
     "score",
+    "group_label",
+    "group_score",
     "earnings_performance",
     "mergers_acquisitions",
     "leadership_governance",
@@ -226,12 +228,20 @@ def write_category(
     score: float,
     scores: dict[str, float],
     model_name: str,
+    group_label: str = "",
+    group_score: float = 0.0,
 ) -> None:
     """`scores` must have one entry per taxonomy.CATEGORY_SLUGS slug (the full
-    9-way distribution) -- `label`/`score` are the winning slug (or 'other') and
-    its probability, kept separately from the raw distribution so a human
-    correction (see corrections.update_category) can change the winner without
-    touching the audit trail."""
+    9-way distribution -- 0.0 placeholders for whichever group didn't make an
+    article's top-2 at level 1, see pipeline.run_category_stage) --
+    `label`/`score` are the winning leaf slug (or 'other') and its
+    probability, kept separately from the raw distribution so a human
+    correction (see corrections.update_category) can change the winner
+    without touching the audit trail. `group_label`/`group_score` are the
+    winning level-1 group and its probability, kept alongside for the
+    two-level audit trail (docs/category-taxonomy.md) -- default to
+    ''/0.0 (matching the column defaults) for callers that don't have a
+    group decision to report (e.g. test fixtures, human corrections)."""
     _ensure_article_row(conn, article_id)
     conn.execute(
         conn.dialect.upsert("article_category", _CATEGORY_COLS, conflict=("article_id",)),
@@ -239,6 +249,8 @@ def write_category(
             article_id,
             label,
             score,
+            group_label,
+            group_score,
             scores["earnings_performance"],
             scores["mergers_acquisitions"],
             scores["leadership_governance"],
@@ -415,8 +427,8 @@ def get_article_detail(conn: NewsNlpDatabase, article_id: int) -> dict | None:
     ).fetchone()
 
     category_row = conn.execute(
-        """SELECT label, score, earnings_performance, mergers_acquisitions, leadership_governance,
-                  legal_regulatory, product_innovation, capital_shareholder_returns,
+        """SELECT label, score, group_label, group_score, earnings_performance, mergers_acquisitions,
+                  leadership_governance, legal_regulatory, product_innovation, capital_shareholder_returns,
                   labor_human_capital, market_analyst_sentiment, partnerships_business_dev, model_name
            FROM article_category WHERE article_id = ?""",
         (article_id,),

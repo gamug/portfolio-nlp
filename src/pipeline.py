@@ -17,7 +17,7 @@ Two-tier DB: run_pipeline reads article text from the read-only SOURCE store
 
 import gc
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,15 @@ from transformers import (
 
 import news_nlp as db
 from chunking import chunk_text, merge_char_spans
-from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD, CATEGORY_LABELS, OTHER_LABEL
+from news_nlp.taxonomy import (
+    CATEGORY_CONFIDENCE_THRESHOLD,
+    CATEGORY_GROUP_CHILDREN,
+    CATEGORY_GROUP_FLOOR,
+    CATEGORY_GROUPS,
+    CATEGORY_LABELS_BY_SLUG,
+    CATEGORY_SLUGS,
+    OTHER_LABEL,
+)
 
 # Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
 # `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
@@ -278,9 +286,36 @@ def run_ner_stage(
     free_gpu()
 
 
-def classify_category_scores(entail_logits: list[float]) -> tuple[str, float, dict]:
-    """Turn 9 entailment logits (one per CATEGORY_LABELS slug, same order)
-    into (label, winning_score, {slug: prob}). Split out from
+def classify_group_scores(entail_logits: list[float]) -> tuple[str, float, dict[str, float]]:
+    """Level 1 of the hierarchical category classifier: turn 3 entailment
+    logits (one per CATEGORY_GROUPS group, same order) into (winning_group,
+    winning_group_score, {group_slug: prob}). Softmax over just the 3 group
+    logits -- mirrors classify_category_scores' shape one level up. Does NOT
+    decide OTHER_LABEL here: that's a leaf-level concept in article_category,
+    decided by run_category_stage comparing winning_group_score against
+    CATEGORY_GROUP_FLOOR (see docs/category-taxonomy.md)."""
+    probs = torch.softmax(torch.tensor(entail_logits), dim=0).tolist()
+    scores = {slug: p for (slug, _, _, _), p in zip(CATEGORY_GROUPS, probs, strict=False)}
+    winner_slug = max(scores, key=scores.__getitem__)
+    return winner_slug, scores[winner_slug], scores
+
+
+def top2_groups(group_scores: dict[str, float]) -> list[str]:
+    """Highest-to-lowest top-2 group slugs from a classify_group_scores()
+    result. Split out so run_category_stage's level-2 routing is
+    unit-testable without re-deriving the softmax math."""
+    return sorted(group_scores, key=group_scores.__getitem__, reverse=True)[:2]
+
+
+def classify_category_scores(
+    entail_logits: list[float], candidate_slugs: Sequence[str]
+) -> tuple[str, float, dict[str, float]]:
+    """Level 2 of the hierarchical category classifier: turn
+    len(candidate_slugs) entailment logits (one per candidate_slugs entry,
+    same order -- always an article's top-2 groups' 6 combined children,
+    see run_category_stage) into (label, winning_score, {slug: prob}),
+    softmax-normalized over just `candidate_slugs` (not all 9 -- only the
+    slugs actually scored this pass need to sum to 1). Split out from
     run_category_stage so the classification math is testable without a
     real model, same spirit as merge_bio_predictions being split out of
     run_ner_stage.
@@ -290,18 +325,118 @@ def classify_category_scores(entail_logits: list[float]) -> tuple[str, float, di
     low-confidence "other" picks auditable (label='other' with a score just
     under the threshold is a near-miss; a low score alongside a flat
     distribution is not).
+
+    Slugs from CATEGORY_SLUGS absent from `candidate_slugs` (the group that
+    didn't make the article's top-2) are NOT in the returned dict -- callers
+    must zero-fill them before db.write_category.
     """
     probs = torch.softmax(torch.tensor(entail_logits), dim=0).tolist()
-    scores = {slug: p for (slug, _, _), p in zip(CATEGORY_LABELS, probs, strict=False)}
+    scores = dict(zip(candidate_slugs, probs, strict=True))
     winner_slug = max(scores, key=scores.__getitem__)
     winner_score = scores[winner_slug]
     label = winner_slug if winner_score >= CATEGORY_CONFIDENCE_THRESHOLD else OTHER_LABEL
     return label, winner_score, scores
 
 
+def _category_premises(tokenizer: Any, batch_rows: list[Row]) -> list[str]:
+    # Title + lead chunk of body, not full-article chunking: each hypothesis
+    # needs its own (premise, hypothesis) forward pass, so chunking the whole
+    # article the way sentiment/NER do would cost far more per chunk --
+    # unaffordable for a stage that now runs on every article. News is
+    # inverted-pyramid, so the opening sentences almost always establish the
+    # dominant topic.
+    premises = []
+    for _article_id, title, body_text in batch_rows:
+        chunks = chunk_text(
+            f"{title}. {body_text}", tokenizer, max_tokens=CATEGORY_PREMISE_MAX_TOKENS
+        )
+        premises.append(chunks[0].text if chunks else title)
+    return premises
+
+
+def _category_level1_batch(
+    tokenizer: Any, model: Any, entailment_id: int, premises: list[str]
+) -> list[tuple[str, float, dict[str, float]]]:
+    """One level-1 forward pass over every premise in this batch: 3
+    (premise, group_hypothesis) pairs each. Returns one
+    classify_group_scores() result per premise, same order."""
+    group_hypotheses = [f"This example is about {phrase}." for _, _, phrase, _ in CATEGORY_GROUPS]
+    n_groups = len(group_hypotheses)
+    inputs = tokenizer(
+        [p for p in premises for _ in range(n_groups)],
+        group_hypotheses * len(premises),
+        return_tensors="pt",
+        truncation="only_first",
+        padding=True,
+        max_length=512,
+    ).to(DEVICE)
+    with torch.no_grad():
+        logits = model(**inputs).logits
+    # reshape, not view: the entailment column is a strided slice of
+    # `logits`, not contiguous, and view() requires contiguity.
+    group_entail = logits[:, entailment_id].reshape(len(premises), n_groups)
+    return [classify_group_scores(logits_row.tolist()) for logits_row in group_entail]
+
+
+def _category_level2_batch(
+    tokenizer: Any,
+    model: Any,
+    entailment_id: int,
+    pending: list[tuple[int, str, list[str], str, float]],
+) -> list[tuple[str, float, dict[str, float], list[str]]]:
+    """One level-2 forward pass over every pending (survived level 1)
+    article's top-2 groups' 6 combined children, in CATEGORY_GROUPS' fixed
+    child order (not re-sorted) so alignment stays deterministic. Returns
+    (label, score, scores, candidate_slugs) per pending entry, same order."""
+    l2_premises: list[str] = []
+    l2_hypotheses: list[str] = []
+    per_article_candidates: list[list[str]] = []
+    for _article_id, premise, top2, _group_label, _group_score in pending:
+        candidates = [slug for g in top2 for slug in CATEGORY_GROUP_CHILDREN[g]]
+        per_article_candidates.append(candidates)
+        for slug in candidates:
+            _, _, phrase = CATEGORY_LABELS_BY_SLUG[slug]
+            l2_premises.append(premise)
+            l2_hypotheses.append(f"This example is about {phrase}.")
+
+    inputs = tokenizer(
+        l2_premises,
+        l2_hypotheses,
+        return_tensors="pt",
+        truncation="only_first",
+        padding=True,
+        max_length=512,
+    ).to(DEVICE)
+    with torch.no_grad():
+        logits = model(**inputs).logits
+    # 1-D: len == sum of per-article candidate counts (always 6 each here,
+    # but sliced by a running offset below rather than assumed, so this
+    # stays correct if a future group ever has a different child count).
+    leaf_entail_flat = logits[:, entailment_id]
+
+    results = []
+    offset = 0
+    for candidates in per_article_candidates:
+        n = len(candidates)
+        article_leaf_logits = leaf_entail_flat[offset : offset + n].tolist()
+        offset += n
+        label, score, scores = classify_category_scores(article_leaf_logits, candidates)
+        results.append((label, score, scores, candidates))
+    return results
+
+
 def run_category_stage(
     conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
+    """Two-level hierarchical zero-shot classification (docs/category-taxonomy.md):
+    level 1 picks (up to) the top-2 CATEGORY_GROUPS for each article via a
+    3-way softmax; level 2 classifies only the survivors -- articles whose
+    winning group cleared CATEGORY_GROUP_FLOOR -- against those top-2
+    groups' 6 combined children. Replaces a single flat 9-way softmax, which
+    empirically starved real signal for several labels by making them
+    compete against 8 others in one softmax (see docs/category-taxonomy.md's
+    "Hierarchical classification" section for the eval data that motivated
+    this)."""
     rows = db.fetch_pending_category_articles(conn, limit=limit)
     total = len(rows)
     print(f"\n=== Category stage ({CATEGORY_MODEL}) on {DEVICE} ===")
@@ -315,60 +450,72 @@ def run_category_stage(
     model = AutoModelForSequenceClassification.from_pretrained(CATEGORY_MODEL).to(DEVICE).eval()
     entailment_id = next(v for k, v in model.config.label2id.items() if k.lower() == "entailment")
 
-    hypotheses = [f"This example is about {phrase}." for _, _, phrase in CATEGORY_LABELS]
-    n_labels = len(hypotheses)
-
     idx = 0
     with tqdm(total=total, desc="category") as pbar:
         for batch_start in range(0, total, CATEGORY_BATCH_SIZE):
             batch_rows = rows[batch_start : batch_start + CATEGORY_BATCH_SIZE]
+            premises = _category_premises(tokenizer, batch_rows)
+            level1 = _category_level1_batch(tokenizer, model, entailment_id, premises)
 
-            # Title + lead chunk of body, not full-article chunking: each
-            # label needs its own (premise, hypothesis) forward pass, so
-            # chunking the whole article the way sentiment/NER do would cost
-            # 9x per chunk -- unaffordable for a stage that now runs on every
-            # article. News is inverted-pyramid, so the opening sentences
-            # almost always establish the dominant topic.
-            premises = []
-            for _article_id, title, body_text in batch_rows:
-                chunks = chunk_text(
-                    f"{title}. {body_text}", tokenizer, max_tokens=CATEGORY_PREMISE_MAX_TOKENS
+            # Route each article: short-circuit to OTHER_LABEL now (flat
+            # level-1, below CATEGORY_GROUP_FLOOR), or queue for level-2
+            # expansion against its own top-2 groups.
+            pending: list[tuple[int, str, list[str], str, float]] = []
+            for (article_id, _, _), premise, (group_label, group_score, group_scores) in zip(
+                batch_rows, premises, level1, strict=True
+            ):
+                if group_score < CATEGORY_GROUP_FLOOR:
+                    # Flat level-1: skip level 2's forward pass entirely for
+                    # this article, zero-filling every leaf column ("not
+                    # evaluated", not "confidently rejected" -- see
+                    # docs/category-taxonomy.md).
+                    db.write_category(
+                        conn,
+                        article_id,
+                        label=OTHER_LABEL,
+                        score=group_score,
+                        group_label=group_label,
+                        group_score=group_score,
+                        scores=dict.fromkeys(CATEGORY_SLUGS, 0.0),
+                        model_name=CATEGORY_MODEL,
+                    )
+                    idx += 1
+                    pbar.update(1)
+                    if on_progress:
+                        on_progress("category", idx, total)
+                    continue
+
+                pending.append(
+                    (article_id, premise, top2_groups(group_scores), group_label, group_score)
                 )
-                premises.append(chunks[0].text if chunks else title)
 
-            # Flatten to one (premise, hypothesis) pair per label per article
-            # in the batch, so one forward pass classifies every article in
-            # `batch_rows` at once -- the whole point of batching across
-            # articles instead of just across an article's own 9 labels.
-            batch_premises = [p for p in premises for _ in range(n_labels)]
-            batch_hypotheses = hypotheses * len(premises)
+            conn.commit()  # flush this batch's short-circuited rows now
 
-            inputs = tokenizer(
-                batch_premises,
-                batch_hypotheses,
-                return_tensors="pt",
-                truncation="only_first",
-                padding=True,
-                max_length=512,
-            ).to(DEVICE)
-            with torch.no_grad():
-                logits = model(**inputs).logits
+            if not pending:
+                continue
 
-            # reshape, not view: the entailment column is a strided slice of
-            # `logits`, not contiguous, and view() requires contiguity.
-            entail_logits = logits[:, entailment_id].reshape(len(premises), n_labels)
-
-            for (article_id, _, _), article_logits in zip(batch_rows, entail_logits, strict=False):
-                label, score, scores = classify_category_scores(article_logits.tolist())
+            level2 = _category_level2_batch(tokenizer, model, entailment_id, pending)
+            for (article_id, _premise, _top2, group_label, group_score), (
+                label,
+                score,
+                scores,
+                _c,
+            ) in zip(pending, level2, strict=True):
+                # 3rd-place-group zero-placeholder: the group that didn't
+                # make this article's top-2 never got a level-2 forward
+                # pass, so its children stay at the documented 0.0
+                # "not evaluated" placeholder.
+                full_scores = {slug: scores.get(slug, 0.0) for slug in CATEGORY_SLUGS}
                 db.write_category(
                     conn,
                     article_id,
                     label=label,
                     score=score,
-                    scores=scores,
+                    group_label=group_label,
+                    group_score=group_score,
+                    scores=full_scores,
                     model_name=CATEGORY_MODEL,
                 )
-
                 idx += 1
                 pbar.update(1)
                 if on_progress:
