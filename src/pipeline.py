@@ -90,7 +90,7 @@ def _warn_if_cpu() -> None:
         )
 
 
-# CATEGORY_CONFIDENCE_THRESHOLD (0.4) now lives in news_nlp.taxonomy so
+# CATEGORY_CONFIDENCE_THRESHOLD (0.6) now lives in news_nlp.taxonomy so
 # news_nlp.eval can read it without importing torch; imported above and
 # re-exported here for the existing call sites in this module.
 #

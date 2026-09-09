@@ -99,7 +99,7 @@ _CSUMMARY_WEAK_MULT = 4
 
 # Sentiment/category target-stratum thresholds. Deliberately BELOW the
 # argmax-guarantee boundary (0.5 for sentiment's 3-way softmax; the winning
-# bar for category is CATEGORY_CONFIDENCE_THRESHOLD=0.4) -- a threshold at or
+# bar for category is CATEGORY_CONFIDENCE_THRESHOLD=0.6) -- a threshold at or
 # above that boundary would mathematically exclude every false-negative
 # candidate for that class (only one class's raw score can clear 0.5 out of a
 # distribution summing to 1), which would silently defeat the entire purpose

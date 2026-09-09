@@ -113,8 +113,10 @@ one weak performer from the numbers above:
    groups from level 1 — not just the winner — combine their 6 children into
    one candidate set for a second softmax (baseline ~0.17). The final
    `label` is that softmax's winner if it clears
-   `pipeline.CATEGORY_CONFIDENCE_THRESHOLD` (unchanged, **0.4**, now ~2.4x
-   its own 6-way baseline instead of ~3.6x the old 9-way one), else `other`.
+   `pipeline.CATEGORY_CONFIDENCE_THRESHOLD` (**0.6** as of the 2026-09-09
+   calibration below — ~3.6x its own 6-way baseline, back in line with the
+   original flat 9-way design's own ~3.6x ratio over *its* 0.111 baseline;
+   launched at 0.4/~2.4x, see why that changed below), else `other`.
    Using the *top-2* groups, not just the top-1, means a narrow level-1 miss
    can still be recovered at level 2 as long as the true group was 2nd
    place — a strict single-path cascade could never recover from that.
@@ -129,11 +131,35 @@ read it as the model having ruled that category out; it just never got
 asked. The same is true, for all 9 leaf columns, on the flat-level-1
 short-circuit path.
 
-Both new thresholds (`CATEGORY_GROUP_FLOOR` and the reinterpreted
-`CATEGORY_CONFIDENCE_THRESHOLD`) are reasoned starting points, not validated
-ones — same honesty as the value below always had. Retune using
-`article_category`'s stored `group_score` and per-slug score columns once
-enough two-level classification data exists.
+### Threshold calibration (2026-09-09)
+
+The launch value of `CATEGORY_CONFIDENCE_THRESHOLD` (0.4, ~2.4x the level-2
+baseline) was a starting estimate, explicitly flagged as needing real data.
+The first post-hierarchy eval run (2800 rows, eval_run 19 / mlflow
+`8c470ea1`) confirmed the target categories improved dramatically —
+`product_innovation` recall 0.209→0.613, `partnerships_business_dev`
+0.224→0.510, `leadership_governance` 0.282→0.526 — but `acc_other` collapsed
+from ~0.80-0.83 (previously the *best*-performing class) to **0.215** (the
+*worst*): 701 of 1,322 judge-confirmed true-`other` articles got assigned a
+specific wrong label instead.
+
+Checked before changing anything: those 701 were not near-threshold misses
+(mean/median winning score 0.661/0.641, only 22.7% even close to 0.4) —
+reducing per-decision competition to let real signal surface for weak
+categories also let spurious signal surface for genuinely generic/ambiguous
+articles that the old, stricter 9-way contest used to correctly route to
+`other`. Also checked level 1: even *correctly*-resolved true-`other`
+articles clear `CATEGORY_GROUP_FLOOR` comfortably (mean group_score 0.50),
+so the problem lived at level 2's threshold, not level 1's floor (left
+unchanged at 0.40).
+
+Raised `CATEGORY_CONFIDENCE_THRESHOLD` to **0.6**: at that level, 301/701
+(43%) of the false-`other` losses resolve correctly, at a cost of only
+8-18% of the newly-won true-positive recall on the three target categories
+(their correctly-labeled scores cluster far higher, mean ~0.80) — a good
+trade, not a coin flip, but still a reasoned calibration point rather than a
+fully validated one. Retune again using `article_category`'s stored
+per-label score distribution once more post-calibration data exists.
 
 This changes what gets written for *future* pipeline runs only — it does not
 retroactively reclassify already-scored articles (`run_category_stage` only

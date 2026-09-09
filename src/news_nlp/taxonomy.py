@@ -58,18 +58,28 @@ CATEGORY_SLUGS = tuple(slug for slug, _, _ in CATEGORY_LABELS)
 
 # Applied at level 2 of the hierarchical classifier (below) against a
 # candidate set of 6 slugs (an article's top-2 groups' children combined),
-# not all 9 -- uniform-chance baseline there is ~0.167, so 0.4 is ~2.4x
-# baseline (between CATEGORY_GROUP_FLOOR's ~1.2x and the original flat
-# 9-way design's ~3.6x over its 0.111 baseline). Kept at the same
-# name/value the flat design used, to minimize churn in code that already
-# imports it (news_nlp.eval.sampling/verdicts) -- its statistical basis
-# changed (9-way -> 6-way denominator) even though the number didn't; a
-# reasoned starting point, not a validated one, same as always. Retune
-# using article_category's stored per-label score distribution -- see
-# docs/category-taxonomy.md. Lives here (not in pipeline.py) so
-# news_nlp.eval can share the value without importing torch; pipeline.py
-# re-imports it.
-CATEGORY_CONFIDENCE_THRESHOLD = 0.4
+# not all 9 -- uniform-chance baseline there is ~0.167.
+#
+# Calibrated from a real post-hierarchy eval run (2800 rows, eval_run 19 /
+# mlflow `8c470ea1`, 2026-09-09) after the launch value (0.4, ~2.4x
+# baseline) let too much through: of 1,322 judge-confirmed true-`other`
+# articles, 701 (53%) got a specific (wrong) leaf label instead, and those
+# weren't near-threshold misses -- mean/median winning score 0.661/0.641,
+# only 22.7% even close to 0.4. Checked before raising it: at 0.6 (~3.6x
+# baseline -- back in line with the original flat 9-way design's own ~3.6x
+# ratio over ITS 0.111 baseline), 301/701 (43%) of those false-`other`
+# losses resolve correctly, at a cost of only 8-18% of the newly-won
+# true-positive recall on the very labels the hierarchical redesign was
+# built to fix (product_innovation/partnerships_business_dev/
+# leadership_governance correctly-labeled scores cluster far higher, mean
+# ~0.80) -- a good trade, not a coin flip.
+#
+# Still a reasoned calibration point, not a fully validated one -- retune
+# again using article_category's stored per-label score distribution once
+# more post-calibration eval data exists; see docs/category-taxonomy.md.
+# Lives here (not in pipeline.py) so news_nlp.eval can share the value
+# without importing torch; pipeline.py re-imports it.
+CATEGORY_CONFIDENCE_THRESHOLD = 0.6
 
 # Level-1 "group" taxonomy for the two-level hierarchical zero-shot
 # classification (docs/category-taxonomy.md): a flat 9-way softmax gives
@@ -134,10 +144,17 @@ assert sorted(c for _, _, _, children in CATEGORY_GROUPS for c in children) == s
 # skips level 2 entirely, writing label=OTHER_LABEL with the group's own
 # (sub-floor) score preserved for audit -- same near-miss-is-auditable
 # spirit as CATEGORY_CONFIDENCE_THRESHOLD. Deliberately modest (~1.2x
-# baseline, vs. CATEGORY_CONFIDENCE_THRESHOLD's ~2.4x over its own 6-way
+# baseline, vs. CATEGORY_CONFIDENCE_THRESHOLD's ~3.6x over its own 6-way
 # baseline): level 2's top-2 expansion exists specifically to recover
 # articles level 1 was only lukewarm about, so this floor should only catch
-# genuinely flat triples, not merely unconfident ones. A reasoned starting
-# point, not a validated one -- retune using article_category's stored
-# group_score column once real classification data exists.
+# genuinely flat triples, not merely unconfident ones.
+#
+# Checked during the 2026-09-09 threshold calibration (see
+# CATEGORY_CONFIDENCE_THRESHOLD) and left unchanged: even judge-confirmed
+# true-`other` articles that got CORRECTLY labeled `other` clear this floor
+# comfortably (mean group_score 0.50 in that eval run) -- level 1 isn't the
+# gatekeeper for `other` detection, level 2's leaf threshold is, so this is
+# not where the false-`other`-loss problem lived. Still a reasoned starting
+# point, not a fully validated one -- retune using article_category's
+# stored group_score column if future data suggests otherwise.
 CATEGORY_GROUP_FLOOR = 0.40

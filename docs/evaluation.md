@@ -311,6 +311,43 @@ rewritten. A fresh category eval pilot is needed post-merge for numbers
 comparable to the new design (see `docs/category-taxonomy.md`'s "Hierarchical
 classification" for the measured-not-guessed threshold caveat).
 
+### Follow-up (2026-09-09): first post-hierarchy pilot and threshold calibration
+
+First eval run under the hierarchical classifier (`--stage category
+--sample-size 2800 --seed 1`, eval_run 19 / mlflow `8c470ea1`, against a
+100,152-article batch freshly reclassified under `feat/hierarchical-category-
+classification`). The redesign's own target confirmed working:
+
+| slug | old (flat 9-way) | new (hierarchical, launch threshold 0.4) |
+|---|---|---|
+| `product_innovation` | 0.14-0.21 | 0.613 |
+| `partnerships_business_dev` | 0.16-0.22 | 0.510 |
+| `leadership_governance` | 0.28-0.33 | 0.526 |
+
+But the headline `accuracy_vs_judge` (0.442) came in *below* the old
+baseline (0.687-0.711) — `acc_other` collapsed from ~0.80-0.83 (previously
+the best-performing class) to 0.215 (the worst): 701 of 1,322
+judge-confirmed true-`other` articles got assigned a specific wrong label
+instead. Checked before concluding anything: those 701 weren't
+near-threshold misses (mean/median winning score 0.661/0.641, only 22.7%
+even close to 0.4) — reducing per-decision competition to rescue real
+signal for the weak target categories also let spurious signal through for
+genuinely generic/ambiguous articles the old, stricter 9-way contest used
+to correctly route to `other`. Level 1 was checked and ruled out too: even
+correctly-resolved true-`other` articles clear `CATEGORY_GROUP_FLOOR`
+comfortably (mean group_score 0.50) — the gap was at level 2's threshold,
+not level 1's floor.
+
+Action taken: raised `CATEGORY_CONFIDENCE_THRESHOLD` 0.4→0.6 (full
+before/after math in `docs/category-taxonomy.md`'s "Threshold calibration"
+section) — checked to recover 43% of the false-`other` losses at an
+8-18% cost to the newly-won target-category recall before making the
+change, not applied blind. A fresh pilot post-calibration is the next step
+to confirm the trade landed as estimated; this run's numbers (both the
+per-slug wins and the `accuracy_vs_judge`/`acc_other` collapse) predate the
+calibration and stay as the historical record of why it happened, not
+rewritten.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
@@ -348,7 +385,9 @@ excluding every earlier-priority stratum's already-drawn ids:
 1. **`low_conf`** (`--low-conf-frac` of `--sample-size`, default 0.2) — the
    *least-confident* stored rows, deterministically, so every run re-checks
    the true worst case: lowest `article_sentiment.score`; category picks
-   within ±0.1 of `CATEGORY_CONFIDENCE_THRESHOLD` (0.4) or labelled `other`;
+   within ±0.1 of `CATEGORY_CONFIDENCE_THRESHOLD` (0.6 as of the 2026-09-09
+   calibration — see "Follow-up: hierarchical category classification"
+   above) or labelled `other`;
    lowest per-article `MIN(article_entities.score)`; for `c_summary` (no
    score), articles whose sentiment/NER inputs were themselves low-confidence.
    **Diagnostic-only**: deliberately biased toward hard cases, so it's
@@ -381,7 +420,7 @@ excluding every earlier-priority stratum's already-drawn ids:
      spans) is far milder than sentiment's/category's article-level
      imbalance, and there's no secondary per-entity score to target.
    - **Why these thresholds are well below each stage's winning bar** (0.5
-     for sentiment's 3-way softmax; `CATEGORY_CONFIDENCE_THRESHOLD` 0.4 for
+     for sentiment's 3-way softmax; `CATEGORY_CONFIDENCE_THRESHOLD` 0.6 for
      category): a distribution over mutually exclusive classes can have at
      most one class exceed 0.5, so a threshold at or above that would
      mathematically exclude every false-negative candidate for that class —

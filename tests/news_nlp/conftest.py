@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import news_nlp as db_module
+from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD
 
 ARTICLES_SCHEMA = """
 CREATE TABLE articles (
@@ -209,7 +210,11 @@ def eval_store_paths(tmp_path: Path) -> tuple[Path, Path]:
                     i,
                     sentiment_score=0.30 + i * 0.015,
                     category_label="earnings_performance",
-                    category_score=0.33 + i * 0.01,
+                    # relative to CATEGORY_CONFIDENCE_THRESHOLD (not a fixed
+                    # 0.3-0.5 range) so this stays within _low_conf_ids'
+                    # +-0.1 near-threshold window even if the threshold is
+                    # retuned; i=1..8 -> THRESHOLD-0.06..THRESHOLD+0.01.
+                    category_score=CATEGORY_CONFIDENCE_THRESHOLD - 0.07 + i * 0.01,
                     ner_score=0.40 + i * 0.02,
                 )
             else:

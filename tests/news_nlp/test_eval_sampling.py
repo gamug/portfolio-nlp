@@ -13,7 +13,7 @@ from conftest import EVAL_LOW_IDS, write_stage_predictions
 import news_nlp as db_module
 from news_nlp.eval import sampling
 from news_nlp.eval.sampling import EvalItem, sample_for_stage
-from news_nlp.taxonomy import CATEGORY_SLUGS
+from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD, CATEGORY_SLUGS
 
 
 def _buckets(items: list[EvalItem]) -> tuple[list[EvalItem], list[EvalItem]]:
@@ -61,7 +61,8 @@ def test_category_low_conf_rows_are_near_threshold_or_other(
     assert low
     for it in low:
         pred = it.prediction
-        assert pred["label"] == "other" or 0.3 <= pred["score"] <= 0.5
+        lo, hi = CATEGORY_CONFIDENCE_THRESHOLD - 0.1, CATEGORY_CONFIDENCE_THRESHOLD + 0.1
+        assert pred["label"] == "other" or lo <= pred["score"] <= hi
 
 
 def test_every_item_carries_body_text_and_prediction(
