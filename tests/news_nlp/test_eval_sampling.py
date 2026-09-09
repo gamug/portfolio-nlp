@@ -112,6 +112,35 @@ def test_sentiment_uses_full_body_text_category_stays_capped(
     assert category_items[0].body_text.endswith("[... truncated ...]")
 
 
+def test_sentiment_still_truncates_past_the_safety_ceiling(
+    eval_store_paths: tuple[Path, Path],
+) -> None:
+    """sentiment is uncapped in practice (see the prior test) but not
+    unconditionally: a body past _SENTIMENT_MAX_BODY_CHARS still gets
+    truncated, so a pathologically large body_text can't produce an oversized
+    judge request that fails outright instead of just losing tail context."""
+    source, results = eval_store_paths
+    pathological_body = "Acme Corp reported strong quarterly results. " * 3000
+    assert len(pathological_body) > sampling._SENTIMENT_MAX_BODY_CHARS
+
+    raw = sqlite3.connect(source)
+    raw.execute("UPDATE articles SET body_text = ? WHERE id = 1", (pathological_body,))
+    raw.commit()
+    raw.close()
+
+    conn = db_module.connect_pipeline(results_db=results, source_db=source)
+    try:
+        items = sample_for_stage(conn, "sentiment", size=1, low_conf_frac=1.0, seed=1)
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+    assert items[0].article_id == 1
+    assert items[0].body_text != pathological_body
+    assert items[0].body_text.endswith("[... truncated ...]")
+    assert len(items[0].body_text) < len(pathological_body)
+
+
 def test_sentiment_target_negative_captures_near_miss_row(
     eval_store_paths: tuple[Path, Path],
 ) -> None:
