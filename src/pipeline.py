@@ -55,6 +55,11 @@ load_dotenv()
 SENTIMENT_MODEL = "ProsusAI/finbert"
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"
 CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
+
+# Last-resort net for the write path: a single-character span is almost
+# certainly junk (see merge_bio_predictions' word-id fix for the actual root
+# cause this exists alongside, not instead of).
+_MIN_ENTITY_TEXT_LEN = 2
 SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -187,19 +192,56 @@ def run_sentiment_stage(
 
 def merge_bio_predictions(
     pred_ids: list[int],
+    word_ids: list[int | None],
     offsets: list[tuple[int, int]],
     probs: list[list[float]],
     id2label: dict[int, str],
 ) -> list[dict[str, Any]]:
     """Convert token-level BIO predictions (with char offsets local to the
-    chunk) into merged entity spans local to the chunk."""
+    chunk) into merged entity spans local to the chunk.
+
+    Word-boundary aware: only a word's *first* WordPiece subword ever decides
+    a span boundary (open, close, or same-type continuation). A continuation
+    subword (``word_id == prev_word_id``) never independently closes,
+    redirects, or starts a span -- it only extends whatever the owning word's
+    first subword already decided, because ``train_ner.py``'s
+    ``make_tokenize_fn`` masks every continuation subword to
+    ``IGNORED_LABEL_ID`` in the training loss: the model gets zero training
+    signal for what to predict there, so treating its raw argmax there as a
+    real decision (the pre-fix behavior) was training/inference-inconsistent.
+    Concretely, this fixes "3M" tokenized as ["3", "##M"] emitting a bogus
+    standalone "3"/ORG entity when the model's untrained-for continuation
+    prediction on "##M" happened not to be I-ORG (see docs/evaluation.md's
+    2026-09-10 NER follow-up for the real-data-confirmed scale of this).
+
+    A continuation subword's own probability is excluded from the entity's
+    averaged ``score`` for the same reason -- it was never calibrated against
+    any target at that position, so including it would make the average less
+    honest, not more informative.
+    """
     entities: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
-    for i, (pred_id, (start, end)) in enumerate(zip(pred_ids, offsets, strict=False)):
-        if start == end:  # special/padding token
+    prev_word_id: int | None = None
+
+    for pred_id, word_id, (start, end), tok_probs in zip(
+        pred_ids, word_ids, offsets, probs, strict=True
+    ):
+        if word_id is None:  # special/padding token
+            prev_word_id = None
             continue
+
+        is_continuation = word_id == prev_word_id
+        prev_word_id = word_id
+
+        if is_continuation:
+            if current is not None:
+                current["end_char"] = end
+            continue
+
+        # First subword of a word -- the only prediction the model was
+        # actually trained to produce a meaningful label for.
         label = id2label[pred_id]
-        score = probs[i][pred_id]
+        score = tok_probs[pred_id]
 
         if label == "O":
             if current:
@@ -255,13 +297,18 @@ def run_ner_stage(
                 return_offsets_mapping=True,
             )
             offsets = inputs.pop("offset_mapping")[0].tolist()
+            # Must be read before `inputs` is rebuilt as a plain device dict
+            # below -- .word_ids() lives on the BatchEncoding, not the dict.
+            word_ids = inputs.word_ids(batch_index=0)
             inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
             with torch.no_grad():
                 logits = model(**inputs).logits[0]
                 probs = torch.softmax(logits, dim=-1).cpu()
                 pred_ids = probs.argmax(-1).tolist()
 
-            chunk_entities = merge_bio_predictions(pred_ids, offsets, probs.tolist(), id2label)
+            chunk_entities = merge_bio_predictions(
+                pred_ids, word_ids, offsets, probs.tolist(), id2label
+            )
             for e in chunk_entities:
                 start = ch.start_char + e["start_char"]
                 end = ch.start_char + e["end_char"]
@@ -276,6 +323,16 @@ def run_ner_stage(
                 )
 
         article_entities = merge_char_spans(article_entities)
+        # Last-resort net, not a substitute for merge_bio_predictions' word-
+        # boundary fix above: drops any single-character junk span that fix
+        # doesn't structurally prevent. A length floor, not a digit-specific
+        # check -- excludes_bare_digit's mistake (portfolio_common.db.
+        # dialect.SqliteDialect) was living downstream, in two read-side
+        # aggregate queries, and only ever catching bare digits. Revisit if
+        # this starts hiding a new real bug class.
+        article_entities = [
+            e for e in article_entities if len(e["text"].strip()) >= _MIN_ENTITY_TEXT_LEN
+        ]
         db.write_entities(conn, article_id, article_entities, model_name=NER_MODEL)
         conn.commit()
 
