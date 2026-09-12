@@ -129,21 +129,24 @@ component; every rule below assumes the stack actually pinned in
    where a file's siblings live and follow that placement, naming, and
    import style (`import news_nlp as db`, the `sys.path` bootstrap) rather
    than a generic layout.
-7. **This constitution is the binding reference for planning and review** —
-   read it before drafting a spec/plan, and resolve any conflict between a
-   request and a stated principle by surfacing it or proposing an
-   amendment, not by quietly overriding it. A local, untracked `CLAUDE.md`
-   may carry situational/session notes, but it is never authoritative and
-   must not be treated as a source of fact for anything this document
-   already states.
+7. **This constitution and `.specify/memory/SPEC.md` are the binding
+   reference for planning and review** — read both before drafting a
+   spec/plan, and resolve any conflict between a request and a stated
+   principle or requirement by surfacing it or proposing an amendment, not
+   by quietly overriding either. A local, untracked `CLAUDE.md` may carry
+   situational/session notes, but it is never authoritative and must not be
+   treated as a source of fact for anything either document already states.
 8. **Prefer the smallest change consistent with the existing pattern**; no
    opportunistic refactors, renames, or new abstractions outside what the
    spec/task calls for.
 9. **`CLAUDE.md` must always exist on disk and must never be deleted**,
-   even though it is intentionally untracked. If it is missing at the start
-   of a session, run `/init` to regenerate it before doing anything else,
-   and make sure the regenerated file references this constitution
-   (`.specify/memory/constitution.md`). Never `git checkout` /
+   even though it is intentionally untracked, and it must always carry a
+   reference to both this constitution (`.specify/memory/constitution.md`)
+   and `.specify/memory/SPEC.md`. If `CLAUDE.md` is missing at the start of
+   a session, run `/init` to regenerate it before doing anything else; if
+   it exists but is missing either reference (freshly `/init`-generated or
+   otherwise edited), add it before proceeding — don't treat the reference
+   as a one-time regeneration step. Never `git checkout` /
    `git reset --hard` onto a commit older than PR #12 (`53522e8`) — that
    predates the file being untracked, and such a reset has previously wiped
    it from disk.
@@ -237,4 +240,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.0.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-11
+**Version**: 2.1.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
