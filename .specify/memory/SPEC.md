@@ -353,10 +353,15 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `macro_f1_vs_judge` | 0.40 (known-weak — see §13) |
-| category | `accuracy_vs_judge` | 0.69 (random-bucket-only: 0.47) |
-| ner | `micro_f1` | 0.74 (hallucination rate 33.8%) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
+| category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
+| ner | `micro_f1` | 0.74 (hallucination rate 33.8%) — **predates** the 2026-09-10 subword-fragmentation fix; a post-fix re-eval is queued (`PLAN.md` Work item 3, `TASKS.md` T-020) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5) |
+
+¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"
+(2026-09-08) explains the switch from `macro_f1_vs_judge` (0.40 at the
+original 2026-09-08 baseline, still logged every run) to `recall_negative`
+as the metric `--check-regression` actually gates on.
 
 Resource expectations that *are* enforced by design (NR-001, NR-004): single
 model resident on the accelerator at a time (6 GB VRAM budget), chunked
@@ -463,12 +468,32 @@ treating a related FR/NR as done:
    whole-article softmax average has no per-company or net-signal reasoning
    the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
    as a pipeline-level design question (entity-scoped sentiment?), not
-   started.
+   started. **Update (2026-09-12): promoted to active, priority work** —
+   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-033. The measurement side has
+   since improved (text-scope fix, stratified sampling, `recall_negative`
+   as headline metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups),
+   but the model-side gap described here is still unimplemented: the latest
+   pilot (eval_run 18, n=800) still shows `negative` precision only 0.359.
+   Still open, now tracked as a queued task rather than an accepted
+   limitation.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical
    redesign. `CATEGORY_CONFIDENCE_THRESHOLD` (0.6) is a reasoned but not
    fully validated calibration point (`news_nlp/taxonomy.py`).
+   **Update (2026-09-12): resolved.** The 0.6 threshold calibration
+   (`docs/evaluation.md`'s 2026-09-09 "Threshold calibration" follow-up,
+   eval_run 19-21) took three of these four slugs to 0.61
+   (`product_innovation`), 0.51 (`partnerships_business_dev`), and 0.53
+   (`leadership_governance`) accuracy — the numbers above are stale,
+   pre-calibration figures, kept here only as the historical record (see
+   `PLAN.md` Work item 5). `capital_shareholder_returns` recall came in at
+   0.293 (precision 0.074, a separate, not yet root-caused confusion with
+   its own hierarchy group-mates) — still weak, but no longer
+   near-guessing across the board. One related thread stays open:
+   `other`'s own precision (0.474) — see `docs/evaluation.md`'s "The
+   `other` bucket: a precision problem of its own" — tracked as
+   `TASKS.md` T-041, low priority.
 3. **No SOURCE `articles` contract beyond `body_text`.** Stages and the
    lean-copy depend on `gics_*`/`pub_date`/etc. existing with compatible
    types, but nothing pins or validates that shape (relates to FR-007).
@@ -550,8 +575,8 @@ boundary of what this project is, not a gap someone forgot to close:
 
 | §13 item | Disposition | Would only matter if |
 |---|---|---|
-| 1 — weak sentiment F1 | Accepted, permanent limitation of the current model choice at this scope | This scope changed and sentiment became load-bearing for a real decision |
-| 2 — near-guessing category labels | Accepted; threshold is a reasoned first calibration, not final | More post-hierarchy eval data existed to retune against — a research task, not a scope change |
+| 1 — weak sentiment F1 | **Promoted to active work (2026-09-12)** — no longer treated as accepted; see `PLAN.md` Work item 4 | — (already in motion) |
+| 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision is the one remaining low-priority thread (`PLAN.md` Work item 5) | — |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
 | 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Exact reproducibility months later mattered more than it does today — worth pinning cheaply regardless (see below) |
 | 5 — ~~no throughput/latency SLA~~ | Retired — a production requirement, and this project has no production phase | — |
@@ -560,9 +585,13 @@ boundary of what this project is, not a gap someone forgot to close:
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
 
-Item 8 is the one item on this list worth doing regardless of scope — it's a
-CI-plumbing change, not new infrastructure. Everything else here is a
-permanent characteristic of this project as scoped, not a queued task.
+Item 8 was the one item on this list originally flagged as worth doing
+regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
+and 2 have since also moved off "permanent characteristic, not a queued
+task": 2 is resolved and 1 is active priority work (see the update notes on
+both items above and `PLAN.md` Work items 4-5). Items 3, 4 (the
+pinning-reprocessing half), 5, 6, 7, and 9 remain permanent characteristics
+of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 

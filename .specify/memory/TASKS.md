@@ -64,8 +64,105 @@ renumber; mark a cancelled/superseded task in place instead.
       update the two architecture artifacts per constitution AI behavior
       #11 — reconcile, never rename.
 
+## Work item 3 — NER: validate the subword-fragmentation fix (priority, in progress)
+
+`src/pipeline.py`'s `merge_bio_predictions` got a word-boundary-aware fix on
+2026-09-10 (bogus single-token spans like `"3"`/`ORG` off `"3M"`), plus a
+`_MIN_ENTITY_TEXT_LEN` last-resort filter in `run_ner_stage`. Neither has a
+post-fix accuracy number yet — the `micro_f1` 0.7418 / `hallucination_rate`
+0.338 baseline in `docs/evaluation.md` predates both. → `PLAN.md` Work item 3,
+`SPEC.md` §9 (NER baseline row).
+
+- [ ] **T-020** Run a fresh `--stage ner` eval (`uv run cli/news_nlp_eval.py
+      --stage ner --seed 1 --sample-size 1000`, or larger) against articles
+      processed after the fix, to get a post-fix `micro_f1` /
+      `hallucination_rate` / per-type F1 reading comparable to the
+      2026-09-08 baseline. → `PLAN.md` Work item 3, step 1.
+- [ ] **T-021** Empirically check (don't just flag) whether `ner` eval
+      sampling suffers the same full-article-vs-lead-cap mismatch already
+      confirmed for `sentiment` (`docs/evaluation.md`'s "suspected... not
+      empirically investigated" note) — `run_ner_stage` scores the whole
+      article, and it's unverified whether the judge's sampling cap matches
+      that scope. → step 2.
+- [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
+      existing 17.6M-row `article_entities` table (written under the
+      pre-fix `merge_bio_predictions`) is worth doing — the fix is
+      future-runs-only by design (`docs/evaluation.md` 2026-09-10
+      follow-up, "Scope"). → step 3.
+- [ ] **T-023** Once T-020 lands, add a dated follow-up entry to
+      `docs/evaluation.md` (same append-only pattern as the sentiment/
+      category entries) and update `SPEC.md` §9's NER baseline row —
+      don't overwrite the 2026-09-08 baseline row itself. → step 4 /
+      `PLAN.md` Work item 3 acceptance criteria.
+
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (priority, pending)
+
+Stratified sampling + the `recall_negative` headline switch (both already
+shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
+how it's weighted, but did not touch the model itself. The pilot run
+(eval_run 18, n=800) still shows `negative` precision only 0.359 — the root
+cause (FinBERT's whole-article softmax has no per-company or net-signal
+reasoning the judge applies) is diagnosed but **not implemented**. This is
+the stage still "pending to improve" despite the changes already made.
+→ `PLAN.md` Work item 4, `SPEC.md` §13 item 1.
+
+- [ ] **T-030** Design decision (not yet chosen) for closing the reasoning
+      gap in `run_sentiment_stage` (`src/pipeline.py`): candidates include
+      entity-scoped re-scoring using `article_entities`, a different
+      sentiment model, or an explicit net-signal heuristic layered on the
+      existing chunk-averaged score. → `PLAN.md` Work item 4, step 1.
+- [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
+      recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
+      "Sample-size floor") — only one stratified pilot (n=800) exists so
+      far; a floor-sized run is needed before today's `recall_negative` /
+      `precision_negative` can be trusted as a stable `--check-regression`
+      baseline. → step 2.
+- [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
+      estimates using T-031's actual measured per-stratum agreement
+      (`strata_json` / `agreement_rate_target_negative` etc.) instead of
+      today's planning-only estimates, before locking in a permanent
+      `--sample-size` default. → step 3.
+- [ ] **T-033** After T-030 ships a change, re-run the eval and add a dated
+      follow-up entry to `docs/evaluation.md`; update `SPEC.md` §13 item 1
+      and §9's sentiment baseline row with the result. → step 4 /
+      `PLAN.md` Work item 4 acceptance criteria.
+
+## Work item 5 — Category: hold the line on the hierarchical fix (validation only, low priority)
+
+Already fixed — hierarchical two-level classification +
+`CATEGORY_CONFIDENCE_THRESHOLD` 0.6 calibration (`docs/evaluation.md`
+2026-09-09 follow-ups, eval_run 19–21; `docs/category-taxonomy.md`
+"Hierarchical classification" / "Threshold calibration").
+`accuracy_vs_judge` 0.442→0.487; the three worst leaf slugs up from
+0.14/0.16/0.33 to 0.61/0.51/0.53. Kept here only for the one remaining
+open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
+`SPEC.md` §13 item 2.
+
+- [x] **T-040** Confirm the fix + calibration landed and is measured (no
+      action — done, see numbers above).
+- [ ] **T-041** `other`'s own precision (0.474) is still an open
+      calibration target (`docs/evaluation.md` "The `other` bucket: a
+      precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a
+      slug-specific threshold next, not another global
+      `CATEGORY_CONFIDENCE_THRESHOLD` move. Low priority, not blocking:
+      revisit once more post-calibration eval data accumulates.
+      → `PLAN.md` Work item 5, step 1.
+- [x] **T-042** Update `SPEC.md` §13 item 2 and the §14 disposition table
+      row to reflect the resolved state — it currently cites the
+      pre-calibration 0.14/0.16/0.20/0.33 numbers, superseded by the
+      2026-09-09 follow-up. Annotate in place, keep the item number.
+      → step 2 / `PLAN.md` Work item 5 acceptance criteria. (Done
+      2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
+      disposition table.)
+
 ## Status
 
-Nothing above is started. T-001–T-007 have no blockers and can begin
-immediately; T-010–T-016 are blocked on the maintainer's infrastructure
-decision (see `PLAN.md` Work item 2).
+T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
+blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
+item 2). Nothing in Work items 1–2 has started.
+
+**Current focus is model performance checking (Work items 3-5):** T-040 and
+T-042 are already done (category fix confirmed + doc-updated). T-020/T-021
+(NER validation) and T-030 (sentiment design decision) are the next
+actionable, unblocked steps; T-022 is a maintainer scope call; the rest of
+Work item 4 and T-041 follow once those land.
