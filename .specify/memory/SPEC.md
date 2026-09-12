@@ -355,7 +355,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 |---|---|---|
 | sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
-| ner | `micro_f1` | 0.74 (hallucination rate 33.8%) — **predates** the 2026-09-10 subword-fragmentation fix; a post-fix re-eval is queued (`PLAN.md` Work item 3, `TASKS.md` T-020) |
+| ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
 
 ¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"
@@ -537,6 +537,24 @@ treating a related FR/NR as done:
     faithfulness-only check (not a full new eval stage the size of
     `c_summary`'s) — `PLAN.md` Work item 6 step 4 / `TASKS.md`
     T-054–T-057.
+11. **`run_ner_stage` has no batching** (`src/pipeline.py`) — one chunk
+    through the model per forward pass, unlike `run_category_stage`
+    (`CATEGORY_BATCH_SIZE=8` articles' premise/hypothesis pairs pooled
+    into one call) and the summarization stages
+    (`SUMMARY_BATCH_SIZE=4` via `hierarchical_summarize_batch`). Not a
+    documented trade-off anywhere in the codebase — genuinely
+    unaddressed, not a deliberate design choice. Measured impact: the
+    2026-09-12 T-025 resample (`docs/evaluation.md`) processed 20,000
+    articles unbatched in ~15 minutes (~22 articles/sec) on the project's
+    GPU (6GB VRAM, well under budget the whole run) — a full-corpus
+    backfill of the ~439,000 remaining pre-fix articles (§13 item 6's
+    open T-022 question) would take roughly 5.5x that, over 5 hours,
+    single-chunk-at-a-time, on hardware with headroom to go faster.
+    **Added 2026-09-12, active priority work** — `PLAN.md` Work item 7 /
+    `TASKS.md` T-060–T-063. (`run_sentiment_stage` has the identical
+    unbatched shape and is likely worth the same treatment later, but is
+    out of scope for this item — not raised here as its own numbered
+    question to avoid scope creep beyond what was asked.)
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -602,16 +620,17 @@ boundary of what this project is, not a gap someone forgot to close:
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 6 | — (already in motion) |
+| 11 — `run_ner_stage` has no batching | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 7 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
 and 2 have since also moved off "permanent characteristic, not a queued
 task": 2 is resolved and 1 is active priority work (see the update notes on
-both items above and `PLAN.md` Work items 4-5). Item 10 is new, added
-alongside items 1's and 2's status updates, and is also active priority
-work (`PLAN.md` Work item 6). Items 3, 4 (the pinning-reprocessing half),
-5, 6, 7, and 9 remain permanent characteristics of this project as scoped,
-not queued tasks.
+both items above and `PLAN.md` Work items 4-5). Items 10 and 11 are new,
+added alongside items 1's and 2's status updates, and are also active
+priority work (`PLAN.md` Work items 6 and 7 respectively). Items 3, 4 (the
+pinning-reprocessing half), 5, 6, 7, and 9 remain permanent characteristics
+of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 

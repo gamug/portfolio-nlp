@@ -64,7 +64,7 @@ renumber; mark a cancelled/superseded task in place instead.
       update the two architecture artifacts per constitution AI behavior
       #11 — reconcile, never rename.
 
-## Work item 3 — NER: validate the subword-fragmentation fix (priority, in progress)
+## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
 `src/pipeline.py`'s `merge_bio_predictions` got a word-boundary-aware fix on
 2026-09-10 (bogus single-token spans like `"3"`/`ORG` off `"3M"`), plus a
@@ -73,27 +73,71 @@ post-fix accuracy number yet — the `micro_f1` 0.7418 / `hallucination_rate`
 0.338 baseline in `docs/evaluation.md` predates both. → `PLAN.md` Work item 3,
 `SPEC.md` §9 (NER baseline row).
 
-- [ ] **T-020** Run a fresh `--stage ner` eval (`uv run cli/news_nlp_eval.py
-      --stage ner --seed 1 --sample-size 1000`, or larger) against articles
-      processed after the fix, to get a post-fix `micro_f1` /
-      `hallucination_rate` / per-type F1 reading comparable to the
-      2026-09-08 baseline. → `PLAN.md` Work item 3, step 1.
-- [ ] **T-021** Empirically check (don't just flag) whether `ner` eval
+**Started and resolved 2026-09-12.** T-021's investigation confirmed the
+sampling mismatch; T-024 (the fix) landed the same day. T-020 turned out
+to be more tightly blocked than scoped at first — no post-fix data
+existed, and no plain pipeline re-run would produce any — but T-025
+(chosen over T-022, executed the same day: versioned `article_entities` →
+`article_entities_v1`, resampled 20,000 articles under the fixed code)
+cleared that blocker, and T-020 then ran the same day: `micro_f1`
+0.74→0.858, `hallucination_rate` 33.8%→16.0% (n=8000 against the T-025
+pool). T-023 (this doc's/SPEC.md's write-up) is done. T-022 (full-corpus
+backfill of the remaining ~439K pre-fix articles) is the only open item
+left in this work item, and it's a non-blocking maintainer scope call, not
+a defect. See `docs/evaluation.md`'s 2026-09-12 follow-ups for full
+findings.
+
+- [x] **T-021** Empirically check (don't just flag) whether `ner` eval
       sampling suffers the same full-article-vs-lead-cap mismatch already
-      confirmed for `sentiment` (`docs/evaluation.md`'s "suspected... not
-      empirically investigated" note) — `run_ner_stage` scores the whole
-      article, and it's unverified whether the judge's sampling cap matches
-      that scope. → step 2.
+      confirmed for `sentiment`. **Done 2026-09-12** — confirmed, not just
+      suspected: ran `sample_for_stage("ner", size=1000, seed=1)` against
+      real data (no LLM calls); 21.4% of sampled articles exceed the
+      judge's 6000-char cap, and 16.8% of predicted entities in the sample
+      start past it (structurally unverifiable by the judge). See
+      `docs/evaluation.md`'s 2026-09-12 follow-up for the full numbers.
+      → `PLAN.md` Work item 3, step 2.
+- [x] **T-024** *(new, follows from T-021)* Fix the confirmed mismatch —
+      add `ner` to `sampling._UNCAPPED_STAGES` (`src/news_nlp/eval/
+      sampling.py`), same fix shape as sentiment's 2026-09-08 follow-up.
+      **Done 2026-09-12**, before T-020, so that run won't be immediately
+      stale the way the pre-text-scope-fix sentiment baseline was — new
+      regression test `test_ner_uses_full_body_text_since_the_2026_09_12_fix`
+      (`tests/news_nlp/test_eval_sampling.py`); full suite + ruff + mypy
+      green. → step 2 (completes the "sampling cap fixed" half of
+      `PLAN.md`'s acceptance criterion).
+- [x] **T-020** Run a fresh `--stage ner` eval against articles processed
+      after the fix, to get a post-fix `micro_f1` / `hallucination_rate` /
+      per-type F1 reading comparable to the 2026-09-08 baseline. **Done
+      2026-09-12**: `--stage ner --seed 1 --sample-size 8000` against the
+      T-025 pool (mlflow `329f9222`) — `micro_f1` 0.7418→0.8578,
+      `hallucination_rate` 0.3377→0.1597, `f1_PER` 0.6597→0.9262 (the
+      largest per-type gain, matching the subword-fragmentation root
+      cause). Full table: `docs/evaluation.md`'s 2026-09-12 "T-020
+      executed" follow-up. → `PLAN.md` Work item 3, step 1.
 - [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
-      existing 17.6M-row `article_entities` table (written under the
-      pre-fix `merge_bio_predictions`) is worth doing — the fix is
-      future-runs-only by design (`docs/evaluation.md` 2026-09-10
-      follow-up, "Scope"). → step 3.
-- [ ] **T-023** Once T-020 lands, add a dated follow-up entry to
+      remaining ~439,000 pre-fix `article_entities_v1` articles (not
+      resampled by T-025) is worth doing — the fix is future-runs-only by
+      design (`docs/evaluation.md` 2026-09-10 follow-up, "Scope"). No
+      longer blocking T-020 (T-025 unblocked it with a smaller sample);
+      this is now purely about full-corpus coverage. → step 3.
+- [x] **T-025** *(new, maintainer, lighter alternative to T-022)* **Done
+      2026-09-12.** Executed as: version the table (`ALTER TABLE
+      article_entities RENAME TO article_entities_v1`, preserving the
+      pre-fix snapshot rather than deleting/reprocessing rows in place),
+      then a `random.Random(seed=1)`-seeded resample of 20,000 articles
+      via the new `sample_seed` param. Result: 714,334 entity rows across
+      19,988/20,000 articles (12 predicted zero entities). Dry-run
+      validated first against a scratch DB copy. Full detail:
+      `docs/evaluation.md`'s 2026-09-12 "T-025 executed" follow-up.
+      → step 1 (alternate path) — done via the table-rename refinement,
+      not the originally-sketched `delete_entities_for_article` path.
+- [x] **T-023** Once T-020 lands, add a dated follow-up entry to
       `docs/evaluation.md` (same append-only pattern as the sentiment/
       category entries) and update `SPEC.md` §9's NER baseline row —
-      don't overwrite the 2026-09-08 baseline row itself. → step 4 /
-      `PLAN.md` Work item 3 acceptance criteria.
+      don't overwrite the 2026-09-08 baseline row itself. **Done
+      2026-09-12** — see `docs/evaluation.md`'s "T-020 executed" follow-up
+      and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
+      acceptance criteria.
 
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (priority, pending)
 
@@ -213,17 +257,55 @@ baseline row).
       the `sector_summary` intro check. → `PLAN.md` Work item 6
       acceptance criteria.
 
+## Work item 7 — NER: develop batch processing (priority, pending)
+
+`run_ner_stage` (`src/pipeline.py`) is the only stage with no batching —
+one chunk through the model per forward pass, unlike `run_category_stage`
+(`CATEGORY_BATCH_SIZE=8`) and the summarization stages
+(`SUMMARY_BATCH_SIZE=4`). Not a documented trade-off, genuinely
+unaddressed. T-025's 2026-09-12 resample measured the real cost: ~22
+articles/sec unbatched — a full-corpus backfill of the remaining ~439,000
+pre-fix articles (the open T-022 question) would take ~5+ hours at that
+rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
+`SPEC.md` §13 item 11 (new).
+
+- [ ] **T-060** Implement batched tokenization + forward pass in
+      `run_ner_stage`: a new `NER_BATCH_SIZE` constant, flatten each batch
+      of articles' chunks (via `chunk_text`) into one chunk list tagged
+      with its owning article index, tokenize with `padding=True` in one
+      call, one forward pass, regroup per-article via the tagging (same
+      offset math already used today). → `PLAN.md` Work item 7, steps 1-4.
+- [ ] **T-061** Add a parity regression test: the same fixture articles
+      processed through the batched path must produce byte-identical
+      `article_entities` output (same entities/offsets/scores) as the
+      pre-existing unbatched path — land this *before* anything else in
+      this work item ships. → step 6.
+- [ ] **T-062** Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM
+      budget (SPEC.md NR-001) and measure the real throughput improvement
+      (articles/sec) on a real sample (mirrors T-025's resample as a
+      before/after comparison) — don't assume batching helps without
+      measuring it, and don't copy `CATEGORY_BATCH_SIZE`/
+      `SUMMARY_BATCH_SIZE`'s values blind (NER's per-chunk sequence
+      length and variable chunks-per-article shape a different memory
+      profile). → steps 5, 7.
+- [ ] **T-063** Document the new constant and batching design
+      (`docs/modules/news-nlp.md` and/or a `pipeline.py` comment, matching
+      how `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` are documented) and
+      update `SPEC.md` §13 item 11 to reflect the shipped state. →
+      `PLAN.md` Work item 7 acceptance criteria.
+
 ## Status
 
 T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
 blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
-**Current focus is model performance checking (Work items 3-6):** T-040 and
-T-042 are already done (category fix confirmed + doc-updated). T-020/T-021
-(NER validation), T-030 (sentiment design decision), T-050 (`c_summary`
-sampling check), and T-054/T-055 (`sector_summary` intro-check build-out)
-are the next actionable, unblocked steps; T-022 is a maintainer scope call;
-the rest of Work item 4 and T-041 follow once those land; T-051 (`c_summary`
-coverage decision) is unblocked but, like T-030,
-needs a design call before further steps.
+**Current focus is model performance checking (Work items 3-7):** T-040,
+T-042, T-021, T-024, T-025, T-020, and T-023 are already done — Work item 3
+(NER) is fully resolved except T-022 (full-corpus backfill), which is open
+but no longer blocking. T-030 (sentiment design decision), T-050
+(`c_summary` sampling check), T-054/T-055 (`sector_summary` intro-check
+build-out), and T-060 (NER batching implementation) are the other next
+actionable, unblocked steps; the rest of Work item 4 and T-041 follow once
+those land; T-051 (`c_summary` coverage decision) is unblocked but, like
+T-030, needs a design call before further steps.

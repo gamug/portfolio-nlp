@@ -269,9 +269,18 @@ def merge_bio_predictions(
 
 
 def run_ner_stage(
-    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase,
+    limit: int | None = None,
+    on_progress: ProgressCallback | None = None,
+    *,
+    sample_seed: int | None = None,
 ) -> None:
-    rows = db.fetch_pending_articles(conn, "article_entities", limit=limit)
+    """`sample_seed` (with `limit` as the sample size): a reproducible random
+    sample of pending articles instead of the normal backlog-order first
+    `limit` -- see `db.fetch_pending_articles`'s docstring. For a deliberate
+    targeted reprocessing pass (docs/evaluation.md's 2026-09-12 NER
+    follow-up), not routine pipeline runs."""
+    rows = db.fetch_pending_articles(conn, "article_entities", limit=limit, sample_seed=sample_seed)
     total = len(rows)
     print(f"\n=== NER stage ({NER_MODEL}) on {DEVICE} ===")
     print(f"{total} article(s) pending NER")

@@ -541,6 +541,175 @@ This is a *different* issue from the full-article-vs-lead-cap NER
 eval-sampling mismatch flagged earlier in this doc as "suspected but
 unverified" — that's still open and unrelated to subword fragmentation.
 
+### Follow-up (2026-09-12): NER full-article-vs-lead-cap mismatch confirmed; no post-fix data exists yet
+
+Two findings while starting work on the NER validation task (`PLAN.md` Work
+item 3 / `TASKS.md` T-020–T-023).
+
+**The suspected sampling mismatch is real, not just suspected.** Ran
+`sample_for_stage(conn, "ner", size=1000, seed=1)` against the real
+RESULTS/SOURCE stores (no LLM calls — this only exercises the sampling
+code) and compared the judge's `_MAX_BODY_CHARS` (6000) cap against the
+*untruncated* `source.articles.body_text` for the same 1000 articles:
+
+- **214/1000 (21.4%)** of sampled articles exceed 6000 chars (median body
+  length 3549.5, mean 4800, **max 156,053** — over 4x the longest article
+  `_SENTIMENT_MAX_BODY_CHARS`'s 100,000-char safety ceiling was sized
+  against as of the 2026-09-08 sentiment fix; NER's population apparently
+  has a much longer tail than sentiment's did).
+- Of the **67,049** entities `run_ner_stage` predicted across those 1000
+  articles, **11,262 (16.8%)** have a `start_char >= 6000` — i.e. the judge
+  is structurally incapable of confirming or denying them, because it's
+  never shown the text they came from. **209/1000 (20.9%)** of sampled
+  articles have at least one such entity.
+- This is a more direct problem than sentiment's version of the same bug:
+  sentiment's judge saw a truncated body and produced a *worse-calibrated
+  score*; NER's `parse_fail_rate`-adjacent error-only judge contract means
+  a predicted entity the judge can't see the source text for likely reads
+  as an ungrounded/`wrong` verdict (inflating false "hallucination" calls)
+  or is silently skipped, while any *real* entity past char 6000 can never
+  be named as `missed` (deflating the false-negative count) — both push
+  the stage's already-weak `hallucination_rate` (0.338, 2026-09-08
+  baseline) and precision/recall numbers in directions that don't reflect
+  the model's actual behavior on the untruncated article.
+- **Fixed same-day**: raised `ner` into `_UNCAPPED_STAGES`
+  (`src/news_nlp/eval/sampling.py`) the same way `sentiment` was fixed
+  (2026-09-08 follow-up above) — `run_ner_stage` chunks and predicts over
+  the *entire* article, so judging it on a lead-only cap was never a
+  faithful comparison, same reasoning as sentiment's fix. Landed **before**
+  spending any judge-call budget on a fresh NER eval run (below), so that
+  run won't be immediately stale the way the pre-text-scope-fix sentiment
+  baseline was. Unlike sentiment, `ner`'s uncapped safety ceiling
+  (`_SENTIMENT_MAX_BODY_CHARS`, shared across both stages, not renamed) does
+  engage against real data: the 156,053-char article found above exceeds
+  it, so that one article's tail gets truncated rather than the request
+  failing outright — the intended degradation, not a gap.
+
+**No post-fix NER data exists to evaluate yet, and none can be produced by
+just re-running the pipeline.** Checked the real stores directly:
+`article_entities`'s newest row (by `id`) is dated **2026-08-19**, and
+`article_sentiment`'s newest is **2026-08-17** — both stages haven't run
+since, well before the 2026-09-11 `merge_bio_predictions` fix. Checked
+whether a normal pipeline re-run would pick up new work: SOURCE
+(`urls.db`) articles' max `id` (485,352) is **identical** to RESULTS'
+lean-`articles` max `id` — there is no backlog of un-processed articles.
+Every article already has a (pre-fix) NER row, and `run_ner_stage` only
+processes rows *missing* from `article_entities` (FR-006, idempotent by
+design) — so simply invoking `uv run cli/news_nlp_cli.py` again right now
+would find zero pending NER work and write nothing new.
+
+This means **T-020 is more tightly blocked on T-022 than originally
+scoped** — not "a fresh eval run, then separately decide on backfill
+scope," but "no fresh eval run is possible at all until *some* reprocessing
+happens," even a small one. `delete_entities_for_article` (`news_nlp.
+corrections`) already exists and makes a single article eligible for
+reprocessing again (same mechanism `delete_category` uses, FR-009) — a
+**targeted reprocessing of a modest sample** (e.g. 1,000-2,000 articles,
+not the full 17.6M-row table) is technically available today without
+committing to the full-corpus backfill question T-022 was originally
+scoped around. Whether to do that, at what size, and whether category's
+precedent (existing rows read back unmigrated until reprocessed, SPEC.md
+§13 item 6) is an acceptable model for NER too, is still a decision for
+the repo owner — not made unilaterally here.
+
+### Follow-up (2026-09-12): T-025 executed — `article_entities` versioned, 20,000-article random resample
+
+The repo owner chose T-025 (targeted resample) over T-022 (full-corpus
+backfill), with one refinement: **version the table by renaming it**
+rather than reprocessing specific rows in place via
+`delete_entities_for_article`. `scripts/resample_ner_2026_09_12.py`
+(one-shot, kept in git history per this repo's precedent for this kind of
+maintenance script — see `docs/migration-2026-09-01.md`):
+
+1. Renamed the pre-fix `article_entities` (17,666,722 rows / 458,867
+   distinct articles) to **`article_entities_v1`** — nothing deleted, a
+   durable, queryable snapshot of the pre-fix model's output. Its index
+   was explicitly re-homed (`idx_article_entities_v1_article_id`) rather
+   than left in place: a real SQLite gotcha found and verified (with a
+   throwaway in-memory repro) before touching production data —
+   `ALTER TABLE ... RENAME TO` does **not** rename a table's indexes, so
+   the original `idx_article_entities_article_id` name would have stayed
+   bound to the renamed table, making `init_schema`'s
+   `CREATE INDEX IF NOT EXISTS` of that same name against the fresh table
+   silently no-op and leave it unindexed.
+2. Recreated a fresh, empty `article_entities` via `news_nlp.init_schema`
+   (verified indexed, verified empty, before proceeding).
+3. Ran `run_ner_stage` over a `random.Random(seed=1)`-seeded, reproducible
+   random sample of 20,000 pending articles (`news_nlp.queries.
+   fetch_pending_articles`'s new `sample_seed` parameter — every article
+   was "pending" against the just-emptied table) under the current, fixed
+   code (both the 2026-09-10 word-boundary fix and the 2026-09-12
+   uncapped-eval-sampling fix above).
+
+Dry-run validated end to end against a scratch copy of the real store
+(50-article sample) before running for real.
+
+**Result**: 714,334 entity rows across **19,988 of the 20,000** sampled
+articles (12 articles genuinely predicted zero entities — `write_entities`
+writes no row at all for those, a pre-existing, unrelated behavior). Ran in
+~15 minutes on the project's GPU (RTX 4050 Laptop, matching `SPEC.md`
+NR-001's 6GB VRAM budget). Per-type split: `ORG` 409,575 (57.3%), `PER`
+159,912 (22.4%), `LOC` 144,847 (20.3%) — close to the pre-fix corpus's
+documented ORG 55%/PER 25%/LOC 20% split (Sampling section below), so the
+fix didn't distort the overall type balance.
+
+**T-020 is now unblocked**: 19,988 post-fix articles exist to draw an eval
+sample from, where none existed before this follow-up. Running that eval
+(`--stage ner`) is the natural next step but was **not** done as part of
+this follow-up — it spends real judge-call budget and is a distinct
+action from the reprocessing done here.
+
+### Follow-up (2026-09-12): T-020 executed — post-fix NER eval, both fixes confirmed
+
+Ran `uv run cli/news_nlp_eval.py --stage ner --seed 1 --sample-size 8000`
+(mlflow run `329f9222`, `news_nlp_eval/ner`, `code_version=18fc30d` — both
+the word-boundary merge fix and the uncapped-sampling fix are in). Sample
+size is 8x the 2026-09-08 baseline's 1000 and deliberately large relative
+to the population: it's a 40% draw of the 19,988-article T-025 resample
+pool, not a ~0.2% draw of the full ~459K-article corpus like the baseline
+was — that resample is the only place post-fix rows exist yet (see the
+T-025 follow-up above). `n_judged=8000`, usable `n=7965` after parse
+failures.
+
+| metric | 2026-09-08 baseline (pre-fix, `3b41cbec`) | 2026-09-12 (post-fix, `329f9222`) | Δ |
+|---|---|---|---|
+| `micro_f1` | 0.7418 | **0.8578** | +0.116 (+15.6%) |
+| `micro_precision` | 0.6623 | 0.8403 | +0.178 (+26.9%) |
+| `micro_recall` | 0.8429 | 0.8761 | +0.033 (+3.9%) |
+| `hallucination_rate` | 0.3377 | **0.1597** | −0.178 (−52.7%) |
+| `miss_rate` | 0.1571 | 0.1239 | −0.033 (−21.1%) |
+| `macro_f1` | 0.7429 | 0.8729 | +0.130 |
+| `f1_ORG` | 0.7454 | 0.8117 | +0.066 |
+| `f1_LOC` | 0.8236 | 0.8807 | +0.057 |
+| `f1_PER` | 0.6597 | **0.9262** | +0.267 (+40.4%) |
+| `parse_fail_rate` | 4.7% | 0.44% | −91% (relative) |
+| `mean_entities_per_article` | 43.25 | 32.45 | −25% |
+
+**Reads as the fix working, not noise**: the gain is concentrated in
+precision (+26.9%) and `hallucination_rate` (halved), while recall barely
+moves (+3.9%) — exactly the shape expected from a fix that removes bogus
+spans rather than one that would help the model find new true entities.
+`f1_PER`'s outsized jump (+40.4% relative, the largest of the three types)
+matches the root cause: person names carry more multi-subword WordPiece
+splits than org/location names, so they were hit hardest by the pre-fix
+training/inference asymmetry. `parse_fail_rate` collapsing 4.7%→0.44%
+independently corroborates the same-day uncapped-sampling fix (T-024) —
+the judge is no longer choking on entities past the old 6000-char cap.
+`mean_entities_per_article` dropping 25% is the same precision effect
+showing up as a raw count (fewer bogus single-token spans written at all).
+
+**Caveat — not a full-corpus result.** This run only speaks to the 19,988
+articles reprocessed under the fixed code (T-025). The remaining ~439,000
+pre-fix articles (`article_entities_v1`) are untouched and would still
+score at the old ~0.74 baseline until reprocessed — T-022's full-corpus
+backfill question is unaffected by this result either way. Also note: the
+baseline run had no `--seed`, so strata composition isn't reproducibly
+comparable row-for-row against this seeded run — the metric-level
+before/after above is still valid, just not a row-identical replay.
+
+This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
+T-020; `SPEC.md` §9's NER row is updated below.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
