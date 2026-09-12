@@ -422,7 +422,18 @@ check that `intro_text` doesn't state anything unsupported by its own
   with the result; a new §9 row (or a documented decision not to add
   one) for the `sector_summary` intro check.
 
-## Work item 7 — NER: develop batch processing
+## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
+
+**Status as of 2026-09-12**: steps 1-4 and 6 are **done** — `pipeline._ner_batch`
+implements the flatten/tokenize/forward/regroup approach below exactly as
+scoped, `NER_BATCH_SIZE = 8` (starting value, see step 5), and the parity
+test (step 6) passes against the full 206-test suite (ruff/mypy clean).
+Steps 5 and 7 (empirical tuning + real throughput measurement) are **not
+done** — they need the project's actual GPU, which the environment this
+shipped from doesn't have (CPU-only sandbox, no access to the production
+DB either). `NER_BATCH_SIZE=8` is an untested starting guess carried over
+from `CATEGORY_BATCH_SIZE`, not a measured value — running T-062 on the
+real hardware is the only remaining step in this work item.
 
 **Why**: `run_ner_stage` (`src/pipeline.py`) sends one chunk through the
 model per forward pass — the only stage with no batching. `run_category_
@@ -444,46 +455,58 @@ hours, on hardware that had headroom to go faster the whole run.
    batch of `NER_BATCH_SIZE` pending articles, run `chunk_text` per
    article as today, but flatten every article's chunks into one list
    tagged with the chunk's owning article index, instead of looping
-   articles one at a time.
+   articles one at a time. **Done** — `pipeline._ner_batch`.
 2. Tokenize that flattened chunk list in **one** call with `padding=True`
    (`return_tensors="pt"`, `return_offsets_mapping=True`) instead of one
    `tokenizer(...)` call per chunk — the batch dimension becomes chunk
-   count within the article batch, not article count.
+   count within the article batch, not article count. **Done.**
 3. One forward pass over the padded batch. `merge_bio_predictions` itself
    needs **no change**: HF's fast tokenizers already return `word_ids() ==
    None` for padding positions, the same sentinel the function already
    uses to skip special tokens — so calling it once per chunk (sliced out
    of the batched output via `batch_index=i`) after the batched forward
    pass, exactly as today's per-chunk call already does, should just work.
+   **Done, confirmed by the parity test in step 6** — `merge_bio_predictions`
+   is untouched.
 4. Regroup chunk-level entity spans back to their owning article via the
    tagging from step 1, same offset math (`ch.start_char + e["start_char"]`)
-   already used today.
+   already used today. **Done.**
 5. Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM budget (SPEC.md
    NR-001) — don't copy `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE`'s values
    blind; NER's per-chunk sequence length (up to 512 tokens) and variable
-   chunks-per-article shape a different memory profile than either.
+   chunks-per-article shape a different memory profile than either. **Not
+   done** — shipped with `NER_BATCH_SIZE = 8` (`CATEGORY_BATCH_SIZE`'s
+   value) as an explicitly-untested starting guess; needs the project's
+   real GPU to tune for real (T-062).
 6. Add a **parity test** before anything else ships: the same fixture
    articles processed through the batched path must produce byte-identical
    `article_entities` rows (same entities, offsets, scores) as today's
    unbatched path. A batching refactor that silently changes results would
-   be worse than not batching at all.
+   be worse than not batching at all. **Done** —
+   `test_batched_and_per_article_ner_processing_produce_identical_entities`:
+   two different-length articles run once at `NER_BATCH_SIZE=1` and once
+   at `NER_BATCH_SIZE=2` (forcing real cross-article padding) produce
+   byte-identical entities; full 206-test suite green, ruff/mypy clean.
 7. Measure the real throughput improvement (articles/sec) on a real
    sample — the same kind of resample T-025 already ran is a natural
    before/after comparison — rather than assuming batching helps without
-   measuring it.
+   measuring it. **Not done** — same GPU/production-DB blocker as step 5
+   (T-062).
 
 **Acceptance criteria**:
 
 - A parity test passes: batched and unbatched processing of the same
-  input produce identical `article_entities` output.
+  input produce identical `article_entities` output. **Done.**
 - A measured (not assumed) throughput improvement on a real sample, with
-  the before/after numbers documented.
+  the before/after numbers documented. **Not done — needs T-062 on the
+  real GPU.**
 - No VRAM regression at the chosen `NER_BATCH_SIZE` against SPEC.md
-  NR-001's 6GB budget.
+  NR-001's 6GB budget. **Not done — same T-062 blocker; `NER_BATCH_SIZE=8`
+  is unverified against real hardware.**
 - The new constant and batching design documented (`docs/modules/
   news-nlp.md` and/or a comment in `pipeline.py`, matching how
-  `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` are documented today).
-- `SPEC.md` §13 item 11 updated to reflect the shipped state.
+  `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` are documented today). **Done.**
+- `SPEC.md` §13 item 11 updated to reflect the shipped state. **Done.**
 
 **Out of scope for this work item**: `run_sentiment_stage` has the
 identical unbatched shape and is likely worth the same treatment later,
@@ -519,9 +542,10 @@ other, and independent of one another except where noted:
   design call, same shape as Work item 4's step 1. The `sector_summary`
   intro-check addition (step 4) is independent of steps 1-3 and can be
   built in parallel.
-- Work item 7 (NER batch processing) is unblocked today — Work item 3 is
-  now fully resolved, so there's no remaining dependency there either.
-  Worth sequencing *before* a future T-022 full-corpus backfill decision,
-  though not a hard prerequisite for it.
+- Work item 7 (NER batch processing) is code-complete (2026-09-12) — only
+  T-062 (empirical GPU tuning) remains, blocked on access to the project's
+  real GPU rather than on anything else in this backlog. Worth running
+  *before* a future T-022 full-corpus backfill decision, though not a hard
+  prerequisite for it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

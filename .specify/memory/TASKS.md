@@ -257,9 +257,9 @@ baseline row).
       the `sector_summary` intro check. → `PLAN.md` Work item 6
       acceptance criteria.
 
-## Work item 7 — NER: develop batch processing (priority, pending)
+## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
-`run_ner_stage` (`src/pipeline.py`) is the only stage with no batching —
+`run_ner_stage` (`src/pipeline.py`) was the only stage with no batching —
 one chunk through the model per forward pass, unlike `run_category_stage`
 (`CATEGORY_BATCH_SIZE=8`) and the summarization stages
 (`SUMMARY_BATCH_SIZE=4`). Not a documented trade-off, genuinely
@@ -267,19 +267,28 @@ unaddressed. T-025's 2026-09-12 resample measured the real cost: ~22
 articles/sec unbatched — a full-corpus backfill of the remaining ~439,000
 pre-fix articles (the open T-022 question) would take ~5+ hours at that
 rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
-`SPEC.md` §13 item 11 (new).
+`SPEC.md` §13 item 11.
 
-- [ ] **T-060** Implement batched tokenization + forward pass in
+- [x] **T-060** Implement batched tokenization + forward pass in
       `run_ner_stage`: a new `NER_BATCH_SIZE` constant, flatten each batch
       of articles' chunks (via `chunk_text`) into one chunk list tagged
       with its owning article index, tokenize with `padding=True` in one
       call, one forward pass, regroup per-article via the tagging (same
-      offset math already used today). → `PLAN.md` Work item 7, steps 1-4.
-- [ ] **T-061** Add a parity regression test: the same fixture articles
+      offset math already used today). **Done 2026-09-12** — new
+      `_ner_batch` helper in `src/pipeline.py`; `NER_BATCH_SIZE = 8`
+      (`CATEGORY_BATCH_SIZE`'s value as a first guess, not tuned yet, see
+      T-062). → `PLAN.md` Work item 7, steps 1-4.
+- [x] **T-061** Add a parity regression test: the same fixture articles
       processed through the batched path must produce byte-identical
       `article_entities` output (same entities/offsets/scores) as the
       pre-existing unbatched path — land this *before* anything else in
-      this work item ships. → step 6.
+      this work item ships. **Done 2026-09-12** —
+      `test_batched_and_per_article_ner_processing_produce_identical_entities`
+      (`tests/news_nlp/test_ner_pipeline.py`): two different-length
+      articles processed once at `NER_BATCH_SIZE=1` and once at
+      `NER_BATCH_SIZE=2` (forcing real cross-article padding) assert
+      identical entities; full suite green (206 passed), ruff + mypy
+      clean. → step 6.
 - [ ] **T-062** Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM
       budget (SPEC.md NR-001) and measure the real throughput improvement
       (articles/sec) on a real sample (mirrors T-025's resample as a
@@ -287,12 +296,19 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       measuring it, and don't copy `CATEGORY_BATCH_SIZE`/
       `SUMMARY_BATCH_SIZE`'s values blind (NER's per-chunk sequence
       length and variable chunks-per-article shape a different memory
-      profile). → steps 5, 7.
-- [ ] **T-063** Document the new constant and batching design
+      profile). **Not done — needs the project's actual GPU**, which the
+      environment T-060/T-061 shipped from doesn't have (CPU-only
+      sandbox); `NER_BATCH_SIZE=8` is an untested starting guess, not a
+      measured value. → steps 5, 7.
+- [x] **T-063** Document the new constant and batching design
       (`docs/modules/news-nlp.md` and/or a `pipeline.py` comment, matching
       how `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` are documented) and
-      update `SPEC.md` §13 item 11 to reflect the shipped state. →
-      `PLAN.md` Work item 7 acceptance criteria.
+      update `SPEC.md` §13 item 11 to reflect the shipped state. **Done
+      2026-09-12** — see `NER_BATCH_SIZE`'s comment in `src/pipeline.py`,
+      the NER bullet in `docs/modules/news-nlp.md`, and `SPEC.md` §13
+      item 11. → `PLAN.md` Work item 7 acceptance criteria (all but the
+      "no VRAM regression" / "measured throughput" criteria, which need
+      T-062).
 
 ## Status
 
@@ -301,11 +317,13 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, T-025, T-020, and T-023 are already done — Work item 3
-(NER) is fully resolved except T-022 (full-corpus backfill), which is open
-but no longer blocking. T-030 (sentiment design decision), T-050
-(`c_summary` sampling check), T-054/T-055 (`sector_summary` intro-check
-build-out), and T-060 (NER batching implementation) are the other next
+T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, and T-063 are
+already done — Work item 3 (NER validation) is fully resolved except T-022
+(full-corpus backfill), open but non-blocking; Work item 7 (NER batching)
+is code-complete, with only T-062 (empirical GPU tuning) left, blocked on
+access to the project's actual GPU (not available in a CPU-only sandbox).
+T-030 (sentiment design decision), T-050 (`c_summary` sampling check), and
+T-054/T-055 (`sector_summary` intro-check build-out) are the other next
 actionable, unblocked steps; the rest of Work item 4 and T-041 follow once
 those land; T-051 (`c_summary` coverage decision) is unblocked but, like
 T-030, needs a design call before further steps.

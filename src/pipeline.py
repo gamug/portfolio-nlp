@@ -33,7 +33,7 @@ from transformers import (
 )
 
 import news_nlp as db
-from chunking import chunk_text, merge_char_spans
+from chunking import Chunk, chunk_text, merge_char_spans
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -60,6 +60,21 @@ CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 # certainly junk (see merge_bio_predictions' word-id fix for the actual root
 # cause this exists alongside, not instead of).
 _MIN_ENTITY_TEXT_LEN = 2
+# Articles per forward pass, not chunks per forward pass: every chunk of
+# every article in one NER_BATCH_SIZE-sized group of articles is flattened
+# into a single padded tokenizer call (see _ner_batch), so the actual
+# forward-pass batch dimension is the *total chunk count* across those
+# articles, not this constant itself -- unlike CATEGORY_BATCH_SIZE (a fixed
+# 9 pairs/article, so its forward-pass width is exactly
+# CATEGORY_BATCH_SIZE * 9 every time). NER's per-article chunk count varies
+# with article length (docs/evaluation.md's 2026-09-12 follow-up found one
+# 156,053-char outlier alone worth dozens of chunks), so this same constant
+# can correspond to very different actual batch widths run to run. Starts
+# at CATEGORY_BATCH_SIZE's value as a first guess, not copied blind --
+# empirically tune against SPEC.md NR-001's 6GB VRAM budget before trusting
+# this number on a full-corpus run (PLAN.md Work item 7 step 5 / TASKS.md
+# T-062 -- needs a real GPU, not yet re-measured past this starting value).
+NER_BATCH_SIZE = 8
 SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -268,6 +283,91 @@ def merge_bio_predictions(
     return entities
 
 
+def _ner_batch(
+    tokenizer: Any, model: Any, id2label: dict[int, str], batch_rows: list[Row]
+) -> list[list[dict[str, Any]]]:
+    """Chunk every article in this batch (`chunk_text`, same as before
+    batching), flatten every chunk from every article into one padded
+    tokenizer call + one forward pass, then regroup entities back to their
+    owning article via the flattened list's tagging. Returns one entities
+    list per row in `batch_rows`, same order.
+
+    Correctness rests on HF fast tokenizers returning ``word_ids() is None``
+    for padding positions, exactly the same sentinel `merge_bio_predictions`
+    already uses to skip special tokens -- so calling it once per chunk
+    (sliced out of the batched output via `batch_index=i`), unchanged from
+    the pre-batching per-chunk call, "just works" against padded input with
+    no changes to that function.
+    """
+    flat_texts: list[str] = []
+    flat_chunk_starts: list[int] = []
+    owner: list[int] = []  # index into batch_rows, one entry per flat_texts entry
+    per_article_chunks: list[list[Chunk]] = []
+
+    for i, (_article_id, body_text) in enumerate(batch_rows):
+        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
+        per_article_chunks.append(chunks)
+        for ch in chunks:
+            flat_texts.append(ch.text)
+            flat_chunk_starts.append(ch.start_char)
+            owner.append(i)
+
+    per_article_entities: list[list[dict[str, Any]]] = [[] for _ in batch_rows]
+    if not flat_texts:
+        return per_article_entities
+
+    inputs = tokenizer(
+        flat_texts,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True,
+        return_offsets_mapping=True,
+    )
+    offsets_batch = inputs.pop("offset_mapping").tolist()
+    # Must be read before `inputs` is rebuilt as a plain device dict below --
+    # .word_ids() lives on the BatchEncoding, not the dict.
+    word_ids_batch = [inputs.word_ids(batch_index=i) for i in range(len(flat_texts))]
+    inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+    with torch.no_grad():
+        logits = model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1).cpu()
+        pred_ids_batch = probs.argmax(-1).tolist()
+
+    for i in range(len(flat_texts)):
+        chunk_entities = merge_bio_predictions(
+            pred_ids_batch[i], word_ids_batch[i], offsets_batch[i], probs[i].tolist(), id2label
+        )
+        article_idx = owner[i]
+        chunk_start = flat_chunk_starts[i]
+        body_text = batch_rows[article_idx][1]
+        for e in chunk_entities:
+            start = chunk_start + e["start_char"]
+            end = chunk_start + e["end_char"]
+            per_article_entities[article_idx].append(
+                {
+                    "entity_type": e["entity_type"],
+                    "text": body_text[start:end],
+                    "start_char": start,
+                    "end_char": end,
+                    "score": sum(e["scores"]) / len(e["scores"]),
+                }
+            )
+
+    for entities in per_article_entities:
+        entities[:] = merge_char_spans(entities)
+        # Last-resort net, not a substitute for merge_bio_predictions' word-
+        # boundary fix above: drops any single-character junk span that fix
+        # doesn't structurally prevent. A length floor, not a digit-specific
+        # check -- excludes_bare_digit's mistake (portfolio_common.db.
+        # dialect.SqliteDialect) was living downstream, in two read-side
+        # aggregate queries, and only ever catching bare digits. Revisit if
+        # this starts hiding a new real bug class.
+        entities[:] = [e for e in entities if len(e["text"].strip()) >= _MIN_ENTITY_TEXT_LEN]
+
+    return per_article_entities
+
+
 def run_ner_stage(
     conn: db.NewsNlpDatabase,
     limit: int | None = None,
@@ -279,7 +379,11 @@ def run_ner_stage(
     sample of pending articles instead of the normal backlog-order first
     `limit` -- see `db.fetch_pending_articles`'s docstring. For a deliberate
     targeted reprocessing pass (docs/evaluation.md's 2026-09-12 NER
-    follow-up), not routine pipeline runs."""
+    follow-up), not routine pipeline runs.
+
+    Batched `NER_BATCH_SIZE` articles at a time via `_ner_batch` -- see that
+    constant's comment for why its forward-pass width isn't fixed the way
+    `CATEGORY_BATCH_SIZE`'s is."""
     rows = db.fetch_pending_articles(conn, "article_entities", limit=limit, sample_seed=sample_seed)
     total = len(rows)
     print(f"\n=== NER stage ({NER_MODEL}) on {DEVICE} ===")
@@ -293,60 +397,22 @@ def run_ner_stage(
     model = AutoModelForTokenClassification.from_pretrained(NER_MODEL).to(DEVICE).eval()
     id2label = {int(k): v for k, v in model.config.id2label.items()}
 
-    for idx, (article_id, body_text) in enumerate(tqdm(rows, desc="ner"), start=1):
-        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
-        article_entities = []
+    idx = 0
+    with tqdm(total=total, desc="ner") as pbar:
+        for batch_start in range(0, total, NER_BATCH_SIZE):
+            batch_rows = rows[batch_start : batch_start + NER_BATCH_SIZE]
+            per_article_entities = _ner_batch(tokenizer, model, id2label, batch_rows)
 
-        for ch in chunks:
-            inputs = tokenizer(
-                ch.text,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512,
-                return_offsets_mapping=True,
-            )
-            offsets = inputs.pop("offset_mapping")[0].tolist()
-            # Must be read before `inputs` is rebuilt as a plain device dict
-            # below -- .word_ids() lives on the BatchEncoding, not the dict.
-            word_ids = inputs.word_ids(batch_index=0)
-            inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
-            with torch.no_grad():
-                logits = model(**inputs).logits[0]
-                probs = torch.softmax(logits, dim=-1).cpu()
-                pred_ids = probs.argmax(-1).tolist()
+            for (article_id, _body_text), article_entities in zip(
+                batch_rows, per_article_entities, strict=True
+            ):
+                db.write_entities(conn, article_id, article_entities, model_name=NER_MODEL)
+                idx += 1
+                pbar.update(1)
+                if on_progress:
+                    on_progress("ner", idx, total)
 
-            chunk_entities = merge_bio_predictions(
-                pred_ids, word_ids, offsets, probs.tolist(), id2label
-            )
-            for e in chunk_entities:
-                start = ch.start_char + e["start_char"]
-                end = ch.start_char + e["end_char"]
-                article_entities.append(
-                    {
-                        "entity_type": e["entity_type"],
-                        "text": body_text[start:end],
-                        "start_char": start,
-                        "end_char": end,
-                        "score": sum(e["scores"]) / len(e["scores"]),
-                    }
-                )
-
-        article_entities = merge_char_spans(article_entities)
-        # Last-resort net, not a substitute for merge_bio_predictions' word-
-        # boundary fix above: drops any single-character junk span that fix
-        # doesn't structurally prevent. A length floor, not a digit-specific
-        # check -- excludes_bare_digit's mistake (portfolio_common.db.
-        # dialect.SqliteDialect) was living downstream, in two read-side
-        # aggregate queries, and only ever catching bare digits. Revisit if
-        # this starts hiding a new real bug class.
-        article_entities = [
-            e for e in article_entities if len(e["text"].strip()) >= _MIN_ENTITY_TEXT_LEN
-        ]
-        db.write_entities(conn, article_id, article_entities, model_name=NER_MODEL)
-        conn.commit()
-
-        if on_progress:
-            on_progress("ner", idx, total)
+            conn.commit()
 
     del model, tokenizer
     free_gpu()
