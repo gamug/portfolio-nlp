@@ -49,6 +49,7 @@ through ``conn.dialect.placeholder`` too; they are marked, not rewritten now.
 from __future__ import annotations
 
 import json
+import random
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -130,24 +131,59 @@ def now_iso() -> str:
 
 
 def fetch_pending_articles(
-    conn: NewsNlpDatabase, table: str, limit: int | None = None
+    conn: NewsNlpDatabase, table: str, limit: int | None = None, *, sample_seed: int | None = None
 ) -> list[Row]:
     """Return (id, body_text) rows from `articles` not yet present in `table`,
-    restricted to successfully fetched, non-empty articles."""
+    restricted to successfully fetched, non-empty articles.
+
+    Plain call (`sample_seed=None`): the first `limit` pending rows,
+    `ORDER BY a.id` -- the normal "work through the backlog in order" path
+    every stage uses day to day.
+
+    `sample_seed` given (`limit` then required, the sample size): a
+    `random.Random(sample_seed)`-seeded, reproducible **random** sample of
+    `limit` pending ids instead of the first `limit` by id order -- for a
+    deliberately-random reprocessing pass (e.g. a targeted post-fix resample,
+    docs/evaluation.md's 2026-09-12 NER follow-up / `PLAN.md` Work item 3
+    T-025), not the routine backlog-order path. Two queries: ids only first
+    (cheap -- no body_text pulled for the whole pending population), then
+    body_text for just the sampled ids, mirroring `news_nlp.eval.sampling`'s
+    own seeded-`random.Random` convention rather than SQL `ORDER BY RANDOM()`
+    (not seedable/reproducible in SQLite).
+    """
     if table not in _PENDING_ARTICLE_TABLES:
         raise ValueError(f"table must be one of {sorted(_PENDING_ARTICLE_TABLES)}, got {table!r}")
     # S608: `table` is checked against the _PENDING_ARTICLE_TABLES allowlist
     # above; _articles_rel(conn) is only ever "main" / "source".
-    sql = f"""
-        SELECT a.id, a.body_text
+    base_sql = f"""
         FROM {_articles_rel(conn)}.articles a
         LEFT JOIN {table} r ON r.article_id = a.id
         WHERE r.article_id IS NULL
           AND a.fetch_status = 'ok'
           AND a.body_text IS NOT NULL
           AND TRIM(a.body_text) != ''
-        ORDER BY a.id
-    """  # noqa: S608
+    """
+
+    if sample_seed is not None:
+        if not limit:
+            raise ValueError("sample_seed requires a positive limit (the sample size)")
+        all_ids = [
+            int(r[0]) for r in conn.execute(f"SELECT a.id {base_sql} ORDER BY a.id", []).fetchall()
+        ]
+        rng = random.Random(sample_seed)  # noqa: S311 -- sample selection, not cryptography
+        sampled_ids = rng.sample(all_ids, k=min(limit, len(all_ids)))
+        if not sampled_ids:
+            return []
+        placeholders = ",".join("?" for _ in sampled_ids)
+        rows = conn.execute(
+            f"SELECT a.id, a.body_text FROM {_articles_rel(conn)}.articles a "  # noqa: S608
+            f"WHERE a.id IN ({placeholders})",
+            sampled_ids,
+        ).fetchall()
+        by_id = {int(r[0]): r for r in rows}
+        return [by_id[i] for i in sampled_ids if i in by_id]
+
+    sql = f"SELECT a.id, a.body_text {base_sql} ORDER BY a.id"
     params: list = []
     if limit:
         sql += " LIMIT ?"

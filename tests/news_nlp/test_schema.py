@@ -100,3 +100,45 @@ def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: sqlite3.Co
 def test_fetch_pending_articles_rejects_unknown_table(conn: sqlite3.Connection) -> None:
     with pytest.raises(ValueError, match="table must be one of"):
         db.fetch_pending_articles(conn, "article_category")
+
+
+def test_fetch_pending_articles_sample_seed_is_reproducible_subset(
+    conn: sqlite3.Connection,
+) -> None:
+    """A `sample_seed` draw is a genuine subset of the population (not the
+    first-`limit`-by-id backlog order) and reproducible for a repeated seed
+    -- see docs/evaluation.md's 2026-09-12 NER follow-up / PLAN.md Work item
+    3 T-025 for why this exists."""
+    for i in range(1, 21):
+        seed_article(conn, id=i, body_text=f"Body text {i}.")
+    conn.commit()
+
+    a = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=1)
+    b = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=1)
+    assert len(a) == 5
+    assert [r[0] for r in a] == [r[0] for r in b]  # same seed -> same ids, same order
+    assert set(r[0] for r in a) <= set(range(1, 21))  # a genuine subset of the population
+
+    plain = db.fetch_pending_articles(conn, "article_sentiment", limit=5)
+    assert [r[0] for r in plain] == [1, 2, 3, 4, 5]  # the backlog-order path, for contrast
+
+    other_seed = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=2)
+    assert [r[0] for r in a] != [r[0] for r in other_seed]  # a different seed draws differently
+
+
+def test_fetch_pending_articles_sample_seed_requires_limit(conn: sqlite3.Connection) -> None:
+    seed_article(conn, id=1, body_text="Body text.")
+    conn.commit()
+    with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
+        db.fetch_pending_articles(conn, "article_sentiment", sample_seed=1)
+
+
+def test_fetch_pending_articles_sample_seed_caps_at_population(
+    conn: sqlite3.Connection,
+) -> None:
+    for i in range(1, 4):
+        seed_article(conn, id=i, body_text=f"Body text {i}.")
+    conn.commit()
+
+    rows = db.fetch_pending_articles(conn, "article_sentiment", limit=1000, sample_seed=1)
+    assert len(rows) == 3  # fewer than `limit` only when the store holds too few

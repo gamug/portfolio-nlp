@@ -225,3 +225,28 @@ def test_run_ner_stage_does_not_split_3m_into_a_bogus_bare_digit_entity(
     # Confirms the Step 3 length floor doesn't itself interact with this
     # case -- "3M" (length 2) passes it regardless of the word-id fix.
     assert all(len(e["text"].strip()) >= 2 for e in detail["entities"])
+
+
+def test_run_ner_stage_passes_sample_seed_through_to_fetch_pending_articles(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`run_ner_stage(..., sample_seed=...)` must reach
+    `db.fetch_pending_articles` unchanged -- a unit-level check of the
+    pass-through contract (docs/evaluation.md's 2026-09-12 NER follow-up /
+    PLAN.md Work item 3 T-025), not the tokenizer/model path (already
+    covered by the test above). Stubbed to return no rows so `run_ner_stage`
+    exits before ever needing a tokenizer or model (the `total == 0: return`
+    early-out)."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_fetch_pending_articles(
+        _conn: Any, table: str, limit: int | None = None, *, sample_seed: int | None = None
+    ) -> list[Any]:
+        calls.append({"table": table, "limit": limit, "sample_seed": sample_seed})
+        return []
+
+    monkeypatch.setattr(pipeline.db, "fetch_pending_articles", fake_fetch_pending_articles)
+
+    pipeline.run_ner_stage(conn, limit=20000, sample_seed=1)
+
+    assert calls == [{"table": "article_entities", "limit": 20000, "sample_seed": 1}]
