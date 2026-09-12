@@ -486,14 +486,15 @@ treating a related FR/NR as done:
    skipped-and-logged; unclear whether that's the intended trade-off at
    larger corpus sizes.
 
-## 14. Scope Boundaries & Future Work
+## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
-**This repository is at thesis/research stage, not production deployment.**
-Every requirement and acceptance criterion above (§2–§13) describes and
-governs that stage honestly — nothing above should be read as an implicit
-production readiness claim, and nothing below should be read as a committed
-roadmap. It exists so a reader doesn't mistake "not yet built" for
-"overlooked."
+**This repository is a thesis/research artifact. Productizing it is not a
+goal of this project and no production phase is planned.** Every requirement
+and acceptance criterion above (§2–§13) describes and governs that scope
+honestly — nothing above should be read as an implicit production-readiness
+claim. The items below are **permanently out of scope as this project is
+currently defined**, not a backlog or a roadmap; they exist so a reader
+doesn't mistake "not built" for "overlooked."
 
 ### What this stage validates
 
@@ -512,12 +513,11 @@ validates:
 - **Idempotency/resumability** of the batch pipeline (FR-006), exercised by
   the hermetic test suite (§10).
 
-### What this stage explicitly does not validate (deferred)
+### What this project explicitly does not do (out of scope)
 
-None of the following exist today; none are assumed by any FR/NR above.
-Building them is future work if and when this moves toward a production or
-multi-user deployment — the list is here so that absence reads as a
-deliberate boundary, not a gap in the spec:
+None of the following exist today, none are assumed by any FR/NR above, and
+none are planned — this list is here so that absence reads as a deliberate
+boundary of what this project is, not a gap someone forgot to close:
 
 - **Access control**: there is no authentication or authorization on the
   FastAPI service (§4/FR-008) — every endpoint, including the correction
@@ -536,23 +536,23 @@ deliberate boundary, not a gap in the spec:
   today's floating HF checkpoints (§13 item 4) and unpinned `articles`
   schema (§13 item 3) are accepted risks at this scale, not oversights.
 
-### §13 items: thesis-scope disposition
+### §13 items: disposition
 
-| §13 item | At this stage | Reconsider when |
+| §13 item | Disposition | Would only matter if |
 |---|---|---|
-| 1 — weak sentiment F1 | Accepted, documented limitation of the current model choice | Sentiment becomes a load-bearing signal for a downstream decision |
-| 2 — near-guessing category labels | Accepted; threshold is a reasoned first calibration, not final | More post-hierarchy eval data exists to retune against |
-| 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's new schema-contract table documents the actual (unenforced) dependency | This repo or `data-mining` changes the `articles` shape |
-| 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Results need to be exactly reproduced months later, or multiple people run the pipeline independently |
-| 5 — no throughput/latency SLA | Deferred to production — no load test exists to base one on | A load test is run, or a real-time consumer is added |
-| 6 — `article_category` migration doesn't auto-reprocess | Accepted; a manual backfill script is the fix if it's ever needed | Historical `group_label`/`group_score` accuracy matters for an analysis |
-| 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | Summaries need to be reliably current for a downstream consumer |
-| 8 — `--check-regression` not wired into CI | Should fix soon regardless of production status — it's cheap and prevents silent accuracy drift | Before the next model/prompt/threshold change, ideally |
-| 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency make a single bad row costly to fail on |
+| 1 — weak sentiment F1 | Accepted, permanent limitation of the current model choice at this scope | This scope changed and sentiment became load-bearing for a real decision |
+| 2 — near-guessing category labels | Accepted; threshold is a reasoned first calibration, not final | More post-hierarchy eval data existed to retune against — a research task, not a scope change |
+| 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
+| 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Exact reproducibility months later mattered more than it does today — worth pinning cheaply regardless (see below) |
+| 5 — no throughput/latency SLA | Out of scope — no load test exists to base one on, and none is planned | This scope changed to include a real-time or multi-user consumer |
+| 6 — `article_category` migration doesn't auto-reprocess | Accepted; a manual backfill script is the fix if it's ever needed | Historical `group_label`/`group_score` accuracy mattered for a specific analysis |
+| 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | This scope changed to need summaries reliably current on a cadence |
+| 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
+| 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
 
-Item 8 is the one item on this list worth doing regardless of production
-status — it's a CI-plumbing change, not new infrastructure, and directly
-protects the §9 baseline this spec already treats as load-bearing.
+Item 8 is the one item on this list worth doing regardless of scope — it's a
+CI-plumbing change, not new infrastructure. Everything else here is a
+permanent characteristic of this project as scoped, not a queued task.
 
 ## 15. Sign-off
 
