@@ -69,28 +69,36 @@ _RESULT_TABLE = {
 # though `negative` drives most of the low macro F1; the deeper cause there is
 # a separate, still-open pipeline-capability gap, not this cap.
 #
-# `ner` and `c_summary` also chunk/reduce over the full article in the
-# pipeline and are *suspected* of the same lead-only-judge mismatch, but that
-# has not been empirically verified the way sentiment was -- left capped for
-# now; see docs/evaluation.md's sentiment follow-up note.
+# `ner` also chunks/reduces over the full article in the pipeline and was
+# suspected of the same lead-only-judge mismatch. CONFIRMED, not just
+# suspected, against real data (docs/evaluation.md's 2026-09-12 follow-up:
+# 21.4% of a real 1000-article sample exceed this cap, and 16.8% of
+# predicted entities in that sample start past it -- structurally
+# unverifiable by a judge that never sees that text). Fixed the same way as
+# sentiment: `ner` joined _UNCAPPED_STAGES below (2026-09-12). `c_summary`'s
+# version of this suspicion remains unverified.
 _MAX_BODY_CHARS = 6000
 
 # Stages judged on (in practice) the full body_text -- the pipeline stage
 # itself scores/reduces over the whole article, not just the lead. Every
 # other stage in STAGES stays capped at _MAX_BODY_CHARS.
-_UNCAPPED_STAGES: frozenset[str] = frozenset({"sentiment"})
+_UNCAPPED_STAGES: frozenset[str] = frozenset({"sentiment", "ner"})
 
 # A safety ceiling for _UNCAPPED_STAGES, distinct from (and far more generous
-# than) _MAX_BODY_CHARS: the longest article body observed as of 2026-09-08 is
-# ~35K chars (~7-9K tokens), so this never engages against real data today --
-# it exists so a future pathological/malformed body_text can't produce an
-# oversized judge request that fails outright (silently degrading that row to
-# parse_failed) instead of just losing some tail context, which is the
-# acceptable-degradation failure mode a plain length cap gives us. ~2.9x the
-# longest observed body; comfortably inside any modern chat model's context
-# window, but not a measured DeepSeek token budget -- if judge failures ever
-# correlate with body length near this ceiling, that's the signal to replace
-# it with an actual tokenizer-based budget instead of a char-count proxy.
+# than) _MAX_BODY_CHARS. Named for sentiment (the first stage uncapped,
+# 2026-09-08) but shared by every stage in _UNCAPPED_STAGES, `ner` included
+# (2026-09-12) -- not renamed, to avoid rewriting the 2026-09-08 follow-up's
+# own references to this name in docs/evaluation.md, which stay historically
+# accurate under the old name. The longest *sentiment* article body observed
+# as of 2026-09-08 was ~35K chars, so this never engaged for sentiment --
+# that is NOT true for `ner`: a real sampled article body reached 156,053
+# chars (docs/evaluation.md's 2026-09-12 follow-up), over 1.5x this ceiling,
+# so this now does engage for `ner` against real data, truncating that tail
+# rather than failing the request outright -- the intended
+# acceptable-degradation behavior, not a bug. If judge failures ever
+# correlate with body length near this ceiling for either stage, that's the
+# signal to replace it with an actual tokenizer-based budget instead of a
+# char-count proxy.
 _SENTIMENT_MAX_BODY_CHARS = 100_000
 # Cap the entity list shown to the NER judge -- some articles have 100s.
 _MAX_NER_ENTITIES = 60

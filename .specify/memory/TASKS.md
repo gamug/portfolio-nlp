@@ -73,22 +73,56 @@ post-fix accuracy number yet — the `micro_f1` 0.7418 / `hallucination_rate`
 0.338 baseline in `docs/evaluation.md` predates both. → `PLAN.md` Work item 3,
 `SPEC.md` §9 (NER baseline row).
 
+**Started 2026-09-12.** T-021's investigation is done and confirmed the
+sampling mismatch is real; T-024 (the fix) landed the same day. T-020
+turned out to be more tightly blocked than scoped, though — there's no
+post-fix data to evaluate at all yet, and no plain pipeline re-run
+produces any (see `docs/evaluation.md`'s 2026-09-12 follow-up for the full
+findings). T-025 (new) is the lighter alternative to T-022 that fell out
+of this investigation; both are still open maintainer decisions blocking
+T-020.
+
+- [x] **T-021** Empirically check (don't just flag) whether `ner` eval
+      sampling suffers the same full-article-vs-lead-cap mismatch already
+      confirmed for `sentiment`. **Done 2026-09-12** — confirmed, not just
+      suspected: ran `sample_for_stage("ner", size=1000, seed=1)` against
+      real data (no LLM calls); 21.4% of sampled articles exceed the
+      judge's 6000-char cap, and 16.8% of predicted entities in the sample
+      start past it (structurally unverifiable by the judge). See
+      `docs/evaluation.md`'s 2026-09-12 follow-up for the full numbers.
+      → `PLAN.md` Work item 3, step 2.
+- [x] **T-024** *(new, follows from T-021)* Fix the confirmed mismatch —
+      add `ner` to `sampling._UNCAPPED_STAGES` (`src/news_nlp/eval/
+      sampling.py`), same fix shape as sentiment's 2026-09-08 follow-up.
+      **Done 2026-09-12**, before T-020, so that run won't be immediately
+      stale the way the pre-text-scope-fix sentiment baseline was — new
+      regression test `test_ner_uses_full_body_text_since_the_2026_09_12_fix`
+      (`tests/news_nlp/test_eval_sampling.py`); full suite + ruff + mypy
+      green. → step 2 (completes the "sampling cap fixed" half of
+      `PLAN.md`'s acceptance criterion).
 - [ ] **T-020** Run a fresh `--stage ner` eval (`uv run cli/news_nlp_eval.py
       --stage ner --seed 1 --sample-size 1000`, or larger) against articles
       processed after the fix, to get a post-fix `micro_f1` /
       `hallucination_rate` / per-type F1 reading comparable to the
-      2026-09-08 baseline. → `PLAN.md` Work item 3, step 1.
-- [ ] **T-021** Empirically check (don't just flag) whether `ner` eval
-      sampling suffers the same full-article-vs-lead-cap mismatch already
-      confirmed for `sentiment` (`docs/evaluation.md`'s "suspected... not
-      empirically investigated" note) — `run_ner_stage` scores the whole
-      article, and it's unverified whether the judge's sampling cap matches
-      that scope. → step 2.
+      2026-09-08 baseline. **Blocked, more tightly than originally scoped**
+      — confirmed 2026-09-12 that no post-fix NER data exists at all: the
+      stage hasn't run since 2026-08-19, and there is no backlog (SOURCE's
+      max article id matches RESULTS' exactly) for a plain pipeline re-run
+      to pick up. Cannot proceed until T-022/T-025 resolves how to produce
+      *some* post-fix rows. → `PLAN.md` Work item 3, step 1.
 - [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
       existing 17.6M-row `article_entities` table (written under the
       pre-fix `merge_bio_predictions`) is worth doing — the fix is
       future-runs-only by design (`docs/evaluation.md` 2026-09-10
       follow-up, "Scope"). → step 3.
+- [ ] **T-025** *(new, maintainer, lighter alternative to T-022)* Decide
+      whether to reprocess a **targeted, modest sample** (e.g.
+      1,000-2,000 articles) instead of the full corpus — technically
+      available today via `news_nlp.corrections.delete_entities_for_article`
+      (makes an article eligible for reprocessing again, same mechanism
+      `delete_category` uses) followed by a normal pipeline run. Would
+      unblock T-020 without committing to the full-corpus question T-022
+      is scoped around. → step 1 (alternate path).
 - [ ] **T-023** Once T-020 lands, add a dated follow-up entry to
       `docs/evaluation.md` (same append-only pattern as the sentiment/
       category entries) and update `SPEC.md` §9's NER baseline row —
@@ -219,11 +253,13 @@ T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
 blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
-**Current focus is model performance checking (Work items 3-6):** T-040 and
-T-042 are already done (category fix confirmed + doc-updated). T-020/T-021
-(NER validation), T-030 (sentiment design decision), T-050 (`c_summary`
-sampling check), and T-054/T-055 (`sector_summary` intro-check build-out)
-are the next actionable, unblocked steps; T-022 is a maintainer scope call;
-the rest of Work item 4 and T-041 follow once those land; T-051 (`c_summary`
-coverage decision) is unblocked but, like T-030,
-needs a design call before further steps.
+**Current focus is model performance checking (Work items 3-6):** T-040,
+T-042, T-021, and T-024 are already done. Work item 3 (NER) is now
+waiting on a maintainer call between T-022 (full backfill) and T-025
+(targeted resample) to unblock T-020 — everything code-side that doesn't
+need that decision is done. T-030 (sentiment design decision),
+T-050 (`c_summary` sampling check), and T-054/T-055 (`sector_summary`
+intro-check build-out) are the other next actionable, unblocked steps; the
+rest of Work item 4 and T-041 follow once those land; T-051 (`c_summary`
+coverage decision) is unblocked but, like T-030, needs a design call before
+further steps.

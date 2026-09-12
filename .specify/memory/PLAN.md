@@ -184,20 +184,41 @@ last-resort net. Neither change has a post-fix accuracy number: the
 future-runs-only (the existing 17.6M-row `article_entities` table was left
 untouched by design).
 
+**Status as of 2026-09-12** (see `docs/evaluation.md`'s dated follow-up):
+steps 2 and its fix are **done** — the full-article-vs-lead-cap mismatch
+was confirmed against real data, then fixed the same day (`ner` added to
+`sampling._UNCAPPED_STAGES`, regression-tested). Step 1 is what's left,
+and it turned out to be blocked on more than step 3 alone: there is
+currently **no post-fix NER data at all** (the stage hasn't run since
+2026-08-19, and there's no backlog for a plain pipeline re-run to pick
+up), so a fresh eval run needs *some* reprocessing decision first, not
+just a decision on full-corpus scope.
+
 **Approach**:
 
 1. Run a fresh `--stage ner` eval against articles processed after the fix
    lands, at a sample size comparable to the 2026-09-08 baseline (n=1000),
-   with `--seed` for reproducibility.
+   with `--seed` for reproducibility. **Blocked** on some reprocessing
+   happening first (see step 3) — confirmed 2026-09-12 there is no
+   backlog of new articles and no existing post-fix rows.
 2. While that data exists, also check the "suspected but unverified" note
    in `docs/evaluation.md`: `run_ner_stage` scores the *whole* article, but
    whether the eval judge's sampling matches that scope (vs. the
    lead-chunk-only mismatch already confirmed and fixed for sentiment) has
-   never been empirically checked for NER specifically.
+   never been empirically checked for NER specifically. **Done and fixed
+   2026-09-12** — confirmed (21.4% of a real sample exceeds the judge's
+   cap; 16.8% of predicted entities start past it), then `ner` added to
+   `sampling._UNCAPPED_STAGES` the same day, before step 1's eval run, so
+   that run won't be immediately stale.
 3. Bring the question of a bulk `article_entities` re-extraction to the
    maintainer as a scope decision — not something to do unilaterally,
    consistent with how the category hierarchical-classifier migration
-   handled the same "future-runs-only" trade-off (SPEC.md §13 item 6).
+   handled the same "future-runs-only" trade-off (SPEC.md §13 item 6). A
+   **lighter alternative** surfaced 2026-09-12: a targeted reprocessing of
+   a modest sample (~1,000-2,000 articles) via
+   `news_nlp.corrections.delete_entities_for_article` + a normal pipeline
+   run — unblocks step 1 without committing to the full-corpus question.
+   Either way, this is the maintainer's call, not made unilaterally here.
 4. Record the result as a dated follow-up in `docs/evaluation.md` (append,
    don't overwrite the baseline) and update `SPEC.md` §9's NER row.
 
@@ -209,6 +230,7 @@ untouched by design).
 - The full-article-vs-lead-cap sampling question is either confirmed (and
   the sampling cap fixed, mirroring the sentiment fix) or explicitly ruled
   out with evidence — not left as an open "suspected" note indefinitely.
+  **Confirmed 2026-09-12; the cap fix itself is still outstanding.**
 - `SPEC.md` §9 updated with the new baseline row/date.
 
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap
@@ -397,8 +419,11 @@ other, and independent of one another except where noted:
 
 - Work item 5 (category) is documentation-only and can land immediately —
   no blockers.
-- Work item 3 (NER) needs a fresh eval run against articles processed
-  after the 2026-09-10 fix; otherwise unblocked.
+- Work item 3 (NER): step 2 (sampling-mismatch check) is done and its own
+  fix is unblocked. Step 1 (fresh eval run) is now confirmed blocked on
+  step 3 (a reprocessing decision, maintainer) — not optional sequencing,
+  a hard dependency: no post-fix data exists and no pipeline re-run
+  produces any without it (2026-09-12 finding).
 - Work item 4 (sentiment) is the largest remaining item: a design
   decision (step 1) is unblocked today, but the floor-sized baseline run
   (step 2) and any before/after comparison depend on that decision being

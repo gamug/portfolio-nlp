@@ -113,6 +113,34 @@ def test_sentiment_uses_full_body_text_category_stays_capped(
     assert category_items[0].body_text.endswith("[... truncated ...]")
 
 
+def test_ner_uses_full_body_text_since_the_2026_09_12_fix(
+    eval_store_paths: tuple[Path, Path],
+) -> None:
+    """ner must see the body_text run_ner_stage actually chunked/predicted
+    over (the whole article) -- fixed 2026-09-12 after the lead-cap mismatch
+    was empirically confirmed (docs/evaluation.md's 2026-09-12 follow-up),
+    same fix shape as sentiment's 2026-09-08 one above."""
+    source, results = eval_store_paths
+    long_body = "Acme Corp reported strong quarterly results. " * 400
+    assert len(long_body) > sampling._MAX_BODY_CHARS
+
+    raw = sqlite3.connect(source)
+    raw.execute("UPDATE articles SET body_text = ? WHERE id = 1", (long_body,))
+    raw.commit()
+    raw.close()
+
+    conn = db_module.connect_pipeline(results_db=results, source_db=source)
+    try:
+        items = sample_for_stage(conn, "ner", size=1, low_conf_frac=1.0, seed=1)
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+    assert items[0].article_id == 1
+    assert items[0].body_text == long_body
+    assert "truncated" not in items[0].body_text
+
+
 def test_sentiment_still_truncates_past_the_safety_ceiling(
     eval_store_paths: tuple[Path, Path],
 ) -> None:
