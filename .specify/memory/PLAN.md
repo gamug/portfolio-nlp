@@ -6,15 +6,18 @@ The implementation plan for the live backlog identified in
 "how, and in what order" for the work that contract still leaves open.
 
 **Scope of this plan was originally narrow, now expanded to cover active
-model-performance work.** `SPEC.md` §13 (Open Questions & Risks) lists nine
-items; §14 (Scope Boundaries) marks most of them **accepted** (permanent
-characteristics of this project at its current, non-production scope) and
-one (§13 item 5, throughput/latency SLA) **retired** outright. Item 8 was
-flagged "should fix regardless of scope" and items 1/2 (sentiment/category
-accuracy) were originally treated as accepted research limitations — see
-Work items 1-2 below for the former. Items 1/2 have since been **promoted
-out of "accepted, not a queued task"**: category's fix already shipped
-(Work item 5), and sentiment is now active, priority work (Work item 4),
+model-performance work.** `SPEC.md` §13 (Open Questions & Risks) now lists
+ten items (a tenth — `c_summary`'s coverage/sampling-scope question — was
+added alongside Work item 6, below); §14 (Scope Boundaries) marks most of
+the original nine as **accepted** (permanent characteristics of this
+project at its current, non-production scope) and one (§13 item 5,
+throughput/latency SLA) **retired** outright. Item 8 was flagged "should
+fix regardless of scope" and items 1/2 (sentiment/category accuracy) were
+originally treated as accepted research limitations — see Work items 1-2
+below for the former. Items 1/2 have since been **promoted out of
+"accepted, not a queued task"**: category's fix already shipped (Work item
+5), and sentiment is now active, priority work (Work item 4). Item 10
+(`c_summary`) is new, priority work from the same push (Work item 6). All
 per `docs/evaluation.md`'s dated follow-ups and the current focus of this
 project. This plan still does not resurrect anything §14 leaves closed for
 the other items — see Non-goals below.
@@ -37,6 +40,10 @@ this project's scope beyond what's already in motion:
 5. Hold the line on category's already-shipped hierarchical fix and
    close the one open calibration thread it left (`other`'s own
    precision) (SPEC.md §13 item 2). — Work item 5.
+6. Validate the summarization (`c_summary`) stage the same way: confirm
+   or fix its own suspected eval-sampling scope mismatch, and decide
+   whether to address its weak `mean_coverage` (SPEC.md §13 item 10). —
+   Work item 6.
 
 ## Non-goals
 
@@ -286,6 +293,51 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 - `other`'s precision gap is captured as a named, low-priority follow-up
   somewhere durable (`SPEC.md` §13 or a new item) rather than dropped.
 
+## Work item 6 — Summarization (`c_summary`): validate eval scope and close the coverage gap
+
+**Why**: `c_summary` is the strongest stage on its headline metric
+(`mean_faithfulness` 4.87/5, `pct_with_hallucination` only 5.4%), but its
+weakest metric, `mean_coverage` (3.02/5), reflects a terse/extractive
+tendency of `distilbart-cnn-12-6` — a real completeness gap, even if not
+a correctness one (`docs/evaluation.md`'s 2026-09-08 baseline notes).
+Separately, `docs/evaluation.md` flags `c_summary` (alongside NER) as
+"suspected of the same full-article-vs-lead-cap mismatch... but this has
+not been empirically investigated" — `run_company_summary_stage`'s
+hierarchical reduce (`src/pipeline.py`) processes the *whole* article,
+but whether the eval judge sees that same scope has never been checked
+the way it was for sentiment (where the mismatch was confirmed and
+fixed). `sector_summary` stays explicitly **out of scope** here, same as
+in `docs/evaluation.md`'s own "What it evaluates" section — it's
+deterministic composition; only its one-sentence intro seed is
+generative, and that's not worth a dedicated eval.
+
+**Approach**:
+
+1. Empirically check the suspected full-article-vs-lead-cap sampling
+   mismatch for `c_summary` specifically — same investigation as Work
+   item 3's step 2 for NER, applied to the summarization judge/sampling
+   path (`src/news_nlp/eval/sampling.py`, `src/news_nlp/eval/prompts/
+   c_summary.md`).
+2. Make an explicit decision on `mean_coverage`: raise
+   `SUMMARY_MIN_OUTPUT_TOKENS`/`SUMMARY_MAX_OUTPUT_TOKENS`
+   (`src/pipeline.py`, currently 56/142), change the hierarchical-reduce
+   strategy, or explicitly accept the terse tendency as a deliberate
+   trade for the already-strong faithfulness score. Not yet decided —
+   don't default to the first lever tried.
+3. Re-run the eval after any change (or after confirming/ruling out the
+   sampling mismatch) and record a dated follow-up in
+   `docs/evaluation.md`, same append-only pattern as the other stages.
+
+**Acceptance criteria**:
+
+- The full-article-vs-lead-cap sampling question is either confirmed
+  (and the sampling cap fixed) or explicitly ruled out with evidence —
+  same bar as Work item 3's NER acceptance criterion.
+- A documented decision on whether/how to raise `mean_coverage`, with
+  before/after numbers if a change is made.
+- `SPEC.md` §13 item 10 (new) and §9's `c_summary` baseline row updated
+  with the result.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -294,7 +346,7 @@ change with no external setup required and can land immediately. Work
 item 2 (runnable regression gate) is blocked on the maintainer's
 infrastructure decision and can happen whenever that's ready.
 
-Work items 3-5 (current focus) are also independent of 1-2 and of each
+Work items 3-6 (current focus) are also independent of 1-2 and of each
 other, and independent of one another except where noted:
 
 - Work item 5 (category) is documentation-only and can land immediately —
@@ -305,5 +357,9 @@ other, and independent of one another except where noted:
   decision (step 1) is unblocked today, but the floor-sized baseline run
   (step 2) and any before/after comparison depend on that decision being
   made first.
+- Work item 6 (`c_summary`) is unblocked today — its sampling-scope check
+  (step 1) needs no prior decision, though whether to act on
+  `mean_coverage` (step 2) is itself an open design call, same shape as
+  Work item 4's step 1.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
