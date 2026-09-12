@@ -214,8 +214,14 @@ tempCodeRunnerFile.py
 # Ruff stuff:
 .ruff_cache/
 
-# Claude Code project instructions (kept local, not version-controlled)
+# Claude Code / agent tool artifacts (kept local, not version-controlled).
+# .specify/ is the exception: it holds the spec-kit constitution/specs this
+# project deliberately versions as its source of truth, not a tool scratch
+# dir, so it stays tracked.
 CLAUDE.md
+.claude/
+.superpowers/
+docs/superpowers/
 
 # PyPI configuration file
 .pypirc
