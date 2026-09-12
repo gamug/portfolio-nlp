@@ -211,7 +211,11 @@ def _sentiment_sentence_weights(
 
 
 def run_sentiment_stage(
-    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase,
+    limit: int | None = None,
+    on_progress: ProgressCallback | None = None,
+    *,
+    sample_seed: int | None = None,
 ) -> None:
     """Entity-scoped, sentence-level aggregation (PLAN.md Work item 4 step 1,
     chosen 2026-09-12): FinBERT was fine-tuned on Financial PhraseBank --
@@ -230,8 +234,14 @@ def run_sentiment_stage(
     NER's own batching was sequenced (PLAN.md Work item 7): a throughput
     pass is a natural, separate follow-up once this aggregation is
     validated against real data.
+
+    `sample_seed` (with `limit` as the sample size): a reproducible random
+    sample of pending articles instead of the normal backlog-order first
+    `limit` -- see `db.fetch_pending_sentiment_articles`'s docstring. For a
+    deliberate targeted reprocessing pass (mirrors NER's T-025 resample,
+    `TASKS.md` T-034), not routine pipeline runs.
     """
-    rows = db.fetch_pending_sentiment_articles(conn, limit=limit)
+    rows = db.fetch_pending_sentiment_articles(conn, limit=limit, sample_seed=sample_seed)
     total = len(rows)
     print(f"\n=== Sentiment stage ({SENTIMENT_MODEL}) on {DEVICE} ===")
     print(f"{total} article(s) pending sentiment analysis")
