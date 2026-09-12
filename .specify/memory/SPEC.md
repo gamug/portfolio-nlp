@@ -344,11 +344,12 @@ Governing principle: **fail loudly, never swallow silently**
 
 ## 9. Performance & Scalability Expectations
 
-This repo does not yet have formal SLAs; what exists is a documented
-**accuracy baseline** (not a latency/throughput target) from the first
-full-corpus evaluation run (`docs/evaluation.md`, 2026-09-08, n=1000/stage) —
-treat a *drop* against these as a regression signal, not the absolute
-numbers as a pass/fail bar:
+This repo has no throughput/latency SLA, and defining one is out of scope
+(§14) — a real-time or high-volume performance target belongs to a
+production system this project isn't. What exists instead is a documented
+**accuracy baseline** from the first full-corpus evaluation run
+(`docs/evaluation.md`, 2026-09-08, n=1000/stage) — treat a *drop* against
+these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
@@ -359,10 +360,10 @@ numbers as a pass/fail bar:
 
 Resource expectations that *are* enforced by design (NR-001, NR-004): single
 model resident on the accelerator at a time (6 GB VRAM budget), chunked
-processing for articles up to ~13K words. No documented target for
-articles/sec throughput or API p95 latency — flagged in §13 as a spec gap to
-close before this repo is asked to run at a materially larger corpus size or
-under a real-time SLA.
+processing for articles up to ~13K words. No articles/sec or API-latency
+number is stated anywhere in this document — none has been measured, and
+inventing one with no load test behind it would be worse than stating
+plainly that none exists (§14).
 
 ## 10. Testing Strategy & Acceptance Criteria
 
@@ -474,9 +475,11 @@ treating a related FR/NR as done:
 4. **Model checkpoints are unpinned to a commit SHA** (`setup.py` fetches
    by repo name) — an upstream Hugging Face update can silently change
    results with no signal, undermining the accuracy baseline in §9.
-5. **No throughput/latency SLA** (§9) — unknown whether the current
-   single-process, one-model-resident design scales to a materially larger
-   corpus or a real-time API latency requirement.
+5. ~~No throughput/latency SLA~~ — **retired, not an open question.** A
+   throughput/latency SLA is a production requirement; this project doesn't
+   have a production phase to require one for (§14). Kept here, struck
+   through, only so the item number stays stable for anything that already
+   references it.
 6. **`article_category`'s additive schema migration does not
    auto-reprocess legacy rows** (unlike `sector_summary`'s
    `format_version` self-heal) — pre-hierarchical-classifier rows read back
@@ -535,9 +538,9 @@ boundary of what this project is, not a gap someone forgot to close:
 - **Operational tooling**: no monitoring/alerting, no on-call runbook, no
   documented disaster-recovery procedure for either SQLite file, no
   scheduler for `--summarize` (relates to §13 item 7).
-- **Throughput/latency SLAs and load testing** (§9, §13 item 5) — no target
-  has been set because no load test has been run; a number invented without
-  one would be worse than none.
+- **Throughput/latency SLAs and load testing** (§9) — a production
+  requirement this project doesn't have; retired from §13 as item 5 rather
+  than tracked as an open question, since there is nothing to resolve.
 - **Model checkpoint pinning, formal data-retention policy, and a
   stability contract with downstream consumers** (`financial-analysis`) —
   today's floating HF checkpoints (§13 item 4) and unpinned `articles`
@@ -551,7 +554,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 2 — near-guessing category labels | Accepted; threshold is a reasoned first calibration, not final | More post-hierarchy eval data existed to retune against — a research task, not a scope change |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
 | 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Exact reproducibility months later mattered more than it does today — worth pinning cheaply regardless (see below) |
-| 5 — no throughput/latency SLA | Out of scope — no load test exists to base one on, and none is planned | This scope changed to include a real-time or multi-user consumer |
+| 5 — ~~no throughput/latency SLA~~ | Retired — a production requirement, and this project has no production phase | — |
 | 6 — `article_category` migration doesn't auto-reprocess | Accepted; a manual backfill script is the fix if it's ever needed | Historical `group_label`/`group_score` accuracy mattered for a specific analysis |
 | 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | This scope changed to need summaries reliably current on a cadence |
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
