@@ -301,13 +301,24 @@ coreference resolution.
 
 **Status as of 2026-09-12**: the design decision and its implementation
 are **done** (`pipeline.run_sentiment_stage`, `_sentence_mentions_subject`,
-`_sentiment_sentence_weights`) -- see steps 1 and 4 below. Steps 2-3 (a
-floor-sized baseline run, re-solved sample-size-floor estimates) and the
-acceptance criteria's real-data confirmation are **not done**: this
-environment has no GPU and no access to the production DB (same blocker
-as NER batching's T-062), so nothing here is validated against real
-articles or the LLM judge yet -- only against hermetic unit tests with a
-fake model. `TASKS.md` T-034 tracks running the real validation.
+`_sentiment_sentence_weights`) -- see steps 1 and 4 below. `article_sentiment`
+has also been **versioned against the real production DB** (T-035, mirrors
+NER's T-025: renamed to `article_sentiment_v1`, 459,112 rows preserved; a
+fresh empty `article_sentiment` recreated) -- see `scripts/
+resample_sentiment_2026_09_12.py`. **Correction**: this and NER batching's
+write-ups previously said this environment has no GPU/production-DB
+access -- that was wrong; both are reachable here (`nvidia-smi` shows the
+real project GPU idle, and `$DATABASE_URL`/`$SOURCE_DATABASE_URL`'s
+Windows paths resolve via a mounted drive). The reprocessing step itself
+(populating fresh post-change rows) was deliberately left for the
+maintainer to run on their own schedule rather than spending their GPU
+time unasked. Steps 2-3 (a floor-sized baseline run, re-solved
+sample-size-floor estimates) and the acceptance criteria's real-data
+confirmation are still **not done** -- nothing here is validated against
+real articles or the LLM judge yet, only against hermetic unit tests with
+a fake model, and the eval needs post-change data to exist first.
+`TASKS.md` T-031/T-034 track running the real validation once the
+reprocessing sample has run.
 
 **Approach**:
 
@@ -327,7 +338,10 @@ fake model. `TASKS.md` T-034 tracks running the real validation.
    one stratified pilot (n=800) exists so far, and `docs/evaluation.md`'s
    own "Sample-size floor" section recommends ~1,800-2,200 for a
    regression-tracked number. Run that first, `--seed`-pinned. **Not
-   done** — needs the real GPU/production DB (`TASKS.md` T-034).
+   done** — needs post-change data to exist first (`TASKS.md` T-035's
+   reprocessing step, table already versioned but not yet reprocessed;
+   see `scripts/resample_sentiment_2026_09_12.py`), then the eval run
+   itself (T-031).
 3. Re-solve the sample-size-floor purity estimates using this run's actual
    measured per-stratum agreement (today's numbers are planning
    estimates, explicitly flagged as such) before locking in a permanent

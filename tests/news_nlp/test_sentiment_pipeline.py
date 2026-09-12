@@ -177,12 +177,36 @@ def test_run_sentiment_stage_reads_company_and_ticker_via_new_dedicated_query(
     or model."""
     calls: list[dict[str, Any]] = []
 
-    def fake_fetch(_conn: Any, limit: int | None = None) -> list[Any]:
-        calls.append({"limit": limit})
+    def fake_fetch(
+        _conn: Any, limit: int | None = None, *, sample_seed: int | None = None
+    ) -> list[Any]:
+        calls.append({"limit": limit, "sample_seed": sample_seed})
         return []
 
     monkeypatch.setattr(pipeline.db, "fetch_pending_sentiment_articles", fake_fetch)
 
     pipeline.run_sentiment_stage(conn, limit=50)
 
-    assert calls == [{"limit": 50}]
+    assert calls == [{"limit": 50, "sample_seed": None}]
+
+
+def test_run_sentiment_stage_passes_sample_seed_through_to_fetch_pending_sentiment_articles(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`run_sentiment_stage(..., sample_seed=...)` must reach
+    `db.fetch_pending_sentiment_articles` unchanged -- the same pass-through
+    contract as NER's `sample_seed` (T-025), now needed for sentiment's own
+    resample (`scripts/resample_sentiment_2026_09_12.py`, TASKS.md T-034)."""
+    calls: list[dict[str, Any]] = []
+
+    def fake_fetch(
+        _conn: Any, limit: int | None = None, *, sample_seed: int | None = None
+    ) -> list[Any]:
+        calls.append({"limit": limit, "sample_seed": sample_seed})
+        return []
+
+    monkeypatch.setattr(pipeline.db, "fetch_pending_sentiment_articles", fake_fetch)
+
+    pipeline.run_sentiment_stage(conn, limit=10_000, sample_seed=1)
+
+    assert calls == [{"limit": 10_000, "sample_seed": 1}]

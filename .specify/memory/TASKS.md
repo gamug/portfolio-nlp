@@ -139,7 +139,20 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (design + implementation done 2026-09-12; T-034 needs real GPU/DB)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (design + implementation done 2026-09-12; table versioned, reprocessing next)
+
+**Correction (2026-09-12, later the same day)**: T-030/T-060-shaped work
+below previously stated this needed "the project's real GPU/production DB,
+not available in the CPU-only sandbox" — that was **wrong**. The sandbox
+this shipped from does have both: `nvidia-smi` shows the actual project
+GPU (RTX 4050 Laptop, 6GB VRAM, idle) and `$DATABASE_URL`/
+`$SOURCE_DATABASE_URL`'s Windows paths (`D:\thesis\data\...`) resolve
+inside this environment via a mounted drive
+(`/workspaces/thesis/data/{nlp,urls}.db` — 459,112 real articles,
+confirmed). Not caught until acting on T-034 below. `PLAN.md` Work item 7 /
+`TASKS.md` T-062 still says "needs a real GPU" from before this
+correction — left as-is since the maintainer already took ownership of
+running that one; noted here so it isn't repeated as fact elsewhere.
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
@@ -174,13 +187,30 @@ the stage still "pending to improve" despite the changes already made.
       subject) correctly calls `positive` under the new weighting. Full
       suite green (213 passed), ruff/mypy clean. → `PLAN.md` Work item 4,
       steps 1 and 4 (implementation half).
+- [x] **T-035** *(new, mirrors T-025)* `article_sentiment` was
+      future-runs-only-affected the same way `article_entities` was by the
+      NER fix — no post-change data exists yet, and a plain pipeline
+      re-run picks up nothing new (every article already has a pre-change
+      row). **Versioning done 2026-09-12** against the real production DB:
+      `article_sentiment` (459,112 rows) renamed to `article_sentiment_v1`
+      (nothing deleted, verified via a scratch-DB dry run first — see
+      `scripts/resample_sentiment_2026_09_12.py`'s own docstring for why
+      this table needed no index re-homing, unlike NER's); a fresh, empty
+      `article_sentiment` recreated and verified empty. **Reprocessing
+      (the script's step 3) deliberately not run here** — the maintainer
+      chose to run it themselves rather than have this session spend the
+      GPU time; `fetch_pending_sentiment_articles`/`run_sentiment_stage`
+      gained the same `sample_seed` param NER's did, tested
+      (`tests/news_nlp/test_schema.py`,
+      `tests/news_nlp/test_sentiment_pipeline.py`). → step 1 (alternate
+      path, same shape as T-025).
 - [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
       recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
       "Sample-size floor") — only one stratified pilot (n=800) exists so
       far; a floor-sized run is needed before today's `recall_negative` /
       `precision_negative` can be trusted as a stable `--check-regression`
-      baseline. **Not done — needs the project's real GPU/production DB**,
-      not available in the CPU-only sandbox T-030 shipped from. → step 2.
+      baseline. **Not done** — needs T-035's reprocessing step to have run
+      first (no post-change data to sample yet). → step 2.
 - [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
       estimates using T-031's actual measured per-stratum agreement
       (`strata_json` / `agreement_rate_target_negative` etc.) instead of
@@ -188,12 +218,11 @@ the stage still "pending to improve" despite the changes already made.
       `--sample-size` default. Depends on T-031. → step 3.
 - [ ] **T-034** *(new, follows from T-030)* Run `--stage sentiment` eval
       before/after this change on real data (mirrors T-020's NER
-      before/after and T-062's NER-batching throughput check) — confirm
-      `negative` precision actually improves without collapsing
-      `recall_negative`, on the real corpus rather than just the
-      synthetic hermetic-test fixture. **Not done — same GPU/production-DB
-      blocker as T-031.** → step 4's remainder (real-data confirmation),
-      `PLAN.md` Work item 4 acceptance criteria.
+      before/after) — confirm `negative` precision actually improves
+      without collapsing `recall_negative`, on the real corpus rather than
+      just the synthetic hermetic-test fixture. **Not done** — depends on
+      T-035's reprocessing step. → step 4's remainder (real-data
+      confirmation), `PLAN.md` Work item 4 acceptance criteria.
 - [ ] **T-033** After T-034's real-data result exists, add a dated
       follow-up entry to `docs/evaluation.md` (design rationale + the
       before/after numbers) and update `SPEC.md` §13 item 1 and §9's
@@ -347,14 +376,15 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, and T-030
-are already done — Work item 3 (NER validation) is fully resolved except
-T-022 (full-corpus backfill), open but non-blocking; Work item 7 (NER
-batching) and Work item 4's design/implementation (T-030) are
-code-complete, with only their real-data validation left (T-062, T-031,
-T-034), all blocked on access to the project's actual GPU/production DB
-(not available in a CPU-only sandbox). T-050 (`c_summary` sampling check)
-and T-054/T-055 (`sector_summary` intro-check build-out) are the other
+T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, T-030, and
+T-035 are already done — Work item 3 (NER validation) is fully resolved
+except T-022 (full-corpus backfill), open but non-blocking; Work item 7
+(NER batching) is code-complete pending T-062 (maintainer running it on
+their own GPU); Work item 4's design/implementation/table-versioning
+(T-030/T-035) are done, with T-031/T-032/T-034's real-data validation the
+next actionable step once the maintainer runs the reprocessing sample
+(`scripts/resample_sentiment_2026_09_12.py`). T-050 (`c_summary` sampling
+check) and T-054/T-055 (`sector_summary` intro-check build-out) are the other
 next actionable, unblocked steps; T-041 follows once T-062/T-031/T-034
 land; T-051 (`c_summary` coverage decision) is unblocked but needs a
 design call before further steps.
