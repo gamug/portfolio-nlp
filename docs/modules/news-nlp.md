@@ -15,7 +15,11 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
 1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`.
 2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
    [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
-   `article_entities`.
+   `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward
+   pass: every article's chunks in the batch are flattened into one padded tokenizer call,
+   so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SIZE`
+   itself — see the constant's comment for why (variable per-article chunk counts, unlike
+   category's fixed 9-pairs-per-article width).
 3. **Category** — zero-shot NLI classification (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`)
    against a fixed 10-category taxonomy (9 dimensions of company performance + `other`) →
    `article_category`. See [`../category-taxonomy.md`](../category-taxonomy.md) for the

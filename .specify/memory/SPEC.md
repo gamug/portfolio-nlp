@@ -550,11 +550,22 @@ treating a related FR/NR as done:
     backfill of the ~439,000 remaining pre-fix articles (§13 item 6's
     open T-022 question) would take roughly 5.5x that, over 5 hours,
     single-chunk-at-a-time, on hardware with headroom to go faster.
-    **Added 2026-09-12, active priority work** — `PLAN.md` Work item 7 /
-    `TASKS.md` T-060–T-063. (`run_sentiment_stage` has the identical
-    unbatched shape and is likely worth the same treatment later, but is
-    out of scope for this item — not raised here as its own numbered
-    question to avoid scope creep beyond what was asked.)
+    **Batching implemented 2026-09-12** (`TASKS.md` T-060/T-061) — a new
+    `NER_BATCH_SIZE` constant (starts at 8, `CATEGORY_BATCH_SIZE`'s value
+    as a first guess) flattens every article's chunks in a batch into one
+    padded tokenizer call + one forward pass (`pipeline._ner_batch`),
+    regrouped back per article afterward; a parity test
+    (`test_batched_and_per_article_ner_processing_produce_identical_entities`)
+    confirms batched and one-article-at-a-time processing produce
+    identical `article_entities`. **Still open**: T-062, empirically
+    tuning `NER_BATCH_SIZE` against the 6GB VRAM budget and measuring the
+    real throughput gain on a GPU — not done in this pass (no GPU access
+    in the environment this shipped from); the starting value is
+    untested against real hardware. `PLAN.md` Work item 7 has the full
+    detail. (`run_sentiment_stage` has the identical unbatched shape and
+    is likely worth the same treatment later, but is out of scope for
+    this item — not raised here as its own numbered question to avoid
+    scope creep beyond what was asked.)
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

@@ -10,6 +10,7 @@ standalone "3"/ORG entity whenever the untrained continuation prediction on
 word's first subword ever opens/closes/redirects a span.
 """
 
+import re
 import sqlite3
 from typing import Any
 
@@ -19,6 +20,7 @@ from conftest import seed_article
 
 import news_nlp as db
 import pipeline
+from news_nlp.corrections import delete_entities_for_article
 
 # A small, realistic BIO label set (mirrors train_ner.py's PER/LOC/ORG scheme).
 _ID2LABEL = {0: "O", 1: "B-ORG", 2: "I-ORG", 3: "B-PER", 4: "I-PER"}
@@ -225,6 +227,174 @@ def test_run_ner_stage_does_not_split_3m_into_a_bogus_bare_digit_entity(
     # Confirms the Step 3 length floor doesn't itself interact with this
     # case -- "3M" (length 2) passes it regardless of the word-id fix.
     assert all(len(e["text"].strip()) >= 2 for e in detail["entities"])
+
+
+# --- batching parity (T-061): batched vs. per-article processing ------------
+
+
+class BatchedFakeNerEncoding(dict):
+    """Like FakeNerEncoding above, but a real multi-row batch (variable
+    per-row length, real padding) instead of always exactly one fixed row --
+    needed to exercise `_ner_batch`'s cross-sequence padding, which a
+    batch-of-one input can't."""
+
+    def __init__(
+        self,
+        input_ids: list[list[int]],
+        attention_mask: list[list[int]],
+        offsets_batch: list[list[tuple[int, int]]],
+        word_ids_batch: list[list[int | None]],
+    ) -> None:
+        super().__init__(
+            {
+                "input_ids": torch.tensor(input_ids, dtype=torch.long),
+                "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+                "offset_mapping": torch.tensor(offsets_batch),
+            }
+        )
+        self._word_ids_batch = word_ids_batch
+
+    def word_ids(self, batch_index: int = 0) -> list[int | None]:
+        return self._word_ids_batch[batch_index]
+
+
+class BatchedFakeNerTokenizer:
+    """A minimal whitespace-word tokenizer (no WordPiece splitting -- that
+    mechanic is already covered by merge_bio_predictions' own unit tests
+    above) that actually reflects each text's real content and length, so a
+    batch of differently-sized texts pads for real. `vocab` maps word text
+    to a stable int id the fake model looks predictions up by."""
+
+    def __init__(self, vocab: dict[str, int], pad_id: int = 0, cls_id: int = 1, sep_id: int = 2):
+        self._vocab = vocab
+        self._pad_id = pad_id
+        self._cls_id = cls_id
+        self._sep_id = sep_id
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[str]:
+        return re.findall(r"\S+", text)  # chunk_text only needs a token *count*
+
+    def __call__(self, texts: list[str], **kwargs: Any) -> BatchedFakeNerEncoding:
+        rows: list[tuple[list[int], list[tuple[int, int]], list[int | None]]] = []
+        for text in texts:
+            ids: list[int] = [self._cls_id]
+            offsets: list[tuple[int, int]] = [(0, 0)]
+            word_ids: list[int | None] = [None]
+            for wi, m in enumerate(re.finditer(r"\S+", text)):
+                ids.append(self._vocab[m.group()])
+                offsets.append((m.start(), m.end()))
+                word_ids.append(wi)
+            ids.append(self._sep_id)
+            offsets.append((0, 0))
+            word_ids.append(None)
+            rows.append((ids, offsets, word_ids))
+
+        max_len = max(len(ids) for ids, _, _ in rows)
+        input_ids, attention_mask, offsets_batch, word_ids_batch = [], [], [], []
+        for ids, offsets, word_ids in rows:
+            pad_n = max_len - len(ids)
+            input_ids.append(ids + [self._pad_id] * pad_n)
+            attention_mask.append([1] * len(ids) + [0] * pad_n)
+            offsets_batch.append(offsets + [(0, 0)] * pad_n)
+            word_ids_batch.append(word_ids + [None] * pad_n)
+
+        return BatchedFakeNerEncoding(input_ids, attention_mask, offsets_batch, word_ids_batch)
+
+
+class BatchedFakeNerModel:
+    """Predicted label depends only on each token's own vocab id -- never on
+    its position, its batch's padding, or which other texts share its
+    batch -- so any difference between a NER_BATCH_SIZE=1 run and a
+    NER_BATCH_SIZE>1 run can only come from `_ner_batch`'s own
+    regrouping/offset logic, not from the fake model itself."""
+
+    def __init__(self, id2label: dict[int, str], id2pred: dict[int, int]) -> None:
+        self.config = type("Config", (), {"id2label": id2label})()
+        self._id2pred = id2pred
+
+    def to(self, device: Any) -> "BatchedFakeNerModel":
+        return self
+
+    def eval(self) -> "BatchedFakeNerModel":
+        return self
+
+    def __call__(self, **kwargs: Any) -> Any:
+        input_ids = kwargs["input_ids"]
+        batch, seq_len = input_ids.shape
+        logits = torch.zeros(batch, seq_len, len(self.config.id2label))
+        for b in range(batch):
+            for t in range(seq_len):
+                pred = self._id2pred.get(int(input_ids[b, t].item()), 0)
+                logits[b, t, pred] = 10.0  # dominates softmax
+        return type("Output", (), {"logits": logits})()
+
+
+def _entities_without_id(conn: sqlite3.Connection, article_id: int) -> list[dict[str, Any]]:
+    detail = db.get_article_detail(conn, article_id)
+    assert detail is not None
+    return [{k: v for k, v in e.items() if k != "id"} for e in detail["entities"]]
+
+
+def test_batched_and_per_article_ner_processing_produce_identical_entities(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-061 parity check: flattening multiple articles' chunks into one
+    padded forward pass (NER_BATCH_SIZE > 1) must write byte-identical
+    `article_entities` (same entities, offsets, scores) as processing them
+    one article at a time (NER_BATCH_SIZE == 1). Uses two articles of
+    different lengths so batching them together forces real cross-sequence
+    padding -- the actual risk this feature introduces that the single-row
+    tests above (unchanged since before batching) don't exercise.
+    """
+    article_a = "Apple Inc reported strong earnings today."
+    article_b = "Elon Musk visited the factory and spoke to investors about plans."
+    seed_article(conn, id=1, title="A", body_text=article_a)
+    seed_article(conn, id=2, title="B", body_text=article_b)
+    conn.commit()
+
+    id2label = {0: "O", 1: "B-ORG", 2: "I-ORG", 3: "B-PER", 4: "I-PER"}
+
+    vocab: dict[str, int] = {}
+    next_id = 3  # 0=pad, 1=CLS, 2=SEP
+    for text in (article_a, article_b):
+        for w in re.findall(r"\S+", text):
+            vocab.setdefault(w, next_id)
+            if vocab[w] == next_id:
+                next_id += 1
+
+    id2pred = dict.fromkeys(vocab.values(), 0)
+    id2pred[vocab["Apple"]] = 1  # B-ORG
+    id2pred[vocab["Inc"]] = 2  # I-ORG
+    id2pred[vocab["Elon"]] = 3  # B-PER
+    id2pred[vocab["Musk"]] = 4  # I-PER
+
+    tokenizer = BatchedFakeNerTokenizer(vocab)
+    model = BatchedFakeNerModel(id2label, id2pred)
+    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: tokenizer)
+    monkeypatch.setattr(
+        pipeline.AutoModelForTokenClassification, "from_pretrained", lambda *_a, **_k: model
+    )
+
+    # Run 1: one article per forward pass (no cross-article padding).
+    monkeypatch.setattr(pipeline, "NER_BATCH_SIZE", 1)
+    pipeline.run_ner_stage(conn)
+    unbatched = {1: _entities_without_id(conn, 1), 2: _entities_without_id(conn, 2)}
+
+    # Reset both articles to pending, then re-run with both flattened into
+    # one padded batch.
+    delete_entities_for_article(conn, 1)
+    delete_entities_for_article(conn, 2)
+    conn.commit()
+
+    monkeypatch.setattr(pipeline, "NER_BATCH_SIZE", 2)
+    pipeline.run_ner_stage(conn)
+    batched = {1: _entities_without_id(conn, 1), 2: _entities_without_id(conn, 2)}
+
+    assert batched == unbatched
+    # Sanity: the batched run actually found the expected entities -- two
+    # empty result sets would trivially satisfy the equality above too.
+    assert any(e["entity_type"] == "ORG" and e["text"] == "Apple Inc" for e in batched[1])
+    assert any(e["entity_type"] == "PER" and e["text"] == "Elon Musk" for e in batched[2])
 
 
 def test_run_ner_stage_passes_sample_seed_through_to_fetch_pending_articles(
