@@ -75,12 +75,14 @@ post-fix accuracy number yet — the `micro_f1` 0.7418 / `hallucination_rate`
 
 **Started 2026-09-12.** T-021's investigation is done and confirmed the
 sampling mismatch is real; T-024 (the fix) landed the same day. T-020
-turned out to be more tightly blocked than scoped, though — there's no
-post-fix data to evaluate at all yet, and no plain pipeline re-run
-produces any (see `docs/evaluation.md`'s 2026-09-12 follow-up for the full
-findings). T-025 (new) is the lighter alternative to T-022 that fell out
-of this investigation; both are still open maintainer decisions blocking
-T-020.
+turned out to be more tightly blocked than scoped at first — no post-fix
+data existed, and no plain pipeline re-run would produce any — but T-025
+(chosen over T-022, executed the same day: versioned `article_entities` →
+`article_entities_v1`, resampled 20,000 articles under the fixed code)
+cleared that blocker. T-020 is now unblocked and is the next actionable
+step; T-022 (full-corpus backfill of the remaining ~439K pre-fix articles)
+is no longer blocking anything, just an open scope question. See
+`docs/evaluation.md`'s 2026-09-12 follow-ups for full findings.
 
 - [x] **T-021** Empirically check (don't just flag) whether `ner` eval
       sampling suffers the same full-article-vs-lead-cap mismatch already
@@ -104,25 +106,27 @@ T-020.
       --stage ner --seed 1 --sample-size 1000`, or larger) against articles
       processed after the fix, to get a post-fix `micro_f1` /
       `hallucination_rate` / per-type F1 reading comparable to the
-      2026-09-08 baseline. **Blocked, more tightly than originally scoped**
-      — confirmed 2026-09-12 that no post-fix NER data exists at all: the
-      stage hasn't run since 2026-08-19, and there is no backlog (SOURCE's
-      max article id matches RESULTS' exactly) for a plain pipeline re-run
-      to pick up. Cannot proceed until T-022/T-025 resolves how to produce
-      *some* post-fix rows. → `PLAN.md` Work item 3, step 1.
+      2026-09-08 baseline. **Unblocked as of 2026-09-12** (T-025 landed) —
+      19,988 post-fix articles now exist to sample from. Not yet run: this
+      spends real judge-call budget, a distinct action from T-025's
+      reprocessing. → `PLAN.md` Work item 3, step 1.
 - [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
-      existing 17.6M-row `article_entities` table (written under the
-      pre-fix `merge_bio_predictions`) is worth doing — the fix is
-      future-runs-only by design (`docs/evaluation.md` 2026-09-10
-      follow-up, "Scope"). → step 3.
-- [ ] **T-025** *(new, maintainer, lighter alternative to T-022)* Decide
-      whether to reprocess a **targeted, modest sample** (e.g.
-      1,000-2,000 articles) instead of the full corpus — technically
-      available today via `news_nlp.corrections.delete_entities_for_article`
-      (makes an article eligible for reprocessing again, same mechanism
-      `delete_category` uses) followed by a normal pipeline run. Would
-      unblock T-020 without committing to the full-corpus question T-022
-      is scoped around. → step 1 (alternate path).
+      remaining ~439,000 pre-fix `article_entities_v1` articles (not
+      resampled by T-025) is worth doing — the fix is future-runs-only by
+      design (`docs/evaluation.md` 2026-09-10 follow-up, "Scope"). No
+      longer blocking T-020 (T-025 unblocked it with a smaller sample);
+      this is now purely about full-corpus coverage. → step 3.
+- [x] **T-025** *(new, maintainer, lighter alternative to T-022)* **Done
+      2026-09-12.** Executed as: version the table (`ALTER TABLE
+      article_entities RENAME TO article_entities_v1`, preserving the
+      pre-fix snapshot rather than deleting/reprocessing rows in place),
+      then a `random.Random(seed=1)`-seeded resample of 20,000 articles
+      via the new `sample_seed` param. Result: 714,334 entity rows across
+      19,988/20,000 articles (12 predicted zero entities). Dry-run
+      validated first against a scratch DB copy. Full detail:
+      `docs/evaluation.md`'s 2026-09-12 "T-025 executed" follow-up.
+      → step 1 (alternate path) — done via the table-rename refinement,
+      not the originally-sketched `delete_entities_for_article` path.
 - [ ] **T-023** Once T-020 lands, add a dated follow-up entry to
       `docs/evaluation.md` (same append-only pattern as the sentiment/
       category entries) and update `SPEC.md` §9's NER baseline row —
@@ -254,10 +258,9 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-6):** T-040,
-T-042, T-021, and T-024 are already done. Work item 3 (NER) is now
-waiting on a maintainer call between T-022 (full backfill) and T-025
-(targeted resample) to unblock T-020 — everything code-side that doesn't
-need that decision is done. T-030 (sentiment design decision),
+T-042, T-021, T-024, and T-025 are already done. Work item 3 (NER): T-020
+(a fresh eval run) is unblocked and is the next actionable step; T-022
+(full-corpus backfill) is open but no longer blocking. T-030 (sentiment design decision),
 T-050 (`c_summary` sampling check), and T-054/T-055 (`sector_summary`
 intro-check build-out) are the other next actionable, unblocked steps; the
 rest of Work item 4 and T-041 follow once those land; T-051 (`c_summary`

@@ -612,6 +612,53 @@ precedent (existing rows read back unmigrated until reprocessed, SPEC.md
 §13 item 6) is an acceptable model for NER too, is still a decision for
 the repo owner — not made unilaterally here.
 
+### Follow-up (2026-09-12): T-025 executed — `article_entities` versioned, 20,000-article random resample
+
+The repo owner chose T-025 (targeted resample) over T-022 (full-corpus
+backfill), with one refinement: **version the table by renaming it**
+rather than reprocessing specific rows in place via
+`delete_entities_for_article`. `scripts/resample_ner_2026_09_12.py`
+(one-shot, kept in git history per this repo's precedent for this kind of
+maintenance script — see `docs/migration-2026-09-01.md`):
+
+1. Renamed the pre-fix `article_entities` (17,666,722 rows / 458,867
+   distinct articles) to **`article_entities_v1`** — nothing deleted, a
+   durable, queryable snapshot of the pre-fix model's output. Its index
+   was explicitly re-homed (`idx_article_entities_v1_article_id`) rather
+   than left in place: a real SQLite gotcha found and verified (with a
+   throwaway in-memory repro) before touching production data —
+   `ALTER TABLE ... RENAME TO` does **not** rename a table's indexes, so
+   the original `idx_article_entities_article_id` name would have stayed
+   bound to the renamed table, making `init_schema`'s
+   `CREATE INDEX IF NOT EXISTS` of that same name against the fresh table
+   silently no-op and leave it unindexed.
+2. Recreated a fresh, empty `article_entities` via `news_nlp.init_schema`
+   (verified indexed, verified empty, before proceeding).
+3. Ran `run_ner_stage` over a `random.Random(seed=1)`-seeded, reproducible
+   random sample of 20,000 pending articles (`news_nlp.queries.
+   fetch_pending_articles`'s new `sample_seed` parameter — every article
+   was "pending" against the just-emptied table) under the current, fixed
+   code (both the 2026-09-10 word-boundary fix and the 2026-09-12
+   uncapped-eval-sampling fix above).
+
+Dry-run validated end to end against a scratch copy of the real store
+(50-article sample) before running for real.
+
+**Result**: 714,334 entity rows across **19,988 of the 20,000** sampled
+articles (12 articles genuinely predicted zero entities — `write_entities`
+writes no row at all for those, a pre-existing, unrelated behavior). Ran in
+~15 minutes on the project's GPU (RTX 4050 Laptop, matching `SPEC.md`
+NR-001's 6GB VRAM budget). Per-type split: `ORG` 409,575 (57.3%), `PER`
+159,912 (22.4%), `LOC` 144,847 (20.3%) — close to the pre-fix corpus's
+documented ORG 55%/PER 25%/LOC 20% split (Sampling section below), so the
+fix didn't distort the overall type balance.
+
+**T-020 is now unblocked**: 19,988 post-fix articles exist to draw an eval
+sample from, where none existed before this follow-up. Running that eval
+(`--stage ner`) is the natural next step but was **not** done as part of
+this follow-up — it spends real judge-call budget and is a distinct
+action from the reprocessing done here.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

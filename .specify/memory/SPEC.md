@@ -355,7 +355,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 |---|---|---|
 | sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
-| ner | `micro_f1` | 0.74 (hallucination rate 33.8%) — **predates** the 2026-09-10 subword-fragmentation fix; a post-fix re-eval is queued (`PLAN.md` Work item 3, `TASKS.md` T-020) |
+| ner | `micro_f1` | 0.74 (hallucination rate 33.8%) — **predates** the 2026-09-10 subword-fragmentation fix; a post-fix re-eval is queued and unblocked as of 2026-09-12 (19,988 post-fix articles now exist, `docs/evaluation.md`'s "T-025 executed" follow-up), just not yet run (`PLAN.md` Work item 3, `TASKS.md` T-020) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
 
 ¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"

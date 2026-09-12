@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS article_sentiment (
     processed_at TEXT NOT NULL
 );
 
+-- On the working RESULTS store, `article_entities_v1` may exist alongside
+-- this table -- not part of this DDL (nothing here creates or migrates it).
+-- It's a one-time archival rename of the pre-2026-09-10-fix
+-- `article_entities` (`scripts/resample_ner_2026_09_12.py`,
+-- docs/evaluation.md's 2026-09-12 "T-025 executed" follow-up): the
+-- pre-fix model's output for the ~439K articles not yet reprocessed under
+-- the fixed merge_bio_predictions, preserved rather than deleted. Its own
+-- index is `idx_article_entities_v1_article_id` (SQLite doesn't rename a
+-- table's indexes on `ALTER TABLE ... RENAME TO`, so this had to be
+-- recreated explicitly under a new name -- see that script for why).
 CREATE TABLE IF NOT EXISTS article_entities (
     id {autoincrement_pk},
     article_id INTEGER NOT NULL REFERENCES articles(id),
