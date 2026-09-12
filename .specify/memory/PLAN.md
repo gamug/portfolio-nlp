@@ -40,10 +40,12 @@ this project's scope beyond what's already in motion:
 5. Hold the line on category's already-shipped hierarchical fix and
    close the one open calibration thread it left (`other`'s own
    precision) (SPEC.md §13 item 2). — Work item 5.
-6. Validate the summarization (`c_summary`) stage the same way: confirm
-   or fix its own suspected eval-sampling scope mismatch, and decide
-   whether to address its weak `mean_coverage` (SPEC.md §13 item 10). —
-   Work item 6.
+6. Validate the summarization stages: confirm or fix `c_summary`'s own
+   suspected eval-sampling scope mismatch, decide whether to address its
+   weak `mean_coverage` (SPEC.md §13 item 10), and add a lightweight
+   faithfulness check for `sector_summary`'s model-generated intro
+   sentence, which shares the same model and currently has no evaluation
+   at all. — Work item 6.
 
 ## Non-goals
 
@@ -293,9 +295,16 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 - `other`'s precision gap is captured as a named, low-priority follow-up
   somewhere durable (`SPEC.md` §13 or a new item) rather than dropped.
 
-## Work item 6 — Summarization (`c_summary`): validate eval scope and close the coverage gap
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check
 
-**Why**: `c_summary` is the strongest stage on its headline metric
+**Why**: Both summarization tasks run the exact same model
+(`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,
+loaded independently by `run_company_summary_stage` and
+`run_sector_summary_stage`, same `hierarchical_summarize_batch` call, same
+generation settings), but today only one of them has any evaluation at
+all.
+
+`c_summary` is the strongest stage on its headline metric
 (`mean_faithfulness` 4.87/5, `pct_with_hallucination` only 5.4%), but its
 weakest metric, `mean_coverage` (3.02/5), reflects a terse/extractive
 tendency of `distilbart-cnn-12-6` — a real completeness gap, even if not
@@ -303,13 +312,23 @@ a correctness one (`docs/evaluation.md`'s 2026-09-08 baseline notes).
 Separately, `docs/evaluation.md` flags `c_summary` (alongside NER) as
 "suspected of the same full-article-vs-lead-cap mismatch... but this has
 not been empirically investigated" — `run_company_summary_stage`'s
-hierarchical reduce (`src/pipeline.py`) processes the *whole* article,
-but whether the eval judge sees that same scope has never been checked
-the way it was for sentiment (where the mismatch was confirmed and
-fixed). `sector_summary` stays explicitly **out of scope** here, same as
-in `docs/evaluation.md`'s own "What it evaluates" section — it's
-deterministic composition; only its one-sentence intro seed is
-generative, and that's not worth a dedicated eval.
+hierarchical reduce processes the *whole* article, but whether the eval
+judge sees that same scope has never been checked the way it was for
+sentiment (where the mismatch was confirmed and fixed).
+
+`sector_summary` itself is correctly out of scope for eval — it's
+deterministic composition (FR-005), and `docs/evaluation.md`'s "What it
+evaluates" section says so explicitly. But its one `intro_text` sentence
+*is* model-generated (the same model, run a second time), and has **zero**
+evaluation today — not even the "simple" kind. Because the model only
+ever sees a small, stats-only `facts_json`-derived seed for this call
+(never raw company/article text — see `run_sector_summary_stage`'s own
+comment on why: "so it has nothing to blend across companies or
+categories"), a full LLM-as-judge stage like `c_summary`'s (coverage,
+conciseness, article-length grounding) would be overkill for one
+sentence. What's missing is something much narrower: a faithfulness-only
+check that `intro_text` doesn't state anything unsupported by its own
+`facts_json` grounding.
 
 **Approach**:
 
@@ -324,9 +343,31 @@ generative, and that's not worth a dedicated eval.
    strategy, or explicitly accept the terse tendency as a deliberate
    trade for the already-strong faithfulness score. Not yet decided —
    don't default to the first lever tried.
-3. Re-run the eval after any change (or after confirming/ruling out the
-   sampling mismatch) and record a dated follow-up in
-   `docs/evaluation.md`, same append-only pattern as the other stages.
+3. Re-run the `c_summary` eval after any change (or after
+   confirming/ruling out the sampling mismatch) and record a dated
+   follow-up in `docs/evaluation.md`, same append-only pattern as the
+   other stages.
+4. Add a **lightweight, faithfulness-only** eval path for
+   `sector_summary`'s `intro_text` — narrower than a full new
+   `news_nlp.eval` stage:
+   - Judge input is `intro_text` + its own `facts_json` (the seed the
+     model actually saw), never the underlying article/company text —
+     this is a hallucination check against the model's real grounding,
+     not an independent accuracy claim.
+   - A single metric (e.g. `pct_with_hallucination` or a 1-5
+     faithfulness score, reusing the `c_summary` judge's rubric shape
+     rather than inventing a new one) — no coverage/conciseness scoring;
+     those don't meaningfully apply to one sentence.
+   - Population size is naturally small (one row per
+     `(gics_sector, gics_sub_industry, week)`, not per-article), so this
+     can likely run against the **full population** each time rather than
+     needing `sampling.py`'s stratified-sampling machinery — confirm the
+     actual row count before assuming this, don't guess it.
+   - This is new eval surface, not a variant of an existing one:
+     `sampling.STAGES`, `metrics.HEADLINE`, a new prompt file
+     (`src/news_nlp/eval/prompts/sector_summary.md`), and
+     `cli/news_nlp_eval.py`'s `--stage` choices all need a
+     `sector_summary` case added.
 
 **Acceptance criteria**:
 
@@ -335,8 +376,13 @@ generative, and that's not worth a dedicated eval.
   same bar as Work item 3's NER acceptance criterion.
 - A documented decision on whether/how to raise `mean_coverage`, with
   before/after numbers if a change is made.
+- A working `--stage sector_summary` (or equivalent) eval path exists,
+  producing at least one faithfulness/hallucination metric for
+  `intro_text` against `facts_json`, logged the same way the other
+  stages log to MLflow/`eval_run`.
 - `SPEC.md` §13 item 10 (new) and §9's `c_summary` baseline row updated
-  with the result.
+  with the result; a new §9 row (or a documented decision not to add
+  one) for the `sector_summary` intro check.
 
 ## Sequencing
 
@@ -357,9 +403,11 @@ other, and independent of one another except where noted:
   decision (step 1) is unblocked today, but the floor-sized baseline run
   (step 2) and any before/after comparison depend on that decision being
   made first.
-- Work item 6 (`c_summary`) is unblocked today — its sampling-scope check
-  (step 1) needs no prior decision, though whether to act on
-  `mean_coverage` (step 2) is itself an open design call, same shape as
-  Work item 4's step 1.
+- Work item 6 (`c_summary` + `sector_summary`) is unblocked today — its
+  `c_summary` sampling-scope check (step 1) needs no prior decision,
+  though whether to act on `mean_coverage` (step 2) is itself an open
+  design call, same shape as Work item 4's step 1. The `sector_summary`
+  intro-check addition (step 4) is independent of steps 1-3 and can be
+  built in parallel.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

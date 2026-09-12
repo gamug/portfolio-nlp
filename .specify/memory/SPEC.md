@@ -529,8 +529,14 @@ treating a related FR/NR as done:
     [eval-sampling] mismatch... but this has not been empirically
     investigated." **Added 2026-09-12, active priority work** —
     `PLAN.md` Work item 6 / `TASKS.md` T-050–T-053. `sector_summary`
-    stays out of scope for this item (and for eval generally): it's
-    deterministic composition, only its intro seed is generative.
+    itself stays out of scope for this item (and for eval generally):
+    it's deterministic composition, only its `intro_text` sentence is
+    generative. That sentence, though, runs through the exact same
+    `SUMMARY_MODEL` and currently has **no evaluation at all**, not even
+    a simple one — a gap in its own right, closed via a narrow
+    faithfulness-only check (not a full new eval stage the size of
+    `c_summary`'s) — `PLAN.md` Work item 6 step 4 / `TASKS.md`
+    T-054–T-057.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
