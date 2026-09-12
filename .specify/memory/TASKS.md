@@ -155,14 +155,75 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
       2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
       disposition table.)
 
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (priority, pending)
+
+Both summarization tasks run the same model (`SUMMARY_MODEL =
+"sshleifer/distilbart-cnn-12-6"`, loaded independently by
+`run_company_summary_stage` and `run_sector_summary_stage`, same
+`hierarchical_summarize_batch` call), but only `c_summary` has any
+evaluation today. `c_summary` is the strongest stage on
+`mean_faithfulness` (4.87/5, `pct_with_hallucination` 5.4%) but weakest on
+`mean_coverage` (3.02/5) — a terse/extractive tendency of
+`distilbart-cnn-12-6`, not a correctness problem (`docs/evaluation.md`
+2026-09-08 baseline notes). It's also, like NER, flagged as "suspected of
+the same full-article-vs-lead-cap mismatch... not empirically
+investigated." `sector_summary` itself stays out of scope (deterministic
+composition), but its one model-generated `intro_text` sentence has
+**zero** eval coverage, even a simple one — worth a narrow,
+faithfulness-only check given it shares the same model. →
+`PLAN.md` Work item 6, `SPEC.md` §13 item 10 (new), §9 (`c_summary`
+baseline row).
+
+- [ ] **T-050** Empirically check whether `c_summary` eval sampling
+      suffers the same full-article-vs-lead-cap mismatch already
+      confirmed for `sentiment` — `run_company_summary_stage`'s
+      hierarchical reduce (`src/pipeline.py`) processes the whole
+      article; confirm the judge's scope (`src/news_nlp/eval/sampling.py`,
+      `.../prompts/c_summary.md`) matches. → `PLAN.md` Work item 6, step 1.
+- [ ] **T-051** Decide whether/how to address `mean_coverage`'s weakness
+      (3.02/5, weakest `c_summary` metric) — candidates: raise
+      `SUMMARY_MIN_OUTPUT_TOKENS`/`SUMMARY_MAX_OUTPUT_TOKENS`
+      (`src/pipeline.py`, currently 56/142), change the hierarchical-reduce
+      strategy, or explicitly accept the terse tendency as a deliberate
+      trade for the already-strong faithfulness score. Not yet decided.
+      → step 2.
+- [ ] **T-052** Run a fresh `--stage c_summary` eval after any change
+      lands (or once T-050 rules out a code change) and add a dated
+      follow-up entry to `docs/evaluation.md`. → step 3.
+- [ ] **T-053** Add `SPEC.md` §13 item 10 (new — `c_summary` coverage +
+      eval-scope question) and its §14 disposition-table row, and update
+      §9's `c_summary` baseline row with the result. → `PLAN.md` Work
+      item 6 acceptance criteria.
+- [ ] **T-054** Confirm the `sector_summary` population size (rows =
+      distinct `(gics_sector, gics_sub_industry, week)`) to decide whether
+      a full-population judge pass is affordable each run, instead of
+      assuming it and building sampling machinery that isn't needed.
+      → `PLAN.md` Work item 6, step 4.
+- [ ] **T-055** Add a `sector_summary` case to the eval framework: a new
+      prompt (`src/news_nlp/eval/prompts/sector_summary.md`) judging
+      `intro_text` for faithfulness against its own `facts_json` grounding
+      only (never raw article/company text — that's not what the model
+      saw); wire it into `sampling.STAGES`, `metrics.HEADLINE`, and
+      `cli/news_nlp_eval.py`'s `--stage` choices. → step 4.
+- [ ] **T-056** Run the new `--stage sector_summary` eval, log it to
+      MLflow/`eval_run` the same way as the other stages, and record the
+      result in `docs/evaluation.md`. → step 4.
+- [ ] **T-057** Add a §9 baseline row (or a documented decision not to,
+      if T-054/T-055 conclude a full new baseline isn't warranted) for
+      the `sector_summary` intro check. → `PLAN.md` Work item 6
+      acceptance criteria.
+
 ## Status
 
 T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
 blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
-**Current focus is model performance checking (Work items 3-5):** T-040 and
+**Current focus is model performance checking (Work items 3-6):** T-040 and
 T-042 are already done (category fix confirmed + doc-updated). T-020/T-021
-(NER validation) and T-030 (sentiment design decision) are the next
-actionable, unblocked steps; T-022 is a maintainer scope call; the rest of
-Work item 4 and T-041 follow once those land.
+(NER validation), T-030 (sentiment design decision), T-050 (`c_summary`
+sampling check), and T-054/T-055 (`sector_summary` intro-check build-out)
+are the next actionable, unblocked steps; T-022 is a maintainer scope call;
+the rest of Work item 4 and T-041 follow once those land; T-051 (`c_summary`
+coverage decision) is unblocked but, like T-030,
+needs a design call before further steps.

@@ -356,7 +356,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 | sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.74 (hallucination rate 33.8%) — **predates** the 2026-09-10 subword-fragmentation fix; a post-fix re-eval is queued (`PLAN.md` Work item 3, `TASKS.md` T-020) |
-| c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5) |
+| c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
 
 ¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"
 (2026-09-08) explains the switch from `macro_f1_vs_judge` (0.40 at the
@@ -520,6 +520,23 @@ treating a related FR/NR as done:
    malformed row currently fails the whole batch run rather than being
    skipped-and-logged; unclear whether that's the intended trade-off at
    larger corpus sizes.
+10. **`c_summary`'s `mean_coverage` is weak (3.02/5) despite the stage's
+    strong headline metric** (`mean_faithfulness` 4.87/5,
+    `pct_with_hallucination` 5.4%) — a terse/extractive tendency of
+    `distilbart-cnn-12-6`, not a correctness problem
+    (`docs/evaluation.md`'s 2026-09-08 baseline notes). `c_summary` is
+    also, like NER, "suspected of the same full-article-vs-lead-cap
+    [eval-sampling] mismatch... but this has not been empirically
+    investigated." **Added 2026-09-12, active priority work** —
+    `PLAN.md` Work item 6 / `TASKS.md` T-050–T-053. `sector_summary`
+    itself stays out of scope for this item (and for eval generally):
+    it's deterministic composition, only its `intro_text` sentence is
+    generative. That sentence, though, runs through the exact same
+    `SUMMARY_MODEL` and currently has **no evaluation at all**, not even
+    a simple one — a gap in its own right, closed via a narrow
+    faithfulness-only check (not a full new eval stage the size of
+    `c_summary`'s) — `PLAN.md` Work item 6 step 4 / `TASKS.md`
+    T-054–T-057.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -584,14 +601,17 @@ boundary of what this project is, not a gap someone forgot to close:
 | 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | This scope changed to need summaries reliably current on a cadence |
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
+| 10 — weak `c_summary` coverage + unverified sampling scope | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 6 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
 and 2 have since also moved off "permanent characteristic, not a queued
 task": 2 is resolved and 1 is active priority work (see the update notes on
-both items above and `PLAN.md` Work items 4-5). Items 3, 4 (the
-pinning-reprocessing half), 5, 6, 7, and 9 remain permanent characteristics
-of this project as scoped, not queued tasks.
+both items above and `PLAN.md` Work items 4-5). Item 10 is new, added
+alongside items 1's and 2's status updates, and is also active priority
+work (`PLAN.md` Work item 6). Items 3, 4 (the pinning-reprocessing half),
+5, 6, 7, and 9 remain permanent characteristics of this project as scoped,
+not queued tasks.
 
 ## 15. Sign-off
 
