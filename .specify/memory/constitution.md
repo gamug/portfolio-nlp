@@ -153,6 +153,26 @@ component; every rule below assumes the stack actually pinned in
 10. **Ask before expanding scope this constitution doesn't cover** — a new
     external service, a new heavy dependency, a schema change to
     RESULTS/SOURCE, or anything touching the two-tier DB contract.
+11. **Reconcile the architecture artifacts at the close of every
+    development effort** — when a PR/feature/fix is done (merged, or ready
+    to merge), update both:
+    - the general, system-wide artifact — [Portfolio
+      Thesis](https://claude.ai/code/artifact/d3865a63-2894-4e20-b38a-7e50cf0d4040)
+      (the six-repo integrated architecture overview); and
+    - the repository-specific artifact — [Portfolio
+      NLP](https://claude.ai/code/artifact/65e62819-28dd-495b-b6ec-64f9c1751235)
+      (this repo's component flow, stage table, gaps, and plan).
+
+    to close whatever gaps the effort closed and reconcile the artifact's
+    prose with what the code now actually does — an artifact describing a
+    gap that was just fixed, or a plan step that was just built, is now
+    wrong and must be corrected in the same pass, not left stale. **Never**
+    rename either artifact when doing this — **NEVER** change its title
+    (the `<title>` tag / the name shown in the artifact gallery). Content,
+    diagrams, gap lists, and plans update freely; the name is stable
+    forever, independent of content changes. (See `Artifact` tool
+    guidance: title changes are an explicit, separate, user-directed
+    action, never a side effect of a content update.)
 
 ## Executable cmds
 
@@ -240,4 +260,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.1.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
+**Version**: 2.2.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
