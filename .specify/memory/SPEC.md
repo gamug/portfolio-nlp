@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 across runs pre-entity-scoping (§13 item 1 — entity-scoped re-scoring implemented 2026-09-12, not yet re-measured; see `PLAN.md` Work item 4 / `TASKS.md` T-034) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -468,14 +468,25 @@ treating a related FR/NR as done:
    whole-article softmax average has no per-company or net-signal reasoning
    the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
    as a pipeline-level design question (entity-scoped sentiment?), not
-   started. **Update (2026-09-12): promoted to active, priority work** —
-   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-033. The measurement side has
-   since improved (text-scope fix, stratified sampling, `recall_negative`
-   as headline metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups),
-   but the model-side gap described here is still unimplemented: the latest
-   pilot (eval_run 18, n=800) still shows `negative` precision only 0.359.
-   Still open, now tracked as a queued task rather than an accepted
-   limitation.
+   started. **Update (2026-09-12): promoted to active, priority work**,
+   design chosen and implemented the same day — `PLAN.md` Work item 4 /
+   `TASKS.md` T-030–T-034. The measurement side had already improved
+   (text-scope fix, stratified sampling, `recall_negative` as headline
+   metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups); the
+   model-side gap described here is now **entity-scoped re-scoring**:
+   `run_sentiment_stage` scores each sentence individually (not a
+   ~510-token multi-sentence chunk — FinBERT was fine-tuned on
+   sentence-level Financial PhraseBank, a real train/inference
+   granularity mismatch confirmed against the real model) and weights
+   sentences naming the article's own `company`/`ticker` over everything
+   else, instead of a plain mean that gave a sentence about a *different*
+   company the same say as one about the subject. **Not yet
+   confirmed against real data or the LLM judge** — the latest measured
+   pilot number (eval_run 18, n=800, `negative` precision 0.359) predates
+   this change, and re-measuring it needs the project's real GPU/DB
+   (`TASKS.md` T-034, same blocker as §13 item 11's T-062). Only a
+   hermetic synthetic-fixture test confirms the mechanism works as
+   intended so far.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical

@@ -16,6 +16,7 @@ Two-tier DB: run_pipeline reads article text from the read-only SOURCE store
 """
 
 import gc
+import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -33,7 +34,7 @@ from transformers import (
 )
 
 import news_nlp as db
-from chunking import Chunk, chunk_text, merge_char_spans
+from chunking import Chunk, chunk_text, merge_char_spans, split_sentences
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -53,6 +54,30 @@ from news_nlp.taxonomy import (
 load_dotenv()
 
 SENTIMENT_MODEL = "ProsusAI/finbert"
+# Entity-scoped sentiment aggregation (PLAN.md Work item 4 step 1, chosen
+# 2026-09-12): FinBERT has no per-company reasoning of its own -- a sentence
+# about a *different* company's earnings, or generic market commentary,
+# reads as "this article's sentiment" exactly as much as a sentence
+# actually about the article's subject company under a plain average. A
+# sentence naming the article's own `company`/`ticker` gets full weight;
+# everything else gets the lower baseline instead of counting equally.
+# Deliberately two-tier, not three (no separate "definitely about a
+# *different* company" tier): that would need real entity extraction
+# (article_entities), which isn't available yet when sentiment runs --
+# it's the first stage in run_pipeline, before NER. A known limitation this
+# doesn't solve: a sentence that refers to the subject only by pronoun
+# ("the company", "it") rather than by name/ticker gets the baseline
+# weight too, since this is plain text matching, not coreference
+# resolution.
+_SENTIMENT_SUBJECT_WEIGHT = 1.0
+_SENTIMENT_BASELINE_WEIGHT = 0.35
+# Strips common corporate suffixes so "Acme Corp." / "Acme Corporation"
+# both match a sentence naming just "Acme".
+_CORP_SUFFIX_RE = re.compile(
+    r"\b(incorporated|inc|corporation|corp|company|co|limited|ltd|plc|llc|"
+    r"holdings?|group)\.?\b",
+    re.IGNORECASE,
+)
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"
 CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 
@@ -150,10 +175,63 @@ def free_gpu() -> None:
         torch.cuda.empty_cache()
 
 
+def _normalize_company_name(name: str) -> str:
+    """Strip corporate suffixes and punctuation for a looser company-name
+    comparison -- see `_sentence_mentions_subject`."""
+    name = _CORP_SUFFIX_RE.sub(" ", name)
+    name = re.sub(r"[^\w\s]", " ", name)
+    return " ".join(name.split()).strip().lower()
+
+
+def _sentence_mentions_subject(sentence: str, company: str | None, ticker: str | None) -> bool:
+    """True if `sentence` names the article's own subject company or
+    ticker -- the signal `_sentiment_sentence_weights` uses to scope
+    FinBERT's per-sentence read toward the company this article is
+    actually about, instead of treating a sentence about a different
+    company (or generic market commentary) as equally informative."""
+    lowered = sentence.lower()
+    if ticker and re.search(rf"\b{re.escape(ticker.lower())}\b", lowered):
+        return True
+    if company:
+        normalized = _normalize_company_name(company)
+        if normalized and normalized in _normalize_company_name(sentence):
+            return True
+    return False
+
+
+def _sentiment_sentence_weights(
+    sentences: list[str], company: str | None, ticker: str | None
+) -> list[float]:
+    return [
+        _SENTIMENT_SUBJECT_WEIGHT
+        if _sentence_mentions_subject(s, company, ticker)
+        else _SENTIMENT_BASELINE_WEIGHT
+        for s in sentences
+    ]
+
+
 def run_sentiment_stage(
     conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
-    rows = db.fetch_pending_articles(conn, "article_sentiment", limit=limit)
+    """Entity-scoped, sentence-level aggregation (PLAN.md Work item 4 step 1,
+    chosen 2026-09-12): FinBERT was fine-tuned on Financial PhraseBank --
+    single, standalone sentences -- so this scores each sentence
+    individually (matching that training granularity) rather than a
+    ~510-token multi-sentence chunk in one forward pass, then combines them
+    weighted by `_sentiment_sentence_weights` (full weight for sentences
+    naming the article's own company/ticker, a lower baseline for
+    everything else) instead of the old plain token-count-weighted mean --
+    which gave a sentence about a different company, or generic market
+    commentary, the same say in the article's score as a sentence actually
+    about its subject.
+
+    Not batched across sentences/articles yet (unlike NER's `_ner_batch` /
+    category's `CATEGORY_BATCH_SIZE`) -- correctness first, matching how
+    NER's own batching was sequenced (PLAN.md Work item 7): a throughput
+    pass is a natural, separate follow-up once this aggregation is
+    validated against real data.
+    """
+    rows = db.fetch_pending_sentiment_articles(conn, limit=limit)
     total = len(rows)
     print(f"\n=== Sentiment stage ({SENTIMENT_MODEL}) on {DEVICE} ===")
     print(f"{total} article(s) pending sentiment analysis")
@@ -166,23 +244,25 @@ def run_sentiment_stage(
     model = AutoModelForSequenceClassification.from_pretrained(SENTIMENT_MODEL).to(DEVICE).eval()
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
 
-    for idx, (article_id, body_text) in enumerate(tqdm(rows, desc="sentiment"), start=1):
-        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
-        if chunks:
-            probs_sum = torch.zeros(len(id2label))
-            total_weight = 0
-            for ch in chunks:
+    for idx, (article_id, company, ticker, body_text) in enumerate(
+        tqdm(rows, desc="sentiment"), start=1
+    ):
+        sentences = [s for s, _, _ in split_sentences(body_text)]
+        if sentences:
+            weights = _sentiment_sentence_weights(sentences, company, ticker)
+            weighted_probs = torch.zeros(len(id2label))
+            total_weight = 0.0
+            for sentence, weight in zip(sentences, weights, strict=True):
                 inputs = tokenizer(
-                    ch.text, return_tensors="pt", truncation=True, max_length=512
+                    sentence, return_tensors="pt", truncation=True, max_length=512
                 ).to(DEVICE)
-                n_tokens = inputs["input_ids"].shape[1]
                 with torch.no_grad():
                     logits = model(**inputs).logits[0]
                     probs = torch.softmax(logits, dim=-1).cpu()
-                probs_sum += probs * n_tokens
-                total_weight += n_tokens
+                weighted_probs += probs * weight
+                total_weight += weight
 
-            avg_probs = (probs_sum / total_weight).tolist()
+            avg_probs = (weighted_probs / total_weight).tolist()
             class_probs = {id2label[i]: p for i, p in enumerate(avg_probs)}
             label = max(class_probs, key=class_probs.__getitem__)
 

@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (design chosen + implemented 2026-09-12; real-data validation pending)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
@@ -264,6 +264,51 @@ not implemented" and still isn't. This is the "pending to improve, even
 after changes" stage: the changes made so far improved *measurement*, not
 the *model*.
 
+**Research finding (2026-09-12)**, motivating and refining the chosen
+candidate below: FinBERT was fine-tuned on Financial PhraseBank -- single,
+standalone sentences, not multi-sentence chunks -- a real train/inference
+granularity mismatch, the same shape as the NER subword-fragmentation bug.
+Confirmed via the model's own model card, then tested mechanistically
+against the real cached model (two live probes, not real corpus data --
+no access to that from this environment):
+- A mostly-neutral paragraph with one buried negative sentence: the
+  current whole-chunk approach got it right (0.961 negative), but a
+  *naive* mean of independently-scored sentences got it wrong (0.782
+  neutral) -- confirming a real dilution risk in any naive
+  post-hoc-averaging aggregation (the pipeline's actual cross-chunk
+  aggregation for multi-chunk articles is structurally the same
+  operation).
+- An overall-positive article with one incidental negative-toned mention
+  about the *same* company: whole-chunk scoring handled this fine (0.951
+  positive) -- so the dominant failure mode isn't "any mixed sentiment
+  confuses the model," it's specifically the no-per-company-reasoning gap
+  already diagnosed above: a sentence about a genuinely *different*
+  company's news gets the same say in the article's score as a sentence
+  about the article's own subject.
+
+**Decision (2026-09-12): entity-scoped re-scoring**, chosen over the other
+two candidates. Implemented with one deviation from this section's
+original phrasing: scored against the article's own `company`/`ticker`
+metadata (already on every `articles` row) via text matching, **not**
+`article_entities` (NER's output) -- using NER's entities would need
+`run_ner_stage` to run *before* `run_sentiment_stage` in `run_pipeline`
+(today sentiment runs first), a pipeline-ordering change with its own
+idempotency/coupling risk not taken on here. A known, undocumented-away
+limitation of the text-matching approach: a sentence that refers to the
+subject only by pronoun ("the company", "it") rather than by name/ticker
+gets the lower baseline weight too, since this is plain matching, not
+coreference resolution.
+
+**Status as of 2026-09-12**: the design decision and its implementation
+are **done** (`pipeline.run_sentiment_stage`, `_sentence_mentions_subject`,
+`_sentiment_sentence_weights`) -- see steps 1 and 4 below. Steps 2-3 (a
+floor-sized baseline run, re-solved sample-size-floor estimates) and the
+acceptance criteria's real-data confirmation are **not done**: this
+environment has no GPU and no access to the production DB (same blocker
+as NER batching's T-062), so nothing here is validated against real
+articles or the LLM judge yet -- only against hermetic unit tests with a
+fake model. `TASKS.md` T-034 tracks running the real validation.
+
 **Approach**:
 
 1. Make an explicit design decision among (at least) three candidates,
@@ -275,29 +320,46 @@ the *model*.
    - An explicit net-signal heuristic layered on top of the existing
      chunk-averaged score (e.g. down-weighting chunks with no company
      mention) — cheapest to try, least likely to fully close the gap.
+   **Done 2026-09-12** — entity-scoped re-scoring chosen; see "Decision"
+   above for the exact mechanism and its one deviation from this bullet's
+   original `article_entities`-based phrasing.
 2. Before evaluating any change, get a stable floor-sized baseline: only
    one stratified pilot (n=800) exists so far, and `docs/evaluation.md`'s
    own "Sample-size floor" section recommends ~1,800-2,200 for a
-   regression-tracked number. Run that first, `--seed`-pinned.
+   regression-tracked number. Run that first, `--seed`-pinned. **Not
+   done** — needs the real GPU/production DB (`TASKS.md` T-034).
 3. Re-solve the sample-size-floor purity estimates using this run's actual
    measured per-stratum agreement (today's numbers are planning
    estimates, explicitly flagged as such) before locking in a permanent
-   `--sample-size` default for future sentiment regression runs.
+   `--sample-size` default for future sentiment regression runs. **Not
+   done** — depends on step 2.
 4. Implement the chosen design, re-run the eval, and record the result as
    a dated follow-up in `docs/evaluation.md` plus an update to `SPEC.md`
-   §13 item 1 and §9's sentiment row.
+   §13 item 1 and §9's sentiment row. **Partially done**: the
+   implementation landed (`_sentiment_sentence_weights`, sentence-level
+   FinBERT scoring, hermetic parity/regression tests, docs); the eval
+   re-run and dated follow-up are **not done**, blocked on steps 2-3.
 
 **Acceptance criteria**:
 
 - A design decision is made and documented (which candidate, and why —
   same style as the "Why recall, not F1" / "Why precision, not recall"
-  write-ups already in `docs/evaluation.md`).
+  write-ups already in `docs/evaluation.md`). **Done** — see "Decision"
+  above; a full `docs/evaluation.md` write-up (matching that style) is
+  still open, deferred to land alongside the real eval result (T-034),
+  not before it exists.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
-  before/after comparison is drawn.
+  before/after comparison is drawn. **Not done.**
 - The chosen change measurably improves `negative` precision (or another
   explicitly-justified metric) without collapsing `recall_negative` below
-  its current range, confirmed via a post-change eval run.
-- `SPEC.md` §13 item 1 and §9 updated with the dated result.
+  its current range, confirmed via a post-change eval run. **Not done —
+  needs T-034 on the real GPU/DB.** Only hermetic-test evidence exists so
+  far (a synthetic mixed-company fixture correctly flips from the old
+  aggregation's wrong "negative" call to the new one's correct "positive"
+  call) — real-corpus magnitude is unknown.
+- `SPEC.md` §13 item 1 and §9 updated with the dated result. **Partially
+  done** — updated to reflect the implemented-but-unvalidated state; the
+  dated real-data result is still open (T-034).
 
 ## Work item 5 — Category: hold the line on the hierarchical fix
 
@@ -532,10 +594,11 @@ other, and independent of one another except where noted:
   resample, and the fresh eval run confirmed the fix (`micro_f1`
   0.74→0.858). Only T-022 (optional full-corpus backfill) remains open,
   non-blocking.
-- Work item 4 (sentiment) is the largest remaining item: a design
-  decision (step 1) is unblocked today, but the floor-sized baseline run
-  (step 2) and any before/after comparison depend on that decision being
-  made first.
+- Work item 4 (sentiment): the design decision and implementation (steps 1
+  and 4) are done. The floor-sized baseline run (step 2) and any
+  before/after comparison (step 4's remainder) need the project's real
+  GPU/production DB, same T-034/T-062 blocker as Work item 7 — not
+  blocked on any remaining decision here, just on that access.
 - Work item 6 (`c_summary` + `sector_summary`) is unblocked today — its
   `c_summary` sampling-scope check (step 1) needs no prior decision,
   though whether to act on `mean_coverage` (step 2) is itself an open
