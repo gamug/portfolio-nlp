@@ -537,6 +537,24 @@ treating a related FR/NR as done:
     faithfulness-only check (not a full new eval stage the size of
     `c_summary`'s) — `PLAN.md` Work item 6 step 4 / `TASKS.md`
     T-054–T-057.
+11. **`run_ner_stage` has no batching** (`src/pipeline.py`) — one chunk
+    through the model per forward pass, unlike `run_category_stage`
+    (`CATEGORY_BATCH_SIZE=8` articles' premise/hypothesis pairs pooled
+    into one call) and the summarization stages
+    (`SUMMARY_BATCH_SIZE=4` via `hierarchical_summarize_batch`). Not a
+    documented trade-off anywhere in the codebase — genuinely
+    unaddressed, not a deliberate design choice. Measured impact: the
+    2026-09-12 T-025 resample (`docs/evaluation.md`) processed 20,000
+    articles unbatched in ~15 minutes (~22 articles/sec) on the project's
+    GPU (6GB VRAM, well under budget the whole run) — a full-corpus
+    backfill of the ~439,000 remaining pre-fix articles (§13 item 6's
+    open T-022 question) would take roughly 5.5x that, over 5 hours,
+    single-chunk-at-a-time, on hardware with headroom to go faster.
+    **Added 2026-09-12, active priority work** — `PLAN.md` Work item 7 /
+    `TASKS.md` T-060–T-063. (`run_sentiment_stage` has the identical
+    unbatched shape and is likely worth the same treatment later, but is
+    out of scope for this item — not raised here as its own numbered
+    question to avoid scope creep beyond what was asked.)
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -602,16 +620,17 @@ boundary of what this project is, not a gap someone forgot to close:
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 6 | — (already in motion) |
+| 11 — `run_ner_stage` has no batching | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 7 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
 and 2 have since also moved off "permanent characteristic, not a queued
 task": 2 is resolved and 1 is active priority work (see the update notes on
-both items above and `PLAN.md` Work items 4-5). Item 10 is new, added
-alongside items 1's and 2's status updates, and is also active priority
-work (`PLAN.md` Work item 6). Items 3, 4 (the pinning-reprocessing half),
-5, 6, 7, and 9 remain permanent characteristics of this project as scoped,
-not queued tasks.
+both items above and `PLAN.md` Work items 4-5). Items 10 and 11 are new,
+added alongside items 1's and 2's status updates, and are also active
+priority work (`PLAN.md` Work items 6 and 7 respectively). Items 3, 4 (the
+pinning-reprocessing half), 5, 6, 7, and 9 remain permanent characteristics
+of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 

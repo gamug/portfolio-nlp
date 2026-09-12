@@ -46,6 +46,10 @@ this project's scope beyond what's already in motion:
    faithfulness check for `sector_summary`'s model-generated intro
    sentence, which shares the same model and currently has no evaluation
    at all. — Work item 6.
+7. Develop batch processing for the NER stage (SPEC.md §13 item 11) —
+   `run_ner_stage` is the one stage with no batching, unlike category and
+   the summarization stages, a real throughput cost measured directly
+   during T-025's 2026-09-12 resample. — Work item 7.
 
 ## Non-goals
 
@@ -409,6 +413,75 @@ check that `intro_text` doesn't state anything unsupported by its own
   with the result; a new §9 row (or a documented decision not to add
   one) for the `sector_summary` intro check.
 
+## Work item 7 — NER: develop batch processing
+
+**Why**: `run_ner_stage` (`src/pipeline.py`) sends one chunk through the
+model per forward pass — the only stage with no batching. `run_category_
+stage` pools `CATEGORY_BATCH_SIZE=8` articles' premise/hypothesis pairs
+into one call; the summarization stages batch `SUMMARY_BATCH_SIZE=4`
+articles via `hierarchical_summarize_batch`. This isn't a documented
+trade-off anywhere in the codebase — genuinely unaddressed, not a
+deliberate design choice (SPEC.md §13 item 11). It has a real, now-measured
+cost: T-025's 2026-09-12 resample processed 20,000 articles unbatched in
+~15 minutes (~22 articles/sec) on the project's GPU (RTX 4050 Laptop, 6GB
+VRAM) — a full-corpus backfill of the ~439,000 remaining pre-fix articles
+(§13 item 6's open T-022 question) would take roughly 5.5x that, over 5
+hours, on hardware that had headroom to go faster the whole run.
+
+**Approach**:
+
+1. Batch by article (a new `NER_BATCH_SIZE` constant, same naming
+   convention as `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE`): for each
+   batch of `NER_BATCH_SIZE` pending articles, run `chunk_text` per
+   article as today, but flatten every article's chunks into one list
+   tagged with the chunk's owning article index, instead of looping
+   articles one at a time.
+2. Tokenize that flattened chunk list in **one** call with `padding=True`
+   (`return_tensors="pt"`, `return_offsets_mapping=True`) instead of one
+   `tokenizer(...)` call per chunk — the batch dimension becomes chunk
+   count within the article batch, not article count.
+3. One forward pass over the padded batch. `merge_bio_predictions` itself
+   needs **no change**: HF's fast tokenizers already return `word_ids() ==
+   None` for padding positions, the same sentinel the function already
+   uses to skip special tokens — so calling it once per chunk (sliced out
+   of the batched output via `batch_index=i`) after the batched forward
+   pass, exactly as today's per-chunk call already does, should just work.
+4. Regroup chunk-level entity spans back to their owning article via the
+   tagging from step 1, same offset math (`ch.start_char + e["start_char"]`)
+   already used today.
+5. Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM budget (SPEC.md
+   NR-001) — don't copy `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE`'s values
+   blind; NER's per-chunk sequence length (up to 512 tokens) and variable
+   chunks-per-article shape a different memory profile than either.
+6. Add a **parity test** before anything else ships: the same fixture
+   articles processed through the batched path must produce byte-identical
+   `article_entities` rows (same entities, offsets, scores) as today's
+   unbatched path. A batching refactor that silently changes results would
+   be worse than not batching at all.
+7. Measure the real throughput improvement (articles/sec) on a real
+   sample — the same kind of resample T-025 already ran is a natural
+   before/after comparison — rather than assuming batching helps without
+   measuring it.
+
+**Acceptance criteria**:
+
+- A parity test passes: batched and unbatched processing of the same
+  input produce identical `article_entities` output.
+- A measured (not assumed) throughput improvement on a real sample, with
+  the before/after numbers documented.
+- No VRAM regression at the chosen `NER_BATCH_SIZE` against SPEC.md
+  NR-001's 6GB budget.
+- The new constant and batching design documented (`docs/modules/
+  news-nlp.md` and/or a comment in `pipeline.py`, matching how
+  `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` are documented today).
+- `SPEC.md` §13 item 11 updated to reflect the shipped state.
+
+**Out of scope for this work item**: `run_sentiment_stage` has the
+identical unbatched shape and is likely worth the same treatment later,
+but doing it isn't part of this item — raised only as a one-line note in
+SPEC.md §13 item 11, not its own numbered question, to avoid scope creep
+beyond what was asked.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -417,7 +490,7 @@ change with no external setup required and can land immediately. Work
 item 2 (runnable regression gate) is blocked on the maintainer's
 infrastructure decision and can happen whenever that's ready.
 
-Work items 3-6 (current focus) are also independent of 1-2 and of each
+Work items 3-7 (current focus) are also independent of 1-2 and of each
 other, and independent of one another except where noted:
 
 - Work item 5 (category) is documentation-only and can land immediately —
@@ -436,5 +509,9 @@ other, and independent of one another except where noted:
   design call, same shape as Work item 4's step 1. The `sector_summary`
   intro-check addition (step 4) is independent of steps 1-3 and can be
   built in parallel.
+- Work item 7 (NER batch processing) is unblocked today — no dependency
+  on Work item 3's own remaining step (the eval run). Worth sequencing
+  *before* a future T-022 full-corpus backfill decision, though not a
+  hard prerequisite for it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
