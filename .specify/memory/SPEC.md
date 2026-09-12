@@ -576,6 +576,6 @@ than silently diverging (constitution: Governance).
 |---|---|---|---|
 | Author | Gabriel Jaime Múnera González | | Universidad Pontificia Bolivariana (UPB) |
 | Author | Dovaribi Carupia Yagari | | Universidad Pontificia Bolivariana (UPB) |
-| Reviewer | | | |
+| Reviewer | Camilo Andrés Soto Montoya | | Universidad Pontificia Bolivariana (UPB) |
 
 **Version**: 1.1.0 | **Last Amended**: 2026-09-12
