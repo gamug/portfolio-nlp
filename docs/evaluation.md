@@ -659,6 +659,57 @@ sample from, where none existed before this follow-up. Running that eval
 this follow-up — it spends real judge-call budget and is a distinct
 action from the reprocessing done here.
 
+### Follow-up (2026-09-12): T-020 executed — post-fix NER eval, both fixes confirmed
+
+Ran `uv run cli/news_nlp_eval.py --stage ner --seed 1 --sample-size 8000`
+(mlflow run `329f9222`, `news_nlp_eval/ner`, `code_version=18fc30d` — both
+the word-boundary merge fix and the uncapped-sampling fix are in). Sample
+size is 8x the 2026-09-08 baseline's 1000 and deliberately large relative
+to the population: it's a 40% draw of the 19,988-article T-025 resample
+pool, not a ~0.2% draw of the full ~459K-article corpus like the baseline
+was — that resample is the only place post-fix rows exist yet (see the
+T-025 follow-up above). `n_judged=8000`, usable `n=7965` after parse
+failures.
+
+| metric | 2026-09-08 baseline (pre-fix, `3b41cbec`) | 2026-09-12 (post-fix, `329f9222`) | Δ |
+|---|---|---|---|
+| `micro_f1` | 0.7418 | **0.8578** | +0.116 (+15.6%) |
+| `micro_precision` | 0.6623 | 0.8403 | +0.178 (+26.9%) |
+| `micro_recall` | 0.8429 | 0.8761 | +0.033 (+3.9%) |
+| `hallucination_rate` | 0.3377 | **0.1597** | −0.178 (−52.7%) |
+| `miss_rate` | 0.1571 | 0.1239 | −0.033 (−21.1%) |
+| `macro_f1` | 0.7429 | 0.8729 | +0.130 |
+| `f1_ORG` | 0.7454 | 0.8117 | +0.066 |
+| `f1_LOC` | 0.8236 | 0.8807 | +0.057 |
+| `f1_PER` | 0.6597 | **0.9262** | +0.267 (+40.4%) |
+| `parse_fail_rate` | 4.7% | 0.44% | −91% (relative) |
+| `mean_entities_per_article` | 43.25 | 32.45 | −25% |
+
+**Reads as the fix working, not noise**: the gain is concentrated in
+precision (+26.9%) and `hallucination_rate` (halved), while recall barely
+moves (+3.9%) — exactly the shape expected from a fix that removes bogus
+spans rather than one that would help the model find new true entities.
+`f1_PER`'s outsized jump (+40.4% relative, the largest of the three types)
+matches the root cause: person names carry more multi-subword WordPiece
+splits than org/location names, so they were hit hardest by the pre-fix
+training/inference asymmetry. `parse_fail_rate` collapsing 4.7%→0.44%
+independently corroborates the same-day uncapped-sampling fix (T-024) —
+the judge is no longer choking on entities past the old 6000-char cap.
+`mean_entities_per_article` dropping 25% is the same precision effect
+showing up as a raw count (fewer bogus single-token spans written at all).
+
+**Caveat — not a full-corpus result.** This run only speaks to the 19,988
+articles reprocessed under the fixed code (T-025). The remaining ~439,000
+pre-fix articles (`article_entities_v1`) are untouched and would still
+score at the old ~0.74 baseline until reprocessed — T-022's full-corpus
+backfill question is unaffected by this result either way. Also note: the
+baseline run had no `--seed`, so strata composition isn't reproducibly
+comparable row-for-row against this seeded run — the metric-level
+before/after above is still valid, just not a row-identical replay.
+
+This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
+T-020; `SPEC.md` §9's NER row is updated below.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

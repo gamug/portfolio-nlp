@@ -174,7 +174,7 @@ completes it.
   scheduled-only rather than PR-blocking, which is a legitimate choice
   given the LLM cost of running this on every PR).
 
-## Work item 3 — NER: validate the subword-fragmentation fix
+## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
 **Why**: `merge_bio_predictions` (`src/pipeline.py`) got a word-boundary-
 aware fix on 2026-09-10 — only a word's first WordPiece subword can now
@@ -189,23 +189,30 @@ future-runs-only (the existing 17.6M-row `article_entities` table was left
 untouched by design).
 
 **Status as of 2026-09-12** (see `docs/evaluation.md`'s dated follow-ups):
-steps 2, 3, and their fixes are **done**. The full-article-vs-lead-cap
-mismatch was confirmed against real data, then fixed the same day (`ner`
-added to `sampling._UNCAPPED_STAGES`, regression-tested). Step 3's bulk-
-reprocessing question was resolved via its lighter alternative (T-025, not
+**all four steps are done.** The full-article-vs-lead-cap mismatch was
+confirmed against real data, then fixed the same day (`ner` added to
+`sampling._UNCAPPED_STAGES`, regression-tested). The bulk-reprocessing
+question (step 3) was resolved via its lighter alternative (T-025, not
 T-022): `article_entities` was versioned (renamed to `article_entities_v1`,
 nothing deleted) and a random, seeded 20,000-article sample reprocessed
-under the fixed code (714,334 entity rows across 19,988 articles). **Step
-1 is now unblocked** — post-fix data exists to draw an eval sample from —
-and is the only step left.
+under the fixed code (714,334 entity rows across 19,988 articles). Step 1
+then ran the same day against that pool: `micro_f1` 0.7418→0.8578,
+`hallucination_rate` 33.8%→16.0% (n=8000, T-020) — recorded in
+`docs/evaluation.md` and `SPEC.md` §9 (step 4, T-023). The only remaining
+thread is T-022 (full-corpus backfill of the ~439K articles the T-025
+resample didn't cover), which is an open, non-blocking maintainer scope
+call, not a defect in this work item.
 
 **Approach**:
 
 1. Run a fresh `--stage ner` eval against the 19,988 post-fix articles, at
    a sample size comparable to the 2026-09-08 baseline (n=1000), with
-   `--seed` for reproducibility. **Unblocked as of 2026-09-12** (step 3
-   below cleared the blocker) — not yet run; this is the next step, and
-   spends real judge-call budget distinct from the reprocessing already done.
+   `--seed` for reproducibility. **Done 2026-09-12** — ran at n=8000 (8x
+   the baseline, a 40% draw of the resample pool rather than the
+   baseline's ~0.2% draw of the full corpus, since the resample pool is
+   all the post-fix data there is): `micro_f1` 0.7418→0.8578,
+   `hallucination_rate` 33.8%→16.0%. Full table: `docs/evaluation.md`'s
+   2026-09-12 "T-020 executed" follow-up.
 2. While that data exists, also check the "suspected but unverified" note
    in `docs/evaluation.md`: `run_ner_stage` scores the *whole* article, but
    whether the eval judge's sampling matches that scope (vs. the
@@ -226,19 +233,21 @@ and is the only step left.
    blocking question — a full backfill (T-022) can still happen later if
    the maintainer wants full-corpus coverage.
 4. Record the result as a dated follow-up in `docs/evaluation.md` (append,
-   don't overwrite the baseline) and update `SPEC.md` §9's NER row.
+   don't overwrite the baseline) and update `SPEC.md` §9's NER row. **Done
+   2026-09-12** — see `docs/evaluation.md`'s "T-020 executed" follow-up and
+   `SPEC.md` §9's ner row.
 
-**Acceptance criteria**:
+**Acceptance criteria** (all done, 2026-09-12):
 
 - A fresh eval run's `micro_f1` / `hallucination_rate` / per-type F1 are
   logged to MLflow and `docs/evaluation.md`, comparable to the 2026-09-08
-  baseline. **Not yet done — the only remaining acceptance criterion.**
+  baseline. **Done**: `micro_f1` 0.8578, `hallucination_rate` 0.1597,
+  `f1_ORG`/`f1_LOC`/`f1_PER` 0.8117/0.8807/0.9262 (mlflow `329f9222`).
 - The full-article-vs-lead-cap sampling question is either confirmed (and
   the sampling cap fixed, mirroring the sentiment fix) or explicitly ruled
   out with evidence — not left as an open "suspected" note indefinitely.
   **Done 2026-09-12: confirmed, then fixed.**
-- `SPEC.md` §9 updated with the new baseline row/date. **Pending the eval
-  run above.**
+- `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap
 
@@ -495,10 +504,11 @@ other, and independent of one another except where noted:
 
 - Work item 5 (category) is documentation-only and can land immediately —
   no blockers.
-- Work item 3 (NER): steps 2 and 3 are both done (2026-09-12) — the
-  sampling-mismatch fixed, and the reprocessing decision resolved via
-  T-025's table-versioning + 20,000-article resample. Step 1 (fresh eval
-  run) is now unblocked and is the only remaining step.
+- Work item 3 (NER) is fully resolved (2026-09-12) — sampling mismatch
+  fixed, reprocessing done via T-025's table-versioning + 20,000-article
+  resample, and the fresh eval run confirmed the fix (`micro_f1`
+  0.74→0.858). Only T-022 (optional full-corpus backfill) remains open,
+  non-blocking.
 - Work item 4 (sentiment) is the largest remaining item: a design
   decision (step 1) is unblocked today, but the floor-sized baseline run
   (step 2) and any before/after comparison depend on that decision being
@@ -509,9 +519,9 @@ other, and independent of one another except where noted:
   design call, same shape as Work item 4's step 1. The `sector_summary`
   intro-check addition (step 4) is independent of steps 1-3 and can be
   built in parallel.
-- Work item 7 (NER batch processing) is unblocked today — no dependency
-  on Work item 3's own remaining step (the eval run). Worth sequencing
-  *before* a future T-022 full-corpus backfill decision, though not a
-  hard prerequisite for it.
+- Work item 7 (NER batch processing) is unblocked today — Work item 3 is
+  now fully resolved, so there's no remaining dependency there either.
+  Worth sequencing *before* a future T-022 full-corpus backfill decision,
+  though not a hard prerequisite for it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

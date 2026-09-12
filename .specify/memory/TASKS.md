@@ -64,7 +64,7 @@ renumber; mark a cancelled/superseded task in place instead.
       update the two architecture artifacts per constitution AI behavior
       #11 — reconcile, never rename.
 
-## Work item 3 — NER: validate the subword-fragmentation fix (priority, in progress)
+## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
 `src/pipeline.py`'s `merge_bio_predictions` got a word-boundary-aware fix on
 2026-09-10 (bogus single-token spans like `"3"`/`ORG` off `"3M"`), plus a
@@ -73,16 +73,19 @@ post-fix accuracy number yet — the `micro_f1` 0.7418 / `hallucination_rate`
 0.338 baseline in `docs/evaluation.md` predates both. → `PLAN.md` Work item 3,
 `SPEC.md` §9 (NER baseline row).
 
-**Started 2026-09-12.** T-021's investigation is done and confirmed the
-sampling mismatch is real; T-024 (the fix) landed the same day. T-020
-turned out to be more tightly blocked than scoped at first — no post-fix
-data existed, and no plain pipeline re-run would produce any — but T-025
+**Started and resolved 2026-09-12.** T-021's investigation confirmed the
+sampling mismatch; T-024 (the fix) landed the same day. T-020 turned out
+to be more tightly blocked than scoped at first — no post-fix data
+existed, and no plain pipeline re-run would produce any — but T-025
 (chosen over T-022, executed the same day: versioned `article_entities` →
 `article_entities_v1`, resampled 20,000 articles under the fixed code)
-cleared that blocker. T-020 is now unblocked and is the next actionable
-step; T-022 (full-corpus backfill of the remaining ~439K pre-fix articles)
-is no longer blocking anything, just an open scope question. See
-`docs/evaluation.md`'s 2026-09-12 follow-ups for full findings.
+cleared that blocker, and T-020 then ran the same day: `micro_f1`
+0.74→0.858, `hallucination_rate` 33.8%→16.0% (n=8000 against the T-025
+pool). T-023 (this doc's/SPEC.md's write-up) is done. T-022 (full-corpus
+backfill of the remaining ~439K pre-fix articles) is the only open item
+left in this work item, and it's a non-blocking maintainer scope call, not
+a defect. See `docs/evaluation.md`'s 2026-09-12 follow-ups for full
+findings.
 
 - [x] **T-021** Empirically check (don't just flag) whether `ner` eval
       sampling suffers the same full-article-vs-lead-cap mismatch already
@@ -102,14 +105,15 @@ is no longer blocking anything, just an open scope question. See
       (`tests/news_nlp/test_eval_sampling.py`); full suite + ruff + mypy
       green. → step 2 (completes the "sampling cap fixed" half of
       `PLAN.md`'s acceptance criterion).
-- [ ] **T-020** Run a fresh `--stage ner` eval (`uv run cli/news_nlp_eval.py
-      --stage ner --seed 1 --sample-size 1000`, or larger) against articles
-      processed after the fix, to get a post-fix `micro_f1` /
-      `hallucination_rate` / per-type F1 reading comparable to the
-      2026-09-08 baseline. **Unblocked as of 2026-09-12** (T-025 landed) —
-      19,988 post-fix articles now exist to sample from. Not yet run: this
-      spends real judge-call budget, a distinct action from T-025's
-      reprocessing. → `PLAN.md` Work item 3, step 1.
+- [x] **T-020** Run a fresh `--stage ner` eval against articles processed
+      after the fix, to get a post-fix `micro_f1` / `hallucination_rate` /
+      per-type F1 reading comparable to the 2026-09-08 baseline. **Done
+      2026-09-12**: `--stage ner --seed 1 --sample-size 8000` against the
+      T-025 pool (mlflow `329f9222`) — `micro_f1` 0.7418→0.8578,
+      `hallucination_rate` 0.3377→0.1597, `f1_PER` 0.6597→0.9262 (the
+      largest per-type gain, matching the subword-fragmentation root
+      cause). Full table: `docs/evaluation.md`'s 2026-09-12 "T-020
+      executed" follow-up. → `PLAN.md` Work item 3, step 1.
 - [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
       remaining ~439,000 pre-fix `article_entities_v1` articles (not
       resampled by T-025) is worth doing — the fix is future-runs-only by
@@ -127,11 +131,13 @@ is no longer blocking anything, just an open scope question. See
       `docs/evaluation.md`'s 2026-09-12 "T-025 executed" follow-up.
       → step 1 (alternate path) — done via the table-rename refinement,
       not the originally-sketched `delete_entities_for_article` path.
-- [ ] **T-023** Once T-020 lands, add a dated follow-up entry to
+- [x] **T-023** Once T-020 lands, add a dated follow-up entry to
       `docs/evaluation.md` (same append-only pattern as the sentiment/
       category entries) and update `SPEC.md` §9's NER baseline row —
-      don't overwrite the 2026-09-08 baseline row itself. → step 4 /
-      `PLAN.md` Work item 3 acceptance criteria.
+      don't overwrite the 2026-09-08 baseline row itself. **Done
+      2026-09-12** — see `docs/evaluation.md`'s "T-020 executed" follow-up
+      and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
+      acceptance criteria.
 
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (priority, pending)
 
@@ -295,12 +301,11 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, and T-025 are already done. Work item 3 (NER): T-020
-(a fresh eval run) is unblocked and is the next actionable step; T-022
-(full-corpus backfill) is open but no longer blocking. T-030 (sentiment
-design decision), T-050 (`c_summary` sampling check), T-054/T-055
-(`sector_summary` intro-check build-out), and T-060 (NER batching
-implementation) are the other next actionable, unblocked steps; the rest
-of Work item 4 and T-041 follow once those land; T-051 (`c_summary`
-coverage decision) is unblocked but, like T-030, needs a design call
-before further steps.
+T-042, T-021, T-024, T-025, T-020, and T-023 are already done — Work item 3
+(NER) is fully resolved except T-022 (full-corpus backfill), which is open
+but no longer blocking. T-030 (sentiment design decision), T-050
+(`c_summary` sampling check), T-054/T-055 (`sector_summary` intro-check
+build-out), and T-060 (NER batching implementation) are the other next
+actionable, unblocked steps; the rest of Work item 4 and T-041 follow once
+those land; T-051 (`c_summary` coverage decision) is unblocked but, like
+T-030, needs a design call before further steps.
