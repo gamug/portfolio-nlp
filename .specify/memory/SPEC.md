@@ -1,5 +1,12 @@
 # SPEC.md — `portfolio-nlp`
 
+Part of the thesis *"Sistema inteligente para la optimización de la inversión
+en portafolios mediante integración de información financiera estructurada y
+no estructurada de acciones del S&P500"* — Gabriel Jaime Múnera González &
+Dovaribi Carupia Yagari, Universidad Pontificia Bolivariana (UPB). Referred
+to elsewhere in this document and the architecture artifacts by its working
+nickname, "Portfolio Thesis."
+
 The technical contract for this repository: requirements, architecture, data
 model, and acceptance criteria. Where `.specify/memory/constitution.md` is
 the philosophy/principles/code-style layer this repo commits to regardless of
@@ -567,7 +574,8 @@ than silently diverging (constitution: Governance).
 
 | Role | Name | Date | Notes |
 |---|---|---|---|
-| Author | | | |
+| Author | Gabriel Jaime Múnera González | | Universidad Pontificia Bolivariana (UPB) |
+| Author | Dovaribi Carupia Yagari | | Universidad Pontificia Bolivariana (UPB) |
 | Reviewer | | | |
 
 **Version**: 1.1.0 | **Last Amended**: 2026-09-12
