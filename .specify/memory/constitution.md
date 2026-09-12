@@ -241,6 +241,13 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    placeholder values only; `detect-private-key` is a backstop, not the
    first line of defense — never paste a real key into a commit, issue, or
    PR description to "show" a config.
+8. **Leave the working tree checked out on the branch just pushed/PR'd.**
+   After opening a PR, don't switch back to `master` (or anywhere else) —
+   the local checkout stays on that branch so the user can review the
+   actual working tree immediately, without asking for a checkout or
+   doing it themselves. Only move off it (per item 3, always to a fresh
+   branch off up-to-date `master`) when starting genuinely new work, or
+   when asked to.
 
 ## Governance
 
@@ -260,4 +267,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.2.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
+**Version**: 2.3.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
