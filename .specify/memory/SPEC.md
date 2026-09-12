@@ -187,6 +187,26 @@ itself is **not** created by this repo (SOURCE owns the full row with
 `body_text`; RESULTS holds a lean, `body_text`-free subset populated
 row-by-row on first result write for that article).
 
+### SOURCE `articles` schema contract
+
+What each stage actually reads from SOURCE, and what `require_source_text`
+does (and does not) verify before a run — pulled from
+`src/news_nlp/sector_summary/queries.py` and `news_nlp.db`, not assumed:
+
+| Column | Read by | Checked by `require_source_text`? | Behavior if missing/NULL |
+|---|---|---|---|
+| `id` | every stage (join/FK target) | implicitly (primary key) | — |
+| `body_text` | stages 1–4 (sentiment/NER/category/`c_summary`) | ✅ yes — the run aborts if the column is absent or every row is empty/blank (FR-007) | pipeline never starts |
+| `ticker`, `company` | stage 5 (`sector_summary`, per-company attribution) | ❌ no | attribution text for that company is whatever the column holds, including `NULL` |
+| `gics_sector`, `gics_sub_industry` | stage 5 (buckets articles into `(sector, sub_industry, week)` groups) | ❌ no | a row with either `NULL` is **silently excluded** from every `sector_summary` bucket (`WHERE a.gics_sector IS NOT NULL AND a.gics_sub_industry IS NOT NULL`) — no error, no log line |
+| `pub_date` | stage 5 (week-bucketing key) | ❌ no | falls back to `fetched_at` when `NULL` (`COALESCE(a.pub_date, a.fetched_at)`) — not a hard requirement |
+| `fetched_at` | stage 5 (fallback only) | ❌ no | only consulted when `pub_date` is `NULL` |
+
+**Only `body_text` is a validated contract.** Everything `sector_summary`
+depends on is assumed, not checked — a SOURCE missing `gics_sector`/
+`gics_sub_industry` doesn't fail the run, it just quietly produces a smaller
+(or empty) `sector_summary` for that period (§13, open question 3).
+
 | Table | Key | Notable columns | Written by |
 |---|---|---|---|
 | `article_sentiment` | `article_id` (PK) | `label`, `score`, `positive`/`negative`/`neutral`, `model_name`, `processed_at` | Stage 1 |
@@ -361,6 +381,29 @@ under a real-time SLA.
   --check-regression` against the recorded baseline (§9) is a manual/
   scheduled gate today, not part of `ci.yml` — see §13 on wiring it in.
 
+### Reproducing and validating the accuracy baseline
+
+To re-check a stage against the §9 baseline after a model, prompt, or
+threshold change (needs `$LLM_API_KEY`/`$LLM_MODEL`/`$LLM_URL`; no GPU
+required — this reads already-stored predictions, it doesn't re-run the
+pipeline):
+
+```bash
+# one stage
+uv run cli/news_nlp_eval.py --stage sentiment --sample-size 100
+
+# every stage the §9 baseline covers, failing if a headline metric dropped
+# more than --regression-tolerance (default 0.05) vs. the previous MLflow run
+uv run cli/news_nlp_eval.py --stage all --check-regression
+```
+
+`--check-regression` compares against **the previous MLflow run** under
+`news_nlp_eval/<stage>` (`--regression-tolerance`, default `0.05`) — there is
+no separate baseline file to maintain, and none should be invented; the
+baseline of record is the run IDs already logged in `docs/evaluation.md`.
+This remains a manually-invoked gate (§13, open question 8) — see that
+section for the tradeoffs of wiring it into `ci.yml`.
+
 ## 11. Deployment Procedures
 
 There is no formal CD pipeline for this repo yet; what exists:
@@ -443,7 +486,75 @@ treating a related FR/NR as done:
    skipped-and-logged; unclear whether that's the intended trade-off at
    larger corpus sizes.
 
-## 14. Sign-off
+## 14. Scope Boundaries & Future Work
+
+**This repository is at thesis/research stage, not production deployment.**
+Every requirement and acceptance criterion above (§2–§13) describes and
+governs that stage honestly — nothing above should be read as an implicit
+production readiness claim, and nothing below should be read as a committed
+roadmap. It exists so a reader doesn't mistake "not yet built" for
+"overlooked."
+
+### What this stage validates
+
+Per the §9 baseline and the design rationale in §7, this repo currently
+validates:
+
+- **Accuracy** of each NLP stage against an LLM-as-judge, not a hand-labelled
+  gold set (`docs/evaluation.md` — treat the numbers as agreement-with-a-
+  judge, not ground truth).
+- **Feasibility** of the two-level hierarchical zero-shot classification
+  approach for an imbalanced label set (§7 — the recall/false-`other`
+  trade-off is measured, not assumed).
+- **Structural correctness** of the deterministic `sector_summary`
+  composition (§7, FR-005 — cross-company blending is structurally
+  impossible, independently of accuracy).
+- **Idempotency/resumability** of the batch pipeline (FR-006), exercised by
+  the hermetic test suite (§10).
+
+### What this stage explicitly does not validate (deferred)
+
+None of the following exist today; none are assumed by any FR/NR above.
+Building them is future work if and when this moves toward a production or
+multi-user deployment — the list is here so that absence reads as a
+deliberate boundary, not a gap in the spec:
+
+- **Access control**: there is no authentication or authorization on the
+  FastAPI service (§4/FR-008) — every endpoint, including the correction
+  `PATCH`/`DELETE` routes, is open to anyone who can reach `:8003`. Today
+  that's acceptable only because the service is expected to run on a
+  private/trusted network with a single operator, not because it's been
+  assessed as safe for broader exposure.
+- **Operational tooling**: no monitoring/alerting, no on-call runbook, no
+  documented disaster-recovery procedure for either SQLite file, no
+  scheduler for `--summarize` (relates to §13 item 7).
+- **Throughput/latency SLAs and load testing** (§9, §13 item 5) — no target
+  has been set because no load test has been run; a number invented without
+  one would be worse than none.
+- **Model checkpoint pinning, formal data-retention policy, and a
+  stability contract with downstream consumers** (`financial-analysis`) —
+  today's floating HF checkpoints (§13 item 4) and unpinned `articles`
+  schema (§13 item 3) are accepted risks at this scale, not oversights.
+
+### §13 items: thesis-scope disposition
+
+| §13 item | At this stage | Reconsider when |
+|---|---|---|
+| 1 — weak sentiment F1 | Accepted, documented limitation of the current model choice | Sentiment becomes a load-bearing signal for a downstream decision |
+| 2 — near-guessing category labels | Accepted; threshold is a reasoned first calibration, not final | More post-hierarchy eval data exists to retune against |
+| 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's new schema-contract table documents the actual (unenforced) dependency | This repo or `data-mining` changes the `articles` shape |
+| 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Results need to be exactly reproduced months later, or multiple people run the pipeline independently |
+| 5 — no throughput/latency SLA | Deferred to production — no load test exists to base one on | A load test is run, or a real-time consumer is added |
+| 6 — `article_category` migration doesn't auto-reprocess | Accepted; a manual backfill script is the fix if it's ever needed | Historical `group_label`/`group_score` accuracy matters for an analysis |
+| 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | Summaries need to be reliably current for a downstream consumer |
+| 8 — `--check-regression` not wired into CI | Should fix soon regardless of production status — it's cheap and prevents silent accuracy drift | Before the next model/prompt/threshold change, ideally |
+| 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency make a single bad row costly to fail on |
+
+Item 8 is the one item on this list worth doing regardless of production
+status — it's a CI-plumbing change, not new infrastructure, and directly
+protects the §9 baseline this spec already treats as load-bearing.
+
+## 15. Sign-off
 
 This SPEC.md is the technical contract implementers, reviewers, and (per
 `.specify/memory/constitution.md`'s AI behavior section) coding agents plan
@@ -459,4 +570,4 @@ than silently diverging (constitution: Governance).
 | Author | | | |
 | Reviewer | | | |
 
-**Version**: 1.0.0 | **Last Amended**: 2026-09-12
+**Version**: 1.1.0 | **Last Amended**: 2026-09-12
