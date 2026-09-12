@@ -82,9 +82,10 @@ def test_sentiment_uses_full_body_text_category_stays_capped(
     eval_store_paths: tuple[Path, Path],
 ) -> None:
     """sentiment must see the body_text FinBERT actually scored (the whole
-    article, per run_sentiment_stage's chunk-and-average) -- category stays
-    capped at _MAX_BODY_CHARS since it deliberately classifies the lead
-    chunk only (see src/news_nlp/eval/sampling.py's _UNCAPPED_STAGES note)."""
+    article, per run_sentiment_stage's per-sentence entity-scoped
+    aggregation) -- category stays capped at _MAX_BODY_CHARS since it
+    deliberately classifies the lead chunk only (see
+    src/news_nlp/eval/sampling.py's _UNCAPPED_STAGES note)."""
     source, results = eval_store_paths
     long_body = "Acme Corp reported strong quarterly results. " * 400
     assert len(long_body) > sampling._MAX_BODY_CHARS

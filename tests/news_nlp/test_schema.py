@@ -142,3 +142,48 @@ def test_fetch_pending_articles_sample_seed_caps_at_population(
 
     rows = db.fetch_pending_articles(conn, "article_sentiment", limit=1000, sample_seed=1)
     assert len(rows) == 3  # fewer than `limit` only when the store holds too few
+
+
+def test_fetch_pending_sentiment_articles_unpacks_as_four_tuple(conn: sqlite3.Connection) -> None:
+    seed_article(conn, id=1, company="Acme Corp", ticker="ACME", body_text="Body text.")
+    conn.commit()
+
+    rows = db.fetch_pending_sentiment_articles(conn)
+    assert len(rows) == 1
+    article_id, company, ticker, body_text = rows[0]
+    assert article_id == 1
+    assert company == "Acme Corp"
+    assert ticker == "ACME"
+    assert body_text == "Body text."
+
+
+def test_fetch_pending_sentiment_articles_sample_seed_is_reproducible_subset(
+    conn: sqlite3.Connection,
+) -> None:
+    """Same seeded-sample contract as fetch_pending_articles's (T-025), now
+    exercised through the dedicated sentiment query (PLAN.md Work item 4
+    step 1 / TASKS.md T-034's resample)."""
+    for i in range(1, 21):
+        seed_article(conn, id=i, body_text=f"Body text {i}.")
+    conn.commit()
+
+    a = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=1)
+    b = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=1)
+    assert len(a) == 5
+    assert [r[0] for r in a] == [r[0] for r in b]
+    assert set(r[0] for r in a) <= set(range(1, 21))
+
+    plain = db.fetch_pending_sentiment_articles(conn, limit=5)
+    assert [r[0] for r in plain] == [1, 2, 3, 4, 5]
+
+    other_seed = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=2)
+    assert [r[0] for r in a] != [r[0] for r in other_seed]
+
+
+def test_fetch_pending_sentiment_articles_sample_seed_requires_limit(
+    conn: sqlite3.Connection,
+) -> None:
+    seed_article(conn, id=1, body_text="Body text.")
+    conn.commit()
+    with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
+        db.fetch_pending_sentiment_articles(conn, sample_seed=1)

@@ -12,7 +12,12 @@ Sentiment, NER, and category (stages 1–3) always run. `c_summary`/`sector_summ
 API's `/pipeline/run` body; the default (`summarize=False`) skips them entirely, so the
 summarization model never loads and its VRAM/latency cost is never paid unless asked for.
 
-1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`.
+1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`. Scored per
+   sentence (not per ~510-token chunk — FinBERT was fine-tuned on single-sentence
+   Financial PhraseBank data) and aggregated with **entity-scoped weighting**: a
+   sentence naming the article's own `company`/`ticker` counts more than one that
+   doesn't (a different company's news, or generic market commentary) — see
+   `_sentiment_sentence_weights` (`src/pipeline.py`) and `PLAN.md` Work item 4.
 2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
    [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
    `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward
@@ -57,7 +62,9 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
   BART's 1024-token cap, plus a **hierarchical reduce**
   (`pipeline.hierarchical_summarize()`): summarize each chunk, then if more than one chunk
   resulted, recursively summarize the concatenated chunk-summaries until they collapse
-  into a single pass.
+  into a single pass. Sentiment uses just the sentence-splitting piece (`split_sentences`)
+  directly, not the chunk-packing on top of it -- it scores one sentence per forward pass
+  (see above).
 - **Idempotent, resumable batch processing** — each stage only processes rows missing
   from its results table (articles for stages 1–4, `(gics_sector, gics_sub_industry,
   week_start)` groups for stage 5, enforced by a `UNIQUE` constraint on `sector_summary`).
