@@ -483,6 +483,64 @@ another global `CATEGORY_CONFIDENCE_THRESHOLD` move, since the global lever
 was already spent getting `acc_other` from 0.215 to 0.545) once more
 post-calibration data accumulates.
 
+### Follow-up (2026-09-10): NER subword-fragmentation root cause and fix
+
+Investigated a pattern the user spotted directly in real data: entities like
+the bare digit `"3"` tagged `ORG`, apparently meant to represent 3M. This
+turned out to be a real, previously-unidentified contributor to NER's
+documented weakness (`hallucination_rate` 0.338, precision 0.66 vs recall
+0.84 — Baseline section above) — not the whole gap, but a concrete, fixable
+piece of it.
+
+**Root cause**: a training/inference asymmetry in subword handling.
+`train_ner.py`'s `make_tokenize_fn` labels only the first WordPiece subword
+of each source word and masks every continuation subword to
+`IGNORED_LABEL_ID` in the loss — the model gets zero training signal for
+continuation-subword predictions. `pipeline.py`'s `merge_bio_predictions`
+never accounted for this at inference: it merged spans by every token's own
+raw BIO argmax, continuation subwords included. For `"3M"` tokenized as
+`["3", "##M"]`, the model often predicted `B-ORG` on `"3"` but something
+other than `I-ORG` on the untrained-for `"##M"` position, closing the span
+after just `"3"` — with no length/sanity filter anywhere in the write path
+to catch the resulting bogus `{entity_type: "ORG", text: "3"}` row.
+
+**Quantified impact** (real data, `article_entities`, 17.6M rows): 2,982
+bare single-digit `ORG` entities, of which **`"3"` alone is 1,859 (62%)** —
+**628 of those in MMM (3M)-ticker articles, hitting 185 of 316 MMM articles
+(59%)**. The same articles correctly tag whole `"3M"`/`"MM"`/`"M"` as `ORG`
+459 times too — the model is genuinely inconsistent, not uniformly broken.
+Confirmed via SOURCE `body_text` these are literal mid-word splits of real
+"3M" mentions. The same bug class (not digit-specific) is independently
+corroborated by real LLM-judge `wrong`-verdicts from past NER eval runs:
+bogus `"3"` split off `"3Q24"`, bogus `"1"` split off `"1MDB"`, bogus `"20"`
+split off `"20 años"`, bogus `"777"` split off `"Boeing's 777 jet"`. Also
+affects `L3Harris` (`"L"`/`"L3"` fragments) but not `F5 Inc.`/`Phillips 66`
+— specifically triggered by a digit glued directly to letters at a
+WordPiece split boundary.
+
+**Fix**: `merge_bio_predictions` is now word-id aware — only a word's first
+subword ever opens, closes, or redirects a span; a continuation subword
+(same `word_id`) just extends whatever the owning word's first subword
+already decided, matching how the model was actually trained. A secondary,
+narrow length-≥2 filter was added at write time in `run_ner_stage` as a
+last-resort net for whatever the word-id fix doesn't structurally prevent —
+not a substitute for it. `excludes_bare_digit`
+(`portfolio_common.db.dialect.SqliteDialect`) remains in place on its two
+existing call sites (`fetch_pending_company_summaries`,
+`fetch_sector_week_entity_stats`) but was never the general fix — it only
+ever caught bare single digits on two downstream read-side aggregate
+queries, not the write path, not other fragment shapes (e.g. a lone `"L"`),
+and not the main article-detail read.
+
+**Scope**: future pipeline runs only, matching this repo's established
+precedent (the category hierarchical-classification change was also
+future-runs-only). The existing 17.6M-row `article_entities` table is
+unchanged; a bulk re-extraction is a separate, not-yet-built follow-up.
+
+This is a *different* issue from the full-article-vs-lead-cap NER
+eval-sampling mismatch flagged earlier in this doc as "suspected but
+unverified" — that's still open and unrelated to subword fragmentation.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
