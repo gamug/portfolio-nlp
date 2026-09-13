@@ -139,7 +139,7 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and

@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
