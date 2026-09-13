@@ -818,6 +818,92 @@ actually wired into `SENTIMENT_MODEL`/`run_sentiment_stage` remains the
 repo owner's decision, not made unilaterally by any of the three
 branches.
 
+### Follow-up (2026-09-13): the "crushed earnings" idiom gap — diagnosed, mined, fixed, measured
+
+The honest limitation disclosed just above ("crushed earnings" still
+mislabeled negative post-fine-tune) wasn't left as an accepted gap.
+Diagnosis first, before any fix: mining the eval-run article pool (11,322
+articles) for the exact idiom family (`crushed/smashed/trounced/
+clobbered/routed/walloped/demolished/hammered` + earnings/estimate/
+guidance/consensus context) found only **75 hits** — the original
+5,000-sentence random draw happened to include almost none of them by
+chance, a coverage gap, not a labeling error (the few "beat/topped/
+surpassed" idioms that *did* make it into training were already labeled
+correctly).
+
+That mining pass also ruled out the cheap fix: the same verb family
+flips polarity depending on *what* is being crushed —
+`"Nvidia stock got crushed"` (negative, the stock/company is the object)
+vs. `"Meta crushed its earnings estimates"` (positive, an estimate/target
+is the object). A lexicon/regex override would get the negative case
+wrong, so `scripts/mine_idiom_sentences_2026_09_13.py` widened the search
+to the **full ~480k-article source corpus** (not just the 11k-article eval
+pool) and LLM-labeled 900 more sentences with an explicit instruction
+covering both directions. Class split: 487 negative, 316 positive, 97
+neutral — confirming the negative ("got crushed") sense is actually more
+common in this corpus than the positive ("crushed estimates") sense, the
+opposite of what a naive "crush = positive idiom" rule would assume. 100
+of the 900 were held out entirely from training as an **idiom probe** —
+never trained on, reserved purely to measure the fix directly rather than
+infer it from aggregate metrics moving. A manual spot-check of 20 probe
+labels (including a negation case, `"Instead of CSX getting crushed, the
+stock actually went higher"` → correctly positive) checked out.
+
+The remaining 800 were merged into the 5,000-sentence base draw (5,900
+total) and `src/train_sentiment.py` retrained from the base
+`ProsusAI/finbert` checkpoint from scratch (not a second fine-tuning pass
+on top of v1, to avoid double-fine-tuning drift).
+
+**Idiom probe, direct before/after** (v1 = the previously-published model,
+scored on this same held-out probe; v2 = this update):
+
+| metric | v1 (pre-fix) | **v2 (this update)** |
+|---|---|---|
+| Accuracy | 0.750 | **0.870** |
+| Macro F1 | 0.664 | **0.759** |
+| Recall — positive | 0.710 | **0.903** |
+| Recall — negative | 0.797 | **0.932** |
+
+The exact original case now scores correctly: `"Amazon and Alphabet
+crushed earnings."` → **positive** (0.935 confidence); the negative sense
+is still caught correctly too: `"The stock got crushed after the
+disappointing guidance."` → **negative** (0.994 confidence).
+
+**Downstream pipeline re-check — did fixing this regress anything else?**
+Re-ran the exact same integration test (chunk-level entity-scoped
+aggregation, identical 2,000-article pool, seed=1, same LLM judge,
+eval_run 30, mlflow `8e4aa2d3`):
+
+| metric | fine-tuned v1 | **fine-tuned v2, idiom-fixed** |
+|---|---|---|
+| `recall_negative` | 0.812 | 0.808 |
+| `precision_negative` | 0.505 | **0.513** |
+| `f1_negative` | 0.623 | **0.628** |
+| `macro_f1_vs_judge` | **0.737** | 0.731 |
+| `agreement_rate` | 0.697 | **0.701** |
+| `agreement_rate_representative` | 0.852 | **0.866** |
+| `recall_positive` | 0.790 | **0.801** |
+| `precision_neutral` | 0.935 | **0.936** |
+| `mean_severity` | 0.350 | **0.341** |
+
+Every v1→v2 delta on the full 2,000-article real-traffic sample is within
+±0.01 — noise, not a trade-off. The targeted fix held on the specific
+failure class without costing anything measurable on the broader
+distribution. Model card and Hub weights updated in place at
+[`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news)
+(same repo, new commit — not a new model name, since this is a fix to the
+same model, not a new candidate).
+
+**Still open, disclosed not hidden**: `neutral` performance on this
+specific idiom probe stayed weak (f1 0.39→0.47) — expected, since only
+97/900 mined sentences were neutral and this probe isn't representative
+of the pipeline's overall neutral-heavy traffic (see the downstream
+table's `precision_neutral` for neutral performance on real traffic,
+which is strong). This idiom family was one specific, manually-discovered
+gap; the same "silver-standard LLM labels, not exhaustively verified"
+caveat from the base fine-tune still applies, and other undiscovered
+vocabulary gaps of this shape likely still exist.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

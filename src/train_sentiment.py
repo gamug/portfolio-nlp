@@ -14,6 +14,17 @@ retrain: the label space (positive/negative/neutral, investor/price-impact
 framing) is unchanged, only the training sentences are new and more
 current/diverse.
 
+If `data/sentiment_finetune/idiom_augment.jsonl` exists (produced by the
+2026-09-13 follow-up `scripts/mine_idiom_sentences_2026_09_13.py`, mined
+after a spot-check of the first fine-tune found it still mislabeled
+"crushed earnings" idioms), those rows are merged into the training pool
+before the stratified split. If `data/sentiment_finetune/idiom_probe.jsonl`
+exists (a held-out slice of that same mining pass, never trained on), the
+final model is *also* evaluated on it separately and the result recorded
+alongside the regular test metrics -- a direct, targeted measurement of
+whether the idiom fix actually worked, not just an aggregate-metric
+inference.
+
 Run once, offline, before publishing to the Hugging Face Hub (see
 scripts/publish_finbert_financial_news_2026_09_13.py). Not part of
 run_pipeline.py.
@@ -41,6 +52,10 @@ from transformers import (
 
 MODEL_NAME = "ProsusAI/finbert"
 DATA_PATH = Path("data/sentiment_finetune/labeled_sentences.jsonl")
+# 2026-09-13 crushed-earnings-idiom follow-up (optional -- merged in / probed
+# only if present, see module docstring).
+IDIOM_AUGMENT_PATH = Path("data/sentiment_finetune/idiom_augment.jsonl")
+IDIOM_PROBE_PATH = Path("data/sentiment_finetune/idiom_probe.jsonl")
 OUTPUT_DIR = "models/finbert-financial-news"
 METRICS_OUTPUT = Path("data/sentiment_finetune/test_metrics.json")
 
@@ -127,6 +142,12 @@ def make_compute_metrics() -> Any:
 def main() -> None:
     rows = load_labeled_sentences(DATA_PATH)
     print(f"Loaded {len(rows)} labeled sentences from {DATA_PATH}")
+
+    if IDIOM_AUGMENT_PATH.exists():
+        augment_rows = load_labeled_sentences(IDIOM_AUGMENT_PATH)
+        print(f"Merging {len(augment_rows)} idiom-augment sentences from {IDIOM_AUGMENT_PATH}")
+        rows = rows + augment_rows
+
     splits = stratified_split(rows)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -179,17 +200,25 @@ def main() -> None:
     test_metrics = trainer.evaluate(tokenized_ds["test"])
     print(test_metrics)
 
-    METRICS_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    METRICS_OUTPUT.write_text(
-        json.dumps(
-            {
-                "test_metrics": test_metrics,
-                "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
-                "base_model": MODEL_NAME,
-            },
-            indent=2,
+    metrics_payload: dict[str, Any] = {
+        "test_metrics": test_metrics,
+        "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
+        "base_model": MODEL_NAME,
+    }
+
+    if IDIOM_PROBE_PATH.exists():
+        print(f"\n=== Idiom probe evaluation ({IDIOM_PROBE_PATH}, held out of training) ===")
+        probe_rows = load_labeled_sentences(IDIOM_PROBE_PATH)
+        probe_ds = Dataset.from_list(probe_rows).map(
+            tokenize, batched=True, remove_columns=["text"]
         )
-    )
+        probe_metrics = trainer.evaluate(probe_ds, metric_key_prefix="idiom_probe")
+        print(probe_metrics)
+        metrics_payload["idiom_probe_metrics"] = probe_metrics
+        metrics_payload["idiom_probe_size"] = len(probe_rows)
+
+    METRICS_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    METRICS_OUTPUT.write_text(json.dumps(metrics_payload, indent=2))
     print(f"Saved test metrics to {METRICS_OUTPUT}")
 
     trainer.save_model(OUTPUT_DIR)

@@ -327,12 +327,23 @@ the strongest result on every headline metric except `recall_negative`
 (0.812 vs (a)'s 0.856), and is documented as such rather than silently
 picked as "the" answer.
 
-**Known limitation, disclosed not hidden**: a manual spot-check of the
-published fine-tuned model still mislabels an idiomatic sentence
-("...crushed earnings.") as negative — the same idiom-recognition gap
-that motivated fine-tuning in the first place. The aggregate metrics
-improved substantially regardless, but this is not a claim of a solved
-problem, only of a measured improvement.
+**Known limitation, disclosed not hidden — then fixed the same day**: a
+manual spot-check of the published fine-tuned model found it still
+mislabeled an idiomatic sentence ("...crushed earnings.") as negative —
+the same idiom-recognition gap that motivated fine-tuning in the first
+place. Rather than leave this as an accepted gap, it was diagnosed
+(mining showed the original 5,000-sentence draw contained almost none of
+this idiom family by chance — a coverage gap, not a labeling error) and
+fixed: 900 more sentences mined from the full corpus, correctly split by
+the idiom's two-directional polarity ("stock got crushed" = negative vs.
+"crushed estimates" = positive — ruling out a lexicon-override
+shortcut), 100 held out as a never-trained probe. Result: probe accuracy
+0.750→0.870, with the exact original bug case now correct
+("crushed earnings" → positive, 0.935 confidence), and the downstream
+2,000-article pipeline comparison holding steady (every metric within
+±0.01 of the pre-fix version). Model updated in place at the same Hub
+repo. Full account: `docs/evaluation.md`'s 2026-09-13 "crushed earnings
+idiom gap" follow-up.
 
 **Acceptance criteria**:
 

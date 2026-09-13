@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; three real-data-validated candidates measured 2026-09-13, none merged yet — best result (fine-tuned model + chunk-level weighting) reaches 0.812 recall / 0.505 precision / 0.737 macro F1 vs. judge (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; three real-data-validated candidates measured 2026-09-13, none merged yet — best result (fine-tuned model + chunk-level weighting) reaches 0.808 recall / 0.513 precision / 0.731 macro F1 vs. judge, after a same-day follow-up fixed a "crushed earnings" idiom coverage gap found via manual spot-check (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -483,8 +483,24 @@ treating a related FR/NR as done:
    (+13 points), `macro_f1_vs_judge` 0.737 — the strongest, most
    broad-based result of the three, though a manual spot-check afterward
    still found the specific "crushed earnings" idiom gap unresolved.
-   **Which (if any) of these three actually ships is the repo owner's
-   decision** — not resolved unilaterally by any of the three branches.
+   **Update (2026-09-13, same day): idiom gap diagnosed and fixed.**
+   Mining found the original 5,000-sentence draw contained almost none of
+   this idiom family by chance (only 75 hits across the 11k-article eval
+   pool) — a coverage gap, not a labeling error. The idiom is genuinely
+   two-directional ("stock got crushed" = negative vs. "crushed
+   estimates" = positive), ruling out a lexicon-override shortcut; instead
+   900 more sentences were mined from the full ~480k-article corpus and
+   LLM-labeled covering both directions, 100 held out as a never-trained
+   probe to measure the fix directly. Result on that probe: accuracy
+   0.750→0.870, recall_positive 0.710→0.903 (the original bug), recall_negative
+   0.797→0.932. Re-run on the same 2,000-article downstream pipeline
+   comparison: every metric within ±0.01 of the pre-fix version (noise) —
+   the fix cost nothing measurable on real traffic. Model updated in place
+   at the same Hub repo (new commit, not a new model name). Full account:
+   `docs/evaluation.md`'s 2026-09-13 "crushed earnings idiom gap" follow-up.
+   **Which (if any) of these three candidates actually ships is still the
+   repo owner's decision** — not resolved unilaterally by any of the three
+   branches.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical
