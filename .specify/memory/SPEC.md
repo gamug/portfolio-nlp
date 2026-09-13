@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; three real-data-validated candidates measured 2026-09-13, none merged yet — best result (fine-tuned model + chunk-level weighting) reaches 0.812 recall / 0.505 precision / 0.737 macro F1 vs. judge (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -464,18 +464,27 @@ Carried forward from the last recorded architecture review
 and this document's own drafting — resolve or explicitly accept before
 treating a related FR/NR as done:
 
-1. **Sentiment is the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
+1. **Sentiment was the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
    whole-article softmax average has no per-company or net-signal reasoning
-   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
-   as a pipeline-level design question (entity-scoped sentiment?), not
-   started. **Update (2026-09-12): promoted to active, priority work** —
-   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-033. The measurement side has
-   since improved (text-scope fix, stratified sampling, `recall_negative`
-   as headline metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups),
-   but the model-side gap described here is still unimplemented: the latest
-   pilot (eval_run 18, n=800) still shows `negative` precision only 0.359.
-   Still open, now tracked as a queued task rather than an accepted
-   limitation.
+   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). **Update
+   (2026-09-12/13): three designs prototyped and real-data validated**,
+   each on its own branch — `PLAN.md` Work item 4 / `TASKS.md` T-030–T-038,
+   `docs/evaluation.md`'s 2026-09-13 follow-ups have the full account.
+   (a) Entity-scoped chunk-weighting (PR #42): `recall_negative` 0.856 vs.
+   the 0.783 pre-change pilot, but `precision_negative` stayed weak
+   (0.376). (b) Title-only scoring (PR #43): `recall_negative` 0.533, did
+   not beat (a). (c) **Fine-tuning FinBERT itself** on 5,000 LLM-labeled
+   sentences from this project's own real corpus (`ProsusAI/finbert`'s own
+   training data is 2014 Nordic-company news — a real, measured
+   vocabulary/domain gap, e.g. missing "crushed" as a positive idiom),
+   published as [`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news):
+   substituted into (a)'s aggregation, `recall_negative` 0.812 (slightly
+   below (a), still above the pilot) with `precision_negative` 0.505
+   (+13 points), `macro_f1_vs_judge` 0.737 — the strongest, most
+   broad-based result of the three, though a manual spot-check afterward
+   still found the specific "crushed earnings" idiom gap unresolved.
+   **Which (if any) of these three actually ships is the repo owner's
+   decision** — not resolved unilaterally by any of the three branches.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical

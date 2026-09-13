@@ -710,6 +710,114 @@ before/after above is still valid, just not a row-identical replay.
 This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
 T-020; `SPEC.md` §9's NER row is updated below.
 
+### Follow-up (2026-09-13): sentiment — three designs measured; fine-tuning wins
+
+`PLAN.md` Work item 4 (`SPEC.md` §13 item 1). Three candidate fixes for
+FinBERT's lack of per-company/net-signal reasoning and (as this follow-up
+found) domain/vocabulary staleness were prototyped and real-data validated
+against the production DB and the real LLM judge this week, each on its
+own branch so it stands on its own evidence:
+
+1. **Entity-scoped chunk-weighting** (`feat/sentiment-entity-scoped`,
+   PR #42): score each ~510-token chunk, weight chunks naming the
+   article's own `company`/`ticker` over everything else.
+   `recall_negative` 0.856 vs. a 0.783 pre-change pilot — a real
+   improvement on this project's stated priority metric, but
+   `precision_negative` stayed weak (0.376), essentially unchanged from
+   every prior sentiment design measured.
+2. **Title-only scoring** (`feat/sentiment-title-only`, PR #43): score
+   just the headline, no aggregation. `recall_negative` 0.533 — did not
+   beat the chunk-level design; real disagreement transcripts showed
+   headlines that read factually neutral over a strongly directional
+   body, and idiom/second-order reasoning single short spans can't
+   support.
+3. **Fine-tuning FinBERT itself** (this branch,
+   `feat/finbert-financial-news-finetune`): rather than continue tuning
+   the *aggregation* around a model whose training data predates most of
+   the corpus it now scores, fine-tune the model. `ProsusAI/finbert` was
+   trained on [Financial PhraseBank](https://huggingface.co/datasets/takala/financial_phrasebank)
+   — ~4,840 sentences of **2014 news about Nordic (OMX Helsinki) listed
+   companies**. Real disagreement transcripts from (1) and (2) above
+   already showed the cost directly: the base model missing "crushed" as
+   a positive idiom ("Amazon and Alphabet crushed earnings"), and no
+   grounding for instruments/vocabulary that barely existed in 2014
+   (cryptocurrency).
+
+**Training data**: 5,000 sentences, LLM-labeled (`deepseek-chat`,
+temperature 0, investor/price-impact framing — the same framing Financial
+PhraseBank's own annotators used), drawn from real article `body_text`
+already sampled across every prior `--stage sentiment` eval run (a pool
+the stratified sampling design already skewed toward covering all three
+classes). 100% labeling success. Class split: 938 positive (18.8%), 893
+negative (17.9%), 3,169 neutral (63.4%) — real financial news skews
+neutral, consistent with every other finding in this document.
+80/10/10 train/validation/test, stratified per label.
+`scripts/label_sentiment_sentences_2026_09_13.py` has the full
+methodology; **known limitation, not solved here: these are LLM-generated
+labels (silver-standard), not human-annotated ground truth** — the same
+caveat this document applies to every judge-derived number, now also
+applying to training data, not just evaluation.
+
+**Training**: continued fine-tuning from the `ProsusAI/finbert` checkpoint
+(not vanilla BERT — a domain refresh, not a fresh retrain), 4 epochs,
+lr 2e-5, `src/train_sentiment.py`. Held-out sentence-level test set
+(n=498): accuracy 0.813, macro F1 0.774 (F1 positive 0.798 / negative
+0.667 / neutral 0.858).
+
+**The real test — substituted into the best aggregation scheme found so
+far** (entity-scoped chunk-weighting from PR #42), same 2,000-article
+pool, same LLM judge:
+
+| metric | pilot (pre-change) | chunk-level, base FinBERT (PR #42) | title-only (PR #43) | **chunk-level, fine-tuned FinBERT** |
+|---|---|---|---|---|
+| `recall_negative` | 0.783 | **0.856** | 0.533 | 0.812 |
+| **`precision_negative`** | 0.359 | 0.376 | 0.484 | **0.505** |
+| `f1_negative` | 0.493 | 0.523 | 0.507 | **0.623** |
+| `macro_f1_vs_judge` | 0.546 | 0.625 | 0.620 | **0.737** |
+| `agreement_rate` | 0.483 | 0.585 | 0.633 | **0.697** |
+| `agreement_rate_representative` | 0.555 | 0.700 | 0.763 | **0.852** |
+| `recall_positive` | 0.462 | 0.520 | 0.507 | **0.790** |
+| `precision_neutral` | 0.733 | 0.871 | 0.803 | **0.935** |
+| `mean_severity` | 0.570 | 0.481 | 0.410 | **0.350** |
+| `parse_fail_rate` | — | 0.0 | 0.0 | 0.0 |
+
+**Fine-tuning is the strongest result of this entire investigation, and
+not narrowly** — `recall_negative` dips slightly from the base model's
+0.856 (still comfortably above the 0.783 pre-change pilot and this
+project's documented healthy range), but every other headline metric
+improves substantially, most notably `precision_negative` (+13 points),
+the single most persistent weak point across every design measured for
+this stage since the 2026-09-08 baseline. This is a broad-based
+improvement, not one metric traded against a loss everywhere else — the
+opposite of the sentence-level-vs-chunk-level trade-off found earlier in
+this investigation.
+
+**Honest limitation, checked directly, not glossed over**: a quick manual
+spot-check after publishing the model still shows it mislabeling "Amazon
+and Alphabet crushed earnings" as negative — the exact idiom gap this
+fine-tune targeted. The aggregate metrics improved substantially; this
+specific case did not resolve. 5,000 sentences, one training pass, is not
+guaranteed to have covered every gap the base model had, and the
+LLM-labeled training data may itself be sparse or inconsistent on rare
+idioms like this one.
+
+**Methodological caveat, disclosed not hidden**: the training labels
+(DeepSeek) and the LLM judge scoring this comparison are not
+independently sourced — both ultimately trace to the same class of tool.
+This doesn't invalidate the pipeline-level result (the judge scores whole
+articles holistically; the training data is isolated sentences — a real
+task/granularity difference, not the same function scoring itself twice),
+but it means "improved agreement with this judge" is not the same claim
+as "objectively more accurate," and should be read with that in mind.
+
+Published: [`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news)
+(full model card with training data, procedure, and both evaluation
+results). `SPEC.md` §13 item 1 and §9's sentiment row are updated below,
+noting all three candidates and this recommendation; which (if any) is
+actually wired into `SENTIMENT_MODEL`/`run_sentiment_stage` remains the
+repo owner's decision, not made unilaterally by any of the three
+branches.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
