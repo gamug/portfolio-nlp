@@ -139,37 +139,50 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (priority, pending)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
 how it's weighted, but did not touch the model itself. The pilot run
-(eval_run 18, n=800) still shows `negative` precision only 0.359 — the root
+(eval_run 18, n=800) still showed `negative` precision only 0.359 — the root
 cause (FinBERT's whole-article softmax has no per-company or net-signal
-reasoning the judge applies) is diagnosed but **not implemented**. This is
-the stage still "pending to improve" despite the changes already made.
-→ `PLAN.md` Work item 4, `SPEC.md` §13 item 1.
+reasoning the judge applies) was diagnosed and, as of 2026-09-13, three
+candidate fixes have been implemented and measured against the same
+2,000-article pool (seed=1): chunk-level entity-scoped re-scoring (PR #42),
+title-only scoring (PR #43, worse, not shipped), and a fine-tuned FinBERT
++ chunk-level weighting (this branch, `feat/finbert-financial-news-finetune`,
+the strongest result — published as `gamug/FinBERT-financial-news` on
+Hugging Face Hub). **None of the three is merged to `master` yet** — which
+(if any) ships is left to the repo owner. → `PLAN.md` Work item 4, `SPEC.md`
+§13 item 1.
 
-- [ ] **T-030** Design decision (not yet chosen) for closing the reasoning
-      gap in `run_sentiment_stage` (`src/pipeline.py`): candidates include
-      entity-scoped re-scoring using `article_entities`, a different
-      sentiment model, or an explicit net-signal heuristic layered on the
-      existing chunk-averaged score. → `PLAN.md` Work item 4, step 1.
-- [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
-      recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
-      "Sample-size floor") — only one stratified pilot (n=800) exists so
-      far; a floor-sized run is needed before today's `recall_negative` /
-      `precision_negative` can be trusted as a stable `--check-regression`
-      baseline. → step 2.
+- [x] **T-030** Design decision: rather than picking one candidate
+      up front, all three were implemented and measured head-to-head —
+      entity-scoped re-scoring using `article_entities` (PR #42),
+      title-only scoring (PR #43), and a fine-tuned sentiment model
+      (this branch). → `PLAN.md` Work item 4, step 1. **Done 2026-09-13**
+      — see `PLAN.md` Work item 4 "Executed" and `docs/evaluation.md`'s
+      2026-09-13 follow-up for the full comparison table.
+- [x] **T-031** Ran regression-tracked `--stage sentiment` evals at
+      n=2,000 (above the ~1,800-2,200 floor, `docs/evaluation.md`
+      "Sample-size floor") — the same seeded 2,000-article pool was reused
+      across all three candidates plus the pre-fix pilot, so
+      `recall_negative` / `precision_negative` are directly comparable.
+      → step 2. **Done 2026-09-13.**
 - [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
       estimates using T-031's actual measured per-stratum agreement
       (`strata_json` / `agreement_rate_target_negative` etc.) instead of
       today's planning-only estimates, before locking in a permanent
-      `--sample-size` default. → step 3.
-- [ ] **T-033** After T-030 ships a change, re-run the eval and add a dated
-      follow-up entry to `docs/evaluation.md`; update `SPEC.md` §13 item 1
-      and §9's sentiment baseline row with the result. → step 4 /
-      `PLAN.md` Work item 4 acceptance criteria.
+      `--sample-size` default. → step 3. **Still open** — not done as
+      part of the 2026-09-13 fine-tuning work; the four real evals give
+      more empirical grounding than before but the purity-estimate
+      re-solve itself hasn't been done.
+- [x] **T-033** Re-ran the eval for each candidate and added dated
+      follow-up entries to `docs/evaluation.md`; updated `SPEC.md` §13
+      item 1 and §9's sentiment baseline row with the results. → step 4 /
+      `PLAN.md` Work item 4 acceptance criteria. **Done 2026-09-13** for
+      all three candidates; final "which one ships" decision explicitly
+      left open for the repo owner rather than resolved by these tasks.
 
 ## Work item 5 — Category: hold the line on the hierarchical fix (validation only, low priority)
 

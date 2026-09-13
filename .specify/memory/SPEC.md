@@ -88,7 +88,7 @@ or time into portfolio-level signals (`financial-analysis` and
 
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
-| **FR-001** | The sentiment stage runs `ProsusAI/finbert` over every pending article's `body_text` (chunked, token-weighted average across chunks) and writes exactly one `article_sentiment` row per article. | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
+| **FR-001** | The sentiment stage runs `gamug/FinBERT-financial-news` (a continued fine-tune of `ProsusAI/finbert`, selected 2026-09-13 — §13 item 1) over every pending article's `body_text` (chunked, entity-scoped weighted average across chunks — full weight for chunks naming the article's own `company`/`ticker`, a lower baseline otherwise) and writes exactly one `article_sentiment` row per article. | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
 | **FR-002** | The NER stage runs `gamug/sec-bert-finer-ord-ner`, merges BIO-tagged sub-token predictions **word-boundary aware**, and writes one `article_entities` row per detected span with a char offset and confidence. | No emitted span starts or ends mid-word (regression test for the fixed "3"-as-`ORG` subword-fragmentation bug, `82c5e6a`); every row has `entity_type ∈ {PER, LOC, ORG}`, valid `start_char < end_char` into the source text, and a `score`. |
 | **FR-003** | The category stage classifies each article via two-level hierarchical zero-shot NLI (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) against the fixed taxonomy in `news_nlp.taxonomy` (3 groups → 9 leaf labels + `other`), on the title + lead chunk only, and writes one `article_category` row. | `label` is one of the 9 taxonomy slugs or `other`; `group_label`/`group_score` are populated even when `label = other`; all 9 raw NLI distribution columns are populated (audit trail for threshold retuning); `label = other` iff the winning slug's score is below `CATEGORY_CONFIDENCE_THRESHOLD`. |
 | **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 across runs post-redesign (§13 item 1, active work — see `PLAN.md` Work item 4) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; **selected 2026-09-13 (not yet merged): fine-tuned model + chunk-level entity-scoped weighting** — 0.808 recall_negative / 0.513 precision_negative / 0.801 recall_positive / 0.731 macro F1 vs. judge, chosen over a higher-precision title-only alternative (0.619/0.670 precision, but only 0.574/0.528 recall) for deliberately pessimistic, both-classes-strong recall (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -464,18 +464,71 @@ Carried forward from the last recorded architecture review
 and this document's own drafting — resolve or explicitly accept before
 treating a related FR/NR as done:
 
-1. **Sentiment is the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
+1. **Sentiment was the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
    whole-article softmax average has no per-company or net-signal reasoning
-   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
-   as a pipeline-level design question (entity-scoped sentiment?), not
-   started. **Update (2026-09-12): promoted to active, priority work** —
-   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-033. The measurement side has
-   since improved (text-scope fix, stratified sampling, `recall_negative`
-   as headline metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups),
-   but the model-side gap described here is still unimplemented: the latest
-   pilot (eval_run 18, n=800) still shows `negative` precision only 0.359.
-   Still open, now tracked as a queued task rather than an accepted
-   limitation.
+   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). **Update
+   (2026-09-12/13): three designs prototyped and real-data validated**,
+   each on its own branch — `PLAN.md` Work item 4 / `TASKS.md` T-030–T-038,
+   `docs/evaluation.md`'s 2026-09-13 follow-ups have the full account.
+   (a) Entity-scoped chunk-weighting (PR #42): `recall_negative` 0.856 vs.
+   the 0.783 pre-change pilot, but `precision_negative` stayed weak
+   (0.376). (b) Title-only scoring (PR #43): `recall_negative` 0.533, did
+   not beat (a). (c) **Fine-tuning FinBERT itself** on 5,000 LLM-labeled
+   sentences from this project's own real corpus (`ProsusAI/finbert`'s own
+   training data is 2014 Nordic-company news — a real, measured
+   vocabulary/domain gap, e.g. missing "crushed" as a positive idiom),
+   published as [`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news):
+   substituted into (a)'s aggregation, `recall_negative` 0.812 (slightly
+   below (a), still above the pilot) with `precision_negative` 0.505
+   (+13 points), `macro_f1_vs_judge` 0.737 — the strongest, most
+   broad-based result of the three, though a manual spot-check afterward
+   still found the specific "crushed earnings" idiom gap unresolved.
+   **Update (2026-09-13, same day): idiom gap diagnosed and fixed.**
+   Mining found the original 5,000-sentence draw contained almost none of
+   this idiom family by chance (only 75 hits across the 11k-article eval
+   pool) — a coverage gap, not a labeling error. The idiom is genuinely
+   two-directional ("stock got crushed" = negative vs. "crushed
+   estimates" = positive), ruling out a lexicon-override shortcut; instead
+   900 more sentences were mined from the full ~480k-article corpus and
+   LLM-labeled covering both directions, 100 held out as a never-trained
+   probe to measure the fix directly. Result on that probe: accuracy
+   0.750→0.870, recall_positive 0.710→0.903 (the original bug), recall_negative
+   0.797→0.932. Re-run on the same 2,000-article downstream pipeline
+   comparison: every metric within ±0.01 of the pre-fix version (noise) —
+   the fix cost nothing measurable on real traffic. Model updated in place
+   at the same Hub repo (new commit, not a new model name). Full account:
+   `docs/evaluation.md`'s 2026-09-13 "crushed earnings idiom gap" follow-up.
+   **Decision (2026-09-13): (c), chunk-level + fine-tuned FinBERT, selected
+   as the production candidate.** First diagnosed the remaining precision
+   gap directly (confusion matrix: 40.6% of directional predictions were
+   false alarms on judge-neutral articles, dominated 89% by multi-company/
+   mixed-signal roundups — a document-structure/aggregation limitation,
+   not a sentence-classification error); tested and rejected three
+   candidate fixes on real data (confidence threshold, subject-coverage
+   gate, zero-shot materiality gate — none discriminated false alarms from
+   correct predictions above chance); then re-tested (b) with the
+   fine-tuned model instead of base FinBERT as a genuine alternative.
+   Result: title-only+fine-tuned wins on precision (0.619/0.670 negative/
+   positive) and overall agreement (0.746), but chunk-level+fine-tuned
+   wins on recall for **both** directional classes (0.808 negative / 0.801
+   positive vs. title-only's 0.574 / 0.528) — a real precision/recall
+   frontier, not one design dominating. Chosen because this pipeline is
+   deliberately **pessimistic**: a missed real story (false negative) is
+   an unrecoverable blind spot for a downstream SEMANTIC score/knowledge
+   graph, while a false alarm is a story a downstream consumer can still
+   discount — the same "recall over precision" reasoning this document
+   already applied to the negative class alone, now generalized to both
+   directional classes because chunk-level is the only design with strong
+   recall on both. Full comparison, diagnosis, and rejected-fix evidence:
+   `docs/evaluation.md`'s 2026-09-13 follow-up. **Merged (2026-09-13)**:
+   `src/pipeline.py`'s `SENTIMENT_MODEL` now points at
+   `gamug/FinBERT-financial-news`, with `run_sentiment_stage` doing the
+   chunk-level entity-scoped weighting from PR #42 (`_text_mentions_subject`/
+   `_sentiment_chunk_weights`) — verified end-to-end against real
+   production data (a live smoke test scored 3 previously-unscored
+   articles correctly, including the "A"/"ON" ticker-collision cases from
+   this same investigation). This section's item is now fully closed, not
+   just a recorded recommendation.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical

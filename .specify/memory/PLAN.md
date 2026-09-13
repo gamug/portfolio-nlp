@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
@@ -264,7 +264,8 @@ not implemented" and still isn't. This is the "pending to improve, even
 after changes" stage: the changes made so far improved *measurement*, not
 the *model*.
 
-**Approach**:
+**Approach** (superseded 2026-09-13 — see "Executed" below; kept for
+provenance):
 
 1. Make an explicit design decision among (at least) three candidates,
    rather than defaulting to the first one tried:
@@ -287,17 +288,120 @@ the *model*.
    a dated follow-up in `docs/evaluation.md` plus an update to `SPEC.md`
    §13 item 1 and §9's sentiment row.
 
+**Executed (2026-09-13)**: rather than picking one candidate up front, all
+three were actually built and measured head-to-head on the *same* 2,000
+-article pool (seed=1), after first fixing a sampling bug and diagnosing
+a separate ticker-collision data-quality bug (see `docs/evaluation.md`'s
+2026-09-13 follow-up for both):
+
+- **(a) Chunk-level entity-scoped re-scoring** (PR #42,
+  `feat/sentiment-entity-scoped`): `chunk_text` + `article_entities`
+  gate each chunk's contribution to the company's score
+  (`_SENTIMENT_SUBJECT_WEIGHT`/`_SENTIMENT_BASELINE_WEIGHT`). Result:
+  `recall_negative` 0.856, `precision_negative` 0.376, `macro_f1_vs_judge`
+  0.625. Base FinBERT, unchanged weights.
+- **(b) Title-only scoring** (PR #43,
+  `feat/sentiment-title-only`, branched fresh off master per explicit
+  instruction not to merge (a) if this was untried): score only the
+  headline. Result: `recall_negative` dropped to 0.533 (the headline
+  alone loses too much signal), `precision_negative` 0.484,
+  `macro_f1_vs_judge` 0.620 — not a win.
+- **(c) Fine-tuned FinBERT + chunk-level weighting** (this branch,
+  `feat/finbert-financial-news-finetune`): continued fine-tuning of
+  `ProsusAI/finbert` on 5,000 sentences LLM-labeled (DeepSeek,
+  investor/price-impact framing matching Financial PhraseBank
+  convention) from the same article pool touched by prior sentiment
+  evals, stratified 80/10/10 split, `Trainer` continued-training for 4
+  epochs. Held-out test set: accuracy 0.813, macro F1 0.774. Wired into
+  the same chunk-level entity-scoped aggregation as (a) and re-run on the
+  same 2,000-article pool: `recall_negative` 0.812, `precision_negative`
+  **0.505**, `f1_negative` 0.623, `macro_f1_vs_judge` **0.737**,
+  `agreement_rate` **0.697**, `recall_positive` **0.790**. Published to
+  Hugging Face Hub as `gamug/FinBERT-financial-news` (model card includes
+  training data/procedure and both the held-out and downstream-pipeline
+  metrics). Full table: `docs/evaluation.md`'s 2026-09-13 follow-up.
+
+None of the three has been merged into `master`/wired into
+`SENTIMENT_MODEL` yet. (c) is the strongest result on every headline
+metric except `recall_negative` (0.812 vs (a)'s 0.856), and was
+documented as such rather than silently picked as "the" answer.
+
+**Decision (2026-09-13): (c) selected as the production candidate**,
+after one more real round of investigation into why `precision_negative`/
+`precision_positive` still sat around 0.50-0.65 post-idiom-fix. Diagnosis
+first: a confusion-matrix read of eval_run 30 found 40.6% of directional
+predictions were false alarms on judge-neutral articles (vs. only 7.6%
+genuine positive↔negative flips), and reading the judge's own rationale
+text for all 435 such cases found 89% were multi-company/mixed-signal
+roundup articles — a document-structure/aggregation limitation, not a
+sentence-classification error. Three candidate fixes were tested on real
+data and rejected (confidence threshold, subject-chunk-coverage gate,
+zero-shot "realized vs. speculative" materiality gate reusing the
+category stage's model) — none discriminated false alarms from correct
+predictions above chance, confirming this is the same net-signal
+reasoning gap flagged at the start of the whole investigation. (b),
+title-only scoring, was then re-tested with the fine-tuned model as a
+genuine alternative (it sidesteps aggregation entirely): it wins on
+precision (0.619/0.670 negative/positive) and overall agreement (0.746),
+but chunk-level wins recall on **both** directional classes (0.808/0.801
+vs. title-only's 0.574/0.528) — a real frontier, not a dominated design.
+(c) was chosen because this pipeline is deliberately **pessimistic** — a
+missed real story (false negative) is an unrecoverable blind spot for a
+downstream SEMANTIC score/knowledge graph, while a false alarm is
+something a downstream consumer can still discount. This generalizes the
+project's existing "recall over precision" reasoning (previously argued
+for the negative class alone) to both directional classes, since (c) is
+the only design with strong recall on both. Full comparison and rejected-
+fix evidence: `docs/evaluation.md`'s 2026-09-13 follow-up. **Merged
+(2026-09-13)**: (c) is wired into `src/pipeline.py` — `SENTIMENT_MODEL`
+now `gamug/FinBERT-financial-news`, `run_sentiment_stage` doing
+chunk-level entity-scoped weighting (`_text_mentions_subject`/
+`_sentiment_chunk_weights`, cherry-picked from `feat/sentiment-entity-
+scoped`/PR #42's final chunk-level revision), `db.fetch_pending_
+sentiment_articles` added for the `(company, ticker)` fetch. Verified
+end-to-end against real production data (not just the hermetic test
+suite): a live smoke test on 3 previously-unscored articles loaded the
+model on CUDA and wrote correct results, including the exact "A"/"ON"
+ticker-collision cases this investigation found earlier. Full test suite
+(225 tests, up from 214 — PR #42's `test_sentiment_pipeline.py` and
+`test_schema.py` additions came along), ruff, and mypy all green.
+
+**Known limitation, disclosed not hidden — then fixed the same day**: a
+manual spot-check of the published fine-tuned model found it still
+mislabeled an idiomatic sentence ("...crushed earnings.") as negative —
+the same idiom-recognition gap that motivated fine-tuning in the first
+place. Rather than leave this as an accepted gap, it was diagnosed
+(mining showed the original 5,000-sentence draw contained almost none of
+this idiom family by chance — a coverage gap, not a labeling error) and
+fixed: 900 more sentences mined from the full corpus, correctly split by
+the idiom's two-directional polarity ("stock got crushed" = negative vs.
+"crushed estimates" = positive — ruling out a lexicon-override
+shortcut), 100 held out as a never-trained probe. Result: probe accuracy
+0.750→0.870, with the exact original bug case now correct
+("crushed earnings" → positive, 0.935 confidence), and the downstream
+2,000-article pipeline comparison holding steady (every metric within
+±0.01 of the pre-fix version). Model updated in place at the same Hub
+repo. Full account: `docs/evaluation.md`'s 2026-09-13 "crushed earnings
+idiom gap" follow-up.
+
 **Acceptance criteria**:
 
 - A design decision is made and documented (which candidate, and why —
   same style as the "Why recall, not F1" / "Why precision, not recall"
-  write-ups already in `docs/evaluation.md`).
+  write-ups already in `docs/evaluation.md`). **Done 2026-09-13**: (c),
+  chunk-level + fine-tuned FinBERT, selected as the production candidate,
+  with the "pessimistic, strong recall on both directional classes"
+  rationale documented above and in `docs/evaluation.md`. **Merged into
+  `src/pipeline.py` the same day** — see above.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
-  before/after comparison is drawn.
+  before/after comparison is drawn. **Done** — all three candidates were
+  compared against the same 2,000-article pool (seed=1).
 - The chosen change measurably improves `negative` precision (or another
   explicitly-justified metric) without collapsing `recall_negative` below
-  its current range, confirmed via a post-change eval run.
-- `SPEC.md` §13 item 1 and §9 updated with the dated result.
+  its current range, confirmed via a post-change eval run. **Done** for
+  candidate (c): `precision_negative` 0.376→0.505, `recall_negative`
+  stays in-range at 0.812.
+- `SPEC.md` §13 item 1 and §9 updated with the dated result. **Done.**
 
 ## Work item 5 — Category: hold the line on the hierarchical fix
 

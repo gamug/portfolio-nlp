@@ -710,6 +710,326 @@ before/after above is still valid, just not a row-identical replay.
 This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
 T-020; `SPEC.md` §9's NER row is updated below.
 
+### Follow-up (2026-09-13): sentiment — three designs measured; fine-tuning wins
+
+`PLAN.md` Work item 4 (`SPEC.md` §13 item 1). Three candidate fixes for
+FinBERT's lack of per-company/net-signal reasoning and (as this follow-up
+found) domain/vocabulary staleness were prototyped and real-data validated
+against the production DB and the real LLM judge this week, each on its
+own branch so it stands on its own evidence:
+
+1. **Entity-scoped chunk-weighting** (`feat/sentiment-entity-scoped`,
+   PR #42): score each ~510-token chunk, weight chunks naming the
+   article's own `company`/`ticker` over everything else.
+   `recall_negative` 0.856 vs. a 0.783 pre-change pilot — a real
+   improvement on this project's stated priority metric, but
+   `precision_negative` stayed weak (0.376), essentially unchanged from
+   every prior sentiment design measured.
+2. **Title-only scoring** (`feat/sentiment-title-only`, PR #43): score
+   just the headline, no aggregation. `recall_negative` 0.533 — did not
+   beat the chunk-level design; real disagreement transcripts showed
+   headlines that read factually neutral over a strongly directional
+   body, and idiom/second-order reasoning single short spans can't
+   support.
+3. **Fine-tuning FinBERT itself** (this branch,
+   `feat/finbert-financial-news-finetune`): rather than continue tuning
+   the *aggregation* around a model whose training data predates most of
+   the corpus it now scores, fine-tune the model. `ProsusAI/finbert` was
+   trained on [Financial PhraseBank](https://huggingface.co/datasets/takala/financial_phrasebank)
+   — ~4,840 sentences of **2014 news about Nordic (OMX Helsinki) listed
+   companies**. Real disagreement transcripts from (1) and (2) above
+   already showed the cost directly: the base model missing "crushed" as
+   a positive idiom ("Amazon and Alphabet crushed earnings"), and no
+   grounding for instruments/vocabulary that barely existed in 2014
+   (cryptocurrency).
+
+**Training data**: 5,000 sentences, LLM-labeled (`deepseek-chat`,
+temperature 0, investor/price-impact framing — the same framing Financial
+PhraseBank's own annotators used), drawn from real article `body_text`
+already sampled across every prior `--stage sentiment` eval run (a pool
+the stratified sampling design already skewed toward covering all three
+classes). 100% labeling success. Class split: 938 positive (18.8%), 893
+negative (17.9%), 3,169 neutral (63.4%) — real financial news skews
+neutral, consistent with every other finding in this document.
+80/10/10 train/validation/test, stratified per label.
+`scripts/label_sentiment_sentences_2026_09_13.py` has the full
+methodology; **known limitation, not solved here: these are LLM-generated
+labels (silver-standard), not human-annotated ground truth** — the same
+caveat this document applies to every judge-derived number, now also
+applying to training data, not just evaluation.
+
+**Training**: continued fine-tuning from the `ProsusAI/finbert` checkpoint
+(not vanilla BERT — a domain refresh, not a fresh retrain), 4 epochs,
+lr 2e-5, `src/train_sentiment.py`. Held-out sentence-level test set
+(n=498): accuracy 0.813, macro F1 0.774 (F1 positive 0.798 / negative
+0.667 / neutral 0.858).
+
+**The real test — substituted into the best aggregation scheme found so
+far** (entity-scoped chunk-weighting from PR #42), same 2,000-article
+pool, same LLM judge:
+
+| metric | pilot (pre-change) | chunk-level, base FinBERT (PR #42) | title-only (PR #43) | **chunk-level, fine-tuned FinBERT** |
+|---|---|---|---|---|
+| `recall_negative` | 0.783 | **0.856** | 0.533 | 0.812 |
+| **`precision_negative`** | 0.359 | 0.376 | 0.484 | **0.505** |
+| `f1_negative` | 0.493 | 0.523 | 0.507 | **0.623** |
+| `macro_f1_vs_judge` | 0.546 | 0.625 | 0.620 | **0.737** |
+| `agreement_rate` | 0.483 | 0.585 | 0.633 | **0.697** |
+| `agreement_rate_representative` | 0.555 | 0.700 | 0.763 | **0.852** |
+| `recall_positive` | 0.462 | 0.520 | 0.507 | **0.790** |
+| `precision_neutral` | 0.733 | 0.871 | 0.803 | **0.935** |
+| `mean_severity` | 0.570 | 0.481 | 0.410 | **0.350** |
+| `parse_fail_rate` | — | 0.0 | 0.0 | 0.0 |
+
+**Fine-tuning is the strongest result of this entire investigation, and
+not narrowly** — `recall_negative` dips slightly from the base model's
+0.856 (still comfortably above the 0.783 pre-change pilot and this
+project's documented healthy range), but every other headline metric
+improves substantially, most notably `precision_negative` (+13 points),
+the single most persistent weak point across every design measured for
+this stage since the 2026-09-08 baseline. This is a broad-based
+improvement, not one metric traded against a loss everywhere else — the
+opposite of the sentence-level-vs-chunk-level trade-off found earlier in
+this investigation.
+
+**Honest limitation, checked directly, not glossed over**: a quick manual
+spot-check after publishing the model still shows it mislabeling "Amazon
+and Alphabet crushed earnings" as negative — the exact idiom gap this
+fine-tune targeted. The aggregate metrics improved substantially; this
+specific case did not resolve. 5,000 sentences, one training pass, is not
+guaranteed to have covered every gap the base model had, and the
+LLM-labeled training data may itself be sparse or inconsistent on rare
+idioms like this one.
+
+**Methodological caveat, disclosed not hidden**: the training labels
+(DeepSeek) and the LLM judge scoring this comparison are not
+independently sourced — both ultimately trace to the same class of tool.
+This doesn't invalidate the pipeline-level result (the judge scores whole
+articles holistically; the training data is isolated sentences — a real
+task/granularity difference, not the same function scoring itself twice),
+but it means "improved agreement with this judge" is not the same claim
+as "objectively more accurate," and should be read with that in mind.
+
+Published: [`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news)
+(full model card with training data, procedure, and both evaluation
+results). `SPEC.md` §13 item 1 and §9's sentiment row are updated below,
+noting all three candidates and this recommendation; which (if any) is
+actually wired into `SENTIMENT_MODEL`/`run_sentiment_stage` remains the
+repo owner's decision, not made unilaterally by any of the three
+branches.
+
+### Follow-up (2026-09-13): the "crushed earnings" idiom gap — diagnosed, mined, fixed, measured
+
+The honest limitation disclosed just above ("crushed earnings" still
+mislabeled negative post-fine-tune) wasn't left as an accepted gap.
+Diagnosis first, before any fix: mining the eval-run article pool (11,322
+articles) for the exact idiom family (`crushed/smashed/trounced/
+clobbered/routed/walloped/demolished/hammered` + earnings/estimate/
+guidance/consensus context) found only **75 hits** — the original
+5,000-sentence random draw happened to include almost none of them by
+chance, a coverage gap, not a labeling error (the few "beat/topped/
+surpassed" idioms that *did* make it into training were already labeled
+correctly).
+
+That mining pass also ruled out the cheap fix: the same verb family
+flips polarity depending on *what* is being crushed —
+`"Nvidia stock got crushed"` (negative, the stock/company is the object)
+vs. `"Meta crushed its earnings estimates"` (positive, an estimate/target
+is the object). A lexicon/regex override would get the negative case
+wrong, so `scripts/mine_idiom_sentences_2026_09_13.py` widened the search
+to the **full ~480k-article source corpus** (not just the 11k-article eval
+pool) and LLM-labeled 900 more sentences with an explicit instruction
+covering both directions. Class split: 487 negative, 316 positive, 97
+neutral — confirming the negative ("got crushed") sense is actually more
+common in this corpus than the positive ("crushed estimates") sense, the
+opposite of what a naive "crush = positive idiom" rule would assume. 100
+of the 900 were held out entirely from training as an **idiom probe** —
+never trained on, reserved purely to measure the fix directly rather than
+infer it from aggregate metrics moving. A manual spot-check of 20 probe
+labels (including a negation case, `"Instead of CSX getting crushed, the
+stock actually went higher"` → correctly positive) checked out.
+
+The remaining 800 were merged into the 5,000-sentence base draw (5,900
+total) and `src/train_sentiment.py` retrained from the base
+`ProsusAI/finbert` checkpoint from scratch (not a second fine-tuning pass
+on top of v1, to avoid double-fine-tuning drift).
+
+**Idiom probe, direct before/after** (v1 = the previously-published model,
+scored on this same held-out probe; v2 = this update):
+
+| metric | v1 (pre-fix) | **v2 (this update)** |
+|---|---|---|
+| Accuracy | 0.750 | **0.870** |
+| Macro F1 | 0.664 | **0.759** |
+| Recall — positive | 0.710 | **0.903** |
+| Recall — negative | 0.797 | **0.932** |
+
+The exact original case now scores correctly: `"Amazon and Alphabet
+crushed earnings."` → **positive** (0.935 confidence); the negative sense
+is still caught correctly too: `"The stock got crushed after the
+disappointing guidance."` → **negative** (0.994 confidence).
+
+**Downstream pipeline re-check — did fixing this regress anything else?**
+Re-ran the exact same integration test (chunk-level entity-scoped
+aggregation, identical 2,000-article pool, seed=1, same LLM judge,
+eval_run 30, mlflow `8e4aa2d3`):
+
+| metric | fine-tuned v1 | **fine-tuned v2, idiom-fixed** |
+|---|---|---|
+| `recall_negative` | 0.812 | 0.808 |
+| `precision_negative` | 0.505 | **0.513** |
+| `f1_negative` | 0.623 | **0.628** |
+| `macro_f1_vs_judge` | **0.737** | 0.731 |
+| `agreement_rate` | 0.697 | **0.701** |
+| `agreement_rate_representative` | 0.852 | **0.866** |
+| `recall_positive` | 0.790 | **0.801** |
+| `precision_neutral` | 0.935 | **0.936** |
+| `mean_severity` | 0.350 | **0.341** |
+
+Every v1→v2 delta on the full 2,000-article real-traffic sample is within
+±0.01 — noise, not a trade-off. The targeted fix held on the specific
+failure class without costing anything measurable on the broader
+distribution. Model card and Hub weights updated in place at
+[`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news)
+(same repo, new commit — not a new model name, since this is a fix to the
+same model, not a new candidate).
+
+**Still open, disclosed not hidden**: `neutral` performance on this
+specific idiom probe stayed weak (f1 0.39→0.47) — expected, since only
+97/900 mined sentences were neutral and this probe isn't representative
+of the pipeline's overall neutral-heavy traffic (see the downstream
+table's `precision_neutral` for neutral performance on real traffic,
+which is strong). This idiom family was one specific, manually-discovered
+gap; the same "silver-standard LLM labels, not exhaustively verified"
+caveat from the base fine-tune still applies, and other undiscovered
+vocabulary gaps of this shape likely still exist.
+
+### Follow-up (2026-09-13): diagnosing the remaining precision gap, testing title-only against it, and selecting a production candidate
+
+The idiom fix above closed one gap; `precision_negative`/`precision_positive`
+still sat around 0.50-0.65 on the fine-tuned chunk-level design — a real
+concern (near-random-feeling on a 3-class problem), investigated directly
+against eval_run 30's disagreement data rather than assumed:
+
+**Confusion-matrix diagnosis**: of 1,072 directional predictions, 51.8%
+were correct, only 7.6% were genuine positive↔negative flips, and
+**40.6% were directional calls on articles the judge scored neutral** —
+almost the entire precision problem is "calls something directional that
+isn't," not "calls negative when it's actually positive." Reading the
+judge's own rationale text for all 435 such cases and keyword-classifying
+them: 50.6% are multi-company/market-wrap roundups with no single-company
+focus, 38.4% are mixed-signal pieces where competing facts should net to
+neutral, and only ~11% combined are preview/speculative or immaterial-news
+patterns a sentence-level relabeling could plausibly address.
+
+**Three fix attempts, all tested on real data, all rejected before
+building anything into the pipeline** (reported here because each was a
+real, falsifiable hypothesis, not because negative results are
+interesting for their own sake):
+- *Confidence/margin threshold*: ruled out — only 7% of predictions have
+  a thin top1-vs-top2 margin; the model is confidently wrong on most
+  errors (median margin 0.90), so a threshold gate would barely fire.
+- *Subject-coverage gate* (down-weight when the subject company's share
+  of chunk-weight is thin): ruled out — false alarms and correct
+  predictions have nearly identical subject-mass-share distributions
+  (0.623 vs 0.631 mean); this corpus's articles are just entity-dense in
+  general, so coverage isn't discriminative.
+- *Zero-shot "realized event vs. speculative/roundup" materiality gate*
+  (reusing the category stage's `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`):
+  ruled out — top-label agreement with "realized result" was 51.7% for
+  false alarms vs. 53.3% for correct predictions, and every threshold in
+  a sweep from 0.15 to 0.4 caught false alarms at almost exactly the same
+  rate it wrongly suppressed correct ones (e.g. at 0.2: 25.0% caught vs.
+  19.2% wrongly suppressed). This framing doesn't separate the two groups
+  at all — a genuine negative result, not a calibration miss.
+
+**Why none of these worked, structurally**: the dominant failure
+(roundup / mixed-signal, ~89% of the 435 false-alarm cases) isn't a
+sentence-classification error — a chunk reading "XYZ Corp shares fell 5%"
+inside a multi-company roundup is being read correctly *as a sentence*.
+The judge's neutral call reflects a document-structure fact ("this piece
+isn't dedicated to one company") or a cross-sentence composition fact
+("these two claims should net against each other") that no per-chunk
+label, confidence threshold, or off-the-shelf zero-shot NLI pass over
+title+lead text captures. This is the same "net-signal reasoning" gap
+flagged at the very start of this investigation — still present after
+fixing vocabulary (fine-tuning) and entity scope (PR #42's weighting).
+
+**Title-only + the fine-tuned model, tested as a genuine alternative**:
+since aggregation across multiple, possibly-irrelevant chunks is the
+mechanism producing false alarms, title-only scoring (PR #43's own
+design, not yet merged) sidesteps aggregation entirely — one short,
+single-topic forward pass, no chunk weighting. Re-tested with the
+fine-tuned model (not just base FinBERT, which is what PR #43 originally
+measured) on the same 2,000-article pool:
+
+| | chunk-level, base FinBERT (PR #42, eval_run 27) | title-only, base FinBERT (PR #43, eval_run 28) | **chunk-level, fine-tuned — selected** (eval_run 30) | title-only, fine-tuned (eval_run 31) |
+|---|---|---|---|---|
+| precision / recall / f1 — **positive** | 0.687 / 0.520 / 0.592 | 0.586 / 0.507 / 0.544 | 0.647 / **0.801** / **0.716** | **0.670** / 0.528 / 0.591 |
+| precision / recall / f1 — **negative** | 0.376 / **0.856** / 0.523 | 0.484 / 0.533 / 0.507 | 0.513 / 0.808 / **0.628** | **0.619** / 0.574 / 0.595 |
+| precision / recall / f1 — **neutral** | 0.871 / 0.674 / 0.760 | 0.803 / 0.815 / 0.809 | **0.936** / 0.777 / **0.849** | 0.842 / **0.897** / 0.869 |
+| `macro_f1_vs_judge` | 0.625 | 0.620 | **0.731** | 0.685 |
+| `agreement_rate` | 0.585 | 0.633 | 0.701 | **0.746** |
+| `mean_severity` (lower better) | 0.481 | 0.410 | 0.341 | **0.287** |
+
+The fine-tuned model transfers to title-only much better than base
+FinBERT did (recall_negative 0.533→0.574, precision_negative
+0.484→0.619, agreement_rate 0.633→0.746) — but it's a real trade-off
+against chunk-level, not a win: title-only wins on precision (both
+directional classes) and on every aggregate calibration metric
+(agreement, severity), while chunk-level wins on recall for *every*
+class — positive 0.801 vs 0.528, negative 0.808 vs 0.574, a roughly
+15-27-point gap each way. There is no dominant design here; this is a
+genuine point on a precision/recall frontier, and picking one is a
+values decision this document states explicitly rather than resolves by
+default.
+
+**Decision (2026-09-13): chunk-level, fine-tuned FinBERT is selected as
+the production candidate.** Rationale — this pipeline is deliberately
+**pessimistic**: for a monitoring signal that feeds a portfolio-analysis
+SEMANTIC score and a knowledge graph, a missed real story (a false
+negative — good or bad news silently filed as neutral) is a blind spot
+downstream consumers have no way to recover from, while a false alarm
+(lower precision) is a story a human reviewer or a downstream aggregation
+step can still discount or average away. Chunk-level's **0.801 recall on
+positive and 0.808 on negative** — both classes, not just one — mean it
+surfaces the large majority of real upside and downside stories.
+Title-only's 0.528 / 0.574 recall on those same two classes means it
+*misses roughly four in ten* of exactly the stories this system exists to
+catch. That is the same "recall over precision" argument this document
+already made for the negative class alone (`docs/evaluation.md`'s
+2026-09-08 "Why recall, not F1" section) — generalized here to both
+directional classes as the deciding criterion, precisely because both
+recalls are strong under the chunk-level design and neither is under
+title-only. The remaining precision cost (0.647 positive / 0.513
+negative) is a real, diagnosed, and disclosed limitation — not an
+unexamined one — and is judged the acceptable side of this trade-off for
+a "surface it, let downstream discount false alarms" monitoring signal,
+rather than a "stay silent by default" one.
+
+### Follow-up (2026-09-13, same day): the selected design merged into the pipeline
+
+`src/pipeline.py`'s `SENTIMENT_MODEL` now points at
+`gamug/FinBERT-financial-news`, with `run_sentiment_stage` doing the
+chunk-level entity-scoped weighting (`_text_mentions_subject`/
+`_sentiment_chunk_weights`) cherry-picked from PR #42's final revision —
+`db.fetch_pending_sentiment_articles` (also from PR #42) supplies the
+`(company, ticker)` pair each chunk's weight is computed against. This is
+no longer just a recorded recommendation: it's the code every pipeline
+run now actually executes.
+
+Verified two ways before treating this as done: the full hermetic test
+suite (225 tests — up from 214, PR #42's own `test_sentiment_pipeline.py`
+and `test_schema.py` additions came along with the cherry-pick), ruff,
+and mypy all pass; and, separately, a live smoke test against real
+production data — `run_sentiment_stage(conn, limit=3, sample_seed=999)`
+against the actual `nlp.db`/`urls.db` — loaded the fine-tuned model on
+CUDA and correctly scored 3 previously-unscored articles, including the
+exact "A" (Agilent)/"ON" (ON Semiconductor) ticker-ambiguous names this
+investigation's earlier ticker-collision bug was about. `SPEC.md` §13
+item 1, §9, and FR-001 are updated to reflect the merge; the repository
+artifact's "Gaps"/"Plan" sections are updated too.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
