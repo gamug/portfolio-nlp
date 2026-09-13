@@ -6,6 +6,7 @@ read/write, one line each:
 Read (pipeline "pending" fetchers -- drive the "what's left to process" loop):
     fetch_pending_articles              -- (id, body_text) rows missing from a given result table
     fetch_pending_category_articles     -- (id, title, body_text) rows missing from article_category
+    fetch_pending_sentiment_articles    -- (id, company, ticker, body_text) rows missing from article_sentiment
     fetch_pending_company_summaries     -- raw fields for articles ready for c_summary generation
     build_company_summary_input         -- (pure, no SQL) assembles one c_summary prompt from a
                                             fetch_pending_company_summaries row
@@ -184,6 +185,37 @@ def fetch_pending_articles(
         return [by_id[i] for i in sampled_ids if i in by_id]
 
     sql = f"SELECT a.id, a.body_text {base_sql} ORDER BY a.id"
+    params: list = []
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    return conn.execute(sql, params).fetchall()
+
+
+def fetch_pending_sentiment_articles(conn: NewsNlpDatabase, limit: int | None = None) -> list[Row]:
+    """Return (id, company, ticker, body_text) rows from `articles` not yet
+    present in article_sentiment, same eligibility filter as
+    fetch_pending_articles. A dedicated query (not a widened
+    fetch_pending_articles), same reasoning as fetch_pending_category_articles:
+    that function's (id, body_text) two-tuple shape is unpacked directly at
+    the NER call site -- widening it would break that.
+
+    `company`/`ticker` are for run_sentiment_stage's entity-scoped
+    aggregation (PLAN.md Work item 4 step 1, chosen 2026-09-12): which
+    sentences actually name the article's own subject company, as opposed
+    to a different company or generic market commentary."""
+    # S608: _articles_rel(conn) is only ever "main" / "source"; `limit` is
+    # bound as a parameter below, not interpolated.
+    sql = f"""
+        SELECT a.id, a.company, a.ticker, a.body_text
+        FROM {_articles_rel(conn)}.articles a
+        LEFT JOIN article_sentiment r ON r.article_id = a.id
+        WHERE r.article_id IS NULL
+          AND a.fetch_status = 'ok'
+          AND a.body_text IS NOT NULL
+          AND TRIM(a.body_text) != ''
+        ORDER BY a.id
+    """  # noqa: S608
     params: list = []
     if limit:
         sql += " LIMIT ?"
