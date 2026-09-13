@@ -710,6 +710,96 @@ before/after above is still valid, just not a row-identical replay.
 This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
 T-020; `SPEC.md` §9's NER row is updated below.
 
+### Follow-up (2026-09-13): sentiment — two designs prototyped and real-data validated; title-only does not win
+
+`PLAN.md` Work item 4 (`SPEC.md` §13 item 1, "sentiment is the weakest
+stage" — `macro_f1_vs_judge` 0.40, `negative` precision 0.359 in the
+2026-09-08 pilot). Two candidate fixes for FinBERT's lack of per-company/
+net-signal reasoning were prototyped and validated against the real
+production DB and the real LLM judge this week, on branches kept separate
+so each could be judged on its own evidence:
+
+1. **Entity-scoped chunk-weighting** (`feat/sentiment-entity-scoped`,
+   PR #42, **not merged as of this writing** — the repo owner's explicit
+   call, pending this second comparison): `run_sentiment_stage` scores
+   each ~510-token chunk (as before) but weights chunks naming the
+   article's own `company`/`ticker` over everything else. Its own
+   real-data validation (same branch's commit history) went through a
+   sentence-level-scoring false start before landing on chunk-level, and
+   surfaced an unrelated upstream data-quality bug (a ticker-collision
+   issue affecting ~29% of the corpus) along the way — full account on
+   that branch's own commits, not repeated here.
+2. **Title-only scoring** (this branch, `feat/sentiment-title-only`):
+   `run_sentiment_stage` scores just the article's `title` in one forward
+   pass — no chunking, no weighting, no aggregation at all. Financial
+   headlines conventionally state the primary event and its direction
+   plainly (inverted-pyramid style), so this sidesteps the
+   multi-sentence-aggregation problem entirely, and never reads
+   `company`/`ticker` at all (immune to the ticker-collision bug above by
+   construction). New `fetch_pending_sentiment_titles` query, `Chunk`/
+   `chunk_text` no longer used by this stage.
+
+**Four-way comparison**, all `--seed 1`, all against the same LLM judge,
+all drawn from the **identical 2,000-article pool** (title-only,
+chunk-level, and the failed sentence-level attempt all scored the exact
+same articles — confirmed by comparing `article_id` sets before running
+each eval):
+
+| metric | pilot (pre-change, n=800) | sentence-level (n=1500) | **title-only (n=1500)** | chunk-level (n=1500, PR #42) |
+|---|---|---|---|---|
+| **`recall_negative`** (headline) | 0.783 | 0.531 | **0.533** | 0.856 |
+| `precision_negative` | 0.359 | 0.449 | 0.484 | 0.376 |
+| `f1_negative` | 0.493 | 0.486 | 0.507 | 0.523 |
+| `macro_f1_vs_judge` | 0.546 | 0.652 | 0.620 | 0.625 |
+| `agreement_rate` | 0.483 | 0.648 | 0.633 | 0.585 |
+| `agreement_rate_representative` | 0.555 | 0.840 | 0.763 | 0.700 |
+| `recall_neutral` | 0.526 | 0.811 | 0.815 | 0.674 |
+| `precision_neutral` | 0.733 | 0.839 | 0.803 | 0.871 |
+| `recall_positive` | 0.462 | 0.646 | 0.507 | 0.520 |
+| `mean_severity` | 0.570 | 0.393 | 0.410 | 0.481 |
+| `parse_fail_rate` | — | 0.0 | 0.0 | 0.0 |
+
+**Title-only does not win.** Its `recall_negative` (0.533) lands almost
+exactly on top of the *failed* sentence-level attempt's (0.531) — both
+well below the pre-change pilot's 0.783 and the documented healthy range
+(0.62-0.78) — and dramatically below chunk-level's 0.856. Reading real
+`severity=2` disagreements for this run shows why, and it's the specific
+risk flagged before running it (`fetch_pending_sentiment_titles`'s own
+docstring): financial headlines are *not* reliably directional the way
+the inverted-pyramid assumption predicts.
+
+- *"Michael Dell to Cut Costs, Management at PC Maker"* — a flatly
+  factual headline over a body describing a genuine crisis (lawsuit,
+  accounting probe, lost market leadership, the CEO calling results
+  "unacceptable"). Model: positive. Judge: negative.
+- *"Amazon and Alphabet crushed earnings. What will be the next breakout
+  tech company?"* — "crushed" reads as strongly positive to a human;
+  FinBERT (Financial PhraseBank, ~2014) may simply lack that idiom in its
+  training vocabulary. Model: negative. Judge: positive.
+- *"Jefferies upgrades First Solar... due to looming import
+  restrictions"* — "restrictions" reads bearish in isolation, but the
+  headline's own logic (restrictions favor this company's domestic
+  manufacturing) makes it bullish for the specific subject — a
+  second-order read a single short span can't support. Model: negative.
+  Judge: positive.
+
+Two short-span designs (isolated sentences, isolated titles) converge on
+the same ~0.53 `recall_negative` failure; the design that preserves
+several sentences of real context (chunk-level) does not. That's a
+strong signal the operative variable is **context window**, not
+"chunking plus company-weighting" as a bundle — a title is exactly as
+short as a sentence, and fails the same way, even without any
+aggregation logic at all to blame.
+
+**Where this leaves Work item 4**: two real, validated data points now
+exist for the repo owner's decision (`PLAN.md` Work item 4's "make an
+explicit design decision" step, not re-closed by this follow-up since
+the two candidates disagree on the outcome). Chunk-level entity-scoping
+(PR #42) is the stronger measured result on this project's stated
+priority metric; title-only (this branch) is not recommended for merge
+on the evidence above. `SPEC.md` §13 item 1 is updated to record both
+results rather than pick a winner unilaterally.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

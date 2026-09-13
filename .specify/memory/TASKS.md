@@ -139,7 +139,7 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (priority, pending)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (two designs validated 2026-09-13; merge decision open)
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
@@ -150,26 +150,45 @@ reasoning the judge applies) is diagnosed but **not implemented**. This is
 the stage still "pending to improve" despite the changes already made.
 → `PLAN.md` Work item 4, `SPEC.md` §13 item 1.
 
-- [ ] **T-030** Design decision (not yet chosen) for closing the reasoning
-      gap in `run_sentiment_stage` (`src/pipeline.py`): candidates include
+- [x] **T-030** Design decision for closing the reasoning gap in
+      `run_sentiment_stage` (`src/pipeline.py`): candidates were
       entity-scoped re-scoring using `article_entities`, a different
       sentiment model, or an explicit net-signal heuristic layered on the
-      existing chunk-averaged score. → `PLAN.md` Work item 4, step 1.
+      existing chunk-averaged score. **Two candidates prototyped and
+      real-data validated 2026-09-13, on separate branches, neither
+      merged**: entity-scoped chunk-weighting (`feat/sentiment-entity-scoped`,
+      PR #42) reached `recall_negative` 0.856 vs. the 0.783 pilot — the
+      stronger result, pending the repo owner's merge decision. Title-only
+      scoring (`feat/sentiment-title-only`, this branch — a cheaper
+      relative of the "net-signal heuristic" candidate) reached 0.533,
+      matching a failed sentence-level attempt tried en route to the
+      chunk-level result, not recommended for merge on that evidence. The
+      third candidate (a different/fine-tuned model) is unexplored. Full
+      four-way comparison + real disagreement transcripts:
+      `docs/evaluation.md`'s 2026-09-13 follow-up. → `PLAN.md` Work item 4,
+      step 1.
 - [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
       recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
-      "Sample-size floor") — only one stratified pilot (n=800) exists so
-      far; a floor-sized run is needed before today's `recall_negative` /
-      `precision_negative` can be trusted as a stable `--check-regression`
-      baseline. → step 2.
+      "Sample-size floor") — only one stratified pilot (n=800, pre-change)
+      exists so far; a floor-sized run is needed before
+      `recall_negative`/`precision_negative` can be trusted as a stable
+      `--check-regression` baseline for whichever design (if either)
+      actually merges. The 2026-09-13 comparisons used n=1500 to move
+      through multiple reprocessing/eval cycles in one sitting, not as
+      this permanent baseline. → step 2.
 - [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
       estimates using T-031's actual measured per-stratum agreement
       (`strata_json` / `agreement_rate_target_negative` etc.) instead of
       today's planning-only estimates, before locking in a permanent
       `--sample-size` default. → step 3.
-- [ ] **T-033** After T-030 ships a change, re-run the eval and add a dated
-      follow-up entry to `docs/evaluation.md`; update `SPEC.md` §13 item 1
-      and §9's sentiment baseline row with the result. → step 4 /
-      `PLAN.md` Work item 4 acceptance criteria.
+- [ ] **T-033** *(maintainer)* Decide which design (if either, as shipped)
+      merges — not resolved unilaterally by either branch. Once decided:
+      re-run the eval as the registered floor-sized baseline (T-031),
+      add a dated follow-up entry to `docs/evaluation.md`, and update
+      `SPEC.md` §13 item 1 and §9's sentiment baseline row to reflect the
+      merged state (§13 item 1 already records both candidates' numbers;
+      §9 still awaits the merge decision). → step 4 / `PLAN.md` Work
+      item 4 acceptance criteria.
 
 ## Work item 5 — Category: hold the line on the hierarchical fix (validation only, low priority)
 

@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (two designs validated 2026-09-13; neither merged)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
@@ -264,40 +264,83 @@ not implemented" and still isn't. This is the "pending to improve, even
 after changes" stage: the changes made so far improved *measurement*, not
 the *model*.
 
+**Status as of 2026-09-13**: two of the three candidates below were
+prototyped and real-data validated (against the real production DB and
+the real LLM judge, not just hermetic tests), on separate branches so
+each stands on its own evidence — see `docs/evaluation.md`'s 2026-09-13
+follow-up for the full four-way comparison:
+
+- **Entity-scoped chunk-weighting** (`feat/sentiment-entity-scoped`,
+  PR #42) — `recall_negative` 0.856 vs. the 0.783 pre-change pilot. The
+  stronger measured result. **Not merged** as of this writing — the repo
+  owner's explicit call, pending the comparison below.
+- **Title-only scoring** (`feat/sentiment-title-only`, this branch) —
+  `recall_negative` 0.533, essentially matching a *failed* sentence-level
+  attempt tried en route to the chunk-level result above, not the
+  pre-change pilot. **Not recommended for merge** on this evidence —
+  real disagreement transcripts show headlines that are factually neutral
+  over a strongly directional body, or that need idiom/second-order
+  financial reasoning a single short span can't support.
+- The third candidate (a different/fine-tuned model) remains
+  unexplored.
+
+Which design (if either, as shipped) actually merges is a decision for
+the repo owner, not resolved unilaterally by either branch.
+
 **Approach**:
 
 1. Make an explicit design decision among (at least) three candidates,
    rather than defaulting to the first one tried:
    - Entity-scoped re-scoring: use `article_entities` to narrow FinBERT's
      input to company-relevant spans/sentences instead of the whole body.
+     **Prototyped as chunk-level company/ticker weighting** (not
+     `article_entities` itself — see PR #42's own history for why) —
+     real-data validated, `recall_negative` 0.856. Not merged.
    - A different or fine-tuned sentiment model with company-aware framing
-     closer to the judge's own reasoning.
+     closer to the judge's own reasoning. **Not explored.**
    - An explicit net-signal heuristic layered on top of the existing
      chunk-averaged score (e.g. down-weighting chunks with no company
      mention) — cheapest to try, least likely to fully close the gap.
+     **A close relative was tried as title-only scoring instead** (an
+     even cheaper single-span approach) — real-data validated,
+     `recall_negative` 0.533, not recommended.
 2. Before evaluating any change, get a stable floor-sized baseline: only
    one stratified pilot (n=800) exists so far, and `docs/evaluation.md`'s
    own "Sample-size floor" section recommends ~1,800-2,200 for a
-   regression-tracked number. Run that first, `--seed`-pinned.
+   regression-tracked number. Run that first, `--seed`-pinned. **Not done
+   as a dedicated step** — both 2026-09-13 comparisons used n=1500 to move
+   through multiple reprocessing/eval cycles in one sitting; a deliberate
+   floor-sized run against whichever design (if either) actually merges
+   is still open.
 3. Re-solve the sample-size-floor purity estimates using this run's actual
    measured per-stratum agreement (today's numbers are planning
    estimates, explicitly flagged as such) before locking in a permanent
-   `--sample-size` default for future sentiment regression runs.
+   `--sample-size` default for future sentiment regression runs. **Not
+   done** — depends on step 2 against a merged design.
 4. Implement the chosen design, re-run the eval, and record the result as
    a dated follow-up in `docs/evaluation.md` plus an update to `SPEC.md`
-   §13 item 1 and §9's sentiment row.
+   §13 item 1 and §9's sentiment row. **Done for both prototypes'
+   real-data comparison** (`docs/evaluation.md`'s 2026-09-13 follow-up,
+   `SPEC.md` §13 item 1) — **not done** for §9's baseline row, which
+   should reflect whichever design actually merges, not a still-open
+   comparison.
 
 **Acceptance criteria**:
 
 - A design decision is made and documented (which candidate, and why —
   same style as the "Why recall, not F1" / "Why precision, not recall"
-  write-ups already in `docs/evaluation.md`).
+  write-ups already in `docs/evaluation.md`). **Two candidates measured,
+  decision on which (if either) ships still open** — see "Status" above.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
-  before/after comparison is drawn.
+  before/after comparison is drawn. **Not done as a dedicated,
+  registered run** — see step 2.
 - The chosen change measurably improves `negative` precision (or another
   explicitly-justified metric) without collapsing `recall_negative` below
-  its current range, confirmed via a post-change eval run.
-- `SPEC.md` §13 item 1 and §9 updated with the dated result.
+  its current range, confirmed via a post-change eval run. **Done for
+  entity-scoped chunk-weighting** (`recall_negative` 0.856, PR #42, not
+  merged); **not met by title-only** (0.533, collapses the range).
+- `SPEC.md` §13 item 1 and §9 updated with the dated result. **§13 item 1
+  done** (records both results); **§9 pending** a merge decision.
 
 ## Work item 5 — Category: hold the line on the hierarchical fix
 

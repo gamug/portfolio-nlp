@@ -466,16 +466,23 @@ treating a related FR/NR as done:
 
 1. **Sentiment is the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
    whole-article softmax average has no per-company or net-signal reasoning
-   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
-   as a pipeline-level design question (entity-scoped sentiment?), not
-   started. **Update (2026-09-12): promoted to active, priority work** —
-   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-033. The measurement side has
-   since improved (text-scope fix, stratified sampling, `recall_negative`
-   as headline metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups),
-   but the model-side gap described here is still unimplemented: the latest
-   pilot (eval_run 18, n=800) still shows `negative` precision only 0.359.
-   Still open, now tracked as a queued task rather than an accepted
-   limitation.
+   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). **Update
+   (2026-09-12/13): two designs prototyped and real-data validated, neither
+   merged as of this writing** — `PLAN.md` Work item 4 / `TASKS.md`
+   T-030–T-034, `docs/evaluation.md`'s 2026-09-13 follow-up has the full
+   four-way comparison. (a) Entity-scoped chunk-weighting (branch
+   `feat/sentiment-entity-scoped`, PR #42): `recall_negative` 0.856 vs. the
+   0.783 pre-change pilot — the stronger measured result, but **not merged**
+   pending this second comparison. (b) Title-only scoring (branch
+   `feat/sentiment-title-only`, this repo's current state): scores just the
+   headline, no aggregation at all — `recall_negative` 0.533, essentially
+   matching a *failed* sentence-level attempt tried en route to (a), and
+   **not recommended for merge** on this evidence. Real disagreement
+   transcripts show title-only failing on headlines that are factually
+   neutral over a strongly directional body, or that need financial-domain
+   idiom/second-order reasoning a single short span can't support. Still
+   open: which design (if either, as-is) actually ships is the repo owner's
+   call, not resolved unilaterally by either branch.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical

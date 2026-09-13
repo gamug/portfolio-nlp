@@ -12,7 +12,13 @@ Sentiment, NER, and category (stages 1–3) always run. `c_summary`/`sector_summ
 API's `/pipeline/run` body; the default (`summarize=False`) skips them entirely, so the
 summarization model never loads and its VRAM/latency cost is never paid unless asked for.
 
-1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`.
+1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`. Scored on the
+   article's `title` alone (one forward pass, no chunking or aggregation) — chosen
+   2026-09-13 after real-data comparison against a chunk-level, entity-scoped
+   alternative; see `PLAN.md` Work item 4 and `docs/evaluation.md`'s 2026-09-13
+   follow-up for the comparison and its caveats (this design's own measured
+   `recall_negative` did not beat the alternative — not yet the repo owner's
+   final pick).
 2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
    [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
    `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward

@@ -151,9 +151,48 @@ def free_gpu() -> None:
 
 
 def run_sentiment_stage(
-    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
+    conn: db.NewsNlpDatabase,
+    limit: int | None = None,
+    on_progress: ProgressCallback | None = None,
+    *,
+    sample_seed: int | None = None,
 ) -> None:
-    rows = db.fetch_pending_articles(conn, "article_sentiment", limit=limit)
+    """Title-only scoring (PLAN.md Work item 4 step 1, chosen 2026-09-13,
+    in preference to an entity-scoped chunk/sentence-weighting design
+    prototyped and real-data-validated the same week -- see
+    `docs/evaluation.md`'s 2026-09-13 follow-up for the comparison this
+    decision is based on).
+
+    Why title, not the full article: financial-news headlines are
+    conventionally written to state the primary event and its direction
+    plainly (inverted-pyramid style) -- unlike full-article prose, which
+    accumulates supporting detail, background, and macro/other-company
+    commentary a small span classifier has no principled way to weigh
+    against the subject's own signal (the exact failure mode the
+    entity-scoped alternative tried, and only partly managed, to fix via
+    company/ticker text-matching). Scoring the title sidesteps the
+    aggregation problem entirely: one short, single-topic text, one
+    forward pass, no chunking, no weighting scheme, no per-company
+    reasoning gap to approximate. It also sidesteps the ticker-collision
+    data bug found during that investigation (`SPEC.md` §13 item 12) --
+    this design never reads `company`/`ticker` at all.
+
+    Known limitation, not solved here: a minority of financial headlines
+    are deliberately neutral/factual even when the article body is
+    strongly directional ("Acme Corp reports Q3 results") -- title-only
+    scoring is blind to sentiment that only shows up in the body. See
+    `docs/evaluation.md`'s 2026-09-13 follow-up for the real-data
+    measurement of how often this actually matters here.
+
+    `sample_seed` (with `limit` as the sample size): a reproducible random
+    sample of pending articles instead of the normal backlog-order first
+    `limit` -- see `db.fetch_pending_sentiment_titles`'s docstring. Always
+    pass one for a deliberate reprocessing pass; an unseeded run can badly
+    skew the sample if some property of interest correlates with id order
+    (a real incident during the entity-scoped design's own validation, not
+    a hypothetical -- see the same follow-up).
+    """
+    rows = db.fetch_pending_sentiment_titles(conn, limit=limit, sample_seed=sample_seed)
     total = len(rows)
     print(f"\n=== Sentiment stage ({SENTIMENT_MODEL}) on {DEVICE} ===")
     print(f"{total} article(s) pending sentiment analysis")
@@ -166,24 +205,16 @@ def run_sentiment_stage(
     model = AutoModelForSequenceClassification.from_pretrained(SENTIMENT_MODEL).to(DEVICE).eval()
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
 
-    for idx, (article_id, body_text) in enumerate(tqdm(rows, desc="sentiment"), start=1):
-        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
-        if chunks:
-            probs_sum = torch.zeros(len(id2label))
-            total_weight = 0
-            for ch in chunks:
-                inputs = tokenizer(
-                    ch.text, return_tensors="pt", truncation=True, max_length=512
-                ).to(DEVICE)
-                n_tokens = inputs["input_ids"].shape[1]
-                with torch.no_grad():
-                    logits = model(**inputs).logits[0]
-                    probs = torch.softmax(logits, dim=-1).cpu()
-                probs_sum += probs * n_tokens
-                total_weight += n_tokens
+    for idx, (article_id, title) in enumerate(tqdm(rows, desc="sentiment"), start=1):
+        if title and title.strip():
+            inputs = tokenizer(title, return_tensors="pt", truncation=True, max_length=512).to(
+                DEVICE
+            )
+            with torch.no_grad():
+                logits = model(**inputs).logits[0]
+                probs = torch.softmax(logits, dim=-1).cpu().tolist()
 
-            avg_probs = (probs_sum / total_weight).tolist()
-            class_probs = {id2label[i]: p for i, p in enumerate(avg_probs)}
+            class_probs = {id2label[i]: p for i, p in enumerate(probs)}
             label = max(class_probs, key=class_probs.__getitem__)
 
             db.write_sentiment(

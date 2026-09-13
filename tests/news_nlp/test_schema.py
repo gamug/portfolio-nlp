@@ -85,6 +85,49 @@ def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -
     assert body_text == "Body text."
 
 
+def test_fetch_pending_sentiment_titles_unpacks_as_two_tuple(conn: sqlite3.Connection) -> None:
+    seed_article(conn, id=1, title="Test Title", body_text="Body text.")
+    conn.commit()
+
+    rows = db.fetch_pending_sentiment_titles(conn)
+    assert len(rows) == 1
+    article_id, title = rows[0]
+    assert article_id == 1
+    assert title == "Test Title"
+
+
+def test_fetch_pending_sentiment_titles_sample_seed_is_reproducible_subset(
+    conn: sqlite3.Connection,
+) -> None:
+    """Same seeded-sample contract as fetch_pending_articles's -- see that
+    function's docstring for why this matters (a real incident, not a
+    hypothetical: docs/evaluation.md's 2026-09-13 sentiment follow-up)."""
+    for i in range(1, 21):
+        seed_article(conn, id=i, body_text=f"Body text {i}.")
+    conn.commit()
+
+    a = db.fetch_pending_sentiment_titles(conn, limit=5, sample_seed=1)
+    b = db.fetch_pending_sentiment_titles(conn, limit=5, sample_seed=1)
+    assert len(a) == 5
+    assert [r[0] for r in a] == [r[0] for r in b]
+    assert set(r[0] for r in a) <= set(range(1, 21))
+
+    plain = db.fetch_pending_sentiment_titles(conn, limit=5)
+    assert [r[0] for r in plain] == [1, 2, 3, 4, 5]
+
+    other_seed = db.fetch_pending_sentiment_titles(conn, limit=5, sample_seed=2)
+    assert [r[0] for r in a] != [r[0] for r in other_seed]
+
+
+def test_fetch_pending_sentiment_titles_sample_seed_requires_limit(
+    conn: sqlite3.Connection,
+) -> None:
+    seed_article(conn, id=1, body_text="Body text.")
+    conn.commit()
+    with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
+        db.fetch_pending_sentiment_titles(conn, sample_seed=1)
+
+
 def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: sqlite3.Connection) -> None:
     seed_article(conn, id=1, title="Test Title", body_text="Body text.")
     conn.commit()

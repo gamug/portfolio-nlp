@@ -5,6 +5,8 @@ read/write, one line each:
 
 Read (pipeline "pending" fetchers -- drive the "what's left to process" loop):
     fetch_pending_articles              -- (id, body_text) rows missing from a given result table
+    fetch_pending_sentiment_titles      -- (id, title) rows missing from article_sentiment; supports
+                                            sample_seed like fetch_pending_articles
     fetch_pending_category_articles     -- (id, title, body_text) rows missing from article_category
     fetch_pending_company_summaries     -- raw fields for articles ready for c_summary generation
     build_company_summary_input         -- (pure, no SQL) assembles one c_summary prompt from a
@@ -130,6 +132,32 @@ def now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _seeded_sample_rows(
+    conn: NewsNlpDatabase, select_cols: str, base_sql: str, limit: int, sample_seed: int
+) -> list[Row]:
+    """Shared two-phase seeded-sample logic behind `fetch_pending_articles`'s
+    and `fetch_pending_sentiment_titles`'s `sample_seed` parameter: ids only
+    first (cheap -- no other columns pulled for the whole pending
+    population), then `select_cols` for just the sampled ids. Mirrors
+    `news_nlp.eval.sampling`'s own seeded-`random.Random` convention rather
+    than SQL `ORDER BY RANDOM()` (not seedable/reproducible in SQLite)."""
+    all_ids = [
+        int(r[0]) for r in conn.execute(f"SELECT a.id {base_sql} ORDER BY a.id", []).fetchall()
+    ]
+    rng = random.Random(sample_seed)  # noqa: S311 -- sample selection, not cryptography
+    sampled_ids = rng.sample(all_ids, k=min(limit, len(all_ids)))
+    if not sampled_ids:
+        return []
+    placeholders = ",".join("?" for _ in sampled_ids)
+    rows = conn.execute(
+        f"SELECT {select_cols} FROM {_articles_rel(conn)}.articles a "  # noqa: S608
+        f"WHERE a.id IN ({placeholders})",
+        sampled_ids,
+    ).fetchall()
+    by_id = {int(r[0]): r for r in rows}
+    return [by_id[i] for i in sampled_ids if i in by_id]
+
+
 def fetch_pending_articles(
     conn: NewsNlpDatabase, table: str, limit: int | None = None, *, sample_seed: int | None = None
 ) -> list[Row]:
@@ -145,11 +173,12 @@ def fetch_pending_articles(
     `limit` pending ids instead of the first `limit` by id order -- for a
     deliberately-random reprocessing pass (e.g. a targeted post-fix resample,
     docs/evaluation.md's 2026-09-12 NER follow-up / `PLAN.md` Work item 3
-    T-025), not the routine backlog-order path. Two queries: ids only first
-    (cheap -- no body_text pulled for the whole pending population), then
-    body_text for just the sampled ids, mirroring `news_nlp.eval.sampling`'s
-    own seeded-`random.Random` convention rather than SQL `ORDER BY RANDOM()`
-    (not seedable/reproducible in SQLite).
+    T-025), not the routine backlog-order path. **Always pass a seed for a
+    reprocessing run** -- an unseeded (backlog/id-order) run can badly skew
+    the sample if some property of interest correlates with id order (a real
+    incident, not a hypothetical: see `docs/evaluation.md`'s 2026-09-13
+    sentiment follow-up). See `_seeded_sample_rows` for the two-phase query
+    shape this shares with `fetch_pending_sentiment_titles`.
     """
     if table not in _PENDING_ARTICLE_TABLES:
         raise ValueError(f"table must be one of {sorted(_PENDING_ARTICLE_TABLES)}, got {table!r}")
@@ -167,23 +196,54 @@ def fetch_pending_articles(
     if sample_seed is not None:
         if not limit:
             raise ValueError("sample_seed requires a positive limit (the sample size)")
-        all_ids = [
-            int(r[0]) for r in conn.execute(f"SELECT a.id {base_sql} ORDER BY a.id", []).fetchall()
-        ]
-        rng = random.Random(sample_seed)  # noqa: S311 -- sample selection, not cryptography
-        sampled_ids = rng.sample(all_ids, k=min(limit, len(all_ids)))
-        if not sampled_ids:
-            return []
-        placeholders = ",".join("?" for _ in sampled_ids)
-        rows = conn.execute(
-            f"SELECT a.id, a.body_text FROM {_articles_rel(conn)}.articles a "  # noqa: S608
-            f"WHERE a.id IN ({placeholders})",
-            sampled_ids,
-        ).fetchall()
-        by_id = {int(r[0]): r for r in rows}
-        return [by_id[i] for i in sampled_ids if i in by_id]
+        return _seeded_sample_rows(conn, "a.id, a.body_text", base_sql, limit, sample_seed)
 
     sql = f"SELECT a.id, a.body_text {base_sql} ORDER BY a.id"
+    params: list = []
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    return conn.execute(sql, params).fetchall()
+
+
+def fetch_pending_sentiment_titles(
+    conn: NewsNlpDatabase, limit: int | None = None, *, sample_seed: int | None = None
+) -> list[Row]:
+    """Return (id, title) rows from `articles` not yet present in
+    article_sentiment, same eligibility filter as fetch_pending_articles
+    (still requires non-empty `body_text` -- an article whose crawl produced
+    no real body isn't a real article, even though the sentiment score
+    itself is computed from `title` alone). A dedicated query (not a widened
+    fetch_pending_articles), same reasoning as fetch_pending_category_articles:
+    that function's (id, body_text) two-tuple shape is unpacked directly at
+    the NER call site -- widening it would break that.
+
+    Title-only design (PLAN.md Work item 4 step 1, chosen 2026-09-13, in
+    preference to the entity-scoped chunk-weighting alternative): scoring
+    the headline directly sidesteps the multi-sentence-aggregation problem
+    entirely -- see `run_sentiment_stage`'s docstring for the full
+    rationale and the real-data comparison against that alternative.
+
+    `sample_seed` (with `limit` as the sample size): same reproducible
+    random-sample contract as `fetch_pending_articles`'s -- for a
+    deliberate targeted reprocessing pass, not routine pipeline runs."""
+    # S608: _articles_rel(conn) is only ever "main" / "source"; `limit` is
+    # bound as a parameter below, not interpolated.
+    base_sql = f"""
+        FROM {_articles_rel(conn)}.articles a
+        LEFT JOIN article_sentiment r ON r.article_id = a.id
+        WHERE r.article_id IS NULL
+          AND a.fetch_status = 'ok'
+          AND a.body_text IS NOT NULL
+          AND TRIM(a.body_text) != ''
+    """
+
+    if sample_seed is not None:
+        if not limit:
+            raise ValueError("sample_seed requires a positive limit (the sample size)")
+        return _seeded_sample_rows(conn, "a.id, a.title", base_sql, limit, sample_seed)
+
+    sql = f"SELECT a.id, a.title {base_sql} ORDER BY a.id"
     params: list = []
     if limit:
         sql += " LIMIT ?"
