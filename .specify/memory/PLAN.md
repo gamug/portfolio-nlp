@@ -322,10 +322,39 @@ a separate ticker-collision data-quality bug (see `docs/evaluation.md`'s
   metrics). Full table: `docs/evaluation.md`'s 2026-09-13 follow-up.
 
 None of the three has been merged into `master`/wired into
-`SENTIMENT_MODEL` — **that decision is left to the repo owner**. (c) is
-the strongest result on every headline metric except `recall_negative`
-(0.812 vs (a)'s 0.856), and is documented as such rather than silently
-picked as "the" answer.
+`SENTIMENT_MODEL` yet. (c) is the strongest result on every headline
+metric except `recall_negative` (0.812 vs (a)'s 0.856), and was
+documented as such rather than silently picked as "the" answer.
+
+**Decision (2026-09-13): (c) selected as the production candidate**,
+after one more real round of investigation into why `precision_negative`/
+`precision_positive` still sat around 0.50-0.65 post-idiom-fix. Diagnosis
+first: a confusion-matrix read of eval_run 30 found 40.6% of directional
+predictions were false alarms on judge-neutral articles (vs. only 7.6%
+genuine positive↔negative flips), and reading the judge's own rationale
+text for all 435 such cases found 89% were multi-company/mixed-signal
+roundup articles — a document-structure/aggregation limitation, not a
+sentence-classification error. Three candidate fixes were tested on real
+data and rejected (confidence threshold, subject-chunk-coverage gate,
+zero-shot "realized vs. speculative" materiality gate reusing the
+category stage's model) — none discriminated false alarms from correct
+predictions above chance, confirming this is the same net-signal
+reasoning gap flagged at the start of the whole investigation. (b),
+title-only scoring, was then re-tested with the fine-tuned model as a
+genuine alternative (it sidesteps aggregation entirely): it wins on
+precision (0.619/0.670 negative/positive) and overall agreement (0.746),
+but chunk-level wins recall on **both** directional classes (0.808/0.801
+vs. title-only's 0.574/0.528) — a real frontier, not a dominated design.
+(c) was chosen because this pipeline is deliberately **pessimistic** — a
+missed real story (false negative) is an unrecoverable blind spot for a
+downstream SEMANTIC score/knowledge graph, while a false alarm is
+something a downstream consumer can still discount. This generalizes the
+project's existing "recall over precision" reasoning (previously argued
+for the negative class alone) to both directional classes, since (c) is
+the only design with strong recall on both. Full comparison and rejected-
+fix evidence: `docs/evaluation.md`'s 2026-09-13 follow-up. **Still not
+done**: merging (c) into `src/pipeline.py`'s `SENTIMENT_MODEL`/
+`run_sentiment_stage` — this is a recorded selection, not a code merge.
 
 **Known limitation, disclosed not hidden — then fixed the same day**: a
 manual spot-check of the published fine-tuned model found it still
@@ -349,10 +378,11 @@ idiom gap" follow-up.
 
 - A design decision is made and documented (which candidate, and why —
   same style as the "Why recall, not F1" / "Why precision, not recall"
-  write-ups already in `docs/evaluation.md`). **Partially done**: all
-  three candidates are documented with real-data numbers; the final
-  "which one ships" pick is explicitly deferred to the repo owner rather
-  than made unilaterally.
+  write-ups already in `docs/evaluation.md`). **Done 2026-09-13**: (c),
+  chunk-level + fine-tuned FinBERT, selected as the production candidate,
+  with the "pessimistic, strong recall on both directional classes"
+  rationale documented above and in `docs/evaluation.md`. Merging it into
+  `src/pipeline.py` remains a separate, not-yet-taken step.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
   before/after comparison is drawn. **Done** — all three candidates were
   compared against the same 2,000-article pool (seed=1).

@@ -904,6 +904,118 @@ gap; the same "silver-standard LLM labels, not exhaustively verified"
 caveat from the base fine-tune still applies, and other undiscovered
 vocabulary gaps of this shape likely still exist.
 
+### Follow-up (2026-09-13): diagnosing the remaining precision gap, testing title-only against it, and selecting a production candidate
+
+The idiom fix above closed one gap; `precision_negative`/`precision_positive`
+still sat around 0.50-0.65 on the fine-tuned chunk-level design — a real
+concern (near-random-feeling on a 3-class problem), investigated directly
+against eval_run 30's disagreement data rather than assumed:
+
+**Confusion-matrix diagnosis**: of 1,072 directional predictions, 51.8%
+were correct, only 7.6% were genuine positive↔negative flips, and
+**40.6% were directional calls on articles the judge scored neutral** —
+almost the entire precision problem is "calls something directional that
+isn't," not "calls negative when it's actually positive." Reading the
+judge's own rationale text for all 435 such cases and keyword-classifying
+them: 50.6% are multi-company/market-wrap roundups with no single-company
+focus, 38.4% are mixed-signal pieces where competing facts should net to
+neutral, and only ~11% combined are preview/speculative or immaterial-news
+patterns a sentence-level relabeling could plausibly address.
+
+**Three fix attempts, all tested on real data, all rejected before
+building anything into the pipeline** (reported here because each was a
+real, falsifiable hypothesis, not because negative results are
+interesting for their own sake):
+- *Confidence/margin threshold*: ruled out — only 7% of predictions have
+  a thin top1-vs-top2 margin; the model is confidently wrong on most
+  errors (median margin 0.90), so a threshold gate would barely fire.
+- *Subject-coverage gate* (down-weight when the subject company's share
+  of chunk-weight is thin): ruled out — false alarms and correct
+  predictions have nearly identical subject-mass-share distributions
+  (0.623 vs 0.631 mean); this corpus's articles are just entity-dense in
+  general, so coverage isn't discriminative.
+- *Zero-shot "realized event vs. speculative/roundup" materiality gate*
+  (reusing the category stage's `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`):
+  ruled out — top-label agreement with "realized result" was 51.7% for
+  false alarms vs. 53.3% for correct predictions, and every threshold in
+  a sweep from 0.15 to 0.4 caught false alarms at almost exactly the same
+  rate it wrongly suppressed correct ones (e.g. at 0.2: 25.0% caught vs.
+  19.2% wrongly suppressed). This framing doesn't separate the two groups
+  at all — a genuine negative result, not a calibration miss.
+
+**Why none of these worked, structurally**: the dominant failure
+(roundup / mixed-signal, ~89% of the 435 false-alarm cases) isn't a
+sentence-classification error — a chunk reading "XYZ Corp shares fell 5%"
+inside a multi-company roundup is being read correctly *as a sentence*.
+The judge's neutral call reflects a document-structure fact ("this piece
+isn't dedicated to one company") or a cross-sentence composition fact
+("these two claims should net against each other") that no per-chunk
+label, confidence threshold, or off-the-shelf zero-shot NLI pass over
+title+lead text captures. This is the same "net-signal reasoning" gap
+flagged at the very start of this investigation — still present after
+fixing vocabulary (fine-tuning) and entity scope (PR #42's weighting).
+
+**Title-only + the fine-tuned model, tested as a genuine alternative**:
+since aggregation across multiple, possibly-irrelevant chunks is the
+mechanism producing false alarms, title-only scoring (PR #43's own
+design, not yet merged) sidesteps aggregation entirely — one short,
+single-topic forward pass, no chunk weighting. Re-tested with the
+fine-tuned model (not just base FinBERT, which is what PR #43 originally
+measured) on the same 2,000-article pool:
+
+| | chunk-level, base FinBERT (PR #42, eval_run 27) | title-only, base FinBERT (PR #43, eval_run 28) | **chunk-level, fine-tuned — selected** (eval_run 30) | title-only, fine-tuned (eval_run 31) |
+|---|---|---|---|---|
+| precision / recall / f1 — **positive** | 0.687 / 0.520 / 0.592 | 0.586 / 0.507 / 0.544 | 0.647 / **0.801** / **0.716** | **0.670** / 0.528 / 0.591 |
+| precision / recall / f1 — **negative** | 0.376 / **0.856** / 0.523 | 0.484 / 0.533 / 0.507 | 0.513 / 0.808 / **0.628** | **0.619** / 0.574 / 0.595 |
+| precision / recall / f1 — **neutral** | 0.871 / 0.674 / 0.760 | 0.803 / 0.815 / 0.809 | **0.936** / 0.777 / **0.849** | 0.842 / **0.897** / 0.869 |
+| `macro_f1_vs_judge` | 0.625 | 0.620 | **0.731** | 0.685 |
+| `agreement_rate` | 0.585 | 0.633 | 0.701 | **0.746** |
+| `mean_severity` (lower better) | 0.481 | 0.410 | 0.341 | **0.287** |
+
+The fine-tuned model transfers to title-only much better than base
+FinBERT did (recall_negative 0.533→0.574, precision_negative
+0.484→0.619, agreement_rate 0.633→0.746) — but it's a real trade-off
+against chunk-level, not a win: title-only wins on precision (both
+directional classes) and on every aggregate calibration metric
+(agreement, severity), while chunk-level wins on recall for *every*
+class — positive 0.801 vs 0.528, negative 0.808 vs 0.574, a roughly
+15-27-point gap each way. There is no dominant design here; this is a
+genuine point on a precision/recall frontier, and picking one is a
+values decision this document states explicitly rather than resolves by
+default.
+
+**Decision (2026-09-13): chunk-level, fine-tuned FinBERT is selected as
+the production candidate.** Rationale — this pipeline is deliberately
+**pessimistic**: for a monitoring signal that feeds a portfolio-analysis
+SEMANTIC score and a knowledge graph, a missed real story (a false
+negative — good or bad news silently filed as neutral) is a blind spot
+downstream consumers have no way to recover from, while a false alarm
+(lower precision) is a story a human reviewer or a downstream aggregation
+step can still discount or average away. Chunk-level's **0.801 recall on
+positive and 0.808 on negative** — both classes, not just one — mean it
+surfaces the large majority of real upside and downside stories.
+Title-only's 0.528 / 0.574 recall on those same two classes means it
+*misses roughly four in ten* of exactly the stories this system exists to
+catch. That is the same "recall over precision" argument this document
+already made for the negative class alone (`docs/evaluation.md`'s
+2026-09-08 "Why recall, not F1" section) — generalized here to both
+directional classes as the deciding criterion, precisely because both
+recalls are strong under the chunk-level design and neither is under
+title-only. The remaining precision cost (0.647 positive / 0.513
+negative) is a real, diagnosed, and disclosed limitation — not an
+unexamined one — and is judged the acceptable side of this trade-off for
+a "surface it, let downstream discount false alarms" monitoring signal,
+rather than a "stay silent by default" one.
+
+**Not done as part of this decision**: `src/pipeline.py`'s
+`SENTIMENT_MODEL` still points at base `ProsusAI/finbert` with no
+chunk-weighting — this section records the selection and its evidence;
+actually merging PR #42's weighting logic plus swapping in
+`gamug/FinBERT-financial-news` into the mandatory pipeline is a separate,
+not-yet-taken step. `SPEC.md` §13 item 1 and §9 are updated to reflect
+this decision below; the repository artifact's "Gaps"/"Plan" sections are
+updated too.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

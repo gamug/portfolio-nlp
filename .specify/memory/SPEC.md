@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; three real-data-validated candidates measured 2026-09-13, none merged yet — best result (fine-tuned model + chunk-level weighting) reaches 0.808 recall / 0.513 precision / 0.731 macro F1 vs. judge, after a same-day follow-up fixed a "crushed earnings" idiom coverage gap found via manual spot-check (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; **selected 2026-09-13 (not yet merged): fine-tuned model + chunk-level entity-scoped weighting** — 0.808 recall_negative / 0.513 precision_negative / 0.801 recall_positive / 0.731 macro F1 vs. judge, chosen over a higher-precision title-only alternative (0.619/0.670 precision, but only 0.574/0.528 recall) for deliberately pessimistic, both-classes-strong recall (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -498,9 +498,32 @@ treating a related FR/NR as done:
    the fix cost nothing measurable on real traffic. Model updated in place
    at the same Hub repo (new commit, not a new model name). Full account:
    `docs/evaluation.md`'s 2026-09-13 "crushed earnings idiom gap" follow-up.
-   **Which (if any) of these three candidates actually ships is still the
-   repo owner's decision** — not resolved unilaterally by any of the three
-   branches.
+   **Decision (2026-09-13): (c), chunk-level + fine-tuned FinBERT, selected
+   as the production candidate.** First diagnosed the remaining precision
+   gap directly (confusion matrix: 40.6% of directional predictions were
+   false alarms on judge-neutral articles, dominated 89% by multi-company/
+   mixed-signal roundups — a document-structure/aggregation limitation,
+   not a sentence-classification error); tested and rejected three
+   candidate fixes on real data (confidence threshold, subject-coverage
+   gate, zero-shot materiality gate — none discriminated false alarms from
+   correct predictions above chance); then re-tested (b) with the
+   fine-tuned model instead of base FinBERT as a genuine alternative.
+   Result: title-only+fine-tuned wins on precision (0.619/0.670 negative/
+   positive) and overall agreement (0.746), but chunk-level+fine-tuned
+   wins on recall for **both** directional classes (0.808 negative / 0.801
+   positive vs. title-only's 0.574 / 0.528) — a real precision/recall
+   frontier, not one design dominating. Chosen because this pipeline is
+   deliberately **pessimistic**: a missed real story (false negative) is
+   an unrecoverable blind spot for a downstream SEMANTIC score/knowledge
+   graph, while a false alarm is a story a downstream consumer can still
+   discount — the same "recall over precision" reasoning this document
+   already applied to the negative class alone, now generalized to both
+   directional classes because chunk-level is the only design with strong
+   recall on both. Full comparison, diagnosis, and rejected-fix evidence:
+   `docs/evaluation.md`'s 2026-09-13 follow-up. **Not yet done**:
+   `src/pipeline.py`'s `SENTIMENT_MODEL` still points at base
+   `ProsusAI/finbert` with no chunk-weighting — this is a recorded
+   selection, not yet a merge.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical
