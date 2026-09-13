@@ -1007,14 +1007,28 @@ unexamined one — and is judged the acceptable side of this trade-off for
 a "surface it, let downstream discount false alarms" monitoring signal,
 rather than a "stay silent by default" one.
 
-**Not done as part of this decision**: `src/pipeline.py`'s
-`SENTIMENT_MODEL` still points at base `ProsusAI/finbert` with no
-chunk-weighting — this section records the selection and its evidence;
-actually merging PR #42's weighting logic plus swapping in
-`gamug/FinBERT-financial-news` into the mandatory pipeline is a separate,
-not-yet-taken step. `SPEC.md` §13 item 1 and §9 are updated to reflect
-this decision below; the repository artifact's "Gaps"/"Plan" sections are
-updated too.
+### Follow-up (2026-09-13, same day): the selected design merged into the pipeline
+
+`src/pipeline.py`'s `SENTIMENT_MODEL` now points at
+`gamug/FinBERT-financial-news`, with `run_sentiment_stage` doing the
+chunk-level entity-scoped weighting (`_text_mentions_subject`/
+`_sentiment_chunk_weights`) cherry-picked from PR #42's final revision —
+`db.fetch_pending_sentiment_articles` (also from PR #42) supplies the
+`(company, ticker)` pair each chunk's weight is computed against. This is
+no longer just a recorded recommendation: it's the code every pipeline
+run now actually executes.
+
+Verified two ways before treating this as done: the full hermetic test
+suite (225 tests — up from 214, PR #42's own `test_sentiment_pipeline.py`
+and `test_schema.py` additions came along with the cherry-pick), ruff,
+and mypy all pass; and, separately, a live smoke test against real
+production data — `run_sentiment_stage(conn, limit=3, sample_seed=999)`
+against the actual `nlp.db`/`urls.db` — loaded the fine-tuned model on
+CUDA and correctly scored 3 previously-unscored articles, including the
+exact "A" (Agilent)/"ON" (ON Semiconductor) ticker-ambiguous names this
+investigation's earlier ticker-collision bug was about. `SPEC.md` §13
+item 1, §9, and FR-001 are updated to reflect the merge; the repository
+artifact's "Gaps"/"Plan" sections are updated too.
 
 ## What it evaluates
 

@@ -88,7 +88,7 @@ or time into portfolio-level signals (`financial-analysis` and
 
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
-| **FR-001** | The sentiment stage runs `ProsusAI/finbert` over every pending article's `body_text` (chunked, token-weighted average across chunks) and writes exactly one `article_sentiment` row per article. | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
+| **FR-001** | The sentiment stage runs `gamug/FinBERT-financial-news` (a continued fine-tune of `ProsusAI/finbert`, selected 2026-09-13 — §13 item 1) over every pending article's `body_text` (chunked, entity-scoped weighted average across chunks — full weight for chunks naming the article's own `company`/`ticker`, a lower baseline otherwise) and writes exactly one `article_sentiment` row per article. | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
 | **FR-002** | The NER stage runs `gamug/sec-bert-finer-ord-ner`, merges BIO-tagged sub-token predictions **word-boundary aware**, and writes one `article_entities` row per detected span with a char offset and confidence. | No emitted span starts or ends mid-word (regression test for the fixed "3"-as-`ORG` subword-fragmentation bug, `82c5e6a`); every row has `entity_type ∈ {PER, LOC, ORG}`, valid `start_char < end_char` into the source text, and a `score`. |
 | **FR-003** | The category stage classifies each article via two-level hierarchical zero-shot NLI (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) against the fixed taxonomy in `news_nlp.taxonomy` (3 groups → 9 leaf labels + `other`), on the title + lead chunk only, and writes one `article_category` row. | `label` is one of the 9 taxonomy slugs or `other`; `group_label`/`group_score` are populated even when `label = other`; all 9 raw NLI distribution columns are populated (audit trail for threshold retuning); `label = other` iff the winning slug's score is below `CATEGORY_CONFIDENCE_THRESHOLD`. |
 | **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
@@ -520,10 +520,15 @@ treating a related FR/NR as done:
    already applied to the negative class alone, now generalized to both
    directional classes because chunk-level is the only design with strong
    recall on both. Full comparison, diagnosis, and rejected-fix evidence:
-   `docs/evaluation.md`'s 2026-09-13 follow-up. **Not yet done**:
-   `src/pipeline.py`'s `SENTIMENT_MODEL` still points at base
-   `ProsusAI/finbert` with no chunk-weighting — this is a recorded
-   selection, not yet a merge.
+   `docs/evaluation.md`'s 2026-09-13 follow-up. **Merged (2026-09-13)**:
+   `src/pipeline.py`'s `SENTIMENT_MODEL` now points at
+   `gamug/FinBERT-financial-news`, with `run_sentiment_stage` doing the
+   chunk-level entity-scoped weighting from PR #42 (`_text_mentions_subject`/
+   `_sentiment_chunk_weights`) — verified end-to-end against real
+   production data (a live smoke test scored 3 previously-unscored
+   articles correctly, including the "A"/"ON" ticker-collision cases from
+   this same investigation). This section's item is now fully closed, not
+   just a recorded recommendation.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical

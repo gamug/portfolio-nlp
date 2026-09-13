@@ -12,15 +12,25 @@ Sentiment, NER, and category (stages 1–3) always run. `c_summary`/`sector_summ
 API's `/pipeline/run` body; the default (`summarize=False`) skips them entirely, so the
 summarization model never loads and its VRAM/latency cost is never paid unless asked for.
 
-1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`. Scored per
-   ~510-token chunk (`chunk_text`, same helper NER/category use — preserves several
-   sentences' worth of real discourse per forward pass) and aggregated with
-   **entity-scoped weighting**: a chunk naming the article's own `company`/`ticker`
-   counts more than one that doesn't (a different company's news, or generic market
-   commentary) — see `_sentiment_chunk_weights` (`src/pipeline.py`) and `PLAN.md`
-   Work item 4. (A first version of this scored per *sentence* instead of per
-   chunk; reverted 2026-09-13 after real-data evaluation — see that function's
-   docstring "Revision history".)
+1. **Sentiment** — a continued fine-tune of FinBERT on 5,900 real, LLM-labeled
+   in-domain sentences, published at
+   [gamug/FinBERT-financial-news](https://huggingface.co/gamug/FinBERT-financial-news)
+   (selected 2026-09-13 over base `ProsusAI/finbert`, after real-data evaluation
+   found a measurable vocabulary/domain gap — see `docs/evaluation.md`'s 2026-09-13
+   follow-ups) → `article_sentiment`. Scored per ~510-token chunk (`chunk_text`,
+   same helper NER/category use — preserves several sentences' worth of real
+   discourse per forward pass) and aggregated with **entity-scoped weighting**: a
+   chunk naming the article's own `company`/`ticker` counts more than one that
+   doesn't (a different company's news, or generic market commentary) — see
+   `_sentiment_chunk_weights` (`src/pipeline.py`) and `PLAN.md` Work item 4. (A
+   first version of this scored per *sentence* instead of per chunk; reverted
+   2026-09-13 after real-data evaluation — see that function's docstring
+   "Revision history". A title-only alternative was also real-data validated and
+   rejected in favor of this design's stronger, both-classes recall — see
+   `docs/evaluation.md`'s 2026-09-13 "pessimist model" follow-up.) Known,
+   disclosed limitation: ~40% of directional predictions are false alarms on
+   multi-company/mixed-signal articles the aggregation can't structurally net
+   out — chosen anyway because this pipeline favors recall over precision.
 2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
    [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
    `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward

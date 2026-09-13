@@ -352,9 +352,19 @@ something a downstream consumer can still discount. This generalizes the
 project's existing "recall over precision" reasoning (previously argued
 for the negative class alone) to both directional classes, since (c) is
 the only design with strong recall on both. Full comparison and rejected-
-fix evidence: `docs/evaluation.md`'s 2026-09-13 follow-up. **Still not
-done**: merging (c) into `src/pipeline.py`'s `SENTIMENT_MODEL`/
-`run_sentiment_stage` — this is a recorded selection, not a code merge.
+fix evidence: `docs/evaluation.md`'s 2026-09-13 follow-up. **Merged
+(2026-09-13)**: (c) is wired into `src/pipeline.py` — `SENTIMENT_MODEL`
+now `gamug/FinBERT-financial-news`, `run_sentiment_stage` doing
+chunk-level entity-scoped weighting (`_text_mentions_subject`/
+`_sentiment_chunk_weights`, cherry-picked from `feat/sentiment-entity-
+scoped`/PR #42's final chunk-level revision), `db.fetch_pending_
+sentiment_articles` added for the `(company, ticker)` fetch. Verified
+end-to-end against real production data (not just the hermetic test
+suite): a live smoke test on 3 previously-unscored articles loaded the
+model on CUDA and wrote correct results, including the exact "A"/"ON"
+ticker-collision cases this investigation found earlier. Full test suite
+(225 tests, up from 214 — PR #42's `test_sentiment_pipeline.py` and
+`test_schema.py` additions came along), ruff, and mypy all green.
 
 **Known limitation, disclosed not hidden — then fixed the same day**: a
 manual spot-check of the published fine-tuned model found it still
@@ -381,8 +391,8 @@ idiom gap" follow-up.
   write-ups already in `docs/evaluation.md`). **Done 2026-09-13**: (c),
   chunk-level + fine-tuned FinBERT, selected as the production candidate,
   with the "pessimistic, strong recall on both directional classes"
-  rationale documented above and in `docs/evaluation.md`. Merging it into
-  `src/pipeline.py` remains a separate, not-yet-taken step.
+  rationale documented above and in `docs/evaluation.md`. **Merged into
+  `src/pipeline.py` the same day** — see above.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
   before/after comparison is drawn. **Done** — all three candidates were
   compared against the same 2,000-article pool (seed=1).

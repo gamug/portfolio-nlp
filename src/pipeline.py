@@ -53,22 +53,43 @@ from news_nlp.taxonomy import (
 # more than once.
 load_dotenv()
 
-SENTIMENT_MODEL = "ProsusAI/finbert"
-# Entity-scoped sentiment aggregation (PLAN.md Work item 4 step 1, chosen
-# 2026-09-12): FinBERT has no per-company reasoning of its own -- a sentence
-# about a *different* company's earnings, or generic market commentary,
-# reads as "this article's sentiment" exactly as much as a sentence
-# actually about the article's subject company under a plain average. A
-# sentence naming the article's own `company`/`ticker` gets full weight;
-# everything else gets the lower baseline instead of counting equally.
-# Deliberately two-tier, not three (no separate "definitely about a
-# *different* company" tier): that would need real entity extraction
-# (article_entities), which isn't available yet when sentiment runs --
-# it's the first stage in run_pipeline, before NER. A known limitation this
-# doesn't solve: a sentence that refers to the subject only by pronoun
-# ("the company", "it") rather than by name/ticker gets the baseline
-# weight too, since this is plain text matching, not coreference
-# resolution.
+SENTIMENT_MODEL = "gamug/FinBERT-financial-news"
+# Selected 2026-09-13 as the production sentiment design, after real-data
+# evaluation of four candidates (base/fine-tuned FinBERT x chunk-level/
+# title-only aggregation) against the same 2,000-article pool + LLM judge
+# -- full comparison, diagnosis of the remaining precision gap, and the
+# rejected-fix evidence (confidence threshold, subject-coverage gate,
+# zero-shot materiality gate) in docs/evaluation.md's 2026-09-13
+# follow-ups; decision recorded in SPEC.md SS13 item 1 / PLAN.md Work item
+# 4. Two changes from the original ProsusAI/finbert baseline, chosen
+# together, not independently:
+#
+# 1. A continued fine-tune of ProsusAI/finbert on 5,900 real, LLM-labeled
+#    in-domain sentences (published at the SENTIMENT_MODEL repo above) --
+#    closes a real vocabulary/domain gap (ProsusAI/finbert's own training
+#    data is 2014 Nordic-company news; e.g. it originally missed "crushed"
+#    as a positive earnings idiom).
+# 2. Entity-scoped chunk-weighting (this section): FinBERT has no
+#    per-company reasoning of its own -- a sentence about a *different*
+#    company's earnings, or generic market commentary, reads as "this
+#    article's sentiment" exactly as much as a sentence actually about the
+#    article's subject company under a plain average. A sentence naming
+#    the article's own `company`/`ticker` gets full weight; everything
+#    else gets the lower baseline instead of counting equally.
+#    Deliberately two-tier, not three (no separate "definitely about a
+#    *different* company" tier): that would need real entity extraction
+#    (article_entities), which isn't available yet when sentiment runs --
+#    it's the first stage in run_pipeline, before NER.
+#
+# Known, disclosed limitations this design does NOT solve (chosen anyway,
+# deliberately, because this pipeline favors recall over precision -- see
+# docs/evaluation.md): a sentence that refers to the subject only by
+# pronoun ("the company", "it") rather than by name/ticker gets the
+# baseline weight too, since this is plain text matching, not coreference
+# resolution; and ~40% of directional (positive/negative) predictions are
+# false alarms on multi-company/mixed-signal articles the aggregation has
+# no principled way to net out -- a document-structure-level gap measured
+# and disclosed, not a silent one.
 _SENTIMENT_SUBJECT_WEIGHT = 1.0
 _SENTIMENT_BASELINE_WEIGHT = 0.35
 # Strips common corporate suffixes so "Acme Corp." / "Acme Corporation"
@@ -250,6 +271,14 @@ def run_sentiment_stage(
     NER's own batching was sequenced (PLAN.md Work item 7): a throughput
     pass is a natural, separate follow-up once this aggregation is
     validated against real data.
+
+    **Model swap (2026-09-13)**: `SENTIMENT_MODEL` moved from base
+    `ProsusAI/finbert` to `gamug/FinBERT-financial-news`, a continued
+    fine-tune on real, LLM-labeled in-domain sentences -- this weighting
+    scheme and the model swap were evaluated together and selected as one
+    decision, not two independent ones (see `SENTIMENT_MODEL`'s own
+    comment above and `docs/evaluation.md`'s 2026-09-13 follow-ups for the
+    full four-candidate comparison this was chosen from).
 
     `sample_seed` (with `limit` as the sample size): a reproducible random
     sample of pending articles instead of the normal backlog-order first
