@@ -139,7 +139,7 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (design + implementation done 2026-09-12; table versioned, reprocessing next)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13; T-031/T-032 floor-run housekeeping open)
 
 **Correction (2026-09-12, later the same day)**: T-030/T-060-shaped work
 below previously stated this needed "the project's real GPU/production DB,
@@ -167,26 +167,25 @@ the stage still "pending to improve" despite the changes already made.
       `run_sentiment_stage` (`src/pipeline.py`): candidates were
       entity-scoped re-scoring using `article_entities`, a different
       sentiment model, or an explicit net-signal heuristic layered on the
-      existing chunk-averaged score. **Decided and implemented 2026-09-12:
-      entity-scoped re-scoring** — motivated by a research finding first
-      (FinBERT was fine-tuned on Financial PhraseBank at the *sentence*
-      level, a real train/inference granularity mismatch confirmed via the
-      model card and two live probes against the real cached model; see
-      `PLAN.md` Work item 4's "Research finding" for the numbers).
-      Implemented as sentence-level FinBERT scoring
-      (`run_sentiment_stage`), weighted by a new
-      `_sentiment_sentence_weights` (full weight for sentences naming the
-      article's own `company`/`ticker` — via a new dedicated
-      `fetch_pending_sentiment_articles` query, not `article_entities`
-      itself, to avoid a pipeline-ordering dependency on NER running
-      first — lower baseline weight otherwise). New hermetic test
-      (`tests/news_nlp/test_sentiment_pipeline.py`): a synthetic
-      mixed-company article that the *old* plain-averaging aggregation
-      would call `negative` (3 confident negative sentences about a
-      different company outvoting 2 confident positive ones about the
-      subject) correctly calls `positive` under the new weighting. Full
-      suite green (213 passed), ruff/mypy clean. → `PLAN.md` Work item 4,
-      steps 1 and 4 (implementation half).
+      existing chunk-averaged score. **Decided 2026-09-12: entity-scoped
+      re-scoring** — motivated by a research finding (FinBERT was
+      fine-tuned on Financial PhraseBank at the *sentence* level, a real
+      train/inference granularity mismatch confirmed via the model card
+      and two live probes against the real cached model; see `PLAN.md`
+      Work item 4's "Research finding"). First implemented at *sentence*
+      granularity (`_sentiment_sentence_weights`); hermetic tests green,
+      but real-data evaluation the next day (T-034 below) surfaced a
+      regression, traced partly to a design issue with going all the way
+      to sentence-level (losing discourse context a several-sentence
+      chunk preserves) and partly to two unrelated bugs (T-036/T-037).
+      **Revised 2026-09-13 to chunk-level scoring**
+      (`_text_mentions_subject`/`_sentiment_chunk_weights`, `chunk_text`
+      instead of `split_sentences`) — keeps the entity-scoped weighting
+      idea, changes the unit it's applied to. See
+      `pipeline.run_sentiment_stage`'s docstring "Revision history" for
+      the full account. Full suite green throughout both revisions,
+      ruff/mypy clean. → `PLAN.md` Work item 4, steps 1 and 4
+      (implementation half).
 - [x] **T-035** *(new, mirrors T-025)* `article_sentiment` was
       future-runs-only-affected the same way `article_entities` was by the
       NER fix — no post-change data exists yet, and a plain pipeline
@@ -204,31 +203,48 @@ the stage still "pending to improve" despite the changes already made.
       (`tests/news_nlp/test_schema.py`,
       `tests/news_nlp/test_sentiment_pipeline.py`). → step 1 (alternate
       path, same shape as T-025).
-- [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
-      recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
-      "Sample-size floor") — only one stratified pilot (n=800) exists so
-      far; a floor-sized run is needed before today's `recall_negative` /
-      `precision_negative` can be trusted as a stable `--check-regression`
-      baseline. **Not done** — needs T-035's reprocessing step to have run
-      first (no post-change data to sample yet). → step 2.
-- [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
-      estimates using T-031's actual measured per-stratum agreement
-      (`strata_json` / `agreement_rate_target_negative` etc.) instead of
-      today's planning-only estimates, before locking in a permanent
-      `--sample-size` default. Depends on T-031. → step 3.
-- [ ] **T-034** *(new, follows from T-030)* Run `--stage sentiment` eval
+- [x] **T-034** *(new, follows from T-030)* Run `--stage sentiment` eval
       before/after this change on real data (mirrors T-020's NER
       before/after) — confirm `negative` precision actually improves
       without collapsing `recall_negative`, on the real corpus rather than
-      just the synthetic hermetic-test fixture. **Not done** — depends on
-      T-035's reprocessing step. → step 4's remainder (real-data
-      confirmation), `PLAN.md` Work item 4 acceptance criteria.
-- [ ] **T-033** After T-034's real-data result exists, add a dated
-      follow-up entry to `docs/evaluation.md` (design rationale + the
-      before/after numbers) and update `SPEC.md` §13 item 1 and §9's
-      sentiment baseline row. Depends on T-034, not just T-030 — a design
-      being implemented isn't the same as it being confirmed to work.
-      → step 4 / `PLAN.md` Work item 4 acceptance criteria.
+      just the synthetic hermetic-test fixture. **Done 2026-09-13** across
+      three real-data runs, not one: (1) mlflow `efc87adc` (n=3000,
+      sentence-level, unseeded reprocessing) looked like a regression
+      (`recall_negative` 0.783→0.683) but was contaminated 94.4% by the
+      ticker-collision bug (T-036/T-037); (2) mlflow `8b141e30` (n=1500,
+      sentence-level, *clean* representative sample) isolated the real
+      design issue: `recall_negative` collapsed to 0.531 even as overall
+      agreement improved; (3) mlflow `df8cb366` (n=1500, **chunk-level**,
+      identical 2,000-article pool as run 2) confirmed the fix:
+      `recall_negative` **0.856** — above the 0.783 pre-change pilot, this
+      project's stated priority metric, with a real but acceptable cost to
+      `precision_negative`/`macro_f1_vs_judge`. Full comparison table:
+      `docs/evaluation.md`'s 2026-09-13 follow-up. → step 4's remainder
+      (real-data confirmation), `PLAN.md` Work item 4 acceptance criteria.
+- [x] **T-033** After T-034's clean real-data result exists, add a dated
+      follow-up entry to `docs/evaluation.md` (design rationale +
+      revision history + the before/after numbers, including the
+      contaminated-then-corrected first attempt as its own dated note,
+      same append-only convention as every other follow-up in that file)
+      and update `SPEC.md` §13 item 1 and §9's sentiment baseline row.
+      **Done 2026-09-13.** → step 4 / `PLAN.md` Work item 4 acceptance
+      criteria.
+- [ ] **T-031** Run a regression-tracked `--stage sentiment` eval at the
+      recommended sample-size floor (~1,800-2,200, `docs/evaluation.md`
+      "Sample-size floor") — only one stratified pilot (n=800, pre-change)
+      exists so far; a floor-sized run is needed before
+      `recall_negative`/`precision_negative` can be trusted as a stable
+      `--check-regression` baseline for the *new* (chunk-level) design.
+      T-034's 2026-09-13 runs are within/near this range (n=1500) but
+      drawn to move quickly through three reprocessing/eval cycles in one
+      sitting, not explicitly registered as this permanent baseline —
+      worth one deliberate, `--check-regression`-registered run against
+      the now-shipped chunk-level code. → step 2.
+- [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
+      estimates using a real run's actual measured per-stratum agreement
+      (`strata_json` / `agreement_rate_target_negative` etc.) instead of
+      today's planning-only estimates, before locking in a permanent
+      `--sample-size` default. Depends on T-031. → step 3.
 
 ## Work item 5 — Category: hold the line on the hierarchical fix (validation only, low priority)
 
@@ -369,6 +385,40 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
+## Work item 8 — Data quality: the `articles.ticker`/`company` collision bug (found 2026-09-13, priority)
+
+Found while diagnosing sentiment's entity-scoped re-scoring against real
+data. `SPEC.md` §13 item 12 has the full write-up; summary here for
+tracking. → `SPEC.md` §13 item 12.
+
+- [x] **T-036** Diagnose and quantify the bug. **Done 2026-09-13**: three
+      tickers colliding with common English words (`A`/Agilent,
+      `ON`/ON Semiconductor, `IT`/Gartner) account for 131,858/459,112
+      articles (28.7% of the corpus), confirmed near-totally mis-tagged by
+      manual title review. Upstream cause (in `portfolio-data-mining`, not
+      this repo) — some keyword/substring ticker-matching step almost
+      certainly matches "a"/"on"/"it" against nearly any English sentence.
+- [x] **T-037** Diagnose and fix the *compounding* sampling bug this
+      caused for T-035's reprocessing run. **Done 2026-09-13**: the first
+      `scripts/resample_sentiment_2026_09_12.py` invocation ran without
+      `--sample-seed` (backlog/id-order pickup), and because the three
+      bad-ticker articles' ids cluster low (crawled early), that pool came
+      out 94.4% bad-ticker-tagged vs. the corpus's true 28.7% — the
+      resulting eval (mlflow `efc87adc`, 2026-09-13) was evaluating the
+      new sentiment design almost entirely on the one case it structurally
+      can't help (no real single subject to scope against), not a
+      representative slice. Fixed: contaminated batch renamed to
+      `article_sentiment_contaminated_backlog_order` (preserved, not
+      deleted); reprocessing re-run with `--sample-seed`. → unblocks a
+      fair T-031/T-034 comparison.
+- [ ] **T-038** *(maintainer / upstream)* This repo cannot fix
+      `articles.ticker`/`company` at the source — `articles` is owned by
+      the crawler (`portfolio-data-mining`). Flagging here since it
+      corrupts more than sentiment: `c_summary`'s per-ticker attribution
+      and `sector_summary`'s per-sub-industry grouping (`gics_sector`/
+      `gics_sub_industry` travel with the same mis-tagged rows) are both
+      affected too. Not scoped or fixed in this pass.
+
 ## Status
 
 T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
@@ -376,15 +426,16 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, T-030, and
-T-035 are already done — Work item 3 (NER validation) is fully resolved
-except T-022 (full-corpus backfill), open but non-blocking; Work item 7
+T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, T-030,
+T-033, T-034, T-035, T-036, and T-037 are already done — Work item 3 (NER
+validation) and Work item 4 (sentiment reasoning gap) are both fully
+resolved except non-blocking housekeeping (T-022 full-corpus backfill;
+T-031/T-032 a permanent floor-sized regression baseline); Work item 7
 (NER batching) is code-complete pending T-062 (maintainer running it on
-their own GPU); Work item 4's design/implementation/table-versioning
-(T-030/T-035) are done, with T-031/T-032/T-034's real-data validation the
-next actionable step once the maintainer runs the reprocessing sample
-(`scripts/resample_sentiment_2026_09_12.py`). T-050 (`c_summary` sampling
-check) and T-054/T-055 (`sector_summary` intro-check build-out) are the other
-next actionable, unblocked steps; T-041 follows once T-062/T-031/T-034
-land; T-051 (`c_summary` coverage decision) is unblocked but needs a
-design call before further steps.
+their own GPU); Work item 8 (ticker-collision data bug) is diagnosed and
+partially mitigated, with T-038 (the actual upstream fix) out of this
+repo's hands. T-050 (`c_summary` sampling check) and T-054/T-055
+(`sector_summary` intro-check build-out) are the other next actionable,
+unblocked steps; T-041 follows once T-062 lands; T-051 (`c_summary`
+coverage decision) is unblocked but needs a design call before further
+steps.

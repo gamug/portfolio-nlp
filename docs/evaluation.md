@@ -710,6 +710,127 @@ before/after above is still valid, just not a row-identical replay.
 This clears the last open item in `PLAN.md` Work item 3 / `TASKS.md`
 T-020; `SPEC.md` §9's NER row is updated below.
 
+### Follow-up (2026-09-13): sentiment entity-scoping — a data bug, a sampling bug, and a design revision, in one investigation
+
+`PLAN.md` Work item 4 / `TASKS.md` T-030/T-034-T-038. Three distinct
+findings from one real-data debugging session, kept together here because
+each masked the next until untangled.
+
+**1. A genuine data-quality bug, not a model or aggregation problem.**
+Three tickers collide with common English words — `A` (Agilent
+Technologies), `ON` (ON Semiconductor), `IT` (Gartner) — and whatever
+upstream process tags `articles.ticker`/`company` (in
+`portfolio-data-mining`, not this repo) appears to keyword-match ticker
+symbols against raw article text. These three tickers alone cover
+131,858 of 459,112 articles (**28.7% of the entire corpus**); a manual
+read of sampled titles for all three confirms near-total false
+attribution — e.g. "China tariffs could halt surging US crude oil
+exports...", "Why Hollywood is relying on China to halt a box office
+slide", "Layoffs Keep Growing—Is Your Firm On the List?", none about
+Agilent/ON Semiconductor/Gartner. `SPEC.md` §13 item 12 has the full
+write-up. Entity-scoped weighting can't scope to a subject that never
+appears in the text, so it silently degrades to uniform weighting for
+these rows — not a crash, just no benefit, for ~29% of the corpus. This
+also corrupts `c_summary`'s per-ticker attribution and `sector_summary`'s
+per-sub-industry grouping. **Not fixed here** — it's upstream; flagged,
+not patched (`TASKS.md` T-038).
+
+**2. A compounding sampling bug in this repo's own reprocessing script.**
+The first `scripts/resample_sentiment_2026_09_12.py` invocation ran
+without `--sample-seed`, defaulting to backlog/id-order pickup. Because
+the three bad-ticker articles were crawled early (ids cluster low — min
+id 4,618 vs. e.g. `AAPL`'s min id 114,462), that "first N by id" pool came
+out **94.4% bad-ticker-tagged** (35,978/38,116) versus the corpus's true
+28.7% rate. The eval that followed (mlflow `efc87adc`, n=3000,
+`code_version=79caacb`) was measuring the new design almost entirely
+against the one case it structurally can't help. **Fixed same day**: the
+contaminated batch was renamed to `article_sentiment_contaminated_backlog_order`
+(preserved, not deleted) and reprocessing re-run with `--sample-seed`
+(confirmed 28.0% bad-ticker vs. the expected 28.7% — genuinely
+representative this time).
+
+**3. A design reconsideration, independent of both bugs above.** The
+original 2026-09-12 research (two live probes against the real cached
+model) had already shown a hint later work confirmed: whole-chunk scoring
+correctly handled a mixed-sentiment passage in one forward pass, while a
+*naive* mean of independently-scored sentences did not. In hindsight,
+that was evidence against going all the way to per-sentence granularity —
+sentence-level scoring likely threw away real discourse context
+(negation, contrast, expectation-relative framing like "a smaller-than-
+expected loss") that a several-sentence chunk preserves. **Revised
+2026-09-13**: `run_sentiment_stage` scores each ~510-token chunk
+(`chunk_text`, same helper NER/category use) instead of each sentence,
+keeping the entity-scoped weighting idea (`_text_mentions_subject`/
+`_sentiment_chunk_weights`) but applying it per chunk. See that
+function's docstring "Revision history" for the full account. Also ~5.5x
+faster (80s vs. 438s to reprocess the same 2,000 articles) — fewer
+forward passes per article.
+
+**Four-way comparison**, all `--seed 1`, all against the same LLM judge.
+The pilot and both 2026-09-13 runs share the *same* stratified-sampling
+design (low_conf + target_negative/positive/neutral + representative);
+the pilot's HT-reweighted headline numbers are the right comparison
+point, not the older 60/40 low_conf/random baseline (`823579c3`). The two
+2026-09-13 clean runs are judged from the *identical* 2,000-article pool
+(same `--seed 1` draw against an emptied table both times) — the only
+variable between them is sentence- vs. chunk-level scoring:
+
+| metric | pilot (pre-change, n=800) | contaminated + sentence (n=3000, `efc87adc`) | clean + sentence (n=1500, `8b141e30`) | **clean + chunk (n=1500, `df8cb366`)** |
+|---|---|---|---|---|
+| **`recall_negative`** (headline) | 0.783 | 0.683 | 0.531 | **0.856** |
+| `precision_negative` | 0.359 | 0.385 | 0.449 | 0.376 |
+| `f1_negative` | 0.493 | 0.492 | 0.486 | 0.523 |
+| `macro_f1_vs_judge` | 0.546 | 0.607 | 0.652 | 0.625 |
+| `agreement_rate` | 0.483 | 0.578 | 0.648 | 0.585 |
+| `agreement_rate_representative` | 0.555 | — | 0.840 | 0.700 |
+| `recall_neutral` | 0.526 | 0.742 | 0.811 | 0.674 |
+| `precision_neutral` | 0.733 | 0.818 | 0.839 | 0.871 |
+| `f1_neutral` | 0.613 | 0.778 | 0.825 | 0.760 |
+| `recall_positive` | 0.462 | 0.524 | 0.646 | 0.520 |
+| `precision_positive` | 0.628 | 0.583 | 0.641 | 0.687 |
+| `mean_severity` | 0.570 | 0.464 | 0.393 | 0.481 |
+| `parse_fail_rate` | — | 0.0 | 0.0 | 0.0 |
+
+**Reading it column by column**: the contaminated run looked like a
+regression on `recall_negative` (0.683 vs. pilot's 0.783) but a clear win
+everywhere else — that was the ~94% bad-ticker contamination pulling the
+"is this design working" signal toward "does uniform-weighting-by-default
+work," not a fair read. The *clean* sentence-level run is the most
+informative diagnostic: on a genuinely representative sample,
+`recall_negative` **collapsed to 0.531** — well below the documented
+healthy range (0.62-0.78) — even as `precision_negative` hit this
+investigation's best value (0.449) and overall `macro_f1_vs_judge`/
+`agreement_rate` were the best of any run. That's the signature of the
+design issue in finding 3: on well-tagged, single-subject articles (the
+majority, ~71%), down-weighting every chunk that doesn't literally repeat
+the company name/ticker was suppressing real negative signal expressed
+via pronoun/implicit reference ("shares fell 15%", "the company posted a
+loss") — exactly the opposite of what entity-scoping was supposed to
+help with. The **chunk-level revision reverses this**: `recall_negative`
+0.856, the highest of any run measured for this stage, *above* the
+pre-change pilot's 0.783 — this project's own stated priority
+(`recall`, not `precision`, for `negative` — see "Why recall, not F1, for
+sentiment negative" above) is met with real margin. The trade-off is a
+few points of `precision_negative` and `macro_f1_vs_judge` versus the
+(confound-free) sentence-level number — a real cost, not free, but the
+right side of the priority this project already committed to.
+
+**What this doesn't resolve**: the ticker-collision bug (finding 1) is
+still there in ~29% of the corpus and this run doesn't fix it — the
+chunk-level design still can't scope those articles to a real subject,
+it just falls back to (successfully, per the numbers above) treating them
+like the old uniform-weighted design rather than actively hurting them.
+`TASKS.md` T-031/T-032 (a permanent, `--check-regression`-registered
+floor-sized run, and re-solved sample-size-floor estimates) are still
+open — this comparison used n=1500 to move quickly through three
+reprocessing/eval cycles in one sitting, not as the final locked-in
+baseline size.
+
+This resolves `PLAN.md` Work item 4's acceptance criteria (a measurable
+`negative`-metric improvement without collapsing `recall_negative`) and
+`TASKS.md` T-034; `SPEC.md` §13 item 1 and §9's sentiment row are updated
+below.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

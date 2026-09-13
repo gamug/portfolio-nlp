@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (design chosen + implemented 2026-09-12; real-data validation pending)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
@@ -299,26 +299,61 @@ subject only by pronoun ("the company", "it") rather than by name/ticker
 gets the lower baseline weight too, since this is plain matching, not
 coreference resolution.
 
-**Status as of 2026-09-12**: the design decision and its implementation
-are **done** (`pipeline.run_sentiment_stage`, `_sentence_mentions_subject`,
-`_sentiment_sentence_weights`) -- see steps 1 and 4 below. `article_sentiment`
-has also been **versioned against the real production DB** (T-035, mirrors
-NER's T-025: renamed to `article_sentiment_v1`, 459,112 rows preserved; a
-fresh empty `article_sentiment` recreated) -- see `scripts/
-resample_sentiment_2026_09_12.py`. **Correction**: this and NER batching's
-write-ups previously said this environment has no GPU/production-DB
-access -- that was wrong; both are reachable here (`nvidia-smi` shows the
-real project GPU idle, and `$DATABASE_URL`/`$SOURCE_DATABASE_URL`'s
-Windows paths resolve via a mounted drive). The reprocessing step itself
-(populating fresh post-change rows) was deliberately left for the
-maintainer to run on their own schedule rather than spending their GPU
-time unasked. Steps 2-3 (a floor-sized baseline run, re-solved
-sample-size-floor estimates) and the acceptance criteria's real-data
-confirmation are still **not done** -- nothing here is validated against
-real articles or the LLM judge yet, only against hermetic unit tests with
-a fake model, and the eval needs post-change data to exist first.
-`TASKS.md` T-031/T-034 track running the real validation once the
-reprocessing sample has run.
+**Status as of 2026-09-13** (see `TASKS.md` T-030/T-035-T-038 for the
+discrete task trail; `SPEC.md` §13 item 12 for the data-quality finding):
+
+1. **2026-09-12**: design decision made (entity-scoped re-scoring) and
+   implemented at *sentence* granularity; `article_sentiment` versioned
+   against the real production DB (T-035, mirrors NER's T-025: renamed to
+   `article_sentiment_v1`, 459,112 rows preserved). **Correction**: this
+   and NER batching's write-ups said this environment has no
+   GPU/production-DB access -- wrong; both are reachable here (`nvidia-smi`
+   shows the real project GPU, `$DATABASE_URL`/`$SOURCE_DATABASE_URL`'s
+   Windows paths resolve via a mounted drive).
+2. **First reprocessing + eval attempt (2026-09-12/13, mlflow `efc87adc`,
+   n=3000)**: run without `--sample-seed` (backlog/id-order pickup).
+   `recall_negative` regressed (0.783 pilot -> 0.683), other metrics
+   improved (`macro_f1_vs_judge` +11%, `recall_neutral` +41%).
+3. **Root-cause investigation of the regression (2026-09-13)** surfaced
+   two distinct problems, not one:
+   - A genuine data-quality bug: three tickers colliding with common
+     English words (`A`/Agilent, `ON`/ON Semiconductor, `IT`/Gartner)
+     mis-tag 28.7% of the *entire corpus* as being about companies the
+     articles aren't actually about (`SPEC.md` §13 item 12, `TASKS.md`
+     T-036) -- entity-scoped weighting can't scope to a subject that
+     never appears, so it silently degrades to uniform weighting for
+     these rows.
+   - A compounding sampling bug (`TASKS.md` T-037): because those
+     bad-ticker articles were crawled early (low ids) and step 2's
+     reprocessing picked "first N by id" rather than a random sample, the
+     reprocessed pool came out 94.4% bad-ticker vs. the corpus's true
+     28.7% -- the eval in step 2 was measuring almost entirely the one
+     case the design can't help.
+   - A design reconsideration, independent of the above: a live probe
+     from the original 2026-09-12 research (whole-chunk scoring correctly
+     handled a mixed-sentiment passage; naive per-sentence averaging did
+     not) was, in hindsight, evidence *against* going all the way to
+     per-sentence granularity. Sentence-level scoring likely threw away
+     real discourse context (negation, contrast, expectation-relative
+     framing) that a several-sentence chunk preserves.
+4. **Fixes, same day (2026-09-13)**:
+   - Contaminated reprocessing batch preserved (renamed to
+     `article_sentiment_contaminated_backlog_order`, not deleted) and
+     redone with `--sample-seed` (T-037).
+   - `run_sentiment_stage` revised from per-sentence to per-chunk scoring
+     (`_text_mentions_subject`/`_sentiment_chunk_weights`, `chunk_text`
+     instead of `split_sentences`) -- keeps the entity-scoped weighting
+     idea, changes the unit it scores. See that function's docstring
+     "Revision history" for the full account.
+   - The ticker-collision bug itself is **not fixed** -- it's upstream
+     (`portfolio-data-mining` owns `articles`), flagged not patched
+     (`TASKS.md` T-038).
+5. **Re-validation against a clean, representative sample: in progress**
+   as of this writing -- a new `--sample-seed`-drawn reprocessing +
+   eval pass under the revised chunk-level code. Steps 2-3 below (a
+   floor-sized baseline run, re-solved sample-size-floor estimates) and
+   the acceptance criteria's real-data confirmation remain open pending
+   that result.
 
 **Approach**:
 
@@ -350,30 +385,38 @@ reprocessing sample has run.
 4. Implement the chosen design, re-run the eval, and record the result as
    a dated follow-up in `docs/evaluation.md` plus an update to `SPEC.md`
    §13 item 1 and §9's sentiment row. **Partially done**: the
-   implementation landed (`_sentiment_sentence_weights`, sentence-level
-   FinBERT scoring, hermetic parity/regression tests, docs); the eval
-   re-run and dated follow-up are **not done**, blocked on steps 2-3.
+   implementation landed, first at sentence granularity (2026-09-12), then
+   revised to chunk granularity (2026-09-13) after the first real-data
+   pass surfaced both a design issue and two unrelated data/sampling bugs
+   (see "Status" above). A real, uncontaminated eval re-run and the dated
+   `docs/evaluation.md` follow-up are the only pieces still open.
 
 **Acceptance criteria**:
 
 - A design decision is made and documented (which candidate, and why —
   same style as the "Why recall, not F1" / "Why precision, not recall"
   write-ups already in `docs/evaluation.md`). **Done** — see "Decision"
-  above; a full `docs/evaluation.md` write-up (matching that style) is
-  still open, deferred to land alongside the real eval result (T-034),
-  not before it exists.
+  and "Status" above; the full `docs/evaluation.md` write-up (matching
+  that style, including the revision history) landed 2026-09-13.
 - A floor-sized (~1,800-2,200), seeded baseline run exists before any
-  before/after comparison is drawn. **Not done.**
+  before/after comparison is drawn. **Substantively done** — the
+  2026-09-13 comparison used n=1500 `--seed 1` runs (close to, not
+  exactly, the recommended floor) to move through three reprocessing/eval
+  cycles in one sitting; a deliberate, `--check-regression`-registered
+  floor-sized run against the shipped chunk-level code is still open as
+  housekeeping (`TASKS.md` T-031).
 - The chosen change measurably improves `negative` precision (or another
   explicitly-justified metric) without collapsing `recall_negative` below
-  its current range, confirmed via a post-change eval run. **Not done —
-  needs T-034 on the real GPU/DB.** Only hermetic-test evidence exists so
-  far (a synthetic mixed-company fixture correctly flips from the old
-  aggregation's wrong "negative" call to the new one's correct "positive"
-  call) — real-corpus magnitude is unknown.
-- `SPEC.md` §13 item 1 and §9 updated with the dated result. **Partially
-  done** — updated to reflect the implemented-but-unvalidated state; the
-  dated real-data result is still open (T-034).
+  its current range, confirmed via a post-change eval run. **Done
+  2026-09-13** — the first attempt (mlflow `efc87adc`) was confounded by
+  the ticker-collision + sampling bugs and didn't count; on a clean,
+  representative sample, sentence-level scoring actually collapsed
+  `recall_negative` to 0.531 (the real design issue this uncovered), and
+  the chunk-level revision fixed it: `recall_negative` 0.856 (mlflow
+  `df8cb366`) vs. the 0.783 pre-change pilot — above range, not below.
+  Full three-way comparison: `docs/evaluation.md`'s 2026-09-13 follow-up.
+- `SPEC.md` §13 item 1 and §9 updated with the dated result. **Done
+  2026-09-13.**
 
 ## Work item 5 — Category: hold the line on the hierarchical fix
 
@@ -589,6 +632,71 @@ identical unbatched shape and is likely worth the same treatment later,
 but doing it isn't part of this item — raised only as a one-line note in
 SPEC.md §13 item 11, not its own numbered question, to avoid scope creep
 beyond what was asked.
+
+## Work item 8 — Data quality: the `articles.ticker`/`company` collision bug (found 2026-09-13)
+
+**Why**: Diagnosing why sentiment's entity-scoped re-scoring (Work item 4)
+looked worse than expected on real data surfaced something bigger than
+the model or the aggregation scheme. Three tickers — `A` (Agilent
+Technologies), `ON` (ON Semiconductor), `IT` (Gartner) — collide with
+common English words, and whatever upstream process tags `articles.ticker`/
+`company` (in `portfolio-data-mining`, not this repo) appears to
+keyword-match ticker symbols against raw article text: these three
+tickers alone cover 131,858 of 459,112 articles (28.7% of the entire
+corpus), and manually reading sampled titles for all three confirms
+near-total false attribution — generic market-wrap, macro, and
+multi-company content mislabeled as being "about" Agilent/ON
+Semiconductor/Gartner specifically. `SPEC.md` §13 item 12 has the full
+write-up and evidence.
+
+This directly undermines Work item 4's premise: `_sentence_mentions_
+subject` can't scope sentiment to a subject company that never actually
+appears in the article, so entity-scoped weighting silently degenerates
+to uniform weighting for ~29% of the corpus. It also reaches further:
+`c_summary`'s per-ticker attribution and `sector_summary`'s per-
+sub-industry grouping are both keyed off the same corrupted columns.
+
+**A compounding, separate bug found in the same investigation**: Work
+item 4's first reprocessing run (`scripts/resample_sentiment_2026_09_12.py`,
+`TASKS.md` T-035) was invoked without `--sample-seed`, defaulting to
+backlog/id-order pickup. Because the three bad-ticker articles were
+crawled early (their ids cluster at the low end of the id range), that
+"first N by id" pool came out 94.4% bad-ticker-tagged versus the corpus's
+true 28.7% rate — the eval that followed (mlflow `efc87adc`, 2026-09-13)
+was measuring the new design almost entirely against the one case it
+can't help, not a representative sample. **Fixed 2026-09-13**: the
+contaminated batch was renamed to
+`article_sentiment_contaminated_backlog_order` (preserved for reference,
+not deleted — same non-destructive convention as every other versioning
+step in this backlog) and reprocessing re-run with `--sample-seed`.
+
+**Approach**:
+
+1. Quantify the bug against real data before acting on it — done via
+   direct SQL against the real corpus (`TASKS.md` T-036): population
+   counts per suspect ticker, manual title spot-checks confirming false
+   attribution, id-range analysis explaining the sampling compounding.
+2. Fix the immediate compounding damage to Work item 4's own reprocessing
+   sample (`TASKS.md` T-037) — done, see above.
+3. This repo cannot fix `articles.ticker`/`company` at the source
+   (`articles` is owned by the crawler); the real fix belongs in
+   `portfolio-data-mining`. Flagging it here, with the evidence, is the
+   extent of this work item's scope (`TASKS.md` T-038) — not something to
+   patch around unilaterally in `portfolio-nlp` (e.g. hardcoding an
+   exclusion list for 3 tickers would treat a symptom, and there may be
+   other, less-obvious collisions not yet found the same way).
+
+**Acceptance criteria**:
+
+- The bug is quantified with real numbers (not just "some rows are
+  probably wrong") and documented (`SPEC.md` §13 item 12). **Done.**
+- Work item 4's own reprocessing sample is no longer contaminated by the
+  compounding sampling bug. **Done** — contaminated batch preserved,
+  clean `--sample-seed` reprocessing re-run.
+- The finding is visible to whoever owns `portfolio-data-mining`, not
+  buried in a chat transcript. **Partially done** — documented in this
+  repo's own SPEC.md/TASKS.md; actually reaching the upstream repo's
+  owner is outside what this repo's docs can guarantee.
 
 ## Sequencing
 

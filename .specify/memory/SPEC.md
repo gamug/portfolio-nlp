@@ -204,7 +204,7 @@ does (and does not) verify before a run — pulled from
 |---|---|---|---|
 | `id` | every stage (join/FK target) | implicitly (primary key) | — |
 | `body_text` | stages 1–4 (sentiment/NER/category/`c_summary`) | ✅ yes — the run aborts if the column is absent or every row is empty/blank (FR-007) | pipeline never starts |
-| `ticker`, `company` | stage 5 (`sector_summary`, per-company attribution) | ❌ no | attribution text for that company is whatever the column holds, including `NULL` |
+| `ticker`, `company` | stage 5 (`sector_summary`, per-company attribution); sentiment's entity-scoped re-scoring (`PLAN.md` Work item 4) | ❌ no | attribution text for that company is whatever the column holds, including `NULL` — **confirmed wrong, not just unvalidated, for ~29% of the corpus** (§13 item 12: three tickers colliding with common English words account for 131,858/459,112 articles, near-totally mis-tagged) |
 | `gics_sector`, `gics_sub_industry` | stage 5 (buckets articles into `(sector, sub_industry, week)` groups) | ❌ no | a row with either `NULL` is **silently excluded** from every `sector_summary` bucket (`WHERE a.gics_sector IS NOT NULL AND a.gics_sub_industry IS NOT NULL`) — no error, no log line |
 | `pub_date` | stage 5 (week-bucketing key) | ❌ no | falls back to `fetched_at` when `NULL` (`COALESCE(a.pub_date, a.fetched_at)`) — not a hard requirement |
 | `fetched_at` | stage 5 (fallback only) | ❌ no | only consulted when `pub_date` is `NULL` |
@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 across runs pre-entity-scoping (§13 item 1 — entity-scoped re-scoring implemented 2026-09-12, not yet re-measured; see `PLAN.md` Work item 4 / `TASKS.md` T-034) |
+| sentiment | `recall_negative`¹ | 0.856 post-entity-scoping (chunk-level, n=1500, clean sample — §13 item 1, resolved 2026-09-13; was 0.783 pre-change, dipped to 0.531 in an interim sentence-level revision before the chunk-level fix, `PLAN.md` Work item 4 / `TASKS.md` T-034) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -464,29 +464,29 @@ Carried forward from the last recorded architecture review
 and this document's own drafting — resolve or explicitly accept before
 treating a related FR/NR as done:
 
-1. **Sentiment is the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
+1. **Sentiment was the weakest stage** (`macro_f1_vs_judge` 0.40): FinBERT's
    whole-article softmax average has no per-company or net-signal reasoning
-   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). Flagged
-   as a pipeline-level design question (entity-scoped sentiment?), not
-   started. **Update (2026-09-12): promoted to active, priority work**,
-   design chosen and implemented the same day — `PLAN.md` Work item 4 /
-   `TASKS.md` T-030–T-034. The measurement side had already improved
-   (text-scope fix, stratified sampling, `recall_negative` as headline
-   metric — `docs/evaluation.md`'s 2026-09-08/09 follow-ups); the
-   model-side gap described here is now **entity-scoped re-scoring**:
-   `run_sentiment_stage` scores each sentence individually (not a
-   ~510-token multi-sentence chunk — FinBERT was fine-tuned on
-   sentence-level Financial PhraseBank, a real train/inference
-   granularity mismatch confirmed against the real model) and weights
-   sentences naming the article's own `company`/`ticker` over everything
-   else, instead of a plain mean that gave a sentence about a *different*
-   company the same say as one about the subject. **Not yet
-   confirmed against real data or the LLM judge** — the latest measured
-   pilot number (eval_run 18, n=800, `negative` precision 0.359) predates
-   this change, and re-measuring it needs the project's real GPU/DB
-   (`TASKS.md` T-034, same blocker as §13 item 11's T-062). Only a
-   hermetic synthetic-fixture test confirms the mechanism works as
-   intended so far.
+   the judge applies (`docs/evaluation.md`'s 2026-09-08 follow-up). **Update
+   (2026-09-12/13): resolved, with a mid-course correction** —
+   `PLAN.md` Work item 4 / `TASKS.md` T-030–T-038, `docs/evaluation.md`'s
+   2026-09-13 follow-up has the full account. The measurement side had
+   already improved (text-scope fix, stratified sampling,
+   `recall_negative` as headline metric — `docs/evaluation.md`'s
+   2026-09-08/09 follow-ups); the model-side gap described here is closed
+   by **entity-scoped re-scoring**: `run_sentiment_stage` scores each
+   ~510-token chunk (not each sentence — a first version did, reverted
+   the next day after real-data evaluation showed it collapsing
+   `recall_negative`; chunks preserve discourse context sentence-level
+   scoring threw away) and weights chunks naming the article's own
+   `company`/`ticker` over everything else, instead of a plain mean that
+   gave a chunk about a *different* company the same say as one about the
+   subject. **Confirmed against real data and the LLM judge, 2026-09-13**:
+   `recall_negative` 0.856 (n=1500, clean representative sample) vs. the
+   0.783 pre-change pilot — a real improvement on this project's stated
+   priority metric, not just a hermetic-test result. The same
+   investigation also surfaced and partly addressed an unrelated
+   upstream data-quality bug (§13 item 12) that had contaminated the
+   first real-data attempt.
 2. **Four category leaf labels are near-guessing** (`product_innovation`
    0.14, `partnerships_business_dev` 0.16, `capital_shareholder_returns`
    0.20, `leadership_governance` 0.33 accuracy) even after the hierarchical
@@ -577,6 +577,45 @@ treating a related FR/NR as done:
     is likely worth the same treatment later, but is out of scope for
     this item — not raised here as its own numbered question to avoid
     scope creep beyond what was asked.)
+12. **`articles.ticker`/`company` are wrong, not just unvalidated, for a
+    large share of the corpus — a concrete instance of item 3's risk,
+    confirmed against real data 2026-09-13.** Three tickers collide with
+    common English words — `A` (Agilent Technologies), `ON` (ON
+    Semiconductor), `IT` (Gartner) — and whatever upstream process tags
+    `company`/`ticker` (in `portfolio-data-mining`, upstream of this repo)
+    appears to keyword-match ticker symbols against article text: these
+    three tickers alone account for **131,858 of 459,112 articles (28.7%
+    of the entire corpus)**, and a manual read of sampled titles for all
+    three confirms near-total false attribution (e.g. "China tariffs could
+    halt surging US crude oil exports...", "Why Hollywood is relying on
+    China to halt a box office slide", "Layoffs Keep Growing—Is Your Firm
+    On the List?" — none about Agilent/ON Semiconductor/Gartner). Found
+    while diagnosing sentiment's entity-scoped re-scoring (`PLAN.md` Work
+    item 4): `_sentence_mentions_subject` structurally cannot fire for
+    these articles (the named subject never actually appears), so
+    entity-scoped weighting silently degenerates to uniform baseline
+    weighting for ~29% of the corpus — not a crash, just no benefit,
+    for a very large share of articles. Also corrupts anything else
+    company/ticker-keyed: `c_summary`'s "attributed to its own ticker"
+    framing, `sector_summary`'s per-sub-industry grouping (via
+    `gics_sector`/`gics_sub_industry`, which travel with the same
+    mis-tagged rows). **This is an upstream data-quality bug, not
+    something `portfolio-nlp` can fix at the source** — `articles` is
+    owned by the crawler (`portfolio-data-mining`/whatever populates
+    `urls.db`), not this repo. Not fixed here; tracked as `TASKS.md`
+    T-036/T-037. A **separate, compounding finding from the same
+    investigation**: `TASKS.md` T-035's first reprocessing run
+    (`scripts/resample_sentiment_2026_09_12.py`) was invoked without
+    `--sample-seed`, so it picked up the first N pending articles by `id`
+    order rather than a random sample — and because these three
+    bad-ticker articles were crawled early (their `id`s cluster at the low
+    end: min `id` 4,618 vs. e.g. `AAPL`'s min `id` 114,462), that
+    unseeded run's reprocessed pool came out **94.4% bad-ticker-tagged**
+    (35,978 of 38,116) versus the corpus's true 28.7% rate — badly
+    over-representing exactly the failure case above in the eval that
+    followed. Corrected same-day: the contaminated batch was preserved
+    (renamed to `article_sentiment_contaminated_backlog_order`, not
+    deleted) and reprocessing re-run with `--sample-seed`.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

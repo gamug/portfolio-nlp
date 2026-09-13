@@ -13,11 +13,14 @@ API's `/pipeline/run` body; the default (`summarize=False`) skips them entirely,
 summarization model never loads and its VRAM/latency cost is never paid unless asked for.
 
 1. **Sentiment** — FinBERT (`ProsusAI/finbert`) → `article_sentiment`. Scored per
-   sentence (not per ~510-token chunk — FinBERT was fine-tuned on single-sentence
-   Financial PhraseBank data) and aggregated with **entity-scoped weighting**: a
-   sentence naming the article's own `company`/`ticker` counts more than one that
-   doesn't (a different company's news, or generic market commentary) — see
-   `_sentiment_sentence_weights` (`src/pipeline.py`) and `PLAN.md` Work item 4.
+   ~510-token chunk (`chunk_text`, same helper NER/category use — preserves several
+   sentences' worth of real discourse per forward pass) and aggregated with
+   **entity-scoped weighting**: a chunk naming the article's own `company`/`ticker`
+   counts more than one that doesn't (a different company's news, or generic market
+   commentary) — see `_sentiment_chunk_weights` (`src/pipeline.py`) and `PLAN.md`
+   Work item 4. (A first version of this scored per *sentence* instead of per
+   chunk; reverted 2026-09-13 after real-data evaluation — see that function's
+   docstring "Revision history".)
 2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
    [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
    `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward
@@ -62,9 +65,8 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
   BART's 1024-token cap, plus a **hierarchical reduce**
   (`pipeline.hierarchical_summarize()`): summarize each chunk, then if more than one chunk
   resulted, recursively summarize the concatenated chunk-summaries until they collapse
-  into a single pass. Sentiment uses just the sentence-splitting piece (`split_sentences`)
-  directly, not the chunk-packing on top of it -- it scores one sentence per forward pass
-  (see above).
+  into a single pass. Sentiment reuses the same chunker (`max_tokens=510`) as NER, scoring
+  one forward pass per chunk (see above).
 - **Idempotent, resumable batch processing** — each stage only processes rows missing
   from its results table (articles for stages 1–4, `(gics_sector, gics_sub_industry,
   week_start)` groups for stage 5, enforced by a `UNIQUE` constraint on `sector_summary`).

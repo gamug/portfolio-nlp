@@ -34,7 +34,7 @@ from transformers import (
 )
 
 import news_nlp as db
-from chunking import Chunk, chunk_text, merge_char_spans, split_sentences
+from chunking import Chunk, chunk_text, merge_char_spans
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -177,36 +177,38 @@ def free_gpu() -> None:
 
 def _normalize_company_name(name: str) -> str:
     """Strip corporate suffixes and punctuation for a looser company-name
-    comparison -- see `_sentence_mentions_subject`."""
+    comparison -- see `_text_mentions_subject`."""
     name = _CORP_SUFFIX_RE.sub(" ", name)
     name = re.sub(r"[^\w\s]", " ", name)
     return " ".join(name.split()).strip().lower()
 
 
-def _sentence_mentions_subject(sentence: str, company: str | None, ticker: str | None) -> bool:
-    """True if `sentence` names the article's own subject company or
-    ticker -- the signal `_sentiment_sentence_weights` uses to scope
-    FinBERT's per-sentence read toward the company this article is
-    actually about, instead of treating a sentence about a different
-    company (or generic market commentary) as equally informative."""
-    lowered = sentence.lower()
+def _text_mentions_subject(text: str, company: str | None, ticker: str | None) -> bool:
+    """True if `text` names the article's own subject company or ticker --
+    the signal `_sentiment_chunk_weights` uses to scope FinBERT's read
+    toward the company this article is actually about, instead of treating
+    a chunk about a different company (or generic market commentary) as
+    equally informative. Generic over its input granularity (originally
+    written for single sentences, now applied per ~510-token chunk -- see
+    `run_sentiment_stage`'s docstring for why the granularity changed)."""
+    lowered = text.lower()
     if ticker and re.search(rf"\b{re.escape(ticker.lower())}\b", lowered):
         return True
     if company:
         normalized = _normalize_company_name(company)
-        if normalized and normalized in _normalize_company_name(sentence):
+        if normalized and normalized in _normalize_company_name(text):
             return True
     return False
 
 
-def _sentiment_sentence_weights(
-    sentences: list[str], company: str | None, ticker: str | None
+def _sentiment_chunk_weights(
+    chunks: list[Chunk], company: str | None, ticker: str | None
 ) -> list[float]:
     return [
         _SENTIMENT_SUBJECT_WEIGHT
-        if _sentence_mentions_subject(s, company, ticker)
+        if _text_mentions_subject(ch.text, company, ticker)
         else _SENTIMENT_BASELINE_WEIGHT
-        for s in sentences
+        for ch in chunks
     ]
 
 
@@ -217,19 +219,33 @@ def run_sentiment_stage(
     *,
     sample_seed: int | None = None,
 ) -> None:
-    """Entity-scoped, sentence-level aggregation (PLAN.md Work item 4 step 1,
-    chosen 2026-09-12): FinBERT was fine-tuned on Financial PhraseBank --
-    single, standalone sentences -- so this scores each sentence
-    individually (matching that training granularity) rather than a
-    ~510-token multi-sentence chunk in one forward pass, then combines them
-    weighted by `_sentiment_sentence_weights` (full weight for sentences
-    naming the article's own company/ticker, a lower baseline for
-    everything else) instead of the old plain token-count-weighted mean --
-    which gave a sentence about a different company, or generic market
-    commentary, the same say in the article's score as a sentence actually
-    about its subject.
+    """Entity-scoped, chunk-level aggregation (PLAN.md Work item 4 step 1,
+    chosen 2026-09-12, revised to chunk granularity 2026-09-13). Scores
+    each ~510-token, sentence-packed chunk (`chunk_text`, same helper
+    NER/category use) in one forward pass -- preserving several sentences'
+    worth of real discourse context per call -- then combines chunks
+    weighted by `_sentiment_chunk_weights` (full weight for chunks naming
+    the article's own company/ticker, a lower baseline for everything
+    else) instead of the old plain token-count-weighted mean, which gave a
+    chunk about a different company, or generic market commentary, the
+    same say in the article's score as a chunk actually about its subject.
 
-    Not batched across sentences/articles yet (unlike NER's `_ner_batch` /
+    **Revision history**: the first version of this fix (2026-09-12) scored
+    each *sentence* individually, matching FinBERT's own Financial
+    PhraseBank fine-tuning granularity. Real-data evaluation the next day
+    (`docs/evaluation.md`) showed `recall_negative` regressing more than
+    expected. A live probe run earlier in that diagnosis had already shown
+    whole-chunk scoring correctly handling a mixed-sentiment passage in one
+    forward pass, while naive per-sentence averaging did not -- evidence,
+    in hindsight, that decontextualizing down to single sentences threw
+    away real discourse signal (negation, contrast, expectation-relative
+    framing) that a several-sentence chunk preserves. This revision keeps
+    the entity-scoped *weighting* idea (validated separately, on its own
+    merits) but moves the unit it's applied to back to chunk level, which
+    is also ~7-10x fewer forward passes per article than per-sentence
+    scoring (a chunk covers many sentences).
+
+    Not batched across chunks/articles yet (unlike NER's `_ner_batch` /
     category's `CATEGORY_BATCH_SIZE`) -- correctness first, matching how
     NER's own batching was sequenced (PLAN.md Work item 7): a throughput
     pass is a natural, separate follow-up once this aggregation is
@@ -239,7 +255,12 @@ def run_sentiment_stage(
     sample of pending articles instead of the normal backlog-order first
     `limit` -- see `db.fetch_pending_sentiment_articles`'s docstring. For a
     deliberate targeted reprocessing pass (mirrors NER's T-025 resample,
-    `TASKS.md` T-034), not routine pipeline runs.
+    `TASKS.md` T-034/T-035), not routine pipeline runs. **Always pass a
+    seed for a reprocessing pass** -- an unseeded (backlog/id-order) run
+    can badly skew the sample if some property of interest correlates with
+    id order, as `TASKS.md` T-037 found the hard way (a data-quality bug
+    concentrated in early-crawled ids made an unseeded resample 94%
+    unrepresentative on that axis).
     """
     rows = db.fetch_pending_sentiment_articles(conn, limit=limit, sample_seed=sample_seed)
     total = len(rows)
@@ -257,14 +278,14 @@ def run_sentiment_stage(
     for idx, (article_id, company, ticker, body_text) in enumerate(
         tqdm(rows, desc="sentiment"), start=1
     ):
-        sentences = [s for s, _, _ in split_sentences(body_text)]
-        if sentences:
-            weights = _sentiment_sentence_weights(sentences, company, ticker)
+        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
+        if chunks:
+            weights = _sentiment_chunk_weights(chunks, company, ticker)
             weighted_probs = torch.zeros(len(id2label))
             total_weight = 0.0
-            for sentence, weight in zip(sentences, weights, strict=True):
+            for ch, weight in zip(chunks, weights, strict=True):
                 inputs = tokenizer(
-                    sentence, return_tensors="pt", truncation=True, max_length=512
+                    ch.text, return_tensors="pt", truncation=True, max_length=512
                 ).to(DEVICE)
                 with torch.no_grad():
                     logits = model(**inputs).logits[0]
