@@ -1083,6 +1083,76 @@ Not yet done (remaining Work item 6 steps): decide whether/how to address
 faithfulness-only eval path for `sector_summary`'s `intro_text` (currently
 zero coverage).
 
+### Follow-up (2026-09-14, same day): post-fix c_summary re-run — coverage up, a previously-invisible hallucination gap revealed
+
+Re-ran `c_summary` (`--stage c_summary --sample-size 1000 --seed 1`,
+`code_version` `6312be9` — includes the uncap fix above) against the real
+stores (`eval_run` 34, mlflow `72cf167d`). Strata drawn: `low_conf`
+200/458,641, `target_chunks_1` 48/326,590, `target_chunks_2` 144/110,911,
+`target_chunks_ge3` 288/20,940, `representative` 320/457,961.
+
+| metric | 2026-09-08 baseline (pre-fix, old sampling design) | 2026-09-14 (post-fix, HT) | 2026-09-14 (naive pooled) |
+|---|---|---|---|
+| `mean_faithfulness` | 4.867 | 4.781 | 4.583 |
+| `mean_coverage` | 3.02 | **3.639** | 3.304 |
+| `mean_conciseness` | (not in baseline headline) | 4.568 | 4.362 |
+| `pct_with_hallucination` | 0.054 | **0.085** | 0.154 |
+
+Two things changed since the 2026-09-08 baseline at once, not one — an
+honest confound, same shape as NER's 2026-09-12 before/after: (a) this
+fix (judge now sees the whole article), and (b) the `num_chunks`-tiered
+target stratification (`_CSUMMARY_CHUNK_TIERS`) was implemented the same
+day as the 2026-09-08 baseline but *after* it was recorded, so the
+baseline used the old, un-stratified low_conf/random design. The
+headline deltas above can't be cleanly attributed to the uncap fix
+alone.
+
+What the per-stratum breakdown shows regardless of that confound —
+`num_chunks >= 3` articles (`target_chunks_ge3`, exactly the population
+this fix targets) are the weak spot on **both** metrics, more sharply
+than the aggregate suggests:
+
+| stratum | mean_faithfulness | mean_coverage |
+|---|---|---|
+| `target_chunks_1` (single-chunk) | 4.938 | 3.833 |
+| `target_chunks_2` | 4.542 | 3.229 |
+| `target_chunks_ge3` | **4.229** | **2.861** |
+
+**`mean_coverage` genuinely improved** (3.02 → 3.64 HT) — plausible
+mechanism: capped at 6000 chars, the judge could previously only check
+the summary against the article's lead, so real coverage of later
+material (which the hierarchical reduce does draw on) had no visible
+ground truth to confirm — this fix lets the judge actually credit it.
+
+**`pct_with_hallucination` went up, not down** (0.054 → 0.085 HT / 0.154
+naive) — the opposite direction a pure "judge sees more, catches more
+context" story would predict if the model were unchanged and only
+overlooked-hallucinations were surfaced from behind the old cap. Plausible
+mechanism: a hallucinated detail drawn from post-cap content previously
+had no ground truth for the judge to check it against either, so it likely
+read as unverifiable rather than confirmed-wrong under the old cap; the
+uncap fix lets the judge actually confirm real fabrications it couldn't
+see before. **Not yet independently verified** — no rationale-text audit
+of the newly-flagged hallucination cases has been done this pass (unlike
+the sentiment diagnosis's confusion-matrix/rationale audit); flagged here
+as a plausible but unconfirmed mechanism, per this project's evidence bar.
+
+**Treat `eval_run` 34 (this run) as the new post-fix `c_summary` baseline**
+for regression tracking going forward — the 2026-09-08 numbers predate
+both the uncap fix and the stratification redesign and are no longer a
+fair `--check-regression` comparator, the same disposition NER's
+pre-2026-09-12 baseline was given.
+
+**Work item 6 step 2 (the `mean_coverage` decision), informed by this
+data**: the fresh HT `mean_coverage` (3.64/5) is meaningfully better than
+the stale 3.02/5 figure the item was originally scoped against, and the
+per-stratum breakdown shows the residual weakness concentrated in
+`num_chunks >= 3` articles (2.86/5, 4.6% of the corpus) rather than
+spread evenly — suggesting a narrowly-targeted fix (e.g. a larger output
+budget specifically for multi-chunk reduce passes) may be more
+appropriate than a blanket `SUMMARY_MAX_OUTPUT_TOKENS` raise. Decision
+still pending, not yet made.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic

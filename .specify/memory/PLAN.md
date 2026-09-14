@@ -439,8 +439,10 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 
 ## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check
 
-**Status as of 2026-09-14**: step 1 is **done** — the sampling mismatch is
-confirmed (not just suspected) and fixed. Steps 2-4 not started.
+**Status as of 2026-09-14**: steps 1 and 3 are **done** — the sampling
+mismatch is confirmed and fixed, and a post-fix eval re-run is recorded.
+Step 2 (the `mean_coverage` decision) is informed by fresh data but not
+yet decided. Step 4 not started.
 
 **Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
 rows) joined to real `source.articles.body_text` directly — no LLM calls,
@@ -456,6 +458,23 @@ relevant figure is the 10.0%.) Same structural bug as sentiment
 but still real. Fixed same-day: `c_summary` added to `_UNCAPPED_STAGES`
 (`src/news_nlp/eval/sampling.py`), full detail and exact numbers in
 `docs/evaluation.md`'s 2026-09-14 follow-up.
+
+**Executed (2026-09-14, step 3 — post-fix re-run)**: ran
+`--stage c_summary --sample-size 1000 --seed 1` against the real stores
+(`eval_run` 34, mlflow `72cf167d`). `mean_coverage` improved 3.02→3.64/5
+(HT-weighted), but `pct_with_hallucination` rose 5.4%→8.5% — likely a
+previously-invisible hallucination gap the old cap was masking (real
+fabricated content past char 6000 had no visible ground truth for the
+judge to confirm against), not yet independently verified by a rationale
+audit. The comparison carries a real confound (the num_chunks-tiered
+stratification was implemented the same day as the 2026-09-08 baseline
+but after it was recorded, so the baseline used the old un-stratified
+design) — disclosed explicitly rather than presented as a clean
+before/after. Per-stratum breakdown: `num_chunks >= 3` articles score
+worst on both metrics (coverage 2.86/5, faithfulness 4.23/5) — sharper,
+more targeted evidence than the original baseline's generic "terse/
+extractive tendency" framing. `eval_run` 34 is now the post-fix baseline
+for future regression tracking; full numbers in `docs/evaluation.md`.
 
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,
