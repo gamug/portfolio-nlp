@@ -439,6 +439,24 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 
 ## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check
 
+**Status as of 2026-09-14**: step 1 is **done** — the sampling mismatch is
+confirmed (not just suspected) and fixed. Steps 2-4 not started.
+
+**Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
+rows) joined to real `source.articles.body_text` directly — no LLM calls,
+pure sampling-layer arithmetic. **10.0% (45,867 rows)** have `body_text`
+past the judge's 6000-char cap, and every one of those is also a
+multi-chunk summary (`num_chunks > 1`) — i.e. exactly the population where
+`hierarchical_summarize_batch`'s reduce pass synthesizes content the judge
+could never fully see. (A broader 28.8% have `num_chunks > 1`, but most of
+that gap is the summarizer's own tighter token budget triggering
+multi-chunk on shorter bodies, not the char-cap mismatch — the judge-
+relevant figure is the 10.0%.) Same structural bug as sentiment
+(2026-09-08) and NER (2026-09-12), smaller in magnitude than NER's 21.4%
+but still real. Fixed same-day: `c_summary` added to `_UNCAPPED_STAGES`
+(`src/news_nlp/eval/sampling.py`), full detail and exact numbers in
+`docs/evaluation.md`'s 2026-09-14 follow-up.
+
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,
 loaded independently by `run_company_summary_stage` and

@@ -353,7 +353,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 
 | Stage | Headline metric | Baseline value |
 |---|---|---|
-| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; **selected 2026-09-13 (not yet merged): fine-tuned model + chunk-level entity-scoped weighting** — 0.808 recall_negative / 0.513 precision_negative / 0.801 recall_positive / 0.731 macro F1 vs. judge, chosen over a higher-precision title-only alternative (0.619/0.670 precision, but only 0.574/0.528 recall) for deliberately pessimistic, both-classes-strong recall (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
+| sentiment | `recall_negative`¹ | 0.62-0.78 pre-fix; **merged 2026-09-13: fine-tuned model + chunk-level entity-scoped weighting** — 0.808 recall_negative / 0.513 precision_negative / 0.801 recall_positive / 0.731 macro F1 vs. judge, chosen over a higher-precision title-only alternative (0.619/0.670 precision, but only 0.574/0.528 recall) for deliberately pessimistic, both-classes-strong recall (§13 item 1 — see `PLAN.md` Work item 4, `docs/evaluation.md`'s 2026-09-13 follow-ups) |
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87 / 5 (coverage weaker: 3.02 / 5, §13 item 10, active work — see `PLAN.md` Work item 6) |
@@ -577,11 +577,16 @@ treating a related FR/NR as done:
     strong headline metric** (`mean_faithfulness` 4.87/5,
     `pct_with_hallucination` 5.4%) — a terse/extractive tendency of
     `distilbart-cnn-12-6`, not a correctness problem
-    (`docs/evaluation.md`'s 2026-09-08 baseline notes). `c_summary` is
-    also, like NER, "suspected of the same full-article-vs-lead-cap
-    [eval-sampling] mismatch... but this has not been empirically
-    investigated." **Added 2026-09-12, active priority work** —
-    `PLAN.md` Work item 6 / `TASKS.md` T-050–T-053. `sector_summary`
+    (`docs/evaluation.md`'s 2026-09-08 baseline notes). `c_summary` was
+    also, like NER, suspected of the same full-article-vs-lead-cap
+    eval-sampling mismatch — **confirmed and fixed 2026-09-14**: 10.0%
+    of `article_summary` rows have `body_text` past the judge's cap,
+    every one of them multi-chunk; `c_summary` added to
+    `_UNCAPPED_STAGES` (`src/news_nlp/eval/sampling.py`) the same way
+    sentiment/NER were — see `docs/evaluation.md`'s 2026-09-14
+    follow-up. The `mean_coverage` decision itself remains **open,
+    active priority work** — `PLAN.md` Work item 6 / `TASKS.md`
+    T-050–T-053. `sector_summary`
     itself stays out of scope for this item (and for eval generally):
     it's deterministic composition, only its `intro_text` sentence is
     generative. That sentence, though, runs through the exact same

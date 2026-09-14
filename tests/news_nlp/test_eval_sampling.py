@@ -142,6 +142,36 @@ def test_ner_uses_full_body_text_since_the_2026_09_12_fix(
     assert "truncated" not in items[0].body_text
 
 
+def test_c_summary_uses_full_body_text_since_the_2026_09_14_fix(
+    eval_store_paths: tuple[Path, Path],
+) -> None:
+    """c_summary must see the body_text hierarchical_summarize_batch actually
+    chunked/reduced over (the whole article) -- fixed 2026-09-14 after the
+    lead-cap mismatch was empirically confirmed (docs/evaluation.md's
+    2026-09-14 follow-up: 10.0% of article_summary rows have body_text past
+    this cap, every one of them a multi-chunk summary), same fix shape as
+    sentiment's 2026-09-08 one and ner's 2026-09-12 one above."""
+    source, results = eval_store_paths
+    long_body = "Acme Corp reported strong quarterly results. " * 400
+    assert len(long_body) > sampling._MAX_BODY_CHARS
+
+    raw = sqlite3.connect(source)
+    raw.execute("UPDATE articles SET body_text = ? WHERE id = 1", (long_body,))
+    raw.commit()
+    raw.close()
+
+    conn = db_module.connect_pipeline(results_db=results, source_db=source)
+    try:
+        items = sample_for_stage(conn, "c_summary", size=1, low_conf_frac=1.0, seed=1)
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+    assert items[0].article_id == 1
+    assert items[0].body_text == long_body
+    assert "truncated" not in items[0].body_text
+
+
 def test_sentiment_still_truncates_past_the_safety_ceiling(
     eval_store_paths: tuple[Path, Path],
 ) -> None:

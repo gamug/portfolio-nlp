@@ -1030,6 +1030,59 @@ investigation's earlier ticker-collision bug was about. `SPEC.md` §13
 item 1, §9, and FR-001 are updated to reflect the merge; the repository
 artifact's "Gaps"/"Plan" sections are updated too.
 
+### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
+
+Started `PLAN.md` Work item 6 (summarization eval validation) by checking
+the same suspicion already confirmed for sentiment (2026-09-08) and NER
+(2026-09-12): does `c_summary`'s eval judge see the whole article the
+pipeline actually summarized, or just the lead capped at `_MAX_BODY_CHARS`
+(6000 chars)? Code inspection alone already pointed at yes — `pipeline.
+run_company_summary_stage` -> `hierarchical_summarize_batch` chunks and
+reduces over the *entire* `body_text` (via `build_company_summary_input`,
+which concatenates the full, untruncated body), while `c_summary` was not
+in `_UNCAPPED_STAGES` — but this project's standing rule is to measure
+before fixing, not infer from code shape alone.
+
+Measured directly against real data (`article_summary` joined to
+`source.articles.body_text`, all 458,641 rows — no LLM calls, pure
+sampling-layer arithmetic):
+
+- **45,867 / 458,641 (10.0%)** of `article_summary` rows have `body_text`
+  longer than the judge's 6000-char cap. `body_text` length: p50=2,763,
+  p90=6,001, p95=7,499, p99=13,538, **max=156,053** (the same tail NER's
+  2026-09-12 follow-up found, since both stages draw from the same
+  article population).
+- **Every one of those 45,867** is also a multi-chunk summary
+  (`num_chunks > 1`) — i.e. this is exactly the population where
+  `hierarchical_summarize_batch`'s reduce pass synthesizes content from
+  more than one chunk, content a 6000-char judge view can never fully
+  show.
+- A broader **131,944 / 458,641 (28.8%)** have `num_chunks > 1`, but the
+  other 86,077 of those are multi-chunk despite a body *under* 6000
+  chars — that's the summarizer's own token budget (dense text hitting
+  BART's ~1000-token leaf-chunk limit before 6000 characters), a
+  separate phenomenon from the judge-cap mismatch, not evidence of it.
+  The clean, judge-relevant figure is **10.0%**, not 28.8%.
+- Smaller in magnitude than NER's 21.4% (2026-09-12), but the same
+  structural bug: a real, double-digit-percent slice of the population
+  where the eval judge is scoring the model against a truncated view of
+  the text it actually processed.
+
+**Fixed same-day**: added `c_summary` to `_UNCAPPED_STAGES`
+(`src/news_nlp/eval/sampling.py`), the same fix shape as sentiment
+(2026-09-08) and NER (2026-09-12) — it inherits the shared
+`_SENTIMENT_MAX_BODY_CHARS` (100,000) safety ceiling, which does engage
+for the 156,053-char tail article the same way it already does for NER.
+Added `test_c_summary_uses_full_body_text_since_the_2026_09_14_fix`
+(`tests/news_nlp/test_eval_sampling.py`), mirroring the existing
+sentiment/NER tests of the same shape. Full hermetic suite still passes.
+
+Not yet done (remaining Work item 6 steps): decide whether/how to address
+`c_summary`'s weak `mean_coverage` (3.02/5, pre-fix baseline); re-run the
+`c_summary` eval post-fix and record the result here; add a
+faithfulness-only eval path for `sector_summary`'s `intro_text` (currently
+zero coverage).
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
