@@ -439,11 +439,12 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 
 ## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check
 
-**Status as of 2026-09-14**: steps 1 and 3 are **done** — the sampling
-mismatch is confirmed and fixed, and a post-fix eval re-run is recorded.
-Step 2 (the `mean_coverage` decision) has one candidate fix tested and
-rejected on real data (a bigger output-length budget); no fix decided
-yet. Step 4 not started.
+**Status as of 2026-09-14**: steps 1-3 are **done**. Step 2 (the
+`mean_coverage` decision) is resolved as **accept, no fix** — one
+candidate (a bigger output-length budget) was tested and rejected on
+real data, and the residual gap is accepted as a deliberate
+completeness-vs-correctness trade (see the "Decision" below). Step 4
+not started.
 
 **Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
 rows) joined to real `source.articles.body_text` directly — no LLM calls,
@@ -490,8 +491,25 @@ tier (3.81→4.14); the actual weak `chunks >= 3` tier barely moved
 bad trade, not a fix; the `chunks >= 3` problem is reduce-pass
 information loss, not output-length starvation. Full numbers and the
 `article_sentiment_v1` data wrinkle this experiment surfaced in
-`docs/evaluation.md`'s 2026-09-14 follow-up. `mean_coverage` decision
-still open.
+`docs/evaluation.md`'s 2026-09-14 follow-up.
+
+**Decision (2026-09-14, step 2 resolved)**: accept `mean_coverage` as a
+deliberate completeness-vs-correctness trade, no further fix attempted.
+Every measured lever for raising coverage trades it against
+faithfulness (more allowed/forced output = more room to pad with
+invented detail); `mean_faithfulness` (4.78/5) is the stage's strongest
+metric and the one that matters most for a *summary* specifically -- an
+incomplete-but-accurate summary is a bounded, honest gap, while a
+complete-but-fabricated one gives a reader no way to tell which parts
+are real. This is the mirror image of sentiment's 2026-09-13 "pessimist
+model" recall-over-precision decision: sentiment risks false alarms to
+avoid missing a real signal (a missed signal is the unrecoverable
+failure there); c_summary risks incompleteness to avoid fabrication (a
+fabricated detail is the unrecoverable failure here). Does not close
+off a narrower reduce-pass-specific fix (never tested) as a future
+candidate if `chunks >= 3` coverage is later judged unacceptable on its
+own. Full reasoning in `docs/evaluation.md`'s 2026-09-14 "Decision"
+follow-up.
 
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,

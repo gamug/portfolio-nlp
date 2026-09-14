@@ -1197,15 +1197,42 @@ this project applied to the sentiment precision investigation: test the
 obvious lever on real data before adopting it, and report a negative
 result plainly rather than force a metric up at a hidden cost.
 
-**Decision on `mean_coverage` remains open** — candidates not yet
-tried: a narrower change scoped only to the reduce pass itself (e.g. a
-larger `max_input_tokens` per chunk to cut the number of lossy reduce
-hops `chunks >= 3` articles go through, rather than a bigger *output*
-budget on every pass), or explicitly accepting the terse/extractive
-tendency as a deliberate trade for the stage's already-strong
-faithfulness — the same "recall vs. precision"-shaped choice this
-project made for sentiment, mirrored here as "completeness vs.
-correctness."
+**Decision (2026-09-14): accept `mean_coverage` as a deliberate
+completeness-vs-correctness trade — no further fix attempted.** Every
+measured lever for raising coverage moves the same knob the same
+direction: more output allowed/forced means more room for the model to
+pad with plausible-sounding invented detail alongside (or instead of)
+genuinely-extracted fact, which is exactly what the rejected experiment
+above showed happening (`pct_with_hallucination` more than doubling).
+`mean_faithfulness` (4.78/5) is the stage's strongest metric and the one
+that matters most for a *summary* specifically — a reader relies on a
+summary to say only true things, more than to say every true thing. An
+incomplete-but-accurate summary is a bounded, honest gap: a reader gets
+less than the full article but nothing they read is wrong. A
+complete-but-sometimes-fabricated one is worse: a reader has no way to
+tell which parts are real without going back to the source, which
+defeats the point of summarizing at all.
+
+This mirrors, in the opposite direction, the same trade-off shape
+sentiment's 2026-09-13 "pessimist model" decision made: sentiment
+chose to risk more false alarms (lower precision) rather than risk
+missing a real signal (lower recall), because a missed signal is an
+unrecoverable blind spot downstream while a false alarm is visible and
+discountable. Summarization's asymmetry runs the other way — a
+fabricated detail is the unrecoverable failure mode here (a reader
+can't tell it's fabricated), while an omitted detail is the visible,
+recoverable one (the reader can tell the summary is thin and go read
+the source). Recall was worth the false-alarm cost for sentiment;
+completeness is not worth the fabrication cost for c_summary.
+
+**What this decision does NOT close off**: a narrower fix scoped only
+to the reduce pass itself (e.g. a larger `max_input_tokens` per chunk,
+to cut the number of lossy reduce hops `chunks >= 3` articles go
+through, rather than a bigger *output* budget on every pass) was never
+tested and remains a legitimate future candidate if `chunks >= 3`
+coverage (2.86/5) is later judged unacceptable on its own. This
+decision is about not chasing the output-length lever further, not
+about the coverage gap being permanently untouchable.
 
 ## What it evaluates
 
