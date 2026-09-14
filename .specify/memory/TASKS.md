@@ -365,26 +365,75 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
+## Work item 8 — Justify each model's selection in the Models evaluation artifact section (priority, pending)
+
+The 2026-09-14 artifact reorg centralized every model's *accuracy*
+numbers into one "Models evaluation" section, but not *why this model
+over a plausible alternative* — that reasoning is either missing
+entirely (category, NER, `c_summary`'s base architecture) or only
+covers *which variant of the same model family* (chunk-level vs.
+title-only FinBERT), not *why that family at all*. → `PLAN.md` Work
+item 8.
+
+- [ ] **T-064** Write the sentiment "Why this model" sub-block: FinBERT
+      family over a general-purpose/from-scratch alternative; continuing
+      from `ProsusAI/finbert` specifically over a generic checkpoint;
+      chunk-level + entity-scoped weighting over the measured
+      alternatives (pull from `docs/evaluation.md`'s 2026-09-13
+      follow-ups, don't re-derive). → step 1.
+- [ ] **T-065** Write the category "Why this model" sub-block: zero-shot
+      NLI over a trained classifier (no labeled taxonomy training set);
+      `deberta-v3-base-zeroshot-v2.0` specifically over other zero-shot
+      checkpoints, sourced from the model's own card/benchmark
+      provenance (new research — not yet written anywhere in this repo);
+      the hierarchical two-level taxonomy over flat 9-way (pull from the
+      2026-09-09 follow-up). → step 2.
+- [ ] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
+      (domain-pretrained on SEC filings) over a generic NER checkpoint;
+      FiNER-ORD as the fine-tuning dataset, sourced from the dataset's
+      own paper/repo (new research). → step 3.
+- [ ] **T-067** Write the `article_summary`/`c_summary` "Why this model"
+      sub-block: `distilbart-cnn-12-6` over full `bart-large-cnn` or a
+      modern LLM summarizer, tied explicitly to the 6GB-VRAM /
+      one-model-at-a-time budget (`SPEC.md` NR-001) and no per-call API
+      cost at this corpus size — and connect the model choice to the
+      already-documented `mean_coverage` weakness (a small model
+      pretrained on short CNN/DailyMail news, never retuned for
+      financial-news density) rather than leaving them as two unrelated
+      facts. → step 4.
+- [ ] **T-068** Write the `sector_summary` "Why this model" sub-block:
+      frame the 2026-09-14 model-removal decision explicitly as a
+      selection choice (deterministic template over any model,
+      structural guarantee over probabilistic mitigation), not an
+      incidental fact — this one is mostly reframing content this
+      session already wrote, not new research. → step 5.
+- [ ] **T-069** Publish the updated artifact (all five sub-blocks live
+      under their existing per-model blocks in `#eval`, not a new
+      top-level section) and mirror the same justification content in
+      `docs/modules/news-nlp.md` prose — the artifact must never say
+      something the repo's own docs don't already say. → `PLAN.md` Work
+      item 8 acceptance criteria.
+
 ## Status
 
-T-001–T-007 have no blockers and can begin immediately; T-010–T-016 are
-blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
-item 2). Nothing in Work items 1–2 has started.
+T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
+see the header of Work item 1 above. T-010–T-016 (Work item 2,
+regression gate) remain blocked on the maintainer's infrastructure
+decision — nothing in that item has started.
 
-**Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, T-030,
-T-031/T-032, T-050–T-053, and T-054–T-057 are all done — Work items 3
-(NER validation), 4 (sentiment), and 6 (summarization eval) are fully
-resolved. Work item 3's only open item is T-022 (full-corpus backfill),
-non-blocking. Work item 7 (NER batching) is code-complete, with only
-T-062 (empirical GPU tuning) left — **no longer GPU-blocked**: this
-sandbox gained CUDA access 2026-09-14 (confirmed via `torch.cuda
-.is_available()` during Work item 6's summarization experiments), so
-T-062 is now actionable, not stuck on infrastructure. Work item 6's
-`sector_summary` `intro_text` hallucination gap (up to 50.2%), found and
-fixed the same day (T-058) — the existing 3,444 pre-fix rows are queued
-to self-heal via `SECTOR_SUMMARY_FORMAT_VERSION`, not yet regenerated
-(a real, deliberate production run, left to the repo owner). The only
-work items with anything left are Work item 1 (pin checkpoints, no
-blockers), Work item 2 (regression gate, blocked on the maintainer),
-Work item 3's T-022, and Work item 7's T-062.
+**Model performance checking (Work items 3-7) is fully resolved except
+two non-blocking items:** T-040, T-042, T-021, T-024, T-025, T-020,
+T-023, T-060, T-061, T-063, T-030, T-031/T-032, T-050–T-057, and T-058
+are all done — Work items 3 (NER validation), 4 (sentiment), and 6
+(summarization eval) are fully resolved. Work item 3's only open item is
+T-022 (full-corpus backfill), non-blocking. Work item 7 (NER batching)
+is code-complete, with only T-062 (empirical GPU tuning) left — this
+sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
+yet run.
+
+**Current priority is Work item 8** (per-model selection justification
+in the artifact, T-064–T-069) — an artifact/docs task, unblocked, no
+code changes, not started. The `sector_summary` pre-fix rows (3,444,
+from Work item 6's T-058 fix) are still queued to self-heal on the next
+real `--summarize` run, not yet triggered — a deliberate production
+action left to the repo owner, not a task with an ID.
