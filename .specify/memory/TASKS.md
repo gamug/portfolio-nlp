@@ -139,7 +139,7 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
@@ -212,7 +212,7 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
       2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
       disposition table.)
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (priority, pending)
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (steps 1-3 resolved 2026-09-14; step 4 pending)
 
 Both summarization tasks run the same model (`SUMMARY_MODEL =
 "sshleifer/distilbart-cnn-12-6"`, loaded independently by
@@ -231,26 +231,34 @@ faithfulness-only check given it shares the same model. →
 `PLAN.md` Work item 6, `SPEC.md` §13 item 10 (new), §9 (`c_summary`
 baseline row).
 
-- [ ] **T-050** Empirically check whether `c_summary` eval sampling
+- [x] **T-050** Empirically check whether `c_summary` eval sampling
       suffers the same full-article-vs-lead-cap mismatch already
       confirmed for `sentiment` — `run_company_summary_stage`'s
       hierarchical reduce (`src/pipeline.py`) processes the whole
       article; confirm the judge's scope (`src/news_nlp/eval/sampling.py`,
       `.../prompts/c_summary.md`) matches. → `PLAN.md` Work item 6, step 1.
-- [ ] **T-051** Decide whether/how to address `mean_coverage`'s weakness
+      **Done 2026-09-14** — confirmed (10.0% of `article_summary` rows
+      exceed the judge's cap, all multi-chunk) and fixed (`c_summary`
+      joined `_UNCAPPED_STAGES`). PR #45.
+- [x] **T-051** Decide whether/how to address `mean_coverage`'s weakness
       (3.02/5, weakest `c_summary` metric) — candidates: raise
       `SUMMARY_MIN_OUTPUT_TOKENS`/`SUMMARY_MAX_OUTPUT_TOKENS`
       (`src/pipeline.py`, currently 56/142), change the hierarchical-reduce
       strategy, or explicitly accept the terse tendency as a deliberate
       trade for the already-strong faithfulness score. Not yet decided.
-      → step 2.
-- [ ] **T-052** Run a fresh `--stage c_summary` eval after any change
+      → step 2. **Done 2026-09-14** — the output-length raise was tested
+      (matched-pair experiment) and rejected (coverage +0.20 but
+      `pct_with_hallucination` more than doubled, 15.0%→35.5%); decided
+      to accept the gap as a deliberate completeness-vs-correctness
+      trade, mirroring sentiment's recall-over-precision call. PR #45.
+- [x] **T-052** Run a fresh `--stage c_summary` eval after any change
       lands (or once T-050 rules out a code change) and add a dated
-      follow-up entry to `docs/evaluation.md`. → step 3.
-- [ ] **T-053** Add `SPEC.md` §13 item 10 (new — `c_summary` coverage +
+      follow-up entry to `docs/evaluation.md`. → step 3. **Done
+      2026-09-14** — `eval_run` 34, n=1000, now the post-fix baseline.
+- [x] **T-053** Add `SPEC.md` §13 item 10 (new — `c_summary` coverage +
       eval-scope question) and its §14 disposition-table row, and update
       §9's `c_summary` baseline row with the result. → `PLAN.md` Work
-      item 6 acceptance criteria.
+      item 6 acceptance criteria. **Done 2026-09-14.**
 - [ ] **T-054** Confirm the `sector_summary` population size (rows =
       distinct `(gics_sector, gics_sub_industry, week)`) to decide whether
       a full-population judge pass is affordable each run, instead of

@@ -249,7 +249,7 @@ call, not a defect in this work item.
   **Done 2026-09-12: confirmed, then fixed.**
 - `SPEC.md` §9 updated with the new baseline row/date. **Done.**
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 **Why**: Two rounds of measurement-side improvement already shipped
 (the text-scope fix, then stratified sampling + the `recall_negative`
@@ -437,7 +437,7 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 - `other`'s precision gap is captured as a named, low-priority follow-up
   somewhere durable (`SPEC.md` §13 or a new item) rather than dropped.
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (steps 1-3 resolved 2026-09-14; step 4 pending)
 
 **Status as of 2026-09-14**: steps 1-3 are **done**. Step 2 (the
 `mean_coverage` decision) is resolved as **accept, no fix** — one
