@@ -437,7 +437,7 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 - `other`'s precision gap is captured as a named, low-priority follow-up
   somewhere durable (`SPEC.md` §13 or a new item) rather than dropped.
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found: 42.2% intro_text hallucination rate)
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found and fixed same day: up to 50.2% intro_text hallucination rate)
 
 **Status as of 2026-09-14**: all four steps are **done**. Step 2 (the
 `mean_coverage` decision) is resolved as **accept, no fix** — one
@@ -445,9 +445,10 @@ candidate (a bigger output-length budget) was tested and rejected on
 real data, and the residual gap is accepted as a deliberate
 completeness-vs-correctness trade (see the "Decision" below). Step 4
 (the `sector_summary` intro-text eval) shipped and immediately found a
-real, sizable problem: 42.2% of `intro_text` rows contain a
-hallucination — a genuinely new, undecided gap, not yet fixed (see the
-"Executed" note below and `docs/evaluation.md`'s 2026-09-14 follow-up).
+real, sizable problem — up to 50.2% of `intro_text` rows contained a
+hallucination — and it was **fixed the same day** with a deterministic
+template (see the "Executed" notes below and `docs/evaluation.md`'s
+2026-09-14 follow-ups).
 
 **Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
 rows) joined to real `source.articles.body_text` directly — no LLM calls,
@@ -531,6 +532,31 @@ summarizer, repurposed here on a short synthetic stats seed
 newly-discovered, real, **undecided** gap — recorded as a finding here,
 not fixed in the same pass the eval path was built. Full numbers and
 example rows in `docs/evaluation.md`'s 2026-09-14 follow-up.
+
+**Executed (2026-09-14, later the same day): the `intro_text`
+hallucination gap fixed.** Before designing a fix, ruled out data
+staleness as the cause: regenerated the full `sector_summary` table
+against fully-current sentiment data and re-ran the eval — got *worse*
+(`mean_faithfulness` 3.83/5, `pct_with_hallucination` 50.2%, 70%
+attribution-fabrication), confirming the pattern is a property of the
+generation step itself, not the underlying numbers. Fix: `build_sector
+_intro_seed`'s own output (`src/news_nlp/sector_summary/composition.py`)
+is already a complete, fully-grounded sentence — `run_sector_summary
+_stage` (`src/pipeline.py`) no longer runs it through `SUMMARY_MODEL` at
+all; `intro_text` is now that seed verbatim (through
+`clean_generated_text` for whitespace normalization only). Zero
+hallucination risk by construction, not mitigation — same principle as
+the rest of this stage's cross-company-blending design. This stage no
+longer loads a model or touches the GPU at all. `SECTOR_SUMMARY_FORMAT
+_VERSION` bumped 2→3 (`src/news_nlp/schema.py`) so the existing 3,444
+pre-fix rows self-heal to the new template the next time the stage runs
+— this project's existing designed mechanism (FR-006), no separate
+backfill script. Verified against real production data (5 rows deleted
+and regenerated, output clean) and the full hermetic suite
+(`test_summary_pipeline.py`'s `run_sector_summary_stage` tests rewritten
+to assert the model is never loaded). Full numbers and the
+persistence-check methodology in `docs/evaluation.md`'s 2026-09-14
+follow-up.
 
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,

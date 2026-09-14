@@ -212,7 +212,7 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
       2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
       disposition table.)
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found: 42.2% intro_text hallucination rate)
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found and fixed same day: up to 50.2% intro_text hallucination rate)
 
 Both summarization tasks run the same model (`SUMMARY_MODEL =
 "sshleifer/distilbart-cnn-12-6"`, loaded independently by
@@ -285,6 +285,17 @@ baseline row).
       if T-054/T-055 conclude a full new baseline isn't warranted) for
       the `sector_summary` intro check. → `PLAN.md` Work item 6
       acceptance criteria. **Done 2026-09-14.**
+- [x] **T-058** *(new, follows from T-056's finding)* Confirm the
+      `intro_text` hallucination pattern (T-056) is independent of the
+      then-just-fixed sentiment data (not a staleness artifact), then fix
+      it: replace the `SUMMARY_MODEL` paraphrase step with
+      `build_sector_intro_seed`'s own deterministic output. **Done
+      2026-09-14** — regenerated `sector_summary` against fresh sentiment
+      and re-ran the eval first (got worse, 42.2%→50.2%, ruling out
+      staleness); `run_sector_summary_stage` no longer loads a model;
+      `SECTOR_SUMMARY_FORMAT_VERSION` bumped 2→3 so existing rows
+      self-heal; `SPEC.md` FR-005/§9/§13 item 12 updated. → `PLAN.md`
+      Work item 6.
 
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
@@ -354,10 +365,11 @@ non-blocking. Work item 7 (NER batching) is code-complete, with only
 T-062 (empirical GPU tuning) left — **no longer GPU-blocked**: this
 sandbox gained CUDA access 2026-09-14 (confirmed via `torch.cuda
 .is_available()` during Work item 6's summarization experiments), so
-T-062 is now actionable, not stuck on infrastructure. The only work
-items with anything left are Work item 1 (pin checkpoints, no
+T-062 is now actionable, not stuck on infrastructure. Work item 6's
+`sector_summary` `intro_text` hallucination gap (up to 50.2%), found and
+fixed the same day (T-058) — the existing 3,444 pre-fix rows are queued
+to self-heal via `SECTOR_SUMMARY_FORMAT_VERSION`, not yet regenerated
+(a real, deliberate production run, left to the repo owner). The only
+work items with anything left are Work item 1 (pin checkpoints, no
 blockers), Work item 2 (regression gate, blocked on the maintainer),
-Work item 3's T-022, Work item 6's newly-found `sector_summary`
-`intro_text` hallucination gap (42.2%, undecided — not yet a task ID,
-needs scoping as a new work item if a fix is wanted), and Work item 7's
-T-062.
+Work item 3's T-022, and Work item 7's T-062.

@@ -54,11 +54,18 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    a stats overview (sentiment %, top entities) plus one section per NLP category (stage 3's
    taxonomy) present that week, each listing its contributing companies' `c_summary` text
    verbatim and attributed to its own ticker — company text is never blended with another
-   company's, and never crosses a category-section boundary. The only text ever handed to a
-   model (`sshleifer/distilbart-cnn-12-6`) is a short intro sentence built purely from
-   aggregate stats (`db.build_sector_intro_seed`) — no ticker, company name, or `c_summary`
-   text ever reaches it, which is what makes cross-company/cross-topic blending structurally
-   impossible rather than merely unlikely. Articles whose `c_summary` exists but have no
+   company's, and never crosses a category-section boundary. The intro sentence
+   (`db.build_sector_intro_seed`) — the one piece of prose in this stage that names
+   aggregate stats rather than quoting a company's own text verbatim — used to be run
+   through `sshleifer/distilbart-cnn-12-6` as a "paraphrase"; **as of 2026-09-14 it no
+   longer is**, after that step was found to hallucinate on 42-50% of rows (a fabricated
+   source attribution, or a self-contradicting repeated percentage — see
+   `docs/evaluation.md`'s 2026-09-14 follow-up). `build_sector_intro_seed`'s own output
+   was already a complete, fully-grounded sentence, so `intro_text` is now that seed
+   verbatim — zero hallucination risk by construction, and this stage no longer loads a
+   model or touches the GPU at all. No ticker, company name, or `c_summary` text ever
+   reaches it either way, which is what makes cross-company/cross-topic blending
+   structurally impossible rather than merely unlikely. Articles whose `c_summary` exists but have no
    `article_category` row (historical data predating stage 3 becoming mandatory, or a
    partial/direct stage invocation) are excluded from sector_summary generation entirely.
    Sub-industries with no qualifying articles in a given week get no row; "closed" means the
@@ -181,13 +188,17 @@ network is needed at test time. All tests pass (part of the repo's CI gate; see
 LLM-as-judge over a 60 % low-confidence / 40 % random sample of the stored
 predictions (sentiment / category / NER / `c_summary`), with metrics tracked
 in MLflow and in the `eval_run` / `eval_judgement` tables. `sector_summary`'s
-one model-generated sentence (`intro_text`, added 2026-09-14) is the
-exception: its population is small enough (3,628 rows) to judge in full every
-run instead of sampling, checked for faithfulness against its own
-`facts_json` grounding only — see `docs/evaluation.md`'s 2026-09-14
-follow-up for a real, characterized gap this found (42.2% hallucination
-rate, not yet fixed). It is a separate `eval` dependency group and needs an
-OpenAI-compatible LLM endpoint (`LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
+`intro_text` had its own dedicated eval path added 2026-09-14 — its
+population is small enough (thousands of rows) to judge in full every run
+instead of sampling, checked for faithfulness against its own `facts_json`
+grounding only. It found a real, sizable hallucination rate (42-50%) in the
+old model-paraphrase `intro_text`, and stayed useful past that: with
+`intro_text` now a deterministic template (`docs/evaluation.md`'s 2026-09-14
+follow-ups), this eval doubles as a regression guard — it should read
+~0% hallucination on freshly-generated rows going forward, and a jump away
+from that is a real signal something broke. It is a separate `eval`
+dependency group and needs an OpenAI-compatible LLM endpoint
+(`LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
 
 ```bash
 uv sync --group eval
