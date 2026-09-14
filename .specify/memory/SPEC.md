@@ -693,11 +693,8 @@ treating a related FR/NR as done:
     today is either absent (category's, NER's, and `c_summary`'s base
     architecture choice) or only covers *which variant of the same
     model family* (e.g. chunk-level vs. title-only FinBERT weighting),
-    not *why that family at all*. **Resolved (2026-09-14)** — a "Why
-    this model" sub-block per model, naming a concrete rejected
-    alternative and citing real sourcing, added to the artifact
-    (version 21) and mirrored in `docs/modules/news-nlp.md` — `PLAN.md`
-    Work item 8 / `TASKS.md` T-064–T-069.
+    not *why that family at all*. **New, priority, pending (2026-09-14)**
+    — `PLAN.md` Work item 8 / `TASKS.md` T-064–T-069.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -766,7 +763,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Resolved (2026-09-14)** — sampling mismatch fixed; coverage gap accepted as a deliberate trade, not fixed further; see `PLAN.md` Work item 6 | — |
 | 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
-| 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-14)** — a "Why this model" sub-block added per model, artifact version 21, mirrored in `docs/modules/news-nlp.md`; see `PLAN.md` Work item 8 | — |
+| 13 — Models evaluation section lacks selection reasoning | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 8 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1

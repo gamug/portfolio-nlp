@@ -375,24 +375,24 @@ covers *which variant of the same model family* (chunk-level vs.
 title-only FinBERT), not *why that family at all*. → `PLAN.md` Work
 item 8.
 
-- [x] **T-064** Write the sentiment "Why this model" sub-block: FinBERT
+- [ ] **T-064** Write the sentiment "Why this model" sub-block: FinBERT
       family over a general-purpose/from-scratch alternative; continuing
       from `ProsusAI/finbert` specifically over a generic checkpoint;
       chunk-level + entity-scoped weighting over the measured
       alternatives (pull from `docs/evaluation.md`'s 2026-09-13
       follow-ups, don't re-derive). → step 1.
-- [x] **T-065** Write the category "Why this model" sub-block: zero-shot
+- [ ] **T-065** Write the category "Why this model" sub-block: zero-shot
       NLI over a trained classifier (no labeled taxonomy training set);
       `deberta-v3-base-zeroshot-v2.0` specifically over other zero-shot
       checkpoints, sourced from the model's own card/benchmark
       provenance (new research — not yet written anywhere in this repo);
       the hierarchical two-level taxonomy over flat 9-way (pull from the
       2026-09-09 follow-up). → step 2.
-- [x] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
+- [ ] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
       (domain-pretrained on SEC filings) over a generic NER checkpoint;
       FiNER-ORD as the fine-tuning dataset, sourced from the dataset's
       own paper/repo (new research). → step 3.
-- [x] **T-067** Write the `article_summary`/`c_summary` "Why this model"
+- [ ] **T-067** Write the `article_summary`/`c_summary` "Why this model"
       sub-block: `distilbart-cnn-12-6` over full `bart-large-cnn` or a
       modern LLM summarizer, tied explicitly to the 6GB-VRAM /
       one-model-at-a-time budget (`SPEC.md` NR-001) and no per-call API
@@ -401,13 +401,13 @@ item 8.
       pretrained on short CNN/DailyMail news, never retuned for
       financial-news density) rather than leaving them as two unrelated
       facts. → step 4.
-- [x] **T-068** Write the `sector_summary` "Why this model" sub-block:
+- [ ] **T-068** Write the `sector_summary` "Why this model" sub-block:
       frame the 2026-09-14 model-removal decision explicitly as a
       selection choice (deterministic template over any model,
       structural guarantee over probabilistic mitigation), not an
       incidental fact — this one is mostly reframing content this
       session already wrote, not new research. → step 5.
-- [x] **T-069** Publish the updated artifact (all five sub-blocks live
+- [ ] **T-069** Publish the updated artifact (all five sub-blocks live
       under their existing per-model blocks in `#eval`, not a new
       top-level section) and mirror the same justification content in
       `docs/modules/news-nlp.md` prose — the artifact must never say
@@ -431,11 +431,9 @@ is code-complete, with only T-062 (empirical GPU tuning) left — this
 sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
 yet run.
 
-**Work item 8 (per-model selection justification, T-064–T-069) is done**
-(2026-09-14) — all five "Why this model" sub-blocks are live in the
-repository artifact's "Models evaluation" section (published version
-21) and mirrored in prose in `docs/modules/news-nlp.md`'s new "Model
-selection justification" subsection. The `sector_summary` pre-fix rows
-(3,444, from Work item 6's T-058 fix) are still queued to self-heal on
-the next real `--summarize` run, not yet triggered — a deliberate
-production action left to the repo owner, not a task with an ID.
+**Current priority is Work item 8** (per-model selection justification
+in the artifact, T-064–T-069) — an artifact/docs task, unblocked, no
+code changes, not started. The `sector_summary` pre-fix rows (3,444,
+from Work item 6's T-058 fix) are still queued to self-heal on the next
+real `--summarize` run, not yet triggered — a deliberate production
+action left to the repo owner, not a task with an ID.

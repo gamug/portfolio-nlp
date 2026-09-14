@@ -765,7 +765,7 @@ but doing it isn't part of this item — raised only as a one-line note in
 SPEC.md §13 item 11, not its own numbered question, to avoid scope creep
 beyond what was asked.
 
-## Work item 8 — Justify each model's selection in the Models evaluation artifact section (resolved 2026-09-14)
+## Work item 8 — Justify each model's selection in the Models evaluation artifact section (priority, pending)
 
 **Why**: The 2026-09-14 [Portfolio NLP artifact](https://claude.ai/code/artifact/65e62819-28dd-495b-b6ec-64f9c1751235)
 reorganization (`docs/evaluation.md`'s numbers, centralized) closed the
@@ -859,37 +859,6 @@ at minimum:
 selection decision (e.g. reopening whether chunk-level + fine-tuned
 sentiment was the right call) — this item explains decisions already
 made, it does not remake them.
-
-**Executed (2026-09-14)**: sourcing gathered first, in a standalone
-staging doc (`justification.md`, repo root, git-untracked scratch file),
-verifying every model/dataset/paper claim directly against its live
-Hugging Face card or arXiv page before writing any prose — no assertion
-carried over from memory or an existing repo comment unverified. That
-pass caught a real factual inaccuracy already in the repo:
-`scripts/publish_finbert_financial_news_2026_09_13.py`'s model-card text
-claims `ProsusAI/finbert` is "derivative of `nlpaueb/sec-bert-base`-
-adjacent work" — not supported by FinBERT's own model card (its real
-lineage is BERT-base + a financial corpus + Financial PhraseBank, no
-stated SEC-BERT connection). Flagged, not propagated into this item's
-prose, and left as a separate, not-yet-fixed cleanup.
-
-All five "Why this model" sub-blocks were then written from that
-verified sourcing and inserted into the artifact's existing
-`.model-block` divs (`#eval-sentiment`/`#eval-category`/`#eval-ner`/
-`#eval-csummary`/`#eval-sector`) as a `.rule`-styled callout each,
-republished as artifact version 21. Each names a concrete rejected
-alternative per the acceptance criteria (generic BERT/a per-call LLM for
-sentiment; a supervised classifier or the `bart-large-mnli` baseline for
-category; a generic NER checkpoint for NER; full `bart-large-cnn`/an
-LLM summarizer for `c_summary`; keeping the model in the loop at all for
-`sector_summary`), and the `c_summary` block explicitly ties
-`distilbart-cnn-12-6`'s CNN/DailyMail training data to the
-already-documented `mean_coverage` weakness rather than stating both as
-unrelated facts. The same five paragraphs were then mirrored in prose
-into a new "Model selection justification" subsection of
-`docs/modules/news-nlp.md`, under Evaluation — so the artifact says
-nothing the repo's own docs don't already say, per this project's
-constitution.
 
 ## Sequencing
 
