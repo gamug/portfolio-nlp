@@ -1148,10 +1148,64 @@ data**: the fresh HT `mean_coverage` (3.64/5) is meaningfully better than
 the stale 3.02/5 figure the item was originally scoped against, and the
 per-stratum breakdown shows the residual weakness concentrated in
 `num_chunks >= 3` articles (2.86/5, 4.6% of the corpus) rather than
-spread evenly — suggesting a narrowly-targeted fix (e.g. a larger output
-budget specifically for multi-chunk reduce passes) may be more
-appropriate than a blanket `SUMMARY_MAX_OUTPUT_TOKENS` raise. Decision
-still pending, not yet made.
+spread evenly.
+
+### Follow-up (2026-09-14, same day): a bigger output-length budget was tried and rejected
+
+Tested the obvious next lever — `SUMMARY_MIN_OUTPUT_TOKENS`/
+`SUMMARY_MAX_OUTPUT_TOKENS` (56/142, `src/pipeline.py`) are literally
+`distilbart-cnn-12-6`'s own stock CNN/DailyMail generation defaults,
+never retuned for longer, denser financial-news articles — before
+touching the full corpus.
+
+**Matched-pair experiment, not a fresh independent sample**: took 200
+articles already judged in `eval_run` 34 (70/70/60 across the
+`num_chunks` 1/2/3+ tiers), regenerated their summaries with
+`min=100, max=220` — everything else byte-for-byte the same production
+code path (`hierarchical_summarize_batch`, same model, same chunking) —
+and re-judged the new summaries with the same judge/prompt, so the
+comparison is the same articles, old vs. new settings, not two
+different random draws. (One data wrinkle surfaced and fixed along the
+way: reconstructing each article's original summarization input needed
+the sentiment label/score that was live *when that summary was
+generated* — `article_sentiment_v1`, the pre-fine-tune-swap table with
+full 459,112-row coverage — not the current `article_sentiment` table,
+which only holds 7,520 rows re-scored under the new fine-tuned model so
+far.)
+
+| metric | old (56/142) | new (100/220) | Δ |
+|---|---|---|---|
+| `mean_faithfulness` | 4.595 | 4.070 | −0.53 |
+| `mean_coverage` | 3.315 | 3.515 | +0.20 |
+| `mean_conciseness` | 4.380 | 3.725 | −0.66 |
+| `pct_with_hallucination` | 15.0% | **35.5%** | more than doubled |
+
+Per-tier coverage: `chunks=1` 3.814→**4.143** (crosses the 4/5 target),
+`chunks=2` 3.143→3.357, `chunks>=3` (the actual weak spot) barely moves:
+2.933→2.967.
+
+**Rejected.** A bigger output budget does nudge coverage up, but mostly
+on the single-chunk summaries that were already closest to fine — it
+does almost nothing for the `chunks >= 3` population that's actually
+driving the weak aggregate, and it more than doubles the hallucination
+rate while dragging faithfulness and conciseness down with it. That
+population's problem isn't output length; it's information loss
+compounding across multiple summarize-of-summaries reduce passes
+(`_reduce_pass`) — a bigger per-pass token ceiling doesn't undo hops of
+lossy compression that already happened. This is the same discipline
+this project applied to the sentiment precision investigation: test the
+obvious lever on real data before adopting it, and report a negative
+result plainly rather than force a metric up at a hidden cost.
+
+**Decision on `mean_coverage` remains open** — candidates not yet
+tried: a narrower change scoped only to the reduce pass itself (e.g. a
+larger `max_input_tokens` per chunk to cut the number of lossy reduce
+hops `chunks >= 3` articles go through, rather than a bigger *output*
+budget on every pass), or explicitly accepting the terse/extractive
+tendency as a deliberate trade for the stage's already-strong
+faithfulness — the same "recall vs. precision"-shaped choice this
+project made for sentiment, mirrored here as "completeness vs.
+correctness."
 
 ## What it evaluates
 

@@ -590,9 +590,14 @@ treating a related FR/NR as done:
     confirmed by a rationale audit. Both metrics concentrate in
     `num_chunks >= 3` articles (coverage 2.86/5, faithfulness 4.23/5) —
     see `docs/evaluation.md`'s 2026-09-14 follow-ups for full numbers
-    and the sampling-design confound this comparison carries. The
-    `mean_coverage` fix decision itself remains **open, active priority
-    work** — `PLAN.md` Work item 6 / `TASKS.md` T-050–T-053.
+    and the sampling-design confound this comparison carries. A first
+    candidate fix (raising `SUMMARY_MIN`/`MAX_OUTPUT_TOKENS`) was
+    tested via a matched-pair experiment and **rejected**: coverage
+    moved +0.20 but `pct_with_hallucination` more than doubled
+    (15.0%→35.5%) and the actual weak `chunks >= 3` tier barely
+    moved — a bad trade, not a fix. The `mean_coverage` fix decision
+    itself remains **open, active priority work** — `PLAN.md` Work
+    item 6 / `TASKS.md` T-050–T-053.
     `sector_summary`
     itself stays out of scope for this item (and for eval generally):
     it's deterministic composition, only its `intro_text` sentence is

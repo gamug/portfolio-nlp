@@ -441,8 +441,9 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 
 **Status as of 2026-09-14**: steps 1 and 3 are **done** — the sampling
 mismatch is confirmed and fixed, and a post-fix eval re-run is recorded.
-Step 2 (the `mean_coverage` decision) is informed by fresh data but not
-yet decided. Step 4 not started.
+Step 2 (the `mean_coverage` decision) has one candidate fix tested and
+rejected on real data (a bigger output-length budget); no fix decided
+yet. Step 4 not started.
 
 **Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
 rows) joined to real `source.articles.body_text` directly — no LLM calls,
@@ -475,6 +476,22 @@ worst on both metrics (coverage 2.86/5, faithfulness 4.23/5) — sharper,
 more targeted evidence than the original baseline's generic "terse/
 extractive tendency" framing. `eval_run` 34 is now the post-fix baseline
 for future regression tracking; full numbers in `docs/evaluation.md`.
+
+**Executed (2026-09-14, step 2 attempt — rejected)**: tested raising
+`SUMMARY_MIN_OUTPUT_TOKENS`/`SUMMARY_MAX_OUTPUT_TOKENS` (56/142 →
+100/220, `distilbart-cnn-12-6`'s own untuned stock defaults) via a
+matched-pair experiment: 200 of `eval_run` 34's own judged articles,
+summaries regenerated with the new settings through the unmodified
+production code path, re-judged with the same judge. Coverage moved
++0.20 (3.315→3.515) but concentrated on the already-fine single-chunk
+tier (3.81→4.14); the actual weak `chunks >= 3` tier barely moved
+(2.93→2.97). Cost: `pct_with_hallucination` more than doubled
+(15.0%→35.5%), faithfulness −0.53, conciseness −0.66. **Rejected** — a
+bad trade, not a fix; the `chunks >= 3` problem is reduce-pass
+information loss, not output-length starvation. Full numbers and the
+`article_sentiment_v1` data wrinkle this experiment surfaced in
+`docs/evaluation.md`'s 2026-09-14 follow-up. `mean_coverage` decision
+still open.
 
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,
