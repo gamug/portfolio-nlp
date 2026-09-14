@@ -181,11 +181,14 @@ SCHEMA = build_schema()
 
 # Bumped whenever sector_summary's generation logic changes shape (e.g. the
 # category-grouped deterministic-roll-up rewrite, then the facts_json/
-# intro_text split for knowledge-graph-friendly output). fetch_pending_sector_weeks()
+# intro_text split for knowledge-graph-friendly output, then 2026-09-14's
+# switch to a deterministic intro_text template -- see pipeline.py's
+# SECTOR_INTRO_METHOD comment and docs/evaluation.md's 2026-09-14 follow-up:
+# the old model-paraphrase path hallucinated on 42-50% of rows). fetch_pending_sector_weeks()
 # treats any row below this value as stale, so legacy rows self-heal via
 # INSERT OR REPLACE on the next sector_summary run instead of needing a
 # separate backfill script.
-SECTOR_SUMMARY_FORMAT_VERSION = 2
+SECTOR_SUMMARY_FORMAT_VERSION = 3
 
 _SECTOR_SUMMARY_ADDED_COLUMNS = {
     "format_version": "INTEGER NOT NULL DEFAULT 0",

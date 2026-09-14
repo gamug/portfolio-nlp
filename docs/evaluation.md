@@ -1300,6 +1300,66 @@ was built, matching this project's step-by-step discipline (measure and
 document first, decide the fix as its own step). See `SPEC.md` §13 for
 the new open question this creates.
 
+### Follow-up (2026-09-14, same day): confirmed the hallucination pattern is data-independent, then fixed it with a deterministic template
+
+Before designing a fix, checked whether the 42.2% hallucination rate was
+somehow an artifact of `sector_summary`'s existing rows predating the
+sentiment-model swap (all dated 2026-08-29, built from the pre-fine-tune
+sentiment data) rather than a property of the generation step itself.
+Regenerated the full `sector_summary` table against fully-current
+sentiment data and re-ran the eval (`eval_run` 34 again, n=3444, same
+`code_version`):
+
+| | pre-regeneration | post-regeneration (fresh sentiment) |
+|---|---|---|
+| `mean_faithfulness` | 4.05/5 | **3.83/5** |
+| `pct_with_hallucination` | 42.2% | **50.2%** |
+| fake-attribution share of hallucinations | 64% | 70% |
+
+**Got worse, not better** — confirming the pattern is independent of the
+underlying sentiment data, exactly as the root-cause diagnosis predicted:
+regenerating with correct sentiment couldn't have fixed a bug in how the
+*model paraphrases its own input*, because the input's factual content
+was never the problem.
+
+**Fixed the same day.** `build_sector_intro_seed`'s own output (`src/
+news_nlp/sector_summary/composition.py`) is already a complete,
+fully-grounded sentence — the summarization step was never adding
+information, only degrading a sentence that was already correct.
+`run_sector_summary_stage` (`src/pipeline.py`) no longer runs that seed
+through `SUMMARY_MODEL` at all: `intro_text` is now the seed itself
+(through `clean_generated_text` for whitespace normalization only),
+verbatim. Zero hallucination risk **by construction**, not by
+mitigation — the same "structural guarantee over probabilistic
+mitigation" principle this stage's cross-company-blending design already
+used (see `build_sector_intro_seed`'s own docstring). This also drops
+the model load/GPU dependency for this stage entirely — `run_
+sector_summary_stage` no longer touches `AutoTokenizer`/
+`AutoModelForSeq2SeqLM` at all, and `sector_summary.model_name` now
+records `"deterministic-template"` instead of `SUMMARY_MODEL`.
+
+Verified against real production data: deleted and regenerated 5 real
+`sector_summary` rows, output correct and clean — e.g. `"This week, the
+Construction Materials sub-industry within Materials saw 1 article(s)
+across 1 company, primarily about other. Sentiment was 0% positive, 100%
+negative, and 0% neutral."` No fabricated attribution, no contradictory
+percentage, by design (there's no generation step left to introduce
+one). Full hermetic suite green, `test_summary_pipeline.py`'s
+`run_sector_summary_stage` tests rewritten to assert the model is never
+loaded, whether or not there's work pending.
+
+**`SECTOR_SUMMARY_FORMAT_VERSION` bumped (2→3)** the same day
+(`src/news_nlp/schema.py`) — this is the project's existing, designed
+self-heal mechanism (`docs/modules/news-nlp.md`): a row below the
+current version is treated as stale and regenerates via `INSERT OR
+REPLACE` the next time `run_sector_summary_stage` runs, no separate
+backfill script needed. The existing 3,444 rows (all built by the old
+model-paraphrase path) will self-heal to the deterministic template the
+next time the stage is run against the full corpus — not done as part
+of this change itself (that's a real, deliberate production run, left
+to the repo owner), but the mechanism is now armed and requires no
+further code.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence

@@ -92,7 +92,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-002** | The NER stage runs `gamug/sec-bert-finer-ord-ner`, merges BIO-tagged sub-token predictions **word-boundary aware**, and writes one `article_entities` row per detected span with a char offset and confidence. | No emitted span starts or ends mid-word (regression test for the fixed "3"-as-`ORG` subword-fragmentation bug, `82c5e6a`); every row has `entity_type ∈ {PER, LOC, ORG}`, valid `start_char < end_char` into the source text, and a `score`. |
 | **FR-003** | The category stage classifies each article via two-level hierarchical zero-shot NLI (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) against the fixed taxonomy in `news_nlp.taxonomy` (3 groups → 9 leaf labels + `other`), on the title + lead chunk only, and writes one `article_category` row. | `label` is one of the 9 taxonomy slugs or `other`; `group_label`/`group_score` are populated even when `label = other`; all 9 raw NLI distribution columns are populated (audit trail for threshold retuning); `label = other` iff the winning slug's score is below `CATEGORY_CONFIDENCE_THRESHOLD`. |
 | **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
-| **FR-005** | The `sector_summary` stage (opt-in) composes one row per `(gics_sector, gics_sub_industry, week_start)` for each **closed** calendar week, deterministically concatenating member companies' `c_summary` text attributed by ticker, with the only model-generated text being a stats-only intro sentence. | `build_sector_intro_seed`'s model input never contains a ticker, company name, or summary text (unit-testable — cross-company blending is structurally impossible, not just avoided); `UNIQUE(gics_sector, gics_sub_industry, week_start)` holds; `facts_json` carries the structured (non-narrative) aggregate. |
+| **FR-005** | The `sector_summary` stage (opt-in) composes one row per `(gics_sector, gics_sub_industry, week_start)` for each **closed** calendar week, deterministically concatenating member companies' `c_summary` text attributed by ticker. The stats-only intro sentence (`build_sector_intro_seed`) is itself fully deterministic as of 2026-09-14 (previously run through a model as a "paraphrase" step — dropped after that step was found to hallucinate on 42-50% of rows; see `docs/evaluation.md`'s 2026-09-14 follow-up) — the entire `sector_summary` stage is now non-generative, no model or GPU involved. | `build_sector_intro_seed`'s output never contains a ticker, company name, or summary text (unit-testable — cross-company blending is structurally impossible, not just avoided); `UNIQUE(gics_sector, gics_sub_industry, week_start)` holds; `facts_json` carries the structured (non-narrative) aggregate; `run_sector_summary_stage` never calls `AutoTokenizer`/`AutoModelForSeq2SeqLM.from_pretrained` (test-asserted). |
 | **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |
 | **FR-007** | The pipeline reads article text from a read-only-ATTACHed SOURCE store and writes results (plus a lean `articles` row per touched article) to a separate RESULTS store; SOURCE is never written. | `db.require_source_text` raises before any model loads if SOURCE is unset or has no usable `body_text` (constitution: Security & Data #2); a write attempt against schema `source` is not exercised by any code path (`grep` for `source\.` write statements returns none outside read paths). |
 | **FR-008** | A FastAPI service (`apps/news_nlp_api.py`, `:8003`) exposes pipeline trigger/status, article/category/entity/sentiment read + stats endpoints, `sector_summary` retrieval, the latest eval summary, and human-correction `PATCH`/`DELETE` endpoints for sentiment/entities/category — all working off the RESULTS store alone. | `GET /articles/{id}`, `/stats/*`, `/sectors/summary`, `/eval/latest` all return `200` with only `$DATABASE_URL` configured (no `$SOURCE_DATABASE_URL`) once a pipeline run has already populated RESULTS. |
@@ -220,7 +220,7 @@ depends on is assumed, not checked — a SOURCE missing `gics_sector`/
 | `article_entities` | `id` (PK, autoincrement) | `article_id` (FK, indexed), `entity_type` (`PER`/`LOC`/`ORG`), `text`, `start_char`/`end_char`, `score` | Stage 2 |
 | `article_category` | `article_id` (PK) | `label` (9 slugs or `other`), `score`, `group_label`/`group_score` (level-1 hierarchy), 9 raw per-slug NLI scores (audit trail) | Stage 3 |
 | `article_summary` | `article_id` (PK) | `summary_text`, `num_chunks`, `model_name`, `processed_at` | Stage 4 (opt-in) |
-| `sector_summary` | `id` (PK); `UNIQUE(gics_sector, gics_sub_industry, week_start)` | `summary_text`, `facts_json` (structured, non-narrative), `intro_text` (the one model-generated sentence), `format_version` (self-heal marker), `num_articles`/`num_companies` | Stage 5 (opt-in) |
+| `sector_summary` | `id` (PK); `UNIQUE(gics_sector, gics_sub_industry, week_start)` | `summary_text`, `facts_json` (structured, non-narrative), `intro_text` (deterministic template as of 2026-09-14, `model_name` reads `"deterministic-template"`), `format_version` (self-heal marker), `num_articles`/`num_companies` | Stage 5 (opt-in) |
 | `eval_run` | `id` (PK) | `stage`, `sample_size`, `judge_model`/`judge_url`, `code_version`, `mlflow_run_id`, `metrics_json`, `strata_json`, `status` | `news_nlp.eval` |
 | `eval_judgement` | `id` (PK) | `run_id` (FK), `article_id` (not FK-constrained — snapshot semantics), `bucket`, `verdict_json`, `correct`, `severity`, `rationale` | `news_nlp.eval` |
 
@@ -299,14 +299,15 @@ fail the invocation (used as a manual/scheduled gate, not part of `ci.yml`).
   filter (constitution: AI behavior #4, "decision-support not authoritative
   claims" — don't summarize what the pipeline itself is unsure contains a
   notable entity).
-- **`sector_summary` composition is deterministic, not generative**, for
-  everything except one intro sentence: `build_sector_facts` aggregates
-  structured stats (`facts_json`); member companies' `c_summary` text is
-  copied verbatim and ticker-attributed; the sole model call
-  (`build_sector_intro_seed`) receives only aggregate statistics — no
-  ticker, company name, or summary text ever reaches it, making
-  cross-company blending structurally impossible rather than merely
-  policy (FR-005).
+- **`sector_summary` composition is fully deterministic, not generative**
+  (as of 2026-09-14 — previously true for everything except one intro
+  sentence): `build_sector_facts` aggregates structured stats
+  (`facts_json`); member companies' `c_summary` text is copied verbatim
+  and ticker-attributed; `build_sector_intro_seed`'s own templated
+  sentence, built purely from aggregate statistics, IS `intro_text` —
+  no ticker, company name, or summary text ever reaches it, and no model
+  call happens at all, making cross-company blending structurally
+  impossible rather than merely policy (FR-005).
 - **Self-healing schema drift**: `sector_summary.format_version`,
   `eval_run.strata_json`'s additive migration, and `article_category`'s
   `group_label`/`group_score` additive migration all follow the same
@@ -357,7 +358,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87/5 pre-fix (old sampling design) → **4.78/5 post-fix (2026-09-14, eval_run 34, HT)**; coverage improved 3.02→3.64/5 but hallucination rate rose 5.4%→8.5% (§13 item 10, resolved 2026-09-14 as an accepted trade, not a fix — see `PLAN.md` Work item 6 and `docs/evaluation.md`'s 2026-09-14 "Decision" follow-up) |
-| sector_summary (`intro_text` only) | `mean_faithfulness` | **New baseline, 2026-09-14** (first eval ever run for this text — see §13 item 12): 4.05/5, full 3,628-row population, but `pct_with_hallucination` **42.2%** — a confirmed, characterized pattern (fabricated source attributions + self-contradicting repeated percentages), root-caused to `distilbart-cnn-12-6` being a news-article summarizer repurposed on a synthetic stats seed it wasn't trained for. Undecided, not yet fixed — `PLAN.md` Work item 6, `docs/evaluation.md`'s 2026-09-14 follow-up |
+| sector_summary (`intro_text` only) | `mean_faithfulness` | 4.05/5 → **3.83/5 on fresh sentiment data** (`pct_with_hallucination` 42.2%→50.2%, confirming the pattern was independent of the underlying data), root-caused to `distilbart-cnn-12-6` paraphrasing a synthetic stats seed it wasn't trained for. **Fixed 2026-09-14**: `intro_text` is now `build_sector_intro_seed`'s own deterministic output, never model-paraphrased — zero hallucination risk by construction (§13 item 12, resolved) — `PLAN.md` Work item 6, `docs/evaluation.md`'s 2026-09-14 follow-ups |
 
 ¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"
 (2026-09-08) explains the switch from `macro_f1_vs_judge` (0.40 at the
@@ -646,22 +647,35 @@ treating a related FR/NR as done:
     unbatched shape and is likely worth the same treatment later, but is
     out of scope for this item — not raised here as its own numbered
     question to avoid scope creep beyond what was asked.)
-12. **`sector_summary`'s `intro_text` has a real, sizable faithfulness
-    gap — 42.2% hallucination rate.** Unlike `c_summary` (which summarizes
-    real article text), `intro_text` asks `distilbart-cnn-12-6` — a
-    news-article summarizer — to turn a short, synthetic stats-only seed
-    sentence (`build_sector_intro_seed`) into prose, a task shape it was
-    never trained on. First-ever eval for this text (`PLAN.md` Work item
-    6 step 4, `TASKS.md` T-054–T-057, `eval_run` 34, full 3,628-row
-    population, 2026-09-14): `mean_faithfulness` 4.05/5,
-    `pct_with_hallucination` 42.2% — confirmed as a real pattern by
-    reading flagged rows, not an artifact of the metric: 64% are a
-    fabricated source attribution (`"...according to CNN.com's weekly
-    Newsquiz"`, `"...according to analysts"`) the model invents, the rest
-    mostly a self-contradicting repeated-percentage generation artifact.
-    **Undecided, not yet fixed** — newly discovered the same day the eval
-    path that found it was built; full numbers and example rows in
-    `docs/evaluation.md`'s 2026-09-14 follow-up.
+12. **`sector_summary`'s `intro_text` had a real, sizable faithfulness
+    gap — up to 50.2% hallucination rate — resolved 2026-09-14.** Unlike
+    `c_summary` (which summarizes real article text), `intro_text` was
+    asking `distilbart-cnn-12-6` — a news-article summarizer — to turn a
+    short, synthetic stats-only seed sentence (`build_sector_intro_seed`)
+    into prose, a task shape it was never trained on. First-ever eval for
+    this text (`PLAN.md` Work item 6 step 4, `TASKS.md` T-054–T-057,
+    `eval_run` 34, full 3,628-row population, 2026-09-14):
+    `mean_faithfulness` 4.05/5, `pct_with_hallucination` 42.2% —
+    confirmed as a real pattern by reading flagged rows, not an artifact
+    of the metric: 64% were a fabricated source attribution
+    (`"...according to CNN.com's weekly Newsquiz"`, `"...according to
+    analysts"`) the model invented, the rest mostly a self-contradicting
+    repeated-percentage generation artifact. Re-checked against fully
+    fresh sentiment data the same day to rule out staleness as the cause:
+    got *worse* (3.83/5, 50.2% hallucination, 70% attribution-fabrication)
+    — confirming the pattern was independent of the underlying data.
+    **Fixed same day**: `run_sector_summary_stage` (`src/pipeline.py`) no
+    longer runs `build_sector_intro_seed`'s output through
+    `SUMMARY_MODEL` — that seed was already a complete, fully-grounded
+    sentence, so `intro_text` is now that seed verbatim. Zero
+    hallucination risk by construction, not mitigation; this stage no
+    longer loads a model or touches the GPU at all.
+    `SECTOR_SUMMARY_FORMAT_VERSION` bumped 2→3 so the existing 3,444
+    pre-fix rows self-heal to the new template the next time the stage
+    runs (this project's existing designed mechanism, FR-006 — no
+    separate backfill script). Full numbers, example rows, and the
+    persistence-check methodology in `docs/evaluation.md`'s 2026-09-14
+    follow-ups.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -728,18 +742,18 @@ boundary of what this project is, not a gap someone forgot to close:
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Resolved (2026-09-14)** — sampling mismatch fixed; coverage gap accepted as a deliberate trade, not fixed further; see `PLAN.md` Work item 6 | — |
 | 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
-| 12 — `sector_summary` `intro_text` has a 42.2% hallucination rate | **New, undecided (2026-09-14)** — first-ever eval for this text found a real, characterized gap; no fix attempted yet | — (needs scoping as a work item if a fix is wanted) |
+| 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
 and 2 have since moved off "permanent characteristic, not a queued task"
 to fully resolved (see the update notes on both items above and
 `PLAN.md` Work items 4-5); item 10 has likewise resolved, and item 11 is
-down to one non-blocking sub-task. Item 12 is new, discovered the same
-day Work item 6's `sector_summary` eval path was built — undecided, not
-yet a scoped work item. Items 3, 4 (the pinning-reprocessing half), 5, 6,
-7, and 9 remain permanent characteristics of this project as scoped, not
-queued tasks.
+down to one non-blocking sub-task. Item 12 was discovered and resolved
+the same day (2026-09-14) — found by the `sector_summary` eval path
+Work item 6 built, fixed the same day with a deterministic template.
+Items 3, 4 (the pinning-reprocessing half), 5, 6, 7, and 9 remain
+permanent characteristics of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 

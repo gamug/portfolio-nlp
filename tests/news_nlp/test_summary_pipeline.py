@@ -283,17 +283,27 @@ class FakeModel:
         return self
 
 
-# --- run_sector_summary_stage ----------------------------------------------
+# --- run_sector_summary_stage ------------------------------------------
+#
+# intro_text is now build_sector_intro_seed's own deterministic output
+# (2026-09-14 fix, see pipeline.SECTOR_INTRO_METHOD's comment) -- no
+# model load, no GPU, ever, for this stage. These tests assert exactly
+# that: AutoTokenizer/AutoModelForSeq2SeqLM.from_pretrained must never be
+# called, whether or not there's work pending.
+
+
+def _fail_if_model_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("run_sector_summary_stage must never load a model")
+
+    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail)
+    monkeypatch.setattr(pipeline.AutoModelForSeq2SeqLM, "from_pretrained", fail)
 
 
 def test_run_sector_summary_stage_skips_loading_model_when_nothing_pending(
     conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail_if_called(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError("model should not be loaded when there is nothing to process")
-
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
-    monkeypatch.setattr(pipeline.AutoModelForSeq2SeqLM, "from_pretrained", fail_if_called)
+    _fail_if_model_loaded(monkeypatch)
 
     calls = []
     pipeline.run_sector_summary_stage(conn, on_progress=lambda *a: calls.append(a))
@@ -304,19 +314,12 @@ def test_run_sector_summary_stage_skips_loading_model_when_nothing_pending(
 def test_run_sector_summary_stage_writes_one_summary_per_group(
     conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _fail_if_model_loaded(monkeypatch)
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_sentiment(conn, 1)
     seed_category(conn, 1)
     db.write_company_summary(conn, 1, "3M did well this week.", 1, "facebook/bart-large-cnn")
     conn.commit()
-
-    monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
-    )
-    monkeypatch.setattr(
-        pipeline.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
-    )
-    calls = make_recording_summarizer(monkeypatch, replies=["This week saw strong activity."])
 
     pipeline.run_sector_summary_stage(conn)
 
@@ -324,19 +327,28 @@ def test_run_sector_summary_stage_writes_one_summary_per_group(
     assert len(results) == 1
     assert results[0]["num_articles"] == 1
     assert results[0]["num_companies"] == 1
-    assert "This week saw strong activity." in results[0]["summary_text"]
+    assert results[0]["model_name"] == pipeline.SECTOR_INTRO_METHOD
     assert "3M did well this week." in results[0]["summary_text"]  # company bullet still present
-    # The model is only ever shown the aggregate-stats intro seed, never the
-    # raw company c_summary text -- the fix for the original "frankenstein"
-    # blending bug.
-    assert len(calls) == 1
-    assert "3M did well this week." not in calls[0][0]
-    assert "MMM" not in calls[0][0]
+    # intro_text is exactly build_sector_intro_seed's own output (through
+    # clean_generated_text) -- deterministic, never a model paraphrase of
+    # it, so it can never fabricate a source or contradict its own stats.
+    assert results[0]["intro_text"] == db.build_sector_intro_seed(
+        "Industrials",
+        "Industrial Conglomerates",
+        results[0]["week_start"],
+        results[0]["week_end"],
+        db.fetch_company_summaries_for_sector_week(
+            conn, "Industrials", "Industrial Conglomerates", results[0]["week_start"]
+        ),
+    )
+    assert "3M did well this week." not in results[0]["intro_text"]
+    assert "MMM" not in results[0]["intro_text"]
 
 
-def test_run_sector_summary_stage_pools_multiple_groups_into_one_model_call(
+def test_run_sector_summary_stage_writes_one_row_per_group_no_batching_needed(
     conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _fail_if_model_loaded(monkeypatch)
     seed_article(
         conn,
         id=1,
@@ -363,19 +375,8 @@ def test_run_sector_summary_stage_pools_multiple_groups_into_one_model_call(
     db.write_company_summary(conn, 2, "Nvidia did well this week.", 1, "facebook/bart-large-cnn")
     conn.commit()
 
-    monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
-    )
-    monkeypatch.setattr(
-        pipeline.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
-    )
-    calls = make_recording_summarizer(monkeypatch, replies=["Industrials intro.", "Tech intro."])
-
     pipeline.run_sector_summary_stage(conn)
 
     results = db.list_sector_summaries(conn)
     assert len(results) == 2
-    # Both groups' intro seeds fit within SUMMARY_BATCH_SIZE, so they're
-    # pooled into a single generate() call instead of one call per group.
-    assert len(calls) == 1
-    assert len(calls[0]) == 2
+    assert {r["gics_sector"] for r in results} == {"Industrials", "Information Technology"}
