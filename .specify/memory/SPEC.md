@@ -357,6 +357,7 @@ these as a regression signal, not the absolute numbers as a pass/fail bar:
 | category | `accuracy_vs_judge` | 0.487 post-hierarchical-fix + 0.6 threshold calibration (§13 item 2, resolved — was 0.69/0.47 pre-redesign) |
 | ner | `micro_f1` | 0.858 (hallucination rate 16.0%) post-subword-fragmentation-fix, n=8000 against the T-025 resample pool (`PLAN.md` Work item 3, resolved 2026-09-12 — was 0.74/33.8% pre-fix, `TASKS.md` T-020; only the 19,988-article resample is post-fix, the remaining ~439K articles are not, `TASKS.md` T-022) |
 | c_summary | `mean_faithfulness` | 4.87/5 pre-fix (old sampling design) → **4.78/5 post-fix (2026-09-14, eval_run 34, HT)**; coverage improved 3.02→3.64/5 but hallucination rate rose 5.4%→8.5% (§13 item 10, resolved 2026-09-14 as an accepted trade, not a fix — see `PLAN.md` Work item 6 and `docs/evaluation.md`'s 2026-09-14 "Decision" follow-up) |
+| sector_summary (`intro_text` only) | `mean_faithfulness` | **New baseline, 2026-09-14** (first eval ever run for this text — see §13 item 12): 4.05/5, full 3,628-row population, but `pct_with_hallucination` **42.2%** — a confirmed, characterized pattern (fabricated source attributions + self-contradicting repeated percentages), root-caused to `distilbart-cnn-12-6` being a news-article summarizer repurposed on a synthetic stats seed it wasn't trained for. Undecided, not yet fixed — `PLAN.md` Work item 6, `docs/evaluation.md`'s 2026-09-14 follow-up |
 
 ¹ `docs/evaluation.md`'s "Why recall, not F1, for sentiment negative"
 (2026-09-08) explains the switch from `macro_f1_vs_judge` (0.40 at the
@@ -635,13 +636,32 @@ treating a related FR/NR as done:
     confirms batched and one-article-at-a-time processing produce
     identical `article_entities`. **Still open**: T-062, empirically
     tuning `NER_BATCH_SIZE` against the 6GB VRAM budget and measuring the
-    real throughput gain on a GPU — not done in this pass (no GPU access
-    in the environment this shipped from); the starting value is
-    untested against real hardware. `PLAN.md` Work item 7 has the full
-    detail. (`run_sentiment_stage` has the identical unbatched shape and
-    is likely worth the same treatment later, but is out of scope for
-    this item — not raised here as its own numbered question to avoid
-    scope creep beyond what was asked.)
+    real throughput gain on a GPU — not done as of 2026-09-12 (no GPU
+    access in the environment that shipped the batching code); the
+    starting value was untested against real hardware. **No longer
+    GPU-blocked as of 2026-09-14** — this sandbox gained CUDA access
+    (used for the Work item 6 summarization experiments the same day),
+    so T-062 is now actionable, just not yet done. `PLAN.md` Work item 7
+    has the full detail. (`run_sentiment_stage` has the identical
+    unbatched shape and is likely worth the same treatment later, but is
+    out of scope for this item — not raised here as its own numbered
+    question to avoid scope creep beyond what was asked.)
+12. **`sector_summary`'s `intro_text` has a real, sizable faithfulness
+    gap — 42.2% hallucination rate.** Unlike `c_summary` (which summarizes
+    real article text), `intro_text` asks `distilbart-cnn-12-6` — a
+    news-article summarizer — to turn a short, synthetic stats-only seed
+    sentence (`build_sector_intro_seed`) into prose, a task shape it was
+    never trained on. First-ever eval for this text (`PLAN.md` Work item
+    6 step 4, `TASKS.md` T-054–T-057, `eval_run` 34, full 3,628-row
+    population, 2026-09-14): `mean_faithfulness` 4.05/5,
+    `pct_with_hallucination` 42.2% — confirmed as a real pattern by
+    reading flagged rows, not an artifact of the metric: 64% are a
+    fabricated source attribution (`"...according to CNN.com's weekly
+    Newsquiz"`, `"...according to analysts"`) the model invents, the rest
+    mostly a self-contradicting repeated-percentage generation artifact.
+    **Undecided, not yet fixed** — newly discovered the same day the eval
+    path that found it was built; full numbers and example rows in
+    `docs/evaluation.md`'s 2026-09-14 follow-up.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -697,7 +717,7 @@ boundary of what this project is, not a gap someone forgot to close:
 
 | §13 item | Disposition | Would only matter if |
 |---|---|---|
-| 1 — weak sentiment F1 | **Promoted to active work (2026-09-12)** — no longer treated as accepted; see `PLAN.md` Work item 4 | — (already in motion) |
+| 1 — weak sentiment F1 | **Resolved (2026-09-13)** — fine-tuned model + chunk-level entity-scoped weighting selected and merged; see `PLAN.md` Work item 4 | — |
 | 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision is the one remaining low-priority thread (`PLAN.md` Work item 5) | — |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
 | 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Exact reproducibility months later mattered more than it does today — worth pinning cheaply regardless (see below) |
@@ -706,18 +726,20 @@ boundary of what this project is, not a gap someone forgot to close:
 | 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | This scope changed to need summaries reliably current on a cadence |
 | 8 — `--check-regression` not wired into CI | Should fix regardless of scope — cheap, and protects the §9 baseline this spec treats as load-bearing | — |
 | 9 — no per-article failure isolation | Accepted; corpus size and run frequency make a full-run failure low-cost today | Corpus size or run frequency made a single bad row expensive to fail on |
-| 10 — weak `c_summary` coverage + unverified sampling scope | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 6 | — (already in motion) |
-| 11 — `run_ner_stage` has no batching | **Active priority work (added 2026-09-12)** — not accepted; see `PLAN.md` Work item 7 | — (already in motion) |
+| 10 — weak `c_summary` coverage + unverified sampling scope | **Resolved (2026-09-14)** — sampling mismatch fixed; coverage gap accepted as a deliberate trade, not fixed further; see `PLAN.md` Work item 6 | — |
+| 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
+| 12 — `sector_summary` `intro_text` has a 42.2% hallucination rate | **New, undecided (2026-09-14)** — first-ever eval for this text found a real, characterized gap; no fix attempted yet | — (needs scoping as a work item if a fix is wanted) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
-and 2 have since also moved off "permanent characteristic, not a queued
-task": 2 is resolved and 1 is active priority work (see the update notes on
-both items above and `PLAN.md` Work items 4-5). Items 10 and 11 are new,
-added alongside items 1's and 2's status updates, and are also active
-priority work (`PLAN.md` Work items 6 and 7 respectively). Items 3, 4 (the
-pinning-reprocessing half), 5, 6, 7, and 9 remain permanent characteristics
-of this project as scoped, not queued tasks.
+and 2 have since moved off "permanent characteristic, not a queued task"
+to fully resolved (see the update notes on both items above and
+`PLAN.md` Work items 4-5); item 10 has likewise resolved, and item 11 is
+down to one non-blocking sub-task. Item 12 is new, discovered the same
+day Work item 6's `sector_summary` eval path was built — undecided, not
+yet a scoped work item. Items 3, 4 (the pinning-reprocessing half), 5, 6,
+7, and 9 remain permanent characteristics of this project as scoped, not
+queued tasks.
 
 ## 15. Sign-off
 

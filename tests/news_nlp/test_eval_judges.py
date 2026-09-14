@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from news_nlp.eval import judges
 from news_nlp.eval.sampling import EvalItem
-from news_nlp.eval.verdicts import CategoryVerdict, NerVerdict, SentimentVerdict, SummaryVerdict
+from news_nlp.eval.verdicts import (
+    CategoryVerdict,
+    NerVerdict,
+    SectorIntroVerdict,
+    SentimentVerdict,
+    SummaryVerdict,
+)
 
 
 class FakeAgent:
@@ -31,7 +37,7 @@ def _item(prediction: dict) -> EvalItem:
 
 
 def test_prompts_load_for_every_stage() -> None:
-    for stage in ("sentiment", "category", "ner", "c_summary"):
+    for stage in ("sentiment", "category", "ner", "c_summary", "sector_summary"):
         assert "JSON" in judges.load_prompt(stage)
 
 
@@ -103,3 +109,34 @@ def test_ner_and_summary_parse() -> None:
     sv = judges.judge_c_summary(FakeAgent([sum_reply]), _item({"summary_text": "s"}))
     assert isinstance(sv, SummaryVerdict)
     assert sv.faithfulness == 4
+
+
+def test_sector_summary_prompt_frames_grounding_not_article() -> None:
+    """The sector_summary judge must not use the generic ARTICLE framing --
+    body_text is facts_json, not article text (sampling.py's
+    _sector_summary_items docstring)."""
+    item = EvalItem(
+        article_id=99,
+        bucket="representative",
+        stratum_population=1,
+        title="Tech / Software -- week 2026-08-10 to 2026-08-16",
+        body_text='{"num_articles": 3, "sentiment": {"pct": {"positive": 100}}}',
+        prediction={"intro_text": "Software saw 3 articles, all positive."},
+    )
+    reply = '{"faithfulness": 5, "hallucinations": [], "rationale": "matches the stats"}'
+    agent = FakeAgent([reply])
+    v = judges.judge_sector_summary(agent, item)
+    assert isinstance(v, SectorIntroVerdict)
+    assert v.faithfulness == 5
+    assert v.parse_failed is False
+    prompt = agent.prompts[0]
+    assert "ARTICLE" not in prompt
+    assert "GROUNDING DATA" in prompt
+    assert item.body_text in prompt
+    assert "intro_text" in prompt
+
+
+def test_sector_summary_falls_back_on_unparseable_reply() -> None:
+    v = judges.judge_sector_summary(FakeAgent(["nope", "still nope"]), _item({"intro_text": "x"}))
+    assert isinstance(v, SectorIntroVerdict)
+    assert v.parse_failed is True

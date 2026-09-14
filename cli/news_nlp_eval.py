@@ -9,6 +9,11 @@ score each one against the source article text, and writes aggregate
 metrics + per-row verdicts to MLflow and to the eval_run / eval_judgement
 tables in the RESULTS store. See docs/evaluation.md.
 
+sector_summary is judged differently: its population is small enough
+(thousands, not hundreds of thousands, of rows) to score in full every run,
+so --sample-size/--seed/--low-conf-frac/--target-frac are silently ignored
+for it -- see news_nlp.eval.sampling's module docstring.
+
 The judge is itself a model, so the numbers are agreement-with-a-judge, not
 ground truth. Needs LLM_API_KEY / LLM_MODEL / LLM_URL in the environment
 (or .env); view runs with `uv run mlflow ui`.

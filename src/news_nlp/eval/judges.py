@@ -23,6 +23,7 @@ from news_nlp.eval.sampling import EvalItem
 from news_nlp.eval.verdicts import (
     CategoryVerdict,
     NerVerdict,
+    SectorIntroVerdict,
     SentimentVerdict,
     SummaryVerdict,
 )
@@ -125,9 +126,30 @@ def judge_c_summary(agent: JudgeAgent, item: EvalItem) -> SummaryVerdict:
     return _invoke_with_repair(agent, _user_prompt(item), SummaryVerdict, fallback=fallback)
 
 
+def _sector_summary_user_prompt(item: EvalItem) -> str:
+    # Not _user_prompt()/_article_block(): item.body_text holds facts_json
+    # (stats-only grounding), not article text, so the generic "ARTICLE"
+    # framing would mislabel it -- see sample_for_stage's sector_summary
+    # branch (src/news_nlp/eval/sampling.py).
+    return (
+        f"SECTOR / SUB-INDUSTRY / WEEK\n{item.title}\n\n"
+        "GROUNDING DATA (facts_json -- the ONLY input the model saw; never "
+        f"raw article or company text)\n{item.body_text}\n\n"
+        f"{_prediction_block(item)}\n\nReturn your JSON verdict."
+    )
+
+
+def judge_sector_summary(agent: JudgeAgent, item: EvalItem) -> SectorIntroVerdict:
+    fallback = SectorIntroVerdict(rationale="judge reply could not be parsed", parse_failed=True)
+    return _invoke_with_repair(
+        agent, _sector_summary_user_prompt(item), SectorIntroVerdict, fallback=fallback
+    )
+
+
 JUDGES = {
     "sentiment": judge_sentiment,
     "category": judge_category,
     "ner": judge_ner,
     "c_summary": judge_c_summary,
+    "sector_summary": judge_sector_summary,
 }

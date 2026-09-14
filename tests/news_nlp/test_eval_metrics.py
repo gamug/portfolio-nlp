@@ -10,6 +10,7 @@ from news_nlp.eval.verdicts import (
     CategoryVerdict,
     EntityRef,
     NerVerdict,
+    SectorIntroVerdict,
     SentimentVerdict,
     SummaryVerdict,
 )
@@ -373,8 +374,30 @@ def test_aggregate_c_summary_coverage_uses_ht_estimator() -> None:
     assert out["mean_coverage"] != out["mean_coverage_naive_pooled"]
 
 
+def test_sector_summary_faithfulness_and_hallucination_flag() -> None:
+    """Full-census shape (sampling._sector_summary_items): every item shares
+    one bucket with stratum_population == len(items), so HT and naive_pooled
+    must be identical -- a genuine no-op reweighting, unlike c_summary's
+    multi-stratum case above."""
+    items = [
+        _item(1, "representative", {}, stratum_population=2),
+        _item(2, "representative", {}, stratum_population=2),
+    ]
+    verdicts = [
+        SectorIntroVerdict(faithfulness=2, hallucinations=["claims 40% negative, JSON says 20%"]),
+        SectorIntroVerdict(faithfulness=5, hallucinations=[]),
+    ]
+    out = metrics.aggregate_sector_summary(items, verdicts)
+    assert out["mean_faithfulness"] == 3.5
+    assert out["mean_faithfulness"] == out["mean_faithfulness_naive_pooled"]
+    assert out["pct_with_hallucination"] == 0.5
+    assert out["pct_with_hallucination"] == out["pct_with_hallucination_naive_pooled"]
+    assert "mean_coverage" not in out  # faithfulness-only, no coverage/conciseness scoring
+
+
 def test_aggregate_dispatch_and_empty() -> None:
     assert metrics.aggregate("sentiment", [], []) == {"n": 0.0, "parse_fail_rate": 0.0}
     assert metrics.HEADLINE["ner"] == "micro_f1"
+    assert metrics.HEADLINE["sector_summary"] == "mean_faithfulness"
     with pytest.raises(ValueError, match="unknown stage"):
         metrics.aggregate("bogus", [], [])

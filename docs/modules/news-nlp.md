@@ -179,8 +179,14 @@ network is needed at test time. All tests pass (part of the repo's CI gate; see
 
 `news_nlp.eval` measures how good the stage outputs actually are, using an
 LLM-as-judge over a 60 % low-confidence / 40 % random sample of the stored
-predictions, with metrics tracked in MLflow and in the `eval_run` /
-`eval_judgement` tables. It is a separate `eval` dependency group and needs an
+predictions (sentiment / category / NER / `c_summary`), with metrics tracked
+in MLflow and in the `eval_run` / `eval_judgement` tables. `sector_summary`'s
+one model-generated sentence (`intro_text`, added 2026-09-14) is the
+exception: its population is small enough (3,628 rows) to judge in full every
+run instead of sampling, checked for faithfulness against its own
+`facts_json` grounding only — see `docs/evaluation.md`'s 2026-09-14
+follow-up for a real, characterized gap this found (42.2% hallucination
+rate, not yet fixed). It is a separate `eval` dependency group and needs an
 OpenAI-compatible LLM endpoint (`LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
 
 ```bash

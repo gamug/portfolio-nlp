@@ -437,14 +437,17 @@ downstream consumer can't yet treat `article_category.label == "other"` as
 - `other`'s precision gap is captured as a named, low-priority follow-up
   somewhere durable (`SPEC.md` §13 or a new item) rather than dropped.
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (steps 1-3 resolved 2026-09-14; step 4 pending)
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found: 42.2% intro_text hallucination rate)
 
-**Status as of 2026-09-14**: steps 1-3 are **done**. Step 2 (the
+**Status as of 2026-09-14**: all four steps are **done**. Step 2 (the
 `mean_coverage` decision) is resolved as **accept, no fix** — one
 candidate (a bigger output-length budget) was tested and rejected on
 real data, and the residual gap is accepted as a deliberate
 completeness-vs-correctness trade (see the "Decision" below). Step 4
-not started.
+(the `sector_summary` intro-text eval) shipped and immediately found a
+real, sizable problem: 42.2% of `intro_text` rows contain a
+hallucination — a genuinely new, undecided gap, not yet fixed (see the
+"Executed" note below and `docs/evaluation.md`'s 2026-09-14 follow-up).
 
 **Executed (2026-09-14, step 1)**: measured `article_summary` (458,641
 rows) joined to real `source.articles.body_text` directly — no LLM calls,
@@ -510,6 +513,24 @@ off a narrower reduce-pass-specific fix (never tested) as a future
 candidate if `chunks >= 3` coverage is later judged unacceptable on its
 own. Full reasoning in `docs/evaluation.md`'s 2026-09-14 "Decision"
 follow-up.
+
+**Executed (2026-09-14, step 4)**: built a dedicated `sector_summary`
+eval stage (T-054-T-057) — full population every run (T-054: only 3,628
+rows, no sampling machinery needed), faithfulness-only against
+`facts_json` grounding (`SectorIntroVerdict`/`judge_sector_summary`/
+`aggregate_sector_summary`/`prompts/sector_summary.md`). First run
+(`eval_run` 34, n=3628): `mean_faithfulness` 4.05/5, but
+**`pct_with_hallucination` 42.2%** — not noise, a confirmed systematic
+pattern from reading actual flagged rows: 64% of hallucinations are a
+fabricated source attribution (`"...according to CNN.com's weekly
+Newsquiz"`, `"...according to analysts"`) the model tacks onto the
+sentence, the rest mostly a self-contradicting repeated-percentage
+artifact. Root cause: `distilbart-cnn-12-6` is a *news-article*
+summarizer, repurposed here on a short synthetic stats seed
+(`build_sector_intro_seed`) it was never trained to summarize. This is a
+newly-discovered, real, **undecided** gap — recorded as a finding here,
+not fixed in the same pass the eval path was built. Full numbers and
+example rows in `docs/evaluation.md`'s 2026-09-14 follow-up.
 
 **Why**: Both summarization tasks run the exact same model
 (`SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"`, `src/pipeline.py`,
@@ -597,6 +618,11 @@ check that `intro_text` doesn't state anything unsupported by its own
 - `SPEC.md` §13 item 10 (new) and §9's `c_summary` baseline row updated
   with the result; a new §9 row (or a documented decision not to add
   one) for the `sector_summary` intro check.
+
+**All four criteria met, 2026-09-14** — sampling mismatch confirmed and
+fixed; `mean_coverage` decision made (accept); `--stage sector_summary`
+working and run against the full population; `SPEC.md` updated (§9 new
+row, §13 new item for the 42.2% hallucination-rate finding).
 
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
