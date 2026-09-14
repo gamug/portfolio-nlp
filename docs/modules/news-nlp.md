@@ -221,3 +221,77 @@ uv run mlflow ui
 
 Full detail — sampling, per-stage metrics, the "judge is a model, not gold"
 caveat, and the CI / scheduled story — in `docs/evaluation.md`.
+
+### Model selection justification
+
+Why each production model, not an alternative (`PLAN.md` Work item 8; sourcing
+verified directly against each model/dataset's own Hugging Face card before
+being used here — see the repository artifact's "Models evaluation" section
+for the same content alongside the metrics tables it's arguing about):
+
+- **Sentiment** — financial sentiment is domain-specific vocabulary a
+  general-purpose model doesn't have ("crushed earnings" reads positive to an
+  investor). [`gamug/FinBERT-financial-news`](https://huggingface.co/gamug/FinBERT-financial-news)
+  starts from [`ProsusAI/finbert`](https://huggingface.co/ProsusAI/finbert) —
+  BERT-base already domain-pretrained and fine-tuned on the
+  [Financial PhraseBank](https://huggingface.co/datasets/takala/financial_phrasebank)
+  dataset (Malo et al. 2019, [arXiv:1908.10063](https://arxiv.org/abs/1908.10063))
+  — so this project only had to close the narrower gap (vocabulary/idiom
+  currency the base's own training data predates), not teach financial
+  sentiment from zero. Rejected alternative: a head on generic
+  `bert-base-uncased`, or a large general LLM per call — real cost/latency
+  this pipeline's batch-over-458K-articles shape can't absorb. Within the
+  FinBERT family, chunk-level + entity-scoped weighting itself beat
+  sentence-level, title-only, and whole-document averaging on real measured
+  data (`docs/evaluation.md`'s candidate comparison), not by assertion.
+- **Category** — no labeled training set exists for this project's own
+  10-slug taxonomy, and one would need constant relabeling as the taxonomy
+  evolves. Zero-shot NLI sidesteps that: adding/renaming a slug is a
+  hypothesis-template edit, not a retrain.
+  [`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`](https://huggingface.co/MoritzLaurer/deberta-v3-base-zeroshot-v2.0)
+  is built on [`microsoft/deberta-v3-base`](https://huggingface.co/microsoft/deberta-v3-base)
+  and reports 0.619 average F1-macro across 28 held-out datasets on its own
+  model card, a real ~24% relative improvement over the standard zero-shot-NLI
+  baseline `facebook/bart-large-mnli` (0.497). Rejected alternative: that
+  baseline family, or a supervised classifier this project has no training
+  data to build.
+- **NER** — financial entity mentions (ticker-adjacent company names, filing
+  terms) carry vocabulary a general-domain NER model never saw. The base
+  checkpoint, [`nlpaueb/sec-bert-base`](https://huggingface.co/nlpaueb/sec-bert-base),
+  is BERT-base pretrained on 260,773 real SEC 10-K filings (1993–2019) with
+  its own 30,000-subword financial vocabulary rather than generic BERT's
+  (Loukas et al. 2022, [arXiv:2203.06482](https://arxiv.org/abs/2203.06482))
+  — the reason a name like "3M" tokenizes cleanly, where a generic-vocabulary
+  model is exactly the kind of setup that produced this project's own
+  subword-fragmentation bug (a bogus `"3"`/`ORG` span, fixed 2026-09-10).
+  Fine-tuned on [FiNER-ORD](https://huggingface.co/datasets/gtfintechlab/finer-ord)
+  (Shah et al. 2024, [arXiv:2302.11157](https://arxiv.org/abs/2302.11157)) —
+  real financial news labeled for exactly the `PER`/`LOC`/`ORG` types this
+  stage needs, rather than a general newswire set like CoNLL-2003 that
+  under-represents financial entity density. Rejected alternative: a generic
+  checkpoint (e.g. `dslim/bert-base-NER`) or spaCy's general model, missing
+  both the domain vocabulary and the dataset fit.
+- **`c_summary`** — this pipeline's 6GB-VRAM, one-model-at-a-time budget
+  (`SPEC.md` NR-001) rules out the full
+  [`facebook/bart-large-cnn`](https://huggingface.co/facebook/bart-large-cnn)
+  or a modern LLM-based summarizer at 458K+ articles.
+  [`sshleifer/distilbart-cnn-12-6`](https://huggingface.co/sshleifer/distilbart-cnn-12-6)
+  distills that model to 12 encoder / 6 decoder layers and reports ROUGE-2
+  21.26 / ROUGE-L 30.59 on its own model card — within 0.2/0.04 points of the
+  full model's 21.06/30.63, at ~1.24x faster inference. That same benchmark's
+  training data, [CNN/DailyMail](https://huggingface.co/datasets/abisee/cnn_dailymail)
+  (short wire-service news, not longer financial-news bodies), is the likely
+  root cause behind this stage's own `mean_coverage` weakness documented
+  above — a real trade-off this choice is buying, not an unrelated fact next
+  to it.
+- **`sector_summary`** — the rejected alternative here isn't a different
+  checkpoint, it's keeping `distilbart-cnn-12-6` in the loop at all. The seed
+  sentence it used to paraphrase was already a complete, fully-grounded
+  sentence built purely from real aggregate stats — there was never missing
+  information for a model to add, only an accurate sentence for one to
+  degrade. Once that's true, no model is strictly better than any model: a
+  deterministic template can't fabricate a source or contradict its own
+  numbers, by construction, at zero inference cost — the same "structural
+  guarantee over probabilistic mitigation" principle that already made
+  cross-company blending impossible in this stage's design. The measured
+  42–50% hallucination rate documented above is what that guarantee buys.
