@@ -8,34 +8,49 @@ met — not when the code is merely written.
 Task IDs are stable, same rule as `SPEC.md`'s `FR-0xx`/`NR-0xx`: don't
 renumber; mark a cancelled/superseded task in place instead.
 
-## Work item 1 — Pin HF model checkpoints (code, no blockers)
+## Work item 1 — Pin HF model checkpoints (resolved 2026-09-14)
 
-- [ ] **T-001** Look up and record the current commit SHA for each of the
+- [x] **T-001** Look up and record the current commit SHA for each of the
       four HF model repos (`ProsusAI/finbert`, `gamug/sec-bert-finer-ord-ner`,
       `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`,
       `sshleifer/distilbart-cnn-12-6`) — from the HF Hub API/UI, not
-      guessed. → `PLAN.md` Work item 1, step 1.
-- [ ] **T-002** Add a revision constant per model in `src/pipeline.py`
+      guessed. → `PLAN.md` Work item 1, step 1. **Done 2026-09-14** —
+      fetched via `GET /api/models/<repo_id>`'s `"sha"` field; the
+      sentiment model pinned is actually `gamug/FinBERT-financial-news`
+      (this list itself had gone stale after the 2026-09-13 merge, still
+      naming `ProsusAI/finbert`).
+- [x] **T-002** Add a revision constant per model in `src/pipeline.py`
       (paired with the existing `SENTIMENT_MODEL`/`NER_MODEL`/
-      `CATEGORY_MODEL`/`SUMMARY_MODEL` name constants). → step 1.
-- [ ] **T-003** Pass `revision=` at all 9 `from_pretrained` call sites in
+      `CATEGORY_MODEL`/`SUMMARY_MODEL` name constants). → step 1. **Done
+      2026-09-14** — one `MODEL_REVISIONS: dict[str, str]`, not four
+      separate constants.
+- [x] **T-003** Pass `revision=` at all 9 `from_pretrained` call sites in
       `src/pipeline.py` (lines 150–151, 283–284, 506–507, 747–748,
-      785–786). → step 2.
-- [ ] **T-004** Pass `revision=` in `src/setup.py`'s `download_models()`
+      785–786). → step 2. **Done 2026-09-14** — 8 call sites, not 9:
+      `sector_summary`'s own model load was removed entirely by the
+      same-day `intro_text` determinism fix (PR #47), not missed here.
+- [x] **T-004** Pass `revision=` in `src/setup.py`'s `download_models()`
       (`snapshot_download` + `AutoConfig.from_pretrained`, both calls, for
-      all four models). → step 2.
-- [ ] **T-005** Document the four pins (comment or a table in
+      all four models). → step 2. **Done 2026-09-14.**
+- [x] **T-005** Document the four pins (comment or a table in
       `docs/modules/news-nlp.md`) so a future bump is a reviewed, visible
-      diff. → step 3.
-- [ ] **T-006** Verify: `grep -rn "from_pretrained\|snapshot_download" src/`
+      diff. → step 3. **Done 2026-09-14** — "Model pins" table added.
+- [x] **T-006** Verify: `grep -rn "from_pretrained\|snapshot_download" src/`
       shows `revision=` at every call site; `uv run python -m setup`
       succeeds; `uv run pytest` stays green. → `PLAN.md` acceptance
-      criteria.
-- [ ] **T-007** Update `SPEC.md` §13 item 4 to note the reproducibility
+      criteria. **Done 2026-09-14** — `python -m setup` actually run
+      (`PYTHONPATH=src`), all four models fetched at their pinned SHA
+      from the real HF Hub; `test_setup.py` rewritten to assert the
+      revision is threaded through; full suite (230 tests), ruff, mypy
+      all pass.
+- [x] **T-007** Update `SPEC.md` §13 item 4 to note the reproducibility
       half resolved (annotate in place, keep the item number). → `PLAN.md`
       Work item 1, last acceptance criterion. Also update the two
       architecture artifacts per constitution AI behavior #11 (Portfolio
-      Thesis + Portfolio NLP) — reconcile, never rename.
+      Thesis + Portfolio NLP) — reconcile, never rename. **Done
+      2026-09-14** for `SPEC.md`/`docs/modules/news-nlp.md`; the
+      Portfolio Thesis / Portfolio NLP architecture artifacts not
+      updated this pass — see the note in `TASKS.md`'s Status section.
 
 ## Work item 2 — Make the regression gate runnable (ops, blocked on maintainer)
 

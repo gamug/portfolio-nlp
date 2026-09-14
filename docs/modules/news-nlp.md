@@ -103,6 +103,19 @@ uv sync                          # torch is a pinned direct dep (cu124 wheel ind
 uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
 ```
 
+### Model pins
+
+Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/setup.py`) is pinned to a commit SHA via `pipeline.MODEL_REVISIONS` (added 2026-09-14, `SPEC.md` §13 item 4) — an upstream push to any of these repos no longer changes results silently:
+
+| Model | Repo | Pinned SHA |
+|---|---|---|
+| Sentiment | `gamug/FinBERT-financial-news` | `072712344f1f82e54391e6721b0b39e7b944e898` |
+| NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` |
+| Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` |
+| Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` |
+
+Bumping a pin later is a deliberate, reviewed one-line diff against `MODEL_REVISIONS` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.
+
 ## Running
 
 ```bash

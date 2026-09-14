@@ -552,9 +552,18 @@ treating a related FR/NR as done:
 3. **No SOURCE `articles` contract beyond `body_text`.** Stages and the
    lean-copy depend on `gics_*`/`pub_date`/etc. existing with compatible
    types, but nothing pins or validates that shape (relates to FR-007).
-4. **Model checkpoints are unpinned to a commit SHA** (`setup.py` fetches
-   by repo name) — an upstream Hugging Face update can silently change
-   results with no signal, undermining the accuracy baseline in §9.
+4. **Model checkpoints are unpinned to a commit SHA** — **resolved
+   (2026-09-14)**: `pipeline.MODEL_REVISIONS` pins all four models
+   (sentiment/NER/category/summarization) to a commit SHA, fetched from
+   the HF Hub API at pin time; passed as `revision=` at every
+   `from_pretrained` call site in `src/pipeline.py` and both calls in
+   `src/setup.py`'s `download_models()` — an upstream Hugging Face update
+   to any of these repos can no longer silently change results out from
+   under the §9 accuracy baseline. `PLAN.md` Work item 1, `docs/modules/
+   news-nlp.md`'s "Model pins" table has the exact SHAs. The other half
+   of this item (reprocessing historical data against a newly-pinned SHA
+   if it ever diverges from what was actually used) remains explicitly
+   out of scope — §14.
 5. ~~No throughput/latency SLA~~ — **retired, not an open question.** A
    throughput/latency SLA is a production requirement; this project doesn't
    have a production phase to require one for (§14). Kept here, struck
@@ -722,10 +731,11 @@ boundary of what this project is, not a gap someone forgot to close:
 - **Throughput/latency SLAs and load testing** (§9) — a production
   requirement this project doesn't have; retired from §13 as item 5 rather
   than tracked as an open question, since there is nothing to resolve.
-- **Model checkpoint pinning, formal data-retention policy, and a
-  stability contract with downstream consumers** (`financial-analysis`) —
-  today's floating HF checkpoints (§13 item 4) and unpinned `articles`
-  schema (§13 item 3) are accepted risks at this scale, not oversights.
+- **Formal data-retention policy and a stability contract with
+  downstream consumers** (`financial-analysis`) — model checkpoint
+  pinning itself is resolved (§13 item 4, 2026-09-14); the unpinned
+  `articles` schema (§13 item 3) is still an accepted risk at this
+  scale, not an oversight.
 
 ### §13 items: disposition
 
@@ -734,7 +744,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 1 — weak sentiment F1 | **Resolved (2026-09-13)** — fine-tuned model + chunk-level entity-scoped weighting selected and merged; see `PLAN.md` Work item 4 | — |
 | 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision is the one remaining low-priority thread (`PLAN.md` Work item 5) | — |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
-| 4 — unpinned model checkpoints | Accepted for a single-operator, non-concurrent research setup | Exact reproducibility months later mattered more than it does today — worth pinning cheaply regardless (see below) |
+| 4 — unpinned model checkpoints | **Resolved (2026-09-14)** — `MODEL_REVISIONS` pins all four models to a commit SHA; see `PLAN.md` Work item 1 | — |
 | 5 — ~~no throughput/latency SLA~~ | Retired — a production requirement, and this project has no production phase | — |
 | 6 — `article_category` migration doesn't auto-reprocess | Accepted; a manual backfill script is the fix if it's ever needed | Historical `group_label`/`group_score` accuracy mattered for a specific analysis |
 | 7 — no scheduled `--summarize` cadence | Accepted; manual trigger is sufficient at current usage | This scope changed to need summaries reliably current on a cadence |
