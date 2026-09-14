@@ -15,6 +15,11 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
 1. **Sentiment** — a continued fine-tune of FinBERT on 5,900 real, LLM-labeled
    in-domain sentences, published at
    [gamug/FinBERT-financial-news](https://huggingface.co/gamug/FinBERT-financial-news)
+   (training data published separately at
+   [gamug/FinBERT-financial-news-data](https://huggingface.co/datasets/gamug/FinBERT-financial-news-data),
+   2026-09-14 — the exact `train`/`validation`/`test`/`idiom_probe` split the model was
+   actually trained/evaluated on, reproduced via `train_sentiment.stratified_split()` itself
+   rather than re-derived; `scripts/publish_finbert_financial_news_dataset_2026_09_14.py`)
    (selected 2026-09-13 over base `ProsusAI/finbert`, after real-data evaluation
    found a measurable vocabulary/domain gap — see `docs/evaluation.md`'s 2026-09-13
    follow-ups) → `article_sentiment`. Scored per ~510-token chunk (`chunk_text`,
