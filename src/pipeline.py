@@ -123,6 +123,25 @@ _MIN_ENTITY_TEXT_LEN = 2
 NER_BATCH_SIZE = 8
 SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"
 
+# Pin each model to a commit SHA (SPEC.md SS13 item 4, PLAN.md Work item 1):
+# resolving by repo name alone means an upstream push to any of these four
+# repos changes results silently, with no signal, undermining the SPEC.md
+# SS9 accuracy baseline every one of these numbers was measured against.
+# Fetched from the HF Hub API (GET /api/models/<repo_id>, the "sha" field)
+# at pin time, 2026-09-14 -- not guessed. Bumping a pin later is a
+# deliberate, reviewed, one-line diff against this dict, not silent drift.
+# Passed as `revision=` at every from_pretrained call site below AND in
+# setup.py's download_models() -- pinning only the pre-download and leaving
+# from_pretrained(name) unpinned would not actually fix anything, since
+# HF's local cache resolution isn't guaranteed to serve the pinned snapshot
+# for an unpinned call.
+MODEL_REVISIONS: dict[str, str] = {
+    SENTIMENT_MODEL: "072712344f1f82e54391e6721b0b39e7b944e898",
+    NER_MODEL: "ba7b9e43e4aa023ec5691f955b276dc58158354c",
+    CATEGORY_MODEL: "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8",
+    SUMMARY_MODEL: "a4f8f3ea906ed274767e9906dbaede7531d660ff",
+}
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # (stage_name, processed_count, total_count) -> None
@@ -321,8 +340,16 @@ def run_sentiment_stage(
     if total == 0:
         return
 
-    tokenizer = AutoTokenizer.from_pretrained(SENTIMENT_MODEL)
-    model = AutoModelForSequenceClassification.from_pretrained(SENTIMENT_MODEL).to(DEVICE).eval()
+    tokenizer = AutoTokenizer.from_pretrained(
+        SENTIMENT_MODEL, revision=MODEL_REVISIONS[SENTIMENT_MODEL]
+    )
+    model = (
+        AutoModelForSequenceClassification.from_pretrained(
+            SENTIMENT_MODEL, revision=MODEL_REVISIONS[SENTIMENT_MODEL]
+        )
+        .to(DEVICE)
+        .eval()
+    )
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
 
     for idx, (article_id, company, ticker, body_text) in enumerate(
@@ -554,8 +581,14 @@ def run_ner_stage(
     if total == 0:
         return
 
-    tokenizer = AutoTokenizer.from_pretrained(NER_MODEL)
-    model = AutoModelForTokenClassification.from_pretrained(NER_MODEL).to(DEVICE).eval()
+    tokenizer = AutoTokenizer.from_pretrained(NER_MODEL, revision=MODEL_REVISIONS[NER_MODEL])
+    model = (
+        AutoModelForTokenClassification.from_pretrained(
+            NER_MODEL, revision=MODEL_REVISIONS[NER_MODEL]
+        )
+        .to(DEVICE)
+        .eval()
+    )
     id2label = {int(k): v for k, v in model.config.id2label.items()}
 
     idx = 0
@@ -739,8 +772,16 @@ def run_category_stage(
     if total == 0:
         return
 
-    tokenizer = AutoTokenizer.from_pretrained(CATEGORY_MODEL)
-    model = AutoModelForSequenceClassification.from_pretrained(CATEGORY_MODEL).to(DEVICE).eval()
+    tokenizer = AutoTokenizer.from_pretrained(
+        CATEGORY_MODEL, revision=MODEL_REVISIONS[CATEGORY_MODEL]
+    )
+    model = (
+        AutoModelForSequenceClassification.from_pretrained(
+            CATEGORY_MODEL, revision=MODEL_REVISIONS[CATEGORY_MODEL]
+        )
+        .to(DEVICE)
+        .eval()
+    )
     entailment_id = next(v for k, v in model.config.label2id.items() if k.lower() == "entailment")
 
     idx = 0
@@ -980,8 +1021,16 @@ def run_company_summary_stage(
     if total == 0:
         return
 
-    tokenizer = AutoTokenizer.from_pretrained(SUMMARY_MODEL)
-    model = AutoModelForSeq2SeqLM.from_pretrained(SUMMARY_MODEL).to(DEVICE).eval()
+    tokenizer = AutoTokenizer.from_pretrained(
+        SUMMARY_MODEL, revision=MODEL_REVISIONS[SUMMARY_MODEL]
+    )
+    model = (
+        AutoModelForSeq2SeqLM.from_pretrained(
+            SUMMARY_MODEL, revision=MODEL_REVISIONS[SUMMARY_MODEL]
+        )
+        .to(DEVICE)
+        .eval()
+    )
 
     idx = 0
     with tqdm(total=total, desc="company_summary") as pbar:

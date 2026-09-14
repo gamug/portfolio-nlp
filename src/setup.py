@@ -12,16 +12,17 @@ skips files that are already cached.
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig
 
-from pipeline import CATEGORY_MODEL, NER_MODEL, SENTIMENT_MODEL, SUMMARY_MODEL
+from pipeline import CATEGORY_MODEL, MODEL_REVISIONS, NER_MODEL, SENTIMENT_MODEL, SUMMARY_MODEL
 
 MODELS = (SENTIMENT_MODEL, NER_MODEL, CATEGORY_MODEL, SUMMARY_MODEL)
 
 
 def download_models() -> None:
     for repo_id in MODELS:
-        print(f"Fetching {repo_id}...")
-        local_path = snapshot_download(repo_id)
-        AutoConfig.from_pretrained(repo_id)
+        revision = MODEL_REVISIONS[repo_id]
+        print(f"Fetching {repo_id} @ {revision}...")
+        local_path = snapshot_download(repo_id, revision=revision)
+        AutoConfig.from_pretrained(repo_id, revision=revision)
         print(f"OK: {repo_id} cached at {local_path}")
     print("Setup complete.")
 

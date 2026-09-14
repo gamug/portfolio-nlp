@@ -66,7 +66,7 @@ Everything else in `SPEC.md` §13 stays exactly as §14 disposed of it —
 - Item 7 — no scheduled `--summarize` cadence: accepted.
 - Item 9 — no per-article failure isolation: accepted.
 
-## Work item 1 — Pin HF model checkpoints to a commit SHA
+## Work item 1 — Pin HF model checkpoints to a commit SHA (resolved 2026-09-14)
 
 **Why**: `setup.py` and every `from_pretrained` call site in `src/pipeline.py`
 resolve each model by repo name only (`SENTIMENT_MODEL`, `NER_MODEL`,
@@ -120,6 +120,24 @@ all four, also name-only.
 historical data to check whether the *current* unpinned HEAD differs from
 the newly-pinned SHA. If they differ, that's a separate, larger
 conversation (which output is "correct"?) — not silently resolved here.
+
+**Executed (2026-09-14)**: `MODEL_REVISIONS: dict[str, str]`
+(`src/pipeline.py`, keyed by the existing `SENTIMENT_MODEL`/`NER_MODEL`/
+`CATEGORY_MODEL`/`SUMMARY_MODEL` name constants) added, with each SHA
+fetched from the HF Hub API (`GET /api/models/<repo_id>`) at pin time —
+`gamug/FinBERT-financial-news` (the current, fine-tuned sentiment
+model — this table's own model name had gone stale in the process,
+still saying `ProsusAI/finbert`), `gamug/sec-bert-finer-ord-ner`,
+`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, `sshleifer/
+distilbart-cnn-12-6`. `revision=` passed at all 8 `from_pretrained`
+call sites in `src/pipeline.py` (down from the originally-scoped 9 —
+`sector_summary`'s own model load was removed entirely by the same-day
+`intro_text` fix, not missed) and both calls in `src/setup.py`'s
+`download_models()`. `test_setup.py` rewritten to assert the revision
+is passed through to both `snapshot_download`/`AutoConfig.from_pretrained`
+calls. Full suite (230 tests), ruff, mypy all pass. `SPEC.md` §13 item 4
+/ §14 updated; exact SHAs documented in `docs/modules/news-nlp.md`'s new
+"Model pins" table.
 
 ## Work item 2 — Make the `--check-regression` gate runnable
 
