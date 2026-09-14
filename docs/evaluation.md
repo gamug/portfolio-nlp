@@ -1234,10 +1234,77 @@ coverage (2.86/5) is later judged unacceptable on its own. This
 decision is about not chasing the output-length lever further, not
 about the coverage gap being permanently untouchable.
 
+### Follow-up (2026-09-14, same day): sector_summary's intro_text eval added — a real, sizable faithfulness gap found
+
+Work item 6 step 4. `sector_summary`'s `intro_text` sentence — the one
+model-generated piece of an otherwise deterministic composition (see
+`docs/modules/news-nlp.md`) — had **zero** evaluation before this. Added
+a dedicated, narrower eval path rather than reusing `c_summary`'s: a new
+`sector_summary` stage in `news_nlp.eval` (`_sector_summary_items` in
+`sampling.py`, `SectorIntroVerdict`/`judge_sector_summary` in
+`verdicts.py`/`judges.py`, `aggregate_sector_summary` in `metrics.py`,
+`prompts/sector_summary.md`), judging `intro_text` for faithfulness only
+against its own `facts_json` grounding — no coverage/conciseness scoring
+(doesn't meaningfully apply to one stats-only sentence), never raw
+article/company text (that's not what the model saw).
+
+**T-054 (population check) first**: 3,628 `sector_summary` rows total,
+one per `(gics_sector, gics_sub_industry, week)`, `intro_text` 180-383
+chars, `facts_json` up to ~10K chars. Small enough to judge **the full
+population every run**, not a sample — so this stage skips the
+low_conf/target/representative stratification machinery entirely
+(`sample_for_stage`'s `sector_summary` branch ignores `--sample-size`/
+`--seed`/`--low-conf-frac`/`--target-frac`). Needs no SOURCE store either
+— pure RESULTS-store composition, unlike every other stage.
+
+**Full-population run** (`eval_run` 34 in the leveled `nlp_.db`, `n`
+3628, `code_version` `2c18e07`):
+
+| metric | value |
+|---|---|
+| `mean_faithfulness` | 4.05 / 5 |
+| `pct_with_hallucination` | **42.2%** |
+
+That hallucination rate is not noise — it's a real, systematic pattern,
+confirmed by reading actual flagged rows rather than trusting the
+aggregate number alone:
+
+- **64% of flagged rows (985/1532)** are a fabricated source attribution
+  distilbart-cnn tacks onto the sentence: `"...according to CNN.com's
+  weekly Newsquiz"`, `"...according to analysts"`, `"...according to the
+  latest article from 2 companies"` — none of which exist anywhere in
+  `facts_json`. Reads as the model pattern-completing a news-summary
+  sentence shape (articles often end with a source attribution) onto a
+  purely statistical seed sentence it was never trained to summarize.
+- Most of the rest are a **self-contradiction** pattern: the sentence
+  states the correct percentages, then appends a second, wrong
+  percentage for the same category — e.g. `"Sentiment was 0% positive,
+  100% negative, 0% neutral, and 0% negative"` (grounding says 100%
+  negative) or `"...50% negative, and 0% neutral, and 50% neutral"`
+  (grounding says 0% neutral). Reads as a short-input generation
+  artifact (repetition/degeneration), not a factual reasoning error.
+- Faithfulness score distribution: `1`→5, `2`→560, `3`→758, `4`→238,
+  `5`→2067 rows — a real bimodal split, not a uniform "slightly off"
+  pattern: the majority (2067, 57%) are clean, but a large minority sits
+  at 2-3 (1318, 36%), consistent with the two patterns above being
+  frequent but not universal.
+
+**Root cause, not yet fixed**: `sshleifer/distilbart-cnn-12-6` is a
+*news-article* summarizer, repurposed here to turn a short, templated
+stats sentence (`build_sector_intro_seed`, `src/news_nlp/sector_summary/
+composition.py`) into prose — a task shape it was never trained on. This
+is a newly-discovered, real gap distinct from `c_summary`'s (which
+summarizes real article text, not a synthetic stats seed) — recording it
+here as a finding, not deciding a fix in the same pass this eval path
+was built, matching this project's step-by-step discipline (measure and
+document first, decide the fix as its own step). See `SPEC.md` §13 for
+the new open question this creates.
+
 ## What it evaluates
 
-Four per-article stages. `sector_summary` is out of scope — it is deterministic
-composition; only its one-sentence intro seed is generative.
+Four per-article stages, plus `sector_summary`'s own one-sentence
+`intro_text` (added 2026-09-14) — the rest of `sector_summary` stays out
+of scope, since it's deterministic composition (§9/§13, `SPEC.md`).
 
 | stage | headline metric | also logged |
 |---|---|---|
@@ -1245,6 +1312,7 @@ composition; only its one-sentence intro seed is generative.
 | `category` | `accuracy_vs_judge` ² | macro-F1, per-slug accuracy, model vs judge `other`-rate, mean severity |
 | `ner` | `micro_f1` | span micro/macro P/R/F1, per-type F1, hallucination rate, miss rate. Error-only judge contract: it names just the `wrong` predicted spans + `missed` entities (not a verdict per span, which overflows on entity-dense articles); TP/FP/FN are derived from the predicted count. |
 | `c_summary` | `mean_faithfulness` ² | mean coverage / conciseness (1-5), `pct_with_hallucination` |
+| `sector_summary` | `mean_faithfulness` ² | `pct_with_hallucination` — faithfulness-only (no coverage/conciseness), full population every run, not a sample (see the 2026-09-14 follow-up above) |
 
 Every run also logs `n` (rows judged) and `parse_fail_rate` (judge replies that
 were not valid JSON after one repair attempt — excluded from the accuracy
@@ -1421,6 +1489,9 @@ the real `n`/`N` to recompute this from).
   4. `ner` and `c_summary` need no floor increase — `ner`'s stratification is
      unchanged, and c_summary's `target_chunks_ge3` (4.6% of the corpus)
      already gets outsized attention (weight 0.6) at today's sizes.
+  5. `sector_summary` has no floor at all — `--sample-size` is ignored for
+     it, every run judges the full 3,628-row population (2026-09-14
+     follow-up above).
 
 ## Running it
 

@@ -33,10 +33,17 @@ was added:
 Reads ``articles`` through ``news_nlp.db._articles_rel`` (``"source"`` during a
 two-tier run) exactly like the pipeline's own readers, so callers need only
 ``connect_pipeline()``.
+
+``sector_summary`` (added 2026-09-14, ``PLAN.md`` Work item 6 step 4) is the
+one stage none of the above applies to: it isn't keyed to an article, needs
+no SOURCE text, and its population (3,628 rows, one per
+``(gics_sector, gics_sub_industry, week)``) is small enough to judge in full
+every run rather than sample -- see ``_sector_summary_items``.
 """
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass
 from typing import Any
@@ -44,7 +51,7 @@ from typing import Any
 from news_nlp.db import NewsNlpDatabase, _articles_rel
 from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD, CATEGORY_SLUGS
 
-STAGES: tuple[str, ...] = ("sentiment", "category", "ner", "c_summary")
+STAGES: tuple[str, ...] = ("sentiment", "category", "ner", "c_summary", "sector_summary")
 
 _RESULT_TABLE = {
     "sentiment": "article_sentiment",
@@ -209,7 +216,12 @@ _TARGETS_BY_STAGE: dict[str, tuple[tuple[str, str, str, tuple[Any, ...], float],
 
 @dataclass(frozen=True)
 class EvalItem:
-    """One row to judge: the source text plus the model's stored prediction."""
+    """One row to judge: the source text plus the model's stored prediction.
+
+    ``sector_summary`` repurposes ``article_id`` for that row's own
+    ``sector_summary.id`` (not an ``articles.id``) and ``body_text`` for its
+    ``facts_json`` grounding rather than article text -- see
+    ``_sector_summary_items``."""
 
     article_id: int
     bucket: str  # "low_conf" | "representative" | stage-specific "target_<x>"
@@ -370,6 +382,58 @@ def _text(
     return (row["title"] or "", body)
 
 
+def _sector_summary_items(conn: NewsNlpDatabase) -> list[EvalItem]:
+    """Every ``sector_summary`` row, judged in full -- not a sample.
+
+    T-054 (``PLAN.md`` Work item 6, step 4): the population is small enough
+    (3,628 rows as of 2026-09-14, one per ``(gics_sector, gics_sub_industry,
+    week)``) that judging every row each run is affordable, so this stage
+    skips the low_conf/target/representative stratification machinery
+    entirely rather than building sampling infrastructure it doesn't need.
+    Every item gets ``bucket="representative"`` and
+    ``stratum_population=len(rows)`` (population == n), which makes
+    ``metrics._ht_ratio``'s reweighting a mathematical no-op (weight 1) --
+    a full census needs no reweighting, this just reuses the same aggregator
+    shape every other stage has.
+
+    No SOURCE store involved: ``sector_summary`` is a deterministic
+    composition over RESULTS-store tables only (``docs/db-topology.md``).
+    ``EvalItem.body_text`` holds ``facts_json`` (the stats-only grounding
+    the model actually saw, pretty-printed for judge readability), not
+    article text -- see ``judges.judge_sector_summary``'s dedicated prompt
+    framing, which doesn't call it "ARTICLE" the way every other stage's
+    generic ``_user_prompt`` does. ``EvalItem.prediction`` holds just
+    ``{"intro_text": ...}``, the one model-generated piece of a
+    ``sector_summary`` row.
+    """
+    rows = conn.execute(
+        "SELECT id, gics_sector, gics_sub_industry, week_start, week_end, "
+        "intro_text, facts_json FROM sector_summary ORDER BY id"
+    ).fetchall()
+    population = len(rows)
+    items: list[EvalItem] = []
+    for row in rows:
+        try:
+            facts_pretty = json.dumps(json.loads(row["facts_json"]), indent=2)
+        except (TypeError, ValueError):
+            facts_pretty = row["facts_json"] or "{}"
+        title = (
+            f"{row['gics_sector']} / {row['gics_sub_industry']} "
+            f"-- week {row['week_start']} to {row['week_end']}"
+        )
+        items.append(
+            EvalItem(
+                article_id=int(row["id"]),  # sector_summary.id, not an articles.id -- see docstring
+                bucket="representative",
+                stratum_population=population,
+                title=title,
+                body_text=facts_pretty,
+                prediction={"intro_text": row["intro_text"]},
+            )
+        )
+    return items
+
+
 def sample_for_stage(
     conn: NewsNlpDatabase,
     stage: str,
@@ -387,6 +451,10 @@ def sample_for_stage(
     ``representative``. Fewer than *size* only when the store holds too few
     judged rows.
 
+    ``sector_summary`` is the one exception to all of the above: *size*,
+    *low_conf_frac*, *target_frac*, and *seed* are silently ignored and
+    every row in the table is returned -- see ``_sector_summary_items``.
+
     Backward-compatibility property, relied on by
     ``test_target_frac_zero_matches_legacy_two_bucket_ordering``: when a stage
     has no target strata (or *target_frac* is 0), the rng call sequence -- and
@@ -396,6 +464,8 @@ def sample_for_stage(
     """
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {STAGES}, got {stage!r}")
+    if stage == "sector_summary":
+        return _sector_summary_items(conn)
     schema = _require_source(conn)
     rng = random.Random(seed)  # noqa: S311 -- sample selection, not cryptography
 

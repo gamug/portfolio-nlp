@@ -142,6 +142,57 @@ def test_ner_uses_full_body_text_since_the_2026_09_12_fix(
     assert "truncated" not in items[0].body_text
 
 
+def test_sector_summary_judges_the_full_population_not_a_sample(tmp_path: Path) -> None:
+    """T-054 (PLAN.md Work item 6 step 4): sector_summary's population is
+    small enough to judge in full -- size/low_conf_frac/target_frac/seed
+    are all ignored, and every row comes back regardless. Also proves no
+    SOURCE store is needed: this uses a plain single-store connect(), not
+    connect_pipeline()."""
+    results = tmp_path / "results.db"
+    conn = db_module.connect(results)
+    db_module.init_schema(conn)
+    db_module.write_sector_summary(
+        conn,
+        "Technology",
+        "Software",
+        "2026-08-10",
+        "2026-08-16",
+        "SECTOR: Technology / Software\n...",
+        3,
+        2,
+        "sshleifer/distilbart-cnn-12-6",
+        facts={"num_articles": 3, "sentiment": {"pct": {"positive": 67}}},
+        intro_text="Software saw 3 articles, mostly positive.",
+    )
+    db_module.write_sector_summary(
+        conn,
+        "Technology",
+        "Hardware",
+        "2026-08-10",
+        "2026-08-16",
+        "SECTOR: Technology / Hardware\n...",
+        1,
+        1,
+        "sshleifer/distilbart-cnn-12-6",
+        facts={"num_articles": 1},
+        intro_text="Hardware saw 1 article.",
+    )
+    conn.commit()
+
+    # A size of 1 must NOT truncate the result -- the whole point of T-054.
+    items = sample_for_stage(conn, "sector_summary", size=1, seed=1)
+    conn.close()
+
+    assert len(items) == 2
+    assert {it.bucket for it in items} == {"representative"}
+    assert all(it.stratum_population == 2 for it in items)
+    software = next(it for it in items if "Software" in it.title)
+    assert software.title == "Technology / Software -- week 2026-08-10 to 2026-08-16"
+    assert software.prediction == {"intro_text": "Software saw 3 articles, mostly positive."}
+    assert '"num_articles": 3' in software.body_text  # pretty-printed facts_json
+    assert "ARTICLE" not in software.body_text
+
+
 def test_c_summary_uses_full_body_text_since_the_2026_09_14_fix(
     eval_store_paths: tuple[Path, Path],
 ) -> None:

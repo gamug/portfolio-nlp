@@ -139,7 +139,7 @@ findings.
       and `SPEC.md` §9's ner row. → step 4 / `PLAN.md` Work item 3
       acceptance criteria.
 
-## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (2026-09-13: three candidates measured, none merged)
+## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 Stratified sampling + the `recall_negative` headline switch (both already
 shipped, `docs/evaluation.md` 2026-09-08/09) improved what gets measured and
@@ -212,7 +212,7 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
       2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
       disposition table.)
 
-## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (priority, pending)
+## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found: 42.2% intro_text hallucination rate)
 
 Both summarization tasks run the same model (`SUMMARY_MODEL =
 "sshleifer/distilbart-cnn-12-6"`, loaded independently by
@@ -231,44 +231,60 @@ faithfulness-only check given it shares the same model. →
 `PLAN.md` Work item 6, `SPEC.md` §13 item 10 (new), §9 (`c_summary`
 baseline row).
 
-- [ ] **T-050** Empirically check whether `c_summary` eval sampling
+- [x] **T-050** Empirically check whether `c_summary` eval sampling
       suffers the same full-article-vs-lead-cap mismatch already
       confirmed for `sentiment` — `run_company_summary_stage`'s
       hierarchical reduce (`src/pipeline.py`) processes the whole
       article; confirm the judge's scope (`src/news_nlp/eval/sampling.py`,
       `.../prompts/c_summary.md`) matches. → `PLAN.md` Work item 6, step 1.
-- [ ] **T-051** Decide whether/how to address `mean_coverage`'s weakness
+      **Done 2026-09-14** — confirmed (10.0% of `article_summary` rows
+      exceed the judge's cap, all multi-chunk) and fixed (`c_summary`
+      joined `_UNCAPPED_STAGES`). PR #45.
+- [x] **T-051** Decide whether/how to address `mean_coverage`'s weakness
       (3.02/5, weakest `c_summary` metric) — candidates: raise
       `SUMMARY_MIN_OUTPUT_TOKENS`/`SUMMARY_MAX_OUTPUT_TOKENS`
       (`src/pipeline.py`, currently 56/142), change the hierarchical-reduce
       strategy, or explicitly accept the terse tendency as a deliberate
       trade for the already-strong faithfulness score. Not yet decided.
-      → step 2.
-- [ ] **T-052** Run a fresh `--stage c_summary` eval after any change
+      → step 2. **Done 2026-09-14** — the output-length raise was tested
+      (matched-pair experiment) and rejected (coverage +0.20 but
+      `pct_with_hallucination` more than doubled, 15.0%→35.5%); decided
+      to accept the gap as a deliberate completeness-vs-correctness
+      trade, mirroring sentiment's recall-over-precision call. PR #45.
+- [x] **T-052** Run a fresh `--stage c_summary` eval after any change
       lands (or once T-050 rules out a code change) and add a dated
-      follow-up entry to `docs/evaluation.md`. → step 3.
-- [ ] **T-053** Add `SPEC.md` §13 item 10 (new — `c_summary` coverage +
+      follow-up entry to `docs/evaluation.md`. → step 3. **Done
+      2026-09-14** — `eval_run` 34, n=1000, now the post-fix baseline.
+- [x] **T-053** Add `SPEC.md` §13 item 10 (new — `c_summary` coverage +
       eval-scope question) and its §14 disposition-table row, and update
       §9's `c_summary` baseline row with the result. → `PLAN.md` Work
-      item 6 acceptance criteria.
-- [ ] **T-054** Confirm the `sector_summary` population size (rows =
+      item 6 acceptance criteria. **Done 2026-09-14.**
+- [x] **T-054** Confirm the `sector_summary` population size (rows =
       distinct `(gics_sector, gics_sub_industry, week)`) to decide whether
       a full-population judge pass is affordable each run, instead of
       assuming it and building sampling machinery that isn't needed.
-      → `PLAN.md` Work item 6, step 4.
-- [ ] **T-055** Add a `sector_summary` case to the eval framework: a new
+      → `PLAN.md` Work item 6, step 4. **Done 2026-09-14** -- 3,628
+      rows, small enough to judge in full every run; sample_for_stage's
+      sector_summary branch skips the stratification machinery entirely.
+- [x] **T-055** Add a `sector_summary` case to the eval framework: a new
       prompt (`src/news_nlp/eval/prompts/sector_summary.md`) judging
       `intro_text` for faithfulness against its own `facts_json` grounding
       only (never raw article/company text — that's not what the model
       saw); wire it into `sampling.STAGES`, `metrics.HEADLINE`, and
-      `cli/news_nlp_eval.py`'s `--stage` choices. → step 4.
-- [ ] **T-056** Run the new `--stage sector_summary` eval, log it to
+      `cli/news_nlp_eval.py`'s `--stage` choices. → step 4. **Done
+      2026-09-14** -- SectorIntroVerdict/judge_sector_summary/
+      aggregate_sector_summary, 4 new hermetic tests, full suite green.
+- [x] **T-056** Run the new `--stage sector_summary` eval, log it to
       MLflow/`eval_run` the same way as the other stages, and record the
-      result in `docs/evaluation.md`. → step 4.
-- [ ] **T-057** Add a §9 baseline row (or a documented decision not to,
+      result in `docs/evaluation.md`. → step 4. **Done 2026-09-14** --
+      eval_run 34, n=3628 (full population): mean_faithfulness 4.05/5,
+      pct_with_hallucination **42.2%** (a real, characterized pattern --
+      fabricated source attributions + self-contradicting percentages,
+      not noise).
+- [x] **T-057** Add a §9 baseline row (or a documented decision not to,
       if T-054/T-055 conclude a full new baseline isn't warranted) for
       the `sector_summary` intro check. → `PLAN.md` Work item 6
-      acceptance criteria.
+      acceptance criteria. **Done 2026-09-14.**
 
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
@@ -330,13 +346,18 @@ blocked on the maintainer's infrastructure decision (see `PLAN.md` Work
 item 2). Nothing in Work items 1–2 has started.
 
 **Current focus is model performance checking (Work items 3-7):** T-040,
-T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, and T-063 are
-already done — Work item 3 (NER validation) is fully resolved except T-022
-(full-corpus backfill), open but non-blocking; Work item 7 (NER batching)
-is code-complete, with only T-062 (empirical GPU tuning) left, blocked on
-access to the project's actual GPU (not available in a CPU-only sandbox).
-T-030 (sentiment design decision), T-050 (`c_summary` sampling check), and
-T-054/T-055 (`sector_summary` intro-check build-out) are the other next
-actionable, unblocked steps; the rest of Work item 4 and T-041 follow once
-those land; T-051 (`c_summary` coverage decision) is unblocked but, like
-T-030, needs a design call before further steps.
+T-042, T-021, T-024, T-025, T-020, T-023, T-060, T-061, T-063, T-030,
+T-031/T-032, T-050–T-053, and T-054–T-057 are all done — Work items 3
+(NER validation), 4 (sentiment), and 6 (summarization eval) are fully
+resolved. Work item 3's only open item is T-022 (full-corpus backfill),
+non-blocking. Work item 7 (NER batching) is code-complete, with only
+T-062 (empirical GPU tuning) left — **no longer GPU-blocked**: this
+sandbox gained CUDA access 2026-09-14 (confirmed via `torch.cuda
+.is_available()` during Work item 6's summarization experiments), so
+T-062 is now actionable, not stuck on infrastructure. The only work
+items with anything left are Work item 1 (pin checkpoints, no
+blockers), Work item 2 (regression gate, blocked on the maintainer),
+Work item 3's T-022, Work item 6's newly-found `sector_summary`
+`intro_text` hallucination gap (42.2%, undecided — not yet a task ID,
+needs scoping as a new work item if a fix is wanted), and Work item 7's
+T-062.

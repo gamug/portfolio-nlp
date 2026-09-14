@@ -18,6 +18,7 @@ from news_nlp.eval.sampling import EvalItem
 from news_nlp.eval.verdicts import (
     CategoryVerdict,
     NerVerdict,
+    SectorIntroVerdict,
     SentimentVerdict,
     SummaryVerdict,
 )
@@ -35,6 +36,7 @@ HEADLINE: dict[str, str] = {
     "category": "accuracy_vs_judge",
     "ner": "micro_f1",
     "c_summary": "mean_faithfulness",
+    "sector_summary": "mean_faithfulness",
 }
 
 _SENTIMENT_CLASSES = ("positive", "negative", "neutral")
@@ -339,6 +341,34 @@ def aggregate_c_summary(
     return out
 
 
+def aggregate_sector_summary(
+    items: Sequence[EvalItem], verdicts: Sequence[SectorIntroVerdict]
+) -> dict[str, float]:
+    """Full-population census, not a sample (T-054: 3,628 rows total is
+    affordable to judge every run -- see sample_for_stage's sector_summary
+    branch). Every item's ``stratum_population`` equals ``len(items)``, so
+    the HT reweighting below is mathematically a no-op (weight 1 for every
+    row); kept anyway for the same aggregator shape every other stage uses,
+    rather than hand-rolling a plain mean as a special case."""
+    ok = [(it, v) for it, v in zip(items, verdicts, strict=True) if not v.parse_failed]
+    total = len(verdicts)
+    out: dict[str, float] = {
+        "n": float(len(ok)),
+        "parse_fail_rate": (total - len(ok)) / total if total else 0.0,
+    }
+    if not ok:
+        return out
+    it_ok = [it for it, _ in ok]
+    ones = [1.0] * len(it_ok)
+    faith = [float(v.faithfulness) for _, v in ok]
+    halluc = [1.0 if v.hallucinations else 0.0 for _, v in ok]
+    out["mean_faithfulness"] = _ht_ratio(it_ok, faith, ones)
+    out["mean_faithfulness_naive_pooled"] = fmean(faith)
+    out["pct_with_hallucination"] = _ht_ratio(it_ok, halluc, ones)
+    out["pct_with_hallucination_naive_pooled"] = _rate([bool(h) for h in halluc])
+    return out
+
+
 _Aggregator = Callable[[Sequence[EvalItem], Sequence[Any]], dict[str, float]]
 
 _AGGREGATORS: dict[str, _Aggregator] = {
@@ -346,6 +376,7 @@ _AGGREGATORS: dict[str, _Aggregator] = {
     "category": aggregate_category,
     "ner": aggregate_ner,
     "c_summary": aggregate_c_summary,
+    "sector_summary": aggregate_sector_summary,
 }
 
 

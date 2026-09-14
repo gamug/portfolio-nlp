@@ -78,3 +78,16 @@ class SummaryVerdict(BaseModel):
     hallucinations: list[str] = Field(default_factory=list)
     rationale: str = ""
     parse_failed: bool = False
+
+
+class SectorIntroVerdict(BaseModel):
+    """Judge's read on one ``sector_summary`` row's ``intro_text``, checked
+    only against its own ``facts_json`` grounding (never raw article/company
+    text -- that's not what the model saw). Faithfulness-only: no
+    ``coverage``/``conciseness``, which don't meaningfully apply to one
+    stats-only sentence (``PLAN.md`` Work item 6, step 4)."""
+
+    faithfulness: int = Field(default=3, ge=1, le=5)
+    hallucinations: list[str] = Field(default_factory=list)
+    rationale: str = ""
+    parse_failed: bool = False
