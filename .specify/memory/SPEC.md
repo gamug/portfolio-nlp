@@ -685,6 +685,16 @@ treating a related FR/NR as done:
     separate backfill script). Full numbers, example rows, and the
     persistence-check methodology in `docs/evaluation.md`'s 2026-09-14
     follow-ups.
+13. **The Models evaluation artifact section documents *how well* each
+    model performs, not *why that model was chosen* over a plausible
+    alternative.** The 2026-09-14 artifact reorg centralized every
+    stage's accuracy numbers into one section, closing the "scattered
+    metrics" problem — it did not add model-selection reasoning, which
+    today is either absent (category's, NER's, and `c_summary`'s base
+    architecture choice) or only covers *which variant of the same
+    model family* (e.g. chunk-level vs. title-only FinBERT weighting),
+    not *why that family at all*. **New, priority, pending (2026-09-14)**
+    — `PLAN.md` Work item 8 / `TASKS.md` T-064–T-069.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -753,6 +763,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Resolved (2026-09-14)** — sampling mismatch fixed; coverage gap accepted as a deliberate trade, not fixed further; see `PLAN.md` Work item 6 | — |
 | 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
+| 13 — Models evaluation section lacks selection reasoning | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 8 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
@@ -762,8 +773,10 @@ to fully resolved (see the update notes on both items above and
 down to one non-blocking sub-task. Item 12 was discovered and resolved
 the same day (2026-09-14) — found by the `sector_summary` eval path
 Work item 6 built, fixed the same day with a deterministic template.
-Items 3, 4 (the pinning-reprocessing half), 5, 6, 7, and 9 remain
-permanent characteristics of this project as scoped, not queued tasks.
+Item 13 is new the same day too, but unresolved — active priority work
+(`PLAN.md` Work item 8), not yet started. Items 3, 4 (the
+pinning-reprocessing half), 5, 6, 7, and 9 remain permanent
+characteristics of this project as scoped, not queued tasks.
 
 ## 15. Sign-off
 

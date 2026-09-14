@@ -50,6 +50,11 @@ this project's scope beyond what's already in motion:
    `run_ner_stage` is the one stage with no batching, unlike category and
    the summarization stages, a real throughput cost measured directly
    during T-025's 2026-09-12 resample. — Work item 7.
+8. Add a per-model "why this model" justification sub-section to the
+   Models evaluation artifact section, for every model in the pipeline —
+   the accuracy numbers now live in one place (2026-09-14 reorg), but
+   *why each specific architecture was chosen over the alternatives* does
+   not (SPEC.md §13 item 13). — Work item 8.
 
 ## Non-goals
 
@@ -760,6 +765,101 @@ but doing it isn't part of this item — raised only as a one-line note in
 SPEC.md §13 item 11, not its own numbered question, to avoid scope creep
 beyond what was asked.
 
+## Work item 8 — Justify each model's selection in the Models evaluation artifact section (priority, pending)
+
+**Why**: The 2026-09-14 [Portfolio NLP artifact](https://claude.ai/code/artifact/65e62819-28dd-495b-b6ec-64f9c1751235)
+reorganization (`docs/evaluation.md`'s numbers, centralized) closed the
+"where are this model's metrics" question — every stage's accuracy now
+lives in one "Models evaluation" section instead of being scattered
+across the page. It did **not** close a different, related question:
+*why this specific model/architecture, as opposed to a plausible
+alternative*. Today the page states what each stage uses and how well it
+performs, but the actual selection reasoning is either absent (category,
+NER, `c_summary`'s base model choice) or scattered across
+`docs/evaluation.md`'s dated follow-ups and only covers a narrower
+question — *which variant of the same model family* (chunk-level vs.
+title-only FinBERT; base vs. fine-tuned) — not *why this model family at
+all* (why FinBERT-shaped, why zero-shot NLI, why SEC-BERT, why
+distilbart, why no model for `sector_summary`).
+
+**Approach**: add one "Why this model" sub-block to each of the five
+existing per-model blocks already in the artifact's `#eval` ("Every
+model's real accuracy, in one place") section — not a new top-level
+section, a sub-section within each existing one, so the justification
+sits right next to the numbers it explains. Each sub-block should cover,
+at minimum:
+
+1. **Sentiment** (`gamug/FinBERT-financial-news`) — why a FinBERT-family
+   model (domain-pretrained on financial text) over a general-purpose
+   sentiment model or a from-scratch train; why *continuing* fine-tuning
+   from `ProsusAI/finbert` specifically rather than starting from a
+   generic checkpoint (`bert-base`) or reaching for a larger general LLM;
+   why chunk-level + entity-scoped weighting over the sentence-level,
+   title-only, and whole-document-average alternatives actually measured
+   — this last part is already well-documented in `docs/evaluation.md`'s
+   2026-09-13 follow-ups and mostly needs pulling into the new sub-block,
+   not fresh research.
+2. **Category** (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) — why
+   zero-shot NLI at all (no labeled category training set exists, and
+   one is expensive to build for a 10-slug taxonomy that itself may
+   change) rather than a trained classifier; why this specific
+   zero-shot-NLI checkpoint over other zero-shot options (DeBERTa-v3's
+   disentangled-attention architecture and its own zero-shot-NLI
+   benchmark provenance — needs sourcing, not yet written anywhere in
+   this repo); why the hierarchical two-level taxonomy design over a
+   flat 9-way classification (already documented, 2026-09-09 follow-up
+   — pull in, don't re-derive).
+3. **NER** (`gamug/sec-bert-finer-ord-ner`) — why SEC-BERT (pretrained on
+   SEC filings) as the base checkpoint over a generic NER model
+   (spaCy, `bert-base-NER`) — financial entity mentions (tickers, filing
+   terminology) benefit from domain vocabulary a generic model never
+   saw; why FiNER-ORD specifically as the fine-tuning dataset (what it
+   is, why its label set fits `PER`/`LOC`/`ORG` here — needs sourcing).
+4. **`article_summary` / `c_summary`** (`sshleifer/distilbart-cnn-12-6`)
+   — why a *distilled* BART over full `bart-large-cnn` or a modern
+   LLM-based summarizer: the 6GB-VRAM / one-model-at-a-time budget
+   (`SPEC.md` NR-001) this whole pipeline is built around, and no
+   per-call API cost for a batch job over hundreds of thousands of
+   articles. This sub-block should **explicitly connect the model choice
+   to the `mean_coverage` weakness already documented** — a smaller
+   model pretrained on short CNN/DailyMail-style news, never retuned for
+   longer/denser financial text, is a plausible root cause behind the
+   coverage gap the 2026-09-14 "accept as a trade" decision lives with,
+   not an unrelated fact sitting next to it.
+5. **`sector_summary`** — this one's justification is already the
+   strongest and most complete of the five (this session's own
+   2026-09-14 investigation): explicitly explain *why removing the model
+   entirely* was the right call, not a downgrade — a deterministic
+   template can't fabricate a source or contradict its own numbers *by
+   construction*, the same "structural guarantee over probabilistic
+   mitigation" principle already used for this stage's cross-company-
+   blending design. Mostly a matter of framing the existing "no longer a
+   machine learning model" content as an explicit selection decision
+   rather than an incidental fact.
+
+**Acceptance criteria**:
+
+- Every one of the five per-model blocks in the artifact's `#eval`
+  section has a clearly labeled "Why this model" sub-section, distinct
+  from its metrics.
+- Each justification names at least one concrete alternative that was
+  *not* chosen and says why — a justification that doesn't name a
+  rejected alternative isn't a justification, it's a description.
+- Sourcing for claims about a model's own training/architecture
+  provenance (DeBERTa-v3's zero-shot-NLI lineage, FiNER-ORD's dataset
+  scope, `distilbart-cnn-12-6`'s own training corpus) is a real citation
+  (the model card, the dataset paper/repo), not an assertion invented to
+  fill the section.
+- `docs/modules/news-nlp.md` gets the same justification content in
+  prose form (the artifact is a presentation layer over the repo's own
+  docs, per this project's constitution — it should never say something
+  the docs don't already say).
+
+**Out of scope for this work item**: re-litigating any already-made
+selection decision (e.g. reopening whether chunk-level + fine-tuned
+sentiment was the right call) — this item explains decisions already
+made, it does not remake them.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -793,5 +893,10 @@ other, and independent of one another except where noted:
   real GPU rather than on anything else in this backlog. Worth running
   *before* a future T-022 full-corpus backfill decision, though not a hard
   prerequisite for it.
+- Work item 8 (per-model selection justification) is unblocked today and
+  independent of every other work item — it's an artifact/docs change,
+  not a code change, and doesn't depend on any pending decision. Priority
+  because it's the next explicitly requested task, not because anything
+  else in the backlog blocks on it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
