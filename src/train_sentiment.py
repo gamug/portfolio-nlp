@@ -14,16 +14,29 @@ retrain: the label space (positive/negative/neutral, investor/price-impact
 framing) is unchanged, only the training sentences are new and more
 current/diverse.
 
-If `data/sentiment_finetune/idiom_augment.jsonl` exists (produced by the
+If `data/sentiment_finetune/labeled_sentences_balanced_2026_09_14.jsonl`
+exists (produced by the 2026-09-14 follow-up
+`scripts/rebalance_sentiment_data_2026_09_14.py`, PLAN.md Work item 9 --
+the base draw + idiom-augment pool was 56.1% neutral / 22.8% negative /
+21.1% positive, never a deliberate target, so neutral was downsampled to
+the larger minority class's size via TF-IDF-centroid representative
+selection), it is used as the **entire** training pool as-is -- it already
+has idiom_augment.jsonl merged in, so DATA_PATH/IDIOM_AUGMENT_PATH below
+are *not* also loaded in that case (that would double-count the idiom rows).
+
+Otherwise (that file absent), the original, unbalanced pool is used: if
+`data/sentiment_finetune/idiom_augment.jsonl` exists (produced by the
 2026-09-13 follow-up `scripts/mine_idiom_sentences_2026_09_13.py`, mined
 after a spot-check of the first fine-tune found it still mislabeled
 "crushed earnings" idioms), those rows are merged into the training pool
-before the stratified split. If `data/sentiment_finetune/idiom_probe.jsonl`
-exists (a held-out slice of that same mining pass, never trained on), the
-final model is *also* evaluated on it separately and the result recorded
-alongside the regular test metrics -- a direct, targeted measurement of
-whether the idiom fix actually worked, not just an aggregate-metric
-inference.
+before the stratified split.
+
+If `data/sentiment_finetune/idiom_probe.jsonl` exists (a held-out slice of
+the idiom-mining pass, never trained on and untouched by the 2026-09-14
+rebalance either way), the final model is *also* evaluated on it
+separately and the result recorded alongside the regular test metrics --
+a direct, targeted measurement of whether the idiom fix actually worked,
+not just an aggregate-metric inference.
 
 Run once, offline, before publishing to the Hugging Face Hub (see
 scripts/publish_finbert_financial_news_2026_09_13.py). Not part of
@@ -56,6 +69,10 @@ DATA_PATH = Path("data/sentiment_finetune/labeled_sentences.jsonl")
 # only if present, see module docstring).
 IDIOM_AUGMENT_PATH = Path("data/sentiment_finetune/idiom_augment.jsonl")
 IDIOM_PROBE_PATH = Path("data/sentiment_finetune/idiom_probe.jsonl")
+# 2026-09-14 rebalance follow-up (PLAN.md Work item 9): already-merged,
+# already-rebalanced training pool -- preferred over DATA_PATH +
+# IDIOM_AUGMENT_PATH when present, see module docstring.
+BALANCED_DATA_PATH = Path("data/sentiment_finetune/labeled_sentences_balanced_2026_09_14.jsonl")
 OUTPUT_DIR = "models/finbert-financial-news"
 METRICS_OUTPUT = Path("data/sentiment_finetune/test_metrics.json")
 
@@ -140,13 +157,21 @@ def make_compute_metrics() -> Any:
 
 
 def main() -> None:
-    rows = load_labeled_sentences(DATA_PATH)
-    print(f"Loaded {len(rows)} labeled sentences from {DATA_PATH}")
+    if BALANCED_DATA_PATH.exists():
+        # Already has idiom_augment.jsonl merged in and neutral downsampled --
+        # load it whole, don't also merge IDIOM_AUGMENT_PATH (would double-count).
+        rows = load_labeled_sentences(BALANCED_DATA_PATH)
+        training_data_path = str(BALANCED_DATA_PATH)
+        print(f"Loaded {len(rows)} labeled sentences from {BALANCED_DATA_PATH} (rebalanced pool)")
+    else:
+        rows = load_labeled_sentences(DATA_PATH)
+        print(f"Loaded {len(rows)} labeled sentences from {DATA_PATH}")
 
-    if IDIOM_AUGMENT_PATH.exists():
-        augment_rows = load_labeled_sentences(IDIOM_AUGMENT_PATH)
-        print(f"Merging {len(augment_rows)} idiom-augment sentences from {IDIOM_AUGMENT_PATH}")
-        rows = rows + augment_rows
+        if IDIOM_AUGMENT_PATH.exists():
+            augment_rows = load_labeled_sentences(IDIOM_AUGMENT_PATH)
+            print(f"Merging {len(augment_rows)} idiom-augment sentences from {IDIOM_AUGMENT_PATH}")
+            rows = rows + augment_rows
+        training_data_path = str(DATA_PATH)
 
     splits = stratified_split(rows)
 
@@ -204,6 +229,7 @@ def main() -> None:
         "test_metrics": test_metrics,
         "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
         "base_model": MODEL_NAME,
+        "training_data_path": training_data_path,
     }
 
     if IDIOM_PROBE_PATH.exists():

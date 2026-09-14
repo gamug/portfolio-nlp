@@ -1030,6 +1030,98 @@ investigation's earlier ticker-collision bug was about. `SPEC.md` §13
 item 1, §9, and FR-001 are updated to reflect the merge; the repository
 artifact's "Gaps"/"Plan" sections are updated too.
 
+### Follow-up (2026-09-14): sentiment training data rebalanced — a real trade, not a strict win
+
+`PLAN.md` Work item 9 / `SPEC.md` §13 item 14. The 5,800-sentence training
+pool behind `gamug/FinBERT-financial-news` (5,000 base draw + 800 merged
+idiom-augment sentences) was 3,256 neutral (56.1%) / 1,321 negative
+(22.8%) / 1,223 positive (21.1%) — never a deliberate target, a byproduct
+of drawing sentences from the eval harness's confidence-stratified
+sampling pool (stratified on prediction confidence, not label ratio) on
+top of real financial news skewing neutral/factual. Nothing in the
+original training procedure corrected for it: `train_sentiment.py` picked
+the best checkpoint by macro F1 (equal per-class weight, but only at
+*evaluation* time) and stratified the train/validation/test split to
+match the source distribution, not rebalance it.
+
+**Fix**: `scripts/rebalance_sentiment_data_2026_09_14.py` downsamples
+`neutral` to 1,321 — the size of the larger minority class (`negative`) —
+keeping every `positive`/`negative` sentence untouched. Which 1,321 of the
+original 3,256 `neutral` sentences survive is not a random cut: each is
+ranked by cosine similarity to the `neutral` class's own TF-IDF centroid
+(scikit-learn, already a transitive dependency), and the most
+representative (closest to centroid) are kept, the most atypical/outlier
+ones dropped. Result: 1,321 / 1,321 / 1,223 (34.2% / 34.2% / 31.6%) — a
+genuine three-way balance. Published as v2 of
+[`gamug/FinBERT-financial-news-data`](https://huggingface.co/datasets/gamug/FinBERT-financial-news-data)
+(`scripts/publish_finbert_financial_news_dataset_rebalanced_2026_09_14.py`);
+`idiom_probe` (100 rows) is untouched in both versions — its role is
+measuring against real, unfiltered idiom-family traffic, not a
+class-balance concern.
+
+`train_sentiment.py` was extended (not replaced) to prefer this rebalanced
+pool when present (`BALANCED_DATA_PATH`), same procedure/hyperparameters
+as before (`ProsusAI/finbert` base, lr 2e-5, 4 epochs, seed 42) — a
+data-quality fix, not an architecture or hyperparameter change. Retrained
+and measured against the currently-published model (referred to below as
+v2; the rebalanced retrain as v3):
+
+**Held-out sentence-level test set**
+
+| metric | v2 (published, unbalanced data, n=579) | **v3 (rebalanced data, n=386)** |
+|---|---|---|
+| Accuracy | 0.798 | 0.777 |
+| Macro F1 | 0.779 | 0.774 |
+| Precision — positive | — | 0.795 |
+| Recall — positive | — | 0.762 |
+| F1 — positive | 0.775 | **0.778** |
+| Precision — negative | — | 0.756 |
+| Recall — negative | — | **0.917** |
+| F1 — negative | 0.726 | **0.829** |
+| Precision — neutral | — | 0.789 |
+| Recall — neutral | — | 0.652 |
+| F1 — neutral | **0.838** | 0.714 |
+
+Negative F1 improves substantially (0.726→0.829) — the class that wasn't
+touched by rebalancing, but benefits from the model no longer being
+pulled toward the now-shrunk neutral majority. Neutral F1 drops
+(0.838→0.714), an expected, direct cost of training on 1,935 fewer
+neutral examples, not a surprise.
+
+**Idiom probe (n=100, held out of training, unchanged between v2/v3) —
+where the real cost shows up**
+
+| metric | v2 (published, pre-rebalance) | **v3 (rebalanced)** |
+|---|---|---|
+| Accuracy | 0.870 | 0.830 |
+| Macro F1 | 0.759 | **0.583** |
+| F1 — positive | 0.889 | 0.848 |
+| F1 — negative | 0.917 | 0.902 |
+| F1 — neutral | 0.47 | **0.0** |
+
+**Neutral F1 on this probe collapses to 0.0 (precision and recall both
+0.0) in v3** — the model made zero correct `neutral` predictions on this
+specific slice. This probe is only 10% neutral by design (10/100 rows —
+it targets the crushed/smashed/hammered idiom family, which skews
+negative/positive, not neutral), so it's a small-n reading, not a broad
+claim about v3's neutral performance generally — but it's a real,
+measured, disclosed regression, consistent with training on 40% fewer
+neutral examples overall, not glossed over.
+
+**Not yet measured**: the downstream, production-pipeline evaluation
+(entity-scoped, chunk-level aggregation against real article traffic,
+LLM-judge) that validated v2 — that needs a full `--stage sentiment` eval
+run against live production data, a separate, larger step from this
+retrain.
+
+**Disposition**: this is a trade, not a strict improvement — v3 fixes the
+disclosed class imbalance and improves negative F1 substantially, at a
+real cost to neutral performance most visible on the idiom probe.
+`src/pipeline.py`'s `MODEL_REVISIONS` still pins v2's commit SHA; v3 is
+published as an available checkpoint on the Hub, not silently adopted
+into the production pipeline — adopting it is a separate decision, to be
+made with the downstream-pipeline numbers in hand, not before.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking

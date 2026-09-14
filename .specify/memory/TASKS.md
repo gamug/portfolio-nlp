@@ -414,6 +414,57 @@ item 8.
       something the repo's own docs don't already say. → `PLAN.md` Work
       item 8 acceptance criteria.
 
+## Work item 9 — Rebalance sentiment training data (priority)
+
+`gamug/FinBERT-financial-news`'s training pool is 56.1% neutral / 22.8%
+negative / 21.1% positive — never a deliberate target, a byproduct of
+the eval harness's confidence-stratified sampling source. → `PLAN.md`
+Work item 9.
+
+- [x] **T-070** Downsample the neutral class to the larger minority
+      class's size (1,321), selecting the most representative examples
+      via TF-IDF cosine similarity to the neutral class's own centroid
+      (not random) — keep every negative/positive example untouched.
+      → step 1. **Done 2026-09-14** —
+      `scripts/rebalance_sentiment_data_2026_09_14.py`; verified exactly
+      0 duplicate sentences and the expected 1,321/1,321/1,223 counts
+      before anything was published.
+- [x] **T-071** Publish the rebalanced `train`/`validation`/`test` splits
+      to `gamug/FinBERT-financial-news-data`, `idiom_probe` untouched;
+      document the before/after class counts and the selection method in
+      the dataset card. → step 2. **Done 2026-09-14** — v2 of the
+      dataset live; splits verified against the actual
+      `stratified_split()` output before publishing, not guessed.
+- [x] **T-072** Retrain the sentiment model on the rebalanced data via
+      `train_sentiment.py` (same procedure/hyperparameters as the
+      existing fine-tune). → step 3. **Done 2026-09-14** —
+      `BALANCED_DATA_PATH` branch added to `train_sentiment.py`
+      (preferred when present, doesn't double-merge idiom_augment);
+      trained on CUDA, 4 epochs, same hyperparameters as v2.
+- [ ] **T-073** Publish the retrained model to
+      `gamug/FinBERT-financial-news` as a new version, model card updated
+      with the rebalance rationale. → step 3. **Blocked on user decision
+      (2026-09-14)** — the retrain measurably regresses idiom-probe
+      neutral F1 (0.47→0.0), a real trade disclosed in the T-074 numbers
+      below, not a strict improvement; publish script
+      (`scripts/publish_finbert_financial_news_v3_2026_09_14.py`) is
+      written and ready, not yet run. `src/pipeline.py`'s
+      `MODEL_REVISIONS` is untouched either way (still pins v2) — v3
+      publishing to the Hub would not by itself change what the
+      production pipeline runs.
+- [x] **T-074** Measure per-class precision/recall/F1 (positive/negative/
+      neutral) on the held-out test set and report it directly against
+      the currently-published model's own numbers — including any metric
+      that gets worse, not just improvements. → step 4 / acceptance
+      criteria. **Done 2026-09-14** — full before/after table (test set +
+      idiom probe) in `docs/evaluation.md`'s 2026-09-14 follow-up;
+      negative F1 up (0.726→0.829), neutral F1 down (0.838→0.714,
+      idiom-probe neutral F1 0.47→0.0) — reported honestly, not filtered
+      to the improvements.
+- [x] **T-075** Add a dated follow-up to `docs/evaluation.md` with the
+      full before/after table and methodology. → acceptance criteria.
+      **Done 2026-09-14.**
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -431,9 +482,18 @@ is code-complete, with only T-062 (empirical GPU tuning) left — this
 sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
 yet run.
 
-**Current priority is Work item 8** (per-model selection justification
-in the artifact, T-064–T-069) — an artifact/docs task, unblocked, no
-code changes, not started. The `sector_summary` pre-fix rows (3,444,
-from Work item 6's T-058 fix) are still queued to self-heal on the next
-real `--summarize` run, not yet triggered — a deliberate production
-action left to the repo owner, not a task with an ID.
+**Work item 8** (per-model selection justification in the artifact,
+T-064–T-069) is a scoped, pending backlog entry only — explicitly not to
+be implemented until specifically requested (2026-09-14).
+
+**Work item 9** (rebalance sentiment training data) is mostly done
+(2026-09-14): T-070/T-071/T-072/T-074/T-075 done — dataset rebalanced and
+republished, model retrained, full honest before/after comparison
+measured and documented. **T-073 (publish the retrained model to the
+Hub) is blocked on a user decision**, not on anything technical — the
+retrain is a real trade (negative F1 up, neutral F1 down, idiom-probe
+neutral F1 collapses to 0.0), not a strict win, so publishing it as v3
+needs the numbers reviewed first. The `sector_summary` pre-fix rows
+(3,444, from Work item 6's T-058 fix) are still queued to self-heal on
+the next real `--summarize` run, not yet triggered — a deliberate
+production action left to the repo owner, not a task with an ID.
