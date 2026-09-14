@@ -1030,6 +1030,210 @@ investigation's earlier ticker-collision bug was about. `SPEC.md` §13
 item 1, §9, and FR-001 are updated to reflect the merge; the repository
 artifact's "Gaps"/"Plan" sections are updated too.
 
+### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
+
+Started `PLAN.md` Work item 6 (summarization eval validation) by checking
+the same suspicion already confirmed for sentiment (2026-09-08) and NER
+(2026-09-12): does `c_summary`'s eval judge see the whole article the
+pipeline actually summarized, or just the lead capped at `_MAX_BODY_CHARS`
+(6000 chars)? Code inspection alone already pointed at yes — `pipeline.
+run_company_summary_stage` -> `hierarchical_summarize_batch` chunks and
+reduces over the *entire* `body_text` (via `build_company_summary_input`,
+which concatenates the full, untruncated body), while `c_summary` was not
+in `_UNCAPPED_STAGES` — but this project's standing rule is to measure
+before fixing, not infer from code shape alone.
+
+Measured directly against real data (`article_summary` joined to
+`source.articles.body_text`, all 458,641 rows — no LLM calls, pure
+sampling-layer arithmetic):
+
+- **45,867 / 458,641 (10.0%)** of `article_summary` rows have `body_text`
+  longer than the judge's 6000-char cap. `body_text` length: p50=2,763,
+  p90=6,001, p95=7,499, p99=13,538, **max=156,053** (the same tail NER's
+  2026-09-12 follow-up found, since both stages draw from the same
+  article population).
+- **Every one of those 45,867** is also a multi-chunk summary
+  (`num_chunks > 1`) — i.e. this is exactly the population where
+  `hierarchical_summarize_batch`'s reduce pass synthesizes content from
+  more than one chunk, content a 6000-char judge view can never fully
+  show.
+- A broader **131,944 / 458,641 (28.8%)** have `num_chunks > 1`, but the
+  other 86,077 of those are multi-chunk despite a body *under* 6000
+  chars — that's the summarizer's own token budget (dense text hitting
+  BART's ~1000-token leaf-chunk limit before 6000 characters), a
+  separate phenomenon from the judge-cap mismatch, not evidence of it.
+  The clean, judge-relevant figure is **10.0%**, not 28.8%.
+- Smaller in magnitude than NER's 21.4% (2026-09-12), but the same
+  structural bug: a real, double-digit-percent slice of the population
+  where the eval judge is scoring the model against a truncated view of
+  the text it actually processed.
+
+**Fixed same-day**: added `c_summary` to `_UNCAPPED_STAGES`
+(`src/news_nlp/eval/sampling.py`), the same fix shape as sentiment
+(2026-09-08) and NER (2026-09-12) — it inherits the shared
+`_SENTIMENT_MAX_BODY_CHARS` (100,000) safety ceiling, which does engage
+for the 156,053-char tail article the same way it already does for NER.
+Added `test_c_summary_uses_full_body_text_since_the_2026_09_14_fix`
+(`tests/news_nlp/test_eval_sampling.py`), mirroring the existing
+sentiment/NER tests of the same shape. Full hermetic suite still passes.
+
+Not yet done (remaining Work item 6 steps): decide whether/how to address
+`c_summary`'s weak `mean_coverage` (3.02/5, pre-fix baseline); re-run the
+`c_summary` eval post-fix and record the result here; add a
+faithfulness-only eval path for `sector_summary`'s `intro_text` (currently
+zero coverage).
+
+### Follow-up (2026-09-14, same day): post-fix c_summary re-run — coverage up, a previously-invisible hallucination gap revealed
+
+Re-ran `c_summary` (`--stage c_summary --sample-size 1000 --seed 1`,
+`code_version` `6312be9` — includes the uncap fix above) against the real
+stores (`eval_run` 34, mlflow `72cf167d`). Strata drawn: `low_conf`
+200/458,641, `target_chunks_1` 48/326,590, `target_chunks_2` 144/110,911,
+`target_chunks_ge3` 288/20,940, `representative` 320/457,961.
+
+| metric | 2026-09-08 baseline (pre-fix, old sampling design) | 2026-09-14 (post-fix, HT) | 2026-09-14 (naive pooled) |
+|---|---|---|---|
+| `mean_faithfulness` | 4.867 | 4.781 | 4.583 |
+| `mean_coverage` | 3.02 | **3.639** | 3.304 |
+| `mean_conciseness` | (not in baseline headline) | 4.568 | 4.362 |
+| `pct_with_hallucination` | 0.054 | **0.085** | 0.154 |
+
+Two things changed since the 2026-09-08 baseline at once, not one — an
+honest confound, same shape as NER's 2026-09-12 before/after: (a) this
+fix (judge now sees the whole article), and (b) the `num_chunks`-tiered
+target stratification (`_CSUMMARY_CHUNK_TIERS`) was implemented the same
+day as the 2026-09-08 baseline but *after* it was recorded, so the
+baseline used the old, un-stratified low_conf/random design. The
+headline deltas above can't be cleanly attributed to the uncap fix
+alone.
+
+What the per-stratum breakdown shows regardless of that confound —
+`num_chunks >= 3` articles (`target_chunks_ge3`, exactly the population
+this fix targets) are the weak spot on **both** metrics, more sharply
+than the aggregate suggests:
+
+| stratum | mean_faithfulness | mean_coverage |
+|---|---|---|
+| `target_chunks_1` (single-chunk) | 4.938 | 3.833 |
+| `target_chunks_2` | 4.542 | 3.229 |
+| `target_chunks_ge3` | **4.229** | **2.861** |
+
+**`mean_coverage` genuinely improved** (3.02 → 3.64 HT) — plausible
+mechanism: capped at 6000 chars, the judge could previously only check
+the summary against the article's lead, so real coverage of later
+material (which the hierarchical reduce does draw on) had no visible
+ground truth to confirm — this fix lets the judge actually credit it.
+
+**`pct_with_hallucination` went up, not down** (0.054 → 0.085 HT / 0.154
+naive) — the opposite direction a pure "judge sees more, catches more
+context" story would predict if the model were unchanged and only
+overlooked-hallucinations were surfaced from behind the old cap. Plausible
+mechanism: a hallucinated detail drawn from post-cap content previously
+had no ground truth for the judge to check it against either, so it likely
+read as unverifiable rather than confirmed-wrong under the old cap; the
+uncap fix lets the judge actually confirm real fabrications it couldn't
+see before. **Not yet independently verified** — no rationale-text audit
+of the newly-flagged hallucination cases has been done this pass (unlike
+the sentiment diagnosis's confusion-matrix/rationale audit); flagged here
+as a plausible but unconfirmed mechanism, per this project's evidence bar.
+
+**Treat `eval_run` 34 (this run) as the new post-fix `c_summary` baseline**
+for regression tracking going forward — the 2026-09-08 numbers predate
+both the uncap fix and the stratification redesign and are no longer a
+fair `--check-regression` comparator, the same disposition NER's
+pre-2026-09-12 baseline was given.
+
+**Work item 6 step 2 (the `mean_coverage` decision), informed by this
+data**: the fresh HT `mean_coverage` (3.64/5) is meaningfully better than
+the stale 3.02/5 figure the item was originally scoped against, and the
+per-stratum breakdown shows the residual weakness concentrated in
+`num_chunks >= 3` articles (2.86/5, 4.6% of the corpus) rather than
+spread evenly.
+
+### Follow-up (2026-09-14, same day): a bigger output-length budget was tried and rejected
+
+Tested the obvious next lever — `SUMMARY_MIN_OUTPUT_TOKENS`/
+`SUMMARY_MAX_OUTPUT_TOKENS` (56/142, `src/pipeline.py`) are literally
+`distilbart-cnn-12-6`'s own stock CNN/DailyMail generation defaults,
+never retuned for longer, denser financial-news articles — before
+touching the full corpus.
+
+**Matched-pair experiment, not a fresh independent sample**: took 200
+articles already judged in `eval_run` 34 (70/70/60 across the
+`num_chunks` 1/2/3+ tiers), regenerated their summaries with
+`min=100, max=220` — everything else byte-for-byte the same production
+code path (`hierarchical_summarize_batch`, same model, same chunking) —
+and re-judged the new summaries with the same judge/prompt, so the
+comparison is the same articles, old vs. new settings, not two
+different random draws. (One data wrinkle surfaced and fixed along the
+way: reconstructing each article's original summarization input needed
+the sentiment label/score that was live *when that summary was
+generated* — `article_sentiment_v1`, the pre-fine-tune-swap table with
+full 459,112-row coverage — not the current `article_sentiment` table,
+which only holds 7,520 rows re-scored under the new fine-tuned model so
+far.)
+
+| metric | old (56/142) | new (100/220) | Δ |
+|---|---|---|---|
+| `mean_faithfulness` | 4.595 | 4.070 | −0.53 |
+| `mean_coverage` | 3.315 | 3.515 | +0.20 |
+| `mean_conciseness` | 4.380 | 3.725 | −0.66 |
+| `pct_with_hallucination` | 15.0% | **35.5%** | more than doubled |
+
+Per-tier coverage: `chunks=1` 3.814→**4.143** (crosses the 4/5 target),
+`chunks=2` 3.143→3.357, `chunks>=3` (the actual weak spot) barely moves:
+2.933→2.967.
+
+**Rejected.** A bigger output budget does nudge coverage up, but mostly
+on the single-chunk summaries that were already closest to fine — it
+does almost nothing for the `chunks >= 3` population that's actually
+driving the weak aggregate, and it more than doubles the hallucination
+rate while dragging faithfulness and conciseness down with it. That
+population's problem isn't output length; it's information loss
+compounding across multiple summarize-of-summaries reduce passes
+(`_reduce_pass`) — a bigger per-pass token ceiling doesn't undo hops of
+lossy compression that already happened. This is the same discipline
+this project applied to the sentiment precision investigation: test the
+obvious lever on real data before adopting it, and report a negative
+result plainly rather than force a metric up at a hidden cost.
+
+**Decision (2026-09-14): accept `mean_coverage` as a deliberate
+completeness-vs-correctness trade — no further fix attempted.** Every
+measured lever for raising coverage moves the same knob the same
+direction: more output allowed/forced means more room for the model to
+pad with plausible-sounding invented detail alongside (or instead of)
+genuinely-extracted fact, which is exactly what the rejected experiment
+above showed happening (`pct_with_hallucination` more than doubling).
+`mean_faithfulness` (4.78/5) is the stage's strongest metric and the one
+that matters most for a *summary* specifically — a reader relies on a
+summary to say only true things, more than to say every true thing. An
+incomplete-but-accurate summary is a bounded, honest gap: a reader gets
+less than the full article but nothing they read is wrong. A
+complete-but-sometimes-fabricated one is worse: a reader has no way to
+tell which parts are real without going back to the source, which
+defeats the point of summarizing at all.
+
+This mirrors, in the opposite direction, the same trade-off shape
+sentiment's 2026-09-13 "pessimist model" decision made: sentiment
+chose to risk more false alarms (lower precision) rather than risk
+missing a real signal (lower recall), because a missed signal is an
+unrecoverable blind spot downstream while a false alarm is visible and
+discountable. Summarization's asymmetry runs the other way — a
+fabricated detail is the unrecoverable failure mode here (a reader
+can't tell it's fabricated), while an omitted detail is the visible,
+recoverable one (the reader can tell the summary is thin and go read
+the source). Recall was worth the false-alarm cost for sentiment;
+completeness is not worth the fabrication cost for c_summary.
+
+**What this decision does NOT close off**: a narrower fix scoped only
+to the reduce pass itself (e.g. a larger `max_input_tokens` per chunk,
+to cut the number of lossy reduce hops `chunks >= 3` articles go
+through, rather than a bigger *output* budget on every pass) was never
+tested and remains a legitimate future candidate if `chunks >= 3`
+coverage (2.86/5) is later judged unacceptable on its own. This
+decision is about not chasing the output-length lever further, not
+about the coverage gap being permanently untouchable.
+
 ## What it evaluates
 
 Four per-article stages. `sector_summary` is out of scope — it is deterministic
