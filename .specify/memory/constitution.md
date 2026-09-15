@@ -173,8 +173,60 @@ component; every rule below assumes the stack actually pinned in
     forever, independent of content changes. (See `Artifact` tool
     guidance: title changes are an explicit, separate, user-directed
     action, never a side effect of a content update.)
+12. **Every classification-stage model evaluation reports the same, complete
+    metric set — per class, plus an overall summary — every time, not a
+    subset that happens to be convenient for that run.** Per class
+    (sentiment's `positive`/`negative`/`neutral`, category's slugs, NER's
+    entity types): precision, recall, F1, and one-vs-rest accuracy
+    (`accuracy_ovr_<class>` — "is this class or not," collapsing every other
+    class into a single negative; same formula/naming as
+    `news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`, kept
+    consistent across every stage rather than invented fresh per stage).
+    Report `accuracy_ovr` alongside precision/recall, never as a
+    replacement for them — it skews high for a rare/imbalanced class
+    (dominated by true negatives) and reads as good news on its own. Overall
+    (one row, not per class): accuracy and macro F1. When comparing two or
+    more model versions/candidates, put them in one side-by-side table per
+    eval set, not scattered across separate summaries — and compute every
+    candidate's numbers the same way (same metric function, same eval code
+    path) rather than mixing freshly-computed numbers for one candidate
+    with older, differently-sourced numbers for another, even when the
+    older numbers were already published — a metric missing for one
+    candidate but present for another is worth recomputing, not leaving as
+    a blank cell. `train_sentiment.py`'s `make_compute_metrics()` is the
+    reference implementation for sentiment; `news_nlp.eval.metrics`'s
+    `aggregate_category`/`aggregate_ner` already follow this shape for
+    their stages.
 
-## Executable cmds
+    This applies to **both** evaluation methodologies this project uses, not
+    just the offline one — each has its own "complete set," not a shared
+    one:
+    - **Offline, held-out-labels eval** (`train_sentiment.py` and any
+      future training script): per class, precision/recall/F1/
+      `accuracy_ovr`; overall, accuracy and macro F1.
+    - **Downstream, LLM-judge eval against real traffic**
+      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
+      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
+      reweighted — the `_naive_pooled` variants exist for diagnostics, not
+      as the headline); overall, `agreement_rate` (or the stage's own
+      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
+      the stage's judge produces one. A run recorded before a metric
+      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
+      can be recomputed from its own stored `eval_judgement` rows through
+      the current `aggregate_*` function — no new judge calls needed — the
+      same "recompute, don't leave a blank cell" rule as above, and cheaper
+      here than for the offline case.
+13. **Reporting a tested model's results anywhere — a PR/commit description,
+    a chat summary, a docs follow-up — shows the complete metric set #12
+    requires, for every model/candidate actually run, not a hand-picked
+    highlight subset.** A summary that names only macro F1 and one or two
+    per-class numbers, while precision/recall/F1/`accuracy_ovr` for the
+    other classes sit computed but unmentioned, is the same failure #12
+    already forbids inside `docs/evaluation.md` — this closes that gap for
+    every other surface a result gets communicated on. If space requires
+    trimming, link/reference the full table (already recorded per #12)
+    rather than silently dropping classes or metrics from view — never
+    present a partial reading as if it were the whole result.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
@@ -267,4 +319,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.3.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
+**Version**: 2.4.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
