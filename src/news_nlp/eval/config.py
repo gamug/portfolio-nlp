@@ -42,6 +42,7 @@ class EvalSettings(BaseModel):
     target_frac: float = Field(default=DEFAULT_TARGET_FRAC, ge=0.0, le=1.0)
     seed: int | None = None
     max_workers: int = Field(default=DEFAULT_MAX_WORKERS, gt=0)
+    run_name: str | None = None
 
     @classmethod
     def load(
@@ -54,6 +55,7 @@ class EvalSettings(BaseModel):
         target_frac: float | None = None,
         seed: int | None = None,
         max_workers: int | None = None,
+        run_name: str | None = None,
     ) -> EvalSettings:
         """Populate the environment from ``.env`` first, then read it. Explicit
         keyword overrides (from the CLI) win over env / defaults. Raises
@@ -76,4 +78,5 @@ class EvalSettings(BaseModel):
             target_frac=target_frac if target_frac is not None else DEFAULT_TARGET_FRAC,
             seed=seed,
             max_workers=max_workers if max_workers is not None else DEFAULT_MAX_WORKERS,
+            run_name=run_name,
         )
