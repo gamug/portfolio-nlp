@@ -138,7 +138,6 @@ def _run_stage(
             judgements=judgements,
             system_prompt=prompt,
             tracking_uri=settings.mlflow_tracking_uri,
-            run_name=settings.run_name,
         )
         finish_eval_run(conn, run_id, metrics=metrics, mlflow_run_id=mlflow_run_id, status="ok")
         conn.commit()

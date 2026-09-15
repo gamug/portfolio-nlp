@@ -84,14 +84,6 @@ def parse_args() -> argparse.Namespace:
         help="Override $MLFLOW_TRACKING_URI (default ./mlruns).",
     )
     parser.add_argument(
-        "--run-name",
-        default=None,
-        help="Label this run in the MLflow UI's run list (e.g. 'v5-sec-bert-base'), instead "
-        "of MLflow's auto-generated name. Cosmetic only -- doesn't change which experiment "
-        "the run lands in (still news_nlp_eval/<stage>) or --check-regression's comparison. "
-        "Applied to every stage in this invocation.",
-    )
-    parser.add_argument(
         "--check-regression",
         action="store_true",
         help="Exit 1 if a stage's headline metric dropped past --regression-tolerance "
@@ -118,7 +110,6 @@ def main() -> None:
         target_frac=args.target_frac,
         seed=args.seed,
         max_workers=args.max_workers,
-        run_name=args.run_name,
     )
     print(
         f"eval: stages={stages} sample_size={settings.sample_size} "

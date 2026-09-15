@@ -43,27 +43,6 @@ def test_log_to_mlflow_writes_run_metrics_and_artifacts(tmp_path: Path) -> None:
     assert {"judgements.json", "judge_prompt.md"} <= artifacts
 
 
-def test_log_to_mlflow_run_name_is_cosmetic_only(tmp_path: Path) -> None:
-    """--run-name labels the run in the MLflow UI's run list without changing
-    which experiment it lands in or breaking previous_headline's ordering."""
-    uri = _uri(tmp_path)
-    run_id = log_to_mlflow(
-        stage="sentiment",
-        params={"stage": "sentiment"},
-        metrics={"precision_negative": 0.5},
-        judgements=[],
-        system_prompt="p",
-        tracking_uri=uri,
-        run_name="v5-sec-bert-base",
-    )
-    client = mlflow.tracking.MlflowClient(tracking_uri=uri)
-    run = client.get_run(run_id)
-    assert run.info.run_name == "v5-sec-bert-base"
-    # still the same fixed experiment, named runs and default-named runs coexist
-    exp = client.get_experiment_by_name("news_nlp_eval/sentiment")
-    assert run.info.experiment_id == exp.experiment_id
-
-
 def test_previous_headline_returns_prior_run_value(tmp_path: Path) -> None:
     uri = _uri(tmp_path)
     for value in (0.90, 0.70):

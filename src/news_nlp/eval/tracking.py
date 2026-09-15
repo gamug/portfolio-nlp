@@ -29,17 +29,11 @@ def log_to_mlflow(
     judgements: list[dict[str, Any]],
     system_prompt: str,
     tracking_uri: str,
-    run_name: str | None = None,
 ) -> str:
-    """Create the run, log params/metrics/artifacts, return the MLflow run id.
-    *run_name* labels the run in the MLflow UI's run list -- purely cosmetic,
-    doesn't affect experiment_name(stage) (still one fixed experiment per
-    stage) or previous_headline()'s ordering below (still start_time-based,
-    unaffected by naming). Defaults to MLflow's own auto-generated name when
-    not given, same as before this parameter existed."""
+    """Create the run, log params/metrics/artifacts, return the MLflow run id."""
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name(stage))
-    with mlflow.start_run(run_name=run_name) as run:
+    with mlflow.start_run() as run:
         mlflow.set_tags({"stage": stage})
         mlflow.log_params(params)
         # mlflow rejects non-finite / non-numeric metric values; filter defensively.
