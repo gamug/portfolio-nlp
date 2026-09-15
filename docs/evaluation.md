@@ -1258,6 +1258,73 @@ above: neither v3 nor v4 is published to the Hub, `MODEL_REVISIONS` is
 untouched, and the downstream production-pipeline LLM-judge evaluation
 remains the open step before adopting either.
 
+### Follow-up (2026-09-15, same day): v4's downstream production-pipeline eval — the number that actually validated v2, now run for v4 too
+
+The one open step named in both follow-ups above. Real article traffic,
+entity-scoped chunk-level aggregation (the actual `run_sentiment_stage`
+code path, not sentence-level scoring in isolation), LLM-judge — the same
+methodology that validated v2 in the first place
+(2026-09-13 four-candidate comparison).
+
+**Mechanics** (kept off the real, shared `nlp_.db`/`nlp_use.db` entirely
+by copying it first): `nlp_.db` copied to a scratch `nlp_use.db`, never
+touching the real file. `scripts/resample_sentiment_v4_2026_09_15.py`
+versioned that copy's `article_sentiment` (preserved as
+`article_sentiment_v2_published_snapshot_2026_09_15`, nothing deleted) and
+scored a fresh sample with v4 by monkeypatching
+`pipeline.SENTIMENT_MODEL`/`MODEL_REVISIONS` to point at v4's local
+checkpoint **in-process only** — `src/pipeline.py` on disk was never
+edited, so the actually-pinned production model was never at risk.
+2,500 real articles scored with v4 in ~107s (chunk-level, CUDA). Then
+`cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+(the documented sample-size floor) judged that fresh sample —
+`eval_run` 35, `mlflow_run_id` `8e78ac51b06e417e97cdb7cd40c03738`, both
+inside the scratch copy only. Real time: ~11 minutes for 2,000 judge
+calls.
+
+**Caveat on comparability**: this is v4's own fresh eval run against its
+own freshly-drawn sample, not a re-judging of the exact same article
+instances v2's original 2026-09-13 run used (that run predates this
+session and its raw sample isn't reproducible after the fact) — same
+sampling design/seed convention, same judge, same aggregation code, but a
+different draw. This is the same shape of comparison every earlier
+candidate round in this project used (each of the four 2026-09-13
+candidates, and NER's/category's own resample rounds, each got its own
+eval run against its own sample) — not a new methodological gap introduced
+here.
+
+| metric | v2 (published, 2026-09-13 run) | **v4 (class-weighted, this run, n=2000)** |
+|---|---|---|
+| `recall_negative` (this pipeline's priority metric) | 0.808 | **0.832** |
+| `precision_negative` | **0.513** | 0.507 |
+| `f1_negative` | 0.628 | 0.630 |
+| `macro_f1_vs_judge` | **0.731** | 0.724 |
+| `agreement_rate` | **0.701** | 0.674 |
+| `agreement_rate_representative` | **0.866** | 0.842 |
+| `recall_positive` | **0.801** | 0.777 |
+| `precision_neutral` | **0.936** | 0.933 |
+| `mean_severity` (lower is better) | **0.341** | 0.369 |
+
+**Reading this**: v4 delivers on the one metric this pipeline is actually
+built around — `recall_negative`, its stated priority — a real gain
+(0.808→0.832), consistent with the sentence-level test-set signal that
+class weighting nudges the model away from the old neutral-majority pull.
+But it's a trade here too, same as every earlier result in this work item:
+overall `agreement_rate` and `mean_severity` (this project's holistic
+"how wrong, not just right/wrong" metric) both get worse, not better —
+`macro_f1_vs_judge` and `recall_positive` dip slightly as well. Nothing
+here is a clean win, and nothing here is a clean loss either.
+
+**Disposition — unchanged**: v4 is still not published to the Hub, and
+`src/pipeline.py`'s `MODEL_REVISIONS` is still untouched, still pinning
+v2. With the downstream number now in hand (the one thing missing before),
+adopting v4 would mean deliberately trading `agreement_rate`/
+`mean_severity` for `recall_negative` — a real decision with a real cost
+on both sides, not a default one this evaluation makes on its own. The
+scratch copy (`nlp_use.db`) is left as-is, not deleted, in case the exact
+judged rows need re-inspecting; the real `nlp_.db`/`nlp.db` were never
+opened for writing at any point in this follow-up.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking

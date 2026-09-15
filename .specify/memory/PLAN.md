@@ -984,6 +984,27 @@ adopting either. Neither has been published to the Hub, and
 "surface the numbers before publishing a candidate with any disclosed
 trade-off" reasoning as v3, applied consistently.
 
+**Downstream eval, 2026-09-15 (user-requested)**: v4's production-pipeline
+LLM-judge evaluation, the previously-missing step — the same real article
+traffic / entity-scoped chunk-level aggregation / LLM-judge methodology
+that validated v2 in the first place. Run against a scratch copy of the
+results DB (`nlp_.db` copied to `nlp_use.db`; the real, shared file was
+never opened for writing) via `scripts/resample_sentiment_v4_2026_09_15.py`
+(in-process `pipeline.SENTIMENT_MODEL` monkeypatch to v4's local
+checkpoint — `src/pipeline.py` on disk untouched throughout) followed by
+`cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`, the
+documented sample-size floor.
+
+Result (full table in `docs/evaluation.md`'s 2026-09-15 follow-up): v4
+delivers on this pipeline's stated priority metric —
+`recall_negative` 0.808→0.832 — but `agreement_rate` (0.701→0.674) and
+`mean_severity` (0.341→0.369, lower is better) both get worse. A real
+trade at the level that actually matters, not a clean win at either level
+measured so far. `src/pipeline.py`'s `MODEL_REVISIONS` remains untouched,
+still pinning v2; adopting v4 now would mean deliberately trading overall
+agreement/severity for negative recall, a decision this evaluation
+surfaces rather than makes.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering

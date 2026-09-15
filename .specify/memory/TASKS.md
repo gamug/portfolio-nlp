@@ -476,6 +476,21 @@ Work item 9.
       reproduce here; every other metric sits within ~0.01-0.03 of v2.
       Not yet published to the Hub, same reasoning as v3 (T-073) — a
       publish decision, not a technical one.
+- [x] **T-077** *(new, user-requested)* Run the downstream,
+      production-pipeline LLM-judge evaluation on v4 — the number that
+      actually validated v2, still missing for every retrained candidate
+      until now. **Done 2026-09-15** — against a scratch copy of the
+      results DB (`nlp_use.db`, copied so the real, shared `nlp_.db` is
+      never opened for writing) via
+      `scripts/resample_sentiment_v4_2026_09_15.py` (in-process
+      `pipeline.SENTIMENT_MODEL` monkeypatch to v4's local checkpoint —
+      `src/pipeline.py` on disk untouched) +
+      `cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+      (the documented floor). Full table in `docs/evaluation.md`'s
+      2026-09-15 follow-up: `recall_negative` (this pipeline's priority
+      metric) up 0.808→0.832, but `agreement_rate` (0.701→0.674) and
+      `mean_severity` (0.341→0.369, lower is better) both worse — a real
+      trade, not a clean win. `MODEL_REVISIONS` still pins v2.
 
 ## Status
 
@@ -499,16 +514,19 @@ T-064–T-069) is a scoped, pending backlog entry only — explicitly not to
 be implemented until specifically requested (2026-09-14).
 
 **Work item 9** (rebalance sentiment training data) is mostly done
-(2026-09-14/15): T-070/T-071/T-072/T-074/T-075/T-076 done — dataset
-rebalanced and republished, two retraining approaches tried and measured
-(v3 downsampled, v4 class-weighted) against the currently-published model.
-v4 avoids v3's neutral-collapse regression entirely while still landing
-close to v2 on everything, and is evaluated on the same test set/idiom
-probe v2 was, making it the more directly comparable of the two. **T-073
+(2026-09-14/15): T-070–T-072 and T-074–T-077 done — dataset rebalanced and
+republished, two retraining approaches tried and measured (v3 downsampled,
+v4 class-weighted) against the currently-published model, and v4's
+downstream production-pipeline eval now run too (the number that actually
+validated v2, previously the one open gap). v4 avoids v3's
+neutral-collapse regression on the sentence-level test/idiom-probe sets,
+but downstream it's a real trade, not a clean win — `recall_negative` up
+(0.808→0.832), `agreement_rate`/`mean_severity` both worse. **T-073
 (publish either retrained model to the Hub) is blocked on a user
-decision**, not on anything technical — the downstream, production-
-pipeline LLM-judge evaluation (the number that actually validated v2)
-hasn't been run on either. The `sector_summary` pre-fix rows
+decision**, not on anything technical — with the downstream numbers now
+in hand for v4, adopting it means deliberately trading recall for overall
+agreement/severity, a real call to make, not a default. The
+`sector_summary` pre-fix rows
 (3,444, from Work item 6's T-058 fix) are still queued to self-heal on
 the next real `--summarize` run, not yet triggered — a deliberate
 production action left to the repo owner, not a task with an ID.
