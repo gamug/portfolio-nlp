@@ -198,6 +198,25 @@ component; every rule below assumes the stack actually pinned in
     `aggregate_category`/`aggregate_ner` already follow this shape for
     their stages.
 
+    This applies to **both** evaluation methodologies this project uses, not
+    just the offline one — each has its own "complete set," not a shared
+    one:
+    - **Offline, held-out-labels eval** (`train_sentiment.py` and any
+      future training script): per class, precision/recall/F1/
+      `accuracy_ovr`; overall, accuracy and macro F1.
+    - **Downstream, LLM-judge eval against real traffic**
+      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
+      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
+      reweighted — the `_naive_pooled` variants exist for diagnostics, not
+      as the headline); overall, `agreement_rate` (or the stage's own
+      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
+      the stage's judge produces one. A run recorded before a metric
+      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
+      can be recomputed from its own stored `eval_judgement` rows through
+      the current `aggregate_*` function — no new judge calls needed — the
+      same "recompute, don't leave a blank cell" rule as above, and cheaper
+      here than for the offline case.
+
 ## Executable cmds
 
 Canonical commands — a spec/plan should reference these, not invent new

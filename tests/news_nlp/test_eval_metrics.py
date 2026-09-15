@@ -69,6 +69,34 @@ def test_sentiment_agreement_and_macro_f1() -> None:
     assert round(out["macro_f1_vs_judge"], 3) == round((1.0 + 0.0 + 1.0) / 3, 3)
 
 
+def test_sentiment_per_class_ovr_accuracy() -> None:
+    """One-vs-rest binary accuracy for "positive", hand-computed: 1 TP, 1 FP,
+    1 FN, 1 TN out of 4 single-bucket (unweighted) items -- precision ==
+    recall == f1 == 0.5, accuracy_ovr counts both the TP and the TN as
+    correct -> 2/4 == 0.5. Same shape as
+    test_category_per_slug_precision_recall_and_ovr_accuracy, confirming
+    aggregate_sentiment's accuracy_ovr_<class> (constitution.md AI behavior
+    #12) matches aggregate_category's accuracy_ovr_<slug> formula exactly."""
+    items = [
+        _item(1, "representative", {"label": "positive"}),  # TP for positive
+        _item(2, "representative", {"label": "negative"}),  # FN for positive
+        _item(3, "representative", {"label": "positive"}),  # FP for positive
+        _item(4, "representative", {"label": "neutral"}),  # TN for positive
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive", severity=0),
+        SentimentVerdict(agrees=False, ideal_label="positive", severity=2),
+        SentimentVerdict(agrees=False, ideal_label="negative", severity=2),
+        SentimentVerdict(agrees=True, ideal_label="neutral", severity=0),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+    assert out["precision_positive"] == pytest.approx(0.5)
+    assert out["recall_positive"] == pytest.approx(0.5)
+    assert out["f1_positive"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_positive"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_positive_naive_pooled"] == pytest.approx(0.5)
+
+
 def test_sentiment_recall_negative_is_the_headline_metric() -> None:
     """sentiment's HEADLINE is recall_negative (metrics.HEADLINE), not F1: a
     missed real negative costs more here than an over-flagged neutral, so the

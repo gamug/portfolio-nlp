@@ -1293,27 +1293,49 @@ candidates, and NER's/category's own resample rounds, each got its own
 eval run against its own sample) — not a new methodological gap introduced
 here.
 
+**Complete per-class set, both runs** (constitution AI behavior #12,
+extended the same day to cover this downstream/LLM-judge methodology, not
+just the offline one — `accuracy_ovr_<class>` added to
+`aggregate_sentiment`, same formula/naming as `aggregate_category`'s
+`accuracy_ovr_<slug>`). v2's original 2026-09-13 run (`eval_run` 30) had
+never had every cell published — precision_positive/f1_positive,
+recall_neutral/f1_neutral, and accuracy_ovr for any class were sitting in
+its own stored `eval_judgement` rows but were never pulled into
+`docs/evaluation.md`'s table. Both runs' complete metrics, including v2's
+now-backfilled ones, were recomputed via `aggregate_sentiment` straight
+from `eval_run`/`eval_judgement` (`strata_json` for population weights) —
+**no new judge calls for either**, since both were already fully judged
+and stored; this is a pure re-aggregation with the updated metric
+function.
+
+**Overview**
+
 | metric | v2 (published, 2026-09-13 run) | **v4 (class-weighted, this run, n=2000)** |
 |---|---|---|
-| `recall_negative` (this pipeline's priority metric) | 0.808 | **0.832** |
-| `precision_negative` | **0.513** | 0.507 |
-| `f1_negative` | 0.628 | 0.630 |
-| `macro_f1_vs_judge` | **0.731** | 0.724 |
 | `agreement_rate` | **0.701** | 0.674 |
-| `agreement_rate_representative` | **0.866** | 0.842 |
-| `recall_positive` | **0.801** | 0.777 |
-| `precision_neutral` | **0.936** | 0.933 |
+| `macro_f1_vs_judge` | **0.731** | 0.724 |
 | `mean_severity` (lower is better) | **0.341** | 0.369 |
 
+**Per class**
+
+| | v2 — positive | v2 — negative | v2 — neutral | **v4 — positive** | **v4 — negative** | **v4 — neutral** |
+|---|---|---|---|---|---|---|
+| Precision | 0.647 | 0.513 | **0.936** | 0.638 | 0.507 | 0.933 |
+| Recall | **0.801** | 0.808 | 0.777 | 0.777 | **0.832** | 0.764 |
+| F1 | **0.716** | 0.628 | **0.849** | 0.701 | 0.630 | 0.840 |
+| `accuracy_ovr` | **0.878** | 0.882 | **0.811** | 0.870 | 0.877 | 0.803 |
+
 **Reading this**: v4 delivers on the one metric this pipeline is actually
-built around — `recall_negative`, its stated priority — a real gain
+built around — negative recall, its stated priority — a real gain
 (0.808→0.832), consistent with the sentence-level test-set signal that
 class weighting nudges the model away from the old neutral-majority pull.
 But it's a trade here too, same as every earlier result in this work item:
-overall `agreement_rate` and `mean_severity` (this project's holistic
-"how wrong, not just right/wrong" metric) both get worse, not better —
-`macro_f1_vs_judge` and `recall_positive` dip slightly as well. Nothing
-here is a clean win, and nothing here is a clean loss either.
+`agreement_rate`/`mean_severity` both get worse, and every single per-class
+cell in the table above — not just negative recall's mirror image — moves
+in v2's favor except that one recall figure. This is a narrower, more
+one-directional win than the sentence-level comparison suggested: v4 isn't
+"about the same with one clear improvement" downstream, it's "one
+real, specific improvement bought at a small cost nearly everywhere else."
 
 **Disposition — unchanged**: v4 is still not published to the Hub, and
 `src/pipeline.py`'s `MODEL_REVISIONS` is still untouched, still pinning

@@ -191,6 +191,15 @@ def aggregate_sentiment(
         out[f"precision_{cls}_naive_pooled"] = prec
         out[f"recall_{cls}_naive_pooled"] = rec
         out[f"f1_{cls}_naive_pooled"] = f1
+    # One-vs-rest binary accuracy per class: "is this label or not," collapsing
+    # the other two classes into a single negative class -- same formula/
+    # naming as aggregate_category's accuracy_ovr_<slug>, kept consistent
+    # across every stage (constitution.md AI behavior #12).
+    ones = [1.0] * len(it_ok)
+    for cls in _SENTIMENT_CLASSES:
+        ovr_hit_f = [1.0 if (t == cls) == (p == cls) else 0.0 for t, p in pairs]
+        out[f"accuracy_ovr_{cls}"] = _ht_ratio(it_ok, ovr_hit_f, ones)
+        out[f"accuracy_ovr_{cls}_naive_pooled"] = _rate([bool(f) for f in ovr_hit_f])
     return out
 
 
