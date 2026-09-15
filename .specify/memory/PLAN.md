@@ -958,6 +958,32 @@ regardless of what happens with this decision. The downstream,
 production-pipeline LLM-judge evaluation (the number that actually
 validated v2) has not been run against v3 — a separate, larger step.
 
+**Second experiment, 2026-09-15 (user-requested)**: class-weighted loss
+instead of downsampling — train on the full original unbalanced pool
+(no sentence discarded) with an inverse-class-frequency-weighted
+`CrossEntropyLoss` (`compute_class_weights` + `WeightedLossTrainer` in
+`train_sentiment.py`, `--weighted` flag, separate output paths so it
+doesn't overwrite v3's artifacts). Because it trains on the full pool, it
+evaluates on the exact same test set (n=579) and idiom probe (n=100) as
+the published model, unlike v3's smaller rebalanced-pool test set.
+
+Result (referred to as v4; full tables in `docs/evaluation.md`'s
+2026-09-15 follow-up): every test-set metric sits within ~0.01 of v2 —
+no dramatic negative-F1 win like v3's, but no neutral cost either. The
+number that actually matters: idiom-probe neutral F1 lands at 0.471,
+essentially identical to v2's 0.47 — **v3's collapse to 0.0 does not
+reproduce here**. Class weighting corrects the training signal without
+removing the 1,935 neutral sentences v3 discarded, so the model doesn't
+lose whatever those harder/less-typical examples taught it. v4 reads as
+close to a free lunch on these two eval sets where v3 was a real trade.
+
+Neither v3 nor v4 has been measured against the downstream,
+production-pipeline LLM-judge evaluation — still the open step before
+adopting either. Neither has been published to the Hub, and
+`src/pipeline.py`'s `MODEL_REVISIONS` is untouched by both — the same
+"surface the numbers before publishing a candidate with any disclosed
+trade-off" reasoning as v3, applied consistently.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering

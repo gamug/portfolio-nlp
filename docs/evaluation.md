@@ -1122,6 +1122,68 @@ published as an available checkpoint on the Hub, not silently adopted
 into the production pipeline — adopting it is a separate decision, to be
 made with the downstream-pipeline numbers in hand, not before.
 
+### Follow-up (2026-09-15): a second rebalancing approach — class-weighted loss, no data discarded
+
+Same problem as the follow-up above (56.1%/22.8%/21.1% training-pool
+imbalance), a different fix: instead of downsampling `neutral` (discarding
+1,935 sentences), keep the full original 5,800-sentence pool and weight
+each class's contribution to the loss inversely to its frequency —
+`compute_class_weights` in `train_sentiment.py`, computed from the
+*train* split's own label counts (4,642 rows): `neutral` 0.594,
+`negative` 1.464, `positive` 1.581. `WeightedLossTrainer` (a `Trainer`
+subclass overriding `compute_loss` with a weighted `CrossEntropyLoss`)
+applies them; `--weighted` on `train_sentiment.py` selects this path,
+writing to separate output paths so it doesn't overwrite the downsampled
+retrain (v3) above.
+
+Because this trains on the full original pool, it evaluates on the exact
+same test set (n=579) and idiom probe (n=100) as the currently-published
+model (v2) — a cleaner, more directly comparable reading than v3's
+smaller (n=386) rebalanced-pool test set.
+
+**Held-out sentence-level test set (n=579, same set as v2)**
+
+| metric | v2 (published) | v3 (downsampled, n=386 — not directly comparable) | **v4 (class-weighted, n=579)** |
+|---|---|---|---|
+| Accuracy | 0.798 | 0.777 | **0.796** |
+| Macro F1 | 0.779 | 0.774 | **0.778** |
+| F1 — positive | 0.775 | 0.778 | 0.770 |
+| F1 — negative | 0.726 | **0.829** | 0.729 |
+| F1 — neutral | **0.838** | 0.714 | 0.834 |
+
+Unlike v3, v4 doesn't meaningfully move any class — every number sits
+within ~0.01 of v2's. Negative F1 ticks up marginally (0.726→0.729), not
+the substantial jump v3 got (→0.829), but neutral doesn't pay for it
+(0.838→0.834, essentially flat) the way it did in v3 (→0.714).
+
+**Idiom probe (n=100, held out of training, same 100 rows in all three)**
+
+| metric | v2 (published) | v3 (downsampled) | **v4 (class-weighted)** |
+|---|---|---|---|
+| Accuracy | 0.870 | 0.830 | **0.850** |
+| Macro F1 | 0.759 | 0.583 | **0.745** |
+| F1 — positive | 0.889 | 0.848 | 0.875 |
+| F1 — negative | 0.917 | 0.902 | 0.891 |
+| F1 — neutral | 0.47 | **0.0** | **0.471** |
+
+**This is the number that matters most**: v4's idiom-probe neutral F1
+(0.471) lands essentially on top of v2's (0.47) — the catastrophic
+collapse to 0.0 that made v3 a real regression simply doesn't happen here.
+Class weighting corrects the training signal without ever removing the
+1,935 neutral sentences v3 discarded, so the model never loses whatever
+it was those sentences taught it about harder, less-typical neutral
+cases — visible directly in this probe's neutral precision (0.571) /
+recall (0.4), both far above v3's 0.0/0.0.
+
+**Reading both experiments together**: v3 (downsample) is a real trade —
+a substantial negative-F1 win purchased with a real, measured neutral
+regression. v4 (class-weighted) is closer to a free lunch on these two
+eval sets — small, mixed movement in every direction, but nothing broken.
+Neither has been measured against the downstream, production-pipeline
+LLM-judge evaluation (the number that actually validated v2) — that
+remains the open step before adopting either. `src/pipeline.py`'s
+`MODEL_REVISIONS` is untouched by this experiment either way.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking

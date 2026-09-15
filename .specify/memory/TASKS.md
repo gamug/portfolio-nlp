@@ -464,6 +464,18 @@ Work item 9.
 - [x] **T-075** Add a dated follow-up to `docs/evaluation.md` with the
       full before/after table and methodology. → acceptance criteria.
       **Done 2026-09-14.**
+- [x] **T-076** *(new, user-requested second approach)* Try
+      class-weighted loss as an alternative to downsampling: train on the
+      full original unbalanced pool (no data discarded) with an
+      inverse-class-frequency-weighted `CrossEntropyLoss`, and measure it
+      against both v2 (published) and v3 (downsampled). **Done
+      2026-09-15** — `train_sentiment.py --weighted`
+      (`compute_class_weights` + `WeightedLossTrainer`); results in
+      `docs/evaluation.md`'s 2026-09-15 follow-up. Idiom-probe neutral F1
+      lands at 0.471 (v2: 0.47, v3: 0.0) — the v3 regression doesn't
+      reproduce here; every other metric sits within ~0.01-0.03 of v2.
+      Not yet published to the Hub, same reasoning as v3 (T-073) — a
+      publish decision, not a technical one.
 
 ## Status
 
@@ -487,13 +499,16 @@ T-064–T-069) is a scoped, pending backlog entry only — explicitly not to
 be implemented until specifically requested (2026-09-14).
 
 **Work item 9** (rebalance sentiment training data) is mostly done
-(2026-09-14): T-070/T-071/T-072/T-074/T-075 done — dataset rebalanced and
-republished, model retrained, full honest before/after comparison
-measured and documented. **T-073 (publish the retrained model to the
-Hub) is blocked on a user decision**, not on anything technical — the
-retrain is a real trade (negative F1 up, neutral F1 down, idiom-probe
-neutral F1 collapses to 0.0), not a strict win, so publishing it as v3
-needs the numbers reviewed first. The `sector_summary` pre-fix rows
+(2026-09-14/15): T-070/T-071/T-072/T-074/T-075/T-076 done — dataset
+rebalanced and republished, two retraining approaches tried and measured
+(v3 downsampled, v4 class-weighted) against the currently-published model.
+v4 avoids v3's neutral-collapse regression entirely while still landing
+close to v2 on everything, and is evaluated on the same test set/idiom
+probe v2 was, making it the more directly comparable of the two. **T-073
+(publish either retrained model to the Hub) is blocked on a user
+decision**, not on anything technical — the downstream, production-
+pipeline LLM-judge evaluation (the number that actually validated v2)
+hasn't been run on either. The `sector_summary` pre-fix rows
 (3,444, from Work item 6's T-058 fix) are still queued to self-heal on
 the next real `--summarize` run, not yet triggered — a deliberate
 production action left to the repo owner, not a task with an ID.
