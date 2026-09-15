@@ -1347,6 +1347,150 @@ scratch copy (`nlp_use.db`) is left as-is, not deleted, in case the exact
 judged rows need re-inspecting; the real `nlp_.db`/`nlp.db` were never
 opened for writing at any point in this follow-up.
 
+### Follow-up (2026-09-15, same day): a third approach — swap the base checkpoint (`nlpaueb/sec-bert-base`), rejected before a downstream eval
+
+Neither rebalancing approach (v3 downsample, v4 class-weighted) moved
+`precision_negative` on the metric that actually matters — the downstream,
+production-pipeline number, stuck at 0.505/0.513/0.507 across v1/v2/v4
+(see the three follow-ups above). The 2026-09-13 follow-up's
+confidence/margin-threshold finding (only 7% of predictions have a thin
+top1-vs-top2 margin; median margin 0.90 on errors) already ruled out
+"the model is hesitant" as the cause — it's *confidently* wrong, which
+argues for a training-signal or base-checkpoint problem, not a
+calibration one. Tried swapping the base checkpoint from `ProsusAI/finbert`
+to `nlpaueb/sec-bert-base` (already this project's NER base, domain-pretrained
+on 260,773 SEC 10-K filings with its own 30k-subword financial vocabulary
+— Loukas et al. 2022, arXiv:2203.06482) as a real, falsifiable candidate
+fix for vocabulary/subword fragmentation, via `train_sentiment.py --base-model
+nlpaueb/sec-bert-base` (new flag, this follow-up). Same procedure/
+hyperparameters/data as v2 (original unbalanced pool, 4 epochs, same
+splits) for a clean base-model-only comparison — `MODEL_REVISIONS` untouched.
+
+**Complete per-class set — held-out sentence-level test set (n=579, same set as v2/v4)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|---|
+| **Overall accuracy** | 0.798 | 0.777 | 0.796 | 0.765 |
+| **Macro F1** | 0.779 | 0.774 | 0.778 | 0.732 |
+| Positive — precision | 0.748 | 0.795 | 0.746 | 0.760 |
+| Positive — recall | 0.803 | 0.762 | 0.795 | 0.648 |
+| Positive — F1 | 0.775 | 0.778 | 0.770 | 0.699 |
+| Positive — accuracy_ovr | 0.902 | 0.863 | 0.900 | 0.883 |
+| Negative — precision | 0.710 | 0.756 | 0.724 | 0.688 |
+| Negative — recall | 0.742 | **0.917** | 0.735 | 0.667 |
+| Negative — F1 | 0.726 | **0.829** | 0.729 | 0.677 |
+| Negative — accuracy_ovr | 0.872 | 0.870 | 0.876 | 0.855 |
+| Neutral — precision | **0.858** | 0.789 | 0.848 | 0.795 |
+| Neutral — recall | **0.818** | 0.652 | 0.822 | 0.849 |
+| Neutral — F1 | **0.838** | 0.714 | 0.834 | 0.821 |
+| Neutral — accuracy_ovr | 0.822 | 0.821 | 0.817 | 0.793 |
+
+**Complete per-class set — idiom probe (n=100, held out of training, same 100 rows for all four)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|---|
+| **Overall accuracy** | **0.870** | 0.830 | 0.850 | 0.820 |
+| **Macro F1** | **0.759** | 0.583 | 0.745 | 0.683 |
+| Positive — precision | 0.875 | 0.800 | 0.848 | 0.893 |
+| Positive — recall | 0.903 | 0.903 | **0.903** | 0.806 |
+| Positive — F1 | **0.889** | 0.848 | 0.875 | 0.847 |
+| Positive — accuracy_ovr | 0.93 | 0.90 | 0.92 | 0.91 |
+| Negative — precision | **0.902** | 0.873 | 0.883 | 0.857 |
+| Negative — recall | **0.932** | **0.932** | 0.898 | 0.915 |
+| Negative — F1 | **0.917** | 0.902 | 0.891 | 0.885 |
+| Negative — accuracy_ovr | 0.90 | 0.88 | 0.87 | 0.86 |
+| Neutral — precision | 0.571 | 0.0 | 0.571 | 0.333 |
+| Neutral — recall | 0.4 | 0.0 | 0.4 | 0.3 |
+| Neutral — F1 | 0.471 | **0.0** | 0.471 | 0.316 |
+| Neutral — accuracy_ovr | 0.91 | 0.88 | 0.91 | 0.87 |
+
+**Disposition after the offline gate — rejected pending a downstream check**: unlike v3/v4,
+this candidate loses to v2 on nearly every sentence-level/idiom-probe metric, most visibly
+neutral F1 on the idiom probe (0.471→0.316). v3 and v4 each earned the expensive downstream
+production-pipeline eval (~11 minutes, 2,000 judge calls) by winning cleanly somewhere on this
+cheaper gate first; v5 doesn't clear it the same way. Base-checkpoint vocabulary doesn't look
+like the fix for `precision_negative`'s stuck-ness at the sentence level — the aggregation-level
+multi-company/mixed-signal misattribution identified in the 2026-09-13 follow-up (89% of the
+435 false-alarm cases) remains the more likely structural cause there.
+
+**Run anyway, at the user's explicit request** ("the metrics seem more solid than the previous
+model except for the neutral ones... I have a good feeling") — the downstream eval below tells
+a more nuanced story than the offline gate suggested.
+
+### Follow-up (2026-09-15, same day): v5's downstream production-pipeline eval, run despite the offline rejection above
+
+Same mechanics as v4's downstream eval (`scripts/resample_sentiment_v5_2026_09_15.py`, modeled
+on `scripts/resample_sentiment_v4_2026_09_15.py`): a **fresh** scratch copy of the results DB
+(`nlp_use_v5.db`, copied from `nlp_.db` — deliberately not v4's own `nlp_use.db`, so this run
+can't collide with or be confused with v4's already-scored/versioned state there), production
+`article_sentiment` versioned and recreated empty, `pipeline.SENTIMENT_MODEL` monkeypatched
+in-process only (`src/pipeline.py` on disk untouched) to v5's local checkpoint. 2,500 real
+articles scored, then `cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+(the documented floor) — `eval_run` 35 (in `nlp_use_v5.db`'s own independent sequence, not the
+same row as v4's `eval_run` 35 in its own scratch copy), `mlflow_run_id`
+`ed0e9ff7b4574bf98569bd141ac566a1`.
+
+**Complete per-class set, all three candidates, same downstream methodology**
+
+| | v2 (published) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|
+| **agreement_rate** | 0.701 | 0.674 | 0.689 |
+| **macro_f1_vs_judge** | 0.731 | 0.724 | 0.717 |
+| **mean_severity** (lower is better) | 0.341 | 0.369 | 0.352 |
+| Positive — precision | 0.647 | 0.638 | 0.620 |
+| Positive — recall | 0.801 | 0.777 | 0.728 |
+| Positive — F1 | 0.716 | 0.701 | 0.670 |
+| Positive — accuracy_ovr | 0.878 | 0.870 | 0.865 |
+| Negative — precision | 0.513 | 0.507 | **0.526** |
+| Negative — recall | **0.808** | **0.832** | 0.760 |
+| Negative — F1 | 0.628 | 0.630 | 0.622 |
+| Negative — accuracy_ovr | 0.882 | 0.877 | **0.906** |
+| Neutral — precision | **0.936** | 0.933 | 0.915 |
+| Neutral — recall | 0.777 | 0.764 | **0.814** |
+| Neutral — F1 | 0.849 | 0.840 | **0.861** |
+| Neutral — accuracy_ovr | 0.811 | 0.803 | **0.814** |
+
+**A more nuanced result than the offline gate predicted**: `precision_negative` — the specific
+metric this whole experiment was built to move, stuck at 0.505/0.513/0.507 across v1/v2/v4 —
+actually ticks up with v5 (0.513→0.526), and `accuracy_ovr_negative` (0.906) and neutral
+F1/recall/accuracy_ovr are all v5's best of the three. It's not a clean win, though:
+`recall_negative` drops to 0.760 (worse than both v2 and v4, and this pipeline's stated
+priority metric), and `agreement_rate`/`macro_f1_vs_judge` both land worse than v2 (though
+better than v4 on both).
+
+**Disposition — not adopted**: despite the real, specific movement on `precision_negative`,
+v5 doesn't beat v4 on the metric that decided v4's adoption (`recall_negative`), and its
+`agreement_rate` sits between v2 and v4 rather than beating either outright. The user's decision
+(2026-09-15) was to adopt **v4** for production — see the follow-up documenting that below.
+Model saved locally to `models/sec-bert-base-financial-sentiment` (not published to the Hub);
+offline metrics in `data/sentiment_finetune/test_metrics_sec_bert_base.json`, downstream
+metrics in `nlp_use_v5.db`'s `eval_run` 35 / MLflow run `ed0e9ff7b4574bf98569bd141ac566a1`.
+`src/pipeline.py`'s `MODEL_REVISIONS` is untouched by this experiment, and the real
+`nlp_.db`/`nlp.db` were never opened for writing at any point in either v5 follow-up.
+
+### Follow-up (2026-09-15, same day): Work item 9 decided — v4 adopted for production
+
+With all three candidates now measured downstream (v2 baseline, v4 class-weighted, v5
+base-checkpoint-swap — see the three follow-ups above), the user made the adoption call this
+work item had been blocked on since 2026-09-14 (T-073): **v4 (class-weighted loss) is the
+version this repo's pipeline pins**, chosen for the real `recall_negative` gain (0.808→0.832,
+this pipeline's stated priority metric) despite the `agreement_rate`/`mean_severity` cost
+disclosed in that follow-up's table. v3 (downsampled) and v5 (base-checkpoint swap) remain
+documented, measured candidates, not adopted — v3 for its idiom-probe neutral collapse, v5 for
+not beating v4 on `recall_negative` despite its own real `precision_negative` gain.
+
+Published to the Hub at `gamug/FinBERT-financial-news`
+(`scripts/publish_finbert_financial_news_v4_2026_09_15.py`, model card carries the full
+offline + downstream comparison tables above in one-vs-rest precision/recall/F1 form) and
+adopted into production by moving `src/pipeline.py`'s `MODEL_REVISIONS` pin to that commit —
+unlike v3's publish, this one **is** wired into the pipeline the same PR ships it in, not left
+as an available-but-unpinned checkpoint. `sector_summary`'s pre-fix rows and the ~439K
+pre-pin-era `article_entities` rows (Work items 3/6's own non-blocking backfill items) are
+unaffected by this change; existing `article_sentiment` rows are not retroactively
+reprocessed with v4 — same precedent as Work item 1's checkpoint-pinning ("pinning going
+forward is enough," `PLAN.md` non-goals) — a full-corpus resentiment backfill is a separate,
+not-yet-scoped decision.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking

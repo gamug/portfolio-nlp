@@ -52,6 +52,31 @@ METRICS_OUTPUT_WEIGHTED, not the default paths -- doesn't overwrite the
 2026-09-14 rebalanced-retrain artifacts, so both experiments' results stay
 on disk side by side.
 
+`--base-model` (2026-09-15, third experiment): swap the base checkpoint
+that gets continue-fine-tuned, instead of another data-side intervention.
+Motivated by precision_negative being stuck in a narrow ~0.50-0.51 band
+across every FinBERT-based candidate tried so far (base, v1, v2, v4 --
+docs/evaluation.md's 2026-09-15 follow-ups), and by the 2026-09-13
+follow-up's confidence/margin-threshold finding: only 7% of predictions
+have a thin top1-vs-top2 margin, median margin 0.90 on errors -- the
+model is *confidently* wrong, not *hesitantly* wrong, so a threshold
+gate was already ruled out there. That points at the base checkpoint's
+vocabulary/pretraining rather than at training-data balance.
+`nlpaueb/sec-bert-base` (already this project's
+NER base checkpoint, `src/train_ner.py`; Loukas et al. 2022,
+arXiv:2203.06482 -- SEC-BERT outperformed FinBERT on that paper's own
+financial NER task) is domain-pretrained on 260,773 real SEC 10-K filings
+with its own 30k financial-vocabulary WordPiece tokenizer, rather than
+FinBERT's generic-BERT-derived vocabulary -- a real candidate fix if
+precision_negative's stuck-ness traces to subword fragmentation on
+financial entity names/terms rather than to the aggregation-level
+multi-company misattribution already identified as a likely cause.
+Same procedure/hyperparameters/data (defaults to the *original* unbalanced
+pool, matching v2 exactly, for a clean base-model-only comparison --
+combine with `--weighted` for the rebalanced-data variant once the base
+model itself is assessed). Output paths are derived from the base model
+name so this can't collide with any FinBERT run's saved artifacts.
+
 Run once, offline, before publishing to the Hugging Face Hub (see
 scripts/publish_finbert_financial_news_2026_09_13.py). Not part of
 run_pipeline.py.
@@ -229,13 +254,23 @@ def make_compute_metrics() -> Any:
     return compute_metrics
 
 
-def load_training_pool(weighted: bool) -> tuple[list[dict[str, Any]], str, str, Path]:
+def load_training_pool(
+    base_model: str, weighted: bool
+) -> tuple[list[dict[str, Any]], str, str, Path]:
     """Load the right training pool for this run and the output paths that go
-    with it. --weighted uses the original, unbalanced pool (DATA_PATH +
-    IDIOM_AUGMENT_PATH) and writes to the *_WEIGHTED paths so it doesn't
-    clobber the rebalanced-retrain's saved model/metrics. Otherwise, prefer
-    BALANCED_DATA_PATH when present (see module docstring), else fall back to
-    the original unbalanced pool at the default output paths."""
+    with it.
+
+    --weighted uses the original, unbalanced pool (DATA_PATH +
+    IDIOM_AUGMENT_PATH) regardless of base_model. Otherwise, for the default
+    base model (MODEL_NAME, i.e. no --base-model override) only, prefer
+    BALANCED_DATA_PATH when present (see module docstring) -- a non-default
+    base model always starts from the plain unbalanced pool unless --weighted
+    is also passed, so a --base-model run defaults to the same data v2 used,
+    for a clean base-model-only comparison; layering rebalancing on top is a
+    deliberate, separate --weighted combination, not an accidental pickup of
+    a file that happens to exist on disk from a different base model's run."""
+    output_dir, metrics_output = paths_for_base_model(base_model, weighted)
+
     if weighted:
         rows = load_labeled_sentences(DATA_PATH)
         print(f"Loaded {len(rows)} labeled sentences from {DATA_PATH}")
@@ -244,14 +279,14 @@ def load_training_pool(weighted: bool) -> tuple[list[dict[str, Any]], str, str, 
             print(f"Merging {len(augment_rows)} idiom-augment sentences from {IDIOM_AUGMENT_PATH}")
             rows = rows + augment_rows
         print("--weighted: training on the ORIGINAL unbalanced pool with class-weighted loss")
-        return rows, str(DATA_PATH), OUTPUT_DIR_WEIGHTED, METRICS_OUTPUT_WEIGHTED
+        return rows, str(DATA_PATH), output_dir, metrics_output
 
-    if BALANCED_DATA_PATH.exists():
+    if base_model == MODEL_NAME and BALANCED_DATA_PATH.exists():
         # Already has idiom_augment.jsonl merged in and neutral downsampled --
         # load it whole, don't also merge IDIOM_AUGMENT_PATH (would double-count).
         rows = load_labeled_sentences(BALANCED_DATA_PATH)
         print(f"Loaded {len(rows)} labeled sentences from {BALANCED_DATA_PATH} (rebalanced pool)")
-        return rows, str(BALANCED_DATA_PATH), OUTPUT_DIR, METRICS_OUTPUT
+        return rows, str(BALANCED_DATA_PATH), output_dir, metrics_output
 
     rows = load_labeled_sentences(DATA_PATH)
     print(f"Loaded {len(rows)} labeled sentences from {DATA_PATH}")
@@ -259,7 +294,31 @@ def load_training_pool(weighted: bool) -> tuple[list[dict[str, Any]], str, str, 
         augment_rows = load_labeled_sentences(IDIOM_AUGMENT_PATH)
         print(f"Merging {len(augment_rows)} idiom-augment sentences from {IDIOM_AUGMENT_PATH}")
         rows = rows + augment_rows
-    return rows, str(DATA_PATH), OUTPUT_DIR, METRICS_OUTPUT
+    return rows, str(DATA_PATH), output_dir, metrics_output
+
+
+def paths_for_base_model(base_model: str, weighted: bool) -> tuple[str, Path]:
+    """Output paths for a given base checkpoint. The default checkpoint
+    (MODEL_NAME, i.e. no --base-model override) keeps the exact pre-existing
+    OUTPUT_DIR/METRICS_OUTPUT (or their _WEIGHTED counterparts) so this is a
+    no-op for every run this project has already made. Any other base model
+    gets its own derived paths (models/<slug>-financial-sentiment[-weighted],
+    data/sentiment_finetune/test_metrics_<slug>[_weighted].json) so it can
+    never collide with a FinBERT run's saved artifacts."""
+    if base_model == MODEL_NAME:
+        return (
+            (OUTPUT_DIR_WEIGHTED, METRICS_OUTPUT_WEIGHTED)
+            if weighted
+            else (OUTPUT_DIR, METRICS_OUTPUT)
+        )
+    slug = base_model.rsplit("/", maxsplit=1)[-1]
+    suffix = "-weighted" if weighted else ""
+    output_dir = str(Path("models") / f"{slug}-financial-sentiment{suffix}")
+    metrics_output = (
+        Path("data/sentiment_finetune")
+        / f"test_metrics_{slug.replace('-', '_')}{suffix.replace('-', '_')}.json"
+    )
+    return output_dir, metrics_output
 
 
 def main() -> None:
@@ -273,14 +332,27 @@ def main() -> None:
             "BALANCED_DATA_PATH even if present. Writes to separate output paths."
         ),
     )
+    parser.add_argument(
+        "--base-model",
+        default=MODEL_NAME,
+        help=(
+            "Base checkpoint to continue-fine-tune (default: %(default)s). A "
+            "non-default value defaults to the ORIGINAL unbalanced training pool "
+            "(matching v2's data exactly) unless --weighted is also passed, and "
+            "writes to derived output paths -- see module docstring."
+        ),
+    )
     args_ns = parser.parse_args()
+    base_model = args_ns.base_model
 
-    rows, training_data_path, output_dir, metrics_output = load_training_pool(args_ns.weighted)
+    rows, training_data_path, output_dir, metrics_output = load_training_pool(
+        base_model, args_ns.weighted
+    )
     splits = stratified_split(rows)
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME, id2label=ID2LABEL, label2id=LABEL2ID
+        base_model, id2label=ID2LABEL, label2id=LABEL2ID
     )
 
     def tokenize(batch: dict[str, Any]) -> Any:
@@ -349,7 +421,7 @@ def main() -> None:
     metrics_payload: dict[str, Any] = {
         "test_metrics": test_metrics,
         "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
-        "base_model": MODEL_NAME,
+        "base_model": base_model,
         "training_data_path": training_data_path,
     }
     if class_weights is not None:
