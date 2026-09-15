@@ -205,19 +205,49 @@ component; every rule below assumes the stack actually pinned in
       future training script): per class, precision/recall/F1/
       `accuracy_ovr`; overall, accuracy and macro F1.
     - **Downstream, LLM-judge eval against real traffic**
-      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
-      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
-      reweighted — the `_naive_pooled` variants exist for diagnostics, not
-      as the headline); overall, `agreement_rate` (or the stage's own
-      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
-      the stage's judge produces one. A run recorded before a metric
-      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
-      can be recomputed from its own stored `eval_judgement` rows through
-      the current `aggregate_*` function — no new judge calls needed — the
-      same "recompute, don't leave a blank cell" rule as above, and cheaper
-      here than for the offline case.
-
-## Executable cmds
+      (`news_nlp.eval.metrics.aggregate_category`/`aggregate_ner`): per
+      class, precision/recall/F1/`accuracy_ovr` (HT-reweighted — the
+      `_naive_pooled` variants exist for diagnostics, not as the headline);
+      overall, `agreement_rate` (or the stage's own accuracy-equivalent),
+      `macro_f1_vs_judge`, and `mean_severity` where the stage's judge
+      produces one. A run recorded before a metric existed (an `eval_run`
+      row from before `accuracy_ovr` was added, say) can be recomputed from
+      its own stored `eval_judgement` rows through the current
+      `aggregate_*` function — no new judge calls needed — the same
+      "recompute, don't leave a blank cell" rule as above, and cheaper here
+      than for the offline case.
+    - **Sentiment's downstream eval is the one deliberate exception**
+      (`news_nlp.eval.metrics.aggregate_sentiment`, amended 2026&#8209;09&#8209;15,
+      user-requested): one-vs-rest metrics **only** —
+      precision/recall/F1/`accuracy_ovr` per class (HT-reweighted +
+      `_naive_pooled`), plus `n`/`parse_fail_rate` run bookkeeping. No
+      `agreement_rate`, `macro_f1_vs_judge`, or `mean_severity` is computed
+      for sentiment at all — not merely omitted from a report, actually
+      absent from `aggregate_sentiment`'s output. Reason: mixing per-class
+      one-vs-rest numbers with an aggregate, blended-across-classes number
+      in the same sentiment report was a real, repeated source of
+      confusion in practice (a number from one eval set read as
+      contradicting a different number from a different eval set; an
+      aggregate metric sitting next to per-class ones was misread as
+      belonging to a class) — narrower scope for this one stage was judged
+      to serve clarity better than the general rule. `HEADLINE["sentiment"]`
+      (`recall_negative`) is unaffected, since it was already a per-class
+      metric. This exception is sentiment-only — category/NER keep the
+      full complete set above, and sentiment's own *offline* eval
+      (`train_sentiment.py`) is unaffected too, still reporting overall
+      accuracy/macro F1 per the offline bullet (needed there for
+      `metric_for_best_model` checkpoint selection, not just reporting).
+13. **Reporting a tested model's results anywhere — a PR/commit description,
+    a chat summary, a docs follow-up — shows the complete metric set #12
+    requires, for every model/candidate actually run, not a hand-picked
+    highlight subset.** A summary that names only macro F1 and one or two
+    per-class numbers, while precision/recall/F1/`accuracy_ovr` for the
+    other classes sit computed but unmentioned, is the same failure #12
+    already forbids inside `docs/evaluation.md` — this closes that gap for
+    every other surface a result gets communicated on. If space requires
+    trimming, link/reference the full table (already recorded per #12)
+    rather than silently dropping classes or metrics from view — never
+    present a partial reading as if it were the whole result.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
@@ -291,6 +321,25 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    doing it themselves. Only move off it (per item 3, always to a fresh
    branch off up-to-date `master`) when starting genuinely new work, or
    when asked to.
+9. **Never stack a distinct piece of development onto an in-flight PR's
+   branch just because it's the one already checked out — ask first
+   whether new work needs its own separate PR.** Before starting work that
+   isn't a direct continuation of the current PR's own stated subject
+   (a genuinely new feature, an unrelated fix, a tooling/governance change
+   surfaced along the way), stop and ask whether it belongs in this PR, a
+   new one, or gets deferred — don't default to "add it to whatever branch
+   is currently checked out" and don't default to unilaterally splitting
+   it into a new branch either; both are a decision this constitution
+   reserves for the user, not an inference to make from convenience. Rule
+   3 above (branch off `master` for new work) still governs how an
+   *agreed* new branch actually gets created — this rule is about the
+   scoping decision that has to happen first, before any branch/PR exists
+   for the new work. Prompted directly by a session that stacked an
+   unrelated MLflow run-naming feature onto an open sentiment-training PR
+   (`fix/rebalance-sentiment-training-data`, portfolio-nlp #51) because it
+   was the checked-out branch at the time, requiring a revert-and-resplit
+   into its own PR (#55) after the fact — asking first would have skipped
+   that rework entirely.
 
 ## Governance
 
@@ -310,4 +359,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.3.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-12
+**Version**: 3.0.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15

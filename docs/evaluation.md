@@ -2083,6 +2083,13 @@ uv run cli/news_nlp_eval.py --stage sentiment --seed 1 --sample-size 40
 # a regression-tracked run at the recommended sentiment sample-size floor
 uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1
 
+# label the run in MLflow's UI (2026-09-15) -- useful when comparing named
+# candidates (v4, v5, ...) against a scratch --results-db, since they'd
+# otherwise all land in news_nlp_eval/sentiment with random auto-generated
+# names; cosmetic only, doesn't change the experiment or --check-regression
+uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1 \
+    --run-name v5-sec-bert-base --results-db /path/to/scratch.db --source-db /path/to/source.db
+
 # fail (exit 1) if a headline metric dropped > 0.05 vs the previous MLflow run
 uv run cli/news_nlp_eval.py --stage all --check-regression
 
@@ -2093,8 +2100,9 @@ Flags: `--stage` (repeatable; `all` = every stage), `--sample-size`,
 `--low-conf-frac` (default 0.2), `--target-frac` (default 0.6, no-op for
 `ner`), `--seed`, `--max-workers` (concurrent judge calls, default 4),
 `--source-db` / `--results-db` (override `$SOURCE_DATABASE_URL` /
-`$DATABASE_URL`), `--mlflow-uri`, `--check-regression`,
-`--regression-tolerance` (default 0.05).
+`$DATABASE_URL`), `--mlflow-uri`, `--run-name` (label the MLflow run instead
+of its auto-generated name; cosmetic, applied to every stage in the
+invocation), `--check-regression`, `--regression-tolerance` (default 0.05).
 
 ## Where results go
 
