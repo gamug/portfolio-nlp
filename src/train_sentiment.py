@@ -212,6 +212,18 @@ def make_compute_metrics() -> Any:
             result[f"f1_{label_name}"] = per_class_f1[label_id]
             result[f"precision_{label_name}"] = per_class_p[label_id]
             result[f"recall_{label_name}"] = per_class_r[label_id]
+            # One-vs-rest binary accuracy: "is this <label> or not", collapsing
+            # the other two labels into a single negative class -- same
+            # formula/naming as news_nlp.eval.metrics.aggregate_category's
+            # accuracy_ovr_<slug>, for consistency across this project's model
+            # evaluations (constitution.md AI behavior #12). Skews high when a
+            # label is rare (dominated by true negatives) -- read alongside
+            # precision/recall above, not instead of them.
+            ovr_hits = [
+                1.0 if (int(t) == label_id) == (int(p) == label_id) else 0.0
+                for t, p in zip(labels, predictions, strict=True)
+            ]
+            result[f"accuracy_ovr_{label_name}"] = sum(ovr_hits) / len(ovr_hits)
         return result
 
     return compute_metrics

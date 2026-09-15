@@ -173,6 +173,30 @@ component; every rule below assumes the stack actually pinned in
     forever, independent of content changes. (See `Artifact` tool
     guidance: title changes are an explicit, separate, user-directed
     action, never a side effect of a content update.)
+12. **Every classification-stage model evaluation reports the same, complete
+    metric set — per class, plus an overall summary — every time, not a
+    subset that happens to be convenient for that run.** Per class
+    (sentiment's `positive`/`negative`/`neutral`, category's slugs, NER's
+    entity types): precision, recall, F1, and one-vs-rest accuracy
+    (`accuracy_ovr_<class>` — "is this class or not," collapsing every other
+    class into a single negative; same formula/naming as
+    `news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`, kept
+    consistent across every stage rather than invented fresh per stage).
+    Report `accuracy_ovr` alongside precision/recall, never as a
+    replacement for them — it skews high for a rare/imbalanced class
+    (dominated by true negatives) and reads as good news on its own. Overall
+    (one row, not per class): accuracy and macro F1. When comparing two or
+    more model versions/candidates, put them in one side-by-side table per
+    eval set, not scattered across separate summaries — and compute every
+    candidate's numbers the same way (same metric function, same eval code
+    path) rather than mixing freshly-computed numbers for one candidate
+    with older, differently-sourced numbers for another, even when the
+    older numbers were already published — a metric missing for one
+    candidate but present for another is worth recomputing, not leaving as
+    a blank cell. `train_sentiment.py`'s `make_compute_metrics()` is the
+    reference implementation for sentiment; `news_nlp.eval.metrics`'s
+    `aggregate_category`/`aggregate_ner` already follow this shape for
+    their stages.
 
 ## Executable cmds
 

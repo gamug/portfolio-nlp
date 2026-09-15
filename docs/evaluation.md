@@ -1184,6 +1184,80 @@ LLM-judge evaluation (the number that actually validated v2) — that
 remains the open step before adopting either. `src/pipeline.py`'s
 `MODEL_REVISIONS` is untouched by this experiment either way.
 
+### Follow-up (2026-09-15, same day): a complete, consistent metric set for all three candidates — accuracy_ovr added, v2's precision/recall backfilled
+
+Both follow-ups above compared v2/v3/v4 with a real gap: v2's own model
+card only ever published F1 per class on its test set, never
+precision/recall — those cells read "not recorded" rather than a number.
+Constitution AI behavior #12 (added this session, per direct request) now
+requires every classification-stage evaluation to report the same
+complete metric set per class — precision, recall, F1, and one-vs-rest
+accuracy (`accuracy_ovr_<class>`, same formula/naming as
+`news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`) — plus
+overall accuracy/macro F1, computed the same way for every candidate in a
+comparison rather than mixing older, differently-sourced numbers with
+freshly-computed ones.
+
+`make_compute_metrics()` (`train_sentiment.py`) gained `accuracy_ovr_<label>`.
+`scripts/evaluate_sentiment_candidates_2026_09_15.py` then re-evaluated all
+three candidates — v2 loaded fresh from the Hub at its pinned revision (not
+re-read from its old model card), v3/v4 from their local saved
+checkpoints — each on its own already-established test set, with this same
+metric function, eval-only (no retraining). v2's freshly-computed numbers
+match its model card's old F1 figures to within ~0.001 (same model, same
+test set, confirms nothing drifted) and now also carry real
+precision/recall/`accuracy_ovr` it never had before.
+
+**Held-out sentence-level test set**
+
+| | v2 (published, n=579) | v3 (downsampled, n=386) | v4 (class-weighted, n=579) |
+|---|---|---|---|
+| **Overall accuracy** | 0.798 | 0.777 | 0.796 |
+| **Macro F1** | 0.779 | 0.774 | 0.778 |
+| Positive — precision | 0.748 | 0.795 | 0.746 |
+| Positive — recall | 0.803 | 0.762 | 0.795 |
+| Positive — F1 | 0.775 | 0.778 | 0.770 |
+| Positive — accuracy_ovr | 0.902 | 0.863 | 0.900 |
+| Negative — precision | 0.710 | 0.756 | 0.724 |
+| Negative — recall | 0.742 | **0.917** | 0.735 |
+| Negative — F1 | 0.726 | **0.829** | 0.729 |
+| Negative — accuracy_ovr | 0.872 | 0.870 | 0.876 |
+| Neutral — precision | **0.858** | 0.789 | 0.848 |
+| Neutral — recall | **0.818** | 0.652 | 0.822 |
+| Neutral — F1 | **0.838** | 0.714 | 0.834 |
+| Neutral — accuracy_ovr | **0.822** | 0.821 | 0.817 |
+
+**Idiom probe (n=100, held out of training, same 100 rows for all three)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) |
+|---|---|---|---|
+| **Overall accuracy** | **0.870** | 0.830 | 0.850 |
+| **Macro F1** | **0.759** | 0.583 | 0.745 |
+| Positive — precision | 0.875 | 0.800 | 0.848 |
+| Positive — recall | 0.903 | 0.903 | 0.903 |
+| Positive — F1 | **0.889** | 0.848 | 0.875 |
+| Positive — accuracy_ovr | 0.93 | 0.90 | 0.92 |
+| Negative — precision | 0.902 | 0.873 | 0.883 |
+| Negative — recall | **0.932** | **0.932** | 0.898 |
+| Negative — F1 | **0.917** | 0.902 | 0.891 |
+| Negative — accuracy_ovr | 0.90 | 0.88 | 0.87 |
+| Neutral — precision | 0.571 | 0.0 | 0.571 |
+| Neutral — recall | 0.4 | 0.0 | 0.4 |
+| Neutral — F1 | 0.471 | **0.0** | 0.471 |
+| Neutral — accuracy_ovr | 0.91 | 0.88 | 0.91 |
+
+`accuracy_ovr` reads flatter and higher than precision/recall/F1 across
+the board here, exactly the caveat constitution #12 states — every class
+is a small minority within its own binary framing (e.g. "neutral" is only
+10% of the idiom probe), so "predict not-this-class" alone already scores
+well on this metric. Read it alongside precision/recall, not instead of
+them, same as `accuracy_ovr_<slug>`'s existing caveat for category.
+
+No new decision follows from this — same disposition as both follow-ups
+above: neither v3 nor v4 is published to the Hub, `MODEL_REVISIONS` is
+untouched, and the downstream production-pipeline LLM-judge evaluation
+remains the open step before adopting either.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking
