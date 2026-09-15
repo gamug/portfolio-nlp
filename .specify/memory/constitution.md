@@ -300,19 +300,25 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    doing it themselves. Only move off it (per item 3, always to a fresh
    branch off up-to-date `master`) when starting genuinely new work, or
    when asked to.
-9. **Ask before creating or switching to any branch beyond the one already
-   agreed for the current task** — don't open a second, third, etc.
-   branch/PR to fix, split off, or extend in-flight work without checking
-   first, even when the split is clearly the technically correct call (an
-   unrelated feature that got bundled into the wrong PR, a stray/orphaned
-   branch that needs its own PR, and so on). Surface the situation and the
-   options, and let the user decide which branch(es) the fix belongs on —
-   this rule governs the *checking-first* step, not rule 3 above (which
-   still applies, unchanged, to how a newly-agreed branch actually gets
-   created). Prompted directly by a session that opened five PRs
-   (portfolio-nlp #51–#55) — several genuinely warranted, but decided
-   unilaterally rather than checked first — for what should have been a
-   visibly smaller, user-directed set of changes.
+9. **Never stack a distinct piece of development onto an in-flight PR's
+   branch just because it's the one already checked out — ask first
+   whether new work needs its own separate PR.** Before starting work that
+   isn't a direct continuation of the current PR's own stated subject
+   (a genuinely new feature, an unrelated fix, a tooling/governance change
+   surfaced along the way), stop and ask whether it belongs in this PR, a
+   new one, or gets deferred — don't default to "add it to whatever branch
+   is currently checked out" and don't default to unilaterally splitting
+   it into a new branch either; both are a decision this constitution
+   reserves for the user, not an inference to make from convenience. Rule
+   3 above (branch off `master` for new work) still governs how an
+   *agreed* new branch actually gets created — this rule is about the
+   scoping decision that has to happen first, before any branch/PR exists
+   for the new work. Prompted directly by a session that stacked an
+   unrelated MLflow run-naming feature onto an open sentiment-training PR
+   (`fix/rebalance-sentiment-training-data`, portfolio-nlp #51) because it
+   was the checked-out branch at the time, requiring a revert-and-resplit
+   into its own PR (#55) after the fact — asking first would have skipped
+   that rework entirely.
 
 ## Governance
 
