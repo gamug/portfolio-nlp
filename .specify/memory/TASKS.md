@@ -530,6 +530,20 @@ Work item 9.
       actually decided it. v3 (idiom-probe neutral collapse) and v5 (loses
       `recall_negative` to v4) stay documented, unpublished candidates.
       See T-073 for the publish/pin step this decision unblocks.
+- [x] **T-081** *(new, user-requested)* Narrow sentiment's downstream eval to
+      one-vs-rest metrics only — repeated confusion across this work item's
+      reports (chat, artifact, this doc) from mixing per-class numbers with
+      aggregate/blended ones in the same table. **Done 2026-09-15** —
+      `news_nlp.eval.metrics.aggregate_sentiment` no longer computes
+      `agreement_rate`/`macro_f1_vs_judge`/`mean_severity` at all (not just
+      hidden from a report); only `precision_<class>`/`recall_<class>`/
+      `f1_<class>`/`accuracy_ovr_<class>` (HT + naive-pooled) and
+      `n`/`parse_fail_rate` remain. Scoped to sentiment only — category/NER/
+      summarization keep their full complete metric set. `HEADLINE["sentiment"]`
+      (`recall_negative`) unaffected. Constitution AI behavior #12 amended to
+      match (MAJOR version bump — a redefinition, not an addition, per this
+      project's own governance rule). Full suite (231 tests), ruff, mypy
+      green. See `docs/evaluation.md`'s 2026-09-15 follow-up.
 
 ## Status
 

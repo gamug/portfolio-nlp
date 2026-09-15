@@ -1479,17 +1479,62 @@ disclosed in that follow-up's table. v3 (downsampled) and v5 (base-checkpoint sw
 documented, measured candidates, not adopted — v3 for its idiom-probe neutral collapse, v5 for
 not beating v4 on `recall_negative` despite its own real `precision_negative` gain.
 
-Published to the Hub at `gamug/FinBERT-financial-news`
-(`scripts/publish_finbert_financial_news_v4_2026_09_15.py`, model card carries the full
-offline + downstream comparison tables above in one-vs-rest precision/recall/F1 form) and
-adopted into production by moving `src/pipeline.py`'s `MODEL_REVISIONS` pin to that commit —
-unlike v3's publish, this one **is** wired into the pipeline the same PR ships it in, not left
-as an available-but-unpinned checkpoint. `sector_summary`'s pre-fix rows and the ~439K
+**Not yet live — the publish itself is blocked, not the decision.** The publish script
+(`scripts/publish_finbert_financial_news_v4_2026_09_15.py`, model card carries the full offline
++ downstream comparison in one-vs-rest precision/recall/F1 form) is written and ready, and
+`src/pipeline.py`'s `MODEL_REVISIONS` pin move is prepared to land in the same change once it
+runs — but Claude Code's auto-mode classifier denies the Hub push itself as a "Create Public
+Surface" action without explicit user permission (a Bash permission rule, or the user running
+the script directly). `gamug/FinBERT-financial-news` still serves v2 until that step completes;
+unlike v3's publish, this one is intended to be wired into the pipeline the same PR ships it in,
+not left as an available-but-unpinned checkpoint, once unblocked. `sector_summary`'s pre-fix
+rows and the ~439K
 pre-pin-era `article_entities` rows (Work items 3/6's own non-blocking backfill items) are
 unaffected by this change; existing `article_sentiment` rows are not retroactively
 reprocessed with v4 — same precedent as Work item 1's checkpoint-pinning ("pinning going
 forward is enough," `PLAN.md` non-goals) — a full-corpus resentiment backfill is a separate,
 not-yet-scoped decision.
+
+### Follow-up (2026-09-15, same day): sentiment's downstream eval narrowed to one-vs-rest metrics only
+
+Presenting sentiment's results across this work item's several follow-ups (chat summaries, the
+repository artifact, this doc) repeatedly mixed two different framings in the same report —
+per-class one-vs-rest numbers (`precision_negative`, `recall_negative`, ...) alongside
+aggregate, blended-across-all-three-classes numbers (`agreement_rate`, `macro_f1_vs_judge`,
+`mean_severity`) — and that mixing was a real, repeated source of confusion (a table showing
+"precision 0.647 / recall 0.801 / F1 0.716" for one class read as inconsistent with a different
+number shown minutes earlier from a different evaluation set, and an aggregate metric sitting
+next to per-class ones in the same table was misread as another class). At the user's explicit
+request, `news_nlp.eval.metrics.aggregate_sentiment` (the downstream, MLflow-tracked LLM-judge
+harness) now computes **only** one-vs-rest metrics for sentiment: `precision_<class>`,
+`recall_<class>`, `f1_<class>`, `accuracy_ovr_<class>` (each HT-weighted and naive-pooled), plus
+`n`/`parse_fail_rate` run bookkeeping. `agreement_rate`, `agreement_rate_<bucket>`,
+`macro_f1_vs_judge`(`_naive_pooled`), and `mean_severity` are no longer computed for sentiment at
+all — not just hidden from a report.
+
+**Scoped to sentiment only** — `aggregate_category`/`aggregate_ner`/`aggregate_c_summary`/
+`aggregate_sector_intro` are unchanged, still reporting their full complete metric set including
+aggregate/overall numbers, per constitution AI behavior #12. `HEADLINE["sentiment"]` is
+unaffected (`recall_negative` was already a per-class metric, not an aggregate one), so
+`--check-regression` keeps working exactly as before.
+
+**Constitution amended** (AI behavior #12, this session): the "complete metric set" principle
+now explicitly carves out sentiment as one-vs-rest-only for its downstream methodology — see
+`.specify/memory/constitution.md`, version bumped for the redefinition (a MAJOR change per this
+project's own governance rule, since it narrows what #12 requires for one stage, not a new
+addition). Every table in this document *before* this follow-up that shows
+`agreement_rate`/`macro_f1_vs_judge`/`mean_severity` for sentiment is a historical record of a
+run made under the old aggregation code and stays as-is — those numbers were real, computed
+values at the time, not retroactively wrong; they're just no longer what a *future* sentiment
+run will produce. `eval_run` rows already recorded in the database keep their full stored
+`metrics_json` (including the old aggregate fields) regardless of this code change — only future
+runs are affected.
+
+Tests: `tests/news_nlp/test_eval_metrics.py`'s two sentiment tests that asserted
+`agreement_rate`/`macro_f1_vs_judge` were updated (one renamed
+`test_sentiment_per_class_f1_ht_and_naive_pooled`, asserting those keys are now *absent*; the
+other's `agreement_rate` assertion replaced with an equivalent per-class `f1_positive` check).
+Full suite (231 tests), ruff, and mypy all green.
 
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
