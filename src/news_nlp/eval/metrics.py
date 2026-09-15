@@ -25,12 +25,14 @@ from news_nlp.eval.verdicts import (
 
 #: The single metric ``regression.check_regression`` compares between runs.
 #:
-#: ``sentiment`` is ``recall_negative``, not the balanced ``macro_f1_vs_judge``
-#: (still computed and logged, just not the gate): missing a real
-#: negative-sentiment article costs more here than over-flagging a neutral one
-#: as negative -- negative sentiment is the signal portfolio construction
-#: leans on, so false negatives are the regression that matters. See
-#: docs/evaluation.md's "Why recall, not F1, for sentiment negative" note.
+#: ``sentiment`` is ``recall_negative``: missing a real negative-sentiment
+#: article costs more here than over-flagging a neutral one as negative --
+#: negative sentiment is the signal portfolio construction leans on, so false
+#: negatives are the regression that matters. See docs/evaluation.md's "Why
+#: recall, not F1, for sentiment negative" note. Unaffected by
+#: ``aggregate_sentiment`` being narrowed to one-vs-rest-only metrics
+#: (2026-09-15, constitution AI behavior #12) -- ``recall_negative`` was
+#: already a per-class metric, not a ``macro_f1_vs_judge``-style aggregate.
 HEADLINE: dict[str, str] = {
     "sentiment": "recall_negative",
     "category": "accuracy_vs_judge",
@@ -164,6 +166,16 @@ def _per_bucket(items: Sequence[EvalItem], values: Sequence[float]) -> dict[str,
 def aggregate_sentiment(
     items: Sequence[EvalItem], verdicts: Sequence[SentimentVerdict]
 ) -> dict[str, float]:
+    """One-vs-rest metrics only -- precision/recall/F1/accuracy_ovr per class
+    (HT-weighted and naive-pooled), plus `n`/`parse_fail_rate` run bookkeeping.
+    No aggregate/multi-class summary (`agreement_rate`, `macro_f1_vs_judge`,
+    `mean_severity`) is computed for sentiment -- constitution.md AI behavior
+    #12, amended 2026-09-15 after repeated confusion mixing per-class and
+    blended-multi-class numbers in the same report (see docs/evaluation.md's
+    2026-09-15 "OVR-only" follow-up). `HEADLINE["sentiment"]` (recall_negative)
+    is unaffected -- it was already a per-class metric, not an aggregate one.
+    category/NER/c_summary keep their existing complete metric set, aggregate
+    included -- this narrowing is sentiment-specific, not project-wide."""
     ok = [(it, v) for it, v in zip(items, verdicts, strict=True) if not v.parse_failed]
     total = len(verdicts)
     out: dict[str, float] = {
@@ -173,16 +185,9 @@ def aggregate_sentiment(
     if not ok:
         return out
     it_ok = [it for it, _ in ok]
-    agree = [v.agrees for _, v in ok]
     pairs = [(v.ideal_label, str(it.prediction.get("label", "neutral"))) for it, v in ok]
-    macro_ht, per_ht = _macro_f1_ht(it_ok, pairs, _SENTIMENT_CLASSES)
-    macro_naive, per_naive = _macro_f1(pairs, _SENTIMENT_CLASSES)
-    out["agreement_rate"] = _rate(agree)
-    for bucket, rate in _per_bucket(it_ok, [1.0 if a else 0.0 for a in agree]).items():
-        out[f"agreement_rate_{bucket}"] = rate
-    out["macro_f1_vs_judge"] = macro_ht
-    out["macro_f1_vs_judge_naive_pooled"] = macro_naive
-    out["mean_severity"] = fmean(v.severity for _, v in ok)
+    _, per_ht = _macro_f1_ht(it_ok, pairs, _SENTIMENT_CLASSES)
+    _, per_naive = _macro_f1(pairs, _SENTIMENT_CLASSES)
     for cls, (prec, rec, f1) in per_ht.items():
         out[f"precision_{cls}"] = prec
         out[f"recall_{cls}"] = rec
@@ -191,6 +196,15 @@ def aggregate_sentiment(
         out[f"precision_{cls}_naive_pooled"] = prec
         out[f"recall_{cls}_naive_pooled"] = rec
         out[f"f1_{cls}_naive_pooled"] = f1
+    # One-vs-rest binary accuracy per class: "is this label or not," collapsing
+    # the other two classes into a single negative class -- same formula/
+    # naming as aggregate_category's accuracy_ovr_<slug>, kept consistent
+    # across every stage (constitution.md AI behavior #12).
+    ones = [1.0] * len(it_ok)
+    for cls in _SENTIMENT_CLASSES:
+        ovr_hit_f = [1.0 if (t == cls) == (p == cls) else 0.0 for t, p in pairs]
+        out[f"accuracy_ovr_{cls}"] = _ht_ratio(it_ok, ovr_hit_f, ones)
+        out[f"accuracy_ovr_{cls}_naive_pooled"] = _rate([bool(f) for f in ovr_hit_f])
     return out
 
 

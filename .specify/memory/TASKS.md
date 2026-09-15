@@ -414,6 +414,139 @@ item 8.
       something the repo's own docs don't already say. → `PLAN.md` Work
       item 8 acceptance criteria.
 
+## Work item 9 — Rebalance sentiment training data (priority)
+
+`gamug/FinBERT-financial-news`'s training pool is 56.1% neutral / 22.8%
+negative / 21.1% positive — never a deliberate target, a byproduct of
+the eval harness's confidence-stratified sampling source. → `PLAN.md`
+Work item 9.
+
+- [x] **T-070** Downsample the neutral class to the larger minority
+      class's size (1,321), selecting the most representative examples
+      via TF-IDF cosine similarity to the neutral class's own centroid
+      (not random) — keep every negative/positive example untouched.
+      → step 1. **Done 2026-09-14** —
+      `scripts/rebalance_sentiment_data_2026_09_14.py`; verified exactly
+      0 duplicate sentences and the expected 1,321/1,321/1,223 counts
+      before anything was published.
+- [x] **T-071** Publish the rebalanced `train`/`validation`/`test` splits
+      to `gamug/FinBERT-financial-news-data`, `idiom_probe` untouched;
+      document the before/after class counts and the selection method in
+      the dataset card. → step 2. **Done 2026-09-14** — v2 of the
+      dataset live; splits verified against the actual
+      `stratified_split()` output before publishing, not guessed.
+- [x] **T-072** Retrain the sentiment model on the rebalanced data via
+      `train_sentiment.py` (same procedure/hyperparameters as the
+      existing fine-tune). → step 3. **Done 2026-09-14** —
+      `BALANCED_DATA_PATH` branch added to `train_sentiment.py`
+      (preferred when present, doesn't double-merge idiom_augment);
+      trained on CUDA, 4 epochs, same hyperparameters as v2.
+- [ ] **T-073** Publish the retrained model to
+      `gamug/FinBERT-financial-news` as a new version, model card updated
+      with the rebalance rationale. → step 3. **User decision made
+      2026-09-15**: adopt **v4** (class-weighted), not v3 — see T-080.
+      `scripts/publish_finbert_financial_news_v4_2026_09_15.py` written
+      (model card carries the full offline + downstream comparison in
+      one-vs-rest precision/recall/F1 form) but **not yet run** — blocked
+      on Claude Code's auto-mode classifier, which denies a Hub publish
+      as a "Create Public Surface" action without explicit user
+      permission (a Bash permission rule, or the user running the script
+      themselves). `src/pipeline.py`'s `MODEL_REVISIONS` pin update is
+      prepared to follow in the same PR once the publish produces a real
+      commit SHA to pin. v3's own publish script
+      (`scripts/publish_finbert_financial_news_v3_2026_09_14.py`) remains
+      written and unrun — v3 was not chosen, no reason to publish it.
+- [x] **T-074** Measure per-class precision/recall/F1 (positive/negative/
+      neutral) on the held-out test set and report it directly against
+      the currently-published model's own numbers — including any metric
+      that gets worse, not just improvements. → step 4 / acceptance
+      criteria. **Done 2026-09-14** — full before/after table (test set +
+      idiom probe) in `docs/evaluation.md`'s 2026-09-14 follow-up;
+      negative F1 up (0.726→0.829), neutral F1 down (0.838→0.714,
+      idiom-probe neutral F1 0.47→0.0) — reported honestly, not filtered
+      to the improvements.
+- [x] **T-075** Add a dated follow-up to `docs/evaluation.md` with the
+      full before/after table and methodology. → acceptance criteria.
+      **Done 2026-09-14.**
+- [x] **T-076** *(new, user-requested second approach)* Try
+      class-weighted loss as an alternative to downsampling: train on the
+      full original unbalanced pool (no data discarded) with an
+      inverse-class-frequency-weighted `CrossEntropyLoss`, and measure it
+      against both v2 (published) and v3 (downsampled). **Done
+      2026-09-15** — `train_sentiment.py --weighted`
+      (`compute_class_weights` + `WeightedLossTrainer`); results in
+      `docs/evaluation.md`'s 2026-09-15 follow-up. Idiom-probe neutral F1
+      lands at 0.471 (v2: 0.47, v3: 0.0) — the v3 regression doesn't
+      reproduce here; every other metric sits within ~0.01-0.03 of v2.
+      Not yet published to the Hub, same reasoning as v3 (T-073) — a
+      publish decision, not a technical one.
+- [x] **T-077** *(new, user-requested)* Run the downstream,
+      production-pipeline LLM-judge evaluation on v4 — the number that
+      actually validated v2, still missing for every retrained candidate
+      until now. **Done 2026-09-15** — against a scratch copy of the
+      results DB (`nlp_use.db`, copied so the real, shared `nlp_.db` is
+      never opened for writing) via
+      `scripts/resample_sentiment_v4_2026_09_15.py` (in-process
+      `pipeline.SENTIMENT_MODEL` monkeypatch to v4's local checkpoint —
+      `src/pipeline.py` on disk untouched) +
+      `cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+      (the documented floor). Full table in `docs/evaluation.md`'s
+      2026-09-15 follow-up: `recall_negative` (this pipeline's priority
+      metric) up 0.808→0.832, but `agreement_rate` (0.701→0.674) and
+      `mean_severity` (0.341→0.369, lower is better) both worse — a real
+      trade, not a clean win. `MODEL_REVISIONS` still pins v2.
+- [x] **T-078** *(new, third rebalancing-adjacent approach)* Try swapping
+      the base checkpoint (`nlpaueb/sec-bert-base`, already this project's
+      NER base) instead of another data-side intervention, motivated by
+      `precision_negative` being stuck at 0.505/0.513/0.507 downstream
+      across v1/v2/v4 despite two different rebalancing approaches.
+      **Done 2026-09-15** — `train_sentiment.py --base-model` (new flag);
+      results in `docs/evaluation.md`'s 2026-09-15 follow-up. Rejected
+      before a downstream eval: this candidate (v5) loses to v2 on every
+      sentence-level and idiom-probe metric (macro F1 0.779→0.732, neutral
+      F1 0.471→0.316 on the idiom probe), with no compensating gain to
+      weigh a downstream run against — unlike v3/v4, it never clears the
+      cheaper sentence-level gate. `MODEL_REVISIONS` still pins v2.
+- [x] **T-079** *(new, user-requested despite T-078's rejection)* Run the
+      downstream, production-pipeline LLM-judge evaluation on v5 anyway.
+      **Done 2026-09-15** — `scripts/resample_sentiment_v5_2026_09_15.py`
+      (modeled on T-077's v4 script, against a **fresh** scratch copy
+      `nlp_use_v5.db`, not v4's own `nlp_use.db`) +
+      `cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`.
+      Full table in `docs/evaluation.md`'s 2026-09-15 follow-up: more
+      nuanced than the offline gate suggested — `precision_negative` ticks
+      up (0.513→0.526, the specific metric this experiment targeted) and
+      `accuracy_ovr_negative`/neutral F1/recall are v5's best of the three
+      candidates, but `recall_negative` (0.760) loses to both v2 and v4,
+      and `agreement_rate`/`macro_f1_vs_judge` both land worse than v2.
+      `MODEL_REVISIONS` untouched; real `nlp_.db`/`nlp.db` never opened
+      for writing.
+- [x] **T-080** *(new, user decision)* Choose a candidate for production
+      given all three downstream-measured options (v2 baseline, v4, v5).
+      **Done 2026-09-15** — user chose **v4** (class-weighted): its
+      `recall_negative` gain (0.808→0.832) is the deciding factor, this
+      pipeline's stated priority metric, despite v5's own real
+      `precision_negative` gain — v5 didn't beat v4 on the metric that
+      actually decided it. v3 (idiom-probe neutral collapse) and v5 (loses
+      `recall_negative` to v4) stay documented, unpublished candidates.
+      See T-073 for the publish/pin step this decision unblocks.
+- [x] **T-081** *(new, user-requested)* Narrow sentiment's downstream eval to
+      one-vs-rest metrics only — repeated confusion across this work item's
+      reports (chat, artifact, this doc) from mixing per-class numbers with
+      aggregate/blended ones in the same table. **Done 2026-09-15** —
+      `news_nlp.eval.metrics.aggregate_sentiment` no longer computes
+      `agreement_rate`/`macro_f1_vs_judge`/`mean_severity` at all (not just
+      hidden from a report); only `precision_<class>`/`recall_<class>`/
+      `f1_<class>`/`accuracy_ovr_<class>` (HT + naive-pooled) and
+      `n`/`parse_fail_rate` remain. Scoped to sentiment only — category/NER/
+      summarization keep their full complete metric set. `HEADLINE["sentiment"]`
+      (`recall_negative`) unaffected. Constitution AI behavior #12 amendment
+      to match drafted on `docs/constitution-complete-metric-reporting`
+      (separate PR, not yet merged as of this task — MAJOR version bump, a
+      redefinition not an addition, per this project's own governance
+      rule). Full suite (231 tests), ruff, mypy green. See
+      `docs/evaluation.md`'s 2026-09-15 follow-up.
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -431,9 +564,25 @@ is code-complete, with only T-062 (empirical GPU tuning) left — this
 sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
 yet run.
 
-**Current priority is Work item 8** (per-model selection justification
-in the artifact, T-064–T-069) — an artifact/docs task, unblocked, no
-code changes, not started. The `sector_summary` pre-fix rows (3,444,
-from Work item 6's T-058 fix) are still queued to self-heal on the next
-real `--summarize` run, not yet triggered — a deliberate production
-action left to the repo owner, not a task with an ID.
+**Work item 8** (per-model selection justification in the artifact,
+T-064–T-069) is a scoped, pending backlog entry only — explicitly not to
+be implemented until specifically requested (2026-09-14).
+
+**Work item 9** (rebalance sentiment training data) is decided
+(2026-09-14/15): T-070–T-072 and T-074–T-080 done — dataset rebalanced and
+republished, three retraining/architecture approaches tried and measured
+downstream against real traffic (v3 downsampled, v4 class-weighted, v5
+base-checkpoint swap), and the user chose **v4** for production (T-080) —
+its `recall_negative` gain (0.808→0.832, this pipeline's priority metric)
+outweighed the `agreement_rate`/`mean_severity` cost, and beat v5's own
+real but narrower `precision_negative` gain (0.513→0.526) on the metric
+that actually decided the choice. **T-073 (publish v4 to the Hub +
+move `MODEL_REVISIONS`) is the one remaining step, blocked on Claude
+Code's auto-mode classifier**, not on a user decision anymore — a Hub
+publish is flagged as an external "Create Public Surface" action needing
+explicit permission (a Bash permission rule, or the user running
+`scripts/publish_finbert_financial_news_v4_2026_09_15.py` themselves). The
+`sector_summary` pre-fix rows
+(3,444, from Work item 6's T-058 fix) are still queued to self-heal on
+the next real `--summarize` run, not yet triggered — a deliberate
+production action left to the repo owner, not a task with an ID.

@@ -29,13 +29,18 @@ def _item(
     )
 
 
-def test_sentiment_agreement_and_macro_f1() -> None:
+def test_sentiment_per_class_f1_ht_and_naive_pooled() -> None:
     """Uses a single non-excluded bucket ("representative") so the
-    HT-weighted headline metrics reduce to the plain pooled numbers -- see
+    HT-weighted per-class metrics reduce to the plain pooled numbers -- see
     test_aggregate_sentiment_recall_negative_uses_ht_estimator for a
     multi-stratum example where they genuinely differ. low_conf is included
     here only to exercise its exclusion from the *_naive_pooled companions,
-    which still pool everything (unchanged _macro_f1/_rate)."""
+    which still pool everything (unchanged _macro_f1/_rate).
+
+    aggregate_sentiment computes one-vs-rest metrics only (no
+    agreement_rate/macro_f1_vs_judge/mean_severity aggregate -- constitution
+    AI behavior #12, amended 2026-09-15) -- this test only checks the
+    per-class numbers that remain."""
     items = [
         _item(1, "low_conf", {"label": "positive"}),
         _item(2, "low_conf", {"label": "negative"}),
@@ -52,21 +57,47 @@ def test_sentiment_agreement_and_macro_f1() -> None:
 
     assert out["n"] == 4.0
     assert out["parse_fail_rate"] == 0.0
-    assert out["agreement_rate"] == 0.75
-    assert out["agreement_rate_low_conf"] == 0.5
-    assert out["agreement_rate_representative"] == 1.0
+    assert "agreement_rate" not in out
+    assert "macro_f1_vs_judge" not in out
+    assert "mean_severity" not in out
     # naive pooled (all 4 items): judge truth pos,pos,neu,pos ; model pred pos,neg,neu,pos
     # positive: tp=2 fp=0 fn=1 -> P=1 R=.667 F1=.8 ; negative: tp=0 fp=1 fn=0 -> F1=0 ; neutral: F1=1
     assert round(out["f1_positive_naive_pooled"], 3) == 0.8
     assert out["f1_negative_naive_pooled"] == 0.0
     assert out["f1_neutral_naive_pooled"] == 1.0
-    assert round(out["macro_f1_vs_judge_naive_pooled"], 3) == round((0.8 + 0.0 + 1.0) / 3, 3)
     # HT-weighted (excludes low_conf; single non-excluded bucket -> reduces to
     # that bucket's own pooled numbers): only articles 3,4, both correct.
     assert out["f1_positive"] == 1.0
     assert out["f1_negative"] == 0.0
     assert out["f1_neutral"] == 1.0
-    assert round(out["macro_f1_vs_judge"], 3) == round((1.0 + 0.0 + 1.0) / 3, 3)
+
+
+def test_sentiment_per_class_ovr_accuracy() -> None:
+    """One-vs-rest binary accuracy for "positive", hand-computed: 1 TP, 1 FP,
+    1 FN, 1 TN out of 4 single-bucket (unweighted) items -- precision ==
+    recall == f1 == 0.5, accuracy_ovr counts both the TP and the TN as
+    correct -> 2/4 == 0.5. Same shape as
+    test_category_per_slug_precision_recall_and_ovr_accuracy, confirming
+    aggregate_sentiment's accuracy_ovr_<class> (constitution.md AI behavior
+    #12) matches aggregate_category's accuracy_ovr_<slug> formula exactly."""
+    items = [
+        _item(1, "representative", {"label": "positive"}),  # TP for positive
+        _item(2, "representative", {"label": "negative"}),  # FN for positive
+        _item(3, "representative", {"label": "positive"}),  # FP for positive
+        _item(4, "representative", {"label": "neutral"}),  # TN for positive
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive", severity=0),
+        SentimentVerdict(agrees=False, ideal_label="positive", severity=2),
+        SentimentVerdict(agrees=False, ideal_label="negative", severity=2),
+        SentimentVerdict(agrees=True, ideal_label="neutral", severity=0),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+    assert out["precision_positive"] == pytest.approx(0.5)
+    assert out["recall_positive"] == pytest.approx(0.5)
+    assert out["f1_positive"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_positive"] == pytest.approx(0.5)
+    assert out["accuracy_ovr_positive_naive_pooled"] == pytest.approx(0.5)
 
 
 def test_sentiment_recall_negative_is_the_headline_metric() -> None:
@@ -155,7 +186,8 @@ def test_sentiment_excludes_parse_failures() -> None:
     out = metrics.aggregate_sentiment(items, verdicts)
     assert out["n"] == 1.0
     assert out["parse_fail_rate"] == 0.5
-    assert out["agreement_rate"] == 1.0
+    # only article 1 (parse-succeeded, correctly predicted positive) counts
+    assert out["f1_positive"] == 1.0
 
 
 def test_ht_sum_and_ht_ratio_hand_computed_example() -> None:

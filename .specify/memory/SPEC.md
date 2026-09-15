@@ -695,6 +695,20 @@ treating a related FR/NR as done:
     model family* (e.g. chunk-level vs. title-only FinBERT weighting),
     not *why that family at all*. **New, priority, pending (2026-09-14)**
     — `PLAN.md` Work item 8 / `TASKS.md` T-064–T-069.
+14. **The sentiment fine-tuning data is class-imbalanced and was never
+    deliberately balanced.** The 5,800-sentence training pool behind
+    `gamug/FinBERT-financial-news` (base draw + idiom-augmentation round)
+    is 3,256 neutral (56.1%) / 1,321 negative (22.8%) / 1,223 positive
+    (21.1%) — not a target ratio anyone chose, but a byproduct of drawing
+    sentences from the eval harness's confidence-stratified sampling pool
+    (stratified on prediction confidence, not on label ratio) plus real
+    financial news skewing neutral/factual. The only mitigation in place
+    is class-agnostic: `train_sentiment.py` selects the best checkpoint by
+    macro F1 (equal per-class weight at *evaluation* time), and stratifies
+    the train/validation/test split per label so those splits aren't
+    *more* skewed than the source — neither touches the underlying
+    training-set skew itself. **New, priority, pending (2026-09-14)** —
+    `PLAN.md` Work item 9 / `TASKS.md` T-070–T-075.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -764,6 +778,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
 | 13 — Models evaluation section lacks selection reasoning | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 8 | — (already in motion) |
+| 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1
