@@ -55,11 +55,6 @@ this project's scope beyond what's already in motion:
    the accuracy numbers now live in one place (2026-09-14 reorg), but
    *why each specific architecture was chosen over the alternatives* does
    not (SPEC.md §13 item 13). — Work item 8.
-9. Fix the sentiment fine-tuning data's class imbalance (56.1% neutral /
-   22.8% negative / 21.1% positive, never a deliberate target — SPEC.md
-   §13 item 14): rebalance the published dataset, retrain the model on
-   the rebalanced data, and measure the result against the current
-   version. — Work item 9.
 
 ## Non-goals
 
@@ -865,146 +860,6 @@ selection decision (e.g. reopening whether chunk-level + fine-tuned
 sentiment was the right call) — this item explains decisions already
 made, it does not remake them.
 
-## Work item 9 — Rebalance the sentiment fine-tuning data (priority)
-
-**Why**: the 5,800-sentence training pool behind `gamug/FinBERT-financial-news`
-(5,000 base draw + 800 merged idiom-augment sentences) is 3,256 neutral
-(56.1%) / 1,321 negative (22.8%) / 1,223 positive (21.1%). That ratio was
-never chosen — it's a byproduct of drawing sentences from the eval
-harness's confidence-stratified sampling pool (stratified on prediction
-confidence, not on label ratio), on top of real financial news skewing
-neutral/factual. The only thing currently touching this is class-agnostic:
-`train_sentiment.py` picks the best checkpoint by macro F1 (equal
-per-class weight at *evaluation* time) and stratifies the
-train/validation/test split per label (keeps the splits proportionate to
-the source, doesn't rebalance it) — no oversampling of negative/positive,
-no undersampling of neutral, no class-weighted loss anywhere in the
-training loop.
-
-**Approach**:
-
-1. Downsample the neutral class to representative examples only, sized to
-   match the larger of the two minority classes (1,321, negative) —
-   keeps every negative/positive example (no minority-class data
-   discarded) while bringing neutral back in line, landing close to a
-   genuine three-way balance (1,321 / 1,321 / 1,223) without touching the
-   other two classes at all. "Representative" means ranked by cosine
-   similarity to the neutral class's own TF-IDF centroid, keeping the
-   most prototypical examples and dropping the most atypical/outlier
-   ones — not a random cut.
-2. Publish the rebalanced pool as the training data, replacing the
-   published `gamug/FinBERT-financial-news-data` dataset's
-   `train`/`validation`/`test` splits (the `idiom_probe` split stays
-   untouched — its whole purpose is measuring against real, unfiltered
-   idiom-family traffic, not a class-balance concern). Document what
-   changed and why directly in the dataset card, not silently.
-3. Retrain the sentiment model on the rebalanced data via
-   `train_sentiment.py` (same procedure/hyperparameters as the existing
-   `ProsusAI/finbert`-based continued fine-tune — this is a data-quality
-   fix, not an architecture change), and publish the result to
-   `gamug/FinBERT-financial-news` as a new version.
-4. Measure and report: per-class precision/recall/F1 on the held-out test
-   set, compared directly against the current published model's own
-   numbers (already in that model's card) — not just an aggregate
-   accuracy/macro-F1 number, since the whole point of this fix is
-   per-class behavior.
-
-**Acceptance criteria**:
-
-- The published dataset's `train`/`validation`/`test` splits are
-  genuinely closer to balanced across the three classes; the selection
-  method (TF-IDF centroid proximity, not random) is documented in the
-  dataset card, along with the exact before/after counts.
-- The retrained model's per-class precision/recall/F1 (positive/negative/
-  neutral) is reported and compared directly against the currently
-  published model's own numbers — an honest result, including if some
-  metric gets *worse* (e.g. neutral precision, given less neutral
-  training data) rather than only reporting improvements.
-- `docs/evaluation.md` gets a dated follow-up with the full before/after
-  table and methodology, same as every other model-performance change in
-  this project.
-
-**Out of scope for this work item**: touching `idiom_probe.jsonl` (stays
-exactly as-is, per its own disclosed role); building any general-purpose
-class-balancing utility beyond what this one dataset needs; NER's
-training data (`gtfintechlab/finer-ord`) — a separate dataset this
-project doesn't own or control the composition of.
-
-**Executed (2026-09-14), mostly — steps 1/2/3/4 done, model publish
-pending a decision**: the merged training pool (base draw + idiom-augment,
-5,800 sentences) confirmed at 3,256 neutral (56.1%) / 1,321 negative
-(22.8%) / 1,223 positive (21.1%). `scripts/rebalance_sentiment_data_2026_09_14.py`
-downsampled neutral to 1,321 via TF-IDF-centroid cosine similarity
-(scikit-learn, already a transitive dependency — no new one added),
-verified 0 duplicate sentences and the exact expected counts before
-anything left the machine. Republished as v2 of
-`gamug/FinBERT-financial-news-data`
-(`scripts/publish_finbert_financial_news_dataset_rebalanced_2026_09_14.py`);
-`idiom_probe` untouched. `train_sentiment.py` extended (not replaced) with
-a `BALANCED_DATA_PATH` branch, preferred when present; retrained on CUDA,
-same hyperparameters as the existing fine-tune.
-
-Result is a real trade, not a strict win — full numbers in
-`docs/evaluation.md`'s 2026-09-14 follow-up. Test-set negative F1 improves
-substantially (0.726→0.829); neutral F1 drops (0.838→0.714), and the
-idiom-probe's neutral F1 (a small-n, 10/100-row reading, but a real one)
-collapses to 0.0. **The retrained model was deliberately not published to
-the Hub yet** — `scripts/publish_finbert_financial_news_v3_2026_09_14.py`
-is written and ready, but publishing a model with a disclosed regression
-warranted surfacing the numbers first rather than publishing and
-explaining after. `src/pipeline.py`'s `MODEL_REVISIONS` was not touched
-either way — production still runs the currently-published (v2) model
-regardless of what happens with this decision. The downstream,
-production-pipeline LLM-judge evaluation (the number that actually
-validated v2) has not been run against v3 — a separate, larger step.
-
-**Second experiment, 2026-09-15 (user-requested)**: class-weighted loss
-instead of downsampling — train on the full original unbalanced pool
-(no sentence discarded) with an inverse-class-frequency-weighted
-`CrossEntropyLoss` (`compute_class_weights` + `WeightedLossTrainer` in
-`train_sentiment.py`, `--weighted` flag, separate output paths so it
-doesn't overwrite v3's artifacts). Because it trains on the full pool, it
-evaluates on the exact same test set (n=579) and idiom probe (n=100) as
-the published model, unlike v3's smaller rebalanced-pool test set.
-
-Result (referred to as v4; full tables in `docs/evaluation.md`'s
-2026-09-15 follow-up): every test-set metric sits within ~0.01 of v2 —
-no dramatic negative-F1 win like v3's, but no neutral cost either. The
-number that actually matters: idiom-probe neutral F1 lands at 0.471,
-essentially identical to v2's 0.47 — **v3's collapse to 0.0 does not
-reproduce here**. Class weighting corrects the training signal without
-removing the 1,935 neutral sentences v3 discarded, so the model doesn't
-lose whatever those harder/less-typical examples taught it. v4 reads as
-close to a free lunch on these two eval sets where v3 was a real trade.
-
-Neither v3 nor v4 has been measured against the downstream,
-production-pipeline LLM-judge evaluation — still the open step before
-adopting either. Neither has been published to the Hub, and
-`src/pipeline.py`'s `MODEL_REVISIONS` is untouched by both — the same
-"surface the numbers before publishing a candidate with any disclosed
-trade-off" reasoning as v3, applied consistently.
-
-**Downstream eval, 2026-09-15 (user-requested)**: v4's production-pipeline
-LLM-judge evaluation, the previously-missing step — the same real article
-traffic / entity-scoped chunk-level aggregation / LLM-judge methodology
-that validated v2 in the first place. Run against a scratch copy of the
-results DB (`nlp_.db` copied to `nlp_use.db`; the real, shared file was
-never opened for writing) via `scripts/resample_sentiment_v4_2026_09_15.py`
-(in-process `pipeline.SENTIMENT_MODEL` monkeypatch to v4's local
-checkpoint — `src/pipeline.py` on disk untouched throughout) followed by
-`cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`, the
-documented sample-size floor.
-
-Result (full table in `docs/evaluation.md`'s 2026-09-15 follow-up): v4
-delivers on this pipeline's stated priority metric —
-`recall_negative` 0.808→0.832 — but `agreement_rate` (0.701→0.674) and
-`mean_severity` (0.341→0.369, lower is better) both get worse. A real
-trade at the level that actually matters, not a clean win at either level
-measured so far. `src/pipeline.py`'s `MODEL_REVISIONS` remains untouched,
-still pinning v2; adopting v4 now would mean deliberately trading overall
-agreement/severity for negative recall, a decision this evaluation
-surfaces rather than makes.
-
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -1040,13 +895,8 @@ other, and independent of one another except where noted:
   prerequisite for it.
 - Work item 8 (per-model selection justification) is unblocked today and
   independent of every other work item — it's an artifact/docs change,
-  not a code change, and doesn't depend on any pending decision. Explicitly
-  not to be implemented until specifically requested (2026-09-14) — stays
-  in the backlog as a scoped, pending item.
-- Work item 9 (rebalance sentiment training data) is unblocked today and
-  independent of every other work item — it needs no prior decision, and
-  touches the same model Work item 4 already finished tuning, but as a
-  data-quality fix, not a re-litigation of that work. Priority because
-  it's the next explicitly requested task.
+  not a code change, and doesn't depend on any pending decision. Priority
+  because it's the next explicitly requested task, not because anything
+  else in the backlog blocks on it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
