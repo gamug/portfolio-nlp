@@ -300,6 +300,19 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    doing it themselves. Only move off it (per item 3, always to a fresh
    branch off up-to-date `master`) when starting genuinely new work, or
    when asked to.
+9. **Ask before creating or switching to any branch beyond the one already
+   agreed for the current task** — don't open a second, third, etc.
+   branch/PR to fix, split off, or extend in-flight work without checking
+   first, even when the split is clearly the technically correct call (an
+   unrelated feature that got bundled into the wrong PR, a stray/orphaned
+   branch that needs its own PR, and so on). Surface the situation and the
+   options, and let the user decide which branch(es) the fix belongs on —
+   this rule governs the *checking-first* step, not rule 3 above (which
+   still applies, unchanged, to how a newly-agreed branch actually gets
+   created). Prompted directly by a session that opened five PRs
+   (portfolio-nlp #51–#55) — several genuinely warranted, but decided
+   unilaterally rather than checked first — for what should have been a
+   visibly smaller, user-directed set of changes.
 
 ## Governance
 
@@ -319,4 +332,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.4.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
+**Version**: 2.5.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
