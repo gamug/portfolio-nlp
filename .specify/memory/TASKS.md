@@ -540,10 +540,12 @@ Work item 9.
       `f1_<class>`/`accuracy_ovr_<class>` (HT + naive-pooled) and
       `n`/`parse_fail_rate` remain. Scoped to sentiment only — category/NER/
       summarization keep their full complete metric set. `HEADLINE["sentiment"]`
-      (`recall_negative`) unaffected. Constitution AI behavior #12 amended to
-      match (MAJOR version bump — a redefinition, not an addition, per this
-      project's own governance rule). Full suite (231 tests), ruff, mypy
-      green. See `docs/evaluation.md`'s 2026-09-15 follow-up.
+      (`recall_negative`) unaffected. Constitution AI behavior #12 amendment
+      to match drafted on `docs/constitution-complete-metric-reporting`
+      (separate PR, not yet merged as of this task — MAJOR version bump, a
+      redefinition not an addition, per this project's own governance
+      rule). Full suite (231 tests), ruff, mypy green. See
+      `docs/evaluation.md`'s 2026-09-15 follow-up.
 
 ## Status
 

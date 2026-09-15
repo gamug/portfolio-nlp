@@ -1518,11 +1518,15 @@ aggregate/overall numbers, per constitution AI behavior #12. `HEADLINE["sentimen
 unaffected (`recall_negative` was already a per-class metric, not an aggregate one), so
 `--check-regression` keeps working exactly as before.
 
-**Constitution amended** (AI behavior #12, this session): the "complete metric set" principle
-now explicitly carves out sentiment as one-vs-rest-only for its downstream methodology — see
-`.specify/memory/constitution.md`, version bumped for the redefinition (a MAJOR change per this
-project's own governance rule, since it narrows what #12 requires for one stage, not a new
-addition). Every table in this document *before* this follow-up that shows
+**Constitution amendment proposed, not yet merged** (AI behavior #12, this session): the
+"complete metric set" principle should explicitly carve out sentiment as one-vs-rest-only for
+its downstream methodology, matching the code change above — drafted on
+`docs/constitution-complete-metric-reporting` (a separate, still-open PR at the time of this
+follow-up), version bumped for the redefinition (a MAJOR change per this project's own
+governance rule, since it narrows what #12 requires for one stage, not a new addition). Until
+that PR merges, `.specify/memory/constitution.md` on `master` still states #12's general rule
+without the sentiment carve-out — this code change is ahead of its own governing documentation
+landing, not silently contradicting it. Every table in this document *before* this follow-up that shows
 `agreement_rate`/`macro_f1_vs_judge`/`mean_severity` for sentiment is a historical record of a
 run made under the old aggregation code and stays as-is — those numbers were real, computed
 values at the time, not retroactively wrong; they're just no longer what a *future* sentiment
