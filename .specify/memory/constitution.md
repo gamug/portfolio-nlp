@@ -205,38 +205,17 @@ component; every rule below assumes the stack actually pinned in
       future training script): per class, precision/recall/F1/
       `accuracy_ovr`; overall, accuracy and macro F1.
     - **Downstream, LLM-judge eval against real traffic**
-      (`news_nlp.eval.metrics.aggregate_category`/`aggregate_ner`): per
-      class, precision/recall/F1/`accuracy_ovr` (HT-reweighted — the
-      `_naive_pooled` variants exist for diagnostics, not as the headline);
-      overall, `agreement_rate` (or the stage's own accuracy-equivalent),
-      `macro_f1_vs_judge`, and `mean_severity` where the stage's judge
-      produces one. A run recorded before a metric existed (an `eval_run`
-      row from before `accuracy_ovr` was added, say) can be recomputed from
-      its own stored `eval_judgement` rows through the current
-      `aggregate_*` function — no new judge calls needed — the same
-      "recompute, don't leave a blank cell" rule as above, and cheaper here
-      than for the offline case.
-    - **Sentiment's downstream eval is the one deliberate exception**
-      (`news_nlp.eval.metrics.aggregate_sentiment`, amended 2026&#8209;09&#8209;15,
-      user-requested): one-vs-rest metrics **only** —
-      precision/recall/F1/`accuracy_ovr` per class (HT-reweighted +
-      `_naive_pooled`), plus `n`/`parse_fail_rate` run bookkeeping. No
-      `agreement_rate`, `macro_f1_vs_judge`, or `mean_severity` is computed
-      for sentiment at all — not merely omitted from a report, actually
-      absent from `aggregate_sentiment`'s output. Reason: mixing per-class
-      one-vs-rest numbers with an aggregate, blended-across-classes number
-      in the same sentiment report was a real, repeated source of
-      confusion in practice (a number from one eval set read as
-      contradicting a different number from a different eval set; an
-      aggregate metric sitting next to per-class ones was misread as
-      belonging to a class) — narrower scope for this one stage was judged
-      to serve clarity better than the general rule. `HEADLINE["sentiment"]`
-      (`recall_negative`) is unaffected, since it was already a per-class
-      metric. This exception is sentiment-only — category/NER keep the
-      full complete set above, and sentiment's own *offline* eval
-      (`train_sentiment.py`) is unaffected too, still reporting overall
-      accuracy/macro F1 per the offline bullet (needed there for
-      `metric_for_best_model` checkpoint selection, not just reporting).
+      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
+      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
+      reweighted — the `_naive_pooled` variants exist for diagnostics, not
+      as the headline); overall, `agreement_rate` (or the stage's own
+      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
+      the stage's judge produces one. A run recorded before a metric
+      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
+      can be recomputed from its own stored `eval_judgement` rows through
+      the current `aggregate_*` function — no new judge calls needed — the
+      same "recompute, don't leave a blank cell" rule as above, and cheaper
+      here than for the offline case.
 13. **Reporting a tested model's results anywhere — a PR/commit description,
     a chat summary, a docs follow-up — shows the complete metric set #12
     requires, for every model/candidate actually run, not a hand-picked
@@ -359,4 +338,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 3.0.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
+**Version**: 2.5.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
