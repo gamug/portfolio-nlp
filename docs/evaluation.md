@@ -1030,6 +1030,512 @@ investigation's earlier ticker-collision bug was about. `SPEC.md` §13
 item 1, §9, and FR-001 are updated to reflect the merge; the repository
 artifact's "Gaps"/"Plan" sections are updated too.
 
+### Follow-up (2026-09-14): sentiment training data rebalanced — a real trade, not a strict win
+
+`PLAN.md` Work item 9 / `SPEC.md` §13 item 14. The 5,800-sentence training
+pool behind `gamug/FinBERT-financial-news` (5,000 base draw + 800 merged
+idiom-augment sentences) was 3,256 neutral (56.1%) / 1,321 negative
+(22.8%) / 1,223 positive (21.1%) — never a deliberate target, a byproduct
+of drawing sentences from the eval harness's confidence-stratified
+sampling pool (stratified on prediction confidence, not label ratio) on
+top of real financial news skewing neutral/factual. Nothing in the
+original training procedure corrected for it: `train_sentiment.py` picked
+the best checkpoint by macro F1 (equal per-class weight, but only at
+*evaluation* time) and stratified the train/validation/test split to
+match the source distribution, not rebalance it.
+
+**Fix**: `scripts/rebalance_sentiment_data_2026_09_14.py` downsamples
+`neutral` to 1,321 — the size of the larger minority class (`negative`) —
+keeping every `positive`/`negative` sentence untouched. Which 1,321 of the
+original 3,256 `neutral` sentences survive is not a random cut: each is
+ranked by cosine similarity to the `neutral` class's own TF-IDF centroid
+(scikit-learn, already a transitive dependency), and the most
+representative (closest to centroid) are kept, the most atypical/outlier
+ones dropped. Result: 1,321 / 1,321 / 1,223 (34.2% / 34.2% / 31.6%) — a
+genuine three-way balance. Published as v2 of
+[`gamug/FinBERT-financial-news-data`](https://huggingface.co/datasets/gamug/FinBERT-financial-news-data)
+(`scripts/publish_finbert_financial_news_dataset_rebalanced_2026_09_14.py`);
+`idiom_probe` (100 rows) is untouched in both versions — its role is
+measuring against real, unfiltered idiom-family traffic, not a
+class-balance concern.
+
+`train_sentiment.py` was extended (not replaced) to prefer this rebalanced
+pool when present (`BALANCED_DATA_PATH`), same procedure/hyperparameters
+as before (`ProsusAI/finbert` base, lr 2e-5, 4 epochs, seed 42) — a
+data-quality fix, not an architecture or hyperparameter change. Retrained
+and measured against the currently-published model (referred to below as
+v2; the rebalanced retrain as v3):
+
+**Held-out sentence-level test set**
+
+| metric | v2 (published, unbalanced data, n=579) | **v3 (rebalanced data, n=386)** |
+|---|---|---|
+| Accuracy | 0.798 | 0.777 |
+| Macro F1 | 0.779 | 0.774 |
+| Precision — positive | — | 0.795 |
+| Recall — positive | — | 0.762 |
+| F1 — positive | 0.775 | **0.778** |
+| Precision — negative | — | 0.756 |
+| Recall — negative | — | **0.917** |
+| F1 — negative | 0.726 | **0.829** |
+| Precision — neutral | — | 0.789 |
+| Recall — neutral | — | 0.652 |
+| F1 — neutral | **0.838** | 0.714 |
+
+Negative F1 improves substantially (0.726→0.829) — the class that wasn't
+touched by rebalancing, but benefits from the model no longer being
+pulled toward the now-shrunk neutral majority. Neutral F1 drops
+(0.838→0.714), an expected, direct cost of training on 1,935 fewer
+neutral examples, not a surprise.
+
+**Idiom probe (n=100, held out of training, unchanged between v2/v3) —
+where the real cost shows up**
+
+| metric | v2 (published, pre-rebalance) | **v3 (rebalanced)** |
+|---|---|---|
+| Accuracy | 0.870 | 0.830 |
+| Macro F1 | 0.759 | **0.583** |
+| F1 — positive | 0.889 | 0.848 |
+| F1 — negative | 0.917 | 0.902 |
+| F1 — neutral | 0.47 | **0.0** |
+
+**Neutral F1 on this probe collapses to 0.0 (precision and recall both
+0.0) in v3** — the model made zero correct `neutral` predictions on this
+specific slice. This probe is only 10% neutral by design (10/100 rows —
+it targets the crushed/smashed/hammered idiom family, which skews
+negative/positive, not neutral), so it's a small-n reading, not a broad
+claim about v3's neutral performance generally — but it's a real,
+measured, disclosed regression, consistent with training on 40% fewer
+neutral examples overall, not glossed over.
+
+**Not yet measured**: the downstream, production-pipeline evaluation
+(entity-scoped, chunk-level aggregation against real article traffic,
+LLM-judge) that validated v2 — that needs a full `--stage sentiment` eval
+run against live production data, a separate, larger step from this
+retrain.
+
+**Disposition**: this is a trade, not a strict improvement — v3 fixes the
+disclosed class imbalance and improves negative F1 substantially, at a
+real cost to neutral performance most visible on the idiom probe.
+`src/pipeline.py`'s `MODEL_REVISIONS` still pins v2's commit SHA; v3 is
+published as an available checkpoint on the Hub, not silently adopted
+into the production pipeline — adopting it is a separate decision, to be
+made with the downstream-pipeline numbers in hand, not before.
+
+### Follow-up (2026-09-15): a second rebalancing approach — class-weighted loss, no data discarded
+
+Same problem as the follow-up above (56.1%/22.8%/21.1% training-pool
+imbalance), a different fix: instead of downsampling `neutral` (discarding
+1,935 sentences), keep the full original 5,800-sentence pool and weight
+each class's contribution to the loss inversely to its frequency —
+`compute_class_weights` in `train_sentiment.py`, computed from the
+*train* split's own label counts (4,642 rows): `neutral` 0.594,
+`negative` 1.464, `positive` 1.581. `WeightedLossTrainer` (a `Trainer`
+subclass overriding `compute_loss` with a weighted `CrossEntropyLoss`)
+applies them; `--weighted` on `train_sentiment.py` selects this path,
+writing to separate output paths so it doesn't overwrite the downsampled
+retrain (v3) above.
+
+Because this trains on the full original pool, it evaluates on the exact
+same test set (n=579) and idiom probe (n=100) as the currently-published
+model (v2) — a cleaner, more directly comparable reading than v3's
+smaller (n=386) rebalanced-pool test set.
+
+**Held-out sentence-level test set (n=579, same set as v2)**
+
+| metric | v2 (published) | v3 (downsampled, n=386 — not directly comparable) | **v4 (class-weighted, n=579)** |
+|---|---|---|---|
+| Accuracy | 0.798 | 0.777 | **0.796** |
+| Macro F1 | 0.779 | 0.774 | **0.778** |
+| F1 — positive | 0.775 | 0.778 | 0.770 |
+| F1 — negative | 0.726 | **0.829** | 0.729 |
+| F1 — neutral | **0.838** | 0.714 | 0.834 |
+
+Unlike v3, v4 doesn't meaningfully move any class — every number sits
+within ~0.01 of v2's. Negative F1 ticks up marginally (0.726→0.729), not
+the substantial jump v3 got (→0.829), but neutral doesn't pay for it
+(0.838→0.834, essentially flat) the way it did in v3 (→0.714).
+
+**Idiom probe (n=100, held out of training, same 100 rows in all three)**
+
+| metric | v2 (published) | v3 (downsampled) | **v4 (class-weighted)** |
+|---|---|---|---|
+| Accuracy | 0.870 | 0.830 | **0.850** |
+| Macro F1 | 0.759 | 0.583 | **0.745** |
+| F1 — positive | 0.889 | 0.848 | 0.875 |
+| F1 — negative | 0.917 | 0.902 | 0.891 |
+| F1 — neutral | 0.47 | **0.0** | **0.471** |
+
+**This is the number that matters most**: v4's idiom-probe neutral F1
+(0.471) lands essentially on top of v2's (0.47) — the catastrophic
+collapse to 0.0 that made v3 a real regression simply doesn't happen here.
+Class weighting corrects the training signal without ever removing the
+1,935 neutral sentences v3 discarded, so the model never loses whatever
+it was those sentences taught it about harder, less-typical neutral
+cases — visible directly in this probe's neutral precision (0.571) /
+recall (0.4), both far above v3's 0.0/0.0.
+
+**Reading both experiments together**: v3 (downsample) is a real trade —
+a substantial negative-F1 win purchased with a real, measured neutral
+regression. v4 (class-weighted) is closer to a free lunch on these two
+eval sets — small, mixed movement in every direction, but nothing broken.
+Neither has been measured against the downstream, production-pipeline
+LLM-judge evaluation (the number that actually validated v2) — that
+remains the open step before adopting either. `src/pipeline.py`'s
+`MODEL_REVISIONS` is untouched by this experiment either way.
+
+### Follow-up (2026-09-15, same day): a complete, consistent metric set for all three candidates — accuracy_ovr added, v2's precision/recall backfilled
+
+Both follow-ups above compared v2/v3/v4 with a real gap: v2's own model
+card only ever published F1 per class on its test set, never
+precision/recall — those cells read "not recorded" rather than a number.
+Constitution AI behavior #12 (added this session, per direct request) now
+requires every classification-stage evaluation to report the same
+complete metric set per class — precision, recall, F1, and one-vs-rest
+accuracy (`accuracy_ovr_<class>`, same formula/naming as
+`news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`) — plus
+overall accuracy/macro F1, computed the same way for every candidate in a
+comparison rather than mixing older, differently-sourced numbers with
+freshly-computed ones.
+
+`make_compute_metrics()` (`train_sentiment.py`) gained `accuracy_ovr_<label>`.
+`scripts/evaluate_sentiment_candidates_2026_09_15.py` then re-evaluated all
+three candidates — v2 loaded fresh from the Hub at its pinned revision (not
+re-read from its old model card), v3/v4 from their local saved
+checkpoints — each on its own already-established test set, with this same
+metric function, eval-only (no retraining). v2's freshly-computed numbers
+match its model card's old F1 figures to within ~0.001 (same model, same
+test set, confirms nothing drifted) and now also carry real
+precision/recall/`accuracy_ovr` it never had before.
+
+**Held-out sentence-level test set**
+
+| | v2 (published, n=579) | v3 (downsampled, n=386) | v4 (class-weighted, n=579) |
+|---|---|---|---|
+| **Overall accuracy** | 0.798 | 0.777 | 0.796 |
+| **Macro F1** | 0.779 | 0.774 | 0.778 |
+| Positive — precision | 0.748 | 0.795 | 0.746 |
+| Positive — recall | 0.803 | 0.762 | 0.795 |
+| Positive — F1 | 0.775 | 0.778 | 0.770 |
+| Positive — accuracy_ovr | 0.902 | 0.863 | 0.900 |
+| Negative — precision | 0.710 | 0.756 | 0.724 |
+| Negative — recall | 0.742 | **0.917** | 0.735 |
+| Negative — F1 | 0.726 | **0.829** | 0.729 |
+| Negative — accuracy_ovr | 0.872 | 0.870 | 0.876 |
+| Neutral — precision | **0.858** | 0.789 | 0.848 |
+| Neutral — recall | **0.818** | 0.652 | 0.822 |
+| Neutral — F1 | **0.838** | 0.714 | 0.834 |
+| Neutral — accuracy_ovr | **0.822** | 0.821 | 0.817 |
+
+**Idiom probe (n=100, held out of training, same 100 rows for all three)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) |
+|---|---|---|---|
+| **Overall accuracy** | **0.870** | 0.830 | 0.850 |
+| **Macro F1** | **0.759** | 0.583 | 0.745 |
+| Positive — precision | 0.875 | 0.800 | 0.848 |
+| Positive — recall | 0.903 | 0.903 | 0.903 |
+| Positive — F1 | **0.889** | 0.848 | 0.875 |
+| Positive — accuracy_ovr | 0.93 | 0.90 | 0.92 |
+| Negative — precision | 0.902 | 0.873 | 0.883 |
+| Negative — recall | **0.932** | **0.932** | 0.898 |
+| Negative — F1 | **0.917** | 0.902 | 0.891 |
+| Negative — accuracy_ovr | 0.90 | 0.88 | 0.87 |
+| Neutral — precision | 0.571 | 0.0 | 0.571 |
+| Neutral — recall | 0.4 | 0.0 | 0.4 |
+| Neutral — F1 | 0.471 | **0.0** | 0.471 |
+| Neutral — accuracy_ovr | 0.91 | 0.88 | 0.91 |
+
+`accuracy_ovr` reads flatter and higher than precision/recall/F1 across
+the board here, exactly the caveat constitution #12 states — every class
+is a small minority within its own binary framing (e.g. "neutral" is only
+10% of the idiom probe), so "predict not-this-class" alone already scores
+well on this metric. Read it alongside precision/recall, not instead of
+them, same as `accuracy_ovr_<slug>`'s existing caveat for category.
+
+No new decision follows from this — same disposition as both follow-ups
+above: neither v3 nor v4 is published to the Hub, `MODEL_REVISIONS` is
+untouched, and the downstream production-pipeline LLM-judge evaluation
+remains the open step before adopting either.
+
+### Follow-up (2026-09-15, same day): v4's downstream production-pipeline eval — the number that actually validated v2, now run for v4 too
+
+The one open step named in both follow-ups above. Real article traffic,
+entity-scoped chunk-level aggregation (the actual `run_sentiment_stage`
+code path, not sentence-level scoring in isolation), LLM-judge — the same
+methodology that validated v2 in the first place
+(2026-09-13 four-candidate comparison).
+
+**Mechanics** (kept off the real, shared `nlp_.db`/`nlp_use.db` entirely
+by copying it first): `nlp_.db` copied to a scratch `nlp_use.db`, never
+touching the real file. `scripts/resample_sentiment_v4_2026_09_15.py`
+versioned that copy's `article_sentiment` (preserved as
+`article_sentiment_v2_published_snapshot_2026_09_15`, nothing deleted) and
+scored a fresh sample with v4 by monkeypatching
+`pipeline.SENTIMENT_MODEL`/`MODEL_REVISIONS` to point at v4's local
+checkpoint **in-process only** — `src/pipeline.py` on disk was never
+edited, so the actually-pinned production model was never at risk.
+2,500 real articles scored with v4 in ~107s (chunk-level, CUDA). Then
+`cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+(the documented sample-size floor) judged that fresh sample —
+`eval_run` 35, `mlflow_run_id` `8e78ac51b06e417e97cdb7cd40c03738`, both
+inside the scratch copy only. Real time: ~11 minutes for 2,000 judge
+calls.
+
+**Caveat on comparability**: this is v4's own fresh eval run against its
+own freshly-drawn sample, not a re-judging of the exact same article
+instances v2's original 2026-09-13 run used (that run predates this
+session and its raw sample isn't reproducible after the fact) — same
+sampling design/seed convention, same judge, same aggregation code, but a
+different draw. This is the same shape of comparison every earlier
+candidate round in this project used (each of the four 2026-09-13
+candidates, and NER's/category's own resample rounds, each got its own
+eval run against its own sample) — not a new methodological gap introduced
+here.
+
+**Complete per-class set, both runs** (constitution AI behavior #12,
+extended the same day to cover this downstream/LLM-judge methodology, not
+just the offline one — `accuracy_ovr_<class>` added to
+`aggregate_sentiment`, same formula/naming as `aggregate_category`'s
+`accuracy_ovr_<slug>`). v2's original 2026-09-13 run (`eval_run` 30) had
+never had every cell published — precision_positive/f1_positive,
+recall_neutral/f1_neutral, and accuracy_ovr for any class were sitting in
+its own stored `eval_judgement` rows but were never pulled into
+`docs/evaluation.md`'s table. Both runs' complete metrics, including v2's
+now-backfilled ones, were recomputed via `aggregate_sentiment` straight
+from `eval_run`/`eval_judgement` (`strata_json` for population weights) —
+**no new judge calls for either**, since both were already fully judged
+and stored; this is a pure re-aggregation with the updated metric
+function.
+
+**Overview**
+
+| metric | v2 (published, 2026-09-13 run) | **v4 (class-weighted, this run, n=2000)** |
+|---|---|---|
+| `agreement_rate` | **0.701** | 0.674 |
+| `macro_f1_vs_judge` | **0.731** | 0.724 |
+| `mean_severity` (lower is better) | **0.341** | 0.369 |
+
+**Per class**
+
+| | v2 — positive | v2 — negative | v2 — neutral | **v4 — positive** | **v4 — negative** | **v4 — neutral** |
+|---|---|---|---|---|---|---|
+| Precision | 0.647 | 0.513 | **0.936** | 0.638 | 0.507 | 0.933 |
+| Recall | **0.801** | 0.808 | 0.777 | 0.777 | **0.832** | 0.764 |
+| F1 | **0.716** | 0.628 | **0.849** | 0.701 | 0.630 | 0.840 |
+| `accuracy_ovr` | **0.878** | 0.882 | **0.811** | 0.870 | 0.877 | 0.803 |
+
+**Reading this**: v4 delivers on the one metric this pipeline is actually
+built around — negative recall, its stated priority — a real gain
+(0.808→0.832), consistent with the sentence-level test-set signal that
+class weighting nudges the model away from the old neutral-majority pull.
+But it's a trade here too, same as every earlier result in this work item:
+`agreement_rate`/`mean_severity` both get worse, and every single per-class
+cell in the table above — not just negative recall's mirror image — moves
+in v2's favor except that one recall figure. This is a narrower, more
+one-directional win than the sentence-level comparison suggested: v4 isn't
+"about the same with one clear improvement" downstream, it's "one
+real, specific improvement bought at a small cost nearly everywhere else."
+
+**Disposition — unchanged**: v4 is still not published to the Hub, and
+`src/pipeline.py`'s `MODEL_REVISIONS` is still untouched, still pinning
+v2. With the downstream number now in hand (the one thing missing before),
+adopting v4 would mean deliberately trading `agreement_rate`/
+`mean_severity` for `recall_negative` — a real decision with a real cost
+on both sides, not a default one this evaluation makes on its own. The
+scratch copy (`nlp_use.db`) is left as-is, not deleted, in case the exact
+judged rows need re-inspecting; the real `nlp_.db`/`nlp.db` were never
+opened for writing at any point in this follow-up.
+
+### Follow-up (2026-09-15, same day): a third approach — swap the base checkpoint (`nlpaueb/sec-bert-base`), rejected before a downstream eval
+
+Neither rebalancing approach (v3 downsample, v4 class-weighted) moved
+`precision_negative` on the metric that actually matters — the downstream,
+production-pipeline number, stuck at 0.505/0.513/0.507 across v1/v2/v4
+(see the three follow-ups above). The 2026-09-13 follow-up's
+confidence/margin-threshold finding (only 7% of predictions have a thin
+top1-vs-top2 margin; median margin 0.90 on errors) already ruled out
+"the model is hesitant" as the cause — it's *confidently* wrong, which
+argues for a training-signal or base-checkpoint problem, not a
+calibration one. Tried swapping the base checkpoint from `ProsusAI/finbert`
+to `nlpaueb/sec-bert-base` (already this project's NER base, domain-pretrained
+on 260,773 SEC 10-K filings with its own 30k-subword financial vocabulary
+— Loukas et al. 2022, arXiv:2203.06482) as a real, falsifiable candidate
+fix for vocabulary/subword fragmentation, via `train_sentiment.py --base-model
+nlpaueb/sec-bert-base` (new flag, this follow-up). Same procedure/
+hyperparameters/data as v2 (original unbalanced pool, 4 epochs, same
+splits) for a clean base-model-only comparison — `MODEL_REVISIONS` untouched.
+
+**Complete per-class set — held-out sentence-level test set (n=579, same set as v2/v4)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|---|
+| **Overall accuracy** | 0.798 | 0.777 | 0.796 | 0.765 |
+| **Macro F1** | 0.779 | 0.774 | 0.778 | 0.732 |
+| Positive — precision | 0.748 | 0.795 | 0.746 | 0.760 |
+| Positive — recall | 0.803 | 0.762 | 0.795 | 0.648 |
+| Positive — F1 | 0.775 | 0.778 | 0.770 | 0.699 |
+| Positive — accuracy_ovr | 0.902 | 0.863 | 0.900 | 0.883 |
+| Negative — precision | 0.710 | 0.756 | 0.724 | 0.688 |
+| Negative — recall | 0.742 | **0.917** | 0.735 | 0.667 |
+| Negative — F1 | 0.726 | **0.829** | 0.729 | 0.677 |
+| Negative — accuracy_ovr | 0.872 | 0.870 | 0.876 | 0.855 |
+| Neutral — precision | **0.858** | 0.789 | 0.848 | 0.795 |
+| Neutral — recall | **0.818** | 0.652 | 0.822 | 0.849 |
+| Neutral — F1 | **0.838** | 0.714 | 0.834 | 0.821 |
+| Neutral — accuracy_ovr | 0.822 | 0.821 | 0.817 | 0.793 |
+
+**Complete per-class set — idiom probe (n=100, held out of training, same 100 rows for all four)**
+
+| | v2 (published) | v3 (downsampled) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|---|
+| **Overall accuracy** | **0.870** | 0.830 | 0.850 | 0.820 |
+| **Macro F1** | **0.759** | 0.583 | 0.745 | 0.683 |
+| Positive — precision | 0.875 | 0.800 | 0.848 | 0.893 |
+| Positive — recall | 0.903 | 0.903 | **0.903** | 0.806 |
+| Positive — F1 | **0.889** | 0.848 | 0.875 | 0.847 |
+| Positive — accuracy_ovr | 0.93 | 0.90 | 0.92 | 0.91 |
+| Negative — precision | **0.902** | 0.873 | 0.883 | 0.857 |
+| Negative — recall | **0.932** | **0.932** | 0.898 | 0.915 |
+| Negative — F1 | **0.917** | 0.902 | 0.891 | 0.885 |
+| Negative — accuracy_ovr | 0.90 | 0.88 | 0.87 | 0.86 |
+| Neutral — precision | 0.571 | 0.0 | 0.571 | 0.333 |
+| Neutral — recall | 0.4 | 0.0 | 0.4 | 0.3 |
+| Neutral — F1 | 0.471 | **0.0** | 0.471 | 0.316 |
+| Neutral — accuracy_ovr | 0.91 | 0.88 | 0.91 | 0.87 |
+
+**Disposition after the offline gate — rejected pending a downstream check**: unlike v3/v4,
+this candidate loses to v2 on nearly every sentence-level/idiom-probe metric, most visibly
+neutral F1 on the idiom probe (0.471→0.316). v3 and v4 each earned the expensive downstream
+production-pipeline eval (~11 minutes, 2,000 judge calls) by winning cleanly somewhere on this
+cheaper gate first; v5 doesn't clear it the same way. Base-checkpoint vocabulary doesn't look
+like the fix for `precision_negative`'s stuck-ness at the sentence level — the aggregation-level
+multi-company/mixed-signal misattribution identified in the 2026-09-13 follow-up (89% of the
+435 false-alarm cases) remains the more likely structural cause there.
+
+**Run anyway, at the user's explicit request** ("the metrics seem more solid than the previous
+model except for the neutral ones... I have a good feeling") — the downstream eval below tells
+a more nuanced story than the offline gate suggested.
+
+### Follow-up (2026-09-15, same day): v5's downstream production-pipeline eval, run despite the offline rejection above
+
+Same mechanics as v4's downstream eval (`scripts/resample_sentiment_v5_2026_09_15.py`, modeled
+on `scripts/resample_sentiment_v4_2026_09_15.py`): a **fresh** scratch copy of the results DB
+(`nlp_use_v5.db`, copied from `nlp_.db` — deliberately not v4's own `nlp_use.db`, so this run
+can't collide with or be confused with v4's already-scored/versioned state there), production
+`article_sentiment` versioned and recreated empty, `pipeline.SENTIMENT_MODEL` monkeypatched
+in-process only (`src/pipeline.py` on disk untouched) to v5's local checkpoint. 2,500 real
+articles scored, then `cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1`
+(the documented floor) — `eval_run` 35 (in `nlp_use_v5.db`'s own independent sequence, not the
+same row as v4's `eval_run` 35 in its own scratch copy), `mlflow_run_id`
+`ed0e9ff7b4574bf98569bd141ac566a1`.
+
+**Complete per-class set, all three candidates, same downstream methodology**
+
+| | v2 (published) | v4 (class-weighted) | **v5 (sec-bert-base)** |
+|---|---|---|---|
+| **agreement_rate** | 0.701 | 0.674 | 0.689 |
+| **macro_f1_vs_judge** | 0.731 | 0.724 | 0.717 |
+| **mean_severity** (lower is better) | 0.341 | 0.369 | 0.352 |
+| Positive — precision | 0.647 | 0.638 | 0.620 |
+| Positive — recall | 0.801 | 0.777 | 0.728 |
+| Positive — F1 | 0.716 | 0.701 | 0.670 |
+| Positive — accuracy_ovr | 0.878 | 0.870 | 0.865 |
+| Negative — precision | 0.513 | 0.507 | **0.526** |
+| Negative — recall | **0.808** | **0.832** | 0.760 |
+| Negative — F1 | 0.628 | 0.630 | 0.622 |
+| Negative — accuracy_ovr | 0.882 | 0.877 | **0.906** |
+| Neutral — precision | **0.936** | 0.933 | 0.915 |
+| Neutral — recall | 0.777 | 0.764 | **0.814** |
+| Neutral — F1 | 0.849 | 0.840 | **0.861** |
+| Neutral — accuracy_ovr | 0.811 | 0.803 | **0.814** |
+
+**A more nuanced result than the offline gate predicted**: `precision_negative` — the specific
+metric this whole experiment was built to move, stuck at 0.505/0.513/0.507 across v1/v2/v4 —
+actually ticks up with v5 (0.513→0.526), and `accuracy_ovr_negative` (0.906) and neutral
+F1/recall/accuracy_ovr are all v5's best of the three. It's not a clean win, though:
+`recall_negative` drops to 0.760 (worse than both v2 and v4, and this pipeline's stated
+priority metric), and `agreement_rate`/`macro_f1_vs_judge` both land worse than v2 (though
+better than v4 on both).
+
+**Disposition — not adopted**: despite the real, specific movement on `precision_negative`,
+v5 doesn't beat v4 on the metric that decided v4's adoption (`recall_negative`), and its
+`agreement_rate` sits between v2 and v4 rather than beating either outright. The user's decision
+(2026-09-15) was to adopt **v4** for production — see the follow-up documenting that below.
+Model saved locally to `models/sec-bert-base-financial-sentiment` (not published to the Hub);
+offline metrics in `data/sentiment_finetune/test_metrics_sec_bert_base.json`, downstream
+metrics in `nlp_use_v5.db`'s `eval_run` 35 / MLflow run `ed0e9ff7b4574bf98569bd141ac566a1`.
+`src/pipeline.py`'s `MODEL_REVISIONS` is untouched by this experiment, and the real
+`nlp_.db`/`nlp.db` were never opened for writing at any point in either v5 follow-up.
+
+### Follow-up (2026-09-15, same day): Work item 9 decided — v4 adopted for production
+
+With all three candidates now measured downstream (v2 baseline, v4 class-weighted, v5
+base-checkpoint-swap — see the three follow-ups above), the user made the adoption call this
+work item had been blocked on since 2026-09-14 (T-073): **v4 (class-weighted loss) is the
+version this repo's pipeline pins**, chosen for the real `recall_negative` gain (0.808→0.832,
+this pipeline's stated priority metric) despite the `agreement_rate`/`mean_severity` cost
+disclosed in that follow-up's table. v3 (downsampled) and v5 (base-checkpoint swap) remain
+documented, measured candidates, not adopted — v3 for its idiom-probe neutral collapse, v5 for
+not beating v4 on `recall_negative` despite its own real `precision_negative` gain.
+
+**Not yet live — the publish itself is blocked, not the decision.** The publish script
+(`scripts/publish_finbert_financial_news_v4_2026_09_15.py`, model card carries the full offline
++ downstream comparison in one-vs-rest precision/recall/F1 form) is written and ready, and
+`src/pipeline.py`'s `MODEL_REVISIONS` pin move is prepared to land in the same change once it
+runs — but Claude Code's auto-mode classifier denies the Hub push itself as a "Create Public
+Surface" action without explicit user permission (a Bash permission rule, or the user running
+the script directly). `gamug/FinBERT-financial-news` still serves v2 until that step completes;
+unlike v3's publish, this one is intended to be wired into the pipeline the same PR ships it in,
+not left as an available-but-unpinned checkpoint, once unblocked. `sector_summary`'s pre-fix
+rows and the ~439K
+pre-pin-era `article_entities` rows (Work items 3/6's own non-blocking backfill items) are
+unaffected by this change; existing `article_sentiment` rows are not retroactively
+reprocessed with v4 — same precedent as Work item 1's checkpoint-pinning ("pinning going
+forward is enough," `PLAN.md` non-goals) — a full-corpus resentiment backfill is a separate,
+not-yet-scoped decision.
+
+### Follow-up (2026-09-15, same day): sentiment's downstream eval narrowed to one-vs-rest metrics only
+
+Presenting sentiment's results across this work item's several follow-ups (chat summaries, the
+repository artifact, this doc) repeatedly mixed two different framings in the same report —
+per-class one-vs-rest numbers (`precision_negative`, `recall_negative`, ...) alongside
+aggregate, blended-across-all-three-classes numbers (`agreement_rate`, `macro_f1_vs_judge`,
+`mean_severity`) — and that mixing was a real, repeated source of confusion (a table showing
+"precision 0.647 / recall 0.801 / F1 0.716" for one class read as inconsistent with a different
+number shown minutes earlier from a different evaluation set, and an aggregate metric sitting
+next to per-class ones in the same table was misread as another class). At the user's explicit
+request, `news_nlp.eval.metrics.aggregate_sentiment` (the downstream, MLflow-tracked LLM-judge
+harness) now computes **only** one-vs-rest metrics for sentiment: `precision_<class>`,
+`recall_<class>`, `f1_<class>`, `accuracy_ovr_<class>` (each HT-weighted and naive-pooled), plus
+`n`/`parse_fail_rate` run bookkeeping. `agreement_rate`, `agreement_rate_<bucket>`,
+`macro_f1_vs_judge`(`_naive_pooled`), and `mean_severity` are no longer computed for sentiment at
+all — not just hidden from a report.
+
+**Scoped to sentiment only** — `aggregate_category`/`aggregate_ner`/`aggregate_c_summary`/
+`aggregate_sector_intro` are unchanged, still reporting their full complete metric set including
+aggregate/overall numbers, per constitution AI behavior #12. `HEADLINE["sentiment"]` is
+unaffected (`recall_negative` was already a per-class metric, not an aggregate one), so
+`--check-regression` keeps working exactly as before.
+
+**Constitution amended** (AI behavior #12, this session): the "complete metric set" principle
+now explicitly carves out sentiment as one-vs-rest-only for its downstream methodology — see
+`.specify/memory/constitution.md`, version bumped for the redefinition (a MAJOR change per this
+project's own governance rule, since it narrows what #12 requires for one stage, not a new
+addition). Every table in this document *before* this follow-up that shows
+`agreement_rate`/`macro_f1_vs_judge`/`mean_severity` for sentiment is a historical record of a
+run made under the old aggregation code and stays as-is — those numbers were real, computed
+values at the time, not retroactively wrong; they're just no longer what a *future* sentiment
+run will produce. `eval_run` rows already recorded in the database keep their full stored
+`metrics_json` (including the old aggregate fields) regardless of this code change — only future
+runs are affected.
+
+Tests: `tests/news_nlp/test_eval_metrics.py`'s two sentiment tests that asserted
+`agreement_rate`/`macro_f1_vs_judge` were updated (one renamed
+`test_sentiment_per_class_f1_ht_and_naive_pooled`, asserting those keys are now *absent*; the
+other's `agreement_rate` assertion replaced with an equivalent per-class `f1_positive` check).
+Full suite (231 tests), ruff, and mypy all green.
+
 ### Follow-up (2026-09-14): c_summary full-article-vs-lead-cap mismatch confirmed and fixed
 
 Started `PLAN.md` Work item 6 (summarization eval validation) by checking
