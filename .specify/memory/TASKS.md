@@ -621,11 +621,34 @@ efforts.
       way. 245 tests (243 + 2 new `batch_size` override tests), ruff, mypy
       all green; `train_ner` import-smoke-tested (no `--help` path since it
       has no argparse).
-- [ ] **T-085** Migrate the category stage onto the FTI hierarchy
+- [x] **T-085** Migrate the category stage onto the FTI hierarchy
       (`_category_premises`/level-1-level-2 batch logic → `Feature`; a
       documented no-op `Trainer` — zero-shot, no fine-tuning step exists
       today; `run_category_stage` → `Inference`). No behavioral change. →
-      step 1 / FR-011.
+      step 1 / FR-011. Done 2026-09-16: `src/category_stage.py` (new)
+      holds `classify_group_scores`/`top2_groups`/`classify_category_scores`
+      (moved verbatim), `CategoryFeature` (one premise per article --
+      simpler than NER, reuses `Feature`'s own default `extract_batch`
+      loop since category's real cross-article batching happens one level
+      down, inside the (premise, hypothesis)-pair tokenizer calls) and
+      `CategoryInference` (level-1 routing + level-2 forward pass, folded
+      into one `predict_batch` call per outer batch). `Trainer` is a plain
+      reuse of `fti.NoOpTrainer` (zero-shot, nothing to fine-tune) --
+      documented in the module docstring, no subclass needed.
+      `write_predictions` writes in two passes with an explicit
+      mid-`conn.commit()` between them to preserve the original code's
+      exact two-commit-per-batch behavior ("flush this batch's
+      short-circuited rows now"), which the base `run()` template's
+      single trailing commit alone wouldn't reproduce. Caught and fixed
+      one real, pre-existing coupling this migration would otherwise have
+      broken: `tests/news_nlp/test_pipeline_progress.py`'s sentiment
+      empty-progress test and `test_sentiment_pipeline.py`'s own
+      integration test both still monkeypatched `pipeline.
+      AutoModelForSequenceClassification` (a T-083 leftover that only kept
+      working because `pipeline.py` still imported that class for
+      category's sake) -- both retargeted to `sentiment_stage.
+      AutoModelForSequenceClassification`. 243 tests, ruff, mypy all
+      green.
 - [ ] **T-086** Migrate `c_summary` onto the FTI hierarchy
       (`hierarchical_summarize_batch`'s chunk/reduce logic → `Feature`; a
       documented no-op `Trainer`; `run_company_summary_stage` →

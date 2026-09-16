@@ -165,7 +165,7 @@ def test_run_sentiment_stage_is_not_dragged_negative_by_a_different_companys_bad
         pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: FakeSentimentTokenizer(vocab)
     )
     monkeypatch.setattr(
-        pipeline.AutoModelForSequenceClassification,
+        sentiment_stage.AutoModelForSequenceClassification,
         "from_pretrained",
         lambda *_a, **_k: FakeSentimentModel(id2label, id2logits),
     )
