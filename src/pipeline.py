@@ -28,12 +28,12 @@ from tqdm import tqdm
 from transformers import (
     AutoModelForSeq2SeqLM,
     AutoModelForSequenceClassification,
-    AutoModelForTokenClassification,
     AutoTokenizer,
 )
 
 import news_nlp as db
-from chunking import Chunk, chunk_text, merge_char_spans
+from chunking import chunk_text
+from ner_stage import NerFeature, NerInference
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -102,13 +102,9 @@ SENTIMENT_MODEL = "gamug/FinBERT-financial-news"
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"
 CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 
-# Last-resort net for the write path: a single-character span is almost
-# certainly junk (see merge_bio_predictions' word-id fix for the actual root
-# cause this exists alongside, not instead of).
-_MIN_ENTITY_TEXT_LEN = 2
 # Articles per forward pass, not chunks per forward pass: every chunk of
 # every article in one NER_BATCH_SIZE-sized group of articles is flattened
-# into a single padded tokenizer call (see _ner_batch), so the actual
+# into a single padded tokenizer call (see ner_stage.NerFeature), so the actual
 # forward-pass batch dimension is the *total chunk count* across those
 # articles, not this constant itself -- unlike CATEGORY_BATCH_SIZE (a fixed
 # 9 pairs/article, so its forward-pass width is exactly
@@ -280,169 +276,6 @@ def run_sentiment_stage(
     inference.run(conn, limit, on_progress, sample_seed=sample_seed)
 
 
-def merge_bio_predictions(
-    pred_ids: list[int],
-    word_ids: list[int | None],
-    offsets: list[tuple[int, int]],
-    probs: list[list[float]],
-    id2label: dict[int, str],
-) -> list[dict[str, Any]]:
-    """Convert token-level BIO predictions (with char offsets local to the
-    chunk) into merged entity spans local to the chunk.
-
-    Word-boundary aware: only a word's *first* WordPiece subword ever decides
-    a span boundary (open, close, or same-type continuation). A continuation
-    subword (``word_id == prev_word_id``) never independently closes,
-    redirects, or starts a span -- it only extends whatever the owning word's
-    first subword already decided, because ``train_ner.py``'s
-    ``make_tokenize_fn`` masks every continuation subword to
-    ``IGNORED_LABEL_ID`` in the training loss: the model gets zero training
-    signal for what to predict there, so treating its raw argmax there as a
-    real decision (the pre-fix behavior) was training/inference-inconsistent.
-    Concretely, this fixes "3M" tokenized as ["3", "##M"] emitting a bogus
-    standalone "3"/ORG entity when the model's untrained-for continuation
-    prediction on "##M" happened not to be I-ORG (see docs/evaluation.md's
-    2026-09-10 NER follow-up for the real-data-confirmed scale of this).
-
-    A continuation subword's own probability is excluded from the entity's
-    averaged ``score`` for the same reason -- it was never calibrated against
-    any target at that position, so including it would make the average less
-    honest, not more informative.
-    """
-    entities: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
-    prev_word_id: int | None = None
-
-    for pred_id, word_id, (start, end), tok_probs in zip(
-        pred_ids, word_ids, offsets, probs, strict=True
-    ):
-        if word_id is None:  # special/padding token
-            prev_word_id = None
-            continue
-
-        is_continuation = word_id == prev_word_id
-        prev_word_id = word_id
-
-        if is_continuation:
-            if current is not None:
-                current["end_char"] = end
-            continue
-
-        # First subword of a word -- the only prediction the model was
-        # actually trained to produce a meaningful label for.
-        label = id2label[pred_id]
-        score = tok_probs[pred_id]
-
-        if label == "O":
-            if current:
-                entities.append(current)
-                current = None
-            continue
-
-        bio, tag_type = label.split("-", 1)
-        if bio == "B" or current is None or current["entity_type"] != tag_type:
-            if current:
-                entities.append(current)
-            current = {
-                "entity_type": tag_type,
-                "start_char": start,
-                "end_char": end,
-                "scores": [score],
-            }
-        else:
-            current["end_char"] = end
-            current["scores"].append(score)
-
-    if current:
-        entities.append(current)
-    return entities
-
-
-def _ner_batch(
-    tokenizer: Any, model: Any, id2label: dict[int, str], batch_rows: list[Row]
-) -> list[list[dict[str, Any]]]:
-    """Chunk every article in this batch (`chunk_text`, same as before
-    batching), flatten every chunk from every article into one padded
-    tokenizer call + one forward pass, then regroup entities back to their
-    owning article via the flattened list's tagging. Returns one entities
-    list per row in `batch_rows`, same order.
-
-    Correctness rests on HF fast tokenizers returning ``word_ids() is None``
-    for padding positions, exactly the same sentinel `merge_bio_predictions`
-    already uses to skip special tokens -- so calling it once per chunk
-    (sliced out of the batched output via `batch_index=i`), unchanged from
-    the pre-batching per-chunk call, "just works" against padded input with
-    no changes to that function.
-    """
-    flat_texts: list[str] = []
-    flat_chunk_starts: list[int] = []
-    owner: list[int] = []  # index into batch_rows, one entry per flat_texts entry
-    per_article_chunks: list[list[Chunk]] = []
-
-    for i, (_article_id, body_text) in enumerate(batch_rows):
-        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
-        per_article_chunks.append(chunks)
-        for ch in chunks:
-            flat_texts.append(ch.text)
-            flat_chunk_starts.append(ch.start_char)
-            owner.append(i)
-
-    per_article_entities: list[list[dict[str, Any]]] = [[] for _ in batch_rows]
-    if not flat_texts:
-        return per_article_entities
-
-    inputs = tokenizer(
-        flat_texts,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512,
-        padding=True,
-        return_offsets_mapping=True,
-    )
-    offsets_batch = inputs.pop("offset_mapping").tolist()
-    # Must be read before `inputs` is rebuilt as a plain device dict below --
-    # .word_ids() lives on the BatchEncoding, not the dict.
-    word_ids_batch = [inputs.word_ids(batch_index=i) for i in range(len(flat_texts))]
-    inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
-    with torch.no_grad():
-        logits = model(**inputs).logits
-        probs = torch.softmax(logits, dim=-1).cpu()
-        pred_ids_batch = probs.argmax(-1).tolist()
-
-    for i in range(len(flat_texts)):
-        chunk_entities = merge_bio_predictions(
-            pred_ids_batch[i], word_ids_batch[i], offsets_batch[i], probs[i].tolist(), id2label
-        )
-        article_idx = owner[i]
-        chunk_start = flat_chunk_starts[i]
-        body_text = batch_rows[article_idx][1]
-        for e in chunk_entities:
-            start = chunk_start + e["start_char"]
-            end = chunk_start + e["end_char"]
-            per_article_entities[article_idx].append(
-                {
-                    "entity_type": e["entity_type"],
-                    "text": body_text[start:end],
-                    "start_char": start,
-                    "end_char": end,
-                    "score": sum(e["scores"]) / len(e["scores"]),
-                }
-            )
-
-    for entities in per_article_entities:
-        entities[:] = merge_char_spans(entities)
-        # Last-resort net, not a substitute for merge_bio_predictions' word-
-        # boundary fix above: drops any single-character junk span that fix
-        # doesn't structurally prevent. A length floor, not a digit-specific
-        # check -- excludes_bare_digit's mistake (portfolio_common.db.
-        # dialect.SqliteDialect) was living downstream, in two read-side
-        # aggregate queries, and only ever catching bare digits. Revisit if
-        # this starts hiding a new real bug class.
-        entities[:] = [e for e in entities if len(e["text"].strip()) >= _MIN_ENTITY_TEXT_LEN]
-
-    return per_article_entities
-
-
 def run_ner_stage(
     conn: db.NewsNlpDatabase,
     limit: int | None = None,
@@ -456,47 +289,22 @@ def run_ner_stage(
     targeted reprocessing pass (docs/evaluation.md's 2026-09-12 NER
     follow-up), not routine pipeline runs.
 
-    Batched `NER_BATCH_SIZE` articles at a time via `_ner_batch` -- see that
-    constant's comment for why its forward-pass width isn't fixed the way
-    `CATEGORY_BATCH_SIZE`'s is."""
-    rows = db.fetch_pending_articles(conn, "article_entities", limit=limit, sample_seed=sample_seed)
-    total = len(rows)
-    print(f"\n=== NER stage ({NER_MODEL}) on {DEVICE} ===")
-    print(f"{total} article(s) pending NER")
-    if on_progress:
-        on_progress("ner", 0, total)
-    if total == 0:
-        return
-
-    tokenizer = AutoTokenizer.from_pretrained(NER_MODEL, revision=MODEL_REVISIONS[NER_MODEL])
-    model = (
-        AutoModelForTokenClassification.from_pretrained(
-            NER_MODEL, revision=MODEL_REVISIONS[NER_MODEL]
-        )
-        .to(DEVICE)
-        .eval()
+    A thin wrapper around `ner_stage.NerInference` (PLAN.md Work item 10 /
+    TASKS.md T-084) -- `merge_bio_predictions`/the cross-article batching
+    logic now live there. Passes `NER_MODEL`/`MODEL_REVISIONS`/
+    `NER_BATCH_SIZE` through explicitly, read fresh from this module's own
+    globals on every call, so a resample script's or test's
+    `pipeline.NER_MODEL = ...`/`pipeline.NER_BATCH_SIZE = ...` monkeypatch
+    keeps working exactly as before. Batched `NER_BATCH_SIZE` articles at a
+    time -- see that constant's comment for why its forward-pass width
+    isn't fixed the way `CATEGORY_BATCH_SIZE`'s is."""
+    inference = NerInference(
+        NerFeature(),
+        model_name=NER_MODEL,
+        revision=MODEL_REVISIONS[NER_MODEL],
+        batch_size=NER_BATCH_SIZE,
     )
-    id2label = {int(k): v for k, v in model.config.id2label.items()}
-
-    idx = 0
-    with tqdm(total=total, desc="ner") as pbar:
-        for batch_start in range(0, total, NER_BATCH_SIZE):
-            batch_rows = rows[batch_start : batch_start + NER_BATCH_SIZE]
-            per_article_entities = _ner_batch(tokenizer, model, id2label, batch_rows)
-
-            for (article_id, _body_text), article_entities in zip(
-                batch_rows, per_article_entities, strict=True
-            ):
-                db.write_entities(conn, article_id, article_entities, model_name=NER_MODEL)
-                idx += 1
-                pbar.update(1)
-                if on_progress:
-                    on_progress("ner", idx, total)
-
-            conn.commit()
-
-    del model, tokenizer
-    free_gpu()
+    inference.run(conn, limit, on_progress, sample_seed=sample_seed)
 
 
 def classify_group_scores(entail_logits: list[float]) -> tuple[str, float, dict[str, float]]:

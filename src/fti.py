@@ -209,6 +209,7 @@ class Inference[RowT, FeatureT]:
         model_name: str | None = None,
         revision: str | None = None,
         device: torch.device | None = None,
+        batch_size: int | None = None,
     ) -> None:
         """`model_name` overrides `type(self).MODEL_NAME` for just this
         instance (a scoped alternative to the class-attribute monkeypatch
@@ -223,11 +224,18 @@ class Inference[RowT, FeatureT]:
         truth. `device` overrides the auto-detected default the same way;
         default is always `torch.device("cuda" if torch.cuda.is_available()
         else "cpu")` -- never hardcoded "cuda", preserving the constitution's
-        CPU-fallback requirement (AI behavior #2)."""
+        CPU-fallback requirement (AI behavior #2). `batch_size` overrides
+        `batch_size()`'s own default the same way -- needed by a caller
+        reading its own current batch-size pin from elsewhere (e.g. NER's
+        `pipeline.NER_BATCH_SIZE`, which a test/script can monkeypatch
+        before calling the stage) and passing it through explicitly at each
+        call, the same reason `revision` is passed through rather than
+        trusted to stay in sync with a class attribute."""
         self.feature = feature
         self.model_name = model_name or type(self).MODEL_NAME
         self._revision_override = revision
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._batch_size_override = batch_size
         self.model: Any = None
         self.tokenizer: Any = None
 
@@ -269,11 +277,16 @@ class Inference[RowT, FeatureT]:
     def batch_size(self) -> int | None:
         """Rows per `predict_batch` call, or `None` to run every pending
         row through one `predict_batch` call (sentiment's current shape --
-        no batching across articles yet). Returns `NER_BATCH_SIZE`/
-        `CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE`'s value for the other
-        three once migrated. A method, not a class attribute, so a subclass
-        can size it off `self.device` later without changing `run`'s loop."""
-        return None
+        no batching across articles yet). Returns `self._batch_size_override`
+        by default -- `None` unless the constructor's `batch_size` argument
+        was passed, in which case a subclass need not override this method
+        at all (NER's `NerInference` does exactly that, so
+        `pipeline.run_ner_stage`'s thin wrapper can pass `NER_BATCH_SIZE`
+        through fresh on every call). Returns `CATEGORY_BATCH_SIZE`/
+        `SUMMARY_BATCH_SIZE`'s value for the other two once migrated. A
+        method, not a class attribute, so a subclass can size it off
+        `self.device` later without changing `run`'s loop."""
+        return self._batch_size_override
 
     def predict_batch(self, features: FeatureBatch[FeatureT]) -> list[Any]:
         """Run this stage's forward pass (+ postprocessing -- NER's

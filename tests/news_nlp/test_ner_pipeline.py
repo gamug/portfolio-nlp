@@ -18,6 +18,7 @@ import pytest
 import torch
 from conftest import seed_article
 
+import ner_stage
 import news_nlp as db
 import pipeline
 from news_nlp.corrections import delete_entities_for_article
@@ -44,7 +45,7 @@ def test_continuation_subword_with_flipped_label_still_extends_entity() -> None:
     offsets = [(0, 1), (1, 2)]
     probs = [_probs_row(5, 1), _probs_row(5, 0)]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities == [{"entity_type": "ORG", "start_char": 0, "end_char": 2, "scores": [0.9]}]
 
@@ -58,7 +59,7 @@ def test_new_b_tag_on_different_word_produces_two_entities() -> None:
     offsets = [(0, 1), (2, 3)]
     probs = [_probs_row(5, 1), _probs_row(5, 1)]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities == [
         {"entity_type": "ORG", "start_char": 0, "end_char": 1, "scores": [0.9]},
@@ -75,7 +76,7 @@ def test_multiword_entity_merges_across_word_boundaries() -> None:
     offsets = [(0, 1), (1, 2), (3, 4), (4, 5)]
     probs = [_probs_row(5, p) for p in pred_ids]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities == [
         {"entity_type": "ORG", "start_char": 0, "end_char": 5, "scores": [0.9, 0.9]}
@@ -90,7 +91,7 @@ def test_o_after_continuation_closes_entity_correctly() -> None:
     offsets = [(0, 1), (1, 2), (3, 4)]
     probs = [_probs_row(5, p) for p in pred_ids]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities == [{"entity_type": "ORG", "start_char": 0, "end_char": 2, "scores": [0.9]}]
 
@@ -104,7 +105,7 @@ def test_continuation_subword_scores_excluded_from_average() -> None:
     offsets = [(0, 1), (1, 2)]
     probs = [_probs_row(5, 1, winning_p=0.7), _probs_row(5, 2, winning_p=0.99)]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities[0]["scores"] == [0.7]  # not [0.7, 0.99]
 
@@ -118,7 +119,7 @@ def test_special_tokens_are_skipped_via_word_id_none() -> None:
     offsets = [(0, 0), (0, 1), (0, 0)]
     probs = [_probs_row(5, p) for p in pred_ids]
 
-    entities = pipeline.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
+    entities = ner_stage.merge_bio_predictions(pred_ids, word_ids, offsets, probs, _ID2LABEL)
 
     assert entities == [{"entity_type": "ORG", "start_char": 0, "end_char": 1, "scores": [0.9]}]
 
@@ -210,7 +211,7 @@ def test_run_ner_stage_does_not_split_3m_into_a_bogus_bare_digit_entity(
         lambda *_a, **_k: FakeNerTokenizer(offsets, word_ids),
     )
     monkeypatch.setattr(
-        pipeline.AutoModelForTokenClassification,
+        ner_stage.AutoModelForTokenClassification,
         "from_pretrained",
         lambda *_a, **_k: FakeNerModel(id2label, pred_ids_by_position),
     )
@@ -372,7 +373,7 @@ def test_batched_and_per_article_ner_processing_produce_identical_entities(
     model = BatchedFakeNerModel(id2label, id2pred)
     monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: tokenizer)
     monkeypatch.setattr(
-        pipeline.AutoModelForTokenClassification, "from_pretrained", lambda *_a, **_k: model
+        ner_stage.AutoModelForTokenClassification, "from_pretrained", lambda *_a, **_k: model
     )
 
     # Run 1: one article per forward pass (no cross-article padding).

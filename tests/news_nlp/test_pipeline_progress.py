@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+import ner_stage
 import pipeline
 
 
@@ -30,7 +31,9 @@ def test_run_ner_stage_reports_empty_progress_without_loading_model(
         raise AssertionError("model should not be loaded when there is nothing to process")
 
     monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
-    monkeypatch.setattr(pipeline.AutoModelForTokenClassification, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(
+        ner_stage.AutoModelForTokenClassification, "from_pretrained", fail_if_called
+    )
 
     calls = []
     pipeline.run_ner_stage(conn, on_progress=lambda *a: calls.append(a))
