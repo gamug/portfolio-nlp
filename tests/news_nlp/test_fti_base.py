@@ -94,6 +94,16 @@ def test_inference_run_skips_load_model_when_nothing_pending() -> None:
     assert calls == [("fake", 0, 0)]
 
 
+def test_inference_revision_override_wins_over_class_model_revisions() -> None:
+    inf = _FakeInference(_EchoFeature(), model_name="fake/model", revision="explicit-sha")
+    assert inf.revision == "explicit-sha"
+
+
+def test_inference_revision_falls_back_to_class_model_revisions_when_not_overridden() -> None:
+    inf = _FakeInference(_EchoFeature(), model_name="fake/model")
+    assert inf.revision == "abc123"
+
+
 def test_inference_run_frees_model_even_if_predict_batch_raises() -> None:
     class _BoomInference(_FakeInference):
         def predict_batch(self, features: FeatureBatch[str]) -> list[Any]:

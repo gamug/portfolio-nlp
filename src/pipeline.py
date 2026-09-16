@@ -16,7 +16,6 @@ Two-tier DB: run_pipeline reads article text from the read-only SOURCE store
 """
 
 import gc
-import re
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -44,6 +43,7 @@ from news_nlp.taxonomy import (
     CATEGORY_SLUGS,
     OTHER_LABEL,
 )
+from sentiment_stage import SentimentFeature, SentimentInference
 
 # Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
 # `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
@@ -90,15 +90,15 @@ SENTIMENT_MODEL = "gamug/FinBERT-financial-news"
 # false alarms on multi-company/mixed-signal articles the aggregation has
 # no principled way to net out -- a document-structure-level gap measured
 # and disclosed, not a silent one.
-_SENTIMENT_SUBJECT_WEIGHT = 1.0
-_SENTIMENT_BASELINE_WEIGHT = 0.35
-# Strips common corporate suffixes so "Acme Corp." / "Acme Corporation"
-# both match a sentence naming just "Acme".
-_CORP_SUFFIX_RE = re.compile(
-    r"\b(incorporated|inc|corporation|corp|company|co|limited|ltd|plc|llc|"
-    r"holdings?|group)\.?\b",
-    re.IGNORECASE,
-)
+#
+# The entity-scoped weighting logic itself (`_sentiment_chunk_weights`,
+# `_text_mentions_subject`, `_normalize_company_name`,
+# `_SENTIMENT_SUBJECT_WEIGHT`/`_SENTIMENT_BASELINE_WEIGHT`/
+# `_CORP_SUFFIX_RE`) now lives in `sentiment_stage.py` (PLAN.md Work item
+# 10 / TASKS.md T-083, migrated onto the FTI hierarchy 2026-09-16) --
+# `SENTIMENT_MODEL` stays defined here since `setup.py` and the
+# `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py` candidate-eval
+# scripts still read/monkeypatch it (and `MODEL_REVISIONS` below) directly.
 NER_MODEL = "gamug/sec-bert-finer-ord-ner"
 CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 
@@ -236,43 +236,6 @@ def free_gpu() -> None:
         torch.cuda.empty_cache()
 
 
-def _normalize_company_name(name: str) -> str:
-    """Strip corporate suffixes and punctuation for a looser company-name
-    comparison -- see `_text_mentions_subject`."""
-    name = _CORP_SUFFIX_RE.sub(" ", name)
-    name = re.sub(r"[^\w\s]", " ", name)
-    return " ".join(name.split()).strip().lower()
-
-
-def _text_mentions_subject(text: str, company: str | None, ticker: str | None) -> bool:
-    """True if `text` names the article's own subject company or ticker --
-    the signal `_sentiment_chunk_weights` uses to scope FinBERT's read
-    toward the company this article is actually about, instead of treating
-    a chunk about a different company (or generic market commentary) as
-    equally informative. Generic over its input granularity (originally
-    written for single sentences, now applied per ~510-token chunk -- see
-    `run_sentiment_stage`'s docstring for why the granularity changed)."""
-    lowered = text.lower()
-    if ticker and re.search(rf"\b{re.escape(ticker.lower())}\b", lowered):
-        return True
-    if company:
-        normalized = _normalize_company_name(company)
-        if normalized and normalized in _normalize_company_name(text):
-            return True
-    return False
-
-
-def _sentiment_chunk_weights(
-    chunks: list[Chunk], company: str | None, ticker: str | None
-) -> list[float]:
-    return [
-        _SENTIMENT_SUBJECT_WEIGHT
-        if _text_mentions_subject(ch.text, company, ticker)
-        else _SENTIMENT_BASELINE_WEIGHT
-        for ch in chunks
-    ]
-
-
 def run_sentiment_stage(
     conn: db.NewsNlpDatabase,
     limit: int | None = None,
@@ -281,44 +244,22 @@ def run_sentiment_stage(
     sample_seed: int | None = None,
 ) -> None:
     """Entity-scoped, chunk-level aggregation (PLAN.md Work item 4 step 1,
-    chosen 2026-09-12, revised to chunk granularity 2026-09-13). Scores
-    each ~510-token, sentence-packed chunk (`chunk_text`, same helper
-    NER/category use) in one forward pass -- preserving several sentences'
-    worth of real discourse context per call -- then combines chunks
-    weighted by `_sentiment_chunk_weights` (full weight for chunks naming
-    the article's own company/ticker, a lower baseline for everything
-    else) instead of the old plain token-count-weighted mean, which gave a
-    chunk about a different company, or generic market commentary, the
-    same say in the article's score as a chunk actually about its subject.
+    chosen 2026-09-12, revised to chunk granularity 2026-09-13; migrated
+    onto the FTI hierarchy 2026-09-16, PLAN.md Work item 10 / TASKS.md
+    T-083 -- see `sentiment_stage.SentimentFeature`/`SentimentInference`
+    for the actual chunking/weighting/forward-pass logic, unchanged in
+    behavior from before this migration).
 
-    **Revision history**: the first version of this fix (2026-09-12) scored
-    each *sentence* individually, matching FinBERT's own Financial
-    PhraseBank fine-tuning granularity. Real-data evaluation the next day
-    (`docs/evaluation.md`) showed `recall_negative` regressing more than
-    expected. A live probe run earlier in that diagnosis had already shown
-    whole-chunk scoring correctly handling a mixed-sentiment passage in one
-    forward pass, while naive per-sentence averaging did not -- evidence,
-    in hindsight, that decontextualizing down to single sentences threw
-    away real discourse signal (negation, contrast, expectation-relative
-    framing) that a several-sentence chunk preserves. This revision keeps
-    the entity-scoped *weighting* idea (validated separately, on its own
-    merits) but moves the unit it's applied to back to chunk level, which
-    is also ~7-10x fewer forward passes per article than per-sentence
-    scoring (a chunk covers many sentences).
-
-    Not batched across chunks/articles yet (unlike NER's `_ner_batch` /
-    category's `CATEGORY_BATCH_SIZE`) -- correctness first, matching how
-    NER's own batching was sequenced (PLAN.md Work item 7): a throughput
-    pass is a natural, separate follow-up once this aggregation is
-    validated against real data.
-
-    **Model swap (2026-09-13)**: `SENTIMENT_MODEL` moved from base
-    `ProsusAI/finbert` to `gamug/FinBERT-financial-news`, a continued
-    fine-tune on real, LLM-labeled in-domain sentences -- this weighting
-    scheme and the model swap were evaluated together and selected as one
-    decision, not two independent ones (see `SENTIMENT_MODEL`'s own
-    comment above and `docs/evaluation.md`'s 2026-09-13 follow-ups for the
-    full four-candidate comparison this was chosen from).
+    Kept here as a real, settable module-level function (not inlined into
+    `run_pipeline`) rather than migrated away entirely, for two reasons:
+    `tests/news_nlp/test_pipeline_run.py` monkeypatches
+    `pipeline.run_sentiment_stage` itself to stub out the stage from
+    `run_pipeline`, and `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py`
+    (PLAN.md Work item 9) monkeypatch `pipeline.SENTIMENT_MODEL`/
+    `pipeline.MODEL_REVISIONS[...]` *before* calling this function to score
+    a candidate model without touching this file on disk -- both module
+    globals are read fresh here on every call (not at import time), so
+    that pattern keeps working exactly as before this migration.
 
     `sample_seed` (with `limit` as the sample size): a reproducible random
     sample of pending articles instead of the normal backlog-order first
@@ -331,66 +272,12 @@ def run_sentiment_stage(
     concentrated in early-crawled ids made an unseeded resample 94%
     unrepresentative on that axis).
     """
-    rows = db.fetch_pending_sentiment_articles(conn, limit=limit, sample_seed=sample_seed)
-    total = len(rows)
-    print(f"\n=== Sentiment stage ({SENTIMENT_MODEL}) on {DEVICE} ===")
-    print(f"{total} article(s) pending sentiment analysis")
-    if on_progress:
-        on_progress("sentiment", 0, total)
-    if total == 0:
-        return
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        SENTIMENT_MODEL, revision=MODEL_REVISIONS[SENTIMENT_MODEL]
+    inference = SentimentInference(
+        SentimentFeature(),
+        model_name=SENTIMENT_MODEL,
+        revision=MODEL_REVISIONS[SENTIMENT_MODEL],
     )
-    model = (
-        AutoModelForSequenceClassification.from_pretrained(
-            SENTIMENT_MODEL, revision=MODEL_REVISIONS[SENTIMENT_MODEL]
-        )
-        .to(DEVICE)
-        .eval()
-    )
-    id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
-
-    for idx, (article_id, company, ticker, body_text) in enumerate(
-        tqdm(rows, desc="sentiment"), start=1
-    ):
-        chunks = chunk_text(body_text, tokenizer, max_tokens=510)
-        if chunks:
-            weights = _sentiment_chunk_weights(chunks, company, ticker)
-            weighted_probs = torch.zeros(len(id2label))
-            total_weight = 0.0
-            for ch, weight in zip(chunks, weights, strict=True):
-                inputs = tokenizer(
-                    ch.text, return_tensors="pt", truncation=True, max_length=512
-                ).to(DEVICE)
-                with torch.no_grad():
-                    logits = model(**inputs).logits[0]
-                    probs = torch.softmax(logits, dim=-1).cpu()
-                weighted_probs += probs * weight
-                total_weight += weight
-
-            avg_probs = (weighted_probs / total_weight).tolist()
-            class_probs = {id2label[i]: p for i, p in enumerate(avg_probs)}
-            label = max(class_probs, key=class_probs.__getitem__)
-
-            db.write_sentiment(
-                conn,
-                article_id,
-                label=label,
-                score=class_probs[label],
-                positive=class_probs.get("positive", 0.0),
-                negative=class_probs.get("negative", 0.0),
-                neutral=class_probs.get("neutral", 0.0),
-                model_name=SENTIMENT_MODEL,
-            )
-            conn.commit()
-
-        if on_progress:
-            on_progress("sentiment", idx, total)
-
-    del model, tokenizer
-    free_gpu()
+    inference.run(conn, limit, on_progress, sample_seed=sample_seed)
 
 
 def merge_bio_predictions(

@@ -574,11 +574,35 @@ efforts.
       `tests/news_nlp/test_fti_base.py` (7 tests, structural only, no real
       stage/model). No existing file touched; full suite green (239 —
       232 baseline + 7 new).
-- [ ] **T-083** Migrate the sentiment stage onto the FTI hierarchy
+- [x] **T-083** Migrate the sentiment stage onto the FTI hierarchy
       (`_sentiment_chunk_weights`/`_text_mentions_subject` → `Feature`;
       `train_sentiment.py` → `Trainer`; `run_sentiment_stage` →
       `Inference`). No behavioral change — existing sentiment hermetic
       tests pass unmodified except import paths. → step 1 / FR-011.
+      **Done 2026-09-16** — new `src/sentiment_stage.py`
+      (`SentimentFeature`/`SentimentInference`); `train_sentiment.py`
+      gains `SentimentTrainConfig`/`SentimentTrainer` (migrated `main()`'s
+      body verbatim, byte-for-byte diffed against the pre-migration
+      version — only `args_ns.X` → `config.X`). `run_sentiment_stage`
+      stays a thin, settable module-level wrapper in `pipeline.py` reading
+      `SENTIMENT_MODEL`/`MODEL_REVISIONS` fresh each call, so
+      `test_pipeline_run.py`'s stub monkeypatch and the three
+      `resample_sentiment_v{3,4,5}_2026_09_15.py` scripts' model-swap
+      monkeypatch both keep working unchanged. `fti.Inference` gained one
+      small additive extension (an explicit `revision` override) to
+      support this. Corrected an over-cautious T-082-era assumption along
+      the way: monkeypatching a class (`pipeline.AutoTokenizer`, `pipeline.
+      db`) is visible globally regardless of which module's import
+      triggered it, since import binds a name to the same object rather
+      than copying it — so only the 5 tests calling the relocated pure
+      functions directly needed an import-path change, not the model-
+      loading/db-fetch monkeypatches. Caught and fixed one real,
+      undisclosed-by-any-test behavioral-regression risk during design:
+      `SentimentInference` overrides `batch_size()` to `1` to preserve
+      today's real per-article commit granularity (the base class's
+      default would have silently reduced it to one commit per run).
+      241 tests (239 + 2 new `revision` override tests), ruff, mypy all
+      green; `uv run src/train_sentiment.py --help` smoke-tested.
 - [ ] **T-084** Migrate the NER stage onto the FTI hierarchy
       (`_ner_batch`/`merge_bio_predictions` → `Feature`; `train_ner.py` →
       `Trainer`; `run_ner_stage` → `Inference`). No behavioral change. →
