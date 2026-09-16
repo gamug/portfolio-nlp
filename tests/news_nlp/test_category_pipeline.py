@@ -5,64 +5,72 @@ import pytest
 import torch
 from conftest import seed_article
 
+import category_stage
 import news_nlp as db
 import pipeline
-from news_nlp.taxonomy import CATEGORY_GROUP_SLUGS, CATEGORY_SLUG_TO_GROUP
+from news_nlp.taxonomy import (
+    CATEGORY_CONFIDENCE_THRESHOLD,
+    CATEGORY_GROUP_CHILDREN,
+    CATEGORY_GROUP_FLOOR,
+    CATEGORY_GROUP_SLUGS,
+    CATEGORY_SLUG_TO_GROUP,
+    CATEGORY_SLUGS,
+)
 
 # --- classify_group_scores / top2_groups / classify_category_scores --------
 # (pure functions, no model needed)
 
 
 def test_classify_group_scores_picks_highest_and_returns_full_distribution() -> None:
-    group_label, group_score, group_scores = pipeline.classify_group_scores([5.0, 0.0, 0.0])
+    group_label, group_score, group_scores = category_stage.classify_group_scores([5.0, 0.0, 0.0])
 
     assert group_label == "corporate_actions"
-    assert group_score > pipeline.CATEGORY_GROUP_FLOOR
+    assert group_score > CATEGORY_GROUP_FLOOR
     assert set(group_scores) == set(CATEGORY_GROUP_SLUGS)
     assert abs(sum(group_scores.values()) - 1.0) < 1e-6
 
 
 def test_classify_group_scores_flat_distribution_is_below_the_floor() -> None:
     # Uniform 3-way logits -> softmax = [1/3, 1/3, 1/3] exactly.
-    group_label, group_score, group_scores = pipeline.classify_group_scores([0.0, 0.0, 0.0])
+    group_label, group_score, group_scores = category_stage.classify_group_scores([0.0, 0.0, 0.0])
 
     assert group_label == "corporate_actions"  # first-tied entry, per max()'s dict-order tiebreak
     assert group_score == pytest.approx(1 / 3)
-    assert group_score < pipeline.CATEGORY_GROUP_FLOOR  # -> run_category_stage skips level 2
+    assert group_score < CATEGORY_GROUP_FLOOR  # -> run_category_stage skips level 2
     assert all(v == pytest.approx(1 / 3) for v in group_scores.values())
 
 
 def test_top2_groups_orders_highest_to_lowest() -> None:
-    _, _, group_scores = pipeline.classify_group_scores([0.0, 5.0, 0.0])
-    assert pipeline.top2_groups(group_scores) == [
+    _, _, group_scores = category_stage.classify_group_scores([0.0, 5.0, 0.0])
+    assert category_stage.top2_groups(group_scores) == [
         "governance_legal_workforce",
         "corporate_actions",
     ]
 
 
 def test_classify_category_scores_picks_highest_entailment_among_candidates() -> None:
-    candidates = pipeline.CATEGORY_GROUP_CHILDREN["corporate_actions"]
+    candidates = CATEGORY_GROUP_CHILDREN["corporate_actions"]
     entail_logits = [0.0, 5.0, 0.0]  # mergers_acquisitions (index 1) dominates
 
-    label, score, scores = pipeline.classify_category_scores(entail_logits, candidates)
+    label, score, scores = category_stage.classify_category_scores(entail_logits, candidates)
 
     assert label == "mergers_acquisitions"
-    assert score > pipeline.CATEGORY_CONFIDENCE_THRESHOLD
+    assert score > CATEGORY_CONFIDENCE_THRESHOLD
     assert set(scores) == set(candidates)  # only the given candidates, not all 9
     assert abs(sum(scores.values()) - 1.0) < 1e-6
 
 
 def test_classify_category_scores_falls_back_to_other_below_threshold() -> None:
-    candidates = pipeline.CATEGORY_GROUP_CHILDREN["corporate_actions"]
+    candidates = CATEGORY_GROUP_CHILDREN["corporate_actions"]
     entail_logits = [0.0, 0.0, 0.0]  # uniform -> ~0.333 each, below CATEGORY_CONFIDENCE_THRESHOLD
 
-    label, score, _scores = pipeline.classify_category_scores(entail_logits, candidates)
+    label, score, _scores = category_stage.classify_category_scores(entail_logits, candidates)
 
     assert label == "other"
     # `score` still reflects the (sub-threshold) winning slug's own probability,
     # not zero -- that's what makes a near-miss "other" distinguishable from a
     # genuinely flat one when auditing later.
-    assert 0 < score < pipeline.CATEGORY_CONFIDENCE_THRESHOLD
+    assert 0 < score < CATEGORY_CONFIDENCE_THRESHOLD
 
 
 # --- run_category_stage -----------------------------------------------------
@@ -131,7 +139,9 @@ def _patch_category_model(
     )
     fake_model = FakeTwoPassCategoryModel(level1_flat, level2_flat)
     monkeypatch.setattr(
-        pipeline.AutoModelForSequenceClassification, "from_pretrained", lambda *_a, **_k: fake_model
+        category_stage.AutoModelForSequenceClassification,
+        "from_pretrained",
+        lambda *_a, **_k: fake_model,
     )
     return fake_model
 
@@ -144,7 +154,7 @@ def test_run_category_stage_skips_loading_model_when_nothing_pending(
 
     monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
     monkeypatch.setattr(
-        pipeline.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
+        category_stage.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
     )
 
     calls = []
@@ -175,16 +185,16 @@ def test_run_category_stage_writes_winning_label_group_and_zero_fills_unscored_g
     assert detail is not None
     assert detail["category"]["label"] == "mergers_acquisitions"
     assert detail["category"]["group_label"] == "corporate_actions"
-    assert detail["category"]["group_score"] > pipeline.CATEGORY_GROUP_FLOOR
+    assert detail["category"]["group_score"] > CATEGORY_GROUP_FLOOR
     assert detail["category"]["mergers_acquisitions"] == detail["category"]["score"]
     # market_product_partnerships (3rd place, never scored at level 2) is
     # zero-filled -- "not evaluated", distinguishable from "evaluated and near-zero".
-    for slug in pipeline.CATEGORY_GROUP_CHILDREN["market_product_partnerships"]:
+    for slug in CATEGORY_GROUP_CHILDREN["market_product_partnerships"]:
         assert detail["category"][slug] == 0.0
     # both top-2 groups' children got real (nonzero) softmax probabilities
     for slug in (
-        *pipeline.CATEGORY_GROUP_CHILDREN["corporate_actions"],
-        *pipeline.CATEGORY_GROUP_CHILDREN["governance_legal_workforce"],
+        *CATEGORY_GROUP_CHILDREN["corporate_actions"],
+        *CATEGORY_GROUP_CHILDREN["governance_legal_workforce"],
     ):
         assert detail["category"][slug] > 0.0
 
@@ -205,10 +215,10 @@ def test_run_category_stage_flat_level1_short_circuits_without_level2_call(
     assert detail is not None
     assert detail["category"]["label"] == "other"
     assert detail["category"]["group_label"] == "corporate_actions"  # first-tied, per max()
-    assert detail["category"]["group_score"] < pipeline.CATEGORY_GROUP_FLOOR
+    assert detail["category"]["group_score"] < CATEGORY_GROUP_FLOOR
     # every one of the 9 leaf columns is zero-filled -- "not evaluated", not
     # "confidently rejected".
-    for slug in pipeline.CATEGORY_SLUGS:
+    for slug in CATEGORY_SLUGS:
         assert detail["category"][slug] == 0.0
 
 

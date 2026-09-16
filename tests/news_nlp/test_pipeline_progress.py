@@ -5,6 +5,7 @@ import pytest
 
 import ner_stage
 import pipeline
+import sentiment_stage
 
 
 def test_run_sentiment_stage_reports_empty_progress_without_loading_model(
@@ -15,7 +16,7 @@ def test_run_sentiment_stage_reports_empty_progress_without_loading_model(
 
     monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
     monkeypatch.setattr(
-        pipeline.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
+        sentiment_stage.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
     )
 
     calls = []
