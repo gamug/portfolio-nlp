@@ -553,10 +553,27 @@ Work item 9.
 sequential steps (each depends on the ones before it) — not independent
 efforts.
 
-- [ ] **T-082** Design the FTI base-class interfaces (feature extraction,
+- [x] **T-082** Design the FTI base-class interfaces (feature extraction,
       training, inference) — the abstract contracts every stage subclasses,
       written and reviewed before any stage migrates onto them. → step 1 /
-      SPEC.md FR-011.
+      SPEC.md FR-011. **Done 2026-09-16** — new `src/fti.py`: `Feature`,
+      `Trainer`/`NoOpTrainer`, `Inference` (plain classes with
+      `NotImplementedError`-raising template methods, not `abc.ABC` — no
+      precedent in this codebase — and not `typing.Protocol` — reserved
+      elsewhere for a swappable external dependency, not shared-code reuse
+      across four concrete stages). Three independent top-level classes,
+      no umbrella `Stage`, per FR-011's own "importable independently"
+      criterion and `NoOpTrainer` needing to be one reusable class shared
+      by category/`c_summary`, not re-declared per stage. `Inference.run()`
+      preserves every `run_<stage>_stage` function's exact external
+      contract today, including real per-article `on_progress` granularity
+      for batched stages (not test-locked today, preserved deliberately
+      anyway) and a small disclosed hardening
+      (`try`/`finally` around load/free — today's code leaks a loaded
+      model on a mid-batch exception). New
+      `tests/news_nlp/test_fti_base.py` (7 tests, structural only, no real
+      stage/model). No existing file touched; full suite green (239 —
+      232 baseline + 7 new).
 - [ ] **T-083** Migrate the sentiment stage onto the FTI hierarchy
       (`_sentiment_chunk_weights`/`_text_mentions_subject` → `Feature`;
       `train_sentiment.py` → `Trainer`; `run_sentiment_stage` →
