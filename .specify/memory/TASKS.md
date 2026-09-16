@@ -603,10 +603,24 @@ efforts.
       default would have silently reduced it to one commit per run).
       241 tests (239 + 2 new `revision` override tests), ruff, mypy all
       green; `uv run src/train_sentiment.py --help` smoke-tested.
-- [ ] **T-084** Migrate the NER stage onto the FTI hierarchy
+- [x] **T-084** Migrate the NER stage onto the FTI hierarchy
       (`_ner_batch`/`merge_bio_predictions` → `Feature`; `train_ner.py` →
       `Trainer`; `run_ner_stage` → `Inference`). No behavioral change. →
-      step 1 / FR-011.
+      step 1 / FR-011. Done 2026-09-16: `src/ner_stage.py` (new) holds
+      `merge_bio_predictions` (moved verbatim), `NerFeature` (cross-article
+      chunk flattening + padded tokenizer call -- `extract_batch` overridden
+      directly, not `extract_one`, since NER's real batching can't be
+      expressed per-row) and `NerInference` (forward pass + BIO merge +
+      regrouping). Required one extension to `fti.Inference` itself: a
+      `batch_size` constructor override (mirroring the existing `revision`
+      pattern) so `pipeline.run_ner_stage`'s thin wrapper can pass
+      `NER_BATCH_SIZE` through fresh on every call -- needed because a test
+      monkeypatches `pipeline.NER_BATCH_SIZE` between two calls in the same
+      test. `train_ner.py` (no CLI flags, zero test coverage, like
+      `train_sentiment.py`) got a `NerTrainConfig`/`NerTrainer` the same
+      way. 245 tests (243 + 2 new `batch_size` override tests), ruff, mypy
+      all green; `train_ner` import-smoke-tested (no `--help` path since it
+      has no argparse).
 - [ ] **T-085** Migrate the category stage onto the FTI hierarchy
       (`_category_premises`/level-1-level-2 batch logic → `Feature`; a
       documented no-op `Trainer` — zero-shot, no fine-tuning step exists

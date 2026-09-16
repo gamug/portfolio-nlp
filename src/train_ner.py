@@ -9,6 +9,7 @@ Run once, offline, before the batch pipeline. Not part of run_pipeline.py.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 import evaluate
@@ -21,6 +22,9 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+
+from fti import TrainConfig, TrainedArtifact
+from fti import Trainer as FtiTrainer
 
 MODEL_NAME = "nlpaueb/sec-bert-base"
 OUTPUT_DIR = "models/sec-bert-base-finer-ord"
@@ -115,58 +119,70 @@ def make_compute_metrics() -> Callable[[Any], dict[str, float]]:
     return compute_metrics
 
 
+@dataclass(frozen=True)
+class NerTrainConfig(TrainConfig):
+    """Empty -- train_ner.py takes no CLI flags today."""
+
+
+class NerTrainer(FtiTrainer[NerTrainConfig]):
+    def train(self, config: NerTrainConfig) -> TrainedArtifact:
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        model = AutoModelForTokenClassification.from_pretrained(
+            MODEL_NAME, num_labels=len(LABEL_LIST), id2label=ID2LABEL, label2id=LABEL2ID
+        )
+
+        ds = build_dataset()
+        tokenize_fn = make_tokenize_fn(tokenizer)
+        tokenized_ds = {
+            split: ds[split].map(tokenize_fn, batched=True, remove_columns=ds[split].column_names)
+            for split in ds
+        }
+
+        data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
+
+        args = TrainingArguments(
+            output_dir=OUTPUT_DIR,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            learning_rate=3e-5,
+            per_device_train_batch_size=16,
+            per_device_eval_batch_size=32,
+            num_train_epochs=8,
+            weight_decay=0.01,
+            fp16=True,
+            load_best_model_at_end=True,
+            metric_for_best_model="f1",
+            save_total_limit=2,
+            logging_steps=50,
+            report_to=[],
+            seed=42,
+        )
+
+        trainer = Trainer(
+            model=model,
+            args=args,
+            train_dataset=tokenized_ds["train"],
+            eval_dataset=tokenized_ds["validation"],
+            data_collator=data_collator,
+            processing_class=tokenizer,
+            compute_metrics=make_compute_metrics(),
+        )
+
+        trainer.train()
+
+        print("\n=== Test set evaluation ===")
+        test_metrics = trainer.evaluate(tokenized_ds["test"])
+        print(test_metrics)
+
+        trainer.save_model(OUTPUT_DIR)
+        tokenizer.save_pretrained(OUTPUT_DIR)
+        print(f"\nSaved fine-tuned model to {OUTPUT_DIR}")
+
+        return TrainedArtifact(output_dir=OUTPUT_DIR, metrics=test_metrics)
+
+
 def main() -> None:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForTokenClassification.from_pretrained(
-        MODEL_NAME, num_labels=len(LABEL_LIST), id2label=ID2LABEL, label2id=LABEL2ID
-    )
-
-    ds = build_dataset()
-    tokenize_fn = make_tokenize_fn(tokenizer)
-    tokenized_ds = {
-        split: ds[split].map(tokenize_fn, batched=True, remove_columns=ds[split].column_names)
-        for split in ds
-    }
-
-    data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
-
-    args = TrainingArguments(
-        output_dir=OUTPUT_DIR,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        learning_rate=3e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=32,
-        num_train_epochs=8,
-        weight_decay=0.01,
-        fp16=True,
-        load_best_model_at_end=True,
-        metric_for_best_model="f1",
-        save_total_limit=2,
-        logging_steps=50,
-        report_to=[],
-        seed=42,
-    )
-
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=tokenized_ds["train"],
-        eval_dataset=tokenized_ds["validation"],
-        data_collator=data_collator,
-        processing_class=tokenizer,
-        compute_metrics=make_compute_metrics(),
-    )
-
-    trainer.train()
-
-    print("\n=== Test set evaluation ===")
-    test_metrics = trainer.evaluate(tokenized_ds["test"])
-    print(test_metrics)
-
-    trainer.save_model(OUTPUT_DIR)
-    tokenizer.save_pretrained(OUTPUT_DIR)
-    print(f"\nSaved fine-tuned model to {OUTPUT_DIR}")
+    NerTrainer().train(NerTrainConfig())
 
 
 if __name__ == "__main__":

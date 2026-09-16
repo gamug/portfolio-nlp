@@ -104,6 +104,16 @@ def test_inference_revision_falls_back_to_class_model_revisions_when_not_overrid
     assert inf.revision == "abc123"
 
 
+def test_inference_batch_size_override_wins_over_default_none() -> None:
+    inf = _FakeInference(_EchoFeature(), batch_size=3)
+    assert inf.batch_size() == 3
+
+
+def test_inference_batch_size_defaults_to_none_when_not_overridden() -> None:
+    inf = _FakeInference(_EchoFeature())
+    assert inf.batch_size() is None
+
+
 def test_inference_run_frees_model_even_if_predict_batch_raises() -> None:
     class _BoomInference(_FakeInference):
         def predict_batch(self, features: FeatureBatch[str]) -> list[Any]:
