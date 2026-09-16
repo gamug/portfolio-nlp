@@ -547,6 +547,86 @@ Work item 9.
       rule). Full suite (231 tests), ruff, mypy green. See
       `docs/evaluation.md`'s 2026-09-15 follow-up.
 
+## Work item 10 — Formalize the pipeline/evaluation architecture (priority — #1)
+
+`PLAN.md` Work item 10 / `SPEC.md` §13 item 15, FR-011–FR-016. Six
+sequential steps (each depends on the ones before it) — not independent
+efforts.
+
+- [ ] **T-082** Design the FTI base-class interfaces (feature extraction,
+      training, inference) — the abstract contracts every stage subclasses,
+      written and reviewed before any stage migrates onto them. → step 1 /
+      SPEC.md FR-011.
+- [ ] **T-083** Migrate the sentiment stage onto the FTI hierarchy
+      (`_sentiment_chunk_weights`/`_text_mentions_subject` → `Feature`;
+      `train_sentiment.py` → `Trainer`; `run_sentiment_stage` →
+      `Inference`). No behavioral change — existing sentiment hermetic
+      tests pass unmodified except import paths. → step 1 / FR-011.
+- [ ] **T-084** Migrate the NER stage onto the FTI hierarchy
+      (`_ner_batch`/`merge_bio_predictions` → `Feature`; `train_ner.py` →
+      `Trainer`; `run_ner_stage` → `Inference`). No behavioral change. →
+      step 1 / FR-011.
+- [ ] **T-085** Migrate the category stage onto the FTI hierarchy
+      (`_category_premises`/level-1-level-2 batch logic → `Feature`; a
+      documented no-op `Trainer` — zero-shot, no fine-tuning step exists
+      today; `run_category_stage` → `Inference`). No behavioral change. →
+      step 1 / FR-011.
+- [ ] **T-086** Migrate `c_summary` onto the FTI hierarchy
+      (`hierarchical_summarize_batch`'s chunk/reduce logic → `Feature`; a
+      documented no-op `Trainer`; `run_company_summary_stage` →
+      `Inference`). No behavioral change. → step 1 / FR-011.
+- [ ] **T-087** Move `run_sector_summary_stage` out of `pipeline.py` into
+      `news_nlp/sector_summary/`, completing the separation already mostly
+      in place (`composition.py`/`queries.py` already live there as of
+      2026-09-14) — imports nothing from the FTI base classes.
+      `pipeline.run_pipeline`'s call into it stays external-behavior
+      identical. → step 2 / FR-012.
+- [ ] **T-088** Full-suite regression check after T-083–T-087: every
+      existing hermetic test in `tests/news_nlp/` green, with only
+      import-path/construction changes where a test reached into a stage's
+      internals directly — no assertion changes. → acceptance criteria
+      ("no behavioral regression").
+- [ ] **T-089** Redesign `news_nlp/eval/`'s inference step to call each
+      stage's own FTI `Inference` subclass (T-083–T-086) for model-scoring,
+      removing whatever independent `from_pretrained`/forward-pass code the
+      eval module duplicates today. Based on the current
+      `news_nlp/eval/` implementation — `sampling.py`/`judges.py`/
+      `verdicts.py`/`tracking.py`/`regression.py` carry over unchanged in
+      spirit. → step 3 / FR-013.
+- [ ] **T-090** Split `eval_judgement` into two tables (model inference /
+      LLM judge verdict), each with `article_id` (reinforced as a
+      first-class SOURCE-traceback key), `task`, and `experiment` columns;
+      additive schema migration (existing `eval_run`/`eval_judgement` rows
+      untouched, same self-heal precedent as `sector_summary`/
+      `article_category`'s own migrations in `schema.py`). → step 4 /
+      FR-014.
+- [ ] **T-091** Implement the judge-table reuse mechanism: before invoking
+      the judge LLM for a sampled `(article_id, task, experiment)`, check
+      the redesigned judge table for an existing verdict under that exact
+      key and reuse it; unique constraint on `(article_id, task,
+      experiment)` enforces this as an indexed lookup, not a scan. →
+      step 5 / FR-015.
+- [ ] **T-092** Add the confusion-matrix table (sentiment/category only:
+      one row per `(experiment, task, true_label, predicted_label)` with a
+      count), populated from the same judge verdicts T-090/T-091 already
+      record — no new judge calls needed. → step 6 / FR-016.
+- [ ] **T-093** Add one-vs-rest ROC/AUC (`roc_auc_<class>`) to
+      `aggregate_sentiment`/`aggregate_category`, computed from each sampled
+      row's own stored prediction probabilities (`article_sentiment`'s
+      `positive`/`negative`/`neutral`; `article_category`'s 9-way NLI
+      distribution) — no new data collection required. → step 6 / FR-016.
+- [ ] **T-094** Regression test locking `aggregate_ner`/
+      `aggregate_c_summary`'s returned metric key sets as byte-identical to
+      their pre-this-work-item shape — confusion-matrix/ROC treatment is
+      sentiment/category only, and this test is what actually enforces
+      that boundary rather than just stating it. → step 6 / FR-016 /
+      acceptance criteria.
+- [ ] **T-095** Update `docs/evaluation.md` (methodology section),
+      `docs/modules/news-nlp.md`, `docs/db-topology.md` (new tables), and
+      reconcile the two architecture artifacts (constitution AI behavior
+      #11 — Portfolio Thesis + Portfolio NLP, reconcile only, never rename)
+      once the restructuring lands.
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -586,3 +666,13 @@ explicit permission (a Bash permission rule, or the user running
 (3,444, from Work item 6's T-058 fix) are still queued to self-heal on
 the next real `--summarize` run, not yet triggered — a deliberate
 production action left to the repo owner, not a task with an ID.
+
+**Work item 10** (formalize the pipeline/evaluation architecture,
+T-082–T-095) is **new, top priority (2026-09-16)** — spec/plan/tasks
+filed, nothing implemented yet. Six sequential steps, not independent:
+the FTI class hierarchy (T-082–T-086) and the `sector_summary` module
+move (T-087) must land before the eval module can reuse it (T-089), which
+itself must land before the schema split (T-090), reuse mechanism
+(T-091), and confusion-matrix/ROC additions (T-092–T-094) can be built
+against it. Supersedes Work item 8 as "next up" in priority — Work item 8
+stays a valid, scoped, pending item, just no longer first in line.

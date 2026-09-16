@@ -98,6 +98,12 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-008** | A FastAPI service (`apps/news_nlp_api.py`, `:8003`) exposes pipeline trigger/status, article/category/entity/sentiment read + stats endpoints, `sector_summary` retrieval, the latest eval summary, and human-correction `PATCH`/`DELETE` endpoints for sentiment/entities/category — all working off the RESULTS store alone. | `GET /articles/{id}`, `/stats/*`, `/sectors/summary`, `/eval/latest` all return `200` with only `$DATABASE_URL` configured (no `$SOURCE_DATABASE_URL`) once a pipeline run has already populated RESULTS. |
 | **FR-009** | A human can correct a stage's output (`news_nlp.corrections`: `update_*`/`delete_*` for sentiment, entity, category) and that correction survives a subsequent pipeline run on the same article. | After `update_category` changes a label and a pipeline rerun completes, the row's `label` is unchanged (the article is no longer "pending" for that stage — `fetch_pending_category_articles` selects on row absence, not staleness); `delete_category` makes the article eligible for reprocessing again. |
 | **FR-010** | `news_nlp.eval` samples processed articles per stage, gets an LLM-as-judge verdict per sampled row, and records both an `eval_run` summary (aggregate metrics, MLflow run ID) and per-row `eval_judgement` rows. | `uv run cli/news_nlp_eval.py --stage <s> --sample-size N` completes without GPU or a labelled corpus, produces exactly one new `eval_run` row with `status = ok` and `metrics_json` populated, `N` (or fewer, if population is smaller) `eval_judgement` rows, and one MLflow run under `news_nlp_eval/<stage>`. |
+| **FR-011** | Every ML-based stage (sentiment, NER, category, `c_summary`) is restructured around a shared Feature/Train/Inference (FTI) class hierarchy: a common base per component (feature extraction, training, inference) that each stage subclasses, rather than four independent sets of module-level functions. A stage with no real training step (category, `c_summary` — both pretrained/zero-shot as shipped) implements a trivial/no-op `Train` component rather than being forced into a fake one. | `src/` exposes one abstract base class per FTI component (feature extraction, training, inference) importable independently of any one stage; sentiment/NER/category/`c_summary` each provide a concrete subclass of all three (category/`c_summary`'s `Train` subclass is a documented no-op, not omitted); `run_pipeline`'s external behavior (idempotency, one-model-at-a-time VRAM budget, `on_progress` callback shape, result-table contents) is bit-for-bit unchanged — every existing hermetic test in `tests/news_nlp/` passes with no behavioral-assertion changes, only import-path/construction changes where a test reaches into stage internals directly. |
+| **FR-012** | `sector_summary` (heuristic, deterministic, no model — FR-005) is fully decoupled from the FTI hierarchy in its own dedicated module, including the orchestration entrypoint itself (not just the composition/query helpers already under `news_nlp/sector_summary/` as of 2026-09-14), since it has no Feature/Train/Inference shape to share with the four ML stages. | `run_sector_summary_stage` (or its renamed equivalent) lives under `news_nlp/sector_summary/`, not `pipeline.py`; nothing in that module imports from the FR-011 FTI base classes; `pipeline.run_pipeline` calls into it the same way it calls the four FTI-based stages, so the external orchestration contract (FR-006) is unchanged. |
+| **FR-013** | A redesigned `news_nlp.eval` module reuses the FR-011 Inference classes for its own model-scoring step (sampling a real article, running the production (or a candidate) model over it) instead of duplicating model-loading/prediction logic independently, as the current `news_nlp/eval/` package's relationship to `pipeline.py` does today. | The eval module's inference step for a given stage calls the same `Inference` subclass `pipeline.py` uses for that stage (same class, parameterizable model/revision — not a re-implementation with its own `from_pretrained`/forward-pass code); a code-search for a second, independent `AutoModelFor*.from_pretrained` call site duplicating an FTI `Inference` class's own model-loading returns none inside `news_nlp/eval/`. |
+| **FR-014** | The evaluation schema separates a sampled row's **model inference** (the prediction being evaluated) from its **LLM-judge verdict** into two distinct tables, both carrying `article_id` (traceable back to the SOURCE `urls.db` article — FR-007), a `task` column (`sentiment` \| `category` \| `ner` \| `c_summary`), and an `experiment` column (a free-form label — `base`, `v2`, `v3`, `v4`, …) identifying which model/candidate produced the inference, so multiple experiments' judged data can coexist in the same store instead of requiring a separate scratch database per candidate (the workaround `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py` each needed, PLAN.md Work item 9). | Two tables exist where `eval_judgement` used to hold both concerns in one row; every row in both carries a non-null `article_id`, `task`, and `experiment`; a query for two different `experiment` values against the same `article_id`/`task` returns two independent rows, not a collision (unique constraint keyed on `(article_id, task, experiment, run_id)` or equivalent, not just `article_id`). |
+| **FR-015** | Before spending a judge LLM call on a sampled `(article_id, task, experiment)`, the eval module checks whether a judge verdict already exists for that exact key and reuses it instead of re-judging — real LLM token spend is not repeated on data already tagged under the same experiment. | Running the same `--stage <s> --run-name <experiment>` invocation twice against an unchanged sample population results in zero new judge-LLM calls on the second run (mockable/countable in a hermetic test — the judge client is never invoked for a key already present in the judge table); a genuinely new `article_id` or a different `experiment` value for the same article always judges fresh. |
+| **FR-016** | For sentiment and category only, the eval module persists each experiment's full confusion matrix (one row per `(experiment, task, true_label, predicted_label)` cell, with a count) in its own table, and computes/stores one-vs-rest precision, recall, F1, and ROC (per-class ROC curve/AUC) alongside the existing `accuracy_ovr`. NER and `c_summary`'s existing metric sets (micro/macro F1 + hallucination/miss rate; `mean_faithfulness`/`mean_coverage`/`mean_conciseness` + `pct_with_hallucination`, respectively) are preserved unchanged — this requirement does not extend confusion-matrix/ROC treatment to either. | A confusion-matrix table exists, keyed by `experiment`, queryable independently of `metrics_json`'s aggregate blob; for sentiment and category, a completed `eval_run`'s stored metrics include `roc_auc_<class>` alongside the existing `precision_<class>`/`recall_<class>`/`f1_<class>`/`accuracy_ovr_<class>`; `aggregate_ner`/`aggregate_c_summary`'s own returned metric keys are byte-identical to their pre-this-work-item set (a snapshot/regression test on the exact key set, not just "still has some metrics"). |
 
 ### 2.4 Non-functional requirements
 
@@ -142,6 +148,16 @@ re-litigated without a constitution amendment:
   run in a fixed order (`run_pipeline`, `src/pipeline.py`) inside one
   process; no task queue, no distributed execution. Justified by corpus
   scale and the "one model resident at a time" VRAM constraint (NR-001).
+
+**Pending architecture decision (§13 item 15, FR-011–FR-013, not yet
+built)**: the four ML stages currently ship as independent sets of
+module-level functions in `pipeline.py`, never designed against a stated
+pattern. `PLAN.md` Work item 10 formalizes a shared Feature/Train/Inference
+(FTI) class hierarchy across all four — an internal restructuring, not a
+change to the fixed-pipeline/single-process decision above, which stays as
+stated. `sector_summary` is explicitly excluded from this hierarchy (it has
+no Feature/Train/Inference shape — FR-012) and moves fully into its own
+module instead.
 
 ## 4. System Architecture
 
@@ -241,6 +257,15 @@ underlying row may be corrected or reprocessed afterward — see FR-009/010).
 
 Full topology (SOURCE vs. RESULTS, connection lifecycle, env vars):
 `docs/db-topology.md`.
+
+**Planned (§13 item 15, FR-013–FR-016, not yet built)**: `eval_judgement`
+splits into two tables — one for the sampled model **inference** being
+evaluated, one for the LLM **judge** verdict on it — each carrying
+`article_id`, `task`, and `experiment` columns, plus a new confusion-matrix
+table (sentiment/category only, keyed by `experiment`). `PLAN.md` Work item
+10 has the concrete design; this note exists so a reader of this section
+knows the two-table `eval_run`/`eval_judgement` shape above is the
+*current*, soon-to-be-superseded contract, not treated as permanent.
 
 ## 6. Core Workflows
 
@@ -709,6 +734,27 @@ treating a related FR/NR as done:
     *more* skewed than the source — neither touches the underlying
     training-set skew itself. **New, priority, pending (2026-09-14)** —
     `PLAN.md` Work item 9 / `TASKS.md` T-070–T-075.
+15. **The pipeline and evaluation architecture was never a formal spec —
+    it grew as a pragmatic solution to a real, immediate necessity.** Four
+    ML stages (`pipeline.py`) and the LLM-as-judge harness
+    (`news_nlp/eval/`) were each built incrementally, session by session,
+    as concrete gaps surfaced (a missing accuracy baseline, a sampling
+    bias, a class-imbalance fix) — not designed up front against a stated
+    architectural pattern. The result works and has been validated
+    end-to-end (Work items 1-9), but it's four independent sets of
+    module-level functions rather than a shared, extensible structure, and
+    the eval harness has real, concrete friction this session's own
+    sentiment-candidate work exposed directly: no way to run two
+    experiments' judged data in the same store (`scripts/
+    resample_sentiment_v{3,4,5}_2026_09_15.py` each needed their own
+    scratch database copy — PLAN.md Work item 9), no persisted confusion
+    matrix, no ROC, and no mechanism to avoid re-spending judge-LLM tokens
+    on a row already tagged under the same experiment. **New, priority
+    #1, pending (2026-09-16)** — formalize the existing shape into a
+    Feature/Train/Inference (FTI) class hierarchy shared across all four
+    ML stages, move `sector_summary` fully into its own non-FTI module,
+    and redesign the eval schema/module around the friction points above
+    — FR-011–FR-016, `PLAN.md` Work item 10, `TASKS.md` T-082 onward.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
