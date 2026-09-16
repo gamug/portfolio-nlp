@@ -89,6 +89,7 @@ human-annotated ground truth -- see the labeling script's own docstring.
 import argparse
 import json
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +105,9 @@ from transformers import (
     Trainer,
     TrainingArguments,
 )
+
+from fti import TrainConfig, TrainedArtifact
+from fti import Trainer as FtiTrainer
 
 MODEL_NAME = "ProsusAI/finbert"
 DATA_PATH = Path("data/sentiment_finetune/labeled_sentences.jsonl")
@@ -321,6 +325,132 @@ def paths_for_base_model(base_model: str, weighted: bool) -> tuple[str, Path]:
     return output_dir, metrics_output
 
 
+@dataclass(frozen=True)
+class SentimentTrainConfig(TrainConfig):
+    """`--weighted`/`--base-model` (module docstring) as a config object
+    instead of argparse's `args_ns` -- same two knobs, same defaults."""
+
+    weighted: bool = False
+    base_model: str = MODEL_NAME
+
+
+class SentimentTrainer(FtiTrainer[SentimentTrainConfig]):
+    """Wraps this module's previous `main()` body (PLAN.md Work item 10 /
+    TASKS.md T-083) -- not `sentiment_stage.SentimentFeature`, since
+    training operates on raw labeled *sentences* (`tokenizer(batch["text"],
+    truncation=True, max_length=128)` below), a fundamentally different
+    input shape from inference's full-article chunking; reusing that
+    `Feature` here would be forcing the wrong abstraction onto a shape it
+    doesn't fit."""
+
+    def train(self, config: SentimentTrainConfig) -> TrainedArtifact:
+        base_model = config.base_model
+        rows, training_data_path, output_dir, metrics_output = load_training_pool(
+            base_model, config.weighted
+        )
+        splits = stratified_split(rows)
+
+        tokenizer = AutoTokenizer.from_pretrained(base_model)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            base_model, id2label=ID2LABEL, label2id=LABEL2ID
+        )
+
+        def tokenize(batch: dict[str, Any]) -> Any:
+            return tokenizer(batch["text"], truncation=True, max_length=128)
+
+        ds = {name: Dataset.from_list(split_rows) for name, split_rows in splits.items()}
+        tokenized_ds = {
+            name: split.map(tokenize, batched=True, remove_columns=["text"])
+            for name, split in ds.items()
+        }
+
+        data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+        args = TrainingArguments(
+            output_dir=output_dir,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            learning_rate=2e-5,
+            per_device_train_batch_size=16,
+            per_device_eval_batch_size=32,
+            num_train_epochs=4,
+            weight_decay=0.01,
+            fp16=True,
+            load_best_model_at_end=True,
+            metric_for_best_model="macro_f1",
+            save_total_limit=2,
+            logging_steps=50,
+            report_to=[],
+            seed=_SEED,
+        )
+
+        class_weights = None
+        if config.weighted:
+            class_weights = compute_class_weights(splits["train"])
+            print(
+                "Class weights (inverse train-split frequency, "
+                f"{ {ID2LABEL[i]: round(w.item(), 3) for i, w in enumerate(class_weights)} }):"
+            )
+            trainer: Trainer = WeightedLossTrainer(
+                model=model,
+                args=args,
+                train_dataset=tokenized_ds["train"],
+                eval_dataset=tokenized_ds["validation"],
+                data_collator=data_collator,
+                processing_class=tokenizer,
+                compute_metrics=make_compute_metrics(),
+                class_weights=class_weights,
+            )
+        else:
+            trainer = Trainer(
+                model=model,
+                args=args,
+                train_dataset=tokenized_ds["train"],
+                eval_dataset=tokenized_ds["validation"],
+                data_collator=data_collator,
+                processing_class=tokenizer,
+                compute_metrics=make_compute_metrics(),
+            )
+
+        trainer.train()
+
+        print("\n=== Test set evaluation ===")
+        test_metrics = trainer.evaluate(tokenized_ds["test"])
+        print(test_metrics)
+
+        metrics_payload: dict[str, Any] = {
+            "test_metrics": test_metrics,
+            "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
+            "base_model": base_model,
+            "training_data_path": training_data_path,
+        }
+        if class_weights is not None:
+            metrics_payload["class_weights"] = {
+                ID2LABEL[i]: w.item() for i, w in enumerate(class_weights)
+            }
+
+        if IDIOM_PROBE_PATH.exists():
+            print(f"\n=== Idiom probe evaluation ({IDIOM_PROBE_PATH}, held out of training) ===")
+            probe_rows = load_labeled_sentences(IDIOM_PROBE_PATH)
+            probe_ds = Dataset.from_list(probe_rows).map(
+                tokenize, batched=True, remove_columns=["text"]
+            )
+            probe_metrics = trainer.evaluate(probe_ds, metric_key_prefix="idiom_probe")
+            print(probe_metrics)
+            metrics_payload["idiom_probe_metrics"] = probe_metrics
+            metrics_payload["idiom_probe_size"] = len(probe_rows)
+
+        metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        metrics_output.write_text(json.dumps(metrics_payload, indent=2))
+        print(f"Saved test metrics to {metrics_output}")
+
+        trainer.save_model(output_dir)
+        tokenizer.save_pretrained(output_dir)
+        print(f"\nSaved fine-tuned model to {output_dir}")
+
+        return TrainedArtifact(output_dir=output_dir, metrics=metrics_payload)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -343,110 +473,8 @@ def main() -> None:
         ),
     )
     args_ns = parser.parse_args()
-    base_model = args_ns.base_model
-
-    rows, training_data_path, output_dir, metrics_output = load_training_pool(
-        base_model, args_ns.weighted
-    )
-    splits = stratified_split(rows)
-
-    tokenizer = AutoTokenizer.from_pretrained(base_model)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        base_model, id2label=ID2LABEL, label2id=LABEL2ID
-    )
-
-    def tokenize(batch: dict[str, Any]) -> Any:
-        return tokenizer(batch["text"], truncation=True, max_length=128)
-
-    ds = {name: Dataset.from_list(split_rows) for name, split_rows in splits.items()}
-    tokenized_ds = {
-        name: split.map(tokenize, batched=True, remove_columns=["text"])
-        for name, split in ds.items()
-    }
-
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-
-    args = TrainingArguments(
-        output_dir=output_dir,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=32,
-        num_train_epochs=4,
-        weight_decay=0.01,
-        fp16=True,
-        load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",
-        save_total_limit=2,
-        logging_steps=50,
-        report_to=[],
-        seed=_SEED,
-    )
-
-    class_weights = None
-    if args_ns.weighted:
-        class_weights = compute_class_weights(splits["train"])
-        print(
-            "Class weights (inverse train-split frequency, "
-            f"{ {ID2LABEL[i]: round(w.item(), 3) for i, w in enumerate(class_weights)} }):"
-        )
-        trainer: Trainer = WeightedLossTrainer(
-            model=model,
-            args=args,
-            train_dataset=tokenized_ds["train"],
-            eval_dataset=tokenized_ds["validation"],
-            data_collator=data_collator,
-            processing_class=tokenizer,
-            compute_metrics=make_compute_metrics(),
-            class_weights=class_weights,
-        )
-    else:
-        trainer = Trainer(
-            model=model,
-            args=args,
-            train_dataset=tokenized_ds["train"],
-            eval_dataset=tokenized_ds["validation"],
-            data_collator=data_collator,
-            processing_class=tokenizer,
-            compute_metrics=make_compute_metrics(),
-        )
-
-    trainer.train()
-
-    print("\n=== Test set evaluation ===")
-    test_metrics = trainer.evaluate(tokenized_ds["test"])
-    print(test_metrics)
-
-    metrics_payload: dict[str, Any] = {
-        "test_metrics": test_metrics,
-        "dataset_sizes": {name: len(split_rows) for name, split_rows in splits.items()},
-        "base_model": base_model,
-        "training_data_path": training_data_path,
-    }
-    if class_weights is not None:
-        metrics_payload["class_weights"] = {
-            ID2LABEL[i]: w.item() for i, w in enumerate(class_weights)
-        }
-
-    if IDIOM_PROBE_PATH.exists():
-        print(f"\n=== Idiom probe evaluation ({IDIOM_PROBE_PATH}, held out of training) ===")
-        probe_rows = load_labeled_sentences(IDIOM_PROBE_PATH)
-        probe_ds = Dataset.from_list(probe_rows).map(
-            tokenize, batched=True, remove_columns=["text"]
-        )
-        probe_metrics = trainer.evaluate(probe_ds, metric_key_prefix="idiom_probe")
-        print(probe_metrics)
-        metrics_payload["idiom_probe_metrics"] = probe_metrics
-        metrics_payload["idiom_probe_size"] = len(probe_rows)
-
-    metrics_output.parent.mkdir(parents=True, exist_ok=True)
-    metrics_output.write_text(json.dumps(metrics_payload, indent=2))
-    print(f"Saved test metrics to {metrics_output}")
-
-    trainer.save_model(output_dir)
-    tokenizer.save_pretrained(output_dir)
-    print(f"\nSaved fine-tuned model to {output_dir}")
+    config = SentimentTrainConfig(weighted=args_ns.weighted, base_model=args_ns.base_model)
+    SentimentTrainer().train(config)
 
 
 if __name__ == "__main__":

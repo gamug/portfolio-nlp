@@ -207,24 +207,33 @@ class Inference[RowT, FeatureT]:
         feature: "Feature[RowT, FeatureT]",
         *,
         model_name: str | None = None,
+        revision: str | None = None,
         device: torch.device | None = None,
     ) -> None:
         """`model_name` overrides `type(self).MODEL_NAME` for just this
         instance (a scoped alternative to the class-attribute monkeypatch
         above -- e.g. `news_nlp.eval`'s own per-experiment model, T-089).
-        `device` overrides the auto-detected default the same way; default
-        is always `torch.device("cuda" if torch.cuda.is_available() else
-        "cpu")` -- never hardcoded "cuda", preserving the constitution's
+        `revision` likewise overrides `type(self).MODEL_REVISIONS[model_name]`
+        directly -- needed by a caller reading its own current model-name/
+        revision pin from elsewhere (e.g. `pipeline.py`'s
+        `SENTIMENT_MODEL`/`MODEL_REVISIONS` module globals, which a resample
+        script can monkeypatch before calling the stage) and passing it
+        through explicitly, rather than relying on this class's own
+        `MODEL_REVISIONS` dict being object-identical to that other source of
+        truth. `device` overrides the auto-detected default the same way;
+        default is always `torch.device("cuda" if torch.cuda.is_available()
+        else "cpu")` -- never hardcoded "cuda", preserving the constitution's
         CPU-fallback requirement (AI behavior #2)."""
         self.feature = feature
         self.model_name = model_name or type(self).MODEL_NAME
+        self._revision_override = revision
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model: Any = None
         self.tokenizer: Any = None
 
     @property
     def revision(self) -> str:
-        return type(self).MODEL_REVISIONS[self.model_name]
+        return self._revision_override or type(self).MODEL_REVISIONS[self.model_name]
 
     def load_model(self) -> None:
         """Load this stage's tokenizer + model at `self.revision`,

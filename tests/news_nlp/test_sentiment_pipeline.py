@@ -13,7 +13,7 @@ its subject. This weights chunks naming the article's own company/ticker
 (A first version of this fix, shipped 2026-09-12, scored each *sentence*
 individually instead of each chunk -- reverted the next day after
 real-data evaluation showed it regressing `recall_negative` more than
-expected; see `pipeline.run_sentiment_stage`'s docstring "Revision
+expected; see `sentiment_stage.SentimentInference`'s docstring "Revision
 history" for the full account. This file tests the current, chunk-level
 version only -- the sentence-level version's own commit is still in git
 history if that account needs corroborating.)
@@ -28,41 +28,49 @@ from conftest import seed_article
 
 import news_nlp as db
 import pipeline
+import sentiment_stage
 
 # --- _text_mentions_subject / _normalize_company_name (pure) ----------------
 
 
 def test_ticker_mention_is_word_boundary_matched() -> None:
-    assert pipeline._text_mentions_subject("ACME shares rose today.", None, "ACME")
-    assert pipeline._text_mentions_subject("acme shares rose today.", None, "ACME")
+    assert sentiment_stage._text_mentions_subject("ACME shares rose today.", None, "ACME")
+    assert sentiment_stage._text_mentions_subject("acme shares rose today.", None, "ACME")
     # Not a substring match inside an unrelated word.
-    assert not pipeline._text_mentions_subject("The ACMEX fund fell today.", None, "ACME")
+    assert not sentiment_stage._text_mentions_subject("The ACMEX fund fell today.", None, "ACME")
 
 
 def test_company_name_matches_despite_corporate_suffix_mismatch() -> None:
     # Article's own company field carries a suffix the text doesn't (or a
     # different one) -- both should still match after normalization.
-    assert pipeline._text_mentions_subject("Acme reported earnings.", "Acme Corp.", None)
-    assert pipeline._text_mentions_subject("Acme Corporation reported earnings.", "Acme Corp", None)
+    assert sentiment_stage._text_mentions_subject("Acme reported earnings.", "Acme Corp.", None)
+    assert sentiment_stage._text_mentions_subject(
+        "Acme Corporation reported earnings.", "Acme Corp", None
+    )
 
 
 def test_different_company_does_not_match() -> None:
-    assert not pipeline._text_mentions_subject(
+    assert not sentiment_stage._text_mentions_subject(
         "Rival Beta Inc warned of steep losses.", "Acme Corp", "ACME"
     )
 
 
 def test_no_company_or_ticker_never_matches() -> None:
-    assert not pipeline._text_mentions_subject("Acme Corp reported earnings.", None, None)
+    assert not sentiment_stage._text_mentions_subject("Acme Corp reported earnings.", None, None)
 
 
 def test_sentiment_chunk_weights_assigns_subject_vs_baseline() -> None:
     chunks = [
-        pipeline.Chunk(text="Acme Corp reported record profit.", start_char=0, end_char=34),
-        pipeline.Chunk(text="Rival Beta Inc warned of steep losses.", start_char=35, end_char=74),
+        sentiment_stage.Chunk(text="Acme Corp reported record profit.", start_char=0, end_char=34),
+        sentiment_stage.Chunk(
+            text="Rival Beta Inc warned of steep losses.", start_char=35, end_char=74
+        ),
     ]
-    weights = pipeline._sentiment_chunk_weights(chunks, "Acme Corp", "ACME")
-    assert weights == [pipeline._SENTIMENT_SUBJECT_WEIGHT, pipeline._SENTIMENT_BASELINE_WEIGHT]
+    weights = sentiment_stage._sentiment_chunk_weights(chunks, "Acme Corp", "ACME")
+    assert weights == [
+        sentiment_stage._SENTIMENT_SUBJECT_WEIGHT,
+        sentiment_stage._SENTIMENT_BASELINE_WEIGHT,
+    ]
 
 
 # --- run_sentiment_stage integration: a mixed-company article ---------------
