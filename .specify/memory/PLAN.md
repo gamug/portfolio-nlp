@@ -1297,9 +1297,18 @@ validation would have been enforced but silently unhonored for NER; fixed
 at the source in `train_ner.py`, not worked around here) -- then the CLI
 half of step 3, `cli/run_experiment.py` ("exit 1 if regressed" is free,
 inherited from `run_experiment`'s own reuse of `run_eval`'s
-`SystemExit(1)` -- no new code for it). Step 5 (the historical backfill)
-is not started. See
-TASKS.md T-096-T-103 for the discrete, checkable breakdown.
+`SystemExit(1)` -- no new code for it) -- then step 5, the historical
+backfill: 8 `experiments/*.json` specs (all real values sourced from
+`docs/evaluation.md`, not guessed), plus a third disclosed gap found
+along the way -- `sentiment_v2_chunklevel_finetuned.json`/
+`_v3_downsampled.json` are deliberately content-identical, since v3 used
+"the same procedure/hyperparameters as before" per `docs/evaluation.md`'s
+own 2026-09-14 follow-up, differing only in a data file's on-disk
+presence this schema can't express (see `experiments/README.md` for the
+full account, including `ProsusAI/finbert`'s own first-time pin). Only the closing documentation pass (T-103 --
+`docs/evaluation.md`/`docs/modules/news-nlp.md`/the two architecture
+artifacts) remains before this work item closes in full. See TASKS.md
+T-096-T-103 for the discrete, checkable breakdown.
 
 ## Work item 12 — Bring `tests/` under the mypy gate (done 2026-09-18)
 
@@ -1446,13 +1455,14 @@ other, and independent of one another except where noted:
   and recorded, not *what* any stage's already-decided model/data choices
   are (Work items 1-10 stay untouched). Internally sequential: the
   `stratified_split()` parameterization (step 2, T-096), the `NoOpTrainer`
-  wiring (step 4, T-097), the `ExperimentSpec` schema (step 1, T-098), and
-  all of step 3 (`run_experiment` + `cli/run_experiment.py`, T-099/T-100)
-  are **all done** (2026-09-18); step 5 (the historical-experiment JSON
-  backfill, T-101) is next — the acceptance proof that steps 1/3 actually
-  work, not just exist. Supersedes Work item 8 as "next up" in priority
-  ordering, again; Work item 8 stays a valid, scoped, pending item, just
-  no longer first in line.
+  wiring (step 4, T-097), the `ExperimentSpec` schema (step 1, T-098),
+  all of step 3 (`run_experiment` + `cli/run_experiment.py`, T-099/T-100),
+  and step 5 (the historical-experiment JSON backfill, T-101 — the
+  acceptance proof that steps 1/3 actually work, not just exist) are
+  **all done** (2026-09-18); only the closing documentation pass (T-103)
+  is left. Supersedes Work item 8 as "next up" in priority ordering,
+  again; Work item 8 stays a valid, scoped, pending item, just no longer
+  first in line.
 - **Work item 12 (bring `tests/` under the mypy gate) is done
   (2026-09-18)** — surfaced directly while landing Work item 11's T-097,
   independent of every other work item's own outcome (a test-suite
