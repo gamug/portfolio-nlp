@@ -547,7 +547,7 @@ Work item 9.
       rule). Full suite (231 tests), ruff, mypy green. See
       `docs/evaluation.md`'s 2026-09-15 follow-up.
 
-## Work item 10 — Formalize the pipeline/evaluation architecture (priority — #1)
+## Work item 10 — Formalize the pipeline/evaluation architecture (done 2026-09-18)
 
 `PLAN.md` Work item 10 / `SPEC.md` §13 item 15, FR-011–FR-016. Six
 sequential steps (each depends on the ones before it) — not independent
@@ -925,6 +925,84 @@ efforts.
       ruff/mypy untouched by anything but the two docstring edits (both
       clean). This closes Work item 10 in full (T-082–T-095 all done).
 
+## Work item 11 — JSON-driven, single-command experiment runs (priority — #1)
+
+`PLAN.md` Work item 11 / `SPEC.md` §13 item 16, FR-017. Five parts;
+T-096/T-097 are small, independent prerequisites, T-098 must land before
+T-099/T-100, and T-101 (the historical backfill) is the acceptance proof
+for everything before it — not independent efforts.
+
+- [ ] **T-096** Parameterize `stratified_split()` (`src/train_sentiment.py`)
+      and `SentimentTrainConfig` with `split_seed`/`test_frac`/`val_frac`
+      — today these are hardcoded module constants (`seed=42`, 80/10/10),
+      never threaded from any config or CLI flag. Defaults must reproduce
+      today's exact behavior for every existing call site (no test
+      assertion changes). → step 2 / SPEC.md FR-017.
+- [ ] **T-097** Wire a real `Trainer` (`NoOpTrainer`-based) into
+      `category_stage.py`/`summary_stage.py` — both currently only
+      *mention* `NoOpTrainer` in a docstring; neither instantiates it
+      anywhere reachable outside `fti.py`'s own unit test. → step 4 /
+      SPEC.md FR-017.
+- [ ] **T-098** Design + implement the `ExperimentSpec` pydantic schema
+      (`src/experiment.py`): `PretrainSpec`/`TrainTestSplitSpec`/
+      `EvalSpec`/`PublishSpec` nested under one top-level spec, generic
+      across sentiment/NER/category/`c_summary`. Strict validation —
+      unpinned/missing `base_model` when `pretrain.enabled`; `pretrain`
+      rejected outright for category/`c_summary`; unknown
+      `hyperparameters` keys rejected by name against that stage's real
+      `TrainConfig` fields; `publish.enabled` requires `pretrain.enabled`
+      + `repo_id`; `eval.candidate_model` must be unset when
+      `pretrain.enabled` (auto-filled downstream, never user-supplied
+      there). → step 1 / SPEC.md FR-017.
+- [ ] **T-099** Implement `run_experiment(spec, *, source_db=None,
+      results_db=None) -> ExperimentResult` (`src/experiment.py`): a
+      stage→`(TrainConfig, Trainer)` registry (mirrors
+      `news_nlp.eval.candidate`'s own `_STAGE_CLASSES` pattern) drives an
+      optional train step; on success, `candidate_model`/
+      `candidate_revision` auto-resolve to the fresh local checkpoint
+      (`revision="local"`, the established convention
+      `resample_sentiment_v4_2026_09_15.py` already set); evaluation
+      reuses `news_nlp.eval.runner.run_eval` verbatim; an optional publish
+      step (sentiment only, reusing the existing
+      `publish_finbert_financial_news_v4_2026_09_15.py` model-card
+      pattern) requires the same explicit, separate confirmation any Hub
+      push already needs — this task does not change that gate. Writes a
+      git-tracked `experiments/results/<name>.result.json` (resolved
+      spec + `code_version` + `TrainedArtifact.metrics` + the `run_eval`
+      result dict). → steps 1/3 / SPEC.md FR-017.
+- [ ] **T-100** `cli/run_experiment.py` — the one command
+      (`uv run cli/run_experiment.py --config <path>.json`, optional
+      `--results-db`/`--source-db` overrides matching
+      `cli/news_nlp_eval.py`'s own convention): load + validate the JSON,
+      call `run_experiment`, print a one-line summary
+      (`runner.summary_table`-style), exit 1 if `regressed`. → step 3 /
+      SPEC.md FR-017.
+- [ ] **T-101** Backfill a JSON spec for every real historical experiment
+      into `experiments/`: sentiment (`sentiment_v2_chunklevel_finetuned`,
+      `_v3_downsampled`, `_v4_class_weighted`, `_v5_secbert_base`,
+      `_chunklevel_base_finbert`), one production-config spec each for
+      NER/category/`c_summary`. `experiments/README.md` discloses the two
+      genuine gaps plainly: the removed "title-only" sentiment code path
+      (no runnable equivalent) and category/`c_summary`'s real historical
+      experiments (confidence-threshold calibration; generation
+      output-length budget) being inference-time hyperparameters, a
+      different axis than this schema — not silently omitted. → step 5 /
+      SPEC.md FR-017.
+- [ ] **T-102** Tests: `ExperimentSpec` validation (every rejection case
+      T-098 names), a hermetic end-to-end `run_experiment` test (stub
+      judge, no real GPU/LLM — the pattern already established in
+      `test_eval_runner.py`) for at least one `pretrain.enabled=true` spec
+      and one eval-only spec, and a `stratified_split`/
+      `SentimentTrainConfig` regression test proving default behavior is
+      byte-identical to pre-T-096. Full hermetic suite stays green
+      throughout.
+- [ ] **T-103** Docs: new `docs/evaluation.md` section covering the
+      schema + one-command workflow + the two disclosed gaps;
+      `docs/modules/news-nlp.md` gains a pointer. Reconcile the two
+      architecture artifacts (constitution AI behavior #11 — Portfolio
+      Thesis + Portfolio NLP, reconcile only, never rename), same closing
+      pass T-095 did for Work item 10.
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -973,7 +1051,26 @@ move (T-087), the eval module's FTI reuse + live candidate-model scoring
 (T-091), the confusion-matrix/ROC-AUC additions + their regression test
 (T-092–T-094), and the docs/architecture-artifact reconciliation pass
 (T-095) that closes it out. Was priority #1 as of 2026-09-16, superseding
-Work item 8 — Work item 8 (per-model selection justification in the
-artifact, T-064–T-069) is next up now that this is done, still a scoped,
-pending backlog entry, not to be implemented until specifically
-requested.
+Work item 8. A direct follow-up the same day (not its own Work item —
+already-filed FR-014's own disclosed gap) closed the two remaining
+"not `experiment`-aware" spots: `eval_run` gained a real `experiment`
+column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
+`GET /eval/latest` group by `(stage, experiment)`.
+
+**Work item 11** (JSON-driven, single-command experiment runs,
+T-096–T-103) is **new, top priority (2026-09-18)** — spec/plan/tasks
+filed, nothing implemented yet. Surfaced directly while walking through
+the full historical sentiment-candidate command sequence (Work item 9)
+one command at a time: no single place declares an experiment's full
+configuration before it runs, and several of the existing one-off scripts
+mutate shared DB tables in place, needing a manual restore step
+afterward. Five parts, mostly sequential: T-096/T-097 (small, independent
+prerequisites — parameterizing the training split, wiring a real
+`NoOpTrainer` into category/`c_summary`) can land immediately; T-098 (the
+`ExperimentSpec` schema) must land before T-099/T-100 (the orchestration
+function and the one CLI command); T-101 (backfilling a JSON spec for
+every real historical experiment) is the acceptance proof that T-098-T-100
+actually work, not just exist. Supersedes Work item 8 as "next up" in
+priority — Work item 8 (per-model selection justification in the
+artifact, T-064–T-069) stays a valid, scoped, pending item, just no
+longer first in line, same as when Work item 10 first superseded it.
