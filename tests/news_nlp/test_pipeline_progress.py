@@ -14,7 +14,7 @@ def test_run_sentiment_stage_reports_empty_progress_without_loading_model(
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
 
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(sentiment_stage.AutoTokenizer, "from_pretrained", fail_if_called)
     monkeypatch.setattr(
         sentiment_stage.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
     )
@@ -31,7 +31,7 @@ def test_run_ner_stage_reports_empty_progress_without_loading_model(
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
 
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(ner_stage.AutoTokenizer, "from_pretrained", fail_if_called)
     monkeypatch.setattr(
         ner_stage.AutoModelForTokenClassification, "from_pretrained", fail_if_called
     )

@@ -162,7 +162,9 @@ def test_run_sentiment_stage_is_not_dragged_negative_by_a_different_companys_bad
     vocab = {chunk1_text: 0, chunk2_text: 1}
 
     monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: FakeSentimentTokenizer(vocab)
+        sentiment_stage.AutoTokenizer,
+        "from_pretrained",
+        lambda *_a, **_k: FakeSentimentTokenizer(vocab),
     )
     monkeypatch.setattr(
         sentiment_stage.AutoModelForSequenceClassification,

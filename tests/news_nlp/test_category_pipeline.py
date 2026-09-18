@@ -135,7 +135,7 @@ def _patch_category_model(
     monkeypatch: pytest.MonkeyPatch, level1_flat: list[float], level2_flat: list[float]
 ) -> FakeTwoPassCategoryModel:
     monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: BatchAwareTokenizer()
+        category_stage.AutoTokenizer, "from_pretrained", lambda *_a, **_k: BatchAwareTokenizer()
     )
     fake_model = FakeTwoPassCategoryModel(level1_flat, level2_flat)
     monkeypatch.setattr(
@@ -152,7 +152,7 @@ def test_run_category_stage_skips_loading_model_when_nothing_pending(
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
 
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(category_stage.AutoTokenizer, "from_pretrained", fail_if_called)
     monkeypatch.setattr(
         category_stage.AutoModelForSequenceClassification, "from_pretrained", fail_if_called
     )
