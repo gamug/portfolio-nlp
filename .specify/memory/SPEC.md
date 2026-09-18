@@ -104,6 +104,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-014** | The evaluation schema separates a sampled row's **model inference** (the prediction being evaluated) from its **LLM-judge verdict** into two distinct tables, both carrying `article_id` (traceable back to the SOURCE `urls.db` article — FR-007), a `task` column (`sentiment` \| `category` \| `ner` \| `c_summary`), and an `experiment` column (a free-form label — `base`, `v2`, `v3`, `v4`, …) identifying which model/candidate produced the inference, so multiple experiments' judged data can coexist in the same store instead of requiring a separate scratch database per candidate (the workaround `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py` each needed, PLAN.md Work item 9). | Two tables exist where `eval_judgement` used to hold both concerns in one row; every row in both carries a non-null `article_id`, `task`, and `experiment`; a query for two different `experiment` values against the same `article_id`/`task` returns two independent rows, not a collision (unique constraint keyed on `(article_id, task, experiment, run_id)` or equivalent, not just `article_id`). |
 | **FR-015** | Before spending a judge LLM call on a sampled `(article_id, task, experiment)`, the eval module checks whether a judge verdict already exists for that exact key and reuses it instead of re-judging — real LLM token spend is not repeated on data already tagged under the same experiment. | Running the same `--stage <s> --run-name <experiment>` invocation twice against an unchanged sample population results in zero new judge-LLM calls on the second run (mockable/countable in a hermetic test — the judge client is never invoked for a key already present in the judge table); a genuinely new `article_id` or a different `experiment` value for the same article always judges fresh. |
 | **FR-016** | For sentiment and category only, the eval module persists each experiment's full confusion matrix (one row per `(experiment, task, true_label, predicted_label)` cell, with a count) in its own table, and computes/stores one-vs-rest precision, recall, F1, and ROC (per-class ROC curve/AUC) alongside the existing `accuracy_ovr`. NER and `c_summary`'s existing metric sets (micro/macro F1 + hallucination/miss rate; `mean_faithfulness`/`mean_coverage`/`mean_conciseness` + `pct_with_hallucination`, respectively) are preserved unchanged — this requirement does not extend confusion-matrix/ROC treatment to either. | A confusion-matrix table exists, keyed by `experiment`, queryable independently of `metrics_json`'s aggregate blob; for sentiment and category, a completed `eval_run`'s stored metrics include `roc_auc_<class>` alongside the existing `precision_<class>`/`recall_<class>`/`f1_<class>`/`accuracy_ovr_<class>`; `aggregate_ner`/`aggregate_c_summary`'s own returned metric keys are byte-identical to their pre-this-work-item set (a snapshot/regression test on the exact key set, not just "still has some metrics"). |
+| **FR-017** | A single JSON file (`ExperimentSpec`, schema-validated) fully specifies one model experiment for any of the four ML stages — whether it trains a new checkpoint and from which base model/dataset/train-test-split+stratify strategy, how many articles the LLM judge samples and how (direct reuse of `EvalSettings`' own shape), the experiment's name, and whether to publish the result — and one command runs it end to end (train if requested, evaluate, optionally publish), reusing `news_nlp.eval.runner.run_eval` unchanged rather than reimplementing it. Validation is a reproducibility guarantee (no unpinned base model, no ambiguous `pretrain`/`candidate_model` combination, no unknown per-stage hyperparameter key, `publish` never without `pretrain`) — the config cannot describe a run that would be ambiguous or unreproducible. `pretrain` is always rejected for category/`c_summary` (no trainable checkpoint exists, or ever will, for either — both ship pretrained/zero-shot as-is, FR-011). | `uv run cli/run_experiment.py --config <path>.json` is the only command needed to reproduce a backfilled historical experiment's train+evaluate sequence; an invalid/ambiguous spec fails validation before any training or eval work starts, naming exactly what's wrong; a JSON spec exists for every real historical experiment with a runnable equivalent today (sentiment v2/v3/v4/v5 + base-FinBERT; one production spec each for NER/category/`c_summary`), with the two genuine gaps (the removed "title-only" sentiment code path; category/`c_summary`'s inference-time-hyperparameter experiments, a different axis than this schema) named in `experiments/README.md`, not silently omitted; `stratified_split`'s split seed/fractions/stratify key are spec-overridable with defaults matching today's exact hardcoded behavior, so no existing call site's behavior changes. |
 
 ### 2.4 Non-functional requirements
 
@@ -755,6 +756,26 @@ treating a related FR/NR as done:
     ML stages, move `sector_summary` fully into its own non-FTI module,
     and redesign the eval schema/module around the friction points above
     — FR-011–FR-016, `PLAN.md` Work item 10, `TASKS.md` T-082 onward.
+    **Done 2026-09-18.**
+16. **Running a real model experiment still requires hand-chaining several
+    independent, one-off commands, with no single place that declares an
+    experiment's full configuration before it runs.** Item 15's FTI/eval
+    redesign (Work item 10) fixed the *architecture* underneath each
+    stage and the eval harness's own schema/reuse friction — it did not
+    change how an experiment is actually *run*. Walking through the full
+    historical sentiment-candidate sequence (Work item 9: dataset prep →
+    train → offline eval → downstream eval → publish) command by command
+    (2026-09-18) surfaced the gap directly: several of those commands
+    mutate shared DB tables in place and need a manual restore step
+    afterward (`scripts/resample_sentiment_v4_2026_09_15.py` +
+    `scripts/restore_sentiment_after_v4_eval_2026_09_15.py`); nothing
+    captures an experiment's full configuration (pretrain or not, dataset,
+    train/test split + stratify strategy, LLM-judge sample count) in one
+    reproducible, validated place before it runs. **New, priority #1,
+    pending (2026-09-18)** — a JSON `ExperimentSpec` schema, generic
+    across all four ML stages, plus one command that runs an experiment
+    end to end from it — FR-017, `PLAN.md` Work item 11, `TASKS.md` T-096
+    onward.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

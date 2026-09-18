@@ -7,7 +7,7 @@ The implementation plan for the live backlog identified in
 
 **Scope of this plan was originally narrow, now expanded to cover active
 model-performance work.** `SPEC.md` §13 (Open Questions & Risks) now lists
-fifteen items; §14 (Scope Boundaries) marks most of the original nine as
+sixteen items; §14 (Scope Boundaries) marks most of the original nine as
 **accepted** (permanent characteristics of this project at its current,
 non-production scope) and one (§13 item 5, throughput/latency SLA)
 **retired** outright. Item 8 was flagged "should fix regardless of scope"
@@ -18,8 +18,11 @@ task"**: category's fix already shipped (Work item 5), and sentiment is
 now resolved, priority work (Work item 4, and its data-quality follow-up,
 Work item 9). Item 10 (`c_summary`) is resolved (Work item 6). Item 15
 (the pipeline/eval architecture itself, never formally spec'd — an
-organically-grown pragmatic solution, not a from-scratch design) is now
-this plan's **top priority (Work item 10)**, ahead of item 13's
+organically-grown pragmatic solution, not a from-scratch design) is
+**done (Work item 10, closed 2026-09-18)**. Item 16 (running a real model
+experiment requires chaining many independent, hand-invoked one-off
+commands, with no single declarative, reproducible experiment definition)
+is now this plan's **top priority (Work item 11)**, ahead of item 13's
 still-pending justification work (Work item 8). All per
 `docs/evaluation.md`'s dated follow-ups and the current focus of this
 project. This plan still does not resurrect anything §14 leaves closed for
@@ -63,16 +66,25 @@ this project's scope beyond what's already in motion:
    §13 item 14): rebalance the published dataset, retrain the model on
    the rebalanced data, and measure the result against the current
    version. — Work item 9.
-10. **Top priority.** Formalize the pipeline/evaluation architecture — never
-    a from-scratch spec, a pragmatic solution to a real necessity that grew
-    incrementally instead (SPEC.md §13 item 15): restructure the four ML
-    stages around a shared Feature/Train/Inference (FTI) class hierarchy,
-    move `sector_summary` fully into its own non-FTI module, and redesign
+10. Formalize the pipeline/evaluation architecture — never a from-scratch
+    spec, a pragmatic solution to a real necessity that grew incrementally
+    instead (SPEC.md §13 item 15): restructure the four ML stages around a
+    shared Feature/Train/Inference (FTI) class hierarchy, move
+    `sector_summary` fully into its own non-FTI module, and redesign
     `news_nlp.eval` around the concrete friction this project's own
     sentiment-candidate work exposed — no way to run multiple experiments'
     judged data in one store, no persisted confusion matrix, no ROC, no
     reuse mechanism to avoid re-spending judge-LLM tokens on already-tagged
-    data. — Work item 10.
+    data. **Done 2026-09-18.** — Work item 10.
+11. **Top priority.** Replace the hand-chained, one-off-script way of
+    running a model experiment (dataset prep → train → offline eval →
+    downstream eval → publish, each its own command, several mutating
+    shared DB tables and needing a manual restore step afterward — SPEC.md
+    §13 item 16) with one JSON file per experiment (pretrain or not, which
+    dataset, train/test split + stratify strategy, how many articles to
+    sample for the LLM judge, the experiment's name, everything needed to
+    reproduce it — generic across sentiment/NER/category/`c_summary`) and
+    one command that runs it end to end. — Work item 11.
 
 ## Non-goals
 
@@ -1018,7 +1030,7 @@ still pinning v2; adopting v4 now would mean deliberately trading overall
 agreement/severity for negative recall, a decision this evaluation
 surfaces rather than makes.
 
-## Work item 10 — Formalize the pipeline/evaluation architecture: FTI restructure + evaluation redesign (priority — #1)
+## Work item 10 — Formalize the pipeline/evaluation architecture: FTI restructure + evaluation redesign (done 2026-09-18)
 
 **Why**: `pipeline.py` (four ML stages) and `news_nlp/eval/` (the
 LLM-as-judge harness) were never designed against a stated architectural
@@ -1171,6 +1183,107 @@ explicitly not being reopened); a UI or dashboard over the new confusion
 matrix/ROC data (that data becomes queryable, presenting it is a separate,
 later concern if ever wanted).
 
+## Work item 11 — JSON-driven, single-command experiment runs (priority — #1)
+
+**Why**: even with Work item 10's FTI/eval redesign landed, running one
+real model experiment still means hand-chaining several independent,
+one-off scripts — dataset prep, then `train_sentiment.py` (or nothing, for
+a stage with no trainable checkpoint), then an offline test-set/idiom-probe
+comparison, then a downstream LLM-judge eval, then (if adopted) a Hub
+publish — several of which mutate shared DB tables directly and require a
+manual restore step afterward (`scripts/resample_sentiment_v4_2026_09_15.py`
++ `scripts/restore_sentiment_after_v4_eval_2026_09_15.py`). Nothing
+declares an experiment's full configuration in one place before it runs;
+reproducing one means reverse-engineering the exact command sequence from
+`docs/evaluation.md`'s prose or from git history. This friction was
+surfaced directly (2026-09-18) walking through the full historical
+sentiment-candidate sequence (Work item 9) command by command.
+
+**Approach**, five parts (SPEC.md FR-017):
+
+1. **A JSON `ExperimentSpec` schema**, generic across all four ML stages
+   (sentiment/NER/category/`c_summary`) — one file fully specifies an
+   experiment: whether it trains a new checkpoint (`pretrain.enabled`,
+   which base model, which dataset, train/test split + stratify strategy),
+   how many articles the LLM judge samples (`eval.sample_size` +
+   stratification, direct passthrough of the existing `EvalSettings`
+   shape), the experiment's name, and whether to publish the result to
+   the Hub. Strict validation (pydantic, this codebase's own existing
+   tool for exactly this) rejects an ambiguous or unpinned config before
+   any GPU work starts — reproducibility guarantee, not a security
+   mechanism.
+2. **Making train/test setup genuinely config-driven.** Today
+   `stratified_split()`/`SentimentTrainConfig` hardcode the split seed
+   (42, a module constant never threaded from any config), fractions
+   (80/10/10), and stratify key (`"label"`) — a real gap, not just
+   missing CLI plumbing. Parameterize both, defaults preserving today's
+   exact behavior for every existing call site.
+3. **One orchestration function, `run_experiment(spec)`**, reused by one
+   new CLI entrypoint (`cli/run_experiment.py --config <path>.json` — the
+   single command): train (if requested, via a stage→`Trainer` registry
+   mirroring `news_nlp.eval.candidate`'s own `_STAGE_CLASSES` pattern) →
+   auto-resolve the freshly-trained local checkpoint as the eval
+   `candidate_model`/`candidate_revision` (the established `"local"`
+   placeholder convention `resample_sentiment_v4_2026_09_15.py` already
+   set) → evaluate via `news_nlp.eval.runner.run_eval` **unchanged,
+   reused verbatim** → optionally publish → write a git-tracked result
+   record (resolved config + metrics + `eval_run_id`/`mlflow_run_id`),
+   the new structured complement to `docs/evaluation.md`'s hand-written
+   narrative follow-ups.
+4. **Close the `NoOpTrainer` wiring gap Work item 10 left half-done**:
+   `category_stage.py`/`summary_stage.py` currently only *mention*
+   `NoOpTrainer` in their docstrings — neither actually instantiates it
+   anywhere outside `fti.py`'s own unit test. Wire a real (trivial)
+   `Trainer` into both, so `pretrain.enabled` for these two stages is
+   rejected by real code, not just documented as always-inapplicable.
+5. **Backfill a JSON spec for every experiment that was actually run**
+   (sentiment v2/v3/v4/v5 + the un-fine-tuned base-FinBERT comparison
+   arm; one production-config spec each for NER/category/`c_summary`).
+   Two gaps disclosed rather than forced to fit: the original
+   "title-only" sentiment aggregation arms have no surviving code path
+   to run (removed after being rejected — not backfillable); category's
+   confidence-threshold calibration and `c_summary`'s generation
+   output-length-budget test were both inference-time hyperparameter
+   experiments, a different axis than this schema's
+   pretrain/dataset/split/sample-count shape — out of scope for v1, named
+   as a known gap rather than silently unaddressed.
+
+**Acceptance criteria**:
+
+- A single `ExperimentSpec` JSON, validated by a pydantic schema, can
+  fully describe an experiment for any of the four ML stages; an invalid
+  or ambiguous spec (unpinned base model, `publish` without `pretrain`, an
+  unknown `hyperparameters` key for that stage, `pretrain` requested for
+  category/`c_summary`) fails validation before any training/eval work
+  starts, with a message naming exactly what's wrong.
+- `uv run cli/run_experiment.py --config <path>.json` is the **only**
+  command needed to reproduce any backfilled historical experiment's
+  train+evaluate sequence (publish excluded — see below).
+- `stratified_split()`'s split seed/fractions/stratify key are
+  spec-overridable; every existing test and script call site keeps its
+  exact current (default) behavior unchanged.
+- `category_stage.py`/`summary_stage.py` each have a real `Trainer`
+  (however trivial) instantiated somewhere reachable from test coverage,
+  not just referenced in a docstring.
+- A JSON spec exists for every real historical sentiment/NER/category/
+  `c_summary` experiment that has a runnable equivalent today; the two
+  disclosed gaps (title-only arms, inference-time-hyperparameter
+  experiments) are named in `experiments/README.md`, not silently
+  omitted.
+- Full hermetic suite stays green; a hermetic (stub-judge) end-to-end test
+  proves `run_experiment` actually works for at least one training spec
+  and one eval-only spec, not just that its pieces exist independently.
+
+**Out of scope for this work item**: actually executing any `publish:
+true` spec without an explicit, separate confirmation at run time — the
+code path exists, but a Hub push stays the same real, external, "Create
+Public Surface" action it already is via the existing `publish_*.py`
+scripts (TASKS.md T-073's own still-pending status is the live proof this
+gate isn't bypassed); a runtime-hyperparameter experiment axis (category's
+confidence threshold, `c_summary`'s generation length) — disclosed above,
+a possible future v2 extension, not this one; re-litigating any Work
+item 1-10 model/data/architecture decision.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -1214,17 +1327,24 @@ other, and independent of one another except where noted:
   touches the same model Work item 4 already finished tuning, but as a
   data-quality fix, not a re-litigation of that work. Priority because
   it's the next explicitly requested task.
-- **Work item 10 (FTI restructure + evaluation redesign) is this plan's
-  top priority**, unblocked today and independent of every other work
-  item's own outcome — it restructures *how* the existing, already-decided
-  stage behaviors are implemented, not *what* any of them decide (Work
-  items 1-9's model/data choices are untouched). Internally sequential,
-  though: step 1 (FTI hierarchy) and step 2 (`sector_summary` module move)
-  are prerequisites for step 3 (eval reusing the FTI `Inference` classes),
-  which itself must land before steps 4-6 (schema split, reuse mechanism,
-  confusion matrix/ROC) can be built against it — six steps, one
-  dependency chain, not six independent efforts. Supersedes Work item 8 as
-  "next up" in priority ordering; Work item 8 stays a valid, scoped,
+- **Work item 10 (FTI restructure + evaluation redesign) is done
+  (2026-09-18)** — all six steps landed in order (FTI hierarchy →
+  `sector_summary` module move → eval reusing the FTI `Inference` classes
+  → schema split → reuse mechanism → confusion matrix/ROC), followed by a
+  direct follow-up (MLflow `experiment`-awareness) closing the two gaps
+  that work item's own docs disclosed.
+- **Work item 11 (JSON-driven, single-command experiment runs) is this
+  plan's new top priority**, unblocked today and independent of every
+  other work item's own outcome — same shape as Work item 10 before it:
+  restructures *how* an experiment is run and recorded, not *what* any
+  stage's already-decided model/data choices are (Work items 1-10 stay
+  untouched). Internally sequential: the `stratified_split()`
+  parameterization (step 2) and the `NoOpTrainer` wiring (step 4) are
+  small, independent prerequisites; the `ExperimentSpec` schema (step 1)
+  must land before the orchestration function/CLI (step 3), which itself
+  must exist before the historical-experiment JSON backfill (step 5) can
+  be verified by actually running them. Supersedes Work item 8 as "next
+  up" in priority ordering, again; Work item 8 stays a valid, scoped,
   pending item, just no longer first in line.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
