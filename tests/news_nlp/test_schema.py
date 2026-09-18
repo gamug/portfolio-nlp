@@ -22,7 +22,7 @@ _RESULT_TABLES = {
 }
 
 # news_nlp.eval run-log tables (see docs/evaluation.md)
-_EVAL_TABLES = {"eval_run", "eval_judgement"}
+_EVAL_TABLES = {"eval_run", "eval_judgement", "eval_inference", "eval_verdict"}
 
 
 def test_init_schema_creates_every_result_table(test_db_path: Path) -> None:

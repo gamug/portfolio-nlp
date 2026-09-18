@@ -4,8 +4,9 @@
 draws the stratified ``low_conf`` / ``target_<x>`` / ``representative`` sample
 (``news_nlp.eval.sampling``), judges every row through a ``ThreadPoolExecutor``
 (each task builds its own stateless ``Agent`` over a shared ``OpenAIModel``),
-aggregates, writes ``eval_run`` / ``eval_judgement`` rows + an MLflow run, and
-optionally checks for a headline-metric regression against the previous run.
+aggregates, writes ``eval_run``/``eval_inference``/``eval_verdict`` rows + an
+MLflow run, and optionally checks for a headline-metric regression against
+the previous run.
 """
 
 from __future__ import annotations
@@ -27,7 +28,12 @@ from news_nlp.eval.model import build_judge_agent, build_model
 from news_nlp.eval.provenance import code_version
 from news_nlp.eval.regression import check_regression as _check_regression
 from news_nlp.eval.sampling import STAGES, EvalItem, sample_for_stage
-from news_nlp.eval.store import create_eval_run, finish_eval_run, record_judgement
+from news_nlp.eval.store import (
+    create_eval_run,
+    finish_eval_run,
+    record_inference,
+    record_verdict,
+)
 from news_nlp.eval.tracking import log_to_mlflow
 
 _LABEL_STAGES = {"sentiment", "category"}
@@ -94,6 +100,14 @@ def _run_stage(
         for bucket, n in bucket_counts.items()
     }
 
+    # TASKS.md T-090 / SPEC.md FR-014: which experiment produced this run's
+    # inferences. candidate_model (T-089's own field, the most specific
+    # "which model produced this" signal) wins when a candidate run is in
+    # progress; run_name is the fallback for someone labeling a
+    # production-model run without swapping models; "base" is the default
+    # for an unlabeled production run, matching FR-014's own example values.
+    experiment = settings.candidate_model or settings.run_name or "base"
+
     run_id = create_eval_run(
         conn,
         stage=stage,
@@ -128,12 +142,22 @@ def _run_stage(
         for item, verdict in zip(items, verdicts, strict=True):
             dumped = verdict.model_dump()
             correct, severity = _correct_and_severity(stage, dumped)
-            record_judgement(
+            inference_id = record_inference(
                 conn,
                 run_id,
                 article_id=item.article_id,
+                task=stage,
+                experiment=experiment,
                 bucket=item.bucket,
                 prediction=item.prediction,
+            )
+            record_verdict(
+                conn,
+                inference_id,
+                run_id,
+                article_id=item.article_id,
+                task=stage,
+                experiment=experiment,
                 verdict=dumped,
                 correct=correct,
                 severity=severity,
@@ -241,7 +265,7 @@ def run_eval(
     # connect_pipeline above already raised if SOURCE isn't configured, so
     # this resolves to a real path -- same resolution it did internally.
     resolved_source_db = str(db.source_db_path(source_db))
-    db.init_schema(conn)  # idempotent; ensures eval_run / eval_judgement exist
+    db.init_schema(conn)  # idempotent; ensures eval_run/eval_inference/eval_verdict exist
     results: dict[str, dict[str, Any]] = {}
     try:
         for stage in chosen:

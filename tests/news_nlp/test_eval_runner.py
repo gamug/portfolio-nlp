@@ -85,8 +85,15 @@ def test_run_eval_writes_db_rows_and_mlflow_runs(
     try:
         runs = check.execute("SELECT stage, status FROM eval_run ORDER BY stage").fetchall()
         assert [tuple(x) for x in runs] == [("category", "ok"), ("sentiment", "ok")]
-        (n_j,) = check.execute("SELECT COUNT(*) FROM eval_judgement").fetchone()
-        assert n_j == 12
+        (n_inf,) = check.execute("SELECT COUNT(*) FROM eval_inference").fetchone()
+        assert n_inf == 12
+        (n_verdict,) = check.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()
+        assert n_verdict == 12
+        # No candidate_model/run_name given -> defaults to "base" (TASKS.md T-090).
+        experiments = {
+            r[0] for r in check.execute("SELECT DISTINCT experiment FROM eval_inference")
+        }
+        assert experiments == {"base"}
     finally:
         check.close()
 
@@ -202,7 +209,7 @@ def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
     check = db_module.connect(results)
     try:
         rows = check.execute(
-            "SELECT model_prediction_json FROM eval_judgement WHERE run_id IN "
+            "SELECT prediction_json, experiment FROM eval_inference WHERE run_id IN "
             "(SELECT id FROM eval_run WHERE stage = 'sentiment')"
         ).fetchall()
     finally:
@@ -215,6 +222,8 @@ def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
     # (always "positive") -- proves sampling drew from the scratch
     # connection, not the production one.
     assert all(json.loads(r[0])["label"] == "negative" for r in rows)
+    # experiment resolves to candidate_model when set (TASKS.md T-090).
+    assert all(r[1] == "candidate/model" for r in rows)
 
     # Production article_sentiment (seeded by eval_store_paths) is untouched.
     (prod_score,) = (

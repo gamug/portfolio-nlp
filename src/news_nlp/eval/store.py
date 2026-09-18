@@ -1,8 +1,18 @@
-"""Write eval runs + per-row verdicts to the RESULTS store.
+"""Write eval runs + per-row model inferences/judge verdicts to the RESULTS
+store.
 
-``eval_run`` / ``eval_judgement`` DDL lives in ``news_nlp.schema``; ``init_schema``
-creates them. Column lists route through ``conn.dialect`` like the rest of
-``news_nlp.queries``; the caller commits.
+``eval_run``/``eval_inference``/``eval_verdict`` DDL lives in
+``news_nlp.schema``; ``init_schema`` creates them. Column lists route
+through ``conn.dialect`` like the rest of ``news_nlp.queries``; the caller
+commits.
+
+``eval_inference``/``eval_verdict`` (TASKS.md T-090, SPEC.md FR-014) split
+what the now-legacy ``eval_judgement`` held in one row -- the sampled model
+inference and the LLM judge's verdict on it -- into two tables, both
+carrying ``article_id``/``task``/``experiment`` so more than one
+experiment's data for the same article/task can coexist. ``record_judgement``
+is gone; ``record_inference``/``record_verdict`` replace it at the same call
+site (``news_nlp.eval.runner._run_stage``).
 """
 
 from __future__ import annotations
@@ -26,11 +36,21 @@ _RUN_COLS = (
     "status",
     "strata_json",
 )
-_JUDGEMENT_COLS = (
+_INFERENCE_COLS = (
     "run_id",
     "article_id",
+    "task",
+    "experiment",
     "bucket",
-    "model_prediction_json",
+    "prediction_json",
+    "created_at",
+)
+_VERDICT_COLS = (
+    "inference_id",
+    "run_id",
+    "article_id",
+    "task",
+    "experiment",
     "verdict_json",
     "correct",
     "severity",
@@ -85,25 +105,57 @@ def create_eval_run(
     return int(row_id)
 
 
-def record_judgement(
+def record_inference(
     conn: NewsNlpDatabase,
     run_id: int,
     *,
     article_id: int,
+    task: str,
+    experiment: str,
     bucket: str,
     prediction: dict[str, Any],
+) -> int:
+    """Insert one ``eval_inference`` row; return its id (for
+    ``record_verdict``'s ``inference_id`` FK)."""
+    cur = conn.execute(
+        conn.dialect.insert("eval_inference", _INFERENCE_COLS),
+        (
+            run_id,
+            article_id,
+            task,
+            experiment,
+            bucket,
+            json.dumps(prediction, default=str),
+            _now(),
+        ),
+    )
+    row_id = cur.lastrowid
+    if row_id is None:  # pragma: no cover -- INSERT always sets it for an AUTOINCREMENT PK
+        raise RuntimeError("eval_inference INSERT returned no rowid")
+    return int(row_id)
+
+
+def record_verdict(
+    conn: NewsNlpDatabase,
+    inference_id: int,
+    run_id: int,
+    *,
+    article_id: int,
+    task: str,
+    experiment: str,
     verdict: dict[str, Any],
     correct: bool | None,
     severity: int | None,
     rationale: str,
 ) -> None:
     conn.execute(
-        conn.dialect.insert("eval_judgement", _JUDGEMENT_COLS),
+        conn.dialect.insert("eval_verdict", _VERDICT_COLS),
         (
+            inference_id,
             run_id,
             article_id,
-            bucket,
-            json.dumps(prediction, default=str),
+            task,
+            experiment,
             json.dumps(verdict, default=str),
             None if correct is None else int(correct),
             severity,

@@ -1,7 +1,9 @@
 """Canonical DDL for the news-NLP RESULTS store: the five result tables, each
-keyed by ``article_id`` and ``REFERENCES articles(id)``, plus the two
-``eval_run`` / ``eval_judgement`` run-log tables written by ``news_nlp.eval``
-(the LLM-as-judge accuracy evaluation -- see ``docs/evaluation.md``).
+keyed by ``article_id`` and ``REFERENCES articles(id)``, plus the run-log
+tables written by ``news_nlp.eval`` (the LLM-as-judge accuracy evaluation --
+see ``docs/evaluation.md``): ``eval_run``, ``eval_inference``/``eval_verdict``
+(current), and the now-legacy ``eval_judgement`` (superseded 2026-09-18,
+kept as-is for its historical rows -- see each table's own DDL comment).
 
 Does **not** create ``articles`` -- that table is owned by the crawler on the
 SOURCE side; on the RESULTS side a lean, ``body_text``-free subset is
@@ -123,14 +125,17 @@ CREATE TABLE IF NOT EXISTS article_category (
 );
 
 -- LLM-as-judge accuracy evaluation (news_nlp.eval). One eval_run per
--- (stage, invocation); eval_judgement holds the per-sampled-row judge
--- verdict. Not keyed to articles(id) by a foreign key: a run's sample is
--- a point-in-time snapshot and rows can be re-processed/corrected after.
--- The full metrics blob is also logged to MLflow; metrics_json here is the
--- queryable copy behind GET /eval/latest. See docs/evaluation.md.
+-- (stage, invocation); eval_inference/eval_verdict (below) hold the
+-- per-sampled-row model inference and judge verdict, split so multiple
+-- experiments' data for the same article/task can coexist (PLAN.md Work
+-- item 10 step 4, TASKS.md T-090, SPEC.md FR-014). Not keyed to
+-- articles(id) by a foreign key: a run's sample is a point-in-time
+-- snapshot and rows can be re-processed/corrected after. The full metrics
+-- blob is also logged to MLflow; metrics_json here is the queryable copy
+-- behind GET /eval/latest. See docs/evaluation.md.
 CREATE TABLE IF NOT EXISTS eval_run (
     id {autoincrement_pk},
-    stage         TEXT NOT NULL,   -- sentiment | category | ner | c_summary
+    stage         TEXT NOT NULL,   -- sentiment | category | ner | c_summary | sector_summary
     started_at    TEXT NOT NULL,
     finished_at   TEXT,
     sample_size   INTEGER NOT NULL,
@@ -150,6 +155,11 @@ CREATE TABLE IF NOT EXISTS eval_run (
 CREATE INDEX IF NOT EXISTS idx_eval_run_stage_started
     ON eval_run(stage, started_at);
 
+-- Legacy: superseded 2026-09-18 by eval_inference/eval_verdict (below),
+-- which split this row's two concerns and add task/experiment so more
+-- than one experiment's data for the same article/task can coexist. Kept
+-- as-is (DDL and any historical rows untouched) -- new eval runs no
+-- longer write here. See docs/evaluation.md's 2026-09-18 follow-up.
 CREATE TABLE IF NOT EXISTS eval_judgement (
     id {autoincrement_pk},
     run_id                INTEGER NOT NULL REFERENCES eval_run(id),
@@ -165,6 +175,59 @@ CREATE TABLE IF NOT EXISTS eval_judgement (
 
 CREATE INDEX IF NOT EXISTS idx_eval_judgement_run_id
     ON eval_judgement(run_id);
+
+-- The sampled model inference being evaluated -- one row per judged
+-- article/task/experiment/run. `task` mirrors eval_run.stage verbatim
+-- (kept as its own column so a row is self-describing without a join).
+-- `experiment` is a free-form label identifying which model/candidate
+-- produced this inference (`base` for the pinned production model,
+-- `v2`/`v3`/... for a candidate scored via news_nlp.eval.candidate,
+-- SPEC.md FR-013) -- lets two experiments' rows for the same
+-- article_id/task coexist instead of colliding (the "separate scratch
+-- database per candidate" friction PLAN.md Work item 10 names). The
+-- UNIQUE constraint is a defensive anti-double-insert guard within one
+-- run, not a reuse/lookup mechanism -- re-running the same experiment
+-- still produces a new row per run_id (T-091 builds the reuse lookup on
+-- top of this shape). For task='sector_summary', article_id is actually
+-- a sector_summary.id, not an articles.id -- see
+-- news_nlp.eval.sampling.EvalItem's own docstring; unchanged by this split.
+CREATE TABLE IF NOT EXISTS eval_inference (
+    id              {autoincrement_pk},
+    run_id          INTEGER NOT NULL REFERENCES eval_run(id),
+    article_id      INTEGER NOT NULL,
+    task            TEXT NOT NULL,
+    experiment      TEXT NOT NULL,
+    bucket          TEXT NOT NULL,
+    prediction_json TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE (article_id, task, experiment, run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_inference_run_id ON eval_inference(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_inference_article_task_experiment
+    ON eval_inference(article_id, task, experiment);
+
+-- The LLM judge's verdict on one eval_inference row. article_id/task/
+-- experiment are deliberately duplicated from eval_inference (not just
+-- reachable via inference_id) so a query never needs a join to know what
+-- a verdict row is about (SPEC.md FR-014's own requirement).
+CREATE TABLE IF NOT EXISTS eval_verdict (
+    id             {autoincrement_pk},
+    inference_id   INTEGER NOT NULL REFERENCES eval_inference(id),
+    run_id         INTEGER NOT NULL REFERENCES eval_run(id),
+    article_id     INTEGER NOT NULL,
+    task           TEXT NOT NULL,
+    experiment     TEXT NOT NULL,
+    verdict_json   TEXT NOT NULL,
+    correct        INTEGER,         -- 0/1 for label stages; NULL for ner/c_summary
+    severity       INTEGER,
+    rationale      TEXT,
+    judged_at      TEXT NOT NULL,
+    UNIQUE (article_id, task, experiment, run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_verdict_run_id ON eval_verdict(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_verdict_inference_id ON eval_verdict(inference_id);
 """
 
 

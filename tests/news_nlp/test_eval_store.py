@@ -3,18 +3,32 @@
 from __future__ import annotations
 
 import news_nlp as db_module
-from news_nlp.eval.store import create_eval_run, finish_eval_run, record_judgement
+from news_nlp.eval.store import create_eval_run, finish_eval_run, record_inference, record_verdict
 
 
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
     cols = set(conn.table_columns("eval_run"))
     assert {"stage", "metrics_json", "strata_json", "mlflow_run_id", "status"} <= cols
+    # eval_judgement is legacy (superseded by eval_inference/eval_verdict,
+    # TASKS.md T-090) but its DDL/historical rows stay untouched.
     assert {"run_id", "bucket", "verdict_json", "correct"} <= set(
         conn.table_columns("eval_judgement")
     )
+    assert {"run_id", "article_id", "task", "experiment", "bucket", "prediction_json"} <= set(
+        conn.table_columns("eval_inference")
+    )
+    assert {
+        "inference_id",
+        "run_id",
+        "article_id",
+        "task",
+        "experiment",
+        "verdict_json",
+        "correct",
+    } <= set(conn.table_columns("eval_verdict"))
 
 
-def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
+def test_run_inference_and_verdict_round_trip(conn: db_module.NewsNlpDatabase) -> None:
     run_id = create_eval_run(
         conn,
         stage="sentiment",
@@ -31,23 +45,43 @@ def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
     conn.commit()
     assert isinstance(run_id, int)
 
-    record_judgement(
+    inference_id_1 = record_inference(
         conn,
         run_id,
         article_id=1,
+        task="sentiment",
+        experiment="base",
         bucket="low_conf",
         prediction={"label": "positive", "score": 0.31},
+    )
+    record_verdict(
+        conn,
+        inference_id_1,
+        run_id,
+        article_id=1,
+        task="sentiment",
+        experiment="base",
         verdict={"agrees": False, "ideal_label": "negative", "severity": 2},
         correct=False,
         severity=2,
         rationale="opposite call",
     )
-    record_judgement(
+    inference_id_2 = record_inference(
         conn,
         run_id,
         article_id=2,
+        task="sentiment",
+        experiment="base",
         bucket="representative",
         prediction={"label": "neutral", "score": 0.8},
+    )
+    record_verdict(
+        conn,
+        inference_id_2,
+        run_id,
+        article_id=2,
+        task="sentiment",
+        experiment="base",
         verdict={"agrees": True, "ideal_label": "neutral", "severity": 0},
         correct=True,
         severity=0,
@@ -73,12 +107,25 @@ def test_run_and_judgement_round_trip(conn: db_module.NewsNlpDatabase) -> None:
     assert '"macro_f1_vs_judge": 0.5' in row["metrics_json"]
     assert '"representative": {"population": 245508, "n": 1}' in row["strata_json"]
 
-    judgements = conn.execute(
-        "SELECT article_id, bucket, correct, severity FROM eval_judgement "
+    inferences = conn.execute(
+        "SELECT article_id, task, experiment, bucket FROM eval_inference "
         "WHERE run_id = ? ORDER BY article_id",
         (run_id,),
     ).fetchall()
-    assert [tuple(r) for r in judgements] == [(1, "low_conf", 0, 2), (2, "representative", 1, 0)]
+    assert [tuple(r) for r in inferences] == [
+        (1, "sentiment", "base", "low_conf"),
+        (2, "sentiment", "base", "representative"),
+    ]
+
+    verdicts = conn.execute(
+        "SELECT article_id, task, experiment, correct, severity FROM eval_verdict "
+        "WHERE run_id = ? ORDER BY article_id",
+        (run_id,),
+    ).fetchall()
+    assert [tuple(r) for r in verdicts] == [
+        (1, "sentiment", "base", 0, 2),
+        (2, "sentiment", "base", 1, 0),
+    ]
 
 
 def test_latest_eval_runs_picks_newest_per_stage(conn: db_module.NewsNlpDatabase) -> None:

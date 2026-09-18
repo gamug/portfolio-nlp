@@ -753,13 +753,38 @@ efforts.
       migration. `sector_summary` excluded from the new mechanism (no
       Feature/Train/Inference shape, FR-012). 248 tests (243 + 5 new),
       ruff, mypy all green.
-- [ ] **T-090** Split `eval_judgement` into two tables (model inference /
+- [x] **T-090** Split `eval_judgement` into two tables (model inference /
       LLM judge verdict), each with `article_id` (reinforced as a
       first-class SOURCE-traceback key), `task`, and `experiment` columns;
       additive schema migration (existing `eval_run`/`eval_judgement` rows
       untouched, same self-heal precedent as `sector_summary`/
       `article_category`'s own migrations in `schema.py`). → step 4 /
-      FR-014.
+      FR-014. Done 2026-09-18: new `eval_inference`/`eval_verdict` tables
+      in `schema.py` (both carrying `article_id`/`task`/`experiment`, a
+      `UNIQUE(article_id, task, experiment, run_id)` defensive
+      anti-double-insert guard — not T-091's reuse-lookup mechanism, which
+      is a separate later task). Genuinely simpler than every prior
+      additive migration in this file: two brand-new tables need only
+      `CREATE TABLE IF NOT EXISTS`, no `ensure_columns` self-heal function
+      at all. `eval_judgement`'s own DDL and historical rows are untouched
+      — new eval runs simply stop writing there.
+      `store.record_judgement` → `record_inference`/`record_verdict`;
+      `runner._run_stage` resolves `experiment =
+      settings.candidate_model or settings.run_name or "base"` (`task` is
+      exactly today's `stage` string, verbatim, already ranging over all
+      five stages including `sector_summary`). Two disclosed,
+      out-of-scope gaps found and left unfixed (both pre-existing from
+      T-089, not introduced by this split): `queries.latest_eval_runs`/
+      `GET /eval/latest` and `regression.check_regression`'s MLflow
+      previous-run lookup are still not `experiment`-aware, so a
+      candidate-model run can still be picked up as "latest"/"previous"
+      for its stage — noted in `docs/evaluation.md`'s 2026-09-18
+      follow-up, not fixed here (FR-014's acceptance criteria is scoped
+      to the two new tables, not `eval_run`'s own query semantics).
+      `scripts/label_sentiment_sentences_2026_09_13.py` (a one-shot,
+      already-completed script) still reads legacy `eval_judgement` —
+      commented, not rewired, since it has no remaining active use. 248
+      tests, ruff, mypy all green.
 - [ ] **T-091** Implement the judge-table reuse mechanism: before invoking
       the judge LLM for a sampled `(article_id, task, experiment)`, check
       the redesigned judge table for an existing verdict under that exact
