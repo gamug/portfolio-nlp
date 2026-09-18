@@ -696,11 +696,24 @@ efforts.
       `pipeline.SECTOR_INTRO_METHOD` reference moved to `news_nlp.
       sector_summary.SECTOR_INTRO_METHOD` (the constant no longer lives in
       `pipeline.py` at all). 243 tests, ruff, mypy all green.
-- [ ] **T-088** Full-suite regression check after T-083–T-087: every
+- [x] **T-088** Full-suite regression check after T-083–T-087: every
       existing hermetic test in `tests/news_nlp/` green, with only
       import-path/construction changes where a test reached into a stage's
       internals directly — no assertion changes. → acceptance criteria
-      ("no behavioral regression").
+      ("no behavioral regression"). Done 2026-09-18: audited
+      `git diff --stat 4dedac9 origin/master -- tests/news_nlp/` (the
+      commit right before T-082 started) — 6 files touched, exactly the
+      ones expected (`test_fti_base.py` new; `test_category_pipeline.py`/
+      `test_ner_pipeline.py`/`test_pipeline_progress.py`/
+      `test_sentiment_pipeline.py`/`test_summary_pipeline.py` modified).
+      Inspected every changed `assert` and `monkeypatch.setattr` line
+      individually: every one is a bare module-prefix swap (e.g.
+      `pipeline.CATEGORY_GROUP_FLOOR` → `CATEGORY_GROUP_FLOOR`,
+      `pipeline.AutoTokenizer` → `ner_stage.AutoTokenizer`) — zero
+      assertion-logic or expected-value changes found. Also grep-confirmed
+      NR-006 compliance (no raw `sqlite3` imports) across all five new
+      stage modules. Fresh `uv run pytest`/`ruff`/`mypy` from a clean
+      `origin/master` checkout (post-T-087): 243 passed, both clean.
 - [ ] **T-089** Redesign `news_nlp/eval/`'s inference step to call each
       stage's own FTI `Inference` subclass (T-083–T-086) for model-scoring,
       removing whatever independent `from_pretrained`/forward-pass code the
