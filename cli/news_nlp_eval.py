@@ -6,8 +6,9 @@ stored sentiment / category / NER / c_summary predictions (soft-probability
 class-targeted for sentiment/category, num_chunks-tiered for c_summary), has
 an LLM judge (a strands-agents agent over an OpenAI-compatible endpoint)
 score each one against the source article text, and writes aggregate
-metrics + per-row verdicts to MLflow and to the eval_run / eval_judgement
-tables in the RESULTS store. See docs/evaluation.md.
+metrics + per-row verdicts to MLflow and to the eval_run / eval_inference /
+eval_verdict tables (plus eval_confusion for sentiment/category) in the
+RESULTS store. See docs/evaluation.md.
 
 sector_summary is judged differently: its population is small enough
 (thousands, not hundreds of thousands, of rows) to score in full every run,

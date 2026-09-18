@@ -898,11 +898,32 @@ efforts.
       dynamic `f1_<etype>`/`mean_faithfulness_<bucket>`/
       `mean_coverage_<bucket>` keys are deterministic. No production code
       changes. 266 tests (264 + 2 new), ruff, mypy all green.
-- [ ] **T-095** Update `docs/evaluation.md` (methodology section),
+- [x] **T-095** Update `docs/evaluation.md` (methodology section),
       `docs/modules/news-nlp.md`, `docs/db-topology.md` (new tables), and
       reconcile the two architecture artifacts (constitution AI behavior
       #11 — Portfolio Thesis + Portfolio NLP, reconcile only, never rename)
-      once the restructuring lands.
+      once the restructuring lands. Done 2026-09-18: `docs/evaluation.md`
+      gained a new "Architecture: the eval module reuses the pipeline's own
+      inference classes" section, a new 2026-09-18 dated follow-up covering
+      T-091/T-092/T-093/T-094, `roc_auc_<class>` added to the metrics
+      table, and `--candidate-model`/`--candidate-revision`/
+      `--candidate-prescore-size` added to the Flags list + a usage
+      example (all previously undocumented despite existing in the real
+      CLI/code). `docs/modules/news-nlp.md` gained an FTI-architecture
+      bullet, `sector_summary`'s new module location, and fixed stale
+      `eval_run`/`eval_judgement` + `pipeline.py` file-path references.
+      `docs/db-topology.md` now lists the eval run-log tables alongside
+      the 5 result tables. Both architecture artifacts reconciled (content
+      only, titles untouched): Portfolio NLP gained an architecture-note
+      callout in its eval section + a new footer changelog entry; Portfolio
+      Thesis gained a shorter equivalent (diagram tooltip + status-table
+      clause + footer entry), proportionate to its compressed per-repo
+      role. Incidental one-line fixes (same stale `eval_judgement` table
+      name, found adjacent to what was already being edited):
+      `src/news_nlp/eval/__init__.py`, `cli/news_nlp_eval.py`, and
+      `CLAUDE.md`'s `news_nlp/eval/` bullet. No production code changes;
+      ruff/mypy untouched by anything but the two docstring edits (both
+      clean). This closes Work item 10 in full (T-082–T-095 all done).
 
 ## Status
 
@@ -945,11 +966,14 @@ the next real `--summarize` run, not yet triggered — a deliberate
 production action left to the repo owner, not a task with an ID.
 
 **Work item 10** (formalize the pipeline/evaluation architecture,
-T-082–T-095) is **new, top priority (2026-09-16)** — spec/plan/tasks
-filed, nothing implemented yet. Six sequential steps, not independent:
-the FTI class hierarchy (T-082–T-086) and the `sector_summary` module
-move (T-087) must land before the eval module can reuse it (T-089), which
-itself must land before the schema split (T-090), reuse mechanism
-(T-091), and confusion-matrix/ROC additions (T-092–T-094) can be built
-against it. Supersedes Work item 8 as "next up" in priority — Work item 8
-stays a valid, scoped, pending item, just no longer first in line.
+T-082–T-095) is **done (2026-09-18)** — all six sequential steps landed in
+order: the FTI class hierarchy (T-082–T-086), the `sector_summary` module
+move (T-087), the eval module's FTI reuse + live candidate-model scoring
+(T-089), the schema split (T-090), the judge-verdict reuse mechanism
+(T-091), the confusion-matrix/ROC-AUC additions + their regression test
+(T-092–T-094), and the docs/architecture-artifact reconciliation pass
+(T-095) that closes it out. Was priority #1 as of 2026-09-16, superseding
+Work item 8 — Work item 8 (per-model selection justification in the
+artifact, T-064–T-069) is next up now that this is done, still a scoped,
+pending backlog entry, not to be implemented until specifically
+requested.

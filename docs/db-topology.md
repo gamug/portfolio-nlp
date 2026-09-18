@@ -31,7 +31,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables (`news_nlp.schema.SCHEMA`) + a lean `articles` subset (**no `body_text`**) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables (`news_nlp.schema.SCHEMA`) + a lean `articles` subset (**no `body_text`**), plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a

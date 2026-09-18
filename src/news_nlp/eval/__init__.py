@@ -5,12 +5,15 @@ accuracy measurement of any kind. This package samples a slice of those stored
 predictions, has an LLM judge (a ``strands-agents`` agent pointed at an
 OpenAI-compatible endpoint) score each one against the source article text, and
 writes aggregate metrics + per-row verdicts to **MLflow** and to the
-``eval_run`` / ``eval_judgement`` tables in the RESULTS store.
+``eval_run`` / ``eval_inference`` / ``eval_verdict`` tables in the RESULTS
+store (plus ``eval_confusion`` for sentiment/category).
 
 The judge is itself a model, so "agreement" is a proxy for correctness, not
 correctness -- see ``docs/evaluation.md``. Each run samples ``sample_size`` rows
-per stage as a fixed **60% low-confidence + 40% uniform-random** split so both
-headline and worst-case accuracy are reported.
+per stage as a disjoint, priority-ordered stack of strata -- a deterministic
+low-confidence bucket, stage-specific soft-probability-targeted strata, and a
+representative random remainder -- so both headline and worst-case accuracy
+are reported; see ``docs/evaluation.md``'s "Sampling" section.
 
 ``run_eval`` (and only it) pulls in ``mlflow`` + ``strands`` -- the ``eval``
 dependency group -- so it is imported lazily here: ``news_nlp.eval.metrics`` /
