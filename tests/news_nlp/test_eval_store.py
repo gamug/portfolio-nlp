@@ -7,6 +7,7 @@ from news_nlp.eval.store import (
     create_eval_run,
     find_verdict_json,
     finish_eval_run,
+    record_confusion_cells,
     record_inference,
     record_verdict,
 )
@@ -32,6 +33,14 @@ def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) ->
         "verdict_json",
         "correct",
     } <= set(conn.table_columns("eval_verdict"))
+    assert {
+        "run_id",
+        "task",
+        "experiment",
+        "true_label",
+        "predicted_label",
+        "count",
+    } <= set(conn.table_columns("eval_confusion"))
 
 
 def test_run_inference_and_verdict_round_trip(conn: db_module.NewsNlpDatabase) -> None:
@@ -203,5 +212,49 @@ def test_find_verdict_json_returns_the_matching_key_only(
 
     # A different article_id, task, or experiment must not match.
     assert find_verdict_json(conn, article_id=2, task="sentiment", experiment="base") is None
+
+
+def test_record_confusion_cells_writes_one_row_per_distinct_cell(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    run_id = create_eval_run(
+        conn,
+        stage="sentiment",
+        sample_size=3,
+        low_conf_n=0,
+        random_n=3,
+        seed=None,
+        judge_model="m",
+        judge_url="u",
+        code_version="v",
+    )
+    conn.commit()
+
+    record_confusion_cells(
+        conn,
+        run_id,
+        task="sentiment",
+        experiment="base",
+        counts={("positive", "positive"): 2, ("neutral", "negative"): 1},
+    )
+    conn.commit()
+
+    rows = conn.execute(
+        "SELECT true_label, predicted_label, count FROM eval_confusion "
+        "WHERE run_id = ? ORDER BY true_label",
+        (run_id,),
+    ).fetchall()
+    assert [tuple(r) for r in rows] == [
+        ("neutral", "negative", 1),
+        ("positive", "positive", 2),
+    ]
+
+    # An empty counts mapping writes nothing.
+    record_confusion_cells(conn, run_id, task="category", experiment="base", counts={})
+    conn.commit()
+    (n,) = conn.execute(
+        "SELECT COUNT(*) FROM eval_confusion WHERE run_id = ? AND task = 'category'", (run_id,)
+    ).fetchone()
+    assert n == 0
     assert find_verdict_json(conn, article_id=1, task="category", experiment="base") is None
     assert find_verdict_json(conn, article_id=1, task="sentiment", experiment="v2") is None

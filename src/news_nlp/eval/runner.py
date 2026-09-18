@@ -7,8 +7,9 @@ draws the stratified ``low_conf`` / ``target_<x>`` / ``representative`` sample
 ``(article_id, task, experiment)`` key through a ``ThreadPoolExecutor`` (each
 task builds its own stateless ``Agent`` over a shared ``OpenAIModel``;
 TASKS.md T-091, SPEC.md FR-015), aggregates, writes ``eval_run``/
-``eval_inference``/``eval_verdict`` rows + an MLflow run, and optionally
-checks for a headline-metric regression against the previous run.
+``eval_inference``/``eval_verdict`` rows (plus ``eval_confusion`` rows for
+sentiment/category, TASKS.md T-092) + an MLflow run, and optionally checks
+for a headline-metric regression against the previous run.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import news_nlp as db
 from news_nlp.eval.candidate import candidate_scored_connection
 from news_nlp.eval.config import EvalSettings
 from news_nlp.eval.judges import JUDGES, load_prompt
-from news_nlp.eval.metrics import HEADLINE, aggregate
+from news_nlp.eval.metrics import HEADLINE, aggregate, confusion_pairs
 from news_nlp.eval.model import build_judge_agent, build_model
 from news_nlp.eval.provenance import code_version
 from news_nlp.eval.regression import check_regression as _check_regression
@@ -34,6 +35,7 @@ from news_nlp.eval.store import (
     create_eval_run,
     find_verdict_json,
     finish_eval_run,
+    record_confusion_cells,
     record_inference,
     record_verdict,
 )
@@ -217,6 +219,15 @@ def _run_stage(
                     "prediction": item.prediction,
                     "verdict": dumped,
                 }
+            )
+
+        # TASKS.md T-092 / SPEC.md FR-016: sentiment/category only -- built
+        # from the same (item, verdict) pairs already judged above, no new
+        # judge calls. None for every other stage (no discrete label shape).
+        pairs = confusion_pairs(stage, items, verdicts)
+        if pairs is not None:
+            record_confusion_cells(
+                conn, run_id, task=stage, experiment=experiment, counts=Counter(pairs)
             )
 
         mlflow_run_id = log_to_mlflow(

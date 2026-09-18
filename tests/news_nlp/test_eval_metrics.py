@@ -433,3 +433,54 @@ def test_aggregate_dispatch_and_empty() -> None:
     assert metrics.HEADLINE["sector_summary"] == "mean_faithfulness"
     with pytest.raises(ValueError, match="unknown stage"):
         metrics.aggregate("bogus", [], [])
+
+
+# --- confusion_pairs (TASKS.md T-092, SPEC.md FR-016) -----------------------
+
+
+def test_confusion_pairs_sentiment_true_then_predicted() -> None:
+    items = [
+        _item(1, "representative", {"label": "positive"}),
+        _item(2, "representative", {"label": "negative"}),
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive"),
+        SentimentVerdict(agrees=False, ideal_label="neutral"),
+    ]
+    assert metrics.confusion_pairs("sentiment", items, verdicts) == [
+        ("positive", "positive"),
+        ("neutral", "negative"),
+    ]
+
+
+def test_confusion_pairs_category_true_then_predicted() -> None:
+    items = [
+        _item(1, "representative", {"label": "mergers_acquisitions"}),
+        _item(2, "representative", {"label": "other"}),
+    ]
+    verdicts = [
+        CategoryVerdict(agrees=True, ideal_slug="mergers_acquisitions"),
+        CategoryVerdict(agrees=False, ideal_slug="leadership_governance"),
+    ]
+    assert metrics.confusion_pairs("category", items, verdicts) == [
+        ("mergers_acquisitions", "mergers_acquisitions"),
+        ("leadership_governance", "other"),
+    ]
+
+
+def test_confusion_pairs_excludes_parse_failures() -> None:
+    items = [
+        _item(1, "representative", {"label": "positive"}),
+        _item(2, "representative", {"label": "negative"}),
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive"),
+        SentimentVerdict(agrees=False, ideal_label="neutral", parse_failed=True),
+    ]
+    assert metrics.confusion_pairs("sentiment", items, verdicts) == [("positive", "positive")]
+
+
+def test_confusion_pairs_none_for_non_label_stages() -> None:
+    assert metrics.confusion_pairs("ner", [], []) is None
+    assert metrics.confusion_pairs("c_summary", [], []) is None
+    assert metrics.confusion_pairs("sector_summary", [], []) is None
