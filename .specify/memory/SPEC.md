@@ -116,6 +116,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **NR-004** | Chunking must handle articles far past a model's token limit (observed up to ~13K words) without silent truncation. | A synthetic long-body fixture (well past 512 tokens) processes through sentiment/NER/category with `chunking.py` producing sentence-boundary-packed chunks and no unrecorded truncation. |
 | **NR-005** | Heavy/optional dependencies (`strands-agents`, `mlflow`) never load unless the caller actually invokes evaluation. | `import pipeline` / `import apps.news_nlp_api` succeeds in an environment with only the base `[project]` dependencies installed (no `eval` group) — `news_nlp.eval.run_eval` is imported lazily. |
 | **NR-006** | A DB-engine change (away from SQLite) must not require touching this repo's stage/query logic — only a `portfolio-common` version bump. | `grep -rn "import sqlite3" src apps cli` returns nothing; every engine-specific SQL fragment goes through `conn.dialect` / `portfolio_common.db` helpers. |
+| **NR-007** | `tests/` is covered by the same static-type gate as `src`/`apps`/`cli` — a test asserting against the wrong connection type is caught by `mypy`, not left to a hermetic test happening to still pass at runtime despite the wrong declared type. | `uv run mypy --config-file=.code_quality/mypy.ini` (the project's own documented command, no path argument) reports zero errors with `tests` added to `.code_quality/mypy.ini`'s `files` setting; `scripts/` stays deliberately out of scope (one-shot historical scripts, `CLAUDE.md`'s own `scripts/` convention). |
 
 ## 3. Technology Stack & Architecture Decisions
 
@@ -771,11 +772,36 @@ treating a related FR/NR as done:
     `scripts/restore_sentiment_after_v4_eval_2026_09_15.py`); nothing
     captures an experiment's full configuration (pretrain or not, dataset,
     train/test split + stratify strategy, LLM-judge sample count) in one
-    reproducible, validated place before it runs. **New, priority #1,
-    pending (2026-09-18)** — a JSON `ExperimentSpec` schema, generic
+    reproducible, validated place before it runs. **Priority #1
+    (2026-09-18), in progress** — a JSON `ExperimentSpec` schema, generic
     across all four ML stages, plus one command that runs an experiment
     end to end from it — FR-017, `PLAN.md` Work item 11, `TASKS.md` T-096
-    onward.
+    onward. T-096/T-097 done; T-098 (the schema itself) is paused pending
+    item 17 below.
+17. **`tests/` was never covered by this project's own mypy gate.**
+    `.code_quality/mypy.ini`'s `files = src, apps, cli` excludes it, so a
+    real, systemic type-annotation drift went undetected: `tests/news_nlp/
+    conftest.py`'s `conn`/`two_tier_conn` fixtures (and the
+    `write_stage_predictions`/`seed_article` helpers) are typed
+    `sqlite3.Connection`, but at runtime they construct and return
+    `NewsNlpDatabase` (`db_module.connect()`/`connect_pipeline()`) — a
+    composition wrapper around a `sqlite3.Connection`
+    (`portfolio_common.db.engine.Database`), not a subclass of it, so the
+    two types are genuinely unrelated to mypy even though `Database`
+    proxies `execute`/`executemany`/`executescript`/`commit` with matching
+    signatures (why passing the "wrong" type has always worked fine at
+    runtime). ~18 test files copied that wrong annotation into their own
+    test function signatures. Surfaced directly (2026-09-18) running mypy
+    with an explicit path argument — which overrides `mypy.ini`'s own
+    `files` scope — while landing T-097, purely to sanity-check a docstring
+    claim rather than using the project's own documented no-argument
+    command: 208 errors, `git stash`-confirmed pre-existing (identical
+    count on `master`) and behaviorally inert (every affected value
+    genuinely is a `NewsNlpDatabase` throughout — a type-hint precision
+    gap, not a runtime bug). **New, priority — next, ahead of Work item
+    11's T-098 (2026-09-18)** — fix the annotation drift at its source and
+    widen `mypy.ini`'s scope so it can't silently regrow — NR-007,
+    `PLAN.md` Work item 12, `TASKS.md` T-104 onward.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
