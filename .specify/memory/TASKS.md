@@ -851,11 +851,35 @@ efforts.
       enumeration). DB-only, no MLflow artifact — FR-016's acceptance
       criterion only names the DB table. 257 tests (251 + 6 new), ruff,
       mypy all green.
-- [ ] **T-093** Add one-vs-rest ROC/AUC (`roc_auc_<class>`) to
+- [x] **T-093** Add one-vs-rest ROC/AUC (`roc_auc_<class>`) to
       `aggregate_sentiment`/`aggregate_category`, computed from each sampled
       row's own stored prediction probabilities (`article_sentiment`'s
       `positive`/`negative`/`neutral`; `article_category`'s 9-way NLI
       distribution) — no new data collection required. → step 6 / FR-016.
+      Done 2026-09-18: `roc_auc_<class>` (HT-weighted) +
+      `roc_auc_<class>_naive_pooled`, matching every other per-class metric
+      in this module. AUC via the weighted Mann-Whitney U statistic — a
+      recognized generalization of unweighted rank-based AUC to
+      Horvitz-Thompson per-item weights (`_ht_weights`, new: exposes the
+      per-bucket `population_h/n_h'` weight `_ht_sum` already computes
+      internally, but per-item rather than folded into one total, since
+      `_weighted_auc`'s statistic needs a weight per row). Computed via an
+      O(n log n) sort-and-single-pass algorithm (`_weighted_auc`), not the
+      naive O(n²) pairwise reading of the formula — real regression-tracked
+      sentiment runs sample ~1,800-2,800 rows (`docs/evaluation.md`), where
+      O(n²) would be real added cost for nothing. `aggregate_category`'s
+      `roc_auc_<slug>` loop iterates the fixed `CATEGORY_SLUGS` (9), not the
+      dynamic `classes` set the other per-slug loops use — `"other"` is a
+      threshold fallback with no NLI hypothesis/score column of its own
+      (`taxonomy.py`), so `roc_auc_other` is never produced. No
+      `runner.py`/`store.py`/`tracking.py` changes — `roc_auc_<class>` lands
+      in the same `dict[str, float]` those already thread through
+      `eval_run.metrics_json`/MLflow. `aggregate_ner`/`aggregate_c_summary`
+      untouched. 264 tests (257 + 11 new: 9 in `test_eval_metrics.py`
+      covering `_weighted_auc`/`_ht_weights` directly plus
+      perfect-separation/tied-score/HT-vs-naive/`"other"`-exclusion cases
+      through the public aggregators, 2 in `test_eval_runner.py`), ruff,
+      mypy all green.
 - [ ] **T-094** Regression test locking `aggregate_ner`/
       `aggregate_c_summary`'s returned metric key sets as byte-identical to
       their pre-this-work-item shape — confusion-matrix/ROC treatment is

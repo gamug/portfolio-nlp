@@ -109,6 +109,18 @@ def test_run_eval_writes_db_rows_and_mlflow_runs(
     finally:
         check.close()
 
+    # TASKS.md T-093: roc_auc_<class> present for both stages. eval_store_paths
+    # seeds every article with the same sentiment_label ("positive")/
+    # category_label ("earnings_performance"), and the stub judge always
+    # agrees -- so every row's ground truth is that one class, leaving no
+    # negative-class rows to rank against for any class. One-vs-rest AUC is
+    # undefined in that case, hence 0.0 by convention (metrics._weighted_auc);
+    # this only asserts the keys exist, not a nonzero value.
+    assert out["sentiment"]["metrics"]["roc_auc_positive"] == 0.0
+    assert out["sentiment"]["metrics"]["roc_auc_negative"] == 0.0
+    assert out["category"]["metrics"]["roc_auc_earnings_performance"] == 0.0
+    assert "roc_auc_other" not in out["category"]["metrics"]
+
     import mlflow  # noqa: PLC0415
 
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)

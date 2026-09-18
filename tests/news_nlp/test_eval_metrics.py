@@ -14,6 +14,7 @@ from news_nlp.eval.verdicts import (
     SentimentVerdict,
     SummaryVerdict,
 )
+from news_nlp.taxonomy import CATEGORY_SLUGS
 
 
 def _item(
@@ -484,3 +485,181 @@ def test_confusion_pairs_none_for_non_label_stages() -> None:
     assert metrics.confusion_pairs("ner", [], []) is None
     assert metrics.confusion_pairs("c_summary", [], []) is None
     assert metrics.confusion_pairs("sector_summary", [], []) is None
+
+
+def test_weighted_auc_hand_computed_examples() -> None:
+    """Direct unit tests of the pairwise definition `_weighted_auc`
+    implements via an O(n log n) sort instead -- TASKS.md T-093."""
+    # Perfectly separated: every positive score beats every negative score.
+    assert metrics._weighted_auc([(0.9, 1.0)], [(0.1, 1.0), (0.2, 1.0)]) == 1.0
+    # Fully tied score across both groups -> exactly chance.
+    assert metrics._weighted_auc([(0.5, 1.0)], [(0.5, 1.0)]) == 0.5
+    # Perfectly wrong-way: every positive score loses to every negative score.
+    assert metrics._weighted_auc([(0.1, 1.0)], [(0.9, 1.0), (0.8, 1.0)]) == 0.0
+    # Undefined (an empty class) -> 0.0, same zero-denominator convention as
+    # _prf/_ht_ratio.
+    assert metrics._weighted_auc([(0.9, 1.0)], []) == 0.0
+    assert metrics._weighted_auc([], [(0.9, 1.0)]) == 0.0
+    # A zero-weight item (an excluded diagnostic-only bucket, via
+    # _ht_weights) contributes nothing.
+    assert metrics._weighted_auc([(0.9, 1.0)], [(0.1, 1.0), (99.0, 0.0)]) == 1.0
+
+
+def test_ht_weights_excludes_low_conf_and_scales_by_population_over_n() -> None:
+    items = [
+        _item(1, "low_conf", {}, stratum_population=50),
+        _item(2, "target_negative", {}, stratum_population=100),
+        _item(3, "target_negative", {}, stratum_population=100),
+        _item(4, "representative", {}, stratum_population=900),
+    ]
+    assert metrics._ht_weights(items) == [0.0, 50.0, 50.0, 900.0]
+
+
+def test_sentiment_roc_auc_perfect_separation() -> None:
+    items = [
+        _item(
+            1,
+            "representative",
+            {"label": "positive", "positive": 0.9, "negative": 0.05, "neutral": 0.05},
+        ),
+        _item(
+            2,
+            "representative",
+            {"label": "negative", "positive": 0.1, "negative": 0.8, "neutral": 0.1},
+        ),
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive"),
+        SentimentVerdict(agrees=True, ideal_label="negative"),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+    assert (
+        out["roc_auc_positive"] == 1.0
+    )  # article 1's positive score (0.9) beats article 2's (0.1)
+    assert out["roc_auc_positive_naive_pooled"] == 1.0
+    assert (
+        out["roc_auc_negative"] == 1.0
+    )  # article 2's negative score (0.8) beats article 1's (0.05)
+
+
+def test_sentiment_roc_auc_tied_scores_are_chance() -> None:
+    items = [
+        _item(
+            1,
+            "representative",
+            {"label": "positive", "positive": 0.5, "negative": 0.3, "neutral": 0.2},
+        ),
+        _item(
+            2,
+            "representative",
+            {"label": "negative", "positive": 0.5, "negative": 0.4, "neutral": 0.1},
+        ),
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="positive"),
+        SentimentVerdict(agrees=False, ideal_label="negative"),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+    # Both rows carry the same raw "positive" score (0.5) -- the one
+    # true-positive row can't outrank the one true-negative row, so the
+    # one-vs-rest split is exactly a coin flip.
+    assert out["roc_auc_positive"] == 0.5
+
+
+def test_sentiment_roc_auc_uses_ht_estimator() -> None:
+    """A genuinely multi-stratum sample where the raw negative-class score
+    disagrees with the (unweighted) majority direction inside the small,
+    heavily-weighted target_negative stratum -- proving HT-weighted
+    roc_auc_negative isn't just naive_pooled's number in disguise.
+
+    target_negative: N=100,n=2 -> weight 50/item. representative: N=900,n=2
+    -> weight 450/item. truth=negative rows (the one-vs-rest positive
+    class): article 1 (w=50, score=0.9), article 3 (w=450, score=0.1).
+    truth!=negative rows: article 2 (w=50, score=0.95), article 4 (w=450,
+    score=0.2).
+
+    naive (every weight=1): concordant pairs = {(0.9,0.2)} only -> 1/4 = 0.25.
+    HT-weighted: concordant weight = 50*450 (article1 vs article4) = 22500,
+    out of total pair weight 50*50 + 50*450 + 450*50 + 450*450 = 250000 ->
+    22500/250000 = 0.09.
+    """
+    items = [
+        _item(
+            1,
+            "target_negative",
+            {"label": "negative", "positive": 0.05, "negative": 0.9, "neutral": 0.05},
+            stratum_population=100,
+        ),
+        _item(
+            2,
+            "target_negative",
+            {"label": "negative", "positive": 0.03, "negative": 0.95, "neutral": 0.02},
+            stratum_population=100,
+        ),
+        _item(
+            3,
+            "representative",
+            {"label": "positive", "positive": 0.85, "negative": 0.1, "neutral": 0.05},
+            stratum_population=900,
+        ),
+        _item(
+            4,
+            "representative",
+            {"label": "positive", "positive": 0.75, "negative": 0.2, "neutral": 0.05},
+            stratum_population=900,
+        ),
+    ]
+    verdicts = [
+        SentimentVerdict(agrees=True, ideal_label="negative"),
+        SentimentVerdict(agrees=False, ideal_label="positive"),
+        SentimentVerdict(agrees=False, ideal_label="negative"),
+        SentimentVerdict(agrees=True, ideal_label="positive"),
+    ]
+    out = metrics.aggregate_sentiment(items, verdicts)
+    assert round(out["roc_auc_negative"], 4) == 0.09
+    assert round(out["roc_auc_negative_naive_pooled"], 4) == 0.25
+    assert out["roc_auc_negative"] != out["roc_auc_negative_naive_pooled"]
+
+
+def _dist(**overrides: float) -> dict[str, float]:
+    d = dict.fromkeys(CATEGORY_SLUGS, 0.02)
+    d.update(overrides)
+    return d
+
+
+def test_category_roc_auc_uses_raw_distribution_score() -> None:
+    items = [
+        _item(
+            1,
+            "representative",
+            {"label": "earnings_performance", "distribution": _dist(earnings_performance=0.9)},
+        ),
+        _item(
+            2,
+            "representative",
+            {"label": "mergers_acquisitions", "distribution": _dist(mergers_acquisitions=0.85)},
+        ),
+    ]
+    verdicts = [
+        CategoryVerdict(agrees=True, ideal_slug="earnings_performance"),
+        CategoryVerdict(agrees=True, ideal_slug="mergers_acquisitions"),
+    ]
+    out = metrics.aggregate_category(items, verdicts)
+    # article 1's own earnings_performance score (0.9) beats article 2's filler (0.02)
+    assert out["roc_auc_earnings_performance"] == 1.0
+    # article 2's own mergers_acquisitions score (0.85) beats article 1's filler (0.02)
+    assert out["roc_auc_mergers_acquisitions"] == 1.0
+
+
+def test_category_roc_auc_never_includes_other() -> None:
+    """ "other" has no raw NLI hypothesis/score column (taxonomy.py) -- unlike
+    every other per-slug metric family in aggregate_category (which iterate
+    the dynamic `classes` set and so can include "other"), roc_auc_<slug>
+    iterates the fixed CATEGORY_SLUGS and never produces a roc_auc_other
+    key, even when "other" is a true/predicted label in this sample."""
+    items = [_item(1, "representative", {"label": "other", "distribution": _dist()})]
+    verdicts = [CategoryVerdict(agrees=True, ideal_slug="other")]
+    out = metrics.aggregate_category(items, verdicts)
+    assert "roc_auc_other" not in out
+    assert "roc_auc_other_naive_pooled" not in out
+    assert "roc_auc_earnings_performance" in out
