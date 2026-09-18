@@ -8,6 +8,7 @@ from conftest import seed_article
 import news_nlp as db
 import pipeline
 import summary_stage
+from fti import TrainConfig, TrainedArtifact
 from news_nlp.sector_summary import SECTOR_INTRO_METHOD
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
@@ -33,6 +34,15 @@ def seed_category(
     db.write_category(
         conn, article_id, label=label, score=score, scores=scores, model_name="test-model"
     )
+
+
+# --- SummaryTrainer (TASKS.md T-097) ----------------------------------------
+
+
+def test_summary_trainer_is_a_real_reachable_no_op() -> None:
+    artifact = summary_stage.SummaryTrainer().train(TrainConfig())
+
+    assert artifact == TrainedArtifact(output_dir=None, metrics=None)
 
 
 # hierarchical_summarize_batch()/_summarize_batch() are always monkeypatched

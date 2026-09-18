@@ -1,12 +1,21 @@
-"""Category stage `Feature`/`Inference` (PLAN.md Work item 10 / TASKS.md
-T-085), migrating `pipeline.py`'s two-level hierarchical zero-shot
-classification onto the FTI base classes from `src/fti.py`.
+"""Category stage `Feature`/`Inference`/`Trainer` (PLAN.md Work item 10 /
+TASKS.md T-085, `Trainer` wiring TASKS.md T-097), migrating `pipeline.py`'s
+two-level hierarchical zero-shot classification onto the FTI base classes
+from `src/fti.py`.
 
-`Trainer` is a plain reuse of `fti.NoOpTrainer`, not a subclass here --
+`CategoryTrainer` is a trivial, body-less subclass of `fti.NoOpTrainer` --
 category is zero-shot NLI against a fixed taxonomy (docs/category-
 taxonomy.md); no labeled category training set exists, and one would be
 expensive to build for a 10-slug taxonomy that may itself change (PLAN.md's
-category rationale). There is no fine-tuning step to wrap.
+category rationale). There is no fine-tuning step to wrap. It exists as its
+own named class (T-085 originally left this as a bare `fti.NoOpTrainer`
+reference in this docstring, never actually instantiated anywhere reachable
+outside `fti.py`'s own unit test) so this stage has a real class matching
+sentiment's/NER's own `SentimentTrainer`/`NerTrainer` for the future
+stage->Trainer registry (TASKS.md T-099, mirrors `news_nlp.eval.candidate`'s
+own `_STAGE_CLASSES` pattern) to look up, and so `pretrain.enabled=true` for
+this stage is backed by real, tested code rather than just a docstring
+claim.
 
 Batching here doesn't need cross-article flattening at the `Feature` level
 (unlike NER) -- `CategoryFeature` extracts one premise string per article,
@@ -39,7 +48,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 import news_nlp as db
 from chunking import chunk_text
-from fti import Feature, FeatureBatch, Inference
+from fti import Feature, FeatureBatch, Inference, NoOpTrainer
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -203,6 +212,13 @@ class CategoryFeature(Feature[Any, str]):
             f"{title}. {body_text}", tokenizer, max_tokens=CATEGORY_PREMISE_MAX_TOKENS
         )
         return chunks[0].text if chunks else title
+
+
+class CategoryTrainer(NoOpTrainer):
+    """No fine-tuning step exists for category's zero-shot classifier (see
+    module docstring) -- behaviorally identical to `NoOpTrainer`, kept as
+    its own named subclass only so this stage has a real `Trainer` type to
+    hand to a future stage->Trainer registry (TASKS.md T-099)."""
 
 
 class CategoryInference(Inference[Any, str]):

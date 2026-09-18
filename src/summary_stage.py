@@ -1,11 +1,18 @@
-"""Company summary (`c_summary`) stage `Feature`/`Inference` (PLAN.md Work
-item 10 / TASKS.md T-086), migrating `pipeline.py`'s batched chunk-then-
-reduce summarization onto the FTI base classes from `src/fti.py`.
+"""Company summary (`c_summary`) stage `Feature`/`Inference`/`Trainer`
+(PLAN.md Work item 10 / TASKS.md T-086, `Trainer` wiring TASKS.md T-097),
+migrating `pipeline.py`'s batched chunk-then-reduce summarization onto the
+FTI base classes from `src/fti.py`.
 
-`Trainer` is a plain reuse of `fti.NoOpTrainer`, not a subclass here --
+`SummaryTrainer` is a trivial, body-less subclass of `fti.NoOpTrainer` --
 SUMMARY_MODEL (`sshleifer/distilbart-cnn-12-6`) is a pretrained,
 off-the-shelf checkpoint; there is no fine-tuning step to wrap (same
-reasoning as `category_stage.py`'s zero-shot category classifier).
+reasoning as `category_stage.py`'s `CategoryTrainer`). It exists as its own
+named class, not a bare `fti.NoOpTrainer` reference (T-086 originally left
+it as just a docstring mention, never actually instantiated anywhere
+reachable outside `fti.py`'s own unit test), for the same reason
+`CategoryTrainer` does: a real class for the future stage->Trainer registry
+(TASKS.md T-099) to look up, matching sentiment's/NER's own
+`SentimentTrainer`/`NerTrainer`.
 
 `hierarchical_summarize_batch`'s own recursive leaf-chunk + reduce-pass
 loop can't be hoisted out to a pure `Feature.extract_batch` step the way
@@ -33,7 +40,7 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 import news_nlp as db
 from chunking import chunk_text
-from fti import Feature, FeatureBatch, Inference
+from fti import Feature, FeatureBatch, Inference, NoOpTrainer
 
 # BART-large-cnn's own cap is 1024 tokens; 1000 leaves headroom for the
 # BOS/EOS tokens the tokenizer adds on top of chunk_text's count.
@@ -210,6 +217,13 @@ class SummaryFeature(Feature[Any, str]):
 
     def extract_one(self, tokenizer: Any, row: Any) -> str:
         return db.build_company_summary_input(row)
+
+
+class SummaryTrainer(NoOpTrainer):
+    """No fine-tuning step exists for `c_summary`'s pretrained checkpoint
+    (see module docstring) -- behaviorally identical to `NoOpTrainer`, kept
+    as its own named subclass only so this stage has a real `Trainer` type
+    to hand to a future stage->Trainer registry (TASKS.md T-099)."""
 
 
 class SummaryInference(Inference[Any, str]):
