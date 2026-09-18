@@ -714,13 +714,45 @@ efforts.
       NR-006 compliance (no raw `sqlite3` imports) across all five new
       stage modules. Fresh `uv run pytest`/`ruff`/`mypy` from a clean
       `origin/master` checkout (post-T-087): 243 passed, both clean.
-- [ ] **T-089** Redesign `news_nlp/eval/`'s inference step to call each
+- [x] **T-089** Redesign `news_nlp/eval/`'s inference step to call each
       stage's own FTI `Inference` subclass (T-083–T-086) for model-scoring,
       removing whatever independent `from_pretrained`/forward-pass code the
       eval module duplicates today. Based on the current
       `news_nlp/eval/` implementation — `sampling.py`/`judges.py`/
       `verdicts.py`/`tracking.py`/`regression.py` carry over unchanged in
-      spirit. → step 3 / FR-013.
+      spirit. → step 3 / FR-013. Done 2026-09-18: a code-search for
+      duplicated model-loading inside `news_nlp/eval/` already returned
+      zero hits — the package had no live inference step at all;
+      `sampling._prediction` only ever read a *prior* `pipeline.py` run's
+      already-stored predictions. The real, still-unbuilt half of FR-013
+      was giving eval a way to score a **candidate** model at all, which
+      previously only existed as a manual, destructive scratch-DB-copy-
+      and-restore workaround (`scripts/resample_sentiment_v{3,4,5}_
+      2026_09_15.py`). New `src/news_nlp/eval/candidate.py`'s
+      `candidate_scored_connection` reuses `Inference.run()` wholesale
+      (the *same class* `pipeline.py` uses per stage, parameterized with a
+      different `model_name`/`revision` — its constructor's own
+      documented extension point, needing zero `fti.py` changes) against
+      a fresh, auto-cleaned scratch RESULTS file, never the real one.
+      `EvalSettings` gained `candidate_model`/`candidate_revision`/
+      `candidate_prescore_size`; `runner._run_stage` points
+      `sample_for_stage` at the scratch connection instead of production
+      when set (stratification logic itself untouched — just reads the
+      candidate's own freshly-written scores); `cli/news_nlp_eval.py`
+      gained matching flags, validated to require exactly one `--stage`
+      (a candidate swap is inherently stage-specific) plus a non-empty
+      revision (this project's own pin-every-model convention, SPEC.md
+      SS13 item 4 — an unrecognized `model_name` with no revision would
+      otherwise silently `KeyError` against the production model's own
+      `MODEL_REVISIONS` dict). Had to additionally teach the scratch file
+      to stand up a structurally exact clone of SOURCE's `articles` table
+      (cloned via `sqlite_master.sql`, not `CREATE TABLE AS SELECT`, which
+      would drop the `id` PRIMARY KEY every result table's foreign key
+      needs) — `init_schema` deliberately never creates `articles` itself,
+      since a real RESULTS file already has it from a one-time historical
+      migration. `sector_summary` excluded from the new mechanism (no
+      Feature/Train/Inference shape, FR-012). 248 tests (243 + 5 new),
+      ruff, mypy all green.
 - [ ] **T-090** Split `eval_judgement` into two tables (model inference /
       LLM judge verdict), each with `article_id` (reinforced as a
       first-class SOURCE-traceback key), `task`, and `experiment` columns;

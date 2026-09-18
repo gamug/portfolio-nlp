@@ -43,6 +43,24 @@ class EvalSettings(BaseModel):
     seed: int | None = None
     max_workers: int = Field(default=DEFAULT_MAX_WORKERS, gt=0)
     run_name: str | None = None
+    # Candidate-model scoring (TASKS.md T-089, SPEC.md FR-013): when set,
+    # news_nlp.eval.runner scores this stage with (candidate_model,
+    # candidate_revision) via that stage's own FTI Inference subclass,
+    # against a throwaway scratch RESULTS file, instead of reading the
+    # production model's already-stored predictions -- see
+    # news_nlp.eval.candidate.candidate_scored_connection. Meaningless for
+    # more than one stage at once (a candidate swap is inherently
+    # stage-specific); news_nlp.eval.runner.run_eval enforces that.
+    candidate_model: str | None = None
+    candidate_revision: str | None = None
+    # How many SOURCE articles to pre-score with the candidate model before
+    # sampling from them -- defaults to sample_size when unset. Larger than
+    # sample_size on purpose (mirrors scripts/resample_sentiment_v4_2026_09_15.py's
+    # own --sample-size 2500 pre-score vs. cli/news_nlp_eval.py's separate
+    # --sample-size 2000 judge run): a bigger pre-scored pool gives the
+    # low_conf/target_<x> stratification a real population to draw its
+    # worst-case/near-miss rows from, rather than just the rows actually judged.
+    candidate_prescore_size: int | None = None
 
     @classmethod
     def load(
@@ -56,6 +74,9 @@ class EvalSettings(BaseModel):
         seed: int | None = None,
         max_workers: int | None = None,
         run_name: str | None = None,
+        candidate_model: str | None = None,
+        candidate_revision: str | None = None,
+        candidate_prescore_size: int | None = None,
     ) -> EvalSettings:
         """Populate the environment from ``.env`` first, then read it. Explicit
         keyword overrides (from the CLI) win over env / defaults. Raises
@@ -79,4 +100,7 @@ class EvalSettings(BaseModel):
             seed=seed,
             max_workers=max_workers if max_workers is not None else DEFAULT_MAX_WORKERS,
             run_name=run_name,
+            candidate_model=candidate_model,
+            candidate_revision=candidate_revision,
+            candidate_prescore_size=candidate_prescore_size,
         )

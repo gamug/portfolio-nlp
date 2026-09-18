@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
+import torch
 
 pytest.importorskip("mlflow")
 pytest.importorskip("strands")
 
 import news_nlp as db_module
+import sentiment_stage
 from news_nlp.eval import runner
 from news_nlp.eval.config import EvalSettings
 from news_nlp.eval.tracking import log_to_mlflow
@@ -122,3 +125,115 @@ def test_run_eval_exits_nonzero_on_regression(
             regression_tolerance=0.05,
         )
     assert exc.value.code == 1
+
+
+# --- candidate-model wiring (TASKS.md T-089, SPEC.md FR-013) ----------------
+
+
+class _FakeCandidateEncoding(dict):
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "input_ids": torch.tensor([[0]], dtype=torch.long),
+                "attention_mask": torch.ones((1, 1), dtype=torch.long),
+            }
+        )
+
+    def to(self, device: Any) -> _FakeCandidateEncoding:
+        return self
+
+
+class _FakeCandidateTokenizer:
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[str]:
+        return ["x"] * 50
+
+    def __call__(self, text: str, **kwargs: Any) -> _FakeCandidateEncoding:
+        return _FakeCandidateEncoding()
+
+
+class _FakeCandidateModel:
+    def __init__(self) -> None:
+        self.config = type(
+            "Config", (), {"id2label": {0: "positive", 1: "negative", 2: "neutral"}}
+        )()
+
+    def to(self, device: Any) -> _FakeCandidateModel:
+        return self
+
+    def eval(self) -> _FakeCandidateModel:
+        return self
+
+    def __call__(self, **kwargs: Any) -> Any:
+        # Always confidently "negative" -- distinct from every fixture-seeded
+        # row (all "positive", per conftest.write_stage_predictions' default)
+        # so a judged prediction's label alone proves which source it came from.
+        logits = torch.tensor([[-8.0, 8.0, -8.0]])
+        return type("Output", (), {"logits": logits})()
+
+
+@pytest.mark.usefixtures("stub_judge")
+def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_store_paths: tuple[Path, Path]
+) -> None:
+    source, results = eval_store_paths
+    monkeypatch.setattr(
+        sentiment_stage.AutoTokenizer,
+        "from_pretrained",
+        lambda *_a, **_k: _FakeCandidateTokenizer(),
+    )
+    monkeypatch.setattr(
+        sentiment_stage.AutoModelForSequenceClassification,
+        "from_pretrained",
+        lambda *_a, **_k: _FakeCandidateModel(),
+    )
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "candidate_model": "candidate/model",
+            "candidate_revision": "candidate-rev",
+            "candidate_prescore_size": 10,
+        }
+    )
+
+    out = runner.run_eval(
+        ["sentiment"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+
+    assert out["sentiment"]["n_judged"] == 6
+    check = db_module.connect(results)
+    try:
+        rows = check.execute(
+            "SELECT model_prediction_json FROM eval_judgement WHERE run_id IN "
+            "(SELECT id FROM eval_run WHERE stage = 'sentiment')"
+        ).fetchall()
+    finally:
+        check.close()
+    assert len(rows) == 6
+    import json  # noqa: PLC0415
+
+    # Every judged row's stored prediction came from the candidate model
+    # (always "negative"), never from eval_store_paths' fixture data
+    # (always "positive") -- proves sampling drew from the scratch
+    # connection, not the production one.
+    assert all(json.loads(r[0])["label"] == "negative" for r in rows)
+
+    # Production article_sentiment (seeded by eval_store_paths) is untouched.
+    (prod_score,) = (
+        db_module.connect(results)
+        .execute("SELECT score FROM article_sentiment WHERE article_id = 1")
+        .fetchone()
+    )
+    assert prod_score == pytest.approx(0.315)
+
+
+def test_run_eval_rejects_candidate_model_with_more_than_one_stage(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(
+        update={"candidate_model": "candidate/model", "candidate_revision": "rev"}
+    )
+    with pytest.raises(ValueError, match="requires exactly one stage"):
+        runner.run_eval(["sentiment", "category"], settings=settings, source_db="x", results_db="y")
+
+
+def test_run_eval_rejects_candidate_model_without_revision(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(update={"candidate_model": "candidate/model"})
+    with pytest.raises(ValueError, match="candidate_revision is required"):
+        runner.run_eval(["sentiment"], settings=settings, source_db="x", results_db="y")
