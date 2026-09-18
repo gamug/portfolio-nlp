@@ -15,7 +15,7 @@ from news_nlp.eval.store import (
 
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
     cols = set(conn.table_columns("eval_run"))
-    assert {"stage", "metrics_json", "strata_json", "mlflow_run_id", "status"} <= cols
+    assert {"stage", "metrics_json", "strata_json", "mlflow_run_id", "status", "experiment"} <= cols
     # eval_judgement is legacy (superseded by eval_inference/eval_verdict,
     # TASKS.md T-090) but its DDL/historical rows stay untouched.
     assert {"run_id", "bucket", "verdict_json", "correct"} <= set(
@@ -166,6 +166,43 @@ def test_latest_eval_runs_picks_newest_per_stage(conn: db_module.NewsNlpDatabase
     assert by_stage["category"]["mlflow_run_id"] == "new"
     assert by_stage["category"]["metrics"]["accuracy_vs_judge"] == 0.7
     assert by_stage["ner"]["status"] == "running"
+    # every row defaults to experiment="base" when not given explicitly
+    assert by_stage["category"]["experiment"] == "base"
+
+
+def test_latest_eval_runs_is_experiment_scoped(conn: db_module.NewsNlpDatabase) -> None:
+    """A --candidate-model run (TASKS.md T-089) no longer displaces
+    production's own "latest" row for a stage (2026-09-18 fix) -- each
+    (stage, experiment) pair gets its own row."""
+    common = {
+        "stage": "category",
+        "sample_size": 1,
+        "low_conf_n": 1,
+        "random_n": 0,
+        "seed": None,
+        "judge_model": "m",
+        "judge_url": "u",
+        "code_version": "v",
+    }
+    base_run = create_eval_run(conn, experiment="base", **common)
+    finish_eval_run(
+        conn, base_run, metrics={"accuracy_vs_judge": 0.7}, mlflow_run_id="base", status="ok"
+    )
+    candidate_run = create_eval_run(conn, experiment="candidate/model", **common)
+    finish_eval_run(
+        conn,
+        candidate_run,
+        metrics={"accuracy_vs_judge": 0.3},
+        mlflow_run_id="candidate",
+        status="ok",
+    )
+    conn.commit()
+
+    latest = db_module.latest_eval_runs(conn)
+    by_experiment = {r["experiment"]: r for r in latest if r["stage"] == "category"}
+    assert set(by_experiment) == {"base", "candidate/model"}
+    assert by_experiment["base"]["mlflow_run_id"] == "base"
+    assert by_experiment["candidate/model"]["mlflow_run_id"] == "candidate"
 
 
 def test_find_verdict_json_returns_the_matching_key_only(

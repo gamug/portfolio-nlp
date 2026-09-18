@@ -150,7 +150,11 @@ CREATE TABLE IF NOT EXISTS eval_run (
     metrics_json  TEXT NOT NULL DEFAULT '{}',
     strata_json   TEXT NOT NULL DEFAULT '{}',  -- {bucket: {"population": N_h, "n": n_h}}; '{}' for pre-stratification runs
     status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error
-    error         TEXT
+    error         TEXT,
+    experiment    TEXT NOT NULL DEFAULT 'base'  -- which model produced this run's inferences
+                                                 -- ("base" for the pinned production model, or
+                                                 -- --candidate-model/--run-name); 'base' for
+                                                 -- pre-2026-09-18 rows -- see docs/evaluation.md
 );
 
 CREATE INDEX IF NOT EXISTS idx_eval_run_stage_started
@@ -314,17 +318,21 @@ def _migrate_sector_summary_schema(conn: Database) -> None:
     conn.ensure_columns("sector_summary", _SECTOR_SUMMARY_ADDED_COLUMNS)
 
 
-_EVAL_RUN_ADDED_COLUMNS = {"strata_json": "TEXT NOT NULL DEFAULT '{}'"}
+_EVAL_RUN_ADDED_COLUMNS = {
+    "strata_json": "TEXT NOT NULL DEFAULT '{}'",
+    "experiment": "TEXT NOT NULL DEFAULT 'base'",
+}
 
 
 def _migrate_eval_run_schema(conn: Database) -> None:
     """Bring a pre-existing `eval_run` table (created before the stratified-
-    sampling redesign added strata_json) up to the current schema. Additive
+    sampling redesign added strata_json, or before the 2026-09-18
+    `experiment` column) up to the current schema. Additive
     only -- low_conf_n/random_n stay as columns, their meaning generalized
     (random_n = count of every non-low_conf stratum combined), not removed.
     Idempotent, same `ensure_columns` no-op-when-missing/already-current
     pattern as `_migrate_sector_summary_schema`. Legacy rows read back
-    strata_json='{}' (the column default) -- see docs/evaluation.md.
+    strata_json='{}'/experiment='base' (the column defaults) -- see docs/evaluation.md.
     """
     conn.ensure_columns("eval_run", _EVAL_RUN_ADDED_COLUMNS)
 

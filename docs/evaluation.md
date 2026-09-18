@@ -1940,9 +1940,9 @@ above. Three further pieces landed on top of that, all confined to
   by a dedicated regression test (TASKS.md T-094) asserting their exact
   key sets, not just documented as a claim.
 
-None of this reopens the disclosed, not-`experiment`-aware limitation on
-`GET /eval/latest`/`--check-regression` noted above — still open, still
-out of scope.
+(The `GET /eval/latest`/`--check-regression` `experiment`-awareness gap
+this follow-up originally left open was closed later the same day — see
+"Where results go" below.)
 
 ## What it evaluates
 
@@ -2204,22 +2204,28 @@ above; `--candidate-model` requires exactly one `--stage` and a non-empty
 ## Where results go
 
 - **MLflow** — one run per `(stage, invocation)` in experiment
-  `news_nlp_eval/<stage>`. Params (judge model/url, sample size, per-stratum
-  `n_<bucket>` counts, seed, git SHA), metrics, a `judgements.json` artifact
-  (every sampled row: the model prediction + the parsed judge verdict) and the
-  `judge_prompt.md` used.
+  `news_nlp_eval/<stage>` (an MLflow "experiment," unrelated to
+  `news_nlp.eval`'s own `experiment` concept below — the two share a name
+  by coincidence, not design). Params (judge model/url, sample size,
+  per-stratum `n_<bucket>` counts, seed, git SHA, **`experiment`**),
+  metrics, a `judgements.json` artifact (every sampled row: the model
+  prediction + the parsed judge verdict) and the `judge_prompt.md` used.
+  `experiment` is also set as an MLflow **tag** (`tracking.log_to_mlflow`,
+  2026-09-18) so `--check-regression`'s previous-run lookup can filter by
+  it — see the follow-up below.
 - **RESULTS store** — `eval_run` (one row per invocation: stage, timestamps,
   `low_conf_n`/`random_n` — the latter now "every non-`low_conf` stratum
   combined" — `strata_json` (`{bucket: {"population": N_h, "n": n_h}}`, the
   Horvitz-Thompson bookkeeping; `'{}'` for pre-redesign rows), judge model,
-  `code_version`, `mlflow_run_id`, the metrics blob, `status`) and, as of
-  the 2026-09-18 follow-up below, `eval_inference`/`eval_verdict` (one row
-  per sampled article each) plus `eval_confusion` (sentiment/category only
-  — one row per `(run_id, task, experiment, true_label, predicted_label)`
-  cell observed). DDL in `news_nlp.schema`; `init_schema` creates them.
-  `GET /eval/latest` on the FastAPI service returns the newest `eval_run`
-  per stage (not yet `experiment`-aware — see the follow-up's own
-  disclosed limitation).
+  `code_version`, `mlflow_run_id`, the metrics blob, `status`, **`experiment`**
+  — `'base'` for pre-2026-09-18 rows) and, as of the 2026-09-18 follow-up
+  below, `eval_inference`/`eval_verdict` (one row per sampled article each)
+  plus `eval_confusion` (sentiment/category only — one row per `(run_id,
+  task, experiment, true_label, predicted_label)` cell observed). DDL in
+  `news_nlp.schema`; `init_schema` creates them. `GET /eval/latest` on the
+  FastAPI service returns the newest `eval_run` per `(stage, experiment)` —
+  a `--candidate-model` run no longer displaces production's own "latest"
+  row for a stage.
 
 **2026-09-18 follow-up (PLAN.md Work item 10 step 4, TASKS.md T-090, SPEC.md
 FR-014)**: `eval_judgement` (one row per sampled article, holding both the
@@ -2237,13 +2243,20 @@ TASKS.md T-089) coexist with production's own judged data for the same
 articles, instead of needing the scratch-database-per-candidate workaround
 the `resample_sentiment_v{3,4,5}` scripts used. `eval_judgement`'s DDL and
 historical rows are untouched (additive split, not a migration) — new
-eval runs simply stop writing there. Known, disclosed, out-of-scope-for-
-this-follow-up limitation: neither `GET /eval/latest`
-(`queries.latest_eval_runs`) nor `--check-regression`'s previous-run
-MLflow lookup is `experiment`-aware yet, so a candidate-model run can
-still be picked up as "the latest"/"the previous run" for its stage —
-pre-existing since T-089 introduced candidate-model scoring, not
-introduced or worsened by this schema split.
+eval runs simply stop writing there.
+
+**Later the same day**: the limitation this follow-up originally disclosed
+here — neither `GET /eval/latest` nor `--check-regression`'s previous-run
+lookup was `experiment`-aware — is now fixed. `eval_run` itself gained an
+`experiment` column (`'base'` default, additive migration via
+`ensure_columns`, same pattern as `strata_json`'s own addition);
+`queries.latest_eval_runs` now groups by `(stage, experiment)` instead of
+`stage` alone; `tracking.log_to_mlflow` sets `experiment` as both an
+MLflow tag and a logged param; `tracking.previous_headline` (and therefore
+`regression.check_regression`) now filters its MLflow `search_runs` call
+by `tags.experiment`, so a candidate-model run's headline metric is only
+ever compared against a *prior run of that same candidate* — never
+production's own number, and never another candidate's.
 
 ## CI
 

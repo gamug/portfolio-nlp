@@ -54,3 +54,40 @@ def test_no_prior_run_is_not_a_regression(tmp_path: Path) -> None:
     assert rr.previous is None
     assert rr.regressed is False
     assert "no prior run" in rr.describe()
+
+
+def test_regression_check_is_experiment_scoped(tmp_path: Path) -> None:
+    """A lone candidate-model run must never be flagged as a regression
+    just because production's ("base") own number happens to be higher --
+    2026-09-18 fix (docs/evaluation.md)."""
+    uri = str(tmp_path / "mlruns")
+    log_to_mlflow(
+        stage="category",
+        params={"stage": "category"},
+        metrics={"accuracy_vs_judge": 0.90},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="base",
+    )
+    time.sleep(0.05)
+    log_to_mlflow(
+        stage="category",
+        params={"stage": "category"},
+        metrics={"accuracy_vs_judge": 0.30},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="candidate",
+    )
+    time.sleep(0.05)
+
+    rr = check_regression(
+        "category",
+        {"accuracy_vs_judge": 0.30},
+        tolerance=0.05,
+        tracking_uri=uri,
+        experiment="candidate",
+    )
+    assert rr.previous is None
+    assert rr.regressed is False

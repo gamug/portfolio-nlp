@@ -170,6 +170,7 @@ def _run_stage(
         judge_url=settings.llm_url,
         code_version=code_version(),
         strata_json=json.dumps(strata_meta),
+        experiment=experiment,
     )
     conn.commit()
 
@@ -249,6 +250,7 @@ def _run_stage(
             system_prompt=prompt,
             tracking_uri=settings.mlflow_tracking_uri,
             run_name=settings.run_name,
+            experiment=experiment,
         )
         finish_eval_run(conn, run_id, metrics=metrics, mlflow_run_id=mlflow_run_id, status="ok")
         conn.commit()
@@ -270,7 +272,11 @@ def _run_stage(
     }
     if want_regression:
         rr = _check_regression(
-            stage, metrics, tolerance=tolerance, tracking_uri=settings.mlflow_tracking_uri
+            stage,
+            metrics,
+            tolerance=tolerance,
+            tracking_uri=settings.mlflow_tracking_uri,
+            experiment=experiment,
         )
         result["regressed"] = rr.regressed
         result["regression"] = rr.describe()

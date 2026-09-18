@@ -41,13 +41,17 @@ def check_regression(
     *,
     tolerance: float = 0.05,
     tracking_uri: str,
+    experiment: str = "base",
 ) -> RegressionResult:
     """A drop of more than *tolerance* in the stage's headline metric vs the
-    previous MLflow run is a regression. No prior run / metric absent -> not a
-    regression (``regressed=False``)."""
+    previous MLflow run for the same *experiment* (added 2026-09-18) is a
+    regression. No prior run / metric absent -> not a regression
+    (``regressed=False``) -- in particular, a candidate-model run's first
+    invocation is never flagged just because production's own number is
+    higher."""
     metric = HEADLINE[stage]
     current = metrics.get(metric)
-    previous = previous_headline(stage, metric, tracking_uri)
+    previous = previous_headline(stage, metric, tracking_uri, experiment=experiment)
     regressed = current is not None and previous is not None and current < previous - tolerance
     return RegressionResult(
         stage=stage,

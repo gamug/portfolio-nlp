@@ -223,9 +223,11 @@ def get_sector_summaries(
 
 @app.get("/eval/latest")
 def get_latest_eval(conn: db.NewsNlpDatabase = Depends(get_db)) -> list[dict]:
-    """Most recent LLM-as-judge accuracy-eval run per stage (see news_nlp.eval /
-    docs/evaluation.md). Empty until `cli/news_nlp_eval.py` has been run against
-    this RESULTS store."""
+    """Most recent LLM-as-judge accuracy-eval run per (stage, experiment) --
+    e.g. a production ("base") run and a --candidate-model run for the same
+    stage each get their own row (see news_nlp.eval / docs/evaluation.md).
+    Empty until `cli/news_nlp_eval.py` has been run against this RESULTS
+    store."""
     return db.latest_eval_runs(conn)
 
 
