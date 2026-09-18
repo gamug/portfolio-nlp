@@ -5,6 +5,9 @@ Every ``aggregate_*`` returns ``dict[str, float]`` ready for
 excluded from the accuracy numbers and counted in ``parse_fail_rate``. The judge
 is treated as ground truth, so "F1 vs judge" / "accuracy vs judge" are
 agreement measures, not truth measures -- see ``docs/evaluation.md``.
+``aggregate_sentiment``/``aggregate_category`` also gain one-vs-rest
+``roc_auc_<class>`` (TASKS.md T-093, SPEC.md FR-016), computed from each
+sampled row's own stored per-class probability -- see ``_weighted_auc``.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from news_nlp.eval.verdicts import (
     SentimentVerdict,
     SummaryVerdict,
 )
+from news_nlp.taxonomy import CATEGORY_SLUGS
 
 #: The single metric ``regression.check_regression`` compares between runs.
 #:
@@ -163,6 +167,91 @@ def _per_bucket(items: Sequence[EvalItem], values: Sequence[float]) -> dict[str,
     return out
 
 
+def _ht_weights(
+    items: Sequence[EvalItem], *, exclude: frozenset[str] = _DIAGNOSTIC_ONLY_BUCKETS
+) -> list[float]:
+    """Per-item Horvitz-Thompson weight (``population_h / n_h'``), 0.0 for an
+    excluded (diagnostic-only) bucket -- the same per-bucket reweighting
+    ``_ht_sum`` folds into one running total, exposed per-item here because
+    ``_weighted_auc``'s rank statistic needs a weight per row, not a single
+    population-total sum."""
+    counts: dict[str, int] = {}
+    for it in items:
+        if it.bucket in exclude:
+            continue
+        counts[it.bucket] = counts.get(it.bucket, 0) + 1
+    return [
+        (it.stratum_population / counts[it.bucket]) if it.bucket not in exclude else 0.0
+        for it in items
+    ]
+
+
+def _weighted_auc(pos: Sequence[tuple[float, float]], neg: Sequence[tuple[float, float]]) -> float:
+    """One-vs-rest ROC AUC via the weighted Mann-Whitney U statistic -- the
+    share of (positive, negative) weight ever outranked by the positive
+    item's score (ties count half), which is exactly the area under the ROC
+    curve traced by sweeping a threshold over every observed score.
+    Reduces to the standard rank-based AUC when every weight is 1.0 (this
+    module's ``_naive_pooled`` convention); with HT weights (``_ht_weights``)
+    it's the natural generalization of the same reweighting ``_ht_sum``/
+    ``_ht_ratio`` apply to flag-sums elsewhere in this module. O(n log n)
+    (sort once, single pass grouping ties) rather than the O(n^2) the
+    definition above suggests -- real eval runs sample thousands of rows
+    (docs/evaluation.md), so this matters. 0.0 (undefined, same
+    zero-denominator convention as ``_prf``/``_ht_ratio``) when either class
+    carries no weight in this sample."""
+    total_pos_w = sum(w for _, w in pos)
+    total_neg_w = sum(w for _, w in neg)
+    total_pairs_w = total_pos_w * total_neg_w
+    if not total_pairs_w:
+        return 0.0
+    tagged = sorted(
+        [(s, w, True) for s, w in pos] + [(s, w, False) for s, w in neg], key=lambda t: t[0]
+    )
+    concordant = 0.0
+    cum_neg_before = 0.0
+    i, n = 0, len(tagged)
+    while i < n:
+        score = tagged[i][0]
+        j = i
+        group_pos_w = group_neg_w = 0.0
+        while j < n and tagged[j][0] == score:
+            if tagged[j][2]:
+                group_pos_w += tagged[j][1]
+            else:
+                group_neg_w += tagged[j][1]
+            j += 1
+        concordant += group_pos_w * cum_neg_before + 0.5 * group_pos_w * group_neg_w
+        cum_neg_before += group_neg_w
+        i = j
+    return concordant / total_pairs_w
+
+
+def _roc_auc_per_class(
+    it_ok: Sequence[EvalItem],
+    truths: Sequence[str],
+    classes: Iterable[str],
+    score_of: Callable[[EvalItem, str], float],
+) -> dict[str, float]:
+    """``roc_auc_<cls>`` (HT-weighted) + ``roc_auc_<cls>_naive_pooled`` for
+    every *classes*, one-vs-rest against *truths* using each item's own raw
+    per-class probability (*score_of*). Shared by ``aggregate_sentiment``/
+    ``aggregate_category`` -- unlike ``confusion_pairs``'s deliberate 2-line
+    duplication, this loop (build pos/neg, call ``_weighted_auc`` twice) is
+    identical between the two callers, only the score lookup and class set
+    differ."""
+    ht_weights = _ht_weights(it_ok)
+    naive_weights = [1.0] * len(it_ok)
+    out: dict[str, float] = {}
+    for cls in classes:
+        scores = [score_of(it, cls) for it in it_ok]
+        for weights, suffix in ((ht_weights, ""), (naive_weights, "_naive_pooled")):
+            pos = [(s, w) for s, w, t in zip(scores, weights, truths, strict=True) if t == cls]
+            neg = [(s, w) for s, w, t in zip(scores, weights, truths, strict=True) if t != cls]
+            out[f"roc_auc_{cls}{suffix}"] = _weighted_auc(pos, neg)
+    return out
+
+
 def aggregate_sentiment(
     items: Sequence[EvalItem], verdicts: Sequence[SentimentVerdict]
 ) -> dict[str, float]:
@@ -205,6 +294,15 @@ def aggregate_sentiment(
         ovr_hit_f = [1.0 if (t == cls) == (p == cls) else 0.0 for t, p in pairs]
         out[f"accuracy_ovr_{cls}"] = _ht_ratio(it_ok, ovr_hit_f, ones)
         out[f"accuracy_ovr_{cls}_naive_pooled"] = _rate([bool(f) for f in ovr_hit_f])
+    # One-vs-rest ROC AUC per class, from each row's own raw softmax score
+    # (article_sentiment's positive/negative/neutral columns) -- TASKS.md
+    # T-093, SPEC.md FR-016.
+    truths = [t for t, _ in pairs]
+    out.update(
+        _roc_auc_per_class(
+            it_ok, truths, _SENTIMENT_CLASSES, lambda it, cls: float(it.prediction.get(cls, 0.0))
+        )
+    )
     return out
 
 
@@ -271,6 +369,21 @@ def aggregate_category(
         ovr_hit_f = [1.0 if (t == slug) == (p == slug) else 0.0 for t, p in pairs]
         out[f"accuracy_ovr_{slug}"] = _ht_ratio(it_ok, ovr_hit_f, ones)
         out[f"accuracy_ovr_{slug}_naive_pooled"] = _rate([bool(f) for f in ovr_hit_f])
+    # One-vs-rest ROC AUC per class, from each row's own raw NLI score
+    # (article_category's 9-way distribution) -- TASKS.md T-093, SPEC.md
+    # FR-016. Iterates the fixed CATEGORY_SLUGS, NOT the dynamic `classes`
+    # set the loops above use: "other" is a threshold fallback with no NLI
+    # hypothesis/score column of its own (taxonomy.py), so roc_auc_other
+    # isn't computable the way roc_auc_<slug> is for the 9 substantive
+    # slugs -- it's simply never a key in this function's output.
+    out.update(
+        _roc_auc_per_class(
+            it_ok,
+            [t for t, _ in pairs],
+            CATEGORY_SLUGS,
+            lambda it, cls: float(it.prediction.get("distribution", {}).get(cls, 0.0)),
+        )
+    )
     return out
 
 
