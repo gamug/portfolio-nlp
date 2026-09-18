@@ -1,0 +1,19 @@
+{
+  "name": "sentiment_v5_secbert_base",
+  "stage": "sentiment",
+  "pretrain": {
+    "enabled": true,
+    "base_model": "nlpaueb/sec-bert-base",
+    "split": {
+      "split_seed": 42,
+      "test_frac": 0.1,
+      "val_frac": 0.1
+    },
+    "hyperparameters": {}
+  },
+  "eval": {
+    "sample_size": 2000,
+    "seed": 1,
+    "candidate_prescore_size": 2500
+  }
+}

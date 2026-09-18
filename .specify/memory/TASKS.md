@@ -1098,7 +1098,7 @@ for everything before it — not independent efforts.
       itself (only the library functions it calls are hermetically
       tested). 303 tests (unchanged — no test/src-behavior changes beyond
       the new CLI file itself), ruff, mypy clean.
-- [ ] **T-101** Backfill a JSON spec for every real historical experiment
+- [x] **T-101** Backfill a JSON spec for every real historical experiment
       into `experiments/`: sentiment (`sentiment_v2_chunklevel_finetuned`,
       `_v3_downsampled`, `_v4_class_weighted`, `_v5_secbert_base`,
       `_chunklevel_base_finbert`), one production-config spec each for
@@ -1108,7 +1108,48 @@ for everything before it — not independent efforts.
       experiments (confidence-threshold calibration; generation
       output-length budget) being inference-time hyperparameters, a
       different axis than this schema — not silently omitted. → step 5 /
-      SPEC.md FR-017.
+      SPEC.md FR-017. **Done 2026-09-18** — all 8 files written and
+      validated against `ExperimentSpec` (values sourced from
+      `docs/evaluation.md`'s own 2026-09-13/14/15 follow-ups, not
+      guessed): the four sentiment `pretrain.enabled=true` specs share
+      `split_seed=42`/`test_frac=0.1`/`val_frac=0.1`
+      (`train_sentiment.py`'s own `_SEED`/`_TEST_FRAC`/`_VAL_FRAC`) and
+      `eval.candidate_prescore_size=2500` (v4's/v5's own real
+      `--candidate-prescore-size 2500 --sample-size 2000 --seed 1`
+      invocation — `EvalSettings` otherwise silently defaults the
+      pre-score pool to `sample_size` itself, under-reproducing the
+      historical run without this override); `ner_production`/
+      `category_production`/`c_summary_production` mirror each stage's
+      own documented SPEC.md §9 baseline sample size/seed
+      (8000/2800/1000, all seed=1).
+      Found and disclosed a **third** gap beyond the task's own two
+      while researching the exact historical values (forked a read-only
+      verification pass rather than guess): `sentiment_v2_chunklevel_finetuned.json`
+      and `sentiment_v3_downsampled.json` are byte-identical except
+      `name` — `docs/evaluation.md` states v3 used "the same
+      procedure/hyperparameters as before" as v2, differing only in
+      whether a data file happens to exist on disk at train time
+      (`train_sentiment.py`'s own silent `BALANCED_DATA_PATH` preference)
+      — genuinely unrepresentable in `ExperimentSpec`, and (a real,
+      disclosed consequence) running either spec **today** reproduces
+      v3's behavior, not v2's original pre-rebalance pool, since the
+      rebalanced file is now permanently checked into this repo.
+      `experiments/README.md` also discloses that `ProsusAI/finbert`
+      (the base-FinBERT comparison arm's `candidate_model`, and every
+      sentiment `pretrain` spec's own `base_model`) was never pinned
+      anywhere in this repo before — pinned here for the first time
+      (`4556d13015211d73dccd3fdd39d39232506f3e43`, fetched live from the
+      HF Hub API the same way T-001 pinned the four production models),
+      scoped to this one spec file only, not added to `pipeline.py`'s own
+      `MODEL_REVISIONS`.
+      New `tests/news_nlp/test_experiments_backfill.py` (11 tests):
+      every file in `experiments/*.json` validates against
+      `ExperimentSpec` and its filename matches `spec.name`; the v2/v3
+      content-identity is locked in as a regression test (not just
+      prose), so a future "de-duplication" cleanup that silently changes
+      one without updating the README gets caught; category/`c_summary`'s
+      production specs never enable `pretrain`. 314 tests (303 + 11 new),
+      ruff, mypy clean.
 - [x] **T-102** Tests: a hermetic end-to-end `run_experiment` test (stub
       judge, no real GPU/LLM — the pattern already established in
       `test_eval_runner.py`) for at least one `pretrain.enabled=true` spec
@@ -1342,11 +1383,17 @@ code, inherited free from `run_experiment`'s own reuse of `run_eval`'s
 pydantic error, and `--source-db`/`--results-db` plumbing), no new test
 file, matching `cli/news_nlp_eval.py`'s own precedent of zero direct
 entrypoint test coverage. T-101 (backfilling a JSON spec for every real
-historical experiment) is next — the acceptance proof that T-098-T-100
-actually work, not just exist. Supersedes Work item 8 as "next up" in
-priority — Work item 8 (per-model selection justification in the
-artifact, T-064–T-069) stays a valid, scoped, pending item, just no
-longer first in line, same as when Work item 10 first superseded it.
+historical experiment) is **done too** — all 8 files in `experiments/`
+(five sentiment candidates + one production-config spec each for NER/
+category/`c_summary`), values sourced from `docs/evaluation.md`'s own
+follow-ups, not guessed; a third disclosed gap found along the way
+(`sentiment_v2_chunklevel_finetuned.json`/`_v3_downsampled.json` are
+deliberately content-identical — see `experiments/README.md`). T-096
+through T-102 are now all done; **T-103's docs pass is the only item
+left before Work item 11 closes in full.** Supersedes Work item 8 as
+"next up" in priority — Work item 8 (per-model selection justification
+in the artifact, T-064–T-069) stays a valid, scoped, pending item, just
+no longer first in line, same as when Work item 10 first superseded it.
 
 **Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
 **done (2026-09-18)** — surfaced directly while closing out T-097 (PR
