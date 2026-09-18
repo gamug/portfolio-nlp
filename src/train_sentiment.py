@@ -148,12 +148,20 @@ def load_labeled_sentences(path: Path) -> list[dict[str, Any]]:
 
 
 def stratified_split(
-    rows: list[dict[str, Any]], seed: int = _SEED
+    rows: list[dict[str, Any]],
+    seed: int = _SEED,
+    test_frac: float = _TEST_FRAC,
+    val_frac: float = _VAL_FRAC,
 ) -> dict[str, list[dict[str, Any]]]:
     """Split rows into train/validation/test, stratified per label so each
     split's class balance matches the full dataset's -- important here since
     real financial news skews neutral/positive and a plain random split
-    could leave the test set with very few negative examples."""
+    could leave the test set with very few negative examples.
+
+    ``test_frac``/``val_frac`` (added 2026-09-18, TASKS.md T-096,
+    PLAN.md Work item 11) default to this module's own pre-existing 10/10
+    split -- every existing call site's behavior is unchanged unless it
+    now explicitly overrides them (e.g. via ``SentimentTrainConfig``)."""
     rng = random.Random(seed)  # noqa: S311 -- split assignment, not cryptography
     by_label: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
@@ -164,8 +172,8 @@ def stratified_split(
         shuffled = label_rows[:]
         rng.shuffle(shuffled)
         n = len(shuffled)
-        n_test = max(1, int(n * _TEST_FRAC))
-        n_val = max(1, int(n * _VAL_FRAC))
+        n_test = max(1, int(n * test_frac))
+        n_val = max(1, int(n * val_frac))
         splits["test"].extend(shuffled[:n_test])
         splits["validation"].extend(shuffled[n_test : n_test + n_val])
         splits["train"].extend(shuffled[n_test + n_val :])
@@ -328,10 +336,21 @@ def paths_for_base_model(base_model: str, weighted: bool) -> tuple[str, Path]:
 @dataclass(frozen=True)
 class SentimentTrainConfig(TrainConfig):
     """`--weighted`/`--base-model` (module docstring) as a config object
-    instead of argparse's `args_ns` -- same two knobs, same defaults."""
+    instead of argparse's `args_ns` -- same two knobs, same defaults.
+
+    `split_seed`/`test_frac`/`val_frac` (added 2026-09-18, TASKS.md T-096,
+    PLAN.md Work item 11) make `stratified_split`'s train/test setup
+    genuinely config-driven -- previously `stratified_split(rows)` was
+    always called with no arguments, silently relying on this module's own
+    hardcoded `_SEED`/`_TEST_FRAC`/`_VAL_FRAC` constants with no way to
+    override them from a config or CLI flag. Defaults match those exact
+    constants, so every existing invocation's behavior is unchanged."""
 
     weighted: bool = False
     base_model: str = MODEL_NAME
+    split_seed: int = _SEED
+    test_frac: float = _TEST_FRAC
+    val_frac: float = _VAL_FRAC
 
 
 class SentimentTrainer(FtiTrainer[SentimentTrainConfig]):
@@ -348,7 +367,9 @@ class SentimentTrainer(FtiTrainer[SentimentTrainConfig]):
         rows, training_data_path, output_dir, metrics_output = load_training_pool(
             base_model, config.weighted
         )
-        splits = stratified_split(rows)
+        splits = stratified_split(
+            rows, seed=config.split_seed, test_frac=config.test_frac, val_frac=config.val_frac
+        )
 
         tokenizer = AutoTokenizer.from_pretrained(base_model)
         model = AutoModelForSequenceClassification.from_pretrained(
