@@ -46,6 +46,7 @@ _RUN_COLS = (
     "code_version",
     "status",
     "strata_json",
+    "experiment",
 )
 _INFERENCE_COLS = (
     "run_id",
@@ -95,13 +96,20 @@ def create_eval_run(
     judge_url: str,
     code_version: str,
     strata_json: str = "{}",
+    experiment: str = "base",
 ) -> int:
     """Insert a ``running`` ``eval_run`` row; return its id.
 
     ``strata_json`` is the per-stratum ``{bucket: {"population": N_h, "n":
     n_h}}`` bookkeeping the Horvitz-Thompson reweighting in
     ``news_nlp.eval.metrics`` needs (see ``docs/evaluation.md``); defaults to
-    ``'{}'`` for callers that don't (yet) have it.
+    ``'{}'`` for callers that don't (yet) have it. ``experiment`` (added
+    2026-09-18) is which model produced this run's inferences -- ``"base"``
+    for the pinned production model, matching ``runner.py``'s own
+    resolution (``settings.candidate_model or settings.run_name or
+    "base"``); lets ``queries.latest_eval_runs``/``GET /eval/latest`` and
+    MLflow's ``experiment`` tag (``tracking.log_to_mlflow``) both key off
+    ``(stage, experiment)`` instead of ``stage`` alone.
     """
     cur = conn.execute(
         conn.dialect.insert("eval_run", _RUN_COLS),
@@ -117,6 +125,7 @@ def create_eval_run(
             code_version,
             "running",
             strata_json,
+            experiment,
         ),
     )
     row_id = cur.lastrowid

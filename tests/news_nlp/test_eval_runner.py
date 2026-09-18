@@ -341,6 +341,21 @@ def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
     # experiment resolves to candidate_model when set (TASKS.md T-090).
     assert all(r[1] == "candidate/model" for r in rows)
 
+    # eval_run itself also carries the resolved experiment (2026-09-18 fix).
+    (run_experiment,) = (
+        db_module.connect(results)
+        .execute("SELECT experiment FROM eval_run WHERE stage = 'sentiment'")
+        .fetchone()
+    )
+    assert run_experiment == "candidate/model"
+
+    # ...and so does the MLflow run (tag + param), not just the DB row.
+    import mlflow  # noqa: PLC0415
+
+    mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
+    mlflow_run = mlflow.get_run(out["sentiment"]["mlflow_run_id"])
+    assert mlflow_run.data.tags.get("experiment") == "candidate/model"
+
     # Production article_sentiment (seeded by eval_store_paths) is untouched.
     (prod_score,) = (
         db_module.connect(results)
@@ -348,6 +363,62 @@ def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
         .fetchone()
     )
     assert prod_score == pytest.approx(0.315)
+
+
+@pytest.mark.usefixtures("stub_judge")
+def test_candidate_model_regression_check_ignores_base_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    eval_store_paths: tuple[Path, Path],
+) -> None:
+    """End-to-end proof (not just the unit-level tracking/regression tests):
+    a --candidate-model run's --check-regression must not compare against
+    an unrelated "base" run logged earlier for the same stage -- 2026-09-18
+    fix (docs/evaluation.md)."""
+    source, results = eval_store_paths
+    settings = _settings(tmp_path)
+
+    # A strong prior "base" run -- if the candidate run below were (wrongly)
+    # compared against this, its worse number would read as a regression.
+    log_to_mlflow(
+        stage="sentiment",
+        params={"stage": "sentiment"},
+        metrics={"recall_negative": 0.95},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=settings.mlflow_tracking_uri,
+        experiment="base",
+    )
+    time.sleep(0.05)
+
+    monkeypatch.setattr(
+        sentiment_stage.AutoTokenizer,
+        "from_pretrained",
+        lambda *_a, **_k: _FakeCandidateTokenizer(),
+    )
+    monkeypatch.setattr(
+        sentiment_stage.AutoModelForSequenceClassification,
+        "from_pretrained",
+        lambda *_a, **_k: _FakeCandidateModel(),
+    )
+    candidate_settings = settings.model_copy(
+        update={
+            "candidate_model": "candidate/model",
+            "candidate_revision": "candidate-rev",
+            "candidate_prescore_size": 10,
+        }
+    )
+
+    out = runner.run_eval(
+        ["sentiment"],
+        settings=candidate_settings,
+        source_db=str(source),
+        results_db=str(results),
+        check_regression=True,
+    )
+    # This candidate has no PRIOR run of its own -- must not be flagged just
+    # because "base"'s number (seeded above) happens to be higher.
+    assert out["sentiment"]["regressed"] is False
 
 
 def test_run_eval_rejects_candidate_model_with_more_than_one_stage(tmp_path: Path) -> None:

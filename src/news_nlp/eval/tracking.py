@@ -30,18 +30,30 @@ def log_to_mlflow(
     system_prompt: str,
     tracking_uri: str,
     run_name: str | None = None,
+    experiment: str = "base",
 ) -> str:
     """Create the run, log params/metrics/artifacts, return the MLflow run id.
     *run_name* labels the run in the MLflow UI's run list -- purely cosmetic,
-    doesn't affect experiment_name(stage) (still one fixed experiment per
-    stage) or previous_headline()'s ordering below (still start_time-based,
-    unaffected by naming). Defaults to MLflow's own auto-generated name when
-    not given, same as before this parameter existed."""
+    doesn't affect experiment_name(stage) (still one fixed MLflow
+    *experiment* per stage, an unrelated overloaded use of the word from
+    MLflow's own API) or previous_headline()'s ordering below (still
+    start_time-based, unaffected by naming). Defaults to MLflow's own
+    auto-generated name when not given, same as before this parameter
+    existed.
+
+    *experiment* (added 2026-09-18, not to be confused with the MLflow
+    "experiment" `run_name`/`stage` live in -- this is `news_nlp.eval`'s
+    own `(article_id, task, experiment)` concept, "which model produced
+    this run") is set as both an MLflow **tag** (mirrors the existing
+    `stage` tag, used by `previous_headline`'s filter below) and a logged
+    **param** (visible in the UI's Parameters column, same as `stage`
+    already is) -- single source of truth here rather than every caller
+    re-adding it to its own `params` dict."""
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name(stage))
     with mlflow.start_run(run_name=run_name) as run:
-        mlflow.set_tags({"stage": stage})
-        mlflow.log_params(params)
+        mlflow.set_tags({"stage": stage, "experiment": experiment})
+        mlflow.log_params({**params, "experiment": experiment})
         # mlflow rejects non-finite / non-numeric metric values; filter defensively.
         clean = {
             k: float(v)
@@ -54,16 +66,26 @@ def log_to_mlflow(
         return str(run.info.run_id)
 
 
-def previous_headline(stage: str, metric: str, tracking_uri: str) -> float | None:
+def previous_headline(
+    stage: str, metric: str, tracking_uri: str, *, experiment: str = "base"
+) -> float | None:
     """The value of *metric* on the run just before the most recent one for
-    *stage*, or ``None`` if there is no such prior run. Called after the fresh
-    run is logged, so index 0 is that fresh run and index 1 is the comparison."""
+    *(stage, experiment)*, or ``None`` if there is no such prior run. Called
+    after the fresh run is logged, so index 0 is that fresh run and index 1
+    is the comparison. Scoped to *experiment* (added 2026-09-18) via the
+    `experiment` tag `log_to_mlflow` sets -- a candidate-model run is never
+    compared against (or mistaken for a prior run of) production's own
+    numbers, or another candidate's."""
     client = MlflowClient(tracking_uri=tracking_uri)
     exp = client.get_experiment_by_name(experiment_name(stage))
     if exp is None:
         return None
+    escaped = experiment.replace("'", "\\'")
     runs = client.search_runs(
-        [exp.experiment_id], order_by=["start_time DESC"], max_results=_MIN_RUNS_TO_COMPARE
+        [exp.experiment_id],
+        filter_string=f"tags.experiment = '{escaped}'",
+        order_by=["start_time DESC"],
+        max_results=_MIN_RUNS_TO_COMPARE,
     )
     if len(runs) < _MIN_RUNS_TO_COMPARE:
         return None

@@ -635,18 +635,24 @@ def category_stats(
 
 
 def latest_eval_runs(conn: NewsNlpDatabase) -> list[dict]:
-    """The most recent ``eval_run`` row per stage (newest first), with
-    ``metrics_json`` decoded into a ``metrics`` object. Backs ``GET /eval/latest``.
-    Lives here (not in ``news_nlp.eval``) so the API path never imports the
-    ``eval`` dependency group (``strands`` / ``mlflow``)."""
+    """The most recent ``eval_run`` row per ``(stage, experiment)`` (newest
+    first), with ``metrics_json`` decoded into a ``metrics`` object. Backs
+    ``GET /eval/latest``. Lives here (not in ``news_nlp.eval``) so the API
+    path never imports the ``eval`` dependency group (``strands`` /
+    ``mlflow``). Grouped by ``experiment`` too (added 2026-09-18) -- a
+    candidate-model run (``--candidate-model``) no longer displaces
+    production's own "latest" row for a stage; each gets its own."""
     rows = conn.execute(
         """
-        SELECT r.stage, r.started_at, r.finished_at, r.status, r.sample_size,
-               r.judge_model, r.code_version, r.mlflow_run_id, r.metrics_json
+        SELECT r.stage, r.experiment, r.started_at, r.finished_at, r.status,
+               r.sample_size, r.judge_model, r.code_version, r.mlflow_run_id,
+               r.metrics_json
         FROM eval_run r
         JOIN (
-            SELECT stage, MAX(started_at) AS mx FROM eval_run GROUP BY stage
-        ) latest ON latest.stage = r.stage AND latest.mx = r.started_at
+            SELECT stage, experiment, MAX(started_at) AS mx
+            FROM eval_run GROUP BY stage, experiment
+        ) latest ON latest.stage = r.stage AND latest.experiment = r.experiment
+            AND latest.mx = r.started_at
         ORDER BY r.started_at DESC
         """
     ).fetchall()

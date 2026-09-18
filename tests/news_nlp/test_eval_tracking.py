@@ -82,3 +82,69 @@ def test_previous_headline_returns_prior_run_value(tmp_path: Path) -> None:
 
 def test_previous_headline_none_without_history(tmp_path: Path) -> None:
     assert previous_headline("ner", "micro_f1", _uri(tmp_path)) is None
+
+
+def test_log_to_mlflow_tags_experiment(tmp_path: Path) -> None:
+    uri = _uri(tmp_path)
+    run_id = log_to_mlflow(
+        stage="sentiment",
+        params={"stage": "sentiment"},
+        metrics={"recall_negative": 0.8},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="candidate/model",
+    )
+    client = mlflow.tracking.MlflowClient(tracking_uri=uri)
+    run = client.get_run(run_id)
+    assert run.data.tags.get("experiment") == "candidate/model"
+    assert run.data.params.get("experiment") == "candidate/model"
+
+    mlflow.set_tracking_uri(uri)
+    found = mlflow.search_runs(
+        experiment_names=["news_nlp_eval/sentiment"],
+        filter_string="tags.experiment = 'candidate/model'",
+    )
+    assert len(found) == 1
+
+
+def test_previous_headline_is_experiment_scoped(tmp_path: Path) -> None:
+    """A candidate-model run's previous-run lookup must never fall back to
+    production's ("base") number, or another candidate's -- 2026-09-18
+    fix (docs/evaluation.md)."""
+    uri = _uri(tmp_path)
+    log_to_mlflow(
+        stage="sentiment",
+        params={"stage": "sentiment"},
+        metrics={"recall_negative": 0.90},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="base",
+    )
+    time.sleep(0.05)
+    # No prior run of THIS experiment yet, even though a "base" run exists.
+    assert previous_headline("sentiment", "recall_negative", uri, experiment="candidate-x") is None
+
+    log_to_mlflow(
+        stage="sentiment",
+        params={"stage": "sentiment"},
+        metrics={"recall_negative": 0.40},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="candidate-x",
+    )
+    time.sleep(0.05)
+    log_to_mlflow(
+        stage="sentiment",
+        params={"stage": "sentiment"},
+        metrics={"recall_negative": 0.55},
+        judgements=[],
+        system_prompt="p",
+        tracking_uri=uri,
+        experiment="candidate-x",
+    )
+    # Picks up the first candidate-x run (0.40), not the intervening "base"
+    # run (0.90) that sits between them in start_time order.
+    assert previous_headline("sentiment", "recall_negative", uri, experiment="candidate-x") == 0.40
