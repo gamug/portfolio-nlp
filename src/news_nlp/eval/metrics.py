@@ -401,3 +401,29 @@ def aggregate(stage: str, items: Sequence[EvalItem], verdicts: Sequence[Any]) ->
     except KeyError:
         raise ValueError(f"unknown stage {stage!r}") from None
     return fn(items, verdicts)
+
+
+def confusion_pairs(
+    stage: str, items: Sequence[EvalItem], verdicts: Sequence[Any]
+) -> list[tuple[str, str]] | None:
+    """``(true_label, predicted_label)`` pairs, ``parse_failed`` rows
+    excluded -- sentiment/category only (the only two stages with a
+    discrete predicted/ideal label shape); ``None`` for every other stage
+    (TASKS.md T-092, SPEC.md FR-016). Mirrors `aggregate_sentiment`/
+    `aggregate_category`'s own ``pairs``/``parse_failed``-filter derivation
+    exactly -- kept separate rather than shared, since refactoring those
+    two tested aggregate functions to reuse an extraction helper isn't
+    worth it for a two-line derivation."""
+    if stage == "sentiment":
+        return [
+            (v.ideal_label, str(it.prediction.get("label", "neutral")))
+            for it, v in zip(items, verdicts, strict=True)
+            if not v.parse_failed
+        ]
+    if stage == "category":
+        return [
+            (v.ideal_slug, str(it.prediction.get("label", "other")))
+            for it, v in zip(items, verdicts, strict=True)
+            if not v.parse_failed
+        ]
+    return None

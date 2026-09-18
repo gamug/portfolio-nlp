@@ -821,10 +821,36 @@ efforts.
       calls → zero new judge-LLM calls on the second; a different
       experiment → judges fresh. 251 tests (248 + 3 new), ruff, mypy all
       green.
-- [ ] **T-092** Add the confusion-matrix table (sentiment/category only:
+- [x] **T-092** Add the confusion-matrix table (sentiment/category only:
       one row per `(experiment, task, true_label, predicted_label)` with a
       count), populated from the same judge verdicts T-090/T-091 already
-      record — no new judge calls needed. → step 6 / FR-016.
+      record — no new judge calls needed. → step 6 / FR-016. Done
+      2026-09-18: new `eval_confusion` table (sentiment/category only,
+      sparse — a cell with zero occurrences a run simply has no row),
+      scoped per `run_id` like `eval_inference`/`eval_verdict`'s own
+      T-090/T-091 precedent (full per-run history; a cumulative view
+      across an experiment's every historical run is a plain `SUM(count)
+      GROUP BY (experiment, task, true_label, predicted_label)` at query
+      time, not something write-time maintains — confirmed
+      `portfolio_common.db.Dialect`'s only upsert primitive is SQLite's
+      whole-row `INSERT OR REPLACE`, no increment-on-conflict precedent
+      anywhere in this codebase, so this design deliberately doesn't need
+      one). New `metrics.confusion_pairs` (mirrors `aggregate_sentiment`/
+      `aggregate_category`'s own `pairs`/`parse_failed`-filter derivation,
+      disclosed duplication rather than refactoring those two tested
+      functions for a two-line derivation) + `store.record_confusion_cells`
+      (one INSERT per distinct cell, same low-complexity pattern as
+      `record_inference`/`record_verdict`) + one call per `_run_stage`
+      invocation in `runner.py`, right after the existing per-item write
+      loop, using `collections.Counter` (already imported) over the same
+      `(item, verdict)` pairs already judged/resolved — genuinely no new
+      judge calls. Confirmed via `CategoryVerdict._coerce_unknown_slug`
+      that category's `"other"` is a legitimate value on the *true* axis
+      too, not just predicted — needed no special handling, since the
+      table only stores whatever labels actually appear (no fixed-label
+      enumeration). DB-only, no MLflow artifact — FR-016's acceptance
+      criterion only names the DB table. 257 tests (251 + 6 new), ruff,
+      mypy all green.
 - [ ] **T-093** Add one-vs-rest ROC/AUC (`roc_auc_<class>`) to
       `aggregate_sentiment`/`aggregate_category`, computed from each sampled
       row's own stored prediction probabilities (`article_sentiment`'s

@@ -2,8 +2,9 @@
 keyed by ``article_id`` and ``REFERENCES articles(id)``, plus the run-log
 tables written by ``news_nlp.eval`` (the LLM-as-judge accuracy evaluation --
 see ``docs/evaluation.md``): ``eval_run``, ``eval_inference``/``eval_verdict``
-(current), and the now-legacy ``eval_judgement`` (superseded 2026-09-18,
-kept as-is for its historical rows -- see each table's own DDL comment).
+(current), ``eval_confusion`` (sentiment/category only), and the now-legacy
+``eval_judgement`` (superseded 2026-09-18, kept as-is for its historical
+rows -- see each table's own DDL comment).
 
 Does **not** create ``articles`` -- that table is owned by the crawler on the
 SOURCE side; on the RESULTS side a lean, ``body_text``-free subset is
@@ -239,6 +240,31 @@ CREATE INDEX IF NOT EXISTS idx_eval_verdict_run_id ON eval_verdict(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_verdict_inference_id ON eval_verdict(inference_id);
 CREATE INDEX IF NOT EXISTS idx_eval_verdict_article_task_experiment
     ON eval_verdict(article_id, task, experiment);
+
+-- One row per distinct (true_label, predicted_label) cell actually
+-- observed in one run's own sample -- sentiment/category only (the only
+-- two stages with a discrete predicted/ideal label shape; TASKS.md T-092,
+-- SPEC.md FR-016). Sparse: a cell with zero occurrences this run simply
+-- has no row. Scoped per run_id (full history, matching eval_inference/
+-- eval_verdict's own precedent) -- a cumulative matrix across every
+-- historical run for an experiment is `SUM(count) GROUP BY (experiment,
+-- task, true_label, predicted_label)` at query time, not something this
+-- table maintains at write time.
+CREATE TABLE IF NOT EXISTS eval_confusion (
+    id              {autoincrement_pk},
+    run_id          INTEGER NOT NULL REFERENCES eval_run(id),
+    task            TEXT NOT NULL,
+    experiment      TEXT NOT NULL,
+    true_label      TEXT NOT NULL,
+    predicted_label TEXT NOT NULL,
+    count           INTEGER NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE (run_id, task, experiment, true_label, predicted_label)
+);
+
+CREATE INDEX IF NOT EXISTS idx_eval_confusion_run_id ON eval_confusion(run_id);
+CREATE INDEX IF NOT EXISTS idx_eval_confusion_experiment_task
+    ON eval_confusion(experiment, task);
 """
 
 

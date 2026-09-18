@@ -1,10 +1,10 @@
 """Write (and, for judge-verdict reuse, read) eval runs + per-row model
 inferences/judge verdicts in the RESULTS store.
 
-``eval_run``/``eval_inference``/``eval_verdict`` DDL lives in
-``news_nlp.schema``; ``init_schema`` creates them. Column lists route
-through ``conn.dialect`` like the rest of ``news_nlp.queries``; the caller
-commits.
+``eval_run``/``eval_inference``/``eval_verdict``/``eval_confusion`` DDL
+lives in ``news_nlp.schema``; ``init_schema`` creates them. Column lists
+route through ``conn.dialect`` like the rest of ``news_nlp.queries``; the
+caller commits.
 
 ``eval_inference``/``eval_verdict`` (TASKS.md T-090, SPEC.md FR-014) split
 what the now-legacy ``eval_judgement`` held in one row -- the sampled model
@@ -14,15 +14,21 @@ experiment's data for the same article/task can coexist. ``record_judgement``
 is gone; ``record_inference``/``record_verdict`` replace it at the same call
 site (``news_nlp.eval.runner._run_stage``).
 
-``find_verdict_json`` (TASKS.md T-091, SPEC.md FR-015) is the one read
-function here -- looked up before judging, so an unchanged
-``(article_id, task, experiment)`` key skips the judge LLM call and
-reuses the stored verdict instead of re-judging.
+``find_verdict_json`` (TASKS.md T-091, SPEC.md FR-015) is the one
+verdict-reuse read function here -- looked up before judging, so an
+unchanged ``(article_id, task, experiment)`` key skips the judge LLM call
+and reuses the stored verdict instead of re-judging.
+
+``record_confusion_cells`` (TASKS.md T-092, SPEC.md FR-016) writes one
+``eval_confusion`` row per distinct ``(true_label, predicted_label)`` cell
+observed in a sentiment/category run's own sample -- built from the SAME
+judge verdicts ``record_verdict`` already persists, no new judge calls.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -61,6 +67,15 @@ _VERDICT_COLS = (
     "severity",
     "rationale",
     "judged_at",
+)
+_CONFUSION_COLS = (
+    "run_id",
+    "task",
+    "experiment",
+    "true_label",
+    "predicted_label",
+    "count",
+    "created_at",
 )
 
 
@@ -186,6 +201,25 @@ def find_verdict_json(
         (article_id, task, experiment),
     ).fetchone()
     return row[0] if row is not None else None
+
+
+def record_confusion_cells(
+    conn: NewsNlpDatabase,
+    run_id: int,
+    *,
+    task: str,
+    experiment: str,
+    counts: Mapping[tuple[str, str], int],
+) -> None:
+    """Insert one ``eval_confusion`` row per distinct ``(true_label,
+    predicted_label)`` cell in *counts* (typically
+    ``collections.Counter(metrics.confusion_pairs(...))``) -- a no-op if
+    *counts* is empty (TASKS.md T-092, SPEC.md FR-016)."""
+    for (true_label, predicted_label), count in counts.items():
+        conn.execute(
+            conn.dialect.insert("eval_confusion", _CONFUSION_COLS),
+            (run_id, task, experiment, true_label, predicted_label, count, _now()),
+        )
 
 
 def finish_eval_run(

@@ -94,6 +94,18 @@ def test_run_eval_writes_db_rows_and_mlflow_runs(
             r[0] for r in check.execute("SELECT DISTINCT experiment FROM eval_inference")
         }
         assert experiments == {"base"}
+        # TASKS.md T-092: sentiment/category both get a confusion-matrix
+        # row -- the stub judge always agrees with the model's own stored
+        # label, and eval_store_paths seeds every article with the same
+        # sentiment_label ("positive")/category_label ("earnings_performance"),
+        # so each stage collapses to exactly one (true, predicted) cell.
+        conf_rows = check.execute(
+            "SELECT task, true_label, predicted_label, count FROM eval_confusion ORDER BY task"
+        ).fetchall()
+        assert [tuple(r) for r in conf_rows] == [
+            ("category", "earnings_performance", "earnings_performance", 6),
+            ("sentiment", "positive", "positive", 6),
+        ]
     finally:
         check.close()
 
@@ -101,6 +113,31 @@ def test_run_eval_writes_db_rows_and_mlflow_runs(
 
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     assert len(mlflow.search_runs(experiment_names=["news_nlp_eval/sentiment"])) == 1
+
+
+@pytest.mark.usefixtures("stub_judge")
+def test_run_eval_writes_no_confusion_rows_for_ner_and_c_summary(
+    tmp_path: Path, eval_store_paths: tuple[Path, Path]
+) -> None:
+    """TASKS.md T-092: ner/c_summary have no discrete predicted/ideal label
+    shape (NerVerdict is error-only, SummaryVerdict is 1-5 scales), so
+    confusion_pairs returns None for them -- confirm no eval_confusion rows
+    land for either, even though eval_inference/eval_verdict do."""
+    source, results = eval_store_paths
+    settings = _settings(tmp_path)
+
+    runner.run_eval(
+        ["ner", "c_summary"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+
+    check = db_module.connect(results)
+    try:
+        (n_inf,) = check.execute("SELECT COUNT(*) FROM eval_inference").fetchone()
+        assert n_inf == 12  # both stages did get judged/recorded
+        (n_conf,) = check.execute("SELECT COUNT(*) FROM eval_confusion").fetchone()
+        assert n_conf == 0
+    finally:
+        check.close()
 
 
 @pytest.mark.usefixtures("stub_judge")
