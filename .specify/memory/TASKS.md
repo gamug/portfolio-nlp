@@ -932,12 +932,30 @@ T-096/T-097 are small, independent prerequisites, T-098 must land before
 T-099/T-100, and T-101 (the historical backfill) is the acceptance proof
 for everything before it — not independent efforts.
 
-- [ ] **T-096** Parameterize `stratified_split()` (`src/train_sentiment.py`)
+- [x] **T-096** Parameterize `stratified_split()` (`src/train_sentiment.py`)
       and `SentimentTrainConfig` with `split_seed`/`test_frac`/`val_frac`
       — today these are hardcoded module constants (`seed=42`, 80/10/10),
       never threaded from any config or CLI flag. Defaults must reproduce
       today's exact behavior for every existing call site (no test
-      assertion changes). → step 2 / SPEC.md FR-017.
+      assertion changes). → step 2 / SPEC.md FR-017. Done 2026-09-18:
+      `stratified_split(rows, seed=_SEED, test_frac=_TEST_FRAC,
+      val_frac=_VAL_FRAC)` — new keyword params, defaults are the exact
+      pre-existing module constants, so every call site's behavior is
+      byte-identical unless it now opts into an override.
+      `SentimentTrainConfig` gained matching `split_seed`/`test_frac`/
+      `val_frac` fields (same defaults); `SentimentTrainer.train()` now
+      threads them into `stratified_split(...)` instead of calling it with
+      no arguments. New `tests/news_nlp/test_train_sentiment.py` (6 tests:
+      defaults match the module constants and reproduce the exact
+      no-args call; stratification-per-label correctness; seed
+      reproducibility; overriding `test_frac`/`val_frac` actually changes
+      split sizes, not silently ignored; the `max(1, ...)` floor holds at
+      tiny fractions; `SentimentTrainConfig`'s new fields are independently
+      overridable without disturbing `weighted`/`base_model`) — written
+      now rather than deferred to T-102 as originally scoped, matching
+      every other task this session's own precedent of shipping code and
+      tests together; T-102 below is adjusted accordingly. 277 tests
+      passing (271 + 6 new), ruff/mypy clean.
 - [ ] **T-097** Wire a real `Trainer` (`NoOpTrainer`-based) into
       `category_stage.py`/`summary_stage.py` — both currently only
       *mention* `NoOpTrainer` in a docstring; neither instantiates it
@@ -989,13 +1007,13 @@ for everything before it — not independent efforts.
       different axis than this schema — not silently omitted. → step 5 /
       SPEC.md FR-017.
 - [ ] **T-102** Tests: `ExperimentSpec` validation (every rejection case
-      T-098 names), a hermetic end-to-end `run_experiment` test (stub
+      T-098 names) and a hermetic end-to-end `run_experiment` test (stub
       judge, no real GPU/LLM — the pattern already established in
       `test_eval_runner.py`) for at least one `pretrain.enabled=true` spec
-      and one eval-only spec, and a `stratified_split`/
-      `SentimentTrainConfig` regression test proving default behavior is
-      byte-identical to pre-T-096. Full hermetic suite stays green
-      throughout.
+      and one eval-only spec. (The `stratified_split`/`SentimentTrainConfig`
+      regression test originally scoped here shipped with T-096 instead —
+      see that task's own completion note.) Full hermetic suite stays
+      green throughout.
 - [ ] **T-103** Docs: new `docs/evaluation.md` section covering the
       schema + one-command workflow + the two disclosed gaps;
       `docs/modules/news-nlp.md` gains a pointer. Reconcile the two
