@@ -1,15 +1,15 @@
-import sqlite3
 from typing import Any
 
 import pytest
 
 import ner_stage
+import news_nlp as db
 import pipeline
 import sentiment_stage
 
 
 def test_run_sentiment_stage_reports_empty_progress_without_loading_model(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
@@ -26,7 +26,7 @@ def test_run_sentiment_stage_reports_empty_progress_without_loading_model(
 
 
 def test_run_ner_stage_reports_empty_progress_without_loading_model(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")

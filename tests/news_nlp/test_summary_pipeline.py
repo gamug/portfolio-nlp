@@ -1,4 +1,3 @@
-import sqlite3
 from typing import Any
 
 import pytest
@@ -14,7 +13,7 @@ from news_nlp.taxonomy import CATEGORY_SLUGS
 
 
 def seed_sentiment(
-    conn: sqlite3.Connection, article_id: int, label: str = "positive", score: float = 0.9
+    conn: db.NewsNlpDatabase, article_id: int, label: str = "positive", score: float = 0.9
 ) -> None:
     conn.execute(
         """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
@@ -24,7 +23,7 @@ def seed_sentiment(
 
 
 def seed_category(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
     article_id: int,
     label: str = "earnings_performance",
     score: float = 0.9,
@@ -204,7 +203,7 @@ def test_hierarchical_summarize_batch_respects_batch_size(
 
 
 def test_run_company_summary_stage_skips_loading_model_when_nothing_pending(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
@@ -219,7 +218,7 @@ def test_run_company_summary_stage_skips_loading_model_when_nothing_pending(
 
 
 def test_run_company_summary_stage_writes_a_summary_per_pending_article(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_article(conn, id=1)
     conn.execute(
@@ -249,7 +248,7 @@ def test_run_company_summary_stage_writes_a_summary_per_pending_article(
 
 
 def test_run_company_summary_stage_pools_multiple_articles_into_one_model_call(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for i in (1, 2):
         seed_article(conn, id=i)
@@ -314,7 +313,7 @@ def _fail_if_model_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_run_sector_summary_stage_skips_loading_model_when_nothing_pending(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _fail_if_model_loaded(monkeypatch)
 
@@ -325,7 +324,7 @@ def test_run_sector_summary_stage_skips_loading_model_when_nothing_pending(
 
 
 def test_run_sector_summary_stage_writes_one_summary_per_group(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _fail_if_model_loaded(monkeypatch)
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
@@ -359,7 +358,7 @@ def test_run_sector_summary_stage_writes_one_summary_per_group(
 
 
 def test_run_sector_summary_stage_writes_one_row_per_group_no_batching_needed(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _fail_if_model_loaded(monkeypatch)
     seed_article(

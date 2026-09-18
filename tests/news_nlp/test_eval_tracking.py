@@ -33,6 +33,10 @@ def test_log_to_mlflow_writes_run_metrics_and_artifacts(tmp_path: Path) -> None:
 
     mlflow.set_tracking_uri(uri)
     runs = mlflow.search_runs(experiment_names=["news_nlp_eval/sentiment"])
+    # default output_format="pandas" always returns a DataFrame, never the
+    # list[Run] the return type also allows -- narrows away that branch so
+    # .iloc/.columns below type-check.
+    assert not isinstance(runs, list)
     assert len(runs) == 1
     assert runs.iloc[0]["metrics.macro_f1_vs_judge"] == 0.82
     # non-finite metric filtered out
@@ -61,6 +65,7 @@ def test_log_to_mlflow_run_name_is_cosmetic_only(tmp_path: Path) -> None:
     assert run.info.run_name == "v5-sec-bert-base"
     # still the same fixed experiment, named runs and default-named runs coexist
     exp = client.get_experiment_by_name("news_nlp_eval/sentiment")
+    assert exp is not None
     assert run.info.experiment_id == exp.experiment_id
 
 

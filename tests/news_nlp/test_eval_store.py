@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import news_nlp as db_module
 from news_nlp.eval.store import (
     create_eval_run,
@@ -11,6 +13,25 @@ from news_nlp.eval.store import (
     record_inference,
     record_verdict,
 )
+
+
+class _RunKwargs(TypedDict):
+    """`create_eval_run`'s keyword-only args minus `stage`/`experiment`, so
+    `**common` unpacking type-checks against each field's real (heterogeneous
+    int/str/None) type instead of the widened `dict[str, int | str | None]`
+    mypy would otherwise infer from a plain dict literal."""
+
+    sample_size: int
+    low_conf_n: int
+    random_n: int
+    seed: int | None
+    judge_model: str
+    judge_url: str
+    code_version: str
+
+
+class _RunKwargsWithStage(_RunKwargs):
+    stage: str
 
 
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
@@ -144,7 +165,7 @@ def test_run_inference_and_verdict_round_trip(conn: db_module.NewsNlpDatabase) -
 
 
 def test_latest_eval_runs_picks_newest_per_stage(conn: db_module.NewsNlpDatabase) -> None:
-    common = {
+    common: _RunKwargs = {
         "sample_size": 1,
         "low_conf_n": 1,
         "random_n": 0,
@@ -174,7 +195,7 @@ def test_latest_eval_runs_is_experiment_scoped(conn: db_module.NewsNlpDatabase) 
     """A --candidate-model run (TASKS.md T-089) no longer displaces
     production's own "latest" row for a stage (2026-09-18 fix) -- each
     (stage, experiment) pair gets its own row."""
-    common = {
+    common: _RunKwargsWithStage = {
         "stage": "category",
         "sample_size": 1,
         "low_conf_n": 1,

@@ -27,8 +27,8 @@ _ENTITY = {
 # --- connect_pipeline / attach_source ------------------------------------------
 
 
-def test_distinct_paths_attach_source_read_only(two_tier_conn: sqlite3.Connection) -> None:
-    assert two_tier_conn.articles_rel == "source"  # type: ignore[attr-defined]
+def test_distinct_paths_attach_source_read_only(two_tier_conn: db.NewsNlpDatabase) -> None:
+    assert two_tier_conn.articles_rel == "source"
     schemas = {row[1] for row in two_tier_conn.execute("PRAGMA database_list")}
     assert "source" in schemas
 
@@ -61,7 +61,7 @@ def test_connect_pipeline_requires_source(
 
 
 def test_pending_articles_join_reads_source_and_excludes_done(
-    two_tier_conn: sqlite3.Connection,
+    two_tier_conn: db.NewsNlpDatabase,
 ) -> None:
     # source_db_path seeds ids 1, 2, 3; mark id 1 done in RESULTS.
     db.write_sentiment(two_tier_conn, 1, *_SENTIMENT)
@@ -72,7 +72,7 @@ def test_pending_articles_join_reads_source_and_excludes_done(
 
 
 def test_pending_category_join_carries_source_body_text(
-    two_tier_conn: sqlite3.Connection,
+    two_tier_conn: db.NewsNlpDatabase,
 ) -> None:
     rows = db.fetch_pending_category_articles(two_tier_conn)
     assert {r["id"] for r in rows} == {1, 2, 3}
@@ -80,7 +80,7 @@ def test_pending_category_join_carries_source_body_text(
 
 
 def test_pending_company_summary_join_carries_source_body_text(
-    two_tier_conn: sqlite3.Connection,
+    two_tier_conn: db.NewsNlpDatabase,
 ) -> None:
     db.write_sentiment(two_tier_conn, 1, "positive", 0.9, 0.9, 0.05, 0.05, "fake-model")
     db.write_entities(two_tier_conn, 1, [_ENTITY], "fake-model")
@@ -95,7 +95,7 @@ def test_pending_company_summary_join_carries_source_body_text(
 
 
 def test_result_write_upserts_lean_article_row(
-    two_tier_conn: sqlite3.Connection, results_db_path: Path
+    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
 ) -> None:
     db.write_sentiment(two_tier_conn, 2, *_SENTIMENT)
     two_tier_conn.commit()
@@ -110,7 +110,7 @@ def test_result_write_upserts_lean_article_row(
 
 
 def test_results_store_foreign_keys_consistent_after_writes(
-    two_tier_conn: sqlite3.Connection, results_db_path: Path
+    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
 ) -> None:
     for i in (1, 2, 3):
         db.write_sentiment(two_tier_conn, i, *_SENTIMENT)
@@ -133,7 +133,7 @@ def test_results_store_foreign_keys_consistent_after_writes(
 
 
 def test_source_database_is_never_written(
-    two_tier_conn: sqlite3.Connection, source_db_path: Path
+    two_tier_conn: db.NewsNlpDatabase, source_db_path: Path
 ) -> None:
     before = hashlib.sha256(source_db_path.read_bytes()).hexdigest()
 
@@ -172,7 +172,7 @@ def test_require_source_text_raises_when_source_lacks_body_text(
 
 
 def test_require_source_text_passes_on_a_populated_source(
-    two_tier_conn: sqlite3.Connection,
+    two_tier_conn: db.NewsNlpDatabase,
 ) -> None:
     db.require_source_text(two_tier_conn)  # source has non-empty body_text -> no raise
 

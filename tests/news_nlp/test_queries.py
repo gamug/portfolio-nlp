@@ -1,5 +1,3 @@
-import sqlite3
-
 from conftest import seed_article
 
 import news_nlp as db
@@ -17,7 +15,7 @@ _CATEGORY_SCORES = {
 }
 
 
-def test_list_articles_filters_by_company(conn: sqlite3.Connection) -> None:
+def test_list_articles_filters_by_company(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="Apple")
     conn.commit()
@@ -26,7 +24,7 @@ def test_list_articles_filters_by_company(conn: sqlite3.Connection) -> None:
     assert [a["id"] for a in result] == [1]
 
 
-def test_list_articles_includes_entity_count(conn: sqlite3.Connection) -> None:
+def test_list_articles_includes_entity_count(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.execute(
         """INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, model_name, processed_at)
@@ -38,11 +36,11 @@ def test_list_articles_includes_entity_count(conn: sqlite3.Connection) -> None:
     assert result[0]["entity_count"] == 1
 
 
-def test_get_article_detail_returns_none_for_missing_article(conn: sqlite3.Connection) -> None:
+def test_get_article_detail_returns_none_for_missing_article(conn: db.NewsNlpDatabase) -> None:
     assert db.get_article_detail(conn, 999) is None
 
 
-def test_get_article_detail_sentiment_none_when_unprocessed(conn: sqlite3.Connection) -> None:
+def test_get_article_detail_sentiment_none_when_unprocessed(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.commit()
 
@@ -53,7 +51,7 @@ def test_get_article_detail_sentiment_none_when_unprocessed(conn: sqlite3.Connec
     assert detail["category"] is None
 
 
-def test_get_article_detail_includes_category(conn: sqlite3.Connection) -> None:
+def test_get_article_detail_includes_category(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.commit()
     db.write_category(
@@ -73,7 +71,7 @@ def test_get_article_detail_includes_category(conn: sqlite3.Connection) -> None:
     assert detail["category"]["earnings_performance"] == 0.5
 
 
-def test_get_article_detail_includes_sentiment_and_entities(conn: sqlite3.Connection) -> None:
+def test_get_article_detail_includes_sentiment_and_entities(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.execute(
         """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
@@ -92,7 +90,7 @@ def test_get_article_detail_includes_sentiment_and_entities(conn: sqlite3.Connec
     assert detail["entities"][0]["text"] == "3M"
 
 
-def test_sentiment_stats_overall_totals(conn: sqlite3.Connection) -> None:
+def test_sentiment_stats_overall_totals(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="3M")
     conn.execute(
@@ -111,7 +109,7 @@ def test_sentiment_stats_overall_totals(conn: sqlite3.Connection) -> None:
     assert result[0]["total"] == 2
 
 
-def test_sentiment_stats_grouped_by_year(conn: sqlite3.Connection) -> None:
+def test_sentiment_stats_grouped_by_year(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M", pub_date="2022-06-01T00:00:00Z")
     seed_article(conn, id=2, company="3M", pub_date="2023-06-01T00:00:00Z")
     conn.execute(
@@ -130,7 +128,7 @@ def test_sentiment_stats_grouped_by_year(conn: sqlite3.Connection) -> None:
     assert by_year["2023"]["negative"] == 1
 
 
-def test_list_articles_filters_by_category(conn: sqlite3.Connection) -> None:
+def test_list_articles_filters_by_category(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="Apple")
     conn.commit()
@@ -151,7 +149,7 @@ def test_list_articles_filters_by_category(conn: sqlite3.Connection) -> None:
     assert [a["id"] for a in result] == [1]
 
 
-def test_category_stats_counts_per_label(conn: sqlite3.Connection) -> None:
+def test_category_stats_counts_per_label(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="3M")
     seed_article(conn, id=3, company="Apple")
@@ -183,7 +181,7 @@ def test_category_stats_counts_per_label(conn: sqlite3.Connection) -> None:
     assert by_label["other"] == 1
 
 
-def test_category_stats_filters_by_company(conn: sqlite3.Connection) -> None:
+def test_category_stats_filters_by_company(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="Apple")
     conn.commit()
@@ -205,7 +203,7 @@ def test_category_stats_filters_by_company(conn: sqlite3.Connection) -> None:
     assert result[0]["label"] == "earnings_performance"
 
 
-def test_fetch_processed_articles_requires_both_results(conn: sqlite3.Connection) -> None:
+def test_fetch_processed_articles_requires_both_results(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM")
     seed_article(conn, id=2, company="Apple", ticker="AAPL")  # sentiment only, no category
     conn.execute(
@@ -238,7 +236,7 @@ def test_fetch_processed_articles_requires_both_results(conn: sqlite3.Connection
 
 
 def test_fetch_processed_articles_two_tier_reads_body_text_from_source(
-    two_tier_conn: sqlite3.Connection,
+    two_tier_conn: db.NewsNlpDatabase,
 ) -> None:
     db.write_sentiment(
         two_tier_conn,
@@ -265,7 +263,7 @@ def test_fetch_processed_articles_two_tier_reads_body_text_from_source(
     assert result[0]["body_text"]  # came from the attached SOURCE, not the lean RESULTS row
 
 
-def test_fetch_processed_articles_respects_limit(conn: sqlite3.Connection) -> None:
+def test_fetch_processed_articles_respects_limit(conn: db.NewsNlpDatabase) -> None:
     for i in (1, 2):
         seed_article(conn, id=i, company="3M", ticker="MMM")
     conn.commit()
@@ -294,7 +292,7 @@ def test_fetch_processed_articles_respects_limit(conn: sqlite3.Connection) -> No
     assert len(result) == 1
 
 
-def test_entity_stats_orders_by_count_desc(conn: sqlite3.Connection) -> None:
+def test_entity_stats_orders_by_count_desc(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.executemany(
         """INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, model_name, processed_at)

@@ -1434,18 +1434,20 @@ other, and independent of one another except where noted:
   schema (step 1, T-098) must land before the orchestration function/CLI
   (step 3), which itself must exist before the historical-experiment JSON
   backfill (step 5) can be verified by actually running them — **T-098 is
-  paused, pending Work item 12's close.** Supersedes Work item 8 as "next
-  up" in priority ordering, again; Work item 8 stays a valid, scoped,
-  pending item, just no longer first in line.
-- **Work item 12 (bring `tests/` under the mypy gate) is this plan's new
-  top priority, next, ahead of Work item 11's T-098** — surfaced directly
-  (2026-09-18) while landing Work item 11's T-097, independent of every
-  other work item's own outcome (a test-suite type-hygiene fix, not a
-  pipeline/eval behavioral change). Internally sequential: fix the
-  `conftest.py` root cause (step 1) before cascading it through the ~18
-  affected test files (step 2); the small disclosed unrelated fixes (step
-  3) and widening `mypy.ini`'s scope (step 4) can each land once steps 1-2
-  are in, and step 4 should land last so the gate only tightens once
-  everything it would flag is already clean.
+  unblocked now that Work item 12 has closed.** Supersedes Work item 8 as
+  "next up" in priority ordering, again; Work item 8 stays a valid,
+  scoped, pending item, just no longer first in line.
+- **Work item 12 (bring `tests/` under the mypy gate) is done
+  (2026-09-18)** — surfaced directly while landing Work item 11's T-097,
+  independent of every other work item's own outcome (a test-suite
+  type-hygiene fix, not a pipeline/eval behavioral change). All four steps
+  landed in order: the `conftest.py` root cause (step 1) before cascading
+  it through the ~18 affected test files (step 2); the disclosed unrelated
+  fixes plus one genuinely new find caught mid-implementation
+  (`test_eval_store.py`'s own unrelated `**dict` kwargs-unpacking errors,
+  step 3); widening `mypy.ini`'s scope last (step 4), once everything it
+  would flag was already clean. `uv run mypy --config-file=
+  .code_quality/mypy.ini` reports zero errors across 67 files;
+  `uv run pytest` unchanged at 279 passed.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
