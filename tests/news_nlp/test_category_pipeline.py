@@ -8,6 +8,7 @@ from conftest import seed_article
 import category_stage
 import news_nlp as db
 import pipeline
+from fti import TrainConfig, TrainedArtifact
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_CHILDREN,
@@ -71,6 +72,15 @@ def test_classify_category_scores_falls_back_to_other_below_threshold() -> None:
     # not zero -- that's what makes a near-miss "other" distinguishable from a
     # genuinely flat one when auditing later.
     assert 0 < score < CATEGORY_CONFIDENCE_THRESHOLD
+
+
+# --- CategoryTrainer (TASKS.md T-097) ---------------------------------------
+
+
+def test_category_trainer_is_a_real_reachable_no_op() -> None:
+    artifact = category_stage.CategoryTrainer().train(TrainConfig())
+
+    assert artifact == TrainedArtifact(output_dir=None, metrics=None)
 
 
 # --- run_category_stage -----------------------------------------------------

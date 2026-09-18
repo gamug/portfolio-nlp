@@ -956,11 +956,22 @@ for everything before it — not independent efforts.
       every other task this session's own precedent of shipping code and
       tests together; T-102 below is adjusted accordingly. 277 tests
       passing (271 + 6 new), ruff/mypy clean.
-- [ ] **T-097** Wire a real `Trainer` (`NoOpTrainer`-based) into
+- [x] **T-097** Wire a real `Trainer` (`NoOpTrainer`-based) into
       `category_stage.py`/`summary_stage.py` — both currently only
       *mention* `NoOpTrainer` in a docstring; neither instantiates it
       anywhere reachable outside `fti.py`'s own unit test. → step 4 /
-      SPEC.md FR-017.
+      SPEC.md FR-017. **Done 2026-09-18** — `CategoryTrainer(NoOpTrainer)`/
+      `SummaryTrainer(NoOpTrainer)`, trivial body-less subclasses (not a
+      bare `NoOpTrainer` reference) so this stage has a real, named
+      `Trainer` class matching sentiment's/NER's own
+      `SentimentTrainer`/`NerTrainer`, for the future stage→`Trainer`
+      registry (T-099, mirrors `news_nlp.eval.candidate`'s own
+      `_STAGE_CLASSES` pattern) to look up. Each is exercised by a new
+      hermetic test (`test_category_trainer_is_a_real_reachable_no_op`,
+      `test_summary_trainer_is_a_real_reachable_no_op`) asserting
+      `TrainedArtifact(output_dir=None, metrics=None)`, closing the "never
+      instantiated outside `fti.py`'s own unit test" gap for real. 279
+      tests (277 + 2 new), ruff, mypy, pre-commit all green.
 - [ ] **T-098** Design + implement the `ExperimentSpec` pydantic schema
       (`src/experiment.py`): `PretrainSpec`/`TrainTestSplitSpec`/
       `EvalSpec`/`PublishSpec` nested under one top-level spec, generic
@@ -1076,19 +1087,21 @@ column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
 `GET /eval/latest` group by `(stage, experiment)`.
 
 **Work item 11** (JSON-driven, single-command experiment runs,
-T-096–T-103) is **new, top priority (2026-09-18)** — spec/plan/tasks
-filed, nothing implemented yet. Surfaced directly while walking through
-the full historical sentiment-candidate command sequence (Work item 9)
-one command at a time: no single place declares an experiment's full
-configuration before it runs, and several of the existing one-off scripts
-mutate shared DB tables in place, needing a manual restore step
-afterward. Five parts, mostly sequential: T-096/T-097 (small, independent
-prerequisites — parameterizing the training split, wiring a real
-`NoOpTrainer` into category/`c_summary`) can land immediately; T-098 (the
-`ExperimentSpec` schema) must land before T-099/T-100 (the orchestration
-function and the one CLI command); T-101 (backfilling a JSON spec for
-every real historical experiment) is the acceptance proof that T-098-T-100
-actually work, not just exist. Supersedes Work item 8 as "next up" in
-priority — Work item 8 (per-model selection justification in the
-artifact, T-064–T-069) stays a valid, scoped, pending item, just no
-longer first in line, same as when Work item 10 first superseded it.
+T-096–T-103) is **top priority, in progress (2026-09-18)**. Surfaced
+directly while walking through the full historical sentiment-candidate
+command sequence (Work item 9) one command at a time: no single place
+declares an experiment's full configuration before it runs, and several
+of the existing one-off scripts mutate shared DB tables in place, needing
+a manual restore step afterward. Five parts, mostly sequential:
+T-096/T-097 (small, independent prerequisites — parameterizing the
+training split, wiring a real `NoOpTrainer` into category/`c_summary`)
+are **both done** — T-096 (`stratified_split`/`SentimentTrainConfig`
+config-driven) and T-097 (`CategoryTrainer`/`SummaryTrainer`) landed as
+two separate PRs. T-098 (the `ExperimentSpec` schema) is next — it must
+land before T-099/T-100 (the orchestration function and the one CLI
+command); T-101 (backfilling a JSON spec for every real historical
+experiment) is the acceptance proof that T-098-T-100 actually work, not
+just exist. Supersedes Work item 8 as "next up" in priority — Work item 8
+(per-model selection justification in the artifact, T-064–T-069) stays a
+valid, scoped, pending item, just no longer first in line, same as when
+Work item 10 first superseded it.
