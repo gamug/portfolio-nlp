@@ -1069,13 +1069,35 @@ for everything before it — not independent efforts.
       real repo's `experiments/` directory). 303 tests (299 + 4 new: 2 in
       `test_train_ner.py`, 2 in `test_experiment_run.py`), ruff, mypy
       clean.
-- [ ] **T-100** `cli/run_experiment.py` — the one command
+- [x] **T-100** `cli/run_experiment.py` — the one command
       (`uv run cli/run_experiment.py --config <path>.json`, optional
       `--results-db`/`--source-db` overrides matching
       `cli/news_nlp_eval.py`'s own convention): load + validate the JSON,
       call `run_experiment`, print a one-line summary
       (`runner.summary_table`-style), exit 1 if `regressed`. → step 3 /
-      SPEC.md FR-017.
+      SPEC.md FR-017. **Done 2026-09-18** — `--config`/`--source-db`/
+      `--results-db` (`type=Path`, same defaults-to-`None`-override
+      convention `cli/news_nlp_eval.py` already uses), same `sys.path`
+      bootstrap every `cli/*.py`/`apps/*.py` entrypoint uses. "Exit 1 if
+      `regressed`" needed no code of its own: `run_experiment` reuses
+      `run_eval` verbatim (T-099), which already raises `SystemExit(1)`
+      uncaught the moment a stage's headline metric drops past tolerance,
+      before `run_experiment` can even return — same behavior
+      `cli/news_nlp_eval.py`'s own `--check-regression` already has;
+      disclosed in this module's own docstring rather than duplicated as
+      dead code. An invalid spec's `ValidationError` likewise propagates
+      uncaught — pydantic's own message already names exactly what's
+      wrong (T-098's acceptance criterion), nothing here re-wraps it.
+      Manually smoke-tested (real `uv run`, no monkeypatching): `--help`;
+      an invalid spec (`pretrain.enabled` for `category`) surfaces
+      pydantic's exact validation message and a non-zero exit; a
+      monkeypatched `run_experiment` confirms `--source-db`/`--results-db`
+      plumb through as plain strings and `summary_table`/`result_path`
+      print correctly. No new test file — matches `cli/news_nlp_eval.py`'s
+      own precedent of zero direct test coverage for the entrypoint script
+      itself (only the library functions it calls are hermetically
+      tested). 303 tests (unchanged — no test/src-behavior changes beyond
+      the new CLI file itself), ruff, mypy clean.
 - [ ] **T-101** Backfill a JSON spec for every real historical experiment
       into `experiments/`: sentiment (`sentiment_v2_chunklevel_finetuned`,
       `_v3_downsampled`, `_v4_class_weighted`, `_v5_secbert_base`,
@@ -1313,13 +1335,18 @@ reused verbatim, and writes a git-tracked result JSON; caught and fixed a
 real gap along the way (`NerTrainConfig` had no `base_model` field at all,
 so `PretrainSpec.base_model` would have been silently ignored for NER —
 fixed at the source in `train_ner.py`). T-102's own end-to-end test
-shipped in the same pass, closing it too. T-100 (the one CLI command) is
-next; T-101 (backfilling a JSON spec for every real historical experiment)
-is the acceptance proof that T-098-T-100 actually work, not just exist.
-Supersedes Work item 8 as "next up" in priority — Work item 8 (per-model
-selection justification in the artifact, T-064–T-069) stays a valid,
-scoped, pending item, just no longer first in line, same as when Work
-item 10 first superseded it.
+shipped in the same pass, closing it too. T-100 (`cli/run_experiment.py`,
+the one command) is **also done** — "exit 1 if regressed" needed no new
+code, inherited free from `run_experiment`'s own reuse of `run_eval`'s
+`SystemExit(1)`; manually smoke-tested (`--help`, an invalid spec's
+pydantic error, and `--source-db`/`--results-db` plumbing), no new test
+file, matching `cli/news_nlp_eval.py`'s own precedent of zero direct
+entrypoint test coverage. T-101 (backfilling a JSON spec for every real
+historical experiment) is next — the acceptance proof that T-098-T-100
+actually work, not just exist. Supersedes Work item 8 as "next up" in
+priority — Work item 8 (per-model selection justification in the
+artifact, T-064–T-069) stays a valid, scoped, pending item, just no
+longer first in line, same as when Work item 10 first superseded it.
 
 **Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
 **done (2026-09-18)** — surfaced directly while closing out T-097 (PR
