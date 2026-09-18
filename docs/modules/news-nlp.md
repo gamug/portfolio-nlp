@@ -27,7 +27,7 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    discourse per forward pass) and aggregated with **entity-scoped weighting**: a
    chunk naming the article's own `company`/`ticker` counts more than one that
    doesn't (a different company's news, or generic market commentary) — see
-   `_sentiment_chunk_weights` (`src/pipeline.py`) and `PLAN.md` Work item 4. (A
+   `_sentiment_chunk_weights` (`src/sentiment_stage.py`) and `PLAN.md` Work item 4. (A
    first version of this scored per *sentence* instead of per chunk; reverted
    2026-09-13 after real-data evaluation — see that function's docstring
    "Revision history". A title-only alternative was also real-data validated and
@@ -55,7 +55,14 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    generated from the article's body plus its already-computed sentiment/entities →
    `article_summary`.
 5. **`sector_summary`** — one row per `gics_sub_industry` per closed calendar week →
-   `sector_summary`. A deterministic, non-generative composition (`db.compose_sector_summary`):
+   `sector_summary`. Lives in its own `news_nlp/sector_summary/` package
+   (`queries.py` for DB reads/writes, `composition.py` for the pure
+   composition logic, `stage.py` for the `run_sector_summary_stage`
+   orchestration entrypoint `pipeline.run_pipeline` calls) — deliberately
+   decoupled from the FTI hierarchy below, since it never loads a model or
+   touches the GPU and so has no Feature/Train/Inference shape to share
+   with the four ML stages. A deterministic, non-generative composition
+   (`db.compose_sector_summary`):
    a stats overview (sentiment %, top entities) plus one section per NLP category (stage 3's
    taxonomy) present that week, each listing its contributing companies' `c_summary` text
    verbatim and attributed to its own ticker — company text is never blended with another
@@ -80,15 +87,30 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    self-heals (regenerated via an upsert on the `(gics_sector, gics_sub_industry, week_start)`
    key) the next time the stage runs, no separate backfill needed.
 
+- **FTI architecture** (`src/fti.py`, added 2026-09-16/18 — PLAN.md Work
+  item 10) — `Feature`/`Trainer`/`Inference` base classes formalizing the
+  fetch → load → batch/predict → write → free pattern every ML stage
+  follows; one concrete subclass triple per stage
+  (`sentiment_stage.py`/`ner_stage.py`/`category_stage.py`/
+  `summary_stage.py`). Category and `c_summary` — zero-shot/pretrained,
+  no fine-tuning step — reuse `fti.NoOpTrainer` verbatim rather than
+  declaring their own no-op `Trainer` subclass; sentiment and NER each
+  have a real `Trainer` subclass (`train_sentiment.py`/`train_ner.py`).
+  `pipeline.py`'s `run_<stage>_stage` functions are thin wrappers that
+  construct a stage's `Inference` subclass and call `.run(...)` — kept as
+  real module-level functions (not inlined) so existing test/resample-script
+  monkeypatching keeps working. `news_nlp.eval` reuses these same
+  `Inference` subclasses for its own model-scoring step (see "Evaluation"
+  below) instead of loading models independently.
 - **Sentence-aware chunking** (`src/chunking.py`) — articles run up to ~13K
   words, far past BERT's 512-token limit; chunks are packed on sentence boundaries. The
   category stage reuses it (with a tighter token budget, to leave headroom for the NLI
   hypothesis text) to take just the lead chunk; the summarization stages reuse it for
   BART's 1024-token cap, plus a **hierarchical reduce**
-  (`pipeline.hierarchical_summarize()`): summarize each chunk, then if more than one chunk
-  resulted, recursively summarize the concatenated chunk-summaries until they collapse
-  into a single pass. Sentiment reuses the same chunker (`max_tokens=510`) as NER, scoring
-  one forward pass per chunk (see above).
+  (`hierarchical_summarize_batch`, `src/summary_stage.py`): summarize each chunk, then if
+  more than one chunk resulted, recursively summarize the concatenated chunk-summaries
+  until they collapse into a single pass. Sentiment reuses the same chunker
+  (`max_tokens=510`) as NER, scoring one forward pass per chunk (see above).
 - **Idempotent, resumable batch processing** — each stage only processes rows missing
   from its results table (articles for stages 1–4, `(gics_sector, gics_sub_industry,
   week_start)` groups for stage 5, enforced by a `UNIQUE` constraint on `sector_summary`).
@@ -203,9 +225,18 @@ network is needed at test time. All tests pass (part of the repo's CI gate; see
 ## Evaluation
 
 `news_nlp.eval` measures how good the stage outputs actually are, using an
-LLM-as-judge over a 60 % low-confidence / 40 % random sample of the stored
-predictions (sentiment / category / NER / `c_summary`), with metrics tracked
-in MLflow and in the `eval_run` / `eval_judgement` tables. `sector_summary`'s
+LLM-as-judge over a stratified sample (a deterministic low-confidence
+stack, stage-specific soft-probability-targeted strata, and a
+representative random remainder — see `docs/evaluation.md`'s "Sampling"
+section) of the stored predictions (sentiment / category / NER /
+`c_summary`), with metrics tracked in MLflow and in the `eval_run` /
+`eval_inference` / `eval_verdict` tables (plus `eval_confusion` for
+sentiment/category; the legacy `eval_judgement` table is superseded,
+2026-09-18). The model-scoring step calls each stage's own FTI `Inference`
+subclass directly (see "FTI architecture" above) rather than loading
+models independently, and can score a candidate model/checkpoint live
+(`--candidate-model`/`--candidate-revision`) without a production run
+first. `sector_summary`'s
 `intro_text` had its own dedicated eval path added 2026-09-14 — its
 population is small enough (thousands of rows) to judge in full every run
 instead of sampling, checked for faithfulness against its own `facts_json`

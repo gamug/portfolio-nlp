@@ -6,7 +6,27 @@ SEMANTIC score, the knowledge-graph projection) treats them as ground truth.
 Nothing measures whether they are right. `news_nlp.eval` fills that gap with an
 **LLM-as-judge** evaluation: an LLM scores a sample of the stored predictions
 against the source article text, and the aggregate metrics + per-row verdicts go
-to MLflow and to two run-log tables in the RESULTS store.
+to MLflow and to a handful of run-log tables in the RESULTS store (see
+"Where results go" below).
+
+## Architecture: the eval module reuses the pipeline's own inference classes
+
+`news_nlp/eval/` does not load models independently. Each stage's own FTI
+(Feature/Trainer/Inference, `src/fti.py`) `Inference` subclass —
+`sentiment_stage.SentimentInference`, `ner_stage.NerInference`,
+`category_stage.CategoryInference`, `summary_stage.SummaryInference` — is
+the one place `from_pretrained`/forward-pass code for that stage lives;
+`news_nlp/eval/candidate.py`'s `candidate_scored_connection` calls the same
+classes directly to score a candidate model/revision (`--candidate-model`/
+`--candidate-revision`, below) into a throwaway scratch RESULTS file,
+rather than duplicating model-loading logic inside the eval module or
+requiring the scratch-database-copy workaround the earlier
+`resample_sentiment_v{3,4,5}` scripts used. `sampling.py` (stratified
+sampling), `judges.py` (the judge LLM call), `verdicts.py` (structured
+verdict models), `metrics.py` (pure aggregation), and `tracking.py`
+(MLflow logging) are unaffected by this — only the model-scoring step
+changed, from independent loading to reusing the pipeline's own classes
+(PLAN.md Work item 10 step 3, TASKS.md T-082–T-089).
 
 ## The judge is a model, not a gold set
 
@@ -1870,6 +1890,60 @@ of this change itself (that's a real, deliberate production run, left
 to the repo owner), but the mechanism is now armed and requires no
 further code.
 
+### Follow-up (2026-09-18): FTI restructure, judge-verdict reuse, confusion matrix, and ROC/AUC (Work item 10)
+
+The FTI migration itself (all four ML stages moved onto `src/fti.py`'s
+`Feature`/`Trainer`/`Inference` base classes, `sector_summary`'s
+orchestration moved to its own `news_nlp/sector_summary/` package, fully
+decoupled from FTI since it never touches a model/GPU) is what let
+`news_nlp/eval` stop duplicating model-loading code — see "Architecture"
+above. Three further pieces landed on top of that, all confined to
+`news_nlp/eval/` and its schema:
+
+- **Judge-verdict reuse (TASKS.md T-091).** Before invoking the judge LLM
+  for a sampled `(article_id, task, experiment)`, `runner.py` now checks
+  `eval_verdict` for an existing row at that exact key and reuses it
+  (`store.find_verdict_json` + `pydantic`'s `model_validate_json`) instead
+  of re-judging. The concrete guarantee this gives: re-running the same
+  `--stage <s> --run-name <experiment>` invocation against an unchanged
+  sample makes **zero** new judge-LLM calls; a new `article_id` or a
+  different `experiment` always judges fresh. `eval_verdict`'s unique
+  constraint is `(article_id, task, experiment, run_id)` — a 4-column key,
+  not the 3-column `(article_id, task, experiment)` PLAN.md's original text
+  named, since this repo's own T-090 PR had already shipped the 4-column
+  version; a dedicated index covers the 3-column reuse lookup instead of a
+  schema migration.
+- **`eval_confusion` (TASKS.md T-092).** One row per distinct
+  `(run_id, task, experiment, true_label, predicted_label)` cell actually
+  observed in a run's own sample — sentiment/category only (the only two
+  stages with a discrete predicted/ideal label shape), built from the same
+  judge verdicts T-090/T-091 already record, no new judge calls. Sparse (a
+  cell with zero occurrences has no row) and scoped per `run_id`, matching
+  `eval_inference`/`eval_verdict`'s own full-history design — a cumulative
+  matrix across an experiment's every historical run is a plain
+  `SUM(count) GROUP BY (experiment, task, true_label, predicted_label)` at
+  query time, not something write time maintains.
+- **`roc_auc_<class>` (TASKS.md T-093).** One-vs-rest ROC AUC added to
+  `aggregate_sentiment`/`aggregate_category`, computed from each sampled
+  row's own stored per-class probability (`article_sentiment`'s
+  `positive`/`negative`/`neutral` columns; `article_category`'s 9-way NLI
+  distribution) — no new data collection. Via the weighted Mann-Whitney U
+  statistic, the natural generalization of rank-based AUC to this doc's
+  own Horvitz-Thompson per-item weighting (below): both an HT-weighted
+  default and a `_naive_pooled` companion, matching every other per-class
+  metric here. `category`'s `roc_auc_<slug>` iterates the fixed 9
+  substantive slugs only — `"other"` is a threshold fallback with no raw
+  NLI score column of its own, so `roc_auc_other` is never produced (every
+  other per-slug metric family here does include `other`, since those
+  compare discrete labels, not raw scores). `aggregate_ner`/
+  `aggregate_c_summary`'s metric key sets are explicitly unchanged — locked
+  by a dedicated regression test (TASKS.md T-094) asserting their exact
+  key sets, not just documented as a claim.
+
+None of this reopens the disclosed, not-`experiment`-aware limitation on
+`GET /eval/latest`/`--check-regression` noted above — still open, still
+out of scope.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence
@@ -1878,8 +1952,8 @@ of scope, since it's deterministic composition (§9/§13, `SPEC.md`).
 
 | stage | headline metric | also logged |
 |---|---|---|
-| `sentiment` | `recall_negative`¹ ² | agreement rate (per stratum), `macro_f1_vs_judge`, per-class P/R/F1, mean severity |
-| `category` | `accuracy_vs_judge` ² | macro-F1, per-slug accuracy, model vs judge `other`-rate, mean severity |
+| `sentiment` | `recall_negative`¹ ² | per-class precision/recall/F1, `accuracy_ovr_<class>`, `roc_auc_<class>` ³ (all one-vs-rest — no aggregate/multi-class summary, see "sentiment's downstream eval narrowed to one-vs-rest metrics only" above) |
+| `category` | `accuracy_vs_judge` ² | macro-F1, per-slug precision/recall/F1/`accuracy_ovr`/`roc_auc` ³, model vs judge `other`-rate, mean severity |
 | `ner` | `micro_f1` | span micro/macro P/R/F1, per-type F1, hallucination rate, miss rate. Error-only judge contract: it names just the `wrong` predicted spans + `missed` entities (not a verdict per span, which overflows on entity-dense articles); TP/FP/FN are derived from the predicted count. |
 | `c_summary` | `mean_faithfulness` ² | mean coverage / conciseness (1-5), `pct_with_hallucination` |
 | `sector_summary` | `mean_faithfulness` ² | `pct_with_hallucination` — faithfulness-only (no coverage/conciseness), full population every run, not a sample (see the 2026-09-14 follow-up above) |
@@ -1899,6 +1973,11 @@ companion (e.g. `recall_negative_naive_pooled`, `accuracy_vs_judge_naive_pooled`
 sanity-checking the Horvitz-Thompson reweighting below and for continuity with
 pre-redesign runs. `ner`'s metrics have no such companion because they're
 mathematically identical to it already (see "Statistical methodology" below).
+
+³ `roc_auc_<class>` (added 2026-09-18, TASKS.md T-093) is computed from each
+row's own stored per-class probability, not from the discrete predicted
+label the other per-class metrics use — see "FTI restructure, judge-verdict
+reuse, confusion matrix, and ROC/AUC" above for the formula.
 
 ## Sampling: low-confidence + targeted + representative strata
 
@@ -2094,6 +2173,15 @@ uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1
 uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1 \
     --run-name v5-sec-bert-base --results-db /path/to/scratch.db --source-db /path/to/source.db
 
+# score a candidate model/checkpoint live -- no production run needed first
+# (2026-09-18, TASKS.md T-089): scores --candidate-prescore-size SOURCE
+# articles with the candidate into a throwaway scratch RESULTS file via
+# that stage's own FTI Inference class, then samples/judges from it. Needs
+# exactly one --stage; --candidate-revision is required (a Hub commit SHA,
+# or any placeholder for a local checkpoint path).
+uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1 \
+    --candidate-model gamug/FinBERT-financial-news --candidate-revision abc1234
+
 # fail (exit 1) if a headline metric dropped > 0.05 vs the previous MLflow run
 uv run cli/news_nlp_eval.py --stage all --check-regression
 
@@ -2106,7 +2194,12 @@ Flags: `--stage` (repeatable; `all` = every stage), `--sample-size`,
 `--source-db` / `--results-db` (override `$SOURCE_DATABASE_URL` /
 `$DATABASE_URL`), `--mlflow-uri`, `--run-name` (label the MLflow run instead
 of its auto-generated name; cosmetic, applied to every stage in the
-invocation), `--check-regression`, `--regression-tolerance` (default 0.05).
+invocation), `--check-regression`, `--regression-tolerance` (default 0.05),
+`--candidate-model` / `--candidate-revision` / `--candidate-prescore-size`
+(2026-09-18, TASKS.md T-089 — live candidate-model scoring, see the example
+above; `--candidate-model` requires exactly one `--stage` and a non-empty
+`--candidate-revision`; `--candidate-prescore-size` defaults to
+`--sample-size`).
 
 ## Where results go
 
@@ -2121,10 +2214,12 @@ invocation), `--check-regression`, `--regression-tolerance` (default 0.05).
   Horvitz-Thompson bookkeeping; `'{}'` for pre-redesign rows), judge model,
   `code_version`, `mlflow_run_id`, the metrics blob, `status`) and, as of
   the 2026-09-18 follow-up below, `eval_inference`/`eval_verdict` (one row
-  per sampled article each). DDL in `news_nlp.schema`; `init_schema`
-  creates them. `GET /eval/latest` on the FastAPI service returns the
-  newest `eval_run` per stage (not yet `experiment`-aware — see the
-  follow-up's own disclosed limitation).
+  per sampled article each) plus `eval_confusion` (sentiment/category only
+  — one row per `(run_id, task, experiment, true_label, predicted_label)`
+  cell observed). DDL in `news_nlp.schema`; `init_schema` creates them.
+  `GET /eval/latest` on the FastAPI service returns the newest `eval_run`
+  per stage (not yet `experiment`-aware — see the follow-up's own
+  disclosed limitation).
 
 **2026-09-18 follow-up (PLAN.md Work item 10 step 4, TASKS.md T-090, SPEC.md
 FR-014)**: `eval_judgement` (one row per sampled article, holding both the
