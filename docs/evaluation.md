@@ -2119,12 +2119,36 @@ invocation), `--check-regression`, `--regression-tolerance` (default 0.05).
   `low_conf_n`/`random_n` — the latter now "every non-`low_conf` stratum
   combined" — `strata_json` (`{bucket: {"population": N_h, "n": n_h}}`, the
   Horvitz-Thompson bookkeeping; `'{}'` for pre-redesign rows), judge model,
-  `code_version`, `mlflow_run_id`, the metrics blob, `status`) and
-  `eval_judgement` (one row per sampled article, `bucket` now one of
-  `low_conf` / `representative` / a stage-specific `target_<x>`). DDL in
-  `news_nlp.schema`; `init_schema` creates them (additive migration for
-  `strata_json` on a pre-existing table). `GET /eval/latest` on the FastAPI
-  service returns the newest `eval_run` per stage.
+  `code_version`, `mlflow_run_id`, the metrics blob, `status`) and, as of
+  the 2026-09-18 follow-up below, `eval_inference`/`eval_verdict` (one row
+  per sampled article each). DDL in `news_nlp.schema`; `init_schema`
+  creates them. `GET /eval/latest` on the FastAPI service returns the
+  newest `eval_run` per stage (not yet `experiment`-aware — see the
+  follow-up's own disclosed limitation).
+
+**2026-09-18 follow-up (PLAN.md Work item 10 step 4, TASKS.md T-090, SPEC.md
+FR-014)**: `eval_judgement` (one row per sampled article, holding both the
+model's prediction and the judge's verdict together) is superseded by two
+tables — `eval_inference` (the sampled prediction: `article_id`, `task`,
+`experiment`, `bucket`, `prediction_json`) and `eval_verdict` (the judge's
+call on one `eval_inference` row: same `article_id`/`task`/`experiment`
+plus `verdict_json`/`correct`/`severity`/`rationale`). `task` mirrors
+`eval_run.stage`; `experiment` is a free-form label for which model
+produced the inference (`base` for the pinned production model, or
+whatever `--candidate-model`/`--run-name` resolves to — see
+`news_nlp.eval.runner._run_stage`'s resolution order) — this is what lets
+a candidate model's judged data (scored live via `news_nlp.eval.candidate`,
+TASKS.md T-089) coexist with production's own judged data for the same
+articles, instead of needing the scratch-database-per-candidate workaround
+the `resample_sentiment_v{3,4,5}` scripts used. `eval_judgement`'s DDL and
+historical rows are untouched (additive split, not a migration) — new
+eval runs simply stop writing there. Known, disclosed, out-of-scope-for-
+this-follow-up limitation: neither `GET /eval/latest`
+(`queries.latest_eval_runs`) nor `--check-regression`'s previous-run
+MLflow lookup is `experiment`-aware yet, so a candidate-model run can
+still be picked up as "the latest"/"the previous run" for its stage —
+pre-existing since T-089 introduced candidate-model scoring, not
+introduced or worsened by this schema split.
 
 ## CI
 

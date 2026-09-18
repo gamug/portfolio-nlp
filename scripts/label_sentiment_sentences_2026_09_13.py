@@ -96,7 +96,15 @@ def _candidate_article_ids(conn: db.NewsNlpDatabase) -> list[int]:
     """Every article_id ever judged across a --stage sentiment eval run --
     already skewed toward covering positive/negative/neutral content by the
     stratified sampling design (low_conf/target_x/representative), not a
-    fresh uniform draw."""
+    fresh uniform draw.
+
+    Reads the legacy `eval_judgement` table -- superseded 2026-09-18 by
+    `eval_inference`/`eval_verdict` (TASKS.md T-090), which no longer
+    receive new writes. This one-shot script (already run once for its
+    original purpose) therefore only ever sees pre-T-090 historical rows
+    going forward; not updated to read the new tables since it has no
+    remaining active use.
+    """
     run_ids = [r[0] for r in conn.execute("SELECT id FROM eval_run WHERE stage='sentiment'")]
     if not run_ids:
         raise RuntimeError("no sentiment eval_run rows found -- nothing to draw sentences from")
