@@ -972,7 +972,7 @@ for everything before it — not independent efforts.
       `TrainedArtifact(output_dir=None, metrics=None)`, closing the "never
       instantiated outside `fti.py`'s own unit test" gap for real. 279
       tests (277 + 2 new), ruff, mypy, pre-commit all green.
-- [ ] **T-098** Design + implement the `ExperimentSpec` pydantic schema
+- [x] **T-098** Design + implement the `ExperimentSpec` pydantic schema
       (`src/experiment.py`): `PretrainSpec`/`TrainTestSplitSpec`/
       `EvalSpec`/`PublishSpec` nested under one top-level spec, generic
       across sentiment/NER/category/`c_summary`. Strict validation —
@@ -982,7 +982,37 @@ for everything before it — not independent efforts.
       `TrainConfig` fields; `publish.enabled` requires `pretrain.enabled`
       + `repo_id`; `eval.candidate_model` must be unset when
       `pretrain.enabled` (auto-filled downstream, never user-supplied
-      there). → step 1 / SPEC.md FR-017.
+      there). → step 1 / SPEC.md FR-017. **Done 2026-09-18** —
+      `EvalSpec` is a direct passthrough subset of `EvalSettings`' own
+      non-secret fields (never `llm_api_key`/`llm_model`/`llm_url`/
+      `mlflow_tracking_uri`, which stay `.env`/CLI-sourced, never a
+      git-tracked JSON file); `PublishSpec` only records *that* a publish
+      is wanted and where (`repo_id`), not a model-card template — each
+      historical publish script's card stays hand-written, matching
+      T-099's own scope note that a Hub push keeps its explicit,
+      separate confirmation gate. `PretrainSpec.hyperparameters`' allowed
+      keys are computed from each stage's real `TrainConfig` dataclass
+      (`SentimentTrainConfig`/`NerTrainConfig`, imported lazily inside
+      `_train_config_class` so validating a spec never pays
+      `train_sentiment`/`train_ner`'s own heavier import cost unless that
+      stage is the one being validated) minus the four fields already
+      structured as `PretrainSpec.base_model`/`.split.*` — so e.g.
+      `split_seed` can't be set a second, conflicting way via
+      `hyperparameters`. Every model additionally rejects unknown
+      top-level/nested keys outright (`extra="forbid"`, a `_StrictModel`
+      base every spec class shares) — a stricter bar than T-098's own
+      five named rejection cases, added for the same "reproducibility
+      guarantee" reason the module docstring states. Following T-096's
+      precedent, the validation test suite shipped in this same pass
+      rather than waiting for T-102 (adjusted below): new
+      `tests/news_nlp/test_experiment.py`, 20 tests covering every named
+      rejection case plus the `extra="forbid"` additions and a JSON
+      round-trip. 299 tests (279 + 20 new), ruff, mypy clean — nested
+      specs are constructed as real `PretrainSpec`/`EvalSpec`/
+      `PublishSpec` instances in the tests, not dict literals: this repo
+      has no pydantic mypy plugin configured, so a plain dict doesn't
+      type-check against a nested `BaseModel`-typed field even though
+      pydantic itself would coerce it at runtime.
 - [ ] **T-099** Implement `run_experiment(spec, *, source_db=None,
       results_db=None) -> ExperimentResult` (`src/experiment.py`): a
       stage→`(TrainConfig, Trainer)` registry (mirrors
@@ -1017,14 +1047,15 @@ for everything before it — not independent efforts.
       output-length budget) being inference-time hyperparameters, a
       different axis than this schema — not silently omitted. → step 5 /
       SPEC.md FR-017.
-- [ ] **T-102** Tests: `ExperimentSpec` validation (every rejection case
-      T-098 names) and a hermetic end-to-end `run_experiment` test (stub
+- [ ] **T-102** Tests: a hermetic end-to-end `run_experiment` test (stub
       judge, no real GPU/LLM — the pattern already established in
       `test_eval_runner.py`) for at least one `pretrain.enabled=true` spec
       and one eval-only spec. (The `stratified_split`/`SentimentTrainConfig`
-      regression test originally scoped here shipped with T-096 instead —
-      see that task's own completion note.) Full hermetic suite stays
-      green throughout.
+      regression test originally scoped here shipped with T-096 instead,
+      and `ExperimentSpec` validation — every rejection case T-098 names,
+      plus its `extra="forbid"` additions — shipped with T-098; see each
+      task's own completion note.) Full hermetic suite stays green
+      throughout.
 - [ ] **T-103** Docs: new `docs/evaluation.md` section covering the
       schema + one-command workflow + the two disclosed gaps;
       `docs/modules/news-nlp.md` gains a pointer. Reconcile the two
@@ -1224,12 +1255,17 @@ manual restore step afterward. Five parts, mostly sequential: T-096/T-097
 wiring a real `NoOpTrainer` into category/`c_summary`) are **both done** —
 T-096 (`stratified_split`/`SentimentTrainConfig` config-driven) and T-097
 (`CategoryTrainer`/`SummaryTrainer`) landed as two separate PRs. T-098
-(the `ExperimentSpec` schema) is next — Work item 12 (below) closed the
-block on it — it must land before T-099/T-100 (the orchestration function
-and the one CLI command); T-101 (backfilling a JSON spec for every real
-historical experiment) is the acceptance proof that T-098-T-100 actually
-work, not just exist. Supersedes Work item 8 as "next up" in priority —
-Work item 8 (per-model selection justification in the artifact,
+(the `ExperimentSpec` pydantic schema, `src/experiment.py`) is **also
+done** — `PretrainSpec`/`TrainTestSplitSpec`/`EvalSpec`/`PublishSpec`
+nested under one top-level spec, all five of T-098's own named rejection
+cases enforced plus a stricter `extra="forbid"` on every field (its own
+validation test suite, 20 tests, shipped in the same pass, following
+T-096's precedent). T-099 (the orchestration function) is next — it must
+land before T-100 (the one CLI command); T-101 (backfilling a JSON spec
+for every real historical experiment) is the acceptance proof that
+T-098-T-100 actually work, not just exist. Supersedes Work item 8 as
+"next up" in priority — Work item 8 (per-model selection justification in
+the artifact,
 T-064–T-069) stays a valid, scoped, pending item, just no longer first in
 line, same as when Work item 10 first superseded it.
 
