@@ -1294,8 +1294,11 @@ requested, evaluate via `run_eval` reused verbatim, write the git-tracked
 result JSON; caught and fixed a real gap along the way -- `NerTrainConfig`
 had no `base_model` field at all, so this section's own `base_model`
 validation would have been enforced but silently unhonored for NER; fixed
-at the source in `train_ner.py`, not worked around here). The CLI half of
-step 3 and step 5 (the historical backfill) are not started. See
+at the source in `train_ner.py`, not worked around here) -- then the CLI
+half of step 3, `cli/run_experiment.py` ("exit 1 if regressed" is free,
+inherited from `run_experiment`'s own reuse of `run_eval`'s
+`SystemExit(1)` -- no new code for it). Step 5 (the historical backfill)
+is not started. See
 TASKS.md T-096-T-103 for the discrete, checkable breakdown.
 
 ## Work item 12 — Bring `tests/` under the mypy gate (done 2026-09-18)
@@ -1444,12 +1447,12 @@ other, and independent of one another except where noted:
   are (Work items 1-10 stay untouched). Internally sequential: the
   `stratified_split()` parameterization (step 2, T-096), the `NoOpTrainer`
   wiring (step 4, T-097), the `ExperimentSpec` schema (step 1, T-098), and
-  the orchestration function (step 3's own function half, T-099) are **all
-  done** (2026-09-18); step 3's CLI half (T-100) is next — it must land
-  before the historical-experiment JSON backfill (step 5, T-101) can be
-  verified by actually running them. Supersedes Work item 8 as "next up"
-  in priority ordering, again; Work item 8 stays a valid, scoped, pending
-  item, just no longer first in line.
+  all of step 3 (`run_experiment` + `cli/run_experiment.py`, T-099/T-100)
+  are **all done** (2026-09-18); step 5 (the historical-experiment JSON
+  backfill, T-101) is next — the acceptance proof that steps 1/3 actually
+  work, not just exist. Supersedes Work item 8 as "next up" in priority
+  ordering, again; Work item 8 stays a valid, scoped, pending item, just
+  no longer first in line.
 - **Work item 12 (bring `tests/` under the mypy gate) is done
   (2026-09-18)** — surfaced directly while landing Work item 11's T-097,
   independent of every other work item's own outcome (a test-suite
