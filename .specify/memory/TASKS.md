@@ -925,7 +925,7 @@ efforts.
       ruff/mypy untouched by anything but the two docstring edits (both
       clean). This closes Work item 10 in full (T-082–T-095 all done).
 
-## Work item 11 — JSON-driven, single-command experiment runs (priority — #1)
+## Work item 11 — JSON-driven, single-command experiment runs (done 2026-09-18)
 
 `PLAN.md` Work item 11 / `SPEC.md` §13 item 16, FR-017. Five parts;
 T-096/T-097 are small, independent prerequisites, T-098 must land before
@@ -1165,12 +1165,33 @@ for everything before it — not independent efforts.
       test_experiment_run.py`'s 2 tests are the acceptance proof — 303
       tests, full suite green throughout every task in this work item so
       far.
-- [ ] **T-103** Docs: new `docs/evaluation.md` section covering the
+- [x] **T-103** Docs: new `docs/evaluation.md` section covering the
       schema + one-command workflow + the two disclosed gaps;
       `docs/modules/news-nlp.md` gains a pointer. Reconcile the two
       architecture artifacts (constitution AI behavior #11 — Portfolio
       Thesis + Portfolio NLP, reconcile only, never rename), same closing
-      pass T-095 did for Work item 10.
+      pass T-095 did for Work item 10. **Done 2026-09-18** —
+      `docs/evaluation.md` gained a new "Experiments: JSON-driven,
+      single-command runs" section (schema shape + example, the one
+      command, and all **three** disclosed gaps — the task's own two plus
+      the v2/v3 content-identity one found during T-101, summarized here
+      and pointing to `experiments/README.md` as the source of truth
+      rather than duplicating its full prose). `docs/modules/news-nlp.md`
+      gained a new "### Experiments" pointer under its existing
+      "Evaluation" section, plus a fix to its own now-stale "FTI
+      architecture" bullet (still said category/`c_summary` "reuse
+      `fti.NoOpTrainer` verbatim rather than declaring their own no-op
+      `Trainer` subclass" — no longer true since T-097's
+      `CategoryTrainer`/`SummaryTrainer`; also notes NER's new
+      `base_model` field from T-099). `docs/db-topology.md` needed no
+      change (Work item 11 added no DB tables). Both architecture
+      artifacts reconciled (content only, titles untouched): Portfolio
+      NLP gained a new "Experiments, added 2026-09-18" rule box in its
+      eval section plus a footer changelog entry; Portfolio Thesis gained
+      the proportionate shorter equivalent (diagram tooltip + status-table
+      "next" clause + footer entry), matching T-095's own precedent for
+      Work item 10's closing pass. This closes Work item 11 in full
+      (T-096–T-103 all done).
 
 ## Work item 12 — Bring `tests/` under the mypy gate (priority, next — ahead of Work item 11's T-098)
 
@@ -1354,46 +1375,33 @@ column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
 `GET /eval/latest` group by `(stage, experiment)`.
 
 **Work item 11** (JSON-driven, single-command experiment runs,
-T-096–T-103) is **in progress (2026-09-18)**. Surfaced directly while
-walking through the full historical sentiment-candidate command sequence
-(Work item 9) one command at a time: no single place declares an
-experiment's full configuration before it runs, and several of the
-existing one-off scripts mutate shared DB tables in place, needing a
-manual restore step afterward. Five parts, mostly sequential: T-096/T-097
-(small, independent prerequisites — parameterizing the training split,
-wiring a real `NoOpTrainer` into category/`c_summary`) are **both done** —
-T-096 (`stratified_split`/`SentimentTrainConfig` config-driven) and T-097
-(`CategoryTrainer`/`SummaryTrainer`) landed as two separate PRs. T-098
-(the `ExperimentSpec` pydantic schema, `src/experiment.py`) is **also
-done** — `PretrainSpec`/`TrainTestSplitSpec`/`EvalSpec`/`PublishSpec`
-nested under one top-level spec, all five of T-098's own named rejection
-cases enforced plus a stricter `extra="forbid"` on every field (its own
-validation test suite, 20 tests, shipped in the same pass, following
-T-096's precedent). T-099 (the orchestration function, `run_experiment`)
-is **also done** — trains (when `pretrain.enabled`), auto-resolves the
-candidate model to the fresh local checkpoint, evaluates via `run_eval`
-reused verbatim, and writes a git-tracked result JSON; caught and fixed a
-real gap along the way (`NerTrainConfig` had no `base_model` field at all,
-so `PretrainSpec.base_model` would have been silently ignored for NER —
-fixed at the source in `train_ner.py`). T-102's own end-to-end test
-shipped in the same pass, closing it too. T-100 (`cli/run_experiment.py`,
-the one command) is **also done** — "exit 1 if regressed" needed no new
-code, inherited free from `run_experiment`'s own reuse of `run_eval`'s
-`SystemExit(1)`; manually smoke-tested (`--help`, an invalid spec's
-pydantic error, and `--source-db`/`--results-db` plumbing), no new test
-file, matching `cli/news_nlp_eval.py`'s own precedent of zero direct
-entrypoint test coverage. T-101 (backfilling a JSON spec for every real
-historical experiment) is **done too** — all 8 files in `experiments/`
-(five sentiment candidates + one production-config spec each for NER/
-category/`c_summary`), values sourced from `docs/evaluation.md`'s own
-follow-ups, not guessed; a third disclosed gap found along the way
-(`sentiment_v2_chunklevel_finetuned.json`/`_v3_downsampled.json` are
-deliberately content-identical — see `experiments/README.md`). T-096
-through T-102 are now all done; **T-103's docs pass is the only item
-left before Work item 11 closes in full.** Supersedes Work item 8 as
-"next up" in priority — Work item 8 (per-model selection justification
-in the artifact, T-064–T-069) stays a valid, scoped, pending item, just
-no longer first in line, same as when Work item 10 first superseded it.
+T-096–T-103) is **done (2026-09-18)** — all five parts landed in order.
+Surfaced directly while walking through the full historical
+sentiment-candidate command sequence (Work item 9) one command at a
+time: no single place declared an experiment's full configuration
+before it ran, and several of the existing one-off scripts mutated
+shared DB tables in place, needing a manual restore step afterward.
+T-096/T-097 (small, independent prerequisites — the training-split
+parameterization, `NoOpTrainer` wiring) landed first as two separate
+PRs; T-098 (`ExperimentSpec`, `src/experiment.py` — every named
+rejection case enforced plus a stricter `extra="forbid"`) came next;
+then T-099 (`run_experiment` — train, auto-resolve the candidate model,
+evaluate via `run_eval` reused verbatim, write a git-tracked result
+JSON; caught and fixed a real gap along the way, `NerTrainConfig` had
+no `base_model` field at all) and T-100 (`cli/run_experiment.py` — "exit
+1 if regressed" free, inherited from `run_eval`'s own `SystemExit(1)`);
+T-101 backfilled all 8 real historical `experiments/*.json` specs
+(values sourced from `docs/evaluation.md`, not guessed — a third
+disclosed gap found along the way, `sentiment_v2_chunklevel_finetuned.json`/
+`_v3_downsampled.json` are deliberately content-identical, see
+`experiments/README.md`); T-102's own end-to-end test shipped with T-099
+instead of being deferred. T-103 closed it out: a new "Experiments"
+section in `docs/evaluation.md`, a pointer + a stale-bullet fix in
+`docs/modules/news-nlp.md`, and both architecture artifacts reconciled
+(same closing pass T-095 did for Work item 10). Superseded Work item 8
+as "next up" in priority while it ran — Work item 8 (per-model selection
+justification in the artifact, T-064–T-069) is now next up again,
+still a valid, scoped, pending item.
 
 **Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
 **done (2026-09-18)** — surfaced directly while closing out T-097 (PR

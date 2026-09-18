@@ -2274,3 +2274,98 @@ on a local cron with `MLFLOW_TRACKING_URI` pointed at a persistent store.
 each ending with a strict "reply with ONLY a raw JSON object" instruction.
 `category.md` embeds the 10-label taxonomy; keep it in sync with
 `news_nlp.taxonomy` / `docs/category-taxonomy.md` if the labels change.
+
+## Experiments: JSON-driven, single-command runs
+
+(2026-09-18, `PLAN.md` Work item 11, `SPEC.md` FR-017, `TASKS.md`
+T-096-T-103.) Everything above this section describes `cli/news_nlp_eval.py`
+directly evaluating whatever's already in the RESULTS store (or, with
+`--candidate-model`, live-scoring one candidate). Reproducing a full
+sentiment-candidate comparison (Work item 9's v2→v5 sequence) still meant
+hand-chaining several independent commands — dataset prep, `train_sentiment.py`,
+an offline test-set/idiom-probe check, a downstream `--candidate-model` eval,
+sometimes a Hub publish — several of which mutated shared DB tables in place
+and needed a manual restore step afterward
+(`scripts/resample_sentiment_v4_2026_09_15.py` +
+`scripts/restore_sentiment_after_v4_eval_2026_09_15.py`). Nothing declared an
+experiment's full configuration in one reproducible, validated place before
+it ran.
+
+**`src/experiment.py`'s `ExperimentSpec`** (a pydantic schema) fixes that: one
+JSON file fully describes an experiment for any of the four ML stages
+(sentiment/NER/category/`c_summary` — `sector_summary` excluded, no
+Feature/Train/Inference shape) —
+
+```json
+{
+  "name": "sentiment_v4_class_weighted",
+  "stage": "sentiment",
+  "pretrain": {
+    "enabled": true,
+    "base_model": "ProsusAI/finbert",
+    "split": {"split_seed": 42, "test_frac": 0.1, "val_frac": 0.1},
+    "hyperparameters": {"weighted": true}
+  },
+  "eval": {"sample_size": 2000, "seed": 1, "candidate_prescore_size": 2500}
+}
+```
+
+— whether it trains a new checkpoint (`pretrain`, nested under
+`PretrainSpec`/`TrainTestSplitSpec`; `hyperparameters` is validated by name
+against that stage's real `TrainConfig` dataclass fields, e.g.
+`SentimentTrainConfig`'s `weighted`), how the result is evaluated
+(`eval`, a direct passthrough subset of `EvalSettings`' own non-secret
+fields — never `LLM_API_KEY`/`LLM_MODEL`/`LLM_URL`/`MLFLOW_TRACKING_URI`,
+which stay `.env`/CLI-sourced, never a git-tracked file), and whether to
+publish the result (`publish` — records the intent only; a Hub push still
+needs the same explicit, separate confirmation the existing
+`scripts/publish_*.py` pattern already requires, unchanged by this schema).
+Every field rejects unknowns outright (`extra="forbid"`) — a reproducibility
+guarantee, not a security mechanism: an unpinned `base_model`, `pretrain`
+requested for category/`c_summary` (no trainable checkpoint, FR-011), an
+unknown `hyperparameters` key, `publish.enabled` without `pretrain.enabled`
++ `repo_id`, or `eval.candidate_model` set alongside `pretrain.enabled` (it
+auto-resolves downstream instead) all fail validation before any train/eval
+work starts, with a message naming exactly what's wrong.
+
+```bash
+uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.json
+uv run cli/run_experiment.py --config experiments/ner_production.json --source-db urls.db
+```
+
+is the one command: trains (if `pretrain.enabled`) via a lazily-imported
+stage→`(TrainConfig, Trainer)` resolution, auto-resolves
+`candidate_model`/`candidate_revision` to the fresh local checkpoint on
+success (`revision="local"`, the established
+`resample_sentiment_v4_2026_09_15.py` convention), evaluates via
+`run_eval` — **reused verbatim, not reimplemented** — and writes a
+git-tracked `experiments/results/<name>.result.json` (the resolved spec +
+`code_version` + the training step's own metrics + `run_eval`'s own result
+dict). "Exit 1 if regressed" needed no code of its own:
+`run_experiment`/the CLI inherit `run_eval`'s existing `SystemExit(1)`
+(uncaught, same behavior `--check-regression` already has) the moment a
+stage's headline metric drops past tolerance — before a result file can
+even be written for that run.
+
+`experiments/` holds a backfilled spec for every real historical experiment
+that has a runnable equivalent today (`TASKS.md` T-101): sentiment's five
+candidates (v2/v3/v4/v5 + the un-fine-tuned base-FinBERT comparison arm)
+and one production-config eval-only spec each for NER/category/`c_summary`.
+**`experiments/README.md`** is the source of truth for the full account —
+this doc doesn't duplicate it, only summarizes the three disclosed gaps it
+names:
+
+1. The removed "title-only" sentiment aggregation arms (PR #43 and its
+   fine-tuned variant, rejected in the 2026-09-13 follow-up above) have no
+   surviving code path — not backfillable.
+2. Category's confidence-threshold calibration and `c_summary`'s
+   generation output-length-budget test (both above) tuned an
+   *inference-time* constant, a different axis than this schema's
+   pretrain/dataset/split/sample-count shape — out of scope for v1.
+3. (Found while backfilling, not anticipated when this schema was
+   designed) `sentiment_v2_chunklevel_finetuned.json` and
+   `_v3_downsampled.json` are deliberately content-identical except
+   `name` — v2 and v3 used "the same procedure/hyperparameters," differing
+   only in whether a data file happens to exist on disk at train time,
+   which `ExperimentSpec` has no field for. Running either spec **today**
+   reproduces v3's behavior, not v2's original pre-rebalance pool.
