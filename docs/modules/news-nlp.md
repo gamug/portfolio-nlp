@@ -93,9 +93,15 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
   follows; one concrete subclass triple per stage
   (`sentiment_stage.py`/`ner_stage.py`/`category_stage.py`/
   `summary_stage.py`). Category and `c_summary` — zero-shot/pretrained,
-  no fine-tuning step — reuse `fti.NoOpTrainer` verbatim rather than
-  declaring their own no-op `Trainer` subclass; sentiment and NER each
-  have a real `Trainer` subclass (`train_sentiment.py`/`train_ner.py`).
+  no fine-tuning step — get a trivial, body-less `Trainer` subclass each
+  (`CategoryTrainer`/`SummaryTrainer`, both just `NoOpTrainer` under a
+  stage-specific name, added 2026-09-18 — TASKS.md T-097) so every stage
+  has a real, named `Trainer` a stage→`Trainer` registry can look up
+  (`src/experiment.py`, see "Experiments" below); sentiment and NER each
+  have a real, trainable `Trainer` subclass (`train_sentiment.py`/
+  `train_ner.py`) — NER's own `NerTrainConfig` gained a `base_model` field
+  the same day (2026-09-18, T-099), closing a gap where it was the only
+  stage whose base checkpoint wasn't configurable at all.
   `pipeline.py`'s `run_<stage>_stage` functions are thin wrappers that
   construct a stage's `Inference` subclass and call `.run(...)` — kept as
   real module-level functions (not inlined) so existing test/resample-script
@@ -257,3 +263,17 @@ uv run mlflow ui
 
 Full detail — sampling, per-stage metrics, the "judge is a model, not gold"
 caveat, and the CI / scheduled story — in `docs/evaluation.md`.
+
+### Experiments
+
+Reproducing a full experiment (train a candidate checkpoint, evaluate it,
+optionally publish) is one command, not a hand-chained script sequence:
+`src/experiment.py`'s `ExperimentSpec` (a strictly-validated pydantic
+schema) plus `cli/run_experiment.py` (`uv run cli/run_experiment.py
+--config experiments/<name>.json`), reusing `run_eval` verbatim for the
+evaluation step. `experiments/` holds a backfilled spec for every real
+historical sentiment/NER/category/`c_summary` experiment
+(`experiments/README.md` discloses the ones that don't have a runnable
+equivalent). Full detail — the schema's own validation rules, the one
+command, and the disclosed gaps — in `docs/evaluation.md`'s "Experiments"
+section.

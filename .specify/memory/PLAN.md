@@ -1183,7 +1183,7 @@ explicitly not being reopened); a UI or dashboard over the new confusion
 matrix/ROC data (that data becomes queryable, presenting it is a separate,
 later concern if ever wanted).
 
-## Work item 11 — JSON-driven, single-command experiment runs (priority — #1)
+## Work item 11 — JSON-driven, single-command experiment runs (done 2026-09-18)
 
 **Why**: even with Work item 10's FTI/eval redesign landed, running one
 real model experiment still means hand-chaining several independent,
@@ -1284,31 +1284,33 @@ confidence threshold, `c_summary`'s generation length) — disclosed above,
 a possible future v2 extension, not this one; re-litigating any Work
 item 1-10 model/data/architecture decision.
 
-**Executed so far (2026-09-18)**: steps 2 (T-096) and 4 (T-097) landed
-first, as small independent prerequisites, then step 1 (T-098) --
-`src/experiment.py`'s `ExperimentSpec`/`PretrainSpec`/`TrainTestSplitSpec`/
-`EvalSpec`/`PublishSpec`, every rejection case this section names enforced
-via one `model_validator`, plus a stricter `extra="forbid"` on every field
--- then the orchestration half of step 3, `run_experiment` (train if
-requested, evaluate via `run_eval` reused verbatim, write the git-tracked
-result JSON; caught and fixed a real gap along the way -- `NerTrainConfig`
-had no `base_model` field at all, so this section's own `base_model`
-validation would have been enforced but silently unhonored for NER; fixed
-at the source in `train_ner.py`, not worked around here) -- then the CLI
-half of step 3, `cli/run_experiment.py` ("exit 1 if regressed" is free,
-inherited from `run_experiment`'s own reuse of `run_eval`'s
-`SystemExit(1)` -- no new code for it) -- then step 5, the historical
-backfill: 8 `experiments/*.json` specs (all real values sourced from
+**Executed (2026-09-18), all five parts, in order**: steps 2 (T-096) and
+4 (T-097) landed first, as small independent prerequisites, then step 1
+(T-098) -- `src/experiment.py`'s `ExperimentSpec`/`PretrainSpec`/
+`TrainTestSplitSpec`/`EvalSpec`/`PublishSpec`, every rejection case this
+section names enforced via one `model_validator`, plus a stricter
+`extra="forbid"` on every field -- then step 3 in full: `run_experiment`
+(train if requested, evaluate via `run_eval` reused verbatim, write the
+git-tracked result JSON; caught and fixed a real gap along the way --
+`NerTrainConfig` had no `base_model` field at all, so this section's own
+`base_model` validation would have been enforced but silently unhonored
+for NER; fixed at the source in `train_ner.py`, not worked around here)
+and `cli/run_experiment.py` ("exit 1 if regressed" is free, inherited
+from `run_experiment`'s own reuse of `run_eval`'s `SystemExit(1)` -- no
+new code for it) -- then step 5, the historical backfill: 8
+`experiments/*.json` specs (all real values sourced from
 `docs/evaluation.md`, not guessed), plus a third disclosed gap found
 along the way -- `sentiment_v2_chunklevel_finetuned.json`/
 `_v3_downsampled.json` are deliberately content-identical, since v3 used
 "the same procedure/hyperparameters as before" per `docs/evaluation.md`'s
 own 2026-09-14 follow-up, differing only in a data file's on-disk
 presence this schema can't express (see `experiments/README.md` for the
-full account, including `ProsusAI/finbert`'s own first-time pin). Only the closing documentation pass (T-103 --
-`docs/evaluation.md`/`docs/modules/news-nlp.md`/the two architecture
-artifacts) remains before this work item closes in full. See TASKS.md
-T-096-T-103 for the discrete, checkable breakdown.
+full account, including `ProsusAI/finbert`'s own first-time pin). Closed
+out by the documentation pass: a new "Experiments" section in
+`docs/evaluation.md`, a pointer + a stale-bullet fix in
+`docs/modules/news-nlp.md`, and both architecture artifacts reconciled
+(same closing pass T-095 did for Work item 10). See TASKS.md T-096-T-103
+for the discrete, checkable breakdown.
 
 ## Work item 12 — Bring `tests/` under the mypy gate (done 2026-09-18)
 
@@ -1449,20 +1451,19 @@ other, and independent of one another except where noted:
   → schema split → reuse mechanism → confusion matrix/ROC), followed by a
   direct follow-up (MLflow `experiment`-awareness) closing the two gaps
   that work item's own docs disclosed.
-- **Work item 11 (JSON-driven, single-command experiment runs)** —
-  unblocked and independent of every other work item's own outcome — same
-  shape as Work item 10 before it: restructures *how* an experiment is run
-  and recorded, not *what* any stage's already-decided model/data choices
-  are (Work items 1-10 stay untouched). Internally sequential: the
-  `stratified_split()` parameterization (step 2, T-096), the `NoOpTrainer`
-  wiring (step 4, T-097), the `ExperimentSpec` schema (step 1, T-098),
-  all of step 3 (`run_experiment` + `cli/run_experiment.py`, T-099/T-100),
-  and step 5 (the historical-experiment JSON backfill, T-101 — the
-  acceptance proof that steps 1/3 actually work, not just exist) are
-  **all done** (2026-09-18); only the closing documentation pass (T-103)
-  is left. Supersedes Work item 8 as "next up" in priority ordering,
-  again; Work item 8 stays a valid, scoped, pending item, just no longer
-  first in line.
+- **Work item 11 (JSON-driven, single-command experiment runs) is done
+  (2026-09-18)** — same shape as Work item 10 before it: restructured
+  *how* an experiment is run and recorded, not *what* any stage's
+  already-decided model/data choices are (Work items 1-10 stay
+  untouched). All five parts landed in order: the `stratified_split()`
+  parameterization (step 2, T-096), the `NoOpTrainer` wiring (step 4,
+  T-097), the `ExperimentSpec` schema (step 1, T-098), step 3 in full
+  (`run_experiment` + `cli/run_experiment.py`, T-099/T-100), the
+  historical-experiment JSON backfill (step 5, T-101 — the acceptance
+  proof that steps 1/3 actually work, not just exist), and the closing
+  documentation pass (T-103). Superseded Work item 8 as "next up" in
+  priority ordering while it ran; Work item 8 is next up again, still a
+  valid, scoped, pending item.
 - **Work item 12 (bring `tests/` under the mypy gate) is done
   (2026-09-18)** — surfaced directly while landing Work item 11's T-097,
   independent of every other work item's own outcome (a test-suite

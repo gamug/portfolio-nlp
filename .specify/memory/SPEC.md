@@ -772,12 +772,14 @@ treating a related FR/NR as done:
     `scripts/restore_sentiment_after_v4_eval_2026_09_15.py`); nothing
     captures an experiment's full configuration (pretrain or not, dataset,
     train/test split + stratify strategy, LLM-judge sample count) in one
-    reproducible, validated place before it runs. **Priority #1
-    (2026-09-18), in progress** — a JSON `ExperimentSpec` schema, generic
-    across all four ML stages, plus one command that runs an experiment
-    end to end from it — FR-017, `PLAN.md` Work item 11, `TASKS.md` T-096
-    onward. T-096/T-097 done; T-098 (the schema itself) is paused pending
-    item 17 below.
+    reproducible, validated place before it runs. **Resolved (2026-09-18)**
+    — a JSON `ExperimentSpec` schema (`src/experiment.py`), generic across
+    all four ML stages, plus one command (`cli/run_experiment.py`) that
+    runs an experiment end to end from it, reusing `run_eval` verbatim;
+    backfilled for every real historical experiment
+    (`experiments/*.json`, three disclosed gaps in `experiments/README.md`
+    rather than silently omitted) — FR-017, `PLAN.md` Work item 11,
+    `TASKS.md` T-096–T-103.
 17. **`tests/` was never covered by this project's own mypy gate.**
     `.code_quality/mypy.ini`'s `files = src, apps, cli` excludes it, so a
     real, systemic type-annotation drift went undetected: `tests/news_nlp/
