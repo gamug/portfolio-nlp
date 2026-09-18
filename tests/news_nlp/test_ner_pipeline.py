@@ -11,7 +11,6 @@ word's first subword ever opens/closes/redirects a span.
 """
 
 import re
-import sqlite3
 from typing import Any
 
 import pytest
@@ -185,7 +184,7 @@ class FakeNerModel:
 
 
 def test_run_ner_stage_does_not_split_3m_into_a_bogus_bare_digit_entity(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The literal confirmed real-data bug: "3M Company reported earnings."
     tokenized as ["3", "##M", "Company", "reported", "earnings", "."], with
@@ -330,14 +329,14 @@ class BatchedFakeNerModel:
         return type("Output", (), {"logits": logits})()
 
 
-def _entities_without_id(conn: sqlite3.Connection, article_id: int) -> list[dict[str, Any]]:
+def _entities_without_id(conn: db.NewsNlpDatabase, article_id: int) -> list[dict[str, Any]]:
     detail = db.get_article_detail(conn, article_id)
     assert detail is not None
     return [{k: v for k, v in e.items() if k != "id"} for e in detail["entities"]]
 
 
 def test_batched_and_per_article_ner_processing_produce_identical_entities(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """T-061 parity check: flattening multiple articles' chunks into one
     padded forward pass (NER_BATCH_SIZE > 1) must write byte-identical
@@ -399,7 +398,7 @@ def test_batched_and_per_article_ner_processing_produce_identical_entities(
 
 
 def test_run_ner_stage_passes_sample_seed_through_to_fetch_pending_articles(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`run_ner_stage(..., sample_seed=...)` must reach
     `db.fetch_pending_articles` unchanged -- a unit-level check of the

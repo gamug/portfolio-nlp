@@ -19,7 +19,6 @@ version only -- the sentence-level version's own commit is still in git
 history if that account needs corroborating.)
 """
 
-import sqlite3
 from typing import Any
 
 import pytest
@@ -131,7 +130,7 @@ class FakeSentimentModel:
 
 
 def test_run_sentiment_stage_is_not_dragged_negative_by_a_different_companys_bad_news(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The concrete failure this aggregation fixes: an article that's
     actually good news for its own subject company (a chunk naming Acme,
@@ -183,7 +182,7 @@ def test_run_sentiment_stage_is_not_dragged_negative_by_a_different_companys_bad
 
 
 def test_run_sentiment_stage_reads_company_and_ticker_via_new_dedicated_query(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Unit-level check of the pass-through contract: run_sentiment_stage
     must fetch via `db.fetch_pending_sentiment_articles` (company/ticker
@@ -207,7 +206,7 @@ def test_run_sentiment_stage_reads_company_and_ticker_via_new_dedicated_query(
 
 
 def test_run_sentiment_stage_passes_sample_seed_through_to_fetch_pending_sentiment_articles(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`run_sentiment_stage(..., sample_seed=...)` must reach
     `db.fetch_pending_sentiment_articles` unchanged -- the same pass-through

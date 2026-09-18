@@ -1,12 +1,10 @@
-import sqlite3
-
 from conftest import seed_article
 from fastapi.testclient import TestClient
 
 import news_nlp as db
 
 
-def test_get_articles_filters_by_company(client: TestClient, conn: sqlite3.Connection) -> None:
+def test_get_articles_filters_by_company(client: TestClient, conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2023-01-01T00:00:00Z")
     seed_article(conn, id=2, company="Apple", ticker="AAPL", pub_date="2023-02-01T00:00:00Z")
     conn.execute(
@@ -23,7 +21,7 @@ def test_get_articles_filters_by_company(client: TestClient, conn: sqlite3.Conne
     assert body[0]["sentiment_label"] == "positive"
 
 
-def test_get_articles_filters_by_sentiment(client: TestClient, conn: sqlite3.Connection) -> None:
+def test_get_articles_filters_by_sentiment(client: TestClient, conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="3M")
     conn.execute(
@@ -42,7 +40,7 @@ def test_get_articles_filters_by_sentiment(client: TestClient, conn: sqlite3.Con
 
 
 def test_get_article_detail_returns_full_record(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     seed_article(conn, id=1, company="3M")
     conn.execute(
@@ -64,7 +62,7 @@ def test_get_article_detail_returns_full_record(
     assert body["entities"][0]["text"] == "3M"
 
 
-def test_get_article_detail_includes_summary(client: TestClient, conn: sqlite3.Connection) -> None:
+def test_get_article_detail_includes_summary(client: TestClient, conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.execute(
         """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
@@ -79,7 +77,7 @@ def test_get_article_detail_includes_summary(client: TestClient, conn: sqlite3.C
 
 
 def test_get_article_detail_summary_none_when_unprocessed(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     seed_article(conn, id=1, company="3M")
     conn.execute(
@@ -94,7 +92,7 @@ def test_get_article_detail_summary_none_when_unprocessed(
 
 
 def test_get_article_detail_404_when_unprocessed(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     seed_article(conn, id=1, company="3M")
     conn.commit()
@@ -109,7 +107,7 @@ def test_get_article_detail_404_when_missing(client: TestClient) -> None:
 
 
 def test_get_sentiment_stats_grouped_by_company(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     seed_article(conn, id=1, company="3M")
     seed_article(conn, id=2, company="Apple")
@@ -130,7 +128,7 @@ def test_get_sentiment_stats_grouped_by_company(
     assert rows["Apple"]["negative"] == 1
 
 
-def test_get_entity_stats_top_n(client: TestClient, conn: sqlite3.Connection) -> None:
+def test_get_entity_stats_top_n(client: TestClient, conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M")
     conn.executemany(
         """INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, model_name, processed_at)
@@ -147,7 +145,7 @@ def test_get_entity_stats_top_n(client: TestClient, conn: sqlite3.Connection) ->
 
 
 def test_get_sector_summaries_lists_all_by_default(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     db.write_sector_summary(
         conn,
@@ -170,7 +168,7 @@ def test_get_sector_summaries_lists_all_by_default(
 
 
 def test_get_sector_summaries_filters_by_sector(
-    client: TestClient, conn: sqlite3.Connection
+    client: TestClient, conn: db.NewsNlpDatabase
 ) -> None:
     db.write_sector_summary(
         conn,

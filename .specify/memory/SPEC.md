@@ -798,10 +798,20 @@ treating a related FR/NR as done:
     command: 208 errors, `git stash`-confirmed pre-existing (identical
     count on `master`) and behaviorally inert (every affected value
     genuinely is a `NewsNlpDatabase` throughout — a type-hint precision
-    gap, not a runtime bug). **New, priority — next, ahead of Work item
-    11's T-098 (2026-09-18)** — fix the annotation drift at its source and
-    widen `mypy.ini`'s scope so it can't silently regrow — NR-007,
-    `PLAN.md` Work item 12, `TASKS.md` T-104 onward.
+    gap, not a runtime bug). **Resolved (2026-09-18)** — `conftest.py`'s
+    fixtures/helpers retyped at the source (`seed_article` turned out to
+    need a genuine `sqlite3.Connection | NewsNlpDatabase` union, not a
+    straight retype — it has real callers of both kinds), the fix cascaded
+    through all ~18 affected files, a previously-undisclosed 19th file
+    (`test_eval_store.py`, an unrelated `**dict` kwargs-unpacking gap) found
+    and fixed in the same pass, and `mypy.ini`'s `files` widened to
+    `src, apps, cli, tests` (`scripts/` deliberately excluded — one
+    disclosed, unaddressed exception, `scripts/
+    mine_idiom_sentences_2026_09_13.py`). `uv run mypy --config-file=
+    .code_quality/mypy.ini` now reports zero errors across 67 files;
+    `uv run pytest` unchanged at 279 passed (zero assertion changes — every
+    fix was type-only) — NR-007, `PLAN.md` Work item 12, `TASKS.md`
+    T-104–T-108.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

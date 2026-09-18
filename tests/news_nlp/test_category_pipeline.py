@@ -1,4 +1,3 @@
-import sqlite3
 from typing import Any
 
 import pytest
@@ -157,7 +156,7 @@ def _patch_category_model(
 
 
 def test_run_category_stage_skips_loading_model_when_nothing_pending(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
@@ -174,7 +173,7 @@ def test_run_category_stage_skips_loading_model_when_nothing_pending(
 
 
 def test_run_category_stage_writes_winning_label_group_and_zero_fills_unscored_group(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_article(conn, id=1, title="Deal News", body_text="Company X announced a merger today.")
     conn.commit()
@@ -210,7 +209,7 @@ def test_run_category_stage_writes_winning_label_group_and_zero_fills_unscored_g
 
 
 def test_run_category_stage_flat_level1_short_circuits_without_level2_call(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_article(conn, id=1, title="Roundup", body_text="Markets were mixed today across sectors.")
     conn.commit()
@@ -233,7 +232,7 @@ def test_run_category_stage_flat_level1_short_circuits_without_level2_call(
 
 
 def test_run_category_stage_recovers_2nd_place_group_via_top2_expansion(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_article(conn, id=1, title="Legal Update", body_text="A court ruling changed things.")
     conn.commit()
@@ -261,7 +260,7 @@ def test_run_category_stage_recovers_2nd_place_group_via_top2_expansion(
 
 
 def test_run_category_stage_batches_multiple_articles_across_both_passes(
-    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    conn: db.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """3 articles, one call per pass covering all of them (not one call per
     article), with a mix of short-circuited and surviving articles -- proves

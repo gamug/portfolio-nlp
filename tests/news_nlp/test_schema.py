@@ -74,7 +74,7 @@ def test_migrate_sector_summary_schema_noop_when_table_absent(tmp_path: Path) ->
     conn.close()
 
 
-def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_articles_unpacks_as_two_tuple(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, body_text="Body text.")
     conn.commit()
 
@@ -85,7 +85,7 @@ def test_fetch_pending_articles_unpacks_as_two_tuple(conn: sqlite3.Connection) -
     assert body_text == "Body text."
 
 
-def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, title="Test Title", body_text="Body text.")
     conn.commit()
 
@@ -97,13 +97,13 @@ def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: sqlite3.Co
     assert body_text == "Body text."
 
 
-def test_fetch_pending_articles_rejects_unknown_table(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_articles_rejects_unknown_table(conn: db.NewsNlpDatabase) -> None:
     with pytest.raises(ValueError, match="table must be one of"):
         db.fetch_pending_articles(conn, "article_category")
 
 
 def test_fetch_pending_articles_sample_seed_is_reproducible_subset(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     """A `sample_seed` draw is a genuine subset of the population (not the
     first-`limit`-by-id backlog order) and reproducible for a repeated seed
@@ -126,7 +126,7 @@ def test_fetch_pending_articles_sample_seed_is_reproducible_subset(
     assert [r[0] for r in a] != [r[0] for r in other_seed]  # a different seed draws differently
 
 
-def test_fetch_pending_articles_sample_seed_requires_limit(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_articles_sample_seed_requires_limit(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, body_text="Body text.")
     conn.commit()
     with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
@@ -134,7 +134,7 @@ def test_fetch_pending_articles_sample_seed_requires_limit(conn: sqlite3.Connect
 
 
 def test_fetch_pending_articles_sample_seed_caps_at_population(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     for i in range(1, 4):
         seed_article(conn, id=i, body_text=f"Body text {i}.")
@@ -144,7 +144,7 @@ def test_fetch_pending_articles_sample_seed_caps_at_population(
     assert len(rows) == 3  # fewer than `limit` only when the store holds too few
 
 
-def test_fetch_pending_sentiment_articles_unpacks_as_four_tuple(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_sentiment_articles_unpacks_as_four_tuple(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="Acme Corp", ticker="ACME", body_text="Body text.")
     conn.commit()
 
@@ -158,7 +158,7 @@ def test_fetch_pending_sentiment_articles_unpacks_as_four_tuple(conn: sqlite3.Co
 
 
 def test_fetch_pending_sentiment_articles_sample_seed_is_reproducible_subset(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     """Same seeded-sample contract as fetch_pending_articles's (T-025), now
     exercised through the dedicated sentiment query (PLAN.md Work item 4
@@ -181,7 +181,7 @@ def test_fetch_pending_sentiment_articles_sample_seed_is_reproducible_subset(
 
 
 def test_fetch_pending_sentiment_articles_sample_seed_requires_limit(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, body_text="Body text.")
     conn.commit()

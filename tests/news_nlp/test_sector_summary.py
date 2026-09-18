@@ -1,4 +1,3 @@
-import sqlite3
 from datetime import date
 
 from conftest import seed_article
@@ -8,7 +7,7 @@ from news_nlp import CATEGORY_SLUGS, OTHER_LABEL
 
 
 def seed_sentiment(
-    conn: sqlite3.Connection, article_id: int, label: str = "positive", score: float = 0.9
+    conn: db.NewsNlpDatabase, article_id: int, label: str = "positive", score: float = 0.9
 ) -> None:
     conn.execute(
         """INSERT INTO article_sentiment (article_id, label, score, positive, negative, neutral, model_name, processed_at)
@@ -18,7 +17,7 @@ def seed_sentiment(
 
 
 def seed_category(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
     article_id: int,
     label: str = "earnings_performance",
     score: float = 0.9,
@@ -32,7 +31,7 @@ def seed_category(
 
 
 def seed_entity(
-    conn: sqlite3.Connection, article_id: int, text: str = "3M", score: float = 0.9
+    conn: db.NewsNlpDatabase, article_id: int, text: str = "3M", score: float = 0.9
 ) -> None:
     conn.execute(
         """INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, model_name, processed_at)
@@ -42,7 +41,7 @@ def seed_entity(
 
 
 def seed_company_summary(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
     article_id: int,
     summary_text: str = "A short summary.",
     num_chunks: int = 1,
@@ -54,7 +53,7 @@ def seed_company_summary(
 
 
 def test_fetch_pending_company_summaries_requires_sentiment_and_entities(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1)
     seed_sentiment(conn, 1)
@@ -70,7 +69,7 @@ def test_fetch_pending_company_summaries_requires_sentiment_and_entities(
 
 
 def test_fetch_pending_company_summaries_excludes_low_confidence_and_single_digit_entities(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     # NOT GLOB '[0-9]' only matches a single-character digit (e.g. a stray "4"),
     # not multi-digit numbers -- same GLOB pattern as query.sql.
@@ -86,7 +85,7 @@ def test_fetch_pending_company_summaries_excludes_low_confidence_and_single_digi
 
 
 def test_fetch_pending_company_summaries_excludes_non_200_http_status(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, http_status_code=404)
     seed_sentiment(conn, 1)
@@ -97,7 +96,7 @@ def test_fetch_pending_company_summaries_excludes_non_200_http_status(
 
 
 def test_fetch_pending_company_summaries_excludes_already_summarized(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1)
     seed_sentiment(conn, 1)
@@ -108,7 +107,7 @@ def test_fetch_pending_company_summaries_excludes_already_summarized(
     assert db.fetch_pending_company_summaries(conn) == []
 
 
-def test_fetch_pending_company_summaries_respects_limit(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_company_summaries_respects_limit(conn: db.NewsNlpDatabase) -> None:
     for i in (1, 2):
         seed_article(conn, id=i)
         seed_sentiment(conn, i)
@@ -120,7 +119,7 @@ def test_fetch_pending_company_summaries_respects_limit(conn: sqlite3.Connection
     assert len(rows) == 1
 
 
-def test_build_company_summary_input_uses_real_newlines(conn: sqlite3.Connection) -> None:
+def test_build_company_summary_input_uses_real_newlines(conn: db.NewsNlpDatabase) -> None:
     seed_article(
         conn,
         id=1,
@@ -147,7 +146,7 @@ def test_build_company_summary_input_uses_real_newlines(conn: sqlite3.Connection
 # --- write_company_summary ----------------------------------------------
 
 
-def test_write_company_summary_then_fetch_pending_excludes_it(conn: sqlite3.Connection) -> None:
+def test_write_company_summary_then_fetch_pending_excludes_it(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1)
     seed_sentiment(conn, 1)
     seed_entity(conn, 1)
@@ -164,7 +163,7 @@ def test_write_company_summary_then_fetch_pending_excludes_it(conn: sqlite3.Conn
 # --- fetch_pending_sector_weeks ------------------------------------------
 
 
-def test_fetch_pending_sector_weeks_includes_closed_week(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_sector_weeks_includes_closed_week(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, pub_date="2026-08-03T00:00:00Z")  # Monday, closed week
     seed_company_summary(conn, 1)
     conn.commit()
@@ -178,7 +177,7 @@ def test_fetch_pending_sector_weeks_includes_closed_week(conn: sqlite3.Connectio
     assert rows[0]["week_end"] == "2026-08-09"
 
 
-def test_fetch_pending_sector_weeks_excludes_open_week(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_sector_weeks_excludes_open_week(conn: db.NewsNlpDatabase) -> None:
     # Today, not a hardcoded date -- the "current week" is only still open
     # relative to whenever this test actually runs.
     today = date.today().isoformat()
@@ -190,7 +189,7 @@ def test_fetch_pending_sector_weeks_excludes_open_week(conn: sqlite3.Connection)
 
 
 def test_fetch_pending_sector_weeks_falls_back_to_fetched_at_when_pub_date_null(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, pub_date=None, fetched_at="2026-08-03T00:00:00Z")
     seed_company_summary(conn, 1)
@@ -202,7 +201,7 @@ def test_fetch_pending_sector_weeks_falls_back_to_fetched_at_when_pub_date_null(
 
 
 def test_fetch_pending_sector_weeks_groups_multiple_companies_in_same_subindustry(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_article(conn, id=2, company="Honeywell", ticker="HON", pub_date="2026-08-04T00:00:00Z")
@@ -215,7 +214,7 @@ def test_fetch_pending_sector_weeks_groups_multiple_companies_in_same_subindustr
     assert len(rows) == 1  # both fall in the same sub-industry/week bucket
 
 
-def test_fetch_pending_sector_weeks_excludes_already_summarized(conn: sqlite3.Connection) -> None:
+def test_fetch_pending_sector_weeks_excludes_already_summarized(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, pub_date="2026-08-03T00:00:00Z")
     seed_company_summary(conn, 1)
     conn.commit()
@@ -236,7 +235,7 @@ def test_fetch_pending_sector_weeks_excludes_already_summarized(conn: sqlite3.Co
 
 
 def test_fetch_pending_sector_weeks_regenerates_legacy_format_version_rows(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, pub_date="2026-08-03T00:00:00Z")
     seed_company_summary(conn, 1)
@@ -263,7 +262,7 @@ def test_fetch_pending_sector_weeks_regenerates_legacy_format_version_rows(
 # --- fetch_company_summaries_for_sector_week --------------------------------
 
 
-def _seed_two_company_two_category_group(conn: sqlite3.Connection) -> None:
+def _seed_two_company_two_category_group(conn: db.NewsNlpDatabase) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_article(conn, id=2, company="Honeywell", ticker="HON", pub_date="2026-08-04T00:00:00Z")
     seed_sentiment(conn, 1, label="positive")
@@ -275,7 +274,7 @@ def _seed_two_company_two_category_group(conn: sqlite3.Connection) -> None:
 
 
 def test_fetch_company_summaries_for_sector_week_returns_matching_rows(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     _seed_two_company_two_category_group(conn)
     conn.commit()
@@ -290,7 +289,7 @@ def test_fetch_company_summaries_for_sector_week_returns_matching_rows(
 
 
 def test_fetch_company_summaries_for_sector_week_excludes_uncategorized_articles(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_sentiment(conn, 1)
@@ -309,7 +308,7 @@ def test_fetch_company_summaries_for_sector_week_excludes_uncategorized_articles
 
 
 def test_fetch_sector_week_entity_stats_counts_qualifying_entities(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_sentiment(conn, 1)
@@ -340,7 +339,7 @@ def test_fetch_sector_week_entity_stats_counts_qualifying_entities(
 
 
 def test_compose_sector_summary_keeps_each_companys_text_under_its_own_line(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     _seed_two_company_two_category_group(conn)
     conn.commit()
@@ -367,7 +366,7 @@ def test_compose_sector_summary_keeps_each_companys_text_under_its_own_line(
 
 
 def test_compose_sector_summary_separates_categories_into_their_own_sections(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     _seed_two_company_two_category_group(conn)
     conn.commit()
@@ -394,7 +393,7 @@ def test_compose_sector_summary_separates_categories_into_their_own_sections(
 
 
 def test_build_sector_intro_seed_never_mentions_a_ticker_or_company_name(
-    conn: sqlite3.Connection,
+    conn: db.NewsNlpDatabase,
 ) -> None:
     _seed_two_company_two_category_group(conn)
     conn.commit()
@@ -420,7 +419,7 @@ def test_build_sector_intro_seed_never_mentions_a_ticker_or_company_name(
 # --- write_sector_summary / list_sector_summaries -------------------------
 
 
-def test_write_sector_summary_is_idempotent_on_unique_key(conn: sqlite3.Connection) -> None:
+def test_write_sector_summary_is_idempotent_on_unique_key(conn: db.NewsNlpDatabase) -> None:
     db.write_sector_summary(
         conn,
         "Industrials",
@@ -452,7 +451,7 @@ def test_write_sector_summary_is_idempotent_on_unique_key(conn: sqlite3.Connecti
     assert results[0]["summary_text"] == "Second version."
 
 
-def test_list_sector_summaries_filters_by_sector(conn: sqlite3.Connection) -> None:
+def test_list_sector_summaries_filters_by_sector(conn: db.NewsNlpDatabase) -> None:
     db.write_sector_summary(
         conn,
         "Industrials",

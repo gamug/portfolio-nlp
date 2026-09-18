@@ -133,7 +133,12 @@ def test_candidate_scored_connection_rejects_unknown_stage(
     with (
         pytest.raises(ValueError, match="stage must be one of"),
         candidate_scored_connection(
-            str(source), "sector_summary", model_name="x", revision=None, limit=5, sample_seed=None
+            str(source),
+            "sector_summary",
+            model_name="x",
+            revision="unused",
+            limit=5,
+            sample_seed=None,
         ),
     ):
         pass

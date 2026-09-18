@@ -1054,13 +1054,28 @@ each follow once T-104/T-105 are in, with T-107 landing last so the gate
 only tightens once everything it would flag is already clean; T-108
 verifies the whole thing end to end.
 
-- [ ] **T-104** Retype `tests/news_nlp/conftest.py`'s `conn`/
+- [x] **T-104** Retype `tests/news_nlp/conftest.py`'s `conn`/
       `two_tier_conn` fixtures and its `write_stage_predictions`/
       `seed_article` helpers from `sqlite3.Connection` to
       `news_nlp.NewsNlpDatabase`, matching what `db_module.connect()`/
       `connect_pipeline()` genuinely return. Zero behavior change — a
       declared-type correction only. → `PLAN.md` Work item 12, step 1.
-- [ ] **T-105** Cascade that corrected annotation into every test function
+      **Done 2026-09-18** — `conn`/`two_tier_conn` retyped
+      `Iterator[NewsNlpDatabase]`; `write_stage_predictions` retyped
+      `NewsNlpDatabase` (always called with one); `seed_article` turned out
+      to have genuine dual callers — raw `sqlite3.Connection` from two of
+      `conftest.py`'s own bootstrap helpers (`source_db_path`,
+      `build_eval_source`) *and* the `conn` fixture's `NewsNlpDatabase`
+      from other test files — so it's typed
+      `sqlite3.Connection | NewsNlpDatabase` (both sides support the
+      `.execute()` call it actually makes), not force-retyped, a deviation
+      from the original "mechanical retype" framing caught while
+      implementing. `test_db_path`/`results_db_path` also had their own
+      local `conn` variable reused across two incompatible types
+      (`sqlite3.connect()` then reassigned to `db_module.connect()`'s
+      result) — renamed to `raw_conn`/`nlp_conn`. 12/12 of `conftest.py`'s
+      own errors resolved, 0 new errors introduced.
+- [x] **T-105** Cascade that corrected annotation into every test function
       across the ~18 affected files (`test_corrections.py`,
       `test_correction_endpoints.py`, `test_category_pipeline.py`,
       `test_summary_pipeline.py`, `test_ner_pipeline.py`,
@@ -1070,8 +1085,20 @@ verifies the whole thing end to end.
       `test_eval_candidate.py`, `test_query_endpoints.py`,
       `test_pipeline_progress.py`, `test_fti_base.py`) that copied
       `conn: sqlite3.Connection` from the fixture — mechanical, the same
-      edit repeated per file. → step 2.
-- [ ] **T-106** Fix the small number of genuinely unrelated errors `tests/`
+      edit repeated per file. → step 2. **Done 2026-09-18** — 9 files were
+      a pure mechanical `sed` retype (no other `sqlite3.` usage in any of
+      them, `import sqlite3` dropped as unused); `test_schema.py`/
+      `test_db.py` needed the retype scoped to only their fixture-typed
+      function parameters, leaving each file's own genuine raw
+      `sqlite3.connect()` blocks (schema/WAL/foreign-key introspection)
+      untouched; `test_pipeline_progress.py` needed `import news_nlp as db`
+      added (didn't have it). One stale `# type: ignore[attr-defined]` on
+      `two_tier_conn.articles_rel` (`test_db.py`) removed — no longer
+      needed once `two_tier_conn` carries its real type.
+      `test_eval_sampling.py` needed no direct edit (fixed transitively by
+      T-104's `write_stage_predictions` retype). 191→163 errors after this
+      step (208 total minus T-104's 45); 0 new errors.
+- [x] **T-106** Fix the small number of genuinely unrelated errors `tests/`
       entering scope also surfaces, each its own small, disclosed fix, not
       a mechanical retype: `test_eval_candidate.py`'s deliberate
       `revision=None` call (swap for a placeholder string —
@@ -1082,21 +1109,55 @@ verifies the whole thing end to end.
       calls in the two "raises NotImplementedError" tests, a
       `no-any-return`, a private `_rows` attribute read off a test
       double); `test_eval_tracking.py`'s 3 mlflow `list[Run] | Any`/
-      `Experiment | None` union-narrowing spots. → step 3.
-- [ ] **T-107** Widen `.code_quality/mypy.ini`'s `files` from
+      `Experiment | None` union-narrowing spots. → step 3. **Done
+      2026-09-18** — plus one genuinely new, previously-undisclosed find
+      while re-verifying the file-by-file error breakdown from scratch
+      (not caught by this work item's own filing pass): `test_eval_store.py`
+      had 15 of its own errors, unrelated to the Connection pattern — two
+      `common: dict[str, ...]` kwargs literals passed as `**common` into
+      `create_eval_run`'s heterogeneously-typed keyword-only params, which
+      a plain dict's inferred value-union type can't satisfy. Fixed with
+      two local `TypedDict`s (`_RunKwargs`/`_RunKwargsWithStage`), not a
+      production signature change. `test_fti_base.py`'s fixes:
+      `Feature[Any, Any]()`/`Trainer[TrainConfig]()` explicit type params
+      (bare `Feature()`/`Trainer()` infer `Never`); `_FakeInference.__init__`
+      now sets `self._rows: list[str] = []` (was an undeclared ad-hoc
+      instance attribute — a `ClassVar` alternative was tried first and
+      rejected, since tests reassign `inf._rows` per-instance, which mypy
+      forbids through a `ClassVar`); `_FakeConn`/`None` conn arguments cast
+      via `typing.cast(NewsNlpDatabase, ...)`, documenting the fake/absent
+      connection is never actually used on those code paths.
+      `test_eval_tracking.py`: `assert not isinstance(runs, list)` narrows
+      `mlflow.search_runs`'s `list[Run] | Any` return before `.iloc`/
+      `.columns`; `assert exp is not None` before `.experiment_id`. 25
+      tests across the four touched files re-run individually, all pass.
+- [x] **T-107** Widen `.code_quality/mypy.ini`'s `files` from
       `src, apps, cli` to `src, apps, cli, tests` — the change that
       actually closes the gap for good. Deliberately excludes `scripts/`
       (one-shot historical scripts, `CLAUDE.md`'s own `scripts/`
       convention) — document `scripts/mine_idiom_sentences_2026_09_13.py`'s
       2 unrelated pre-existing errors here as a disclosed, deliberate
-      exception, not silently left out. → step 4.
-- [ ] **T-108** Verify: `uv run mypy --config-file=.code_quality/mypy.ini`
+      exception, not silently left out. → step 4. **Done 2026-09-18** —
+      `files = src, apps, cli, tests`, with an inline comment recording why
+      and the `scripts/` exception; `uv run mypy --config-file=
+      .code_quality/mypy.ini` (no path argument) now checks 67 files (not
+      82 — confirms `scripts/` genuinely stays out) and reports zero
+      errors.
+- [x] **T-108** Verify: `uv run mypy --config-file=.code_quality/mypy.ini`
       (no path argument, the project's own documented command) reports
       zero errors under the widened scope; `uv run pytest` stays green
       throughout with zero assertion changes; `git stash`-verify the
       pre-fix state still reproduces the identical 208-error count (no
       surprise regressions folded in). Update `SPEC.md` §13 item 17 to
-      resolved. → `PLAN.md` Work item 12 acceptance criteria.
+      resolved. → `PLAN.md` Work item 12 acceptance criteria. **Done
+      2026-09-18** — `uv run mypy --config-file=.code_quality/mypy.ini`:
+      `Success: no issues found in 67 source files`; `uv run pytest`: 279
+      passed (same count as before this work item, zero assertion
+      changes); `uv run ruff check .`/`ruff format --check .`: clean;
+      `git stash` reproduced the identical 208-error/19-file count on the
+      unmodified checkout, confirming nothing here was a pre-existing
+      regression from elsewhere. `SPEC.md` §13 item 17 updated to resolved
+      (see below).
 
 ## Status
 
@@ -1153,44 +1214,53 @@ column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
 `GET /eval/latest` group by `(stage, experiment)`.
 
 **Work item 11** (JSON-driven, single-command experiment runs,
-T-096–T-103) is **in progress (2026-09-18), T-098 paused pending Work item
-12**. Surfaced directly while walking through the full historical
-sentiment-candidate command sequence (Work item 9) one command at a time:
-no single place declares an experiment's full configuration before it
-runs, and several of the existing one-off scripts mutate shared DB tables
-in place, needing a manual restore step afterward. Five parts, mostly
-sequential: T-096/T-097 (small, independent prerequisites — parameterizing
-the training split, wiring a real `NoOpTrainer` into category/`c_summary`)
-are **both done** — T-096 (`stratified_split`/`SentimentTrainConfig`
-config-driven) and T-097 (`CategoryTrainer`/`SummaryTrainer`) landed as
-two separate PRs. T-098 (the `ExperimentSpec` schema) is next once Work
-item 12 closes — it must land before T-099/T-100 (the orchestration
-function and the one CLI command); T-101 (backfilling a JSON spec for
-every real historical experiment) is the acceptance proof that T-098-T-100
-actually work, not just exist. Supersedes Work item 8 as "next up" in
-priority — Work item 8 (per-model selection justification in the
-artifact, T-064–T-069) stays a valid, scoped, pending item, just no longer
-first in line, same as when Work item 10 first superseded it.
+T-096–T-103) is **in progress (2026-09-18)**. Surfaced directly while
+walking through the full historical sentiment-candidate command sequence
+(Work item 9) one command at a time: no single place declares an
+experiment's full configuration before it runs, and several of the
+existing one-off scripts mutate shared DB tables in place, needing a
+manual restore step afterward. Five parts, mostly sequential: T-096/T-097
+(small, independent prerequisites — parameterizing the training split,
+wiring a real `NoOpTrainer` into category/`c_summary`) are **both done** —
+T-096 (`stratified_split`/`SentimentTrainConfig` config-driven) and T-097
+(`CategoryTrainer`/`SummaryTrainer`) landed as two separate PRs. T-098
+(the `ExperimentSpec` schema) is next — Work item 12 (below) closed the
+block on it — it must land before T-099/T-100 (the orchestration function
+and the one CLI command); T-101 (backfilling a JSON spec for every real
+historical experiment) is the acceptance proof that T-098-T-100 actually
+work, not just exist. Supersedes Work item 8 as "next up" in priority —
+Work item 8 (per-model selection justification in the artifact,
+T-064–T-069) stays a valid, scoped, pending item, just no longer first in
+line, same as when Work item 10 first superseded it.
 
 **Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
-**new, top priority, next — ahead of Work item 11's T-098 (2026-09-18)** —
-filed, nothing implemented yet. Surfaced directly while closing out T-097
-(PR #77): running `uv run mypy --config-file=.code_quality/mypy.ini .`
-with an explicit path argument (overriding `mypy.ini`'s own
-`files = src, apps, cli` scope, purely to sanity-check a docstring claim
-rather than using the project's documented no-argument command) turned up
-208 pre-existing errors in `tests/`, confirmed unrelated to T-097 via
-`git stash` (identical count on `master`). Root-caused (read-only
-investigation, same session) to one systemic type-annotation bug, not 19
+**done (2026-09-18)** — surfaced directly while closing out T-097 (PR
+#77): running `uv run mypy --config-file=.code_quality/mypy.ini .` with an
+explicit path argument (overriding `mypy.ini`'s own `files = src, apps,
+cli` scope, purely to sanity-check a docstring claim rather than using the
+project's documented no-argument command) turned up 208 pre-existing
+errors in `tests/`, confirmed unrelated to T-097 via `git stash`
+(identical count reproduces on an unmodified checkout). Root-caused
+(read-only investigation) to one systemic type-annotation bug, not 19
 independent ones: `tests/news_nlp/conftest.py`'s `conn`/`two_tier_conn`
-fixtures (and `write_stage_predictions`/`seed_article`) are typed
-`sqlite3.Connection` but actually construct and return `NewsNlpDatabase`
-(a composition wrapper around a `sqlite3.Connection`, not a subclass of
-it) — ~18 test files copied that wrong annotation into their own test
-function signatures. Zero behavioral divergence — a pure type-hint
-precision gap. Four parts, mostly sequential: T-104 (the `conftest.py`
-root-cause fix) before T-105 (cascading it); T-106 (the small disclosed
-unrelated fixes) and T-107 (widening `mypy.ini`'s scope, landing last)
-follow; T-108 verifies end to end. User decision (2026-09-18): this jumps
-ahead of Work item 11's own T-098 rather than being queued alongside it —
-Work item 11's T-096/T-097 already landed and are unaffected.
+fixtures (and `write_stage_predictions`) were typed `sqlite3.Connection`
+but actually construct and return `NewsNlpDatabase` (a composition wrapper
+around a `sqlite3.Connection`, not a subclass of it) — ~18 test files
+copied that wrong annotation into their own test function signatures. All
+four parts landed in order: T-104 (the `conftest.py` root-cause fix,
+including a genuine dual-caller case in `seed_article` needing a
+`sqlite3.Connection | NewsNlpDatabase` union rather than a straight
+retype) → T-105 (cascading the fix through the ~18 files — 9 by mechanical
+`sed`, 2 needing scoped hand-edits around genuine raw-`sqlite3.connect()`
+blocks) → T-106 (the disclosed unrelated fixes, plus one
+previously-undisclosed find caught while re-verifying from scratch:
+`test_eval_store.py`'s own 15 `**dict` kwargs-unpacking errors, fixed with
+two local `TypedDict`s) → T-107 (`.code_quality/mypy.ini`'s `files` widened
+to `src, apps, cli, tests`, `scripts/` deliberately excluded). T-108's full
+verification: `uv run mypy --config-file=.code_quality/mypy.ini` reports
+zero errors across 67 files; `uv run pytest` 279 passed (same count as
+before this work item, zero assertion changes anywhere — every fix here
+was type-only); ruff clean; `git stash` confirmed the pre-fix 208-error
+count is genuinely pre-existing, not introduced by this session. Per the
+user's 2026-09-18 decision this ran ahead of Work item 11's own T-098,
+which is now unblocked.

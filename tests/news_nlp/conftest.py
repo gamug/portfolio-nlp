@@ -33,7 +33,7 @@ LEAN_ARTICLES_SCHEMA = ARTICLES_SCHEMA.replace("    body_text TEXT,\n", "")
 
 
 def seed_article(
-    conn: sqlite3.Connection,
+    conn: sqlite3.Connection | db_module.NewsNlpDatabase,
     id: int,
     company: str = "3M",
     ticker: str = "MMM",
@@ -74,19 +74,19 @@ def seed_article(
 @pytest.fixture
 def test_db_path(tmp_path: Path) -> Path:
     path = tmp_path / "test.db"
-    conn = sqlite3.connect(path)
-    conn.executescript(ARTICLES_SCHEMA)
-    conn.commit()
-    conn.close()
+    raw_conn = sqlite3.connect(path)
+    raw_conn.executescript(ARTICLES_SCHEMA)
+    raw_conn.commit()
+    raw_conn.close()
 
-    conn = db_module.connect(path)
-    db_module.init_schema(conn)
-    conn.close()
+    nlp_conn = db_module.connect(path)
+    db_module.init_schema(nlp_conn)
+    nlp_conn.close()
     return path
 
 
 @pytest.fixture
-def conn(test_db_path: Path) -> Iterator[sqlite3.Connection]:
+def conn(test_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
     c = db_module.connect(test_db_path)
     yield c
     c.close()
@@ -136,19 +136,21 @@ def results_db_path(tmp_path: Path) -> Path:
     """A RESULTS store: lean `articles` (no `body_text`) + the result tables,
     all empty."""
     path = tmp_path / "results.db"
-    conn = sqlite3.connect(path)
-    conn.executescript(LEAN_ARTICLES_SCHEMA)
-    conn.commit()
-    conn.close()
+    raw_conn = sqlite3.connect(path)
+    raw_conn.executescript(LEAN_ARTICLES_SCHEMA)
+    raw_conn.commit()
+    raw_conn.close()
 
-    conn = db_module.connect(path)
-    db_module.init_schema(conn)
-    conn.close()
+    nlp_conn = db_module.connect(path)
+    db_module.init_schema(nlp_conn)
+    nlp_conn.close()
     return path
 
 
 @pytest.fixture
-def two_tier_conn(source_db_path: Path, results_db_path: Path) -> Iterator[sqlite3.Connection]:
+def two_tier_conn(
+    source_db_path: Path, results_db_path: Path
+) -> Iterator[db_module.NewsNlpDatabase]:
     conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
     yield conn
     db_module.detach_source(conn)
@@ -239,7 +241,7 @@ def eval_conn(
 
 
 def write_stage_predictions(
-    conn: sqlite3.Connection,
+    conn: db_module.NewsNlpDatabase,
     article_id: int,
     *,
     sentiment_score: float = 0.92,
