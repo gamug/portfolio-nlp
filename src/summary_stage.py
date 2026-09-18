@@ -80,8 +80,10 @@ def _summarize_in_batches(
     texts: list[str], tokenizer: Any, model: Any, device: torch.device, batch_size: int
 ) -> list[str]:
     """Run _summarize_batch over `texts` in chunks of `batch_size`,
-    concatenating results in order -- the actual generate() call count stays
-    bounded by batch_size regardless of how many texts are pending."""
+    concatenating results in order -- each generate() call's width stays
+    bounded by batch_size regardless of how many texts are pending (the
+    call *count* still grows with len(texts), one call per
+    batch_size-sized slice)."""
     results: list[str] = []
     for start in range(0, len(texts), batch_size):
         results.extend(
