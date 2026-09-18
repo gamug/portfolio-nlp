@@ -1284,6 +1284,96 @@ confidence threshold, `c_summary`'s generation length) — disclosed above,
 a possible future v2 extension, not this one; re-litigating any Work
 item 1-10 model/data/architecture decision.
 
+## Work item 12 — Bring `tests/` under the mypy gate (priority — next, ahead of Work item 11's T-098)
+
+**Why**: `.code_quality/mypy.ini`'s `files = src, apps, cli` has always
+excluded `tests/` from the project's own documented mypy command. That let
+a real, systemic annotation-drift bug go undetected: `tests/news_nlp/
+conftest.py`'s `conn`/`two_tier_conn` fixtures (and its
+`write_stage_predictions`/`seed_article` helpers) are typed
+`sqlite3.Connection`, but at runtime they actually construct and return
+`NewsNlpDatabase` (`db_module.connect()`/`connect_pipeline()`).
+`NewsNlpDatabase` (`src/news_nlp/db.py`) subclasses `portfolio_common.db.
+TwoTierDatabase` → `Database`, which wraps a `sqlite3.Connection` **by
+composition, not subclassing** (`portfolio_common/db/engine.py`) — so the
+two types are genuinely unrelated to mypy, even though `Database` proxies
+`execute`/`executemany`/`executescript`/`commit` with matching signatures
+(exactly why passing the "wrong" type has always worked fine at runtime).
+~18 test files then copied the fixtures' wrong annotation into their own
+test function signatures, producing 208 `arg-type` (and a handful of
+unrelated) errors the moment `tests/` enters mypy's scope — surfaced
+directly (2026-09-18) while landing T-097, running mypy with an explicit
+path argument to double-check a docstring claim rather than the project's
+own no-argument command. No behavioral divergence anywhere — every
+affected value genuinely is a `NewsNlpDatabase` at runtime; this is a pure
+type-hint precision gap, confirmed by re-running the exact same suite
+unmodified (`git stash`) and getting the identical 208-error count on
+`master`.
+
+**Approach**, four parts:
+
+1. **Fix the root cause in `conftest.py`.** Retype the `conn`/
+   `two_tier_conn` fixtures and the `write_stage_predictions`/
+   `seed_article` helpers from `sqlite3.Connection` to
+   `news_nlp.NewsNlpDatabase`, matching what `db_module.connect()`/
+   `connect_pipeline()` genuinely return. Zero behavior change — corrects
+   the declared type to match the real runtime type.
+2. **Cascade the fix.** Every test function across the ~18 affected files
+   (`test_corrections.py`, `test_correction_endpoints.py`,
+   `test_category_pipeline.py`, `test_summary_pipeline.py`,
+   `test_ner_pipeline.py`, `test_sentiment_pipeline.py`,
+   `test_sector_summary.py`, `test_queries.py`, `test_schema.py`,
+   `test_db.py`, `test_eval_store.py`, `test_eval_sampling.py`,
+   `test_eval_candidate.py`, `test_query_endpoints.py`,
+   `test_pipeline_progress.py`, `test_fti_base.py`) that copied
+   `conn: sqlite3.Connection` from the fixture retypes it to
+   `NewsNlpDatabase` — mechanical, the same edit repeated per file.
+3. **Fix the handful of unrelated errors `tests/` entering scope also
+   surfaces**, so the whole directory is genuinely clean, not just the
+   Connection/NewsNlpDatabase class: `test_eval_candidate.py`'s deliberate
+   `revision=None` call (the test only exercises
+   `candidate_scored_connection`'s earlier `stage`-validation rejection,
+   before `revision` — a required `str` — is ever used; swap the `None`
+   for a placeholder string instead of loosening the function's own real
+   contract); `test_fti_base.py`'s remaining non-Connection issues (raw,
+   unparameterized `Feature()`/`Trainer()` calls inferring `Never` for the
+   two "raises NotImplementedError" tests, a `no-any-return`, a private
+   `_rows` attribute read off a test double — each needs its own small,
+   judgment-call fix, not a mechanical retype); `test_eval_tracking.py`'s 3
+   mlflow `list[Run] | Any`/`Experiment | None` union-narrowing spots.
+4. **Widen `.code_quality/mypy.ini`'s `files`** from `src, apps, cli` to
+   `src, apps, cli, tests` — the change that actually closes the gap for
+   good, since steps 1-3 alone would leave this free to silently regrow
+   exactly as it did here. Deliberately does **not** include `scripts/`:
+   those are one-shot, historical, already-completed scripts (`CLAUDE.md`'s
+   own `scripts/` convention — "recover from git history if another bulk
+   backfill is ever needed") that this project doesn't hold to an ongoing
+   quality bar; `scripts/mine_idiom_sentences_2026_09_13.py`'s own 2
+   unrelated pre-existing errors are named here as a deliberate, disclosed
+   exception, not silently left out.
+
+**Acceptance criteria**:
+
+- `uv run mypy --config-file=.code_quality/mypy.ini` — the project's own
+  documented command, no path argument — reports zero errors with `tests`
+  now in `mypy.ini`'s `files` list.
+- `uv run pytest` stays green throughout with zero assertion changes —
+  every fix in this work item is a type annotation or a one-line
+  test-argument correction, never a behavioral change.
+- `scripts/` stays outside mypy's scope, `scripts/
+  mine_idiom_sentences_2026_09_13.py`'s 2 pre-existing errors named in
+  `TASKS.md`/`SPEC.md` as a disclosed, deliberate exception rather than
+  silently left unaddressed.
+- `git stash`-verified before/after: the exact same 208-error count
+  reproduces on an unmodified checkout, confirming nothing here was newly
+  introduced by T-097 or any other recent change.
+
+**Out of scope**: any change to `NewsNlpDatabase`'s or `Database`'s own
+class hierarchy (e.g. making one a real `Connection` subclass, or
+introducing a `Protocol`) — the annotations were simply wrong, not the
+design; `scripts/`'s own mypy errors (disclosed, not fixed here — see
+Approach step 4).
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -1333,18 +1423,29 @@ other, and independent of one another except where noted:
   → schema split → reuse mechanism → confusion matrix/ROC), followed by a
   direct follow-up (MLflow `experiment`-awareness) closing the two gaps
   that work item's own docs disclosed.
-- **Work item 11 (JSON-driven, single-command experiment runs) is this
-  plan's new top priority**, unblocked today and independent of every
-  other work item's own outcome — same shape as Work item 10 before it:
-  restructures *how* an experiment is run and recorded, not *what* any
-  stage's already-decided model/data choices are (Work items 1-10 stay
-  untouched). Internally sequential: the `stratified_split()`
-  parameterization (step 2) and the `NoOpTrainer` wiring (step 4) are
-  small, independent prerequisites; the `ExperimentSpec` schema (step 1)
-  must land before the orchestration function/CLI (step 3), which itself
-  must exist before the historical-experiment JSON backfill (step 5) can
-  be verified by actually running them. Supersedes Work item 8 as "next
+- **Work item 11 (JSON-driven, single-command experiment runs)** —
+  unblocked and independent of every other work item's own outcome — same
+  shape as Work item 10 before it: restructures *how* an experiment is run
+  and recorded, not *what* any stage's already-decided model/data choices
+  are (Work items 1-10 stay untouched). Internally sequential: the
+  `stratified_split()` parameterization (step 2, T-096) and the
+  `NoOpTrainer` wiring (step 4, T-097) were small, independent
+  prerequisites and are **both done** (2026-09-18); the `ExperimentSpec`
+  schema (step 1, T-098) must land before the orchestration function/CLI
+  (step 3), which itself must exist before the historical-experiment JSON
+  backfill (step 5) can be verified by actually running them — **T-098 is
+  paused, pending Work item 12's close.** Supersedes Work item 8 as "next
   up" in priority ordering, again; Work item 8 stays a valid, scoped,
   pending item, just no longer first in line.
+- **Work item 12 (bring `tests/` under the mypy gate) is this plan's new
+  top priority, next, ahead of Work item 11's T-098** — surfaced directly
+  (2026-09-18) while landing Work item 11's T-097, independent of every
+  other work item's own outcome (a test-suite type-hygiene fix, not a
+  pipeline/eval behavioral change). Internally sequential: fix the
+  `conftest.py` root cause (step 1) before cascading it through the ~18
+  affected test files (step 2); the small disclosed unrelated fixes (step
+  3) and widening `mypy.ini`'s scope (step 4) can each land once steps 1-2
+  are in, and step 4 should land last so the gate only tightens once
+  everything it would flag is already clean.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

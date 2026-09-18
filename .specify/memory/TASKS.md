@@ -1032,6 +1032,72 @@ for everything before it — not independent efforts.
       Thesis + Portfolio NLP, reconcile only, never rename), same closing
       pass T-095 did for Work item 10.
 
+## Work item 12 — Bring `tests/` under the mypy gate (priority, next — ahead of Work item 11's T-098)
+
+`PLAN.md` Work item 12 / `SPEC.md` NR-007, §13 item 17. Surfaced directly
+(2026-09-18) landing T-097: running mypy with an explicit path argument
+(overriding `.code_quality/mypy.ini`'s own `files = src, apps, cli` scope,
+purely to sanity-check a docstring claim) turned up 208 pre-existing
+errors in `tests/`, `git stash`-confirmed unrelated to T-097. Root cause is
+one systemic type-annotation bug, not 19 independent ones:
+`tests/news_nlp/conftest.py`'s `conn`/`two_tier_conn` fixtures (and its
+`write_stage_predictions`/`seed_article` helpers) are typed
+`sqlite3.Connection` but actually construct and return `NewsNlpDatabase`
+(`db_module.connect()`/`connect_pipeline()`) — a composition wrapper
+around a `sqlite3.Connection`, not a subclass of it — and ~18 test files
+copied that wrong annotation into their own test function signatures. Pure
+type-hint precision gap, zero behavioral divergence. Four parts, mostly
+sequential: T-104 (the `conftest.py` root-cause fix) must land before
+T-105 (cascading it through the affected test files); T-106 (the small
+disclosed unrelated fixes) and T-107 (widening `mypy.ini`'s scope) can
+each follow once T-104/T-105 are in, with T-107 landing last so the gate
+only tightens once everything it would flag is already clean; T-108
+verifies the whole thing end to end.
+
+- [ ] **T-104** Retype `tests/news_nlp/conftest.py`'s `conn`/
+      `two_tier_conn` fixtures and its `write_stage_predictions`/
+      `seed_article` helpers from `sqlite3.Connection` to
+      `news_nlp.NewsNlpDatabase`, matching what `db_module.connect()`/
+      `connect_pipeline()` genuinely return. Zero behavior change — a
+      declared-type correction only. → `PLAN.md` Work item 12, step 1.
+- [ ] **T-105** Cascade that corrected annotation into every test function
+      across the ~18 affected files (`test_corrections.py`,
+      `test_correction_endpoints.py`, `test_category_pipeline.py`,
+      `test_summary_pipeline.py`, `test_ner_pipeline.py`,
+      `test_sentiment_pipeline.py`, `test_sector_summary.py`,
+      `test_queries.py`, `test_schema.py`, `test_db.py`,
+      `test_eval_store.py`, `test_eval_sampling.py`,
+      `test_eval_candidate.py`, `test_query_endpoints.py`,
+      `test_pipeline_progress.py`, `test_fti_base.py`) that copied
+      `conn: sqlite3.Connection` from the fixture — mechanical, the same
+      edit repeated per file. → step 2.
+- [ ] **T-106** Fix the small number of genuinely unrelated errors `tests/`
+      entering scope also surfaces, each its own small, disclosed fix, not
+      a mechanical retype: `test_eval_candidate.py`'s deliberate
+      `revision=None` call (swap for a placeholder string —
+      `candidate_scored_connection`'s `revision` is a required `str`, and
+      this test only exercises the earlier `stage`-validation rejection
+      that never reaches it); `test_fti_base.py`'s remaining
+      non-Connection issues (`Never`-typed raw `Feature()`/`Trainer()`
+      calls in the two "raises NotImplementedError" tests, a
+      `no-any-return`, a private `_rows` attribute read off a test
+      double); `test_eval_tracking.py`'s 3 mlflow `list[Run] | Any`/
+      `Experiment | None` union-narrowing spots. → step 3.
+- [ ] **T-107** Widen `.code_quality/mypy.ini`'s `files` from
+      `src, apps, cli` to `src, apps, cli, tests` — the change that
+      actually closes the gap for good. Deliberately excludes `scripts/`
+      (one-shot historical scripts, `CLAUDE.md`'s own `scripts/`
+      convention) — document `scripts/mine_idiom_sentences_2026_09_13.py`'s
+      2 unrelated pre-existing errors here as a disclosed, deliberate
+      exception, not silently left out. → step 4.
+- [ ] **T-108** Verify: `uv run mypy --config-file=.code_quality/mypy.ini`
+      (no path argument, the project's own documented command) reports
+      zero errors under the widened scope; `uv run pytest` stays green
+      throughout with zero assertion changes; `git stash`-verify the
+      pre-fix state still reproduces the identical 208-error count (no
+      surprise regressions folded in). Update `SPEC.md` §13 item 17 to
+      resolved. → `PLAN.md` Work item 12 acceptance criteria.
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -1087,21 +1153,44 @@ column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
 `GET /eval/latest` group by `(stage, experiment)`.
 
 **Work item 11** (JSON-driven, single-command experiment runs,
-T-096–T-103) is **top priority, in progress (2026-09-18)**. Surfaced
-directly while walking through the full historical sentiment-candidate
-command sequence (Work item 9) one command at a time: no single place
-declares an experiment's full configuration before it runs, and several
-of the existing one-off scripts mutate shared DB tables in place, needing
-a manual restore step afterward. Five parts, mostly sequential:
-T-096/T-097 (small, independent prerequisites — parameterizing the
-training split, wiring a real `NoOpTrainer` into category/`c_summary`)
+T-096–T-103) is **in progress (2026-09-18), T-098 paused pending Work item
+12**. Surfaced directly while walking through the full historical
+sentiment-candidate command sequence (Work item 9) one command at a time:
+no single place declares an experiment's full configuration before it
+runs, and several of the existing one-off scripts mutate shared DB tables
+in place, needing a manual restore step afterward. Five parts, mostly
+sequential: T-096/T-097 (small, independent prerequisites — parameterizing
+the training split, wiring a real `NoOpTrainer` into category/`c_summary`)
 are **both done** — T-096 (`stratified_split`/`SentimentTrainConfig`
 config-driven) and T-097 (`CategoryTrainer`/`SummaryTrainer`) landed as
-two separate PRs. T-098 (the `ExperimentSpec` schema) is next — it must
-land before T-099/T-100 (the orchestration function and the one CLI
-command); T-101 (backfilling a JSON spec for every real historical
-experiment) is the acceptance proof that T-098-T-100 actually work, not
-just exist. Supersedes Work item 8 as "next up" in priority — Work item 8
-(per-model selection justification in the artifact, T-064–T-069) stays a
-valid, scoped, pending item, just no longer first in line, same as when
-Work item 10 first superseded it.
+two separate PRs. T-098 (the `ExperimentSpec` schema) is next once Work
+item 12 closes — it must land before T-099/T-100 (the orchestration
+function and the one CLI command); T-101 (backfilling a JSON spec for
+every real historical experiment) is the acceptance proof that T-098-T-100
+actually work, not just exist. Supersedes Work item 8 as "next up" in
+priority — Work item 8 (per-model selection justification in the
+artifact, T-064–T-069) stays a valid, scoped, pending item, just no longer
+first in line, same as when Work item 10 first superseded it.
+
+**Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
+**new, top priority, next — ahead of Work item 11's T-098 (2026-09-18)** —
+filed, nothing implemented yet. Surfaced directly while closing out T-097
+(PR #77): running `uv run mypy --config-file=.code_quality/mypy.ini .`
+with an explicit path argument (overriding `mypy.ini`'s own
+`files = src, apps, cli` scope, purely to sanity-check a docstring claim
+rather than using the project's documented no-argument command) turned up
+208 pre-existing errors in `tests/`, confirmed unrelated to T-097 via
+`git stash` (identical count on `master`). Root-caused (read-only
+investigation, same session) to one systemic type-annotation bug, not 19
+independent ones: `tests/news_nlp/conftest.py`'s `conn`/`two_tier_conn`
+fixtures (and `write_stage_predictions`/`seed_article`) are typed
+`sqlite3.Connection` but actually construct and return `NewsNlpDatabase`
+(a composition wrapper around a `sqlite3.Connection`, not a subclass of
+it) — ~18 test files copied that wrong annotation into their own test
+function signatures. Zero behavioral divergence — a pure type-hint
+precision gap. Four parts, mostly sequential: T-104 (the `conftest.py`
+root-cause fix) before T-105 (cascading it); T-106 (the small disclosed
+unrelated fixes) and T-107 (widening `mypy.ini`'s scope, landing last)
+follow; T-108 verifies end to end. User decision (2026-09-18): this jumps
+ahead of Work item 11's own T-098 rather than being queued alongside it —
+Work item 11's T-096/T-097 already landed and are unaffected.
