@@ -30,6 +30,58 @@ def _item(
     )
 
 
+def _ner_error_only_fixture() -> tuple[list[EvalItem], list[NerVerdict]]:
+    """Shared by ``test_ner_error_only_contract_prf`` and
+    ``test_aggregate_ner_metric_key_set_is_unchanged`` (TASKS.md T-094) --
+    a real, code-level fixture reuse (not just matching literal data), so
+    a future change to this scenario can't silently desync the two tests."""
+    items = [
+        _item(
+            1,
+            "random",
+            {
+                "entities": [
+                    {"entity_type": "ORG", "text": "Acme"},
+                    {"entity_type": "ORG", "text": "the"},
+                    {"entity_type": "PER", "text": "Bob"},
+                ]
+            },
+        ),
+        _item(
+            2,
+            "random",
+            {
+                "entities": [
+                    {"entity_type": "PER", "text": "Sue"},
+                    {"entity_type": "ORG", "text": "IBM"},
+                ]
+            },
+        ),
+    ]
+    verdicts = [
+        NerVerdict(
+            wrong=[EntityRef(text="the", entity_type="ORG")],
+            missed=[EntityRef(text="Berlin", entity_type="LOC")],
+        ),
+        NerVerdict(wrong=[], missed=[]),
+    ]
+    return items, verdicts
+
+
+def _c_summary_fixture() -> tuple[list[EvalItem], list[SummaryVerdict]]:
+    """Shared by ``test_c_summary_scales_and_hallucination_flag`` and
+    ``test_aggregate_c_summary_metric_key_set_is_unchanged`` (TASKS.md
+    T-094) -- see ``_ner_error_only_fixture``."""
+    items = [_item(1, "low_conf", {}), _item(2, "representative", {})]
+    verdicts = [
+        SummaryVerdict(
+            faithfulness=2, coverage=3, conciseness=4, hallucinations=["made up a number"]
+        ),
+        SummaryVerdict(faithfulness=5, coverage=5, conciseness=5, hallucinations=[]),
+    ]
+    return items, verdicts
+
+
 def test_sentiment_per_class_f1_ht_and_naive_pooled() -> None:
     """Uses a single non-excluded bucket ("representative") so the
     HT-weighted per-class metrics reduce to the plain pooled numbers -- see
@@ -320,36 +372,7 @@ def test_category_per_slug_precision_recall_and_ovr_accuracy() -> None:
 
 
 def test_ner_error_only_contract_prf() -> None:
-    items = [
-        _item(
-            1,
-            "random",
-            {
-                "entities": [
-                    {"entity_type": "ORG", "text": "Acme"},
-                    {"entity_type": "ORG", "text": "the"},
-                    {"entity_type": "PER", "text": "Bob"},
-                ]
-            },
-        ),
-        _item(
-            2,
-            "random",
-            {
-                "entities": [
-                    {"entity_type": "PER", "text": "Sue"},
-                    {"entity_type": "ORG", "text": "IBM"},
-                ]
-            },
-        ),
-    ]
-    verdicts = [
-        NerVerdict(
-            wrong=[EntityRef(text="the", entity_type="ORG")],
-            missed=[EntityRef(text="Berlin", entity_type="LOC")],
-        ),
-        NerVerdict(wrong=[], missed=[]),
-    ]
+    items, verdicts = _ner_error_only_fixture()
     out = metrics.aggregate_ner(items, verdicts)
     # predicted 5, wrong 1 -> tp=4 fp=1 fn=1
     assert out["micro_precision"] == pytest.approx(0.8)
@@ -370,13 +393,7 @@ def test_c_summary_scales_and_hallucination_flag() -> None:
     low_conf -- single non-excluded bucket ("representative", 1 item) reduces
     to that item's own value; *_naive_pooled preserves the old combined
     numbers. Per-bucket mean_faithfulness_<bucket> is unaffected either way."""
-    items = [_item(1, "low_conf", {}), _item(2, "representative", {})]
-    verdicts = [
-        SummaryVerdict(
-            faithfulness=2, coverage=3, conciseness=4, hallucinations=["made up a number"]
-        ),
-        SummaryVerdict(faithfulness=5, coverage=5, conciseness=5, hallucinations=[]),
-    ]
+    items, verdicts = _c_summary_fixture()
     out = metrics.aggregate_c_summary(items, verdicts)
     assert out["mean_faithfulness"] == 5.0
     assert out["mean_faithfulness_naive_pooled"] == 3.5
@@ -649,6 +666,59 @@ def test_category_roc_auc_uses_raw_distribution_score() -> None:
     assert out["roc_auc_earnings_performance"] == 1.0
     # article 2's own mergers_acquisitions score (0.85) beats article 1's filler (0.02)
     assert out["roc_auc_mergers_acquisitions"] == 1.0
+
+
+def test_aggregate_ner_metric_key_set_is_unchanged() -> None:
+    """TASKS.md T-094: confusion-matrix (T-092) / ROC-AUC (T-093) additions
+    are sentiment/category only (SPEC.md FR-016) -- this is what actually
+    enforces that ner's metric shape stays untouched, not just a claim in a
+    docstring/task note. Shares ``_ner_error_only_fixture`` with
+    ``test_ner_error_only_contract_prf`` -- a real, code-level reuse, not
+    just matching literal data -- so the dynamic f1_<etype> keys
+    (ORG/PER/LOC) are deterministic and can't silently drift out of sync."""
+    items, verdicts = _ner_error_only_fixture()
+    out = metrics.aggregate_ner(items, verdicts)
+    assert set(out) == {
+        "n",
+        "parse_fail_rate",
+        "micro_precision",
+        "micro_recall",
+        "micro_f1",
+        "macro_f1",
+        "hallucination_rate",
+        "miss_rate",
+        "mean_entities_per_article",
+        "f1_ORG",
+        "f1_PER",
+        "f1_LOC",
+    }
+
+
+def test_aggregate_c_summary_metric_key_set_is_unchanged() -> None:
+    """TASKS.md T-094 -- see test_aggregate_ner_metric_key_set_is_unchanged.
+    Shares ``_c_summary_fixture`` with
+    ``test_c_summary_scales_and_hallucination_flag`` -- so the dynamic
+    mean_faithfulness_<bucket>/mean_coverage_<bucket> keys
+    (low_conf/representative) are deterministic and can't silently drift
+    out of sync."""
+    items, verdicts = _c_summary_fixture()
+    out = metrics.aggregate_c_summary(items, verdicts)
+    assert set(out) == {
+        "n",
+        "parse_fail_rate",
+        "mean_faithfulness",
+        "mean_faithfulness_naive_pooled",
+        "mean_coverage",
+        "mean_coverage_naive_pooled",
+        "mean_conciseness",
+        "mean_conciseness_naive_pooled",
+        "pct_with_hallucination",
+        "pct_with_hallucination_naive_pooled",
+        "mean_faithfulness_low_conf",
+        "mean_faithfulness_representative",
+        "mean_coverage_low_conf",
+        "mean_coverage_representative",
+    }
 
 
 def test_category_roc_auc_never_includes_other() -> None:
