@@ -44,11 +44,20 @@ designed, FR-011) -- `CategoryTrainer`/`SummaryTrainer` are trivial
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from fti import TrainConfig
+from fti import NoOpTrainer, TrainConfig, Trainer
+from news_nlp.eval.config import EvalSettings
+from news_nlp.eval.provenance import code_version
+from news_nlp.eval.runner import run_eval
+
+#: Where `run_experiment` writes its git-tracked result records (TASKS.md
+#: T-099) -- `experiments/`'s own JSON-spec siblings (TASKS.md T-101) live
+#: one directory up, at `experiments/`.
+RESULTS_DIR = Path("experiments/results")
 
 #: The four ML stages this schema covers -- `sector_summary` deliberately
 #: excluded (see module docstring).
@@ -86,6 +95,24 @@ def _train_config_class(stage: Stage) -> type[TrainConfig]:
     # is the honest answer for "no fields" rather than a stage-specific
     # empty subclass neither category_stage.py nor summary_stage.py define.
     return TrainConfig
+
+
+def _trainer_class(stage: Stage) -> type[Trainer[Any]]:
+    """This stage's real `Trainer` subclass, mirroring
+    `_train_config_class` (same lazy-import reasoning). category/
+    `c_summary` structurally can never reach `run_experiment`'s training
+    step (`ExperimentSpec`'s own validator rejects `pretrain.enabled` for
+    both) -- `NoOpTrainer` is still the correct, symmetrical answer here,
+    same as `_train_config_class`'s bare `TrainConfig`."""
+    if stage == "sentiment":
+        from train_sentiment import SentimentTrainer  # noqa: PLC0415
+
+        return SentimentTrainer
+    if stage == "ner":
+        from train_ner import NerTrainer  # noqa: PLC0415
+
+        return NerTrainer
+    return NoOpTrainer
 
 
 def _allowed_hyperparameter_keys(stage: Stage) -> frozenset[str]:
@@ -205,3 +232,115 @@ class ExperimentSpec(_StrictModel):
                 raise ValueError("publish.repo_id is required when publish.enabled is true")
 
         return self
+
+
+class ExperimentResult(BaseModel):
+    """What one `run_experiment` call produced: the resolved spec it ran
+    (so the result file is self-describing, not just a bag of metrics),
+    this checkout's `code_version`, the training step's own
+    `TrainedArtifact` fields (`None`/`None` for an eval-only spec), and
+    `run_eval`'s own returned dict verbatim. `result_path` is where this
+    object itself got written -- the same path a caller could re-read it
+    from."""
+
+    spec: ExperimentSpec
+    code_version: str
+    train_output_dir: str | None
+    train_metrics: dict[str, Any] | None
+    eval_results: dict[str, dict[str, Any]]
+    result_path: str
+
+
+def run_experiment(
+    spec: ExperimentSpec,
+    *,
+    source_db: str | None = None,
+    results_db: str | None = None,
+) -> ExperimentResult:
+    """Run one experiment end to end (PLAN.md Work item 11 steps 1/3,
+    TASKS.md T-099): train a new checkpoint if `spec.pretrain.enabled`,
+    evaluate it (or, for an eval-only spec, whatever `spec.eval` already
+    names) via `news_nlp.eval.runner.run_eval` -- reused verbatim, not
+    reimplemented -- then write a git-tracked
+    `experiments/results/<spec.name>.result.json`.
+
+    On success after training, `candidate_model`/`candidate_revision`
+    auto-resolve to the fresh local checkpoint (`revision="local"`, the
+    established convention
+    `scripts/resample_sentiment_v4_2026_09_15.py` already set --
+    `from_pretrained` ignores `revision` entirely for a local directory
+    path) -- `ExperimentSpec`'s own validator already guarantees
+    `spec.eval.candidate_model`/`candidate_revision` are unset whenever
+    `spec.pretrain.enabled`, so there is no ambiguity to resolve between a
+    user-supplied value and this one.
+
+    Publishing (`spec.publish.enabled`) is recorded in the resolved
+    `spec` this function writes out, but never executed here -- a Hub push
+    keeps the same explicit, separate confirmation any of the existing
+    `scripts/publish_*.py` scripts already require (TASKS.md T-073's own
+    still-pending status is the live proof that gate isn't bypassed); this
+    task does not change it.
+
+    `check_regression=True` reuses `run_eval`'s own existing behavior
+    verbatim, including its `SystemExit(1)` on a regression past
+    tolerance (the same behavior `cli/news_nlp_eval.py` already has for
+    this flag, uncaught) -- deliberately not wrapped in a
+    try/except here, so no result file is written for a run that
+    regressed past tolerance. A future CLI (TASKS.md T-100) decides
+    what to do with that; this function doesn't paper over it.
+    """
+    train_output_dir: str | None = None
+    train_metrics: dict[str, Any] | None = None
+    candidate_model = spec.eval.candidate_model
+    candidate_revision = spec.eval.candidate_revision
+
+    if spec.pretrain.enabled:
+        config_cls = _train_config_class(spec.stage)
+        trainer_cls = _trainer_class(spec.stage)
+        config_kwargs: dict[str, Any] = {"base_model": spec.pretrain.base_model}
+        if spec.pretrain.split.split_seed is not None:
+            config_kwargs["split_seed"] = spec.pretrain.split.split_seed
+        if spec.pretrain.split.test_frac is not None:
+            config_kwargs["test_frac"] = spec.pretrain.split.test_frac
+        if spec.pretrain.split.val_frac is not None:
+            config_kwargs["val_frac"] = spec.pretrain.split.val_frac
+        config_kwargs.update(spec.pretrain.hyperparameters)
+        config = config_cls(**config_kwargs)
+
+        artifact = trainer_cls().train(config)
+        train_output_dir = artifact.output_dir
+        train_metrics = artifact.metrics
+        candidate_model = train_output_dir
+        candidate_revision = "local"
+
+    settings = EvalSettings.load(
+        sample_size=spec.eval.sample_size,
+        low_conf_frac=spec.eval.low_conf_frac,
+        target_frac=spec.eval.target_frac,
+        seed=spec.eval.seed,
+        max_workers=spec.eval.max_workers,
+        run_name=spec.eval.run_name or spec.name,
+        candidate_model=candidate_model,
+        candidate_revision=candidate_revision,
+        candidate_prescore_size=spec.eval.candidate_prescore_size,
+    )
+    eval_results = run_eval(
+        [spec.stage],
+        settings=settings,
+        source_db=source_db,
+        results_db=results_db,
+        check_regression=spec.eval.check_regression,
+        regression_tolerance=spec.eval.regression_tolerance,
+    )
+
+    result = ExperimentResult(
+        spec=spec,
+        code_version=code_version(),
+        train_output_dir=train_output_dir,
+        train_metrics=train_metrics,
+        eval_results=eval_results,
+        result_path=str(RESULTS_DIR / f"{spec.name}.result.json"),
+    )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    Path(result.result_path).write_text(result.model_dump_json(indent=2) + "\n")
+    return result
