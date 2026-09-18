@@ -880,12 +880,24 @@ efforts.
       perfect-separation/tied-score/HT-vs-naive/`"other"`-exclusion cases
       through the public aggregators, 2 in `test_eval_runner.py`), ruff,
       mypy all green.
-- [ ] **T-094** Regression test locking `aggregate_ner`/
+- [x] **T-094** Regression test locking `aggregate_ner`/
       `aggregate_c_summary`'s returned metric key sets as byte-identical to
       their pre-this-work-item shape — confusion-matrix/ROC treatment is
       sentiment/category only, and this test is what actually enforces
       that boundary rather than just stating it. → step 6 / FR-016 /
-      acceptance criteria.
+      acceptance criteria. Done 2026-09-18: neither T-092 nor T-093 touched
+      `aggregate_ner`/`aggregate_c_summary` at all, so this was purely
+      additive — two new tests
+      (`test_aggregate_ner_metric_key_set_is_unchanged`,
+      `test_aggregate_c_summary_metric_key_set_is_unchanged`) asserting
+      `set(out)` against an explicit, hand-enumerated, hardcoded key set
+      (not derived from the function's own output, which would be
+      tautological and could never catch a regression), reusing this
+      file's existing `test_ner_error_only_contract_prf`/
+      `test_c_summary_scales_and_hallucination_flag` fixtures so the
+      dynamic `f1_<etype>`/`mean_faithfulness_<bucket>`/
+      `mean_coverage_<bucket>` keys are deterministic. No production code
+      changes. 266 tests (264 + 2 new), ruff, mypy all green.
 - [ ] **T-095** Update `docs/evaluation.md` (methodology section),
       `docs/modules/news-nlp.md`, `docs/db-topology.md` (new tables), and
       reconcile the two architecture artifacts (constitution AI behavior
