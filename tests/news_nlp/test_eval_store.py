@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import news_nlp as db_module
-from news_nlp.eval.store import create_eval_run, finish_eval_run, record_inference, record_verdict
+from news_nlp.eval.store import (
+    create_eval_run,
+    find_verdict_json,
+    finish_eval_run,
+    record_inference,
+    record_verdict,
+)
 
 
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
@@ -151,3 +157,51 @@ def test_latest_eval_runs_picks_newest_per_stage(conn: db_module.NewsNlpDatabase
     assert by_stage["category"]["mlflow_run_id"] == "new"
     assert by_stage["category"]["metrics"]["accuracy_vs_judge"] == 0.7
     assert by_stage["ner"]["status"] == "running"
+
+
+def test_find_verdict_json_returns_the_matching_key_only(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    run_id = create_eval_run(
+        conn,
+        stage="sentiment",
+        sample_size=1,
+        low_conf_n=0,
+        random_n=1,
+        seed=None,
+        judge_model="m",
+        judge_url="u",
+        code_version="v",
+    )
+    conn.commit()
+    inference_id = record_inference(
+        conn,
+        run_id,
+        article_id=1,
+        task="sentiment",
+        experiment="base",
+        bucket="representative",
+        prediction={"label": "positive", "score": 0.9},
+    )
+    record_verdict(
+        conn,
+        inference_id,
+        run_id,
+        article_id=1,
+        task="sentiment",
+        experiment="base",
+        verdict={"agrees": True, "ideal_label": "positive", "severity": 0},
+        correct=True,
+        severity=0,
+        rationale="ok",
+    )
+    conn.commit()
+
+    found = find_verdict_json(conn, article_id=1, task="sentiment", experiment="base")
+    assert found is not None
+    assert '"ideal_label": "positive"' in found
+
+    # A different article_id, task, or experiment must not match.
+    assert find_verdict_json(conn, article_id=2, task="sentiment", experiment="base") is None
+    assert find_verdict_json(conn, article_id=1, task="category", experiment="base") is None
+    assert find_verdict_json(conn, article_id=1, task="sentiment", experiment="v2") is None
