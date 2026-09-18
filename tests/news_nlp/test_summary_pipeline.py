@@ -8,6 +8,7 @@ from conftest import seed_article
 import news_nlp as db
 import pipeline
 import summary_stage
+from news_nlp.sector_summary import SECTOR_INTRO_METHOD
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
 
@@ -287,7 +288,8 @@ class FakeModel:
 # --- run_sector_summary_stage ------------------------------------------
 #
 # intro_text is now build_sector_intro_seed's own deterministic output
-# (2026-09-14 fix, see pipeline.SECTOR_INTRO_METHOD's comment) -- no
+# (2026-09-14 fix, see news_nlp.sector_summary.stage.SECTOR_INTRO_METHOD's
+# comment) -- no
 # model load, no GPU, ever, for this stage. These tests assert exactly
 # that: AutoTokenizer/AutoModelForSeq2SeqLM.from_pretrained must never be
 # called, whether or not there's work pending.
@@ -328,7 +330,7 @@ def test_run_sector_summary_stage_writes_one_summary_per_group(
     assert len(results) == 1
     assert results[0]["num_articles"] == 1
     assert results[0]["num_companies"] == 1
-    assert results[0]["model_name"] == pipeline.SECTOR_INTRO_METHOD
+    assert results[0]["model_name"] == SECTOR_INTRO_METHOD
     assert "3M did well this week." in results[0]["summary_text"]  # company bullet still present
     # intro_text is exactly build_sector_intro_seed's own output (through
     # clean_generated_text) -- deterministic, never a model paraphrase of

@@ -22,11 +22,11 @@ from pathlib import Path
 
 import torch
 from dotenv import load_dotenv
-from tqdm import tqdm
 
 import news_nlp as db
 from category_stage import CategoryFeature, CategoryInference
 from ner_stage import NerFeature, NerInference
+from news_nlp.sector_summary import run_sector_summary_stage
 from sentiment_stage import SentimentFeature, SentimentInference
 from summary_stage import SummaryFeature, SummaryInference
 
@@ -170,27 +170,6 @@ CATEGORY_BATCH_SIZE = 8
 # one-model-at-a-time VRAM budget -- tune down further if a 6GB card OOMs.
 SUMMARY_BATCH_SIZE = 4
 
-# sector_summary's intro_text used to run its aggregate-stats seed
-# (db.build_sector_intro_seed) through SUMMARY_MODEL via
-# hierarchical_summarize_batch, the same as c_summary. Found 2026-09-14
-# (docs/evaluation.md's follow-up) to hallucinate on ~42-50% of rows --
-# a fabricated source attribution ("...according to CNN.com's weekly
-# Newsquiz") or a self-contradicting repeated percentage -- because a
-# news-article summarizer was being asked to paraphrase a synthetic,
-# templated stats sentence it was never trained on. Confirmed the same
-# day with fresh, fully-corrected sentiment data: the pattern is
-# independent of the underlying numbers, so re-running couldn't have
-# fixed it. build_sector_intro_seed's own output is already a complete,
-# fully-grounded sentence (see its docstring) -- so as of the same fix,
-# intro_text IS that seed, verbatim (through clean_generated_text for
-# whitespace normalization only), never run through a model. Zero
-# hallucination risk by construction, not by mitigation -- the same
-# "structural guarantee over probabilistic mitigation" principle this
-# stage's cross-company-blending design already used. This also means
-# run_sector_summary_stage no longer loads SUMMARY_MODEL or touches the
-# GPU at all.
-SECTOR_INTRO_METHOD = "deterministic-template"
-
 
 def free_gpu() -> None:
     gc.collect()
@@ -320,80 +299,6 @@ def run_company_summary_stage(
         batch_size=SUMMARY_BATCH_SIZE,
     )
     inference.run(conn, limit, on_progress)
-
-
-def run_sector_summary_stage(
-    conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
-) -> None:
-    """No model load, no GPU -- intro_text is now build_sector_intro_seed's
-    own deterministic output, not a model paraphrase of it. See
-    SECTOR_INTRO_METHOD's comment above for why."""
-    groups = db.fetch_pending_sector_weeks(conn, limit=limit)
-    total = len(groups)
-    print(f"\n=== Sector summary stage ({SECTOR_INTRO_METHOD}) ===")
-    print(f"{total} sector/week group(s) pending sector_summary")
-    if on_progress:
-        on_progress("sector_summary", 0, total)
-    if total == 0:
-        return
-
-    idx = 0
-    with tqdm(total=total, desc="sector_summary") as pbar:
-        for group in groups:
-            # A group with nothing to summarize (all its articles excluded,
-            # see fetch_company_summaries_for_sector_week) is skipped, same
-            # as the old per-group `if rows:` guard.
-            group_rows = db.fetch_company_summaries_for_sector_week(
-                conn, group["gics_sector"], group["gics_sub_industry"], group["week_start"]
-            )
-            if group_rows:
-                entity_stats = db.fetch_sector_week_entity_stats(
-                    conn, group["gics_sector"], group["gics_sub_industry"], group["week_start"]
-                )
-                intro_text = db.clean_generated_text(
-                    db.build_sector_intro_seed(
-                        group["gics_sector"],
-                        group["gics_sub_industry"],
-                        group["week_start"],
-                        group["week_end"],
-                        group_rows,
-                    )
-                )
-                summary_text = db.compose_sector_summary(
-                    group["gics_sector"],
-                    group["gics_sub_industry"],
-                    group["week_start"],
-                    group["week_end"],
-                    intro_text,
-                    group_rows,
-                    entity_stats,
-                )
-                facts = db.build_sector_facts(
-                    group["gics_sector"],
-                    group["gics_sub_industry"],
-                    group["week_start"],
-                    group["week_end"],
-                    group_rows,
-                    entity_stats,
-                )
-                db.write_sector_summary(
-                    conn,
-                    group["gics_sector"],
-                    group["gics_sub_industry"],
-                    group["week_start"],
-                    group["week_end"],
-                    summary_text,
-                    num_articles=len(group_rows),
-                    num_companies=len({r["company"] for r in group_rows}),
-                    model_name=SECTOR_INTRO_METHOD,
-                    facts=facts,
-                    intro_text=intro_text,
-                )
-                conn.commit()
-            idx += 1
-            pbar.update(1)
-            if on_progress:
-                on_progress("sector_summary", idx, total)
 
 
 def run_pipeline(

@@ -673,12 +673,29 @@ efforts.
       it for `c_summary`'s sake after each of those stages' own migration
       moved their real usage elsewhere) -- all retargeted to each test's
       own already-migrated stage module. 243 tests, ruff, mypy all green.
-- [ ] **T-087** Move `run_sector_summary_stage` out of `pipeline.py` into
+- [x] **T-087** Move `run_sector_summary_stage` out of `pipeline.py` into
       `news_nlp/sector_summary/`, completing the separation already mostly
       in place (`composition.py`/`queries.py` already live there as of
       2026-09-14) — imports nothing from the FTI base classes.
       `pipeline.run_pipeline`'s call into it stays external-behavior
-      identical. → step 2 / FR-012.
+      identical. → step 2 / FR-012. Done 2026-09-18: new
+      `src/news_nlp/sector_summary/stage.py` holds `run_sector_summary_stage`
+      and `SECTOR_INTRO_METHOD` (moved verbatim, imports nothing from
+      `src/fti.py`), re-exported flat from `news_nlp/sector_summary/
+      __init__.py` alongside `composition.py`/`queries.py`. `pipeline.py`
+      now just imports the function (`from news_nlp.sector_summary import
+      run_sector_summary_stage`) rather than wrapping it -- unlike the four
+      FTI stages, this one has no per-call model/config to read fresh, so
+      a thin-wrapper wasn't needed, only a straight re-export.
+      `pipeline.run_pipeline`'s call site and `test_pipeline_run.py`'s
+      `_stub_out_stages` monkeypatch of `pipeline.run_sector_summary_stage`
+      both keep working unchanged (the imported name still resolves via
+      `pipeline.py`'s own module globals at call time, same mechanism
+      already relied on for the four FTI stages' thin wrappers). One
+      test-only retarget: `test_summary_pipeline.py`'s
+      `pipeline.SECTOR_INTRO_METHOD` reference moved to `news_nlp.
+      sector_summary.SECTOR_INTRO_METHOD` (the constant no longer lives in
+      `pipeline.py` at all). 243 tests, ruff, mypy all green.
 - [ ] **T-088** Full-suite regression check after T-083–T-087: every
       existing hermetic test in `tests/news_nlp/` green, with only
       import-path/construction changes where a test reached into a stage's
