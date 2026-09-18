@@ -103,7 +103,39 @@ def parse_args() -> argparse.Namespace:
         default=0.05,
         help="Allowed headline-metric drop before --check-regression fails (default 0.05).",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--candidate-model",
+        default=None,
+        help="Score this stage with a candidate model/checkpoint (Hub repo id or local "
+        "path) instead of reading the production model's already-stored predictions -- "
+        "via that stage's own FTI Inference subclass, against a throwaway scratch RESULTS "
+        "file that's discarded afterward. Requires exactly one --stage (a candidate swap "
+        "is inherently stage-specific). Replaces the old scripts/resample_sentiment_v* "
+        "scratch-DB-copy workaround.",
+    )
+    parser.add_argument(
+        "--candidate-revision",
+        default=None,
+        help="Required with --candidate-model. Revision/commit SHA for a Hub repo id; any "
+        "placeholder (e.g. 'local') for a local checkpoint path, since from_pretrained "
+        "ignores revision for a local directory entirely.",
+    )
+    parser.add_argument(
+        "--candidate-prescore-size",
+        type=int,
+        default=None,
+        help="How many SOURCE articles to pre-score with --candidate-model before sampling "
+        "from them (default: --sample-size). Larger than --sample-size on purpose, so "
+        "stratification has a real population to draw worst-case/near-miss rows from.",
+    )
+    args = parser.parse_args()
+    if args.candidate_model:
+        stages = args.stages or []
+        if len(stages) != 1 or "all" in stages:
+            parser.error("--candidate-model requires exactly one --stage (not 'all' or several)")
+        if not args.candidate_revision:
+            parser.error("--candidate-model requires --candidate-revision")
+    return args
 
 
 def main() -> None:
@@ -119,6 +151,9 @@ def main() -> None:
         seed=args.seed,
         max_workers=args.max_workers,
         run_name=args.run_name,
+        candidate_model=args.candidate_model,
+        candidate_revision=args.candidate_revision,
+        candidate_prescore_size=args.candidate_prescore_size,
     )
     print(
         f"eval: stages={stages} sample_size={settings.sample_size} "

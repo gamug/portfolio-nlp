@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from tqdm import tqdm
 
 import news_nlp as db
+from news_nlp.eval.candidate import candidate_scored_connection
 from news_nlp.eval.config import EvalSettings
 from news_nlp.eval.judges import JUDGES, load_prompt
 from news_nlp.eval.metrics import HEADLINE, aggregate
@@ -43,18 +44,45 @@ def _run_stage(
     stage: str,
     settings: EvalSettings,
     *,
+    source_db: str,
     want_regression: bool,
     tolerance: float,
 ) -> dict[str, Any]:
     prompt = load_prompt(stage)
-    items = sample_for_stage(
-        conn,
-        stage,
-        size=settings.sample_size,
-        low_conf_frac=settings.low_conf_frac,
-        target_frac=settings.target_frac,
-        seed=settings.seed,
-    )
+    if settings.candidate_model:
+        # Score a fresh sample with the candidate model, via that stage's
+        # own FTI Inference subclass, into a throwaway scratch RESULTS file
+        # -- never the production tables -- then draw the same low_conf/
+        # target_<x>/representative sample from THAT connection instead, so
+        # stratification reflects the candidate's own scores (TASKS.md
+        # T-089, SPEC.md FR-013). The scratch connection only needs to live
+        # long enough to materialize `items` below.
+        assert settings.candidate_revision, "run_eval validates this before calling _run_stage"
+        with candidate_scored_connection(
+            source_db,
+            stage,
+            model_name=settings.candidate_model,
+            revision=settings.candidate_revision,
+            limit=settings.candidate_prescore_size or settings.sample_size,
+            sample_seed=settings.seed,
+        ) as sample_conn:
+            items = sample_for_stage(
+                sample_conn,
+                stage,
+                size=settings.sample_size,
+                low_conf_frac=settings.low_conf_frac,
+                target_frac=settings.target_frac,
+                seed=settings.seed,
+            )
+    else:
+        items = sample_for_stage(
+            conn,
+            stage,
+            size=settings.sample_size,
+            low_conf_frac=settings.low_conf_frac,
+            target_frac=settings.target_frac,
+            seed=settings.seed,
+        )
     bucket_counts = Counter(it.bucket for it in items)
     low_conf_n = bucket_counts.get("low_conf", 0)
     random_n = len(items) - low_conf_n  # sum of every non-low_conf stratum
@@ -188,8 +216,31 @@ def run_eval(
     bad = [s for s in chosen if s not in STAGES]
     if bad:
         raise ValueError(f"unknown stage(s) {bad}; valid: {list(STAGES)}")
+    if settings.candidate_model:
+        if len(chosen) != 1:
+            # A candidate model swap is inherently stage-specific (a
+            # different model architecture per stage) -- silently applying
+            # it to "all" or several stages at once would be a user error,
+            # not a real multi-stage experiment. Mirrors
+            # scripts/resample_sentiment_v*'s own one-stage-at-a-time
+            # precedent.
+            raise ValueError(
+                "candidate_model requires exactly one stage, got "
+                f"{chosen!r} -- pass stages=['<one stage>']"
+            )
+        if not settings.candidate_revision:
+            # candidate_scored_connection requires a real revision (see its
+            # own docstring) -- fail fast here with a clear message rather
+            # than a deep-stack ValueError from inside _run_stage.
+            raise ValueError(
+                "candidate_revision is required when candidate_model is set "
+                "(pass any placeholder for a local checkpoint path)"
+            )
 
     conn = db.connect_pipeline(results_db=results_db, source_db=source_db)
+    # connect_pipeline above already raised if SOURCE isn't configured, so
+    # this resolves to a real path -- same resolution it did internally.
+    resolved_source_db = str(db.source_db_path(source_db))
     db.init_schema(conn)  # idempotent; ensures eval_run / eval_judgement exist
     results: dict[str, dict[str, Any]] = {}
     try:
@@ -198,6 +249,7 @@ def run_eval(
                 conn,
                 stage,
                 settings,
+                source_db=resolved_source_db,
                 want_regression=check_regression,
                 tolerance=regression_tolerance,
             )
