@@ -121,14 +121,24 @@ def make_compute_metrics() -> Callable[[Any], dict[str, float]]:
 
 @dataclass(frozen=True)
 class NerTrainConfig(TrainConfig):
-    """Empty -- train_ner.py takes no CLI flags today."""
+    """`base_model` (added 2026-09-18, TASKS.md T-099, PLAN.md Work item 11)
+    -- previously this class had no fields at all (train_ner.py takes no
+    CLI flags), which left `ExperimentSpec.pretrain.base_model`
+    (SPEC.md FR-017) silently ignored for this stage: `NerTrainer.train`
+    always fine-tuned the hardcoded `MODEL_NAME` regardless of what config
+    it was handed. Default is that same constant, so every existing
+    invocation (including `main()` below) is unchanged unless a caller now
+    explicitly overrides it."""
+
+    base_model: str = MODEL_NAME
 
 
 class NerTrainer(FtiTrainer[NerTrainConfig]):
     def train(self, config: NerTrainConfig) -> TrainedArtifact:
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        base_model = config.base_model
+        tokenizer = AutoTokenizer.from_pretrained(base_model)
         model = AutoModelForTokenClassification.from_pretrained(
-            MODEL_NAME, num_labels=len(LABEL_LIST), id2label=ID2LABEL, label2id=LABEL2ID
+            base_model, num_labels=len(LABEL_LIST), id2label=ID2LABEL, label2id=LABEL2ID
         )
 
         ds = build_dataset()

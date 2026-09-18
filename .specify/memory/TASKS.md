@@ -1013,7 +1013,7 @@ for everything before it — not independent efforts.
       has no pydantic mypy plugin configured, so a plain dict doesn't
       type-check against a nested `BaseModel`-typed field even though
       pydantic itself would coerce it at runtime.
-- [ ] **T-099** Implement `run_experiment(spec, *, source_db=None,
+- [x] **T-099** Implement `run_experiment(spec, *, source_db=None,
       results_db=None) -> ExperimentResult` (`src/experiment.py`): a
       stage→`(TrainConfig, Trainer)` registry (mirrors
       `news_nlp.eval.candidate`'s own `_STAGE_CLASSES` pattern) drives an
@@ -1028,7 +1028,47 @@ for everything before it — not independent efforts.
       push already needs — this task does not change that gate. Writes a
       git-tracked `experiments/results/<name>.result.json` (resolved
       spec + `code_version` + `TrainedArtifact.metrics` + the `run_eval`
-      result dict). → steps 1/3 / SPEC.md FR-017.
+      result dict). → steps 1/3 / SPEC.md FR-017. **Done 2026-09-18** —
+      `_train_config_class`/`_trainer_class` (both lazy-imported, mirroring
+      T-098's own pattern) resolve `(SentimentTrainConfig,
+      SentimentTrainer)`/`(NerTrainConfig, NerTrainer)` for the two
+      trainable stages, `(TrainConfig, NoOpTrainer)` for category/
+      `c_summary` (structurally unreachable there — `ExperimentSpec`'s own
+      validator already rejects `pretrain.enabled` for both — kept for
+      symmetry with T-098's own registry, not because it's ever called).
+      Publishing is recorded in the echoed `spec` but never executed — no
+      new code path added here, matching the task's own scope note.
+      `check_regression=True` reuses `run_eval`'s existing `SystemExit(1)`
+      on a regression past tolerance verbatim, uncaught (same behavior
+      `cli/news_nlp_eval.py` already has for this flag) — deliberately not
+      wrapped in try/except, so no result file is written for a run that
+      regressed past tolerance; disclosed in the function's own docstring,
+      left for T-100's CLI to decide what to do with.
+      Caught and fixed one real, undisclosed-by-T-098's-own-design gap
+      while implementing: `train_ner.NerTrainConfig` had **zero fields**
+      (train_ner.py takes no CLI flags) — meaning `PretrainSpec.base_model`
+      would have been silently ignored for `stage="ner"`, since
+      `NerTrainer.train()` always fine-tuned the hardcoded `MODEL_NAME`
+      regardless of what config it received. Fixed at the source (not
+      worked around in `experiment.py`): `NerTrainConfig` gained a real
+      `base_model: str = MODEL_NAME` field, threaded into both
+      `from_pretrained` calls in `NerTrainer.train()`; default preserves
+      every existing invocation's behavior unchanged. New
+      `tests/news_nlp/test_train_ner.py` (2 tests, config-defaults-only
+      scope, matching `test_train_sentiment.py`'s own precedent — the real
+      GPU fine-tuning path stays untested, as everywhere else in this
+      suite).
+      Hermetic end-to-end tests shipped with the code (T-102's own
+      scope, following T-096/T-098's precedent):
+      `tests/news_nlp/test_experiment_run.py`, 2 tests — an eval-only spec
+      and a `pretrain.enabled=true` spec (stubbed judge per
+      `test_eval_runner.py`'s pattern, a fake `SentimentTrainer.train`, and
+      a fake local-checkpoint model/tokenizer per
+      `test_eval_candidate.py`'s own pattern — `experiment.RESULTS_DIR`
+      monkeypatched to a `tmp_path` so the test suite never writes into the
+      real repo's `experiments/` directory). 303 tests (299 + 4 new: 2 in
+      `test_train_ner.py`, 2 in `test_experiment_run.py`), ruff, mypy
+      clean.
 - [ ] **T-100** `cli/run_experiment.py` — the one command
       (`uv run cli/run_experiment.py --config <path>.json`, optional
       `--results-db`/`--source-db` overrides matching
@@ -1047,7 +1087,7 @@ for everything before it — not independent efforts.
       output-length budget) being inference-time hyperparameters, a
       different axis than this schema — not silently omitted. → step 5 /
       SPEC.md FR-017.
-- [ ] **T-102** Tests: a hermetic end-to-end `run_experiment` test (stub
+- [x] **T-102** Tests: a hermetic end-to-end `run_experiment` test (stub
       judge, no real GPU/LLM — the pattern already established in
       `test_eval_runner.py`) for at least one `pretrain.enabled=true` spec
       and one eval-only spec. (The `stratified_split`/`SentimentTrainConfig`
@@ -1055,7 +1095,13 @@ for everything before it — not independent efforts.
       and `ExperimentSpec` validation — every rejection case T-098 names,
       plus its `extra="forbid"` additions — shipped with T-098; see each
       task's own completion note.) Full hermetic suite stays green
-      throughout.
+      throughout. **Done 2026-09-18** — this task's one remaining named
+      item (the end-to-end `run_experiment` test) shipped with T-099
+      instead of being deferred here, same precedent as the other two;
+      nothing left in this task's own scope. `tests/news_nlp/
+      test_experiment_run.py`'s 2 tests are the acceptance proof — 303
+      tests, full suite green throughout every task in this work item so
+      far.
 - [ ] **T-103** Docs: new `docs/evaluation.md` section covering the
       schema + one-command workflow + the two disclosed gaps;
       `docs/modules/news-nlp.md` gains a pointer. Reconcile the two
@@ -1260,14 +1306,20 @@ done** — `PretrainSpec`/`TrainTestSplitSpec`/`EvalSpec`/`PublishSpec`
 nested under one top-level spec, all five of T-098's own named rejection
 cases enforced plus a stricter `extra="forbid"` on every field (its own
 validation test suite, 20 tests, shipped in the same pass, following
-T-096's precedent). T-099 (the orchestration function) is next — it must
-land before T-100 (the one CLI command); T-101 (backfilling a JSON spec
-for every real historical experiment) is the acceptance proof that
-T-098-T-100 actually work, not just exist. Supersedes Work item 8 as
-"next up" in priority — Work item 8 (per-model selection justification in
-the artifact,
-T-064–T-069) stays a valid, scoped, pending item, just no longer first in
-line, same as when Work item 10 first superseded it.
+T-096's precedent). T-099 (the orchestration function, `run_experiment`)
+is **also done** — trains (when `pretrain.enabled`), auto-resolves the
+candidate model to the fresh local checkpoint, evaluates via `run_eval`
+reused verbatim, and writes a git-tracked result JSON; caught and fixed a
+real gap along the way (`NerTrainConfig` had no `base_model` field at all,
+so `PretrainSpec.base_model` would have been silently ignored for NER —
+fixed at the source in `train_ner.py`). T-102's own end-to-end test
+shipped in the same pass, closing it too. T-100 (the one CLI command) is
+next; T-101 (backfilling a JSON spec for every real historical experiment)
+is the acceptance proof that T-098-T-100 actually work, not just exist.
+Supersedes Work item 8 as "next up" in priority — Work item 8 (per-model
+selection justification in the artifact, T-064–T-069) stays a valid,
+scoped, pending item, just no longer first in line, same as when Work
+item 10 first superseded it.
 
 **Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
 **done (2026-09-18)** — surfaced directly while closing out T-097 (PR

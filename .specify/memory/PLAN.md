@@ -1288,10 +1288,15 @@ item 1-10 model/data/architecture decision.
 first, as small independent prerequisites, then step 1 (T-098) --
 `src/experiment.py`'s `ExperimentSpec`/`PretrainSpec`/`TrainTestSplitSpec`/
 `EvalSpec`/`PublishSpec`, every rejection case this section names enforced
-via one `model_validator`, plus a stricter `extra="forbid"` on every field.
-Steps 3 (the orchestration function/CLI) and 5 (the historical backfill)
-are not started. See TASKS.md T-096-T-103 for the discrete, checkable
-breakdown.
+via one `model_validator`, plus a stricter `extra="forbid"` on every field
+-- then the orchestration half of step 3, `run_experiment` (train if
+requested, evaluate via `run_eval` reused verbatim, write the git-tracked
+result JSON; caught and fixed a real gap along the way -- `NerTrainConfig`
+had no `base_model` field at all, so this section's own `base_model`
+validation would have been enforced but silently unhonored for NER; fixed
+at the source in `train_ner.py`, not worked around here). The CLI half of
+step 3 and step 5 (the historical backfill) are not started. See
+TASKS.md T-096-T-103 for the discrete, checkable breakdown.
 
 ## Work item 12 — Bring `tests/` under the mypy gate (done 2026-09-18)
 
@@ -1438,13 +1443,13 @@ other, and independent of one another except where noted:
   and recorded, not *what* any stage's already-decided model/data choices
   are (Work items 1-10 stay untouched). Internally sequential: the
   `stratified_split()` parameterization (step 2, T-096), the `NoOpTrainer`
-  wiring (step 4, T-097), and the `ExperimentSpec` schema (step 1, T-098)
-  are **all done** (2026-09-18); step 3 (the orchestration function/CLI,
-  T-099/T-100) is next — it must land before the historical-experiment
-  JSON backfill (step 5, T-101) can be verified by actually running them.
-  Supersedes Work item 8 as "next up" in priority ordering, again; Work
-  item 8 stays a valid, scoped, pending item, just no longer first in
-  line.
+  wiring (step 4, T-097), the `ExperimentSpec` schema (step 1, T-098), and
+  the orchestration function (step 3's own function half, T-099) are **all
+  done** (2026-09-18); step 3's CLI half (T-100) is next — it must land
+  before the historical-experiment JSON backfill (step 5, T-101) can be
+  verified by actually running them. Supersedes Work item 8 as "next up"
+  in priority ordering, again; Work item 8 stays a valid, scoped, pending
+  item, just no longer first in line.
 - **Work item 12 (bring `tests/` under the mypy gate) is done
   (2026-09-18)** — surfaced directly while landing Work item 11's T-097,
   independent of every other work item's own outcome (a test-suite
