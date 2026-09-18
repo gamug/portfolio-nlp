@@ -19,21 +19,16 @@ import gc
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import torch
 from dotenv import load_dotenv
 from tqdm import tqdm
-from transformers import (
-    AutoModelForSeq2SeqLM,
-    AutoTokenizer,
-)
 
 import news_nlp as db
 from category_stage import CategoryFeature, CategoryInference
-from chunking import chunk_text
 from ner_stage import NerFeature, NerInference
 from sentiment_stage import SentimentFeature, SentimentInference
+from summary_stage import SummaryFeature, SummaryInference
 
 # Loaded here (every real entrypoint -- apps/news_nlp_api.py, cli/news_nlp_cli.py,
 # `python -m pipeline`, src/setup.py -- imports this module) so DATABASE_URL /
@@ -169,16 +164,6 @@ def _warn_if_cpu() -> None:
 # still one model on the card at a time, just a wider batch through it.
 CATEGORY_BATCH_SIZE = 8
 
-# BART-large-cnn's own cap is 1024 tokens; 1000 leaves headroom for the
-# BOS/EOS tokens the tokenizer adds on top of chunk_text's count.
-SUMMARY_MAX_INPUT_TOKENS = 1000
-# Matches bart-large-cnn's published default generation config.
-SUMMARY_MAX_OUTPUT_TOKENS = 142
-SUMMARY_MIN_OUTPUT_TOKENS = 56
-# Safety valve for the recursive reduce below -- each pass's summaries are
-# far shorter than what fed them, so this converges in 1-2 passes in
-# practice; this just bounds the pathological case.
-MAX_REDUCE_PASSES = 6
 # generate() with beam search is far more memory-intensive per row than a
 # single classification forward pass (run_category_stage's forward-only
 # CATEGORY_BATCH_SIZE=8), so this stays smaller despite the same
@@ -318,198 +303,23 @@ def run_category_stage(
     inference.run(conn, limit, on_progress)
 
 
-def _summarize_batch(
-    texts: list[str], tokenizer: Any, model: Any, device: torch.device
-) -> list[str]:
-    """Run SUMMARY_MODEL (distilbart-cnn-12-6) generation on a batch of
-    chunks that already fit within the model's input cap, in one forward
-    pass -- the same batching principle run_category_stage applies by
-    pooling multiple articles' (premise, hypothesis) pairs into one call.
-    Split out as its own function so tests can monkeypatch it and exercise
-    hierarchical_summarize_batch's chunk/reduce control flow without loading
-    a real model."""
-    inputs = tokenizer(
-        texts, return_tensors="pt", truncation=True, max_length=1024, padding=True
-    ).to(device)
-    with torch.no_grad():
-        output_ids = model.generate(
-            **inputs,
-            max_length=SUMMARY_MAX_OUTPUT_TOKENS,
-            min_length=SUMMARY_MIN_OUTPUT_TOKENS,
-            num_beams=4,
-        )
-    return [s.strip() for s in tokenizer.batch_decode(output_ids, skip_special_tokens=True)]
-
-
-def _summarize_in_batches(
-    texts: list[str], tokenizer: Any, model: Any, device: torch.device, batch_size: int
-) -> list[str]:
-    """Run _summarize_batch over `texts` in chunks of `batch_size`,
-    concatenating results in order -- the actual generate() call count stays
-    bounded by batch_size regardless of how many texts are pending."""
-    results: list[str] = []
-    for start in range(0, len(texts), batch_size):
-        results.extend(
-            _summarize_batch(texts[start : start + batch_size], tokenizer, model, device)
-        )
-    return results
-
-
-def _leaf_summarize_batch(
-    texts: list[str],
-    tokenizer: Any,
-    model: Any,
-    device: torch.device,
-    max_input_tokens: int,
-    batch_size: int,
-) -> tuple[list[list[str]], list[int]]:
-    """Chunk every text on sentence boundaries (chunk_text) and
-    batch-summarize the whole pool of leaf chunks together. Returns
-    (summaries_per_text, num_chunks), each indexed the same as `texts`."""
-    per_text_chunks = [chunk_text(t, tokenizer, max_tokens=max_input_tokens) for t in texts]
-    num_chunks = [len(c) for c in per_text_chunks]
-
-    flat_texts: list[str] = []
-    owner: list[int] = []
-    for i, chunks in enumerate(per_text_chunks):
-        for ch in chunks:
-            flat_texts.append(ch.text)
-            owner.append(i)
-
-    flat_summaries = _summarize_in_batches(flat_texts, tokenizer, model, device, batch_size)
-
-    summaries_per_text: list[list[str]] = [[] for _ in texts]
-    for o, s in zip(owner, flat_summaries, strict=True):
-        summaries_per_text[o].append(s)
-
-    return summaries_per_text, num_chunks
-
-
-def _reduce_pass(
-    pending: set[int],
-    summaries_per_text: list[list[str]],
-    tokenizer: Any,
-    model: Any,
-    device: torch.device,
-    max_input_tokens: int,
-    batch_size: int,
-) -> None:
-    """Run one reduce pass in place over every text index in `pending`: join
-    each one's current summaries, re-chunk, and batch-summarize the pooled
-    result across all of them -- same batching principle as the leaf pass."""
-    flat_texts: list[str] = []
-    owner: list[int] = []
-    for i in sorted(pending):
-        combined = " ".join(summaries_per_text[i])
-        for ch in chunk_text(combined, tokenizer, max_tokens=max_input_tokens):
-            flat_texts.append(ch.text)
-            owner.append(i)
-
-    flat_summaries = _summarize_in_batches(flat_texts, tokenizer, model, device, batch_size)
-
-    regrouped: dict[int, list[str]] = {i: [] for i in pending}
-    for o, s in zip(owner, flat_summaries, strict=True):
-        regrouped[o].append(s)
-    for i in pending:
-        summaries_per_text[i] = regrouped[i]
-
-
-def hierarchical_summarize_batch(
-    texts: list[str],
-    tokenizer: Any,
-    model: Any,
-    device: torch.device,
-    max_input_tokens: int = SUMMARY_MAX_INPUT_TOKENS,
-    batch_size: int = SUMMARY_BATCH_SIZE,
-) -> list[tuple[str, int]]:
-    """Batched chunk-then-reduce summarization: chunks and reduces every
-    text in `texts` independently (same per-text contract as a single-text
-    version would have -- sentence-boundary chunking via chunk_text, then a
-    recursive reduce pass over each text's own joined chunk-summaries until
-    they collapse to one), but pools the model calls across every text still
-    pending at each pass into batch_size-sized generate() calls instead of
-    one call per text -- the same batching principle run_category_stage
-    applies to its classification forward pass. Returns (summary_text,
-    num_chunks) pairs in the same order as `texts`, where num_chunks is each
-    text's own leaf-level chunk count (>1 means that text needed a reduce
-    pass).
-    """
-    n = len(texts)
-    if n == 0:
-        return []
-
-    summaries_per_text, num_chunks = _leaf_summarize_batch(
-        texts, tokenizer, model, device, max_input_tokens, batch_size
-    )
-
-    passes = 0
-    pending = {i for i in range(n) if len(summaries_per_text[i]) > 1}
-    while pending and passes < MAX_REDUCE_PASSES:
-        _reduce_pass(
-            pending, summaries_per_text, tokenizer, model, device, max_input_tokens, batch_size
-        )
-        passes += 1
-        pending = {i for i in pending if len(summaries_per_text[i]) > 1}
-
-    if pending:
-        # MAX_REDUCE_PASSES exhausted without collapsing to one chunk for
-        # some texts -- force a final pass; generate()'s own truncation=True
-        # keeps this bounded even though it means the tail gets dropped.
-        forced_positions = sorted(pending)
-        forced_texts = [" ".join(summaries_per_text[i]) for i in forced_positions]
-        forced_summaries = _summarize_in_batches(forced_texts, tokenizer, model, device, batch_size)
-        for i, s in zip(forced_positions, forced_summaries, strict=True):
-            summaries_per_text[i] = [s]
-
-    return [
-        (summaries_per_text[i][0] if summaries_per_text[i] else "", num_chunks[i]) for i in range(n)
-    ]
-
-
 def run_company_summary_stage(
     conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
-    rows = db.fetch_pending_company_summaries(conn, limit=limit)
-    total = len(rows)
-    print(f"\n=== Company summary stage ({SUMMARY_MODEL}) on {DEVICE} ===")
-    print(f"{total} article(s) pending c_summary")
-    if on_progress:
-        on_progress("company_summary", 0, total)
-    if total == 0:
-        return
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        SUMMARY_MODEL, revision=MODEL_REVISIONS[SUMMARY_MODEL]
+    """A thin wrapper around `summary_stage.SummaryInference` (PLAN.md Work
+    item 10 / TASKS.md T-086) -- the batched chunk-then-reduce summarization
+    logic now lives there. Passes `SUMMARY_MODEL`/`MODEL_REVISIONS`/
+    `SUMMARY_BATCH_SIZE` through explicitly, read fresh from this module's
+    own globals on every call, matching every other stage's thin-wrapper
+    shape. No `sample_seed` support -- `db.fetch_pending_company_summaries`
+    doesn't take one, matching today's real signature exactly."""
+    inference = SummaryInference(
+        SummaryFeature(),
+        model_name=SUMMARY_MODEL,
+        revision=MODEL_REVISIONS[SUMMARY_MODEL],
+        batch_size=SUMMARY_BATCH_SIZE,
     )
-    model = (
-        AutoModelForSeq2SeqLM.from_pretrained(
-            SUMMARY_MODEL, revision=MODEL_REVISIONS[SUMMARY_MODEL]
-        )
-        .to(DEVICE)
-        .eval()
-    )
-
-    idx = 0
-    with tqdm(total=total, desc="company_summary") as pbar:
-        for batch_start in range(0, total, SUMMARY_BATCH_SIZE):
-            batch_rows = rows[batch_start : batch_start + SUMMARY_BATCH_SIZE]
-            texts = [db.build_company_summary_input(row) for row in batch_rows]
-            results = hierarchical_summarize_batch(texts, tokenizer, model, DEVICE)
-
-            for row, (summary_text, num_chunks) in zip(batch_rows, results, strict=True):
-                if summary_text:
-                    db.write_company_summary(
-                        conn, row["article_id"], summary_text, num_chunks, SUMMARY_MODEL
-                    )
-                idx += 1
-                pbar.update(1)
-                if on_progress:
-                    on_progress("company_summary", idx, total)
-
-            conn.commit()
-
-    del model, tokenizer
-    free_gpu()
+    inference.run(conn, limit, on_progress)
 
 
 def run_sector_summary_stage(

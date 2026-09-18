@@ -206,7 +206,7 @@ def test_run_ner_stage_does_not_split_3m_into_a_bogus_bare_digit_entity(
     pred_ids_by_position = [0, 1, 0, 0, 0, 0, 0, 0]
 
     monkeypatch.setattr(
-        pipeline.AutoTokenizer,
+        ner_stage.AutoTokenizer,
         "from_pretrained",
         lambda *_a, **_k: FakeNerTokenizer(offsets, word_ids),
     )
@@ -371,7 +371,7 @@ def test_batched_and_per_article_ner_processing_produce_identical_entities(
 
     tokenizer = BatchedFakeNerTokenizer(vocab)
     model = BatchedFakeNerModel(id2label, id2pred)
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: tokenizer)
+    monkeypatch.setattr(ner_stage.AutoTokenizer, "from_pretrained", lambda *_a, **_k: tokenizer)
     monkeypatch.setattr(
         ner_stage.AutoModelForTokenClassification, "from_pretrained", lambda *_a, **_k: model
     )

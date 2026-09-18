@@ -7,6 +7,7 @@ from conftest import seed_article
 
 import news_nlp as db
 import pipeline
+import summary_stage
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
 
@@ -65,7 +66,7 @@ def make_recording_summarizer(
             return [next(replies_iter) for _ in texts]
         return ["X" for _ in texts]
 
-    monkeypatch.setattr(pipeline, "_summarize_batch", fake)
+    monkeypatch.setattr(summary_stage, "_summarize_batch", fake)
     return calls
 
 
@@ -77,7 +78,7 @@ def test_hierarchical_summarize_batch_single_chunk_is_a_passthrough(
 ) -> None:
     calls = make_recording_summarizer(monkeypatch, replies=["Short summary."])
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         ["One short sentence."],
         WordCountTokenizer(),
         model=None,
@@ -94,7 +95,7 @@ def test_hierarchical_summarize_batch_empty_text_returns_no_chunks(
 ) -> None:
     calls = make_recording_summarizer(monkeypatch)
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         [""], WordCountTokenizer(), model=None, device=_FAKE_DEVICE, max_input_tokens=100
     )
 
@@ -107,7 +108,7 @@ def test_hierarchical_summarize_batch_empty_input_list_returns_empty(
 ) -> None:
     calls = make_recording_summarizer(monkeypatch)
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         [], WordCountTokenizer(), model=None, device=_FAKE_DEVICE, max_input_tokens=100
     )
 
@@ -124,7 +125,7 @@ def test_hierarchical_summarize_batch_multi_chunk_triggers_a_reduce_pass(
     calls = make_recording_summarizer(monkeypatch)
     text = "AAA BBB CCC. DDD EEE FFF. GGG HHH III."
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         [text], WordCountTokenizer(), model=None, device=_FAKE_DEVICE, max_input_tokens=3
     )
 
@@ -142,7 +143,7 @@ def test_hierarchical_summarize_batch_reduce_pass_summarizes_the_joined_chunk_su
     calls = make_recording_summarizer(monkeypatch, replies=["S1", "S2", "S3", "final"])
     text = "AAA BBB CCC. DDD EEE FFF. GGG HHH III."
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         [text], WordCountTokenizer(), model=None, device=_FAKE_DEVICE, max_input_tokens=3
     )
 
@@ -157,7 +158,7 @@ def test_hierarchical_summarize_batch_pools_multiple_texts_into_one_call(
 ) -> None:
     calls = make_recording_summarizer(monkeypatch, replies=["Summary A.", "Summary B."])
 
-    results = pipeline.hierarchical_summarize_batch(
+    results = summary_stage.hierarchical_summarize_batch(
         ["Text A.", "Text B."],
         WordCountTokenizer(),
         model=None,
@@ -176,7 +177,7 @@ def test_hierarchical_summarize_batch_respects_batch_size(
 ) -> None:
     calls = make_recording_summarizer(monkeypatch)
 
-    pipeline.hierarchical_summarize_batch(
+    summary_stage.hierarchical_summarize_batch(
         ["Text A.", "Text B.", "Text C."],
         WordCountTokenizer(),
         model=None,
@@ -197,8 +198,8 @@ def test_run_company_summary_stage_skips_loading_model_when_nothing_pending(
     def fail_if_called(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("model should not be loaded when there is nothing to process")
 
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail_if_called)
-    monkeypatch.setattr(pipeline.AutoModelForSeq2SeqLM, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(summary_stage.AutoTokenizer, "from_pretrained", fail_if_called)
+    monkeypatch.setattr(summary_stage.AutoModelForSeq2SeqLM, "from_pretrained", fail_if_called)
 
     calls = []
     pipeline.run_company_summary_stage(conn, on_progress=lambda *a: calls.append(a))
@@ -221,10 +222,10 @@ def test_run_company_summary_stage_writes_a_summary_per_pending_article(
     conn.commit()
 
     monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
+        summary_stage.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
     )
     monkeypatch.setattr(
-        pipeline.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
+        summary_stage.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
     )
     make_recording_summarizer(monkeypatch, replies=["Generated summary."])
 
@@ -254,10 +255,10 @@ def test_run_company_summary_stage_pools_multiple_articles_into_one_model_call(
     conn.commit()
 
     monkeypatch.setattr(
-        pipeline.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
+        summary_stage.AutoTokenizer, "from_pretrained", lambda *_a, **_k: WordCountTokenizer()
     )
     monkeypatch.setattr(
-        pipeline.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
+        summary_stage.AutoModelForSeq2SeqLM, "from_pretrained", lambda *_a, **_k: FakeModel()
     )
     calls = make_recording_summarizer(monkeypatch, replies=["Summary 1.", "Summary 2."])
 
@@ -296,8 +297,8 @@ def _fail_if_model_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*args: Any, **kwargs: Any) -> None:
         raise AssertionError("run_sector_summary_stage must never load a model")
 
-    monkeypatch.setattr(pipeline.AutoTokenizer, "from_pretrained", fail)
-    monkeypatch.setattr(pipeline.AutoModelForSeq2SeqLM, "from_pretrained", fail)
+    monkeypatch.setattr(summary_stage.AutoTokenizer, "from_pretrained", fail)
+    monkeypatch.setattr(summary_stage.AutoModelForSeq2SeqLM, "from_pretrained", fail)
 
 
 def test_run_sector_summary_stage_skips_loading_model_when_nothing_pending(

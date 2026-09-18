@@ -649,10 +649,30 @@ efforts.
       category's sake) -- both retargeted to `sentiment_stage.
       AutoModelForSequenceClassification`. 243 tests, ruff, mypy all
       green.
-- [ ] **T-086** Migrate `c_summary` onto the FTI hierarchy
+- [x] **T-086** Migrate `c_summary` onto the FTI hierarchy
       (`hierarchical_summarize_batch`'s chunk/reduce logic → `Feature`; a
       documented no-op `Trainer`; `run_company_summary_stage` →
-      `Inference`). No behavioral change. → step 1 / FR-011.
+      `Inference`). No behavioral change. → step 1 / FR-011. Done
+      2026-09-18: `src/summary_stage.py` (new) holds
+      `hierarchical_summarize_batch`/`_leaf_summarize_batch`/`_reduce_pass`/
+      `_summarize_in_batches`/`_summarize_batch` (moved verbatim) plus
+      `SummaryFeature` (just builds each row's raw input text -- unlike
+      the other three stages, the actual chunking/reduction can't be
+      hoisted into a pure pre-model `Feature` step, since each reduce
+      pass re-chunks and re-summarizes the *previous* pass's own model
+      output) and `SummaryInference`. `Trainer` is a plain reuse of
+      `fti.NoOpTrainer` (pretrained off-the-shelf checkpoint, nothing to
+      fine-tune), matching category's T-085 precedent. This was the last
+      of the four ML stages to migrate, so `pipeline.py` no longer
+      imports any `transformers` class at module scope at all -- caught
+      and fixed a real, broader-than-expected coupling this exposed: 7
+      monkeypatch call sites across `test_category_pipeline.py`,
+      `test_pipeline_progress.py`, `test_ner_pipeline.py`, and
+      `test_sentiment_pipeline.py` still targeted `pipeline.AutoTokenizer`
+      (a leftover surviving purely because `pipeline.py` kept importing
+      it for `c_summary`'s sake after each of those stages' own migration
+      moved their real usage elsewhere) -- all retargeted to each test's
+      own already-migrated stage module. 243 tests, ruff, mypy all green.
 - [ ] **T-087** Move `run_sector_summary_stage` out of `pipeline.py` into
       `news_nlp/sector_summary/`, completing the separation already mostly
       in place (`composition.py`/`queries.py` already live there as of
