@@ -134,6 +134,73 @@ def test_run_eval_exits_nonzero_on_regression(
     assert exc.value.code == 1
 
 
+# --- judge-table reuse (TASKS.md T-091, SPEC.md FR-015) ---------------------
+
+
+def _counting_sentiment_judge(counter: list[int]) -> Any:
+    def judge(_agent: Any, _item: Any) -> SentimentVerdict:
+        counter[0] += 1
+        return SentimentVerdict(agrees=True, ideal_label="positive", severity=0, rationale="stub")
+
+    return judge
+
+
+def test_run_eval_reuses_verdicts_for_an_unchanged_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_store_paths: tuple[Path, Path]
+) -> None:
+    source, results = eval_store_paths
+    monkeypatch.setattr(runner, "build_model", lambda _s: object())
+    monkeypatch.setattr(runner, "build_judge_agent", lambda _m, _p: object())
+    call_count = [0]
+    monkeypatch.setattr(runner, "JUDGES", {"sentiment": _counting_sentiment_judge(call_count)})
+    settings = _settings(tmp_path)
+
+    runner.run_eval(
+        ["sentiment"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+    assert call_count[0] == settings.sample_size  # first run: every item judged fresh
+
+    runner.run_eval(
+        ["sentiment"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+    # Same experiment ("base", both unset run_name/candidate_model), same
+    # deterministic seeded sample -> every key already has a verdict, so
+    # the judge is never called again.
+    assert call_count[0] == settings.sample_size
+
+    check = db_module.connect(results)
+    try:
+        (n_verdicts,) = check.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()
+    finally:
+        check.close()
+    # Both runs still each record a full eval_verdict row per item (history
+    # preserved) -- reuse skips the LLM call, not the row.
+    assert n_verdicts == settings.sample_size * 2
+
+
+def test_run_eval_judges_fresh_for_a_different_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_store_paths: tuple[Path, Path]
+) -> None:
+    source, results = eval_store_paths
+    monkeypatch.setattr(runner, "build_model", lambda _s: object())
+    monkeypatch.setattr(runner, "build_judge_agent", lambda _m, _p: object())
+    call_count = [0]
+    monkeypatch.setattr(runner, "JUDGES", {"sentiment": _counting_sentiment_judge(call_count)})
+
+    settings_a = _settings(tmp_path).model_copy(update={"run_name": "exp-a"})
+    runner.run_eval(
+        ["sentiment"], settings=settings_a, source_db=str(source), results_db=str(results)
+    )
+    assert call_count[0] == settings_a.sample_size
+
+    settings_b = _settings(tmp_path).model_copy(update={"run_name": "exp-b"})
+    runner.run_eval(
+        ["sentiment"], settings=settings_b, source_db=str(source), results_db=str(results)
+    )
+    # A different experiment label for the same articles always judges fresh.
+    assert call_count[0] == settings_a.sample_size + settings_b.sample_size
+
+
 # --- candidate-model wiring (TASKS.md T-089, SPEC.md FR-013) ----------------
 
 

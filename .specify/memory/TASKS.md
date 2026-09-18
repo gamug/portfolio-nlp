@@ -785,12 +785,42 @@ efforts.
       already-completed script) still reads legacy `eval_judgement` —
       commented, not rewired, since it has no remaining active use. 248
       tests, ruff, mypy all green.
-- [ ] **T-091** Implement the judge-table reuse mechanism: before invoking
+- [x] **T-091** Implement the judge-table reuse mechanism: before invoking
       the judge LLM for a sampled `(article_id, task, experiment)`, check
       the redesigned judge table for an existing verdict under that exact
       key and reuse it; unique constraint on `(article_id, task,
       experiment)` enforces this as an indexed lookup, not a scan. →
-      step 5 / FR-015.
+      step 5 / FR-015. Done 2026-09-18: kept `eval_verdict`'s existing
+      4-column `UNIQUE(article_id, task, experiment, run_id)` constraint
+      from T-090 rather than migrating it — PLAN.md Work item 5's own
+      text explicitly sanctions this variant ("...or `(article_id, task,
+      experiment, run_id)` if a re-judge under the same key is ever
+      deliberately wanted"), and this design does exactly that: every run
+      still records a full `eval_inference`+`eval_verdict` row (history
+      preserved), reusing a prior verdict's *content* to skip the judge
+      LLM call rather than skipping the row. Avoided being this
+      codebase's first constraint-altering migration (confirmed via
+      direct research: `portfolio_common.db` only supports additive
+      `ensure_columns`; SQLite itself needs a full create-copy-drop-rename
+      dance to change a UNIQUE constraint, with zero precedent anywhere in
+      this repo). Added a dedicated
+      `idx_eval_verdict_article_task_experiment` index (`eval_inference`
+      already had the equivalent) so the lookup is genuinely indexed, not
+      relying on the 4-column constraint's own index's leftmost-prefix
+      property. New `store.find_verdict_json` (the first *read* function
+      in that module) + `verdicts.VERDICT_MODELS` (stage → pydantic
+      class, for reconstructing a stored `verdict_json` back into the
+      right type — confirmed via direct code reading that every
+      `aggregate_<stage>` function touches verdicts via plain attribute
+      access only, so a reconstructed verdict is 100% interchangeable
+      with a freshly-judged one). `runner._resolve_verdicts` partitions
+      each stage's sampled items into reused vs. needs-judging before
+      building the `ThreadPoolExecutor` pool — only needs-judging items
+      go through it. Two new hermetic tests directly exercise FR-015's
+      literal acceptance criterion: same experiment across two `run_eval`
+      calls → zero new judge-LLM calls on the second; a different
+      experiment → judges fresh. 251 tests (248 + 3 new), ruff, mypy all
+      green.
 - [ ] **T-092** Add the confusion-matrix table (sentiment/category only:
       one row per `(experiment, task, true_label, predicted_label)` with a
       count), populated from the same judge verdicts T-090/T-091 already

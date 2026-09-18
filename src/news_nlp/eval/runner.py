@@ -1,12 +1,14 @@
-"""Orchestrate an eval run: sample -> judge (concurrently) -> aggregate -> persist.
+"""Orchestrate an eval run: sample -> judge (concurrently, reusing a prior
+verdict when one already exists for the same key) -> aggregate -> persist.
 
 ``run_eval`` opens one two-tier ``connect_pipeline`` connection, then per stage
 draws the stratified ``low_conf`` / ``target_<x>`` / ``representative`` sample
-(``news_nlp.eval.sampling``), judges every row through a ``ThreadPoolExecutor``
-(each task builds its own stateless ``Agent`` over a shared ``OpenAIModel``),
-aggregates, writes ``eval_run``/``eval_inference``/``eval_verdict`` rows + an
-MLflow run, and optionally checks for a headline-metric regression against
-the previous run.
+(``news_nlp.eval.sampling``), judges every row not already judged under this
+``(article_id, task, experiment)`` key through a ``ThreadPoolExecutor`` (each
+task builds its own stateless ``Agent`` over a shared ``OpenAIModel``;
+TASKS.md T-091, SPEC.md FR-015), aggregates, writes ``eval_run``/
+``eval_inference``/``eval_verdict`` rows + an MLflow run, and optionally
+checks for a headline-metric regression against the previous run.
 """
 
 from __future__ import annotations
@@ -30,11 +32,13 @@ from news_nlp.eval.regression import check_regression as _check_regression
 from news_nlp.eval.sampling import STAGES, EvalItem, sample_for_stage
 from news_nlp.eval.store import (
     create_eval_run,
+    find_verdict_json,
     finish_eval_run,
     record_inference,
     record_verdict,
 )
 from news_nlp.eval.tracking import log_to_mlflow
+from news_nlp.eval.verdicts import VERDICT_MODELS
 
 _LABEL_STAGES = {"sentiment", "category"}
 
@@ -43,6 +47,51 @@ def _correct_and_severity(stage: str, dumped: dict[str, Any]) -> tuple[bool | No
     if dumped.get("parse_failed") or stage not in _LABEL_STAGES:
         return None, None
     return bool(dumped["agrees"]), int(dumped["severity"])
+
+
+def _resolve_verdicts(
+    conn: db.NewsNlpDatabase,
+    stage: str,
+    experiment: str,
+    items: list[EvalItem],
+    *,
+    model: Any,
+    prompt: str,
+    max_workers: int,
+) -> list[BaseModel]:
+    """One verdict per item, same order -- reused from `eval_verdict` for a
+    key already judged under this `(article_id, task, experiment)`, freshly
+    judged (through the `ThreadPoolExecutor` pool, unchanged from before)
+    otherwise (TASKS.md T-091, SPEC.md FR-015). A reused verdict is
+    reconstructed via `VERDICT_MODELS[stage].model_validate_json(...)` --
+    the same reconstruction mechanism `judges._coerce` already uses for a
+    fresh judge reply -- so it's 100% interchangeable with a freshly-judged
+    one for every downstream `aggregate_<stage>` (all plain attribute
+    access, no subclass-specific behavior, verified directly)."""
+    judge = JUDGES[stage]
+    verdict_model = VERDICT_MODELS[stage]
+    resolved: list[BaseModel | None] = [None] * len(items)
+    to_judge: list[tuple[int, EvalItem]] = []
+    for i, item in enumerate(items):
+        existing = find_verdict_json(
+            conn, article_id=item.article_id, task=stage, experiment=experiment
+        )
+        if existing is not None:
+            resolved[i] = verdict_model.model_validate_json(existing)
+        else:
+            to_judge.append((i, item))
+
+    def judge_one(indexed: tuple[int, EvalItem]) -> tuple[int, BaseModel]:
+        i, item = indexed
+        return i, judge(build_judge_agent(model, prompt), item)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for i, verdict in tqdm(
+            pool.map(judge_one, to_judge), total=len(to_judge), desc=f"judge {stage}"
+        ):
+            resolved[i] = verdict
+
+    return [v for v in resolved if v is not None]  # every slot filled by construction
 
 
 def _run_stage(
@@ -124,17 +173,15 @@ def _run_stage(
 
     try:
         model = build_model(settings)
-        judge = JUDGES[stage]
-
-        def judge_one(item: EvalItem) -> BaseModel:
-            return judge(build_judge_agent(model, prompt), item)
-
-        verdicts: list[BaseModel] = []
-        with ThreadPoolExecutor(max_workers=settings.max_workers) as pool:
-            for verdict in tqdm(
-                pool.map(judge_one, items), total=len(items), desc=f"judge {stage}"
-            ):
-                verdicts.append(verdict)
+        verdicts = _resolve_verdicts(
+            conn,
+            stage,
+            experiment,
+            items,
+            model=model,
+            prompt=prompt,
+            max_workers=settings.max_workers,
+        )
 
         metrics = aggregate(stage, items, verdicts)
 

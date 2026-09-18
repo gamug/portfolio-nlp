@@ -91,3 +91,18 @@ class SectorIntroVerdict(BaseModel):
     hallucinations: list[str] = Field(default_factory=list)
     rationale: str = ""
     parse_failed: bool = False
+
+
+#: Stage -> its verdict model class, for reconstructing a stored
+#: ``eval_verdict.verdict_json`` back into the right pydantic type when
+#: reusing a prior verdict instead of re-judging (TASKS.md T-091, SPEC.md
+#: FR-015) -- ``ModelClass.model_validate_json(...)`` is the same
+#: reconstruction mechanism ``judges._coerce`` already uses for a fresh
+#: judge reply, so this isn't a new pattern.
+VERDICT_MODELS: dict[str, type[BaseModel]] = {
+    "sentiment": SentimentVerdict,
+    "category": CategoryVerdict,
+    "ner": NerVerdict,
+    "c_summary": SummaryVerdict,
+    "sector_summary": SectorIntroVerdict,
+}

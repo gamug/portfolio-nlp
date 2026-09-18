@@ -210,7 +210,16 @@ CREATE INDEX IF NOT EXISTS idx_eval_inference_article_task_experiment
 -- The LLM judge's verdict on one eval_inference row. article_id/task/
 -- experiment are deliberately duplicated from eval_inference (not just
 -- reachable via inference_id) so a query never needs a join to know what
--- a verdict row is about (SPEC.md FR-014's own requirement).
+-- a verdict row is about (SPEC.md FR-014's own requirement). The UNIQUE
+-- constraint stays 4 columns (run_id included), not the 3-column
+-- (article_id, task, experiment) PLAN.md Work item 5 also allows for --
+-- this project keeps a full eval_inference+eval_verdict row every run
+-- (history preserved), reusing a prior verdict's *content* to skip the
+-- judge LLM call rather than skipping the row itself (TASKS.md T-091,
+-- SPEC.md FR-015 -- see news_nlp.eval.store.find_verdict_json, the
+-- idx_eval_verdict_article_task_experiment index below is that lookup's
+-- own dedicated index, since the 4-column UNIQUE's own index, while
+-- leftmost-prefix-compatible, isn't purpose-built for it).
 CREATE TABLE IF NOT EXISTS eval_verdict (
     id             {autoincrement_pk},
     inference_id   INTEGER NOT NULL REFERENCES eval_inference(id),
@@ -228,6 +237,8 @@ CREATE TABLE IF NOT EXISTS eval_verdict (
 
 CREATE INDEX IF NOT EXISTS idx_eval_verdict_run_id ON eval_verdict(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_verdict_inference_id ON eval_verdict(inference_id);
+CREATE INDEX IF NOT EXISTS idx_eval_verdict_article_task_experiment
+    ON eval_verdict(article_id, task, experiment);
 """
 
 

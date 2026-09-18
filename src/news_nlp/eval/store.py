@@ -1,5 +1,5 @@
-"""Write eval runs + per-row model inferences/judge verdicts to the RESULTS
-store.
+"""Write (and, for judge-verdict reuse, read) eval runs + per-row model
+inferences/judge verdicts in the RESULTS store.
 
 ``eval_run``/``eval_inference``/``eval_verdict`` DDL lives in
 ``news_nlp.schema``; ``init_schema`` creates them. Column lists route
@@ -13,6 +13,11 @@ carrying ``article_id``/``task``/``experiment`` so more than one
 experiment's data for the same article/task can coexist. ``record_judgement``
 is gone; ``record_inference``/``record_verdict`` replace it at the same call
 site (``news_nlp.eval.runner._run_stage``).
+
+``find_verdict_json`` (TASKS.md T-091, SPEC.md FR-015) is the one read
+function here -- looked up before judging, so an unchanged
+``(article_id, task, experiment)`` key skips the judge LLM call and
+reuses the stored verdict instead of re-judging.
 """
 
 from __future__ import annotations
@@ -163,6 +168,24 @@ def record_verdict(
             _now(),
         ),
     )
+
+
+def find_verdict_json(
+    conn: NewsNlpDatabase, *, article_id: int, task: str, experiment: str
+) -> str | None:
+    """The most recent ``eval_verdict.verdict_json`` already recorded for
+    this exact ``(article_id, task, experiment)`` key, or ``None`` -- an
+    indexed lookup via ``idx_eval_verdict_article_task_experiment``, not a
+    scan (TASKS.md T-091, SPEC.md FR-015). ``ORDER BY judged_at DESC LIMIT
+    1`` is a safety net, not a correctness requirement -- nothing should
+    ever produce more than one row per key once this reuse mechanism is in
+    place, but the query stays well-defined even if it does."""
+    row = conn.execute(
+        "SELECT verdict_json FROM eval_verdict WHERE article_id = ? AND task = ? "
+        "AND experiment = ? ORDER BY judged_at DESC LIMIT 1",
+        (article_id, task, experiment),
+    ).fetchone()
+    return row[0] if row is not None else None
 
 
 def finish_eval_run(
