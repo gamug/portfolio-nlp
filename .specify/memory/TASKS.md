@@ -1069,6 +1069,32 @@ for everything before it — not independent efforts.
       real repo's `experiments/` directory). 303 tests (299 + 4 new: 2 in
       `test_train_ner.py`, 2 in `test_experiment_run.py`), ruff, mypy
       clean.
+      **Follow-up fix (2026-09-18, reported by the user running a real
+      backfilled spec off `uv run cli/run_experiment.py --config
+      experiments/sentiment_v2_chunklevel_finetuned.json` without
+      `uv sync --group eval`)**: `run_experiment` had imported
+      `news_nlp.eval.runner.run_eval` at module scope, not lazily —
+      violating NR-005 for `experiment.py` itself (the module docstring
+      already documents the same lazy-import discipline for
+      `_train_config_class`/`_trainer_class`, but this import was missed).
+      That meant merely importing `ExperimentSpec` — no `run_experiment`
+      call, just schema validation — required `strands`/`mlflow` to be
+      installed, breaking `uv sync` (no `--group eval`) +
+      `uv run pytest`'s documented invariant for
+      `tests/news_nlp/test_experiment.py` (not guarded by
+      `pytest.importorskip`, unlike the eval-specific test files, since it
+      was never meant to need the eval group). Fixed: `run_eval`'s own
+      import moved inside `run_experiment()`'s body, matching this file's
+      existing lazy-import pattern and `news_nlp/eval/__init__.py`'s own
+      documented rationale (`from news_nlp.eval import run_eval` would
+      **not** have fixed this — PEP 562 `__getattr__` still fires at
+      import time for a `from`-import, only a genuinely local import
+      inside the function body defers it to call time). Verified
+      `import experiment` no longer touches `sys.modules['strands']`/
+      `['mlflow']`. This does not change what `cli/run_experiment.py`
+      itself needs — every real run still evaluates, so the CLI always
+      needs `--group eval`, same as `cli/news_nlp_eval.py`. 314 tests
+      (unchanged), ruff, mypy clean.
 - [x] **T-100** `cli/run_experiment.py` — the one command
       (`uv run cli/run_experiment.py --config <path>.json`, optional
       `--results-db`/`--source-db` overrides matching

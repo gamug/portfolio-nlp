@@ -39,6 +39,14 @@ Stage rejects `pretrain` outright for category/`c_summary`: neither ships
 a trainable checkpoint today, or ever will (both zero-shot/pretrained as
 designed, FR-011) -- `CategoryTrainer`/`SummaryTrainer` are trivial
 `NoOpTrainer` subclasses (TASKS.md T-097) with nothing to configure.
+
+NR-005: `run_experiment` imports `news_nlp.eval.runner.run_eval` lazily,
+inside its own body, not at module scope -- `run_eval` pulls in the
+`eval` dependency group (`mlflow`/`strands-agents`), and `ExperimentSpec`
+itself must stay importable/validatable (e.g. by a hermetic test, or a
+future spec-linting tool) without it. `_train_config_class`/
+`_trainer_class` below defer `train_sentiment`/`train_ner` the same way,
+for the same reason.
 """
 
 from __future__ import annotations
@@ -52,7 +60,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from fti import NoOpTrainer, TrainConfig, Trainer
 from news_nlp.eval.config import EvalSettings
 from news_nlp.eval.provenance import code_version
-from news_nlp.eval.runner import run_eval
 
 #: Where `run_experiment` writes its git-tracked result records (TASKS.md
 #: T-099) -- `experiments/`'s own JSON-spec siblings (TASKS.md T-101) live
@@ -289,6 +296,14 @@ def run_experiment(
     regressed past tolerance. A future CLI (TASKS.md T-100) decides
     what to do with that; this function doesn't paper over it.
     """
+    # Lazy, not module-scope (NR-005 / news_nlp.eval's own __getattr__ lazy
+    # loader, which a bare `from news_nlp.eval import run_eval` would
+    # actually defeat -- PEP 562 __getattr__ still fires at import time for
+    # a `from`-import): run_eval pulls in mlflow/strands, so importing
+    # ExperimentSpec alone (e.g. tests/news_nlp/test_experiment.py's own
+    # schema-only tests) must not require the eval dependency group.
+    from news_nlp.eval.runner import run_eval  # noqa: PLC0415
+
     train_output_dir: str | None = None
     train_metrics: dict[str, Any] | None = None
     candidate_model = spec.eval.candidate_model
