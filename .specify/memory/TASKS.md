@@ -1346,6 +1346,72 @@ verifies the whole thing end to end.
       regression from elsewhere. `SPEC.md` §13 item 17 updated to resolved
       (see below).
 
+## Work item 13 — Tighten judge-verdict reuse to also require a matching prediction (done 2026-09-19)
+
+`PLAN.md` Work item 13 / `SPEC.md` FR-015 (tightened), §13 item 18. Surfaced
+directly from a user request to look at whether the judge-verdict reuse
+mechanism (T-091) was actually working. `experiment` (T-090:
+`candidate_model or run_name or "base"`) doesn't prove "same model":
+`run_experiment` (Work item 11) re-resolves `candidate_model` to a fixed
+local checkpoint path (`train_sentiment.py`'s `OUTPUT_DIR`/
+`OUTPUT_DIR_WEIGHTED`), so re-running the same `ExperimentSpec` after a
+retrain reuses that same path/label even though the weights — and
+therefore the prediction — genuinely changed. `find_verdict_json` only
+keyed on `(article_id, task, experiment)`, so a second run's fresh,
+different prediction silently got paired with the first run's now-stale
+verdict: zero fresh judge calls, and the second run's own metrics computed
+against a verdict that describes a different prediction than what the
+model actually output that run. Confirmed by a direct, standalone
+reproduction (not a hypothesis) before any code changed: two `run_eval`
+calls, same `candidate_model`/`candidate_revision`, a fake model returning
+`"positive"` then `"negative"` — run 2's `eval_inference.prediction_json`
+correctly showed `"negative"`, but its `eval_verdict.verdict_json` still
+read `ideal_label: "positive"`, `rationale: "judged:positive"`, and
+`n_judged`'s progress bar showed `0it` (zero judge calls) for run 2.
+Separately, and not itself a code bug, `docs/evaluation.md` had one stale
+2026-09-15 comment calling `--run-name` "cosmetic only" — contradicted by
+the actual T-090 behavior and by two other correct passages in the same
+doc; fixed alongside this as a disclosed doc correction, not folded into
+the code fix's own scope.
+
+- [x] **T-109** Tighten `store.find_verdict_json` to require the
+      candidate's paired `eval_inference.prediction_json` to match this
+      run's own prediction, not just `(article_id, task, experiment)` —
+      join `eval_verdict` to `eval_inference` on `inference_id` and add
+      `AND i.prediction_json = ?`; thread the current item's
+      `json.dumps(item.prediction, default=str)` through
+      `runner._resolve_verdicts`'s existing call site (the same
+      serialization `record_inference` uses, so the comparison is exact).
+      A changed prediction under an otherwise-unchanged key now falls
+      through to a fresh judge call, same as a genuinely new key. →
+      `PLAN.md` Work item 13. **Done 2026-09-19** —
+      `src/news_nlp/eval/store.py`'s `find_verdict_json` gained a required
+      `prediction_json: str` kwarg and the join; `src/news_nlp/eval/
+      runner.py`'s `_resolve_verdicts` passes it. Existing reuse tests
+      (`test_run_eval_reuses_verdicts_for_an_unchanged_experiment`,
+      `test_run_eval_judges_fresh_for_a_different_experiment`) needed no
+      changes — both compare against unchanged production data, so their
+      predictions never move between runs.
+- [x] **T-110** Add regression coverage that fails without T-109's fix and
+      passes with it, at both the unit level (`store.py`) and end-to-end
+      (`runner.run_eval` with a real, toggling candidate model) — the
+      end-to-end case directly mirrors the standalone reproduction used to
+      confirm the bug, not a synthetic shortcut. Verify: full `uv run
+      pytest` green, `uv run mypy --config-file=.code_quality/mypy.ini`
+      (no path argument) zero errors, `uv run ruff check .`/
+      `ruff format --check .` clean. → `PLAN.md` Work item 13 acceptance
+      criteria. **Done 2026-09-19** —
+      `test_find_verdict_json_ignores_a_stale_verdict_whose_prediction_changed`
+      (`test_eval_store.py`) asserts the unit-level lookup directly;
+      `test_run_eval_judges_fresh_when_the_candidate_prediction_changes_under_the_same_experiment`
+      (`test_eval_runner.py`) runs `run_eval` twice with the same
+      `candidate_model`/`candidate_revision` and a model that flips its
+      predicted label between runs, asserting both a fresh judge call
+      (`call_count == 2`, not `1`) and that each run's stored verdict
+      matches that run's own prediction, not the other run's. `uv run
+      pytest`: 317 passed. `uv run mypy --config-file=.code_quality/
+      mypy.ini`: zero errors. `ruff check`/`ruff format --check`: clean.
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
@@ -1460,3 +1526,16 @@ was type-only); ruff clean; `git stash` confirmed the pre-fix 208-error
 count is genuinely pre-existing, not introduced by this session. Per the
 user's 2026-09-18 decision this ran ahead of Work item 11's own T-098,
 which is now unblocked.
+
+**Work item 13** (tighten judge-verdict reuse to require a matching
+prediction, T-109–T-110) is **done (2026-09-19)** — filed and closed in one
+pass after the user asked whether T-091's reuse mechanism was actually
+working. Confirmed via direct reproduction before any code changed: two
+`run_eval` calls sharing `candidate_model`/`candidate_revision` (the
+`run_experiment`/fixed-local-checkpoint-path shape Work item 11 enables)
+but a genuinely different underlying prediction silently reused the first
+run's stale verdict for the second — zero fresh judge calls, wrong
+per-run metrics. `find_verdict_json` now also requires the paired
+`eval_inference.prediction_json` to match. `docs/evaluation.md`'s
+unrelated stale "`--run-name` is cosmetic only" comment (2026-09-15) fixed
+alongside it as a disclosed doc correction, not a code bug.

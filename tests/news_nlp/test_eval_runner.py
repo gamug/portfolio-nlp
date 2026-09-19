@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import torch
@@ -20,6 +20,7 @@ from news_nlp.eval.tracking import log_to_mlflow
 from news_nlp.eval.verdicts import (
     CategoryVerdict,
     NerVerdict,
+    SentimentLabel,
     SentimentVerdict,
     SummaryVerdict,
 )
@@ -363,6 +364,114 @@ def test_run_eval_with_candidate_model_scores_from_scratch_not_production(
         .fetchone()
     )
     assert prod_score == pytest.approx(0.315)
+
+
+class _TogglingCandidateModel:
+    """Same shape as `_FakeCandidateModel`, but the predicted label is a
+    constructor argument -- simulates a retrain into the same fixed local
+    checkpoint path (`train_sentiment.py`'s `OUTPUT_DIR`) changing what the
+    model actually predicts, without changing `candidate_model`/
+    `candidate_revision`."""
+
+    def __init__(self, label: str) -> None:
+        self._idx = {"positive": 0, "negative": 1, "neutral": 2}[label]
+        self.config = type(
+            "Config", (), {"id2label": {0: "positive", 1: "negative", 2: "neutral"}}
+        )()
+
+    def to(self, device: Any) -> _TogglingCandidateModel:
+        return self
+
+    def eval(self) -> _TogglingCandidateModel:
+        return self
+
+    def __call__(self, **kwargs: Any) -> Any:
+        logits = [[-8.0, -8.0, -8.0]]
+        logits[0][self._idx] = 8.0
+        return type("Output", (), {"logits": torch.tensor(logits)})()
+
+
+def test_run_eval_judges_fresh_when_the_candidate_prediction_changes_under_the_same_experiment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_store_paths: tuple[Path, Path]
+) -> None:
+    """TASKS.md T-109, SPEC.md FR-015 (tightened) -- direct reproduction of
+    the 2026-09-19 finding: `experiment` alone doesn't prove "same model".
+    `run_experiment` re-resolves `candidate_model` to the same fixed local
+    checkpoint path across a retrain, so two runs sharing
+    `candidate_model`/`candidate_revision` can carry genuinely different
+    predictions for the same article. Run 2's fresh, different prediction
+    must not get paired with run 1's stale verdict."""
+    source, results = eval_store_paths
+    call_count = [0]
+    monkeypatch.setattr(runner, "build_model", lambda _s: object())
+    monkeypatch.setattr(runner, "build_judge_agent", lambda _m, _p: object())
+
+    def label_reflecting_judge(_agent: Any, item: Any) -> SentimentVerdict:
+        call_count[0] += 1
+        label = cast(SentimentLabel, item.prediction["label"])
+        return SentimentVerdict(
+            agrees=True, ideal_label=label, severity=0, rationale=f"judged:{label}"
+        )
+
+    monkeypatch.setattr(runner, "JUDGES", {"sentiment": label_reflecting_judge})
+    monkeypatch.setattr(
+        sentiment_stage.AutoTokenizer,
+        "from_pretrained",
+        lambda *_a, **_k: _FakeCandidateTokenizer(),
+    )
+
+    settings = _settings(tmp_path).model_copy(
+        update={
+            "sample_size": 1,
+            "low_conf_frac": 0.0,
+            "target_frac": 0.0,
+            "candidate_model": "fake/local-checkpoint",
+            "candidate_revision": "local",
+            "candidate_prescore_size": 1,
+        }
+    )
+
+    monkeypatch.setattr(
+        sentiment_stage.AutoModelForSequenceClassification,
+        "from_pretrained",
+        lambda *_a, **_k: _TogglingCandidateModel("positive"),
+    )
+    runner.run_eval(
+        ["sentiment"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+    assert call_count[0] == 1
+
+    monkeypatch.setattr(
+        sentiment_stage.AutoModelForSequenceClassification,
+        "from_pretrained",
+        lambda *_a, **_k: _TogglingCandidateModel("negative"),
+    )
+    runner.run_eval(
+        ["sentiment"], settings=settings, source_db=str(source), results_db=str(results)
+    )
+    # The prediction flipped under the SAME experiment label -- must judge
+    # fresh, not silently reuse run 1's "positive" verdict.
+    assert call_count[0] == 2
+
+    check = db_module.connect(results)
+    try:
+        rows = check.execute(
+            "SELECT v.run_id, i.prediction_json, v.verdict_json FROM eval_verdict v "
+            "JOIN eval_inference i ON i.id = v.inference_id ORDER BY v.run_id"
+        ).fetchall()
+    finally:
+        check.close()
+
+    import json  # noqa: PLC0415
+
+    assert len(rows) == 2
+    for _run_id, prediction_json, verdict_json in rows:
+        prediction_label = json.loads(prediction_json)["label"]
+        verdict_label = json.loads(verdict_json)["ideal_label"]
+        # Each run's recorded verdict must reflect THAT run's own
+        # prediction, never a stale one carried over from the other run.
+        assert verdict_label == prediction_label
+    assert {json.loads(p)["label"] for _r, p, _v in rows} == {"positive", "negative"}
 
 
 @pytest.mark.usefixtures("stub_judge")

@@ -62,21 +62,32 @@ def _resolve_verdicts(
     max_workers: int,
 ) -> list[BaseModel]:
     """One verdict per item, same order -- reused from `eval_verdict` for a
-    key already judged under this `(article_id, task, experiment)`, freshly
-    judged (through the `ThreadPoolExecutor` pool, unchanged from before)
-    otherwise (TASKS.md T-091, SPEC.md FR-015). A reused verdict is
-    reconstructed via `VERDICT_MODELS[stage].model_validate_json(...)` --
-    the same reconstruction mechanism `judges._coerce` already uses for a
-    fresh judge reply -- so it's 100% interchangeable with a freshly-judged
-    one for every downstream `aggregate_<stage>` (all plain attribute
-    access, no subclass-specific behavior, verified directly)."""
+    key already judged under this `(article_id, task, experiment)` AND whose
+    stored prediction still matches this item's own (TASKS.md T-091/T-109,
+    SPEC.md FR-015), freshly judged (through the `ThreadPoolExecutor` pool,
+    unchanged from before) otherwise. The prediction check matters because
+    `experiment` alone doesn't prove "same model": `run_experiment` resolves
+    `candidate_model` to a fixed local checkpoint path, so re-running the
+    same experiment JSON after a retrain reuses that same label even though
+    the weights -- and the prediction -- changed; without the check, a
+    changed prediction would silently keep the prior run's now-stale
+    verdict. A reused verdict is reconstructed via
+    `VERDICT_MODELS[stage].model_validate_json(...)` -- the same
+    reconstruction mechanism `judges._coerce` already uses for a fresh judge
+    reply -- so it's 100% interchangeable with a freshly-judged one for
+    every downstream `aggregate_<stage>` (all plain attribute access, no
+    subclass-specific behavior, verified directly)."""
     judge = JUDGES[stage]
     verdict_model = VERDICT_MODELS[stage]
     resolved: list[BaseModel | None] = [None] * len(items)
     to_judge: list[tuple[int, EvalItem]] = []
     for i, item in enumerate(items):
         existing = find_verdict_json(
-            conn, article_id=item.article_id, task=stage, experiment=experiment
+            conn,
+            article_id=item.article_id,
+            task=stage,
+            experiment=experiment,
+            prediction_json=json.dumps(item.prediction, default=str),
         )
         if existing is not None:
             resolved[i] = verdict_model.model_validate_json(existing)

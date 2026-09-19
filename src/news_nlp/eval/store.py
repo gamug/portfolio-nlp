@@ -195,7 +195,12 @@ def record_verdict(
 
 
 def find_verdict_json(
-    conn: NewsNlpDatabase, *, article_id: int, task: str, experiment: str
+    conn: NewsNlpDatabase,
+    *,
+    article_id: int,
+    task: str,
+    experiment: str,
+    prediction_json: str,
 ) -> str | None:
     """The most recent ``eval_verdict.verdict_json`` already recorded for
     this exact ``(article_id, task, experiment)`` key, or ``None`` -- an
@@ -203,11 +208,28 @@ def find_verdict_json(
     scan (TASKS.md T-091, SPEC.md FR-015). ``ORDER BY judged_at DESC LIMIT
     1`` is a safety net, not a correctness requirement -- nothing should
     ever produce more than one row per key once this reuse mechanism is in
-    place, but the query stays well-defined even if it does."""
+    place, but the query stays well-defined even if it does.
+
+    Also requires the candidate's paired ``eval_inference.prediction_json``
+    to match ``prediction_json`` byte-for-byte (TASKS.md T-109, SPEC.md
+    FR-015 tightened): ``experiment`` alone doesn't guarantee "same model" --
+    ``run_experiment`` (``src/experiment.py``) resolves ``candidate_model``
+    to a fixed local checkpoint path (``train_sentiment.py``'s
+    ``OUTPUT_DIR``), so re-running the same experiment JSON after a retrain
+    reuses that same path/label even though the weights, and therefore the
+    prediction, actually changed. Reproduced directly (2026-09-19): without
+    this check, a retrained model's genuinely different prediction for an
+    already-judged article got silently paired with the *prior* run's
+    stale verdict -- zero fresh judge calls, wrong per-run metrics. A
+    changed prediction under the same key now falls through to a fresh
+    judge call, same as a genuinely new key."""
     row = conn.execute(
-        "SELECT verdict_json FROM eval_verdict WHERE article_id = ? AND task = ? "
-        "AND experiment = ? ORDER BY judged_at DESC LIMIT 1",
-        (article_id, task, experiment),
+        "SELECT v.verdict_json FROM eval_verdict v "
+        "JOIN eval_inference i ON i.id = v.inference_id "
+        "WHERE v.article_id = ? AND v.task = ? AND v.experiment = ? "
+        "AND i.prediction_json = ? "
+        "ORDER BY v.judged_at DESC LIMIT 1",
+        (article_id, task, experiment, prediction_json),
     ).fetchone()
     return row[0] if row is not None else None
 
