@@ -414,10 +414,20 @@ item 8.
       0.14-0.16, barely above the 9-way uniform baseline of 0.111 — not
       re-derived). Added to the Claude Artifact's `#eval-category` block
       and mirrored in `docs/modules/news-nlp.md`.
-- [ ] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
+- [x] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
       (domain-pretrained on SEC filings) over a generic NER checkpoint;
       FiNER-ORD as the fine-tuning dataset, sourced from the dataset's
-      own paper/repo (new research). → step 3.
+      own paper/repo (new research). → step 3. **Done 2026-09-19** — SEC-BERT
+      over spaCy/`bert-base-NER` (domain-pretrained on 260,773 SEC 10-K
+      filings, own ~30k-subword financial vocabulary — Loukas et al. 2022,
+      arXiv:2203.06482, tied to this project's own 2026-09-12
+      subword-fragmentation fix); FiNER-ORD as the fine-tuning dataset (201
+      manually-annotated articles, `PER`/`LOC`/`ORG` BIO tagging — Shah,
+      Gullapalli et al. 2024, arXiv:2302.11157), whose general-NER label
+      set matches `article_entities`' actual need rather than a
+      filings-specific tag set. Sourced from `justification.md`'s
+      verified links. Added to the Claude Artifact's `#eval-ner` block and
+      mirrored in `docs/modules/news-nlp.md`.
 - [ ] **T-067** Write the `article_summary`/`c_summary` "Why this model"
       sub-block: `distilbart-cnn-12-6` over full `bart-large-cnn` or a
       modern LLM summarizer, tied explicitly to the 6GB-VRAM /

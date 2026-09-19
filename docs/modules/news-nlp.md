@@ -63,6 +63,22 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SIZE`
    itself — see the constant's comment for why (variable per-article chunk counts, unlike
    category's fixed 9-pairs-per-article width).
+
+   **Why this model.** `nlpaueb/sec-bert-base` over a generic NER checkpoint (spaCy,
+   `bert-base-NER`): it's domain-pretrained on 260,773 SEC 10-K filings (1993-2021) with its
+   own ~30,000-subword financial vocabulary, not the generic BERT vocabulary (Loukas,
+   Fergadiotis, Chalkidis et al. 2022, *"FiNER: Financial Numeric Entity Recognition for
+   XBRL Tagging"*, arXiv:2203.06482) — financial entity mentions (tickers, filing
+   terminology, numeric-heavy contexts) benefit from vocabulary a generic model never saw,
+   including subword handling for numbers specifically relevant to this project's own
+   2026-09-12 subword-fragmentation fix (a word-boundary bug producing bogus spans off
+   things like `"3M"`). `gtfintechlab/finer-ord` as the fine-tuning dataset: 201
+   manually-annotated financial news articles (116,721 tokens, `PER`/`LOC`/`ORG` BIO
+   tagging — Shah, Gullapalli et al. 2024, *"FiNER-ORD: Financial Named Entity Recognition
+   Open Research Dataset"*, arXiv:2302.11157), whose general-NER label set matches this
+   project's own `article_entities` need (named entities in financial *news*) rather than a
+   filings-specific tag set like XBRL, making it directly usable for fine-tuning SEC-BERT
+   toward this project's actual task.
 3. **Category** — zero-shot NLI classification (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`)
    against a fixed 10-category taxonomy (9 dimensions of company performance + `other`) →
    `article_category`. See [`../category-taxonomy.md`](../category-taxonomy.md) for the
