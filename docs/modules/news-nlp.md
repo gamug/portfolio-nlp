@@ -107,6 +107,23 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
 4. **`c_summary`** — one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`),
    generated from the article's body plus its already-computed sentiment/entities →
    `article_summary`.
+
+   **Why this model.** A distilled BART over the full `bart-large-cnn` or a modern
+   LLM-based summarizer: the 6GB-VRAM / one-model-at-a-time budget this whole pipeline is
+   built around (`SPEC.md` NR-001), and no per-call API cost for a batch job over hundreds
+   of thousands of articles. `distilbart-cnn-12-6` (12 encoder / 6 decoder layers vs.
+   `bart-large-cnn`'s 12/12, ~1.24x faster inference) reports near-identical quality on its
+   own model card — ROUGE-2 21.26 / ROUGE-L 30.59, against `bart-large-cnn`'s 21.06 / 30.63
+   — essentially the same summarization quality at a fraction of the size, the real
+   trade-off this choice buys. That size is not free, though, and connects directly to a
+   weakness already measured here: the model's own distillation data is CNN/DailyMail
+   (short news-article summarization pairs), and its generation defaults
+   (`max_length=142`/`min_length=56`, matched by this project's own
+   `SUMMARY_MAX_OUTPUT_TOKENS`/`SUMMARY_MIN_OUTPUT_TOKENS`) were tuned against that short,
+   CNN/DailyMail-style news — never retuned for longer, denser financial-news text. That's
+   a plausible root cause behind the `mean_coverage` gap this project measured and accepted
+   as a deliberate completeness-vs-correctness trade (2026-09-14), not an unrelated fact
+   sitting next to it.
 5. **`sector_summary`** — one row per `gics_sub_industry` per closed calendar week →
    `sector_summary`. Lives in its own `news_nlp/sector_summary/` package
    (`queries.py` for DB reads/writes, `composition.py` for the pure

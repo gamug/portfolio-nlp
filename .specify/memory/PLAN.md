@@ -896,9 +896,9 @@ made, it does not remake them.
 sub-block (item 1 above, `TASKS.md` T-064) is done, in both the artifact and
 `docs/modules/news-nlp.md` — after user feedback that the first pass sprawled
 into several tables/essays, pared down to a single metrics table plus a
-short justification; category's sub-block (item 2, T-065) and NER's (item 3,
-T-066) followed the same pared-down two-paragraph format from the start.
-`c_summary`/`sector_summary` (T-067–T-068) and the final all-five publish
+short justification; category's (item 2, T-065), NER's (item 3, T-066), and
+`c_summary`'s (item 4, T-067) sub-blocks followed the same pared-down format
+from the start. `sector_summary` (T-068) and the final all-five publish
 pass (T-069) remain open for a later request.
 
 ## Work item 9 — Rebalance the sentiment fine-tuning data (done 2026-09-19)

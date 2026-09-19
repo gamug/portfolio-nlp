@@ -428,7 +428,7 @@ item 8.
       filings-specific tag set. Sourced from `justification.md`'s
       verified links. Added to the Claude Artifact's `#eval-ner` block and
       mirrored in `docs/modules/news-nlp.md`.
-- [ ] **T-067** Write the `article_summary`/`c_summary` "Why this model"
+- [x] **T-067** Write the `article_summary`/`c_summary` "Why this model"
       sub-block: `distilbart-cnn-12-6` over full `bart-large-cnn` or a
       modern LLM summarizer, tied explicitly to the 6GB-VRAM /
       one-model-at-a-time budget (`SPEC.md` NR-001) and no per-call API
@@ -436,7 +436,16 @@ item 8.
       already-documented `mean_coverage` weakness (a small model
       pretrained on short CNN/DailyMail news, never retuned for
       financial-news density) rather than leaving them as two unrelated
-      facts. → step 4.
+      facts. → step 4. **Done 2026-09-19** — distilled BART over full
+      `bart-large-cnn`/a modern LLM summarizer, tied to NR-001's 6GB-VRAM
+      budget and no per-call API cost; near-identical quality per the
+      model's own card (ROUGE-2 21.26/ROUGE-L 30.59 vs. `bart-large-cnn`'s
+      21.06/30.63); explicitly connected the CNN/DailyMail distillation
+      data + generation defaults (`max_length=142`/`min_length=56`,
+      matched by `SUMMARY_MAX_OUTPUT_TOKENS`/`SUMMARY_MIN_OUTPUT_TOKENS`)
+      to the already-documented `mean_coverage` gap, not left as two
+      unrelated facts. Added to the Claude Artifact's `#eval-csummary`
+      block and mirrored in `docs/modules/news-nlp.md`.
 - [ ] **T-068** Write the `sector_summary` "Why this model" sub-block:
       frame the 2026-09-14 model-removal decision explicitly as a
       selection choice (deterministic template over any model,
