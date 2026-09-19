@@ -71,6 +71,23 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    (not the full article — a per-label NLI pass makes full-article chunking too expensive
    for a mandatory, every-article stage — and not `article_summary`, since that's opt-in
    and this stage isn't).
+
+   **Why this model.** No labeled training set exists for this project's own 10-slug
+   taxonomy — and building one for a taxonomy that may still evolve is expensive — so a
+   zero-shot NLI classifier was the only realistic option, not a trained one.
+   `deberta-v3-base-zeroshot-v2.0` specifically: DeBERTa-v3's disentangled-attention
+   architecture, further trained on MNLI + FEVER-NLI + synthetic data across 500+
+   classification tasks, benchmarks at 0.619 average F1-macro across 28 held-out zero-shot
+   datasets per the model's own card — against 0.497 for `facebook/bart-large-mnli`, the
+   reference zero-shot-NLI baseline it's commonly compared against. The taxonomy itself is
+   hierarchical, not flat 9-way: a 2026-09-09 investigation found a flat 9-way softmax
+   diluted real signal on several slugs (the model's own raw score for the correct slug on
+   missed rows averaged only 0.14-0.16, barely above the 9-way uniform baseline of 0.111) —
+   not unbalanced data or a sampling artifact. `run_category_stage` now classifies through a
+   two-level hierarchy (`news_nlp.taxonomy.CATEGORY_GROUPS`) instead, restoring a much
+   stronger ~0.333 baseline for the child-group softmax that actually decides a hard case —
+   see `docs/category-taxonomy.md`'s "Hierarchical classification" section for the full
+   design.
 4. **`c_summary`** — one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`),
    generated from the article's body plus its already-computed sentiment/entities →
    `article_summary`.

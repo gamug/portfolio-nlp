@@ -396,13 +396,24 @@ item 8.
       Claude Artifact's `#eval-sentiment` block and `docs/modules/
       news-nlp.md`'s item 1 (identical content, per T-069's own
       never-say-something-the-docs-don't-say rule).
-- [ ] **T-065** Write the category "Why this model" sub-block: zero-shot
+- [x] **T-065** Write the category "Why this model" sub-block: zero-shot
       NLI over a trained classifier (no labeled taxonomy training set);
       `deberta-v3-base-zeroshot-v2.0` specifically over other zero-shot
       checkpoints, sourced from the model's own card/benchmark
       provenance (new research — not yet written anywhere in this repo);
       the hierarchical two-level taxonomy over flat 9-way (pull from the
-      2026-09-09 follow-up). → step 2.
+      2026-09-09 follow-up). → step 2. **Done 2026-09-19** — kept to two
+      short paragraphs (why zero-shot NLI + this checkpoint; why
+      hierarchical over flat 9-way), matching sentiment's T-064 pared-down
+      format after user feedback that the first sentiment pass was too
+      long. Sourced from `justification.md`'s verified links
+      (`deberta-v3-base-zeroshot-v2.0`'s own card: 0.619 avg F1-macro
+      across 28 zero-shot datasets vs. `facebook/bart-large-mnli`'s 0.497)
+      and `docs/evaluation.md`'s 2026-09-09 follow-up (flat 9-way softmax
+      diluted signal — correct-slug raw score on misses averaged
+      0.14-0.16, barely above the 9-way uniform baseline of 0.111 — not
+      re-derived). Added to the Claude Artifact's `#eval-category` block
+      and mirrored in `docs/modules/news-nlp.md`.
 - [ ] **T-066** Write the NER "Why this model" sub-block: SEC-BERT
       (domain-pretrained on SEC filings) over a generic NER checkpoint;
       FiNER-ORD as the fine-tuning dataset, sourced from the dataset's
