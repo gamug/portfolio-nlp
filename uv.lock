@@ -1624,7 +1624,7 @@ source = { git = "https://github.com/gamug/portfolio-common?tag=v1.2.0#410905ef8
 
 [[package]]
 name = "portfolio-nlp"
-version = "0.1.0"
+version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
     { name = "accelerate" },

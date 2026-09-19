@@ -1,6 +1,6 @@
 [project]
 name = "portfolio-nlp"
-version = "0.1.0"
+version = "1.0.0"
 description = "Financial-news NLP pipeline (FinBERT sentiment + SEC-BERT NER + zero-shot category + summarization), extracted from portfolio-data-mining"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
