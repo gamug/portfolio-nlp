@@ -14,6 +14,7 @@ from typing import Any
 
 import evaluate
 import numpy as np
+import torch
 from datasets import Dataset, load_dataset
 from transformers import (
     AutoModelForTokenClassification,
@@ -135,6 +136,18 @@ class NerTrainConfig(TrainConfig):
 
 class NerTrainer(FtiTrainer[NerTrainConfig]):
     def train(self, config: NerTrainConfig) -> TrainedArtifact:
+        # HF's own Trainer/TrainingArguments select the device internally
+        # (CUDA if available, else CPU) with no visible confirmation of
+        # which one it picked -- report it explicitly, same detection
+        # pipeline.py's own DEVICE constant uses, so a run on an
+        # unexpectedly slow CPU is obvious immediately, not after minutes
+        # of silent training.
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(
+            f"Training on {device} "
+            f"({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'CPU'})"
+        )
+
         base_model = config.base_model
         tokenizer = AutoTokenizer.from_pretrained(base_model)
         model = AutoModelForTokenClassification.from_pretrained(

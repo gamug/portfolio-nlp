@@ -363,6 +363,17 @@ class SentimentTrainer(FtiTrainer[SentimentTrainConfig]):
     doesn't fit."""
 
     def train(self, config: SentimentTrainConfig) -> TrainedArtifact:
+        # HF's own Trainer/TrainingArguments select the device internally
+        # (CUDA if available, else CPU) with no visible confirmation of
+        # which one it picked -- report it explicitly, same detection
+        # pipeline.py's own DEVICE constant uses, so a run on an
+        # unexpectedly slow CPU is obvious immediately, not after minutes
+        # of silent training.
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(
+            f"Training on {device} ({torch.cuda.get_device_name(0) if device.type == 'cuda' else 'CPU'})"
+        )
+
         base_model = config.base_model
         rows, training_data_path, output_dir, metrics_output = load_training_pool(
             base_model, config.weighted
