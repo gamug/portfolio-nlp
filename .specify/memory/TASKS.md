@@ -375,12 +375,27 @@ covers *which variant of the same model family* (chunk-level vs.
 title-only FinBERT), not *why that family at all*. → `PLAN.md` Work
 item 8.
 
-- [ ] **T-064** Write the sentiment "Why this model" sub-block: FinBERT
+- [x] **T-064** Write the sentiment "Why this model" sub-block: FinBERT
       family over a general-purpose/from-scratch alternative; continuing
       from `ProsusAI/finbert` specifically over a generic checkpoint;
       chunk-level + entity-scoped weighting over the measured
       alternatives (pull from `docs/evaluation.md`'s 2026-09-13
-      follow-ups, don't re-derive). → step 1.
+      follow-ups, don't re-derive). → step 1. **Done 2026-09-19** — sourced
+      from `justification.md`'s separately link-verified sourcing doc (every
+      external link fetched and confirmed live before use) and
+      `justification_.md`'s draft prose (typos/informal phrasing cleaned up,
+      content preserved): why FinBERT-family at all (Araci 2019,
+      arXiv:1908.10063 — the one freely-available checkpoint already
+      fine-tuned for financial-domain sentiment, not just pretrained on
+      financial text); why continuing from `ProsusAI/finbert` specifically
+      (itself a continued fine-tune on Financial PhraseBank, Malo et al.
+      2014, arXiv:1307.5336 — small enough to further fine-tune cheaply on
+      this project's own 5,900-sentence set); chunk-level + entity-scoped
+      weighting pointed at the existing 2026-09-13 four-candidate comparison
+      already in the same artifact block, not re-derived. Added to both the
+      Claude Artifact's `#eval-sentiment` block and `docs/modules/
+      news-nlp.md`'s item 1 (identical content, per T-069's own
+      never-say-something-the-docs-don't-say rule).
 - [ ] **T-065** Write the category "Why this model" sub-block: zero-shot
       NLI over a trained classifier (no labeled taxonomy training set);
       `deberta-v3-base-zeroshot-v2.0` specifically over other zero-shot
@@ -414,7 +429,7 @@ item 8.
       something the repo's own docs don't already say. → `PLAN.md` Work
       item 8 acceptance criteria.
 
-## Work item 9 — Rebalance sentiment training data (priority)
+## Work item 9 — Rebalance sentiment training data (done 2026-09-19)
 
 `gamug/FinBERT-financial-news`'s training pool is 56.1% neutral / 22.8%
 negative / 21.1% positive — never a deliberate target, a byproduct of
@@ -441,19 +456,27 @@ Work item 9.
       `BALANCED_DATA_PATH` branch added to `train_sentiment.py`
       (preferred when present, doesn't double-merge idiom_augment);
       trained on CUDA, 4 epochs, same hyperparameters as v2.
-- [ ] **T-073** Publish the retrained model to
+- [x] **T-073** Publish the retrained model to
       `gamug/FinBERT-financial-news` as a new version, model card updated
       with the rebalance rationale. → step 3. **User decision made
       2026-09-15**: adopt **v4** (class-weighted), not v3 — see T-080.
-      `scripts/publish_finbert_financial_news_v4_2026_09_15.py` written
-      (model card carries the full offline + downstream comparison in
-      one-vs-rest precision/recall/F1 form) but **not yet run** — blocked
-      on Claude Code's auto-mode classifier, which denies a Hub publish
-      as a "Create Public Surface" action without explicit user
-      permission (a Bash permission rule, or the user running the script
-      themselves). `src/pipeline.py`'s `MODEL_REVISIONS` pin update is
-      prepared to follow in the same PR once the publish produces a real
-      commit SHA to pin. v3's own publish script
+      **Done 2026-09-19** — before running, the model card's three
+      comparison tables (offline test set, idiom probe, downstream
+      production eval) were simplified from a full precision/recall/F1
+      breakdown per class down to one `accuracy_ovr_<class>` row per class
+      (numbers re-verified against `data/sentiment_finetune/
+      test_metrics_weighted.json` and `candidates_comparison_2026_09_15.json`
+      before writing, not re-typed from memory; the downstream table's
+      `docs/evaluation.md`-sourced numbers unchanged). Then
+      `uv run python scripts/publish_finbert_financial_news_v4_2026_09_15.py`
+      run for real — pushed the real trained weights
+      (`models/finbert-financial-news-weighted/`) and the edited card to
+      the public Hub repo, commit `93863fcb7252874e7c0339081b34f691f9e17ff6`
+      (cross-checked against the Hub's own `GET /api/models/<repo_id>`
+      `"sha"` field before using it anywhere, per this repo's own pin
+      convention). `src/pipeline.py`'s `MODEL_REVISIONS[SENTIMENT_MODEL]`
+      and `docs/modules/news-nlp.md`'s pin table both updated to that SHA
+      in the same change. v3's own publish script
       (`scripts/publish_finbert_financial_news_v3_2026_09_14.py`) remains
       written and unrun — v3 was not chosen, no reason to publish it.
 - [x] **T-074** Measure per-class precision/recall/F1 (positive/negative/
@@ -1430,23 +1453,27 @@ sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
 yet run.
 
 **Work item 8** (per-model selection justification in the artifact,
-T-064–T-069) is a scoped, pending backlog entry only — explicitly not to
-be implemented until specifically requested (2026-09-14).
+T-064–T-069) was requested 2026-09-19, starting with sentiment: **T-064 is
+done** (see its own entry above) — the Claude Artifact's `#eval-sentiment`
+block and `docs/modules/news-nlp.md`'s item 1 both now carry the "why this
+model" reasoning, sourced from `justification.md`/`justification_.md`.
+T-065–T-068 (category/NER/`c_summary`/`sector_summary`) and T-069 (final
+publish pass once all five land) remain open, using the same two source
+files, one model at a time as requested.
 
-**Work item 9** (rebalance sentiment training data) is decided
-(2026-09-14/15): T-070–T-072 and T-074–T-080 done — dataset rebalanced and
+**Work item 9** (rebalance sentiment training data) is **done (2026-09-19)**:
+T-070–T-072 and T-074–T-080 done 2026-09-14/15 — dataset rebalanced and
 republished, three retraining/architecture approaches tried and measured
 downstream against real traffic (v3 downsampled, v4 class-weighted, v5
 base-checkpoint swap), and the user chose **v4** for production (T-080) —
 its `recall_negative` gain (0.808→0.832, this pipeline's priority metric)
 outweighed the `agreement_rate`/`mean_severity` cost, and beat v5's own
 real but narrower `precision_negative` gain (0.513→0.526) on the metric
-that actually decided the choice. **T-073 (publish v4 to the Hub +
-move `MODEL_REVISIONS`) is the one remaining step, blocked on Claude
-Code's auto-mode classifier**, not on a user decision anymore — a Hub
-publish is flagged as an external "Create Public Surface" action needing
-explicit permission (a Bash permission rule, or the user running
-`scripts/publish_finbert_financial_news_v4_2026_09_15.py` themselves). The
+that actually decided the choice. **T-073 (publish v4 to the Hub + move
+`MODEL_REVISIONS`) is now done too** — see its own entry above; the
+previously-blocking "Create Public Surface" permission was given
+explicitly (2026-09-19), along with a request to simplify the model card's
+comparison tables to `accuracy_ovr_<class>` first. The
 `sector_summary` pre-fix rows
 (3,444, from Work item 6's T-058 fix) are still queued to self-heal on
 the next real `--summarize` run, not yet triggered — a deliberate

@@ -890,7 +890,15 @@ selection decision (e.g. reopening whether chunk-level + fine-tuned
 sentiment was the right call) — this item explains decisions already
 made, it does not remake them.
 
-## Work item 9 — Rebalance the sentiment fine-tuning data (priority)
+**Progress (2026-09-19)**: requested, one model at a time, using
+`justification.md` (a separately link-verified sourcing doc) and
+`justification_.md` (per-model draft prose) as source material. Sentiment's
+sub-block (item 1 above, `TASKS.md` T-064) is done, in both the artifact and
+`docs/modules/news-nlp.md`. Category/NER/`c_summary`/`sector_summary`
+(T-065–T-068) and the final all-five publish pass (T-069) remain open for a
+later request.
+
+## Work item 9 — Rebalance the sentiment fine-tuning data (done 2026-09-19)
 
 **Why**: the 5,800-sentence training pool behind `gamug/FinBERT-financial-news`
 (5,000 base draw + 800 merged idiom-augment sentences) is 3,256 neutral
@@ -1512,16 +1520,13 @@ other, and independent of one another except where noted:
   real GPU rather than on anything else in this backlog. Worth running
   *before* a future T-022 full-corpus backfill decision, though not a hard
   prerequisite for it.
-- Work item 8 (per-model selection justification) is unblocked today and
-  independent of every other work item — it's an artifact/docs change,
-  not a code change, and doesn't depend on any pending decision. Explicitly
-  not to be implemented until specifically requested (2026-09-14) — stays
-  in the backlog as a scoped, pending item.
-- Work item 9 (rebalance sentiment training data) is unblocked today and
-  independent of every other work item — it needs no prior decision, and
-  touches the same model Work item 4 already finished tuning, but as a
-  data-quality fix, not a re-litigation of that work. Priority because
-  it's the next explicitly requested task.
+- **Work item 8 (per-model selection justification) is in progress
+  (2026-09-19)** — requested one model at a time; sentiment's sub-block
+  (T-064) is done, category/NER/`c_summary`/`sector_summary` (T-065–T-068)
+  remain, independent of every other work item.
+- **Work item 9 (rebalance sentiment training data) is done (2026-09-19)** —
+  its last open item, T-073 (publish v4 to the Hub + move
+  `MODEL_REVISIONS`), closed alongside Work item 8's sentiment task.
 - **Work item 10 (FTI restructure + evaluation redesign) is done
   (2026-09-18)** — all six steps landed in order (FTI hierarchy →
   `sector_summary` module move → eval reusing the FTI `Inference` classes

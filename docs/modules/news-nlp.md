@@ -22,7 +22,27 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    rather than re-derived; `scripts/publish_finbert_financial_news_dataset_2026_09_14.py`)
    (selected 2026-09-13 over base `ProsusAI/finbert`, after real-data evaluation
    found a measurable vocabulary/domain gap — see `docs/evaluation.md`'s 2026-09-13
-   follow-ups) → `article_sentiment`. Scored per ~510-token chunk (`chunk_text`,
+   follow-ups; now pinned to v4, the class-weighted retrain — `PLAN.md` Work item 9,
+   `docs/evaluation.md`'s 2026-09-15 follow-ups) → `article_sentiment`.
+
+   **Why this model at all.** A FinBERT-family model — domain-pretrained on financial
+   text rather than a general-purpose sentiment model or a from-scratch train — was
+   the starting point because it's the one freely-available checkpoint already
+   *fine-tuned* for financial-domain sentiment specifically, not just pretrained on
+   financial text: Araci (2019), *"FinBERT: Financial Sentiment Analysis with
+   Pre-trained Language Models"* ([arXiv:1908.10063](https://arxiv.org/abs/1908.10063)).
+   Continuing fine-tuning from `ProsusAI/finbert` specifically, rather than a generic
+   `bert-base` checkpoint or reaching for a larger general-purpose LLM, follows
+   directly from that: `ProsusAI/finbert` is itself a continued fine-tune of BERT-base
+   on [Financial PhraseBank](https://huggingface.co/datasets/takala/financial_phrasebank)
+   (~4,840 sentences, Malo, Sinha, Korhonen, Wallenius & Takala 2014,
+   [arXiv:1307.5336](https://arxiv.org/abs/1307.5336)) — a model already carrying real
+   financial-sentiment signal, small enough (BERT-base) to further fine-tune cheaply on
+   this project's own 5,900-sentence in-domain set rather than requiring a much larger
+   dataset or model from scratch. Chunk-level + entity-scoped weighting (below) over
+   sentence-level/title-only/whole-document alternatives was a separate, later, directly
+   measured decision — see `docs/evaluation.md`'s 2026-09-13 four-candidate comparison,
+   not re-derived here. Scored per ~510-token chunk (`chunk_text`,
    same helper NER/category use — preserves several sentences' worth of real
    discourse per forward pass) and aggregated with **entity-scoped weighting**: a
    chunk naming the article's own `company`/`ticker` counts more than one that
@@ -142,7 +162,7 @@ Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/
 
 | Model | Repo | Pinned SHA |
 |---|---|---|
-| Sentiment | `gamug/FinBERT-financial-news` | `072712344f1f82e54391e6721b0b39e7b944e898` |
+| Sentiment | `gamug/FinBERT-financial-news` | `93863fcb7252874e7c0339081b34f691f9e17ff6` (v4, class-weighted — `PLAN.md` Work item 9, published 2026-09-19) |
 | NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` |
 | Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` |
 | Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` |
