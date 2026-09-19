@@ -4,6 +4,7 @@ candidate-model wiring (TASKS.md T-089, SPEC.md FR-013)."""
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,57 @@ def test_candidate_scored_connection_writes_only_to_the_scratch_file(
         assert score == pytest.approx(0.315)
     finally:
         prod_conn.close()
+
+
+def test_candidate_scored_connection_tolerates_a_source_articles_fk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real SOURCE database (`portfolio-data-mining`'s `urls.db`) has
+    `articles.url REFERENCES discovered_urls(url)` -- a table this scratch
+    clone deliberately never creates (only `articles` itself is needed).
+    Cloning `articles`' DDL verbatim (see the function's own docstring)
+    carries that FK along, and `connect_pipeline` always opens with
+    `foreign_keys=True` -- without disabling it on this one scratch
+    connection, the first `copy_row_lean` write fails with
+    `sqlite3.OperationalError: no such table: main.discovered_urls`
+    (reported against a real run, TASKS.md T-099's own follow-up fix)."""
+    _patch_sentiment_model(monkeypatch)
+
+    source_path = tmp_path / "source_with_fk.db"
+    raw = sqlite3.connect(source_path)
+    raw.executescript(
+        """
+        CREATE TABLE discovered_urls (url TEXT PRIMARY KEY, domain TEXT);
+        CREATE TABLE articles (
+            id INTEGER PRIMARY KEY, url TEXT NOT NULL, ticker TEXT, company TEXT,
+            gics_sector TEXT, gics_sub_industry TEXT, title TEXT, author TEXT,
+            pub_date TEXT, fetched_at TEXT, body_text TEXT, word_count INTEGER,
+            source_domain TEXT, fetch_status TEXT, http_status_code INTEGER,
+            FOREIGN KEY (url) REFERENCES discovered_urls(url)
+        );
+        """
+    )
+    raw.execute("INSERT INTO discovered_urls (url, domain) VALUES ('http://x.test/1', 'x.test')")
+    raw.execute(
+        "INSERT INTO articles (id, url, ticker, company, body_text, word_count, "
+        "source_domain, fetch_status, http_status_code) VALUES "
+        "(1, 'http://x.test/1', 'MMM', 'Company MMM', 'Body text.', 2, "
+        "'example.com', 'ok', 200)"
+    )
+    raw.commit()
+    raw.close()
+
+    with candidate_scored_connection(
+        str(source_path),
+        "sentiment",
+        model_name="candidate/model",
+        revision="candidate-rev",
+        limit=1,
+        sample_seed=None,
+    ) as conn:
+        rows = conn.execute("SELECT article_id, label FROM article_sentiment").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["label"] == "positive"
 
 
 def test_candidate_scored_connection_rejects_unknown_stage(

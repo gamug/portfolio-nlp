@@ -91,6 +91,21 @@ def candidate_scored_connection(
     try:
         conn = db.connect_pipeline(results_db=scratch_path, source_db=source_db)
         try:
+            # `connect_pipeline` always opens with `foreign_keys=True` (the
+            # right default for a real RESULTS file) -- but this scratch
+            # file's cloned `articles` table (below) carries whatever FK
+            # constraints the real SOURCE schema happens to declare (e.g.
+            # portfolio-data-mining's own `articles` REFERENCES
+            # `discovered_urls`), and this scratch file deliberately never
+            # clones `discovered_urls` or any other SOURCE-only table --
+            # only `articles` itself is needed here (see below). Disabled
+            # before any write, not worked around per-statement, so every
+            # insert into the cloned table (via `copy_row_lean`) doesn't
+            # fail on a table this throwaway file was never going to have.
+            # A no-op if called mid-transaction (SQLite's own restriction);
+            # called immediately after connecting, before any statement
+            # runs, so that never applies here.
+            conn.execute("PRAGMA foreign_keys = OFF")
             # `init_schema` deliberately never creates `articles` -- a real
             # RESULTS file already has it (crawler-owned, migrated once
             # historically; see news_nlp/schema.py's own docstring). This
