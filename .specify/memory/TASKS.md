@@ -1219,7 +1219,7 @@ for everything before it — not independent efforts.
       Work item 10's closing pass. This closes Work item 11 in full
       (T-096–T-103 all done).
 
-## Work item 12 — Bring `tests/` under the mypy gate (priority, next — ahead of Work item 11's T-098)
+## Work item 12 — Bring `tests/` under the mypy gate (done 2026-09-18)
 
 `PLAN.md` Work item 12 / `SPEC.md` NR-007, §13 item 17. Surfaced directly
 (2026-09-18) landing T-097: running mypy with an explicit path argument
