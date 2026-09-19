@@ -117,7 +117,11 @@ SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"
 # HF's local cache resolution isn't guaranteed to serve the pinned snapshot
 # for an unpinned call.
 MODEL_REVISIONS: dict[str, str] = {
-    SENTIMENT_MODEL: "072712344f1f82e54391e6721b0b39e7b944e898",
+    # v4 (class-weighted retrain, PLAN.md Work item 9, TASKS.md T-073) --
+    # published + pinned 2026-09-19, adopted for its recall_negative gain
+    # (0.808->0.832); see docs/evaluation.md's 2026-09-15 follow-ups and the
+    # model card at https://huggingface.co/gamug/FinBERT-financial-news.
+    SENTIMENT_MODEL: "93863fcb7252874e7c0339081b34f691f9e17ff6",
     NER_MODEL: "ba7b9e43e4aa023ec5691f955b276dc58158354c",
     CATEGORY_MODEL: "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8",
     SUMMARY_MODEL: "a4f8f3ea906ed274767e9906dbaede7531d660ff",

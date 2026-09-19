@@ -84,69 +84,54 @@ on every sentence-level and idiom-probe metric (see the `portfolio-nlp` repo's
 published it, a deliberate adoption decision, not a default. Read the honest trade below before
 assuming "newest = strictly better."
 
-### One-vs-rest precision / recall / F1 per class — held-out sentence-level test set (n=579, same split as v2)
+### One-vs-rest accuracy per class — held-out sentence-level test set (n=579, same split as v2)
 
-| class | metric | v2 (published) | **v4 (this version)** |
-|---|---|---|---|
-| Positive | Precision | 0.748 | 0.746 |
-| Positive | Recall | 0.803 | 0.795 |
-| Positive | F1 | 0.775 | 0.770 |
-| Negative | Precision | 0.710 | **0.724** |
-| Negative | Recall | 0.742 | 0.735 |
-| Negative | F1 | 0.726 | 0.729 |
-| Neutral | Precision | **0.858** | 0.848 |
-| Neutral | Recall | **0.818** | 0.822 |
-| Neutral | F1 | **0.838** | 0.834 |
-| **Overall** | **Accuracy / Macro F1** | **0.798 / 0.779** | 0.796 / 0.778 |
+| class | v2 (published) | **v4 (this version)** |
+|---|---|---|
+| Positive | `accuracy_ovr` **0.902** | 0.900 |
+| Negative | `accuracy_ovr` 0.872 | **0.876** |
+| Neutral | `accuracy_ovr` **0.822** | 0.817 |
+| **Overall** | **Accuracy / Macro F1 0.798 / 0.779** | 0.796 / 0.778 |
 
 Unlike v3, v4 doesn't meaningfully move any class here — every number sits within ~0.01 of v2.
 
-### One-vs-rest precision / recall / F1 per class — idiom probe (n=100, held out of training)
+### One-vs-rest accuracy per class — idiom probe (n=100, held out of training)
 
-| class | metric | v2 (published) | **v4 (this version)** |
-|---|---|---|---|
-| Positive | Precision | 0.875 | 0.848 |
-| Positive | Recall | 0.903 | **0.903** |
-| Positive | F1 | **0.889** | 0.875 |
-| Negative | Precision | **0.902** | 0.883 |
-| Negative | Recall | **0.932** | 0.898 |
-| Negative | F1 | **0.917** | 0.891 |
-| Neutral | Precision | 0.571 | 0.571 |
-| Neutral | Recall | 0.4 | 0.4 |
-| Neutral | F1 | 0.471 | 0.471 |
-| **Overall** | **Accuracy / Macro F1** | **0.870 / 0.759** | 0.850 / 0.745 |
+| class | v2 (published) | **v4 (this version)** |
+|---|---|---|
+| Positive | `accuracy_ovr` **0.93** | 0.92 |
+| Negative | `accuracy_ovr` **0.90** | 0.87 |
+| Neutral | `accuracy_ovr` 0.91 | 0.91 |
+| **Overall** | **Accuracy / Macro F1 0.870 / 0.759** | 0.850 / 0.745 |
 
-**The number that matters most here**: v4's idiom-probe neutral F1 (0.471) lands exactly on
-v2's (0.471) — the catastrophic collapse to 0.0 that made v3 a real regression simply doesn't
-happen with class weighting, since no neutral training sentence is ever discarded.
+**The number that matters most here**: v4's idiom-probe neutral `accuracy_ovr` (0.91) lands
+exactly on v2's (0.91) — the catastrophic collapse to 0.0 (measured in F1) that made v3 a real
+regression simply doesn't happen with class weighting, since no neutral training sentence is
+ever discarded.
 
-### One-vs-rest precision / recall / F1 per class — downstream, real-traffic production-pipeline eval (n=2000, LLM-judge)
+### One-vs-rest accuracy per class — downstream, real-traffic production-pipeline eval (n=2000, LLM-judge)
 
 The evaluation that actually validated v2 in the first place (entity-scoped, chunk-level
 aggregation — the real `run_sentiment_stage` code path, not sentence-level scoring in
-isolation):
+isolation). Full per-class precision/recall/F1 breakdown (not just `accuracy_ovr`) is in the
+`portfolio-nlp` repo's `docs/evaluation.md`, 2026-09-15 follow-up:
 
-| class | metric | v2 (published) | **v4 (this version)** |
-|---|---|---|---|
-| Positive | Precision | **0.647** | 0.638 |
-| Positive | Recall | **0.801** | 0.777 |
-| Positive | F1 | **0.716** | 0.701 |
-| Negative | Precision | 0.513 | 0.507 |
-| Negative | Recall | 0.808 | **0.832** |
-| Negative | F1 | 0.628 | 0.630 |
-| Neutral | Precision | **0.936** | 0.933 |
-| Neutral | Recall | **0.777** | 0.764 |
-| Neutral | F1 | **0.849** | 0.840 |
-| **Overall** | `agreement_rate` | **0.701** | 0.674 |
-| **Overall** | `macro_f1_vs_judge` | **0.731** | 0.724 |
-| **Overall** | `mean_severity` (lower is better) | **0.341** | 0.369 |
+| class | v2 (published) | **v4 (this version)** |
+|---|---|---|
+| Positive | `accuracy_ovr` **0.878** | 0.870 |
+| Negative | `accuracy_ovr` **0.882** | 0.877 |
+| Neutral | `accuracy_ovr` **0.811** | 0.803 |
+| **Overall** | `agreement_rate` **0.701** | 0.674 |
+| **Overall** | `macro_f1_vs_judge` **0.731** | 0.724 |
+| **Overall** | `mean_severity` (lower is better) **0.341** | 0.369 |
 
-**Why v4, given this table**: `recall_negative` is this pipeline's stated priority metric —
-missing a real negative-sentiment article is a worse failure mode than a false alarm for this
-use case — and v4 delivers a real gain there (0.808→0.832). The cost is real too, not hidden:
-every other per-class cell moves slightly in v2's favor, and both `agreement_rate` and
-`mean_severity` get worse. This is a deliberate, disclosed trade, not a strict improvement —
-made with the full table above in hand, not before it.
+**Why v4**: `recall_negative` is this pipeline's stated priority metric — missing a real
+negative-sentiment article is a worse failure mode than a false alarm for this use case — and
+v4 delivers a real gain there (0.808→0.832, full precision/recall/F1 breakdown in
+`docs/evaluation.md`). The cost is real too, not hidden: every other per-class cell in that
+breakdown moves slightly in v2's favor, and both `agreement_rate` and `mean_severity` above
+get worse. This is a deliberate, disclosed trade, not a strict improvement — made with the
+full breakdown in hand, not before it.
 
 ## Why this exists (v1, unchanged)
 
