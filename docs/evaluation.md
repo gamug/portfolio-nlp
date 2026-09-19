@@ -1900,14 +1900,24 @@ decoupled from FTI since it never touches a model/GPU) is what let
 above. Three further pieces landed on top of that, all confined to
 `news_nlp/eval/` and its schema:
 
-- **Judge-verdict reuse (TASKS.md T-091).** Before invoking the judge LLM
-  for a sampled `(article_id, task, experiment)`, `runner.py` now checks
-  `eval_verdict` for an existing row at that exact key and reuses it
+- **Judge-verdict reuse (TASKS.md T-091, tightened by T-109).** Before
+  invoking the judge LLM for a sampled `(article_id, task, experiment)`,
+  `runner.py` now checks `eval_verdict` for an existing row at that exact
+  key **and** whose paired `eval_inference.prediction_json` matches this
+  run's own prediction for that article, and reuses it
   (`store.find_verdict_json` + `pydantic`'s `model_validate_json`) instead
   of re-judging. The concrete guarantee this gives: re-running the same
   `--stage <s> --run-name <experiment>` invocation against an unchanged
-  sample makes **zero** new judge-LLM calls; a new `article_id` or a
-  different `experiment` always judges fresh. `eval_verdict`'s unique
+  sample makes **zero** new judge-LLM calls; a new `article_id`, a
+  different `experiment`, or a changed prediction under the same
+  `(article_id, task, experiment)` key always judges fresh. That last case
+  matters because `experiment` alone doesn't prove "same model": `--run-
+  name`/`--candidate-model` (and `run_experiment`, which resolves
+  `candidate_model` to a fixed local checkpoint path) can stay identical
+  across a retrain, so without the prediction check a retrained model's
+  genuinely new prediction for an already-judged article would silently
+  reuse the *old* model's stale verdict (found + reproduced 2026-09-19,
+  `TASKS.md` T-109, `SPEC.md` FR-015). `eval_verdict`'s unique
   constraint is `(article_id, task, experiment, run_id)` — a 4-column key,
   not the 3-column `(article_id, task, experiment)` PLAN.md's original text
   named, since this repo's own T-090 PR had already shipped the 4-column
@@ -2169,7 +2179,12 @@ uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1
 # label the run in MLflow's UI (2026-09-15) -- useful when comparing named
 # candidates (v4, v5, ...) against a scratch --results-db, since they'd
 # otherwise all land in news_nlp_eval/sentiment with random auto-generated
-# names; cosmetic only, doesn't change the experiment or --check-regression
+# names. NOT cosmetic (correction, 2026-09-19): whenever --candidate-model
+# is unset, --run-name IS the resolved `experiment` (TASKS.md T-090, SPEC.md
+# FR-014) -- it drives judge-verdict reuse (FR-015) and --check-regression's
+# "which prior run to compare against" (see the invocation a few sections up
+# and the note near --check-regression below, both correct already; this
+# comment was the stale one)
 uv run cli/news_nlp_eval.py --stage sentiment --sample-size 2000 --seed 1 \
     --run-name v5-sec-bert-base --results-db /path/to/scratch.db --source-db /path/to/source.db
 

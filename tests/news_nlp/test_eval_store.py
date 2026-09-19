@@ -264,12 +264,99 @@ def test_find_verdict_json_returns_the_matching_key_only(
     )
     conn.commit()
 
-    found = find_verdict_json(conn, article_id=1, task="sentiment", experiment="base")
+    prediction_json = '{"label": "positive", "score": 0.9}'
+    found = find_verdict_json(
+        conn,
+        article_id=1,
+        task="sentiment",
+        experiment="base",
+        prediction_json=prediction_json,
+    )
     assert found is not None
     assert '"ideal_label": "positive"' in found
 
     # A different article_id, task, or experiment must not match.
-    assert find_verdict_json(conn, article_id=2, task="sentiment", experiment="base") is None
+    assert (
+        find_verdict_json(
+            conn,
+            article_id=2,
+            task="sentiment",
+            experiment="base",
+            prediction_json=prediction_json,
+        )
+        is None
+    )
+
+
+def test_find_verdict_json_ignores_a_stale_verdict_whose_prediction_changed(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    """TASKS.md T-109, SPEC.md FR-015 (tightened): `experiment` alone
+    doesn't prove "same model" -- `run_experiment` re-resolves
+    `candidate_model` to the same fixed local checkpoint path across a
+    retrain, so a stale verdict from a prior run under that same
+    `experiment` label must NOT be reused once the candidate's actual
+    prediction for that article has changed. Directly reproduces the bug
+    found 2026-09-19."""
+    run_id = create_eval_run(
+        conn,
+        stage="sentiment",
+        sample_size=1,
+        low_conf_n=0,
+        random_n=1,
+        seed=None,
+        judge_model="m",
+        judge_url="u",
+        code_version="v",
+    )
+    conn.commit()
+    inference_id = record_inference(
+        conn,
+        run_id,
+        article_id=1,
+        task="sentiment",
+        experiment="fake/local-checkpoint",
+        bucket="representative",
+        prediction={"label": "positive", "score": 0.9},
+    )
+    record_verdict(
+        conn,
+        inference_id,
+        run_id,
+        article_id=1,
+        task="sentiment",
+        experiment="fake/local-checkpoint",
+        verdict={"agrees": True, "ideal_label": "positive", "severity": 0},
+        correct=True,
+        severity=0,
+        rationale="judged:positive",
+    )
+    conn.commit()
+
+    # Same key, but the model was retrained and now predicts "negative" for
+    # the same article -- the prior "positive" verdict must not be reused.
+    assert (
+        find_verdict_json(
+            conn,
+            article_id=1,
+            task="sentiment",
+            experiment="fake/local-checkpoint",
+            prediction_json='{"label": "negative", "score": 0.9}',
+        )
+        is None
+    )
+
+    # An unchanged prediction still reuses, same key.
+    assert (
+        find_verdict_json(
+            conn,
+            article_id=1,
+            task="sentiment",
+            experiment="fake/local-checkpoint",
+            prediction_json='{"label": "positive", "score": 0.9}',
+        )
+        is not None
+    )
 
 
 def test_record_confusion_cells_writes_one_row_per_distinct_cell(
@@ -314,5 +401,15 @@ def test_record_confusion_cells_writes_one_row_per_distinct_cell(
         "SELECT COUNT(*) FROM eval_confusion WHERE run_id = ? AND task = 'category'", (run_id,)
     ).fetchone()
     assert n == 0
-    assert find_verdict_json(conn, article_id=1, task="category", experiment="base") is None
-    assert find_verdict_json(conn, article_id=1, task="sentiment", experiment="v2") is None
+    assert (
+        find_verdict_json(
+            conn, article_id=1, task="category", experiment="base", prediction_json="{}"
+        )
+        is None
+    )
+    assert (
+        find_verdict_json(
+            conn, article_id=1, task="sentiment", experiment="v2", prediction_json="{}"
+        )
+        is None
+    )

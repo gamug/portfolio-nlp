@@ -1402,6 +1402,83 @@ introducing a `Protocol`) — the annotations were simply wrong, not the
 design; `scripts/`'s own mypy errors (disclosed, not fixed here — see
 Approach step 4).
 
+## Work item 13 — Tighten judge-verdict reuse to also require a matching prediction (done 2026-09-19)
+
+**Why**: the user asked to look at whether T-091's judge-verdict reuse
+mechanism was actually working. `runner._run_stage` resolves `experiment =
+candidate_model or run_name or "base"` (T-090); `find_verdict_json` then
+reuses any prior `eval_verdict` row keyed on `(article_id, task,
+experiment)` alone. That key doesn't prove "same model produced this
+prediction": `run_experiment` (Work item 11) re-resolves `candidate_model`
+to a fixed local checkpoint path (`train_sentiment.py`'s `OUTPUT_DIR`/
+`OUTPUT_DIR_WEIGHTED`), so re-running the same `ExperimentSpec` JSON after
+a retrain reuses that exact same path — and therefore the exact same
+`experiment` label — even though the underlying weights, and therefore the
+prediction, genuinely changed. Confirmed by a direct, standalone
+reproduction before any code changed (not left as a hypothesis): two
+`run_eval` calls sharing `candidate_model="fake/local-checkpoint"`/
+`candidate_revision="local"`, a fake model returning `"positive"` on the
+first call and `"negative"` on the second. Run 2's `eval_inference.
+prediction_json` correctly recorded `"negative"`; its `eval_verdict.
+verdict_json` still read `ideal_label: "positive"`, `rationale:
+"judged:positive"` — run 1's verdict, silently reused, with zero judge-LLM
+calls made on run 2 (`n_judged`'s own progress bar showed `0it`). Run 2's
+aggregated metrics were then computed against a verdict describing a
+different prediction than the one the model actually produced that run —
+a real correctness gap, not just documentation drift. (A separate, genuine
+but much smaller issue found along the way: `docs/evaluation.md` had one
+stale 2026-09-15 comment calling `--run-name` "cosmetic only," contradicted
+by the real T-090 behavior and by two other correct passages in the same
+doc — fixed as a disclosed doc correction, not folded into this work
+item's own scope.)
+
+**Approach**, two parts:
+
+1. **Require a matching prediction, not just a matching key.**
+   `store.find_verdict_json` gains a required `prediction_json: str`
+   parameter; its query joins `eval_verdict` to `eval_inference` on
+   `inference_id` and adds `AND i.prediction_json = ?`. `runner.
+   _resolve_verdicts` passes `json.dumps(item.prediction, default=str)` —
+   the same serialization `record_inference` already uses for that item, so
+   the comparison is exact, not approximate. A prediction that changed
+   under an otherwise-unchanged `(article_id, task, experiment)` key now
+   falls through to a fresh judge call, exactly like a genuinely new key
+   always has.
+2. **Regression coverage that fails without the fix.** A unit-level test in
+   `test_eval_store.py` proves `find_verdict_json` itself refuses to reuse
+   across a changed `prediction_json` under an unchanged key. An end-to-end
+   test in `test_eval_runner.py` directly mirrors the standalone
+   reproduction: `run_eval` called twice with the same `candidate_model`/
+   `candidate_revision`, a fake model whose predicted label is a
+   constructor argument (toggled between the two calls) — asserts both a
+   fresh judge call on run 2 (not a reused one) and that each run's stored
+   verdict matches that run's own prediction, never the other run's.
+
+**Acceptance criteria**:
+
+- `find_verdict_json`/`_resolve_verdicts` require a matching prediction in
+  addition to the existing `(article_id, task, experiment)` key.
+- The two new tests fail on the pre-fix code and pass on the post-fix code
+  (verified directly, not assumed).
+- Existing reuse tests
+  (`test_run_eval_reuses_verdicts_for_an_unchanged_experiment`,
+  `test_run_eval_judges_fresh_for_a_different_experiment`) still pass
+  unmodified — both compare against unchanged production data, so their
+  predictions never move between runs, and the tightened check doesn't
+  change their outcome.
+- `uv run pytest` full suite green; `uv run mypy --config-file=
+  .code_quality/mypy.ini` (no path argument) zero errors; `uv run ruff
+  check .`/`ruff format --check .` clean.
+- `docs/evaluation.md`'s stale "`--run-name` is cosmetic only" comment
+  corrected alongside this, disclosed as a separate, smaller finding.
+
+**Out of scope**: redesigning `experiment` resolution itself (e.g. folding
+a model-content hash or a training timestamp into it) — the prediction
+match is a narrower, sufficient fix for the reuse mechanism's own
+correctness contract; `train_sentiment.py`'s fixed `OUTPUT_DIR` paths
+staying fixed (a separate, pre-existing design choice, not something this
+work item's own reproduction depends on being changed).
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -1476,5 +1553,17 @@ other, and independent of one another except where noted:
   would flag was already clean. `uv run mypy --config-file=
   .code_quality/mypy.ini` reports zero errors across 67 files;
   `uv run pytest` unchanged at 279 passed.
+- **Work item 13 (tighten judge-verdict reuse to require a matching
+  prediction) is done (2026-09-19)** — filed and closed in one pass after
+  the user asked whether Work item 10's own reuse mechanism (T-091) was
+  actually working. Independent of every other work item's own outcome (a
+  correctness fix inside the eval module's reuse lookup, not a pipeline or
+  training change) but directly exposed by Work item 11's own
+  fixed-local-checkpoint-path shape: re-running the same `ExperimentSpec`
+  after a retrain could silently reuse a stale verdict for a genuinely
+  different prediction. Confirmed by direct reproduction before any code
+  changed, then fixed with a two-part change (the reuse query, plus
+  regression coverage at both the unit and end-to-end level) and a
+  disclosed, separate doc-staleness fix in `docs/evaluation.md`.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
