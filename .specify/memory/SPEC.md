@@ -914,7 +914,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 10 — weak `c_summary` coverage + unverified sampling scope | **Resolved (2026-09-14)** — sampling mismatch fixed; coverage gap accepted as a deliberate trade, not fixed further; see `PLAN.md` Work item 6 | — |
 | 11 — `run_ner_stage` has no batching | Batching shipped (2026-09-12); only empirical GPU tuning (T-062) remains, no longer blocked on GPU access as of 2026-09-14 — see `PLAN.md` Work item 7 | — |
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
-| 13 — Models evaluation section lacks selection reasoning | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 8 | — (already in motion) |
+| 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
@@ -925,8 +925,8 @@ to fully resolved (see the update notes on both items above and
 down to one non-blocking sub-task. Item 12 was discovered and resolved
 the same day (2026-09-14) — found by the `sector_summary` eval path
 Work item 6 built, fixed the same day with a deterministic template.
-Item 13 is new the same day too, but unresolved — active priority work
-(`PLAN.md` Work item 8), not yet started. Items 3, 4 (the
+Item 13, filed the same day (2026-09-14), has since resolved too
+(2026-09-19, `PLAN.md` Work item 8). Items 3, 4 (the
 pinning-reprocessing half), 5, 6, 7, and 9 remain permanent
 characteristics of this project as scoped, not queued tasks.
 

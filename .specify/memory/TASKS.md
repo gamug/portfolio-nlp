@@ -365,7 +365,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
-## Work item 8 — Justify each model's selection in the Models evaluation artifact section (priority, pending)
+## Work item 8 — Justify each model's selection in the Models evaluation artifact section (done 2026-09-19)
 
 The 2026-09-14 artifact reorg centralized every model's *accuracy*
 numbers into one "Models evaluation" section, but not *why this model
@@ -446,18 +446,42 @@ item 8.
       to the already-documented `mean_coverage` gap, not left as two
       unrelated facts. Added to the Claude Artifact's `#eval-csummary`
       block and mirrored in `docs/modules/news-nlp.md`.
-- [ ] **T-068** Write the `sector_summary` "Why this model" sub-block:
+- [x] **T-068** Write the `sector_summary` "Why this model" sub-block:
       frame the 2026-09-14 model-removal decision explicitly as a
       selection choice (deterministic template over any model,
       structural guarantee over probabilistic mitigation), not an
       incidental fact — this one is mostly reframing content this
-      session already wrote, not new research. → step 5.
-- [ ] **T-069** Publish the updated artifact (all five sub-blocks live
+      session already wrote, not new research. → step 5. **Done
+      2026-09-19** — a short explicit "no model, deliberately" framing
+      paragraph added ahead of the existing 2026-09-14 hallucination-rate
+      content (42.2%→50.2%, both numbers already measured/documented, not
+      re-derived); the structural-guarantee-over-probabilistic-mitigation
+      framing ties to the same principle already used for this stage's
+      cross-company-blending design. Added to the Claude Artifact's
+      `#eval-sector` block and mirrored in `docs/modules/news-nlp.md`.
+- [x] **T-069** Publish the updated artifact (all five sub-blocks live
       under their existing per-model blocks in `#eval`, not a new
       top-level section) and mirror the same justification content in
       `docs/modules/news-nlp.md` prose — the artifact must never say
       something the repo's own docs don't already say. → `PLAN.md` Work
-      item 8 acceptance criteria.
+      item 8 acceptance criteria. **Done 2026-09-19** — satisfied
+      incrementally as each of T-064–T-068 landed, not as a separate
+      final pass: every "Why this model" sub-block was added directly to
+      its existing per-model block in the artifact's `#eval` section (no
+      new top-level section) and mirrored in `docs/modules/news-nlp.md`
+      in the same commit. Each justification names at least one concrete
+      rejected alternative (sentiment: general-purpose/from-scratch,
+      generic `bert-base`; category: a trained classifier, other
+      zero-shot checkpoints, flat 9-way; NER: spaCy/`bert-base-NER`;
+      `c_summary`: full `bart-large-cnn`, a modern LLM summarizer;
+      `sector_summary`: keeping the paraphrase model). All architecture/
+      benchmark provenance claims (Araci 2019, Malo et al. 2014, Loukas
+      et al. 2022, Shah et al. 2024, DeBERTa-v3's own benchmark card) are
+      real citations from `justification.md`'s separately link-verified
+      sourcing, not invented. Sentiment's first pass (T-064) sprawled
+      into several tables/essays and was rebuilt down to one metrics
+      table + a short justification after direct user feedback; T-065–
+      T-068 used that pared-down format from the start.
 
 ## Work item 9 — Rebalance sentiment training data (done 2026-09-19)
 
@@ -1483,13 +1507,20 @@ sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
 yet run.
 
 **Work item 8** (per-model selection justification in the artifact,
-T-064–T-069) was requested 2026-09-19, starting with sentiment: **T-064 is
-done** (see its own entry above) — the Claude Artifact's `#eval-sentiment`
-block and `docs/modules/news-nlp.md`'s item 1 both now carry the "why this
-model" reasoning, sourced from `justification.md`/`justification_.md`.
-T-065–T-068 (category/NER/`c_summary`/`sector_summary`) and T-069 (final
-publish pass once all five land) remain open, using the same two source
-files, one model at a time as requested.
+T-064–T-069) is **done (2026-09-19)** — requested the same day, one model
+at a time: sentiment (T-064), category (T-065), NER (T-066), `c_summary`
+(T-067), and `sector_summary` (T-068), each landing a "Why this model" (or,
+for `sector_summary`, "why no model") sub-block in its existing per-model
+block of the Claude Artifact's `#eval` section, mirrored in
+`docs/modules/news-nlp.md` prose in the same commit — closing T-069 as it
+went rather than as a separate final pass. Sourced from `justification.md`
+(a separately link-verified sourcing doc) and `justification_.md` (the
+per-model draft prose). Sentiment's first pass sprawled into several
+tables/essays and, after direct user feedback, was rebuilt down to one
+metrics table (precision/recall/ROC AUC per class per candidate, later
+swapped to accuracy_ovr/recall/ROC AUC per further feedback) plus a short
+justification; every subsequent sub-block used that pared-down format
+from the start.
 
 **Work item 9** (rebalance sentiment training data) is **done (2026-09-19)**:
 T-070–T-072 and T-074–T-080 done 2026-09-14/15 — dataset rebalanced and
