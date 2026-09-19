@@ -125,7 +125,12 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    as a deliberate completeness-vs-correctness trade (2026-09-14), not an unrelated fact
    sitting next to it.
 5. **`sector_summary`** — one row per `gics_sub_industry` per closed calendar week →
-   `sector_summary`. Lives in its own `news_nlp/sector_summary/` package
+   `sector_summary`. **Why this model: no model, deliberately.** Removing the one model
+   this stage used to run (below) is a selection choice, not an incidental fact — a
+   deterministic template is a structural guarantee against hallucination, not a
+   probabilistic mitigation of it, the same principle that already makes cross-company
+   blending structurally impossible in this stage's design. Lives in its own
+   `news_nlp/sector_summary/` package
    (`queries.py` for DB reads/writes, `composition.py` for the pure
    composition logic, `stage.py` for the `run_sector_summary_stage`
    orchestration entrypoint `pipeline.run_pipeline` calls) — deliberately

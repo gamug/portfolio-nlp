@@ -795,7 +795,7 @@ but doing it isn't part of this item — raised only as a one-line note in
 SPEC.md §13 item 11, not its own numbered question, to avoid scope creep
 beyond what was asked.
 
-## Work item 8 — Justify each model's selection in the Models evaluation artifact section (priority, pending)
+## Work item 8 — Justify each model's selection in the Models evaluation artifact section (done 2026-09-19)
 
 **Why**: The 2026-09-14 [Portfolio NLP artifact](https://claude.ai/code/artifact/65e62819-28dd-495b-b6ec-64f9c1751235)
 reorganization (`docs/evaluation.md`'s numbers, centralized) closed the
@@ -890,16 +890,17 @@ selection decision (e.g. reopening whether chunk-level + fine-tuned
 sentiment was the right call) — this item explains decisions already
 made, it does not remake them.
 
-**Progress (2026-09-19)**: requested, one model at a time, using
+**Done (2026-09-19)**: requested the same day, one model at a time, using
 `justification.md` (a separately link-verified sourcing doc) and
-`justification_.md` (per-model draft prose) as source material. Sentiment's
-sub-block (item 1 above, `TASKS.md` T-064) is done, in both the artifact and
-`docs/modules/news-nlp.md` — after user feedback that the first pass sprawled
-into several tables/essays, pared down to a single metrics table plus a
-short justification; category's (item 2, T-065), NER's (item 3, T-066), and
-`c_summary`'s (item 4, T-067) sub-blocks followed the same pared-down format
-from the start. `sector_summary` (T-068) and the final all-five publish
-pass (T-069) remain open for a later request.
+`justification_.md` (per-model draft prose) as source material. All five
+sub-blocks landed, each in its own per-model block in the artifact plus
+mirrored in `docs/modules/news-nlp.md` in the same commit: sentiment (item
+1, T-064), category (item 2, T-065), NER (item 3, T-066), `c_summary` (item
+4, T-067), `sector_summary` (item 5, T-068) — T-069 closed incrementally as
+each landed, not as a separate final pass. Sentiment's first pass sprawled
+into several tables/essays; after direct user feedback it was rebuilt down
+to one metrics table plus a short justification, and every subsequent
+sub-block used that pared-down format from the start.
 
 ## Work item 9 — Rebalance the sentiment fine-tuning data (done 2026-09-19)
 
@@ -1523,10 +1524,10 @@ other, and independent of one another except where noted:
   real GPU rather than on anything else in this backlog. Worth running
   *before* a future T-022 full-corpus backfill decision, though not a hard
   prerequisite for it.
-- **Work item 8 (per-model selection justification) is in progress
-  (2026-09-19)** — requested one model at a time; sentiment's sub-block
-  (T-064) is done, category/NER/`c_summary`/`sector_summary` (T-065–T-068)
-  remain, independent of every other work item.
+- **Work item 8 (per-model selection justification) is done (2026-09-19)** —
+  requested one model at a time, same day; all five sub-blocks
+  (T-064–T-068) landed and T-069 closed incrementally alongside them,
+  independent of every other work item.
 - **Work item 9 (rebalance sentiment training data) is done (2026-09-19)** —
   its last open item, T-073 (publish v4 to the Hub + move
   `MODEL_REVISIONS`), closed alongside Work item 8's sentiment task.
