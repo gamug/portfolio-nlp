@@ -63,6 +63,22 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
    so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SIZE`
    itself — see the constant's comment for why (variable per-article chunk counts, unlike
    category's fixed 9-pairs-per-article width).
+
+   **Why this model.** `nlpaueb/sec-bert-base` over a generic NER checkpoint (spaCy,
+   `bert-base-NER`): it's domain-pretrained on 260,773 SEC 10-K filings (1993-2021) with its
+   own ~30,000-subword financial vocabulary, not the generic BERT vocabulary (Loukas,
+   Fergadiotis, Chalkidis et al. 2022, *"FiNER: Financial Numeric Entity Recognition for
+   XBRL Tagging"*, arXiv:2203.06482) — financial entity mentions (tickers, filing
+   terminology, numeric-heavy contexts) benefit from vocabulary a generic model never saw,
+   including subword handling for numbers specifically relevant to this project's own
+   2026-09-12 subword-fragmentation fix (a word-boundary bug producing bogus spans off
+   things like `"3M"`). `gtfintechlab/finer-ord` as the fine-tuning dataset: 201
+   manually-annotated financial news articles (116,721 tokens, `PER`/`LOC`/`ORG` BIO
+   tagging — Shah, Gullapalli et al. 2024, *"FiNER-ORD: Financial Named Entity Recognition
+   Open Research Dataset"*, arXiv:2302.11157), whose general-NER label set matches this
+   project's own `article_entities` need (named entities in financial *news*) rather than a
+   filings-specific tag set like XBRL, making it directly usable for fine-tuning SEC-BERT
+   toward this project's actual task.
 3. **Category** — zero-shot NLI classification (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`)
    against a fixed 10-category taxonomy (9 dimensions of company performance + `other`) →
    `article_category`. See [`../category-taxonomy.md`](../category-taxonomy.md) for the
@@ -91,8 +107,30 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
 4. **`c_summary`** — one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`),
    generated from the article's body plus its already-computed sentiment/entities →
    `article_summary`.
+
+   **Why this model.** A distilled BART over the full `bart-large-cnn` or a modern
+   LLM-based summarizer: the 6GB-VRAM / one-model-at-a-time budget this whole pipeline is
+   built around (`SPEC.md` NR-001), and no per-call API cost for a batch job over hundreds
+   of thousands of articles. `distilbart-cnn-12-6` (12 encoder / 6 decoder layers vs.
+   `bart-large-cnn`'s 12/12, ~1.24x faster inference) reports near-identical quality on its
+   own model card — ROUGE-2 21.26 / ROUGE-L 30.59, against `bart-large-cnn`'s 21.06 / 30.63
+   — essentially the same summarization quality at a fraction of the size, the real
+   trade-off this choice buys. That size is not free, though, and connects directly to a
+   weakness already measured here: the model's own distillation data is CNN/DailyMail
+   (short news-article summarization pairs), and its generation defaults
+   (`max_length=142`/`min_length=56`, matched by this project's own
+   `SUMMARY_MAX_OUTPUT_TOKENS`/`SUMMARY_MIN_OUTPUT_TOKENS`) were tuned against that short,
+   CNN/DailyMail-style news — never retuned for longer, denser financial-news text. That's
+   a plausible root cause behind the `mean_coverage` gap this project measured and accepted
+   as a deliberate completeness-vs-correctness trade (2026-09-14), not an unrelated fact
+   sitting next to it.
 5. **`sector_summary`** — one row per `gics_sub_industry` per closed calendar week →
-   `sector_summary`. Lives in its own `news_nlp/sector_summary/` package
+   `sector_summary`. **Why this model: no model, deliberately.** Removing the one model
+   this stage used to run (below) is a selection choice, not an incidental fact — a
+   deterministic template is a structural guarantee against hallucination, not a
+   probabilistic mitigation of it, the same principle that already makes cross-company
+   blending structurally impossible in this stage's design. Lives in its own
+   `news_nlp/sector_summary/` package
    (`queries.py` for DB reads/writes, `composition.py` for the pure
    composition logic, `stage.py` for the `run_sector_summary_stage`
    orchestration entrypoint `pipeline.run_pipeline` calls) — deliberately
