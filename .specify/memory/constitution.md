@@ -227,6 +227,11 @@ component; every rule below assumes the stack actually pinned in
     trimming, link/reference the full table (already recorded per #12)
     rather than silently dropping classes or metrics from view — never
     present a partial reading as if it were the whole result.
+14. **Always present the PR link once development is finished.** After
+    opening a PR for a development effort (or pushing new commits to one
+    already open for it), give the user the PR's URL in the same turn the
+    work completes — a turn that finishes development work with a PR now
+    existing for it must not end without stating that link.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
@@ -338,4 +343,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.5.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-15
+**Version**: 2.6.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-21

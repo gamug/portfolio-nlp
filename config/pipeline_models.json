@@ -1,0 +1,21 @@
+{
+  "sentiment": {
+    "model": "gamug/FinBERT-financial-news",
+    "revision": "93863fcb7252874e7c0339081b34f691f9e17ff6"
+  },
+  "ner": {
+    "model": "gamug/sec-bert-finer-ord-ner",
+    "revision": "ba7b9e43e4aa023ec5691f955b276dc58158354c",
+    "batch_size": 8
+  },
+  "category": {
+    "model": "MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
+    "revision": "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8",
+    "batch_size": 8
+  },
+  "c_summary": {
+    "model": "sshleifer/distilbart-cnn-12-6",
+    "revision": "a4f8f3ea906ed274767e9906dbaede7531d660ff",
+    "batch_size": 4
+  }
+}

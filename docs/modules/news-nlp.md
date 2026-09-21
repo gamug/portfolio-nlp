@@ -213,16 +213,18 @@ uv run python -m setup           # pre-fetch the four HF models into the local c
 
 ### Model pins
 
-Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/setup.py`) is pinned to a commit SHA via `pipeline.MODEL_REVISIONS` (added 2026-09-14, `SPEC.md` §13 item 4) — an upstream push to any of these repos no longer changes results silently:
+Production model selection (name, commit SHA, and batch size per ML stage) lives in the git-tracked `config/pipeline_models.json`, schema-validated by `src/pipeline_config.py`'s `PipelineModelsConfig` (added 2026-09-21, `SPEC.md` FR-018, `PLAN.md` Work item 14 — supersedes the `pipeline.py`-literal-constants design from 2026-09-14, `SPEC.md` §13 item 4). `pipeline.py` loads this file at import time and re-exposes it as the same `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/`MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` module attributes as before, so every existing monkeypatch/test/script call site is unaffected. Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/setup.py`) is pinned to the commit SHA this file names — an upstream push to any of these repos no longer changes results silently. Deliberately a fixed, git-tracked file with no CLI/env runtime override (constitution AI-behavior #1: "model selection is pinned, not dynamic") — changing a model still means editing this file through normal PR review, only the format moved from Python to JSON:
 
 | Model | Repo | Pinned SHA |
 |---|---|---|
 | Sentiment | `gamug/FinBERT-financial-news` | `93863fcb7252874e7c0339081b34f691f9e17ff6` (v4, class-weighted — `PLAN.md` Work item 9, published 2026-09-19) |
-| NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` |
-| Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` |
-| Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` |
+| NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` (batch size 8) |
+| Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
+| Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
 
-Bumping a pin later is a deliberate, reviewed one-line diff against `MODEL_REVISIONS` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.
+Sentiment has no `batch_size` entry — `sentiment_stage.SentimentInference.batch_size()` is a hardcoded `1`, not a tunable constant `pipeline.py` reads, so there is nothing for a config field to move.
+
+Bumping a pin later is a deliberate, reviewed one-line diff against `config/pipeline_models.json` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.
 
 ## Running
 

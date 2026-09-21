@@ -1489,6 +1489,69 @@ the code fix's own scope.
       pytest`: 317 passed. `uv run mypy --config-file=.code_quality/
       mypy.ini`: zero errors. `ruff check`/`ruff format --check`: clean.
 
+## Work item 14 — Move production model selection into a git-tracked JSON config (done 2026-09-21)
+
+`PLAN.md` Work item 14 / `SPEC.md` FR-018. The user asked to make the
+pipeline's model selection JSON-driven, the same way Work item 11's
+`ExperimentSpec` made experiments JSON-driven. Two decisions locked in
+with the user up front, both driven by constitution AI-behavior #1
+("model selection is pinned, not dynamic — swapping a model is a
+spec-level change"): (1) a fixed, git-tracked config file with no runtime
+CLI/env override — changing a model still means a PR, only the format
+moved from Python to JSON; (2) per-stage scope of model + revision +
+batch size, not just model + revision.
+
+- [x] **T-111** Add `src/pipeline_config.py`: `PipelineModelsConfig`
+      (strict pydantic, `extra="forbid"`, mirroring `experiment.py`'s
+      `_StrictModel` convention) with one nested config per stage —
+      `sentiment` (`model`/`revision` only) and `ner`/`category`/
+      `c_summary` (`model`/`revision`/`batch_size`); `sentiment` has no
+      `batch_size` field since `sentiment_stage.SentimentInference.
+      batch_size()` is hardcoded to `1`, with no constant to move.
+      `load_pipeline_models_config(path=CONFIG_PATH)` parses
+      `config/pipeline_models.json`, `CONFIG_PATH` anchored via
+      `Path(__file__)` since this loads at import time, not from one
+      explicit CLI invocation. → `PLAN.md` Work item 14 step 1. **Done
+      2026-09-21.**
+- [x] **T-112** Add `config/pipeline_models.json` (new top-level `config/`
+      directory) reproducing the pre-existing hardcoded model
+      names/revisions/batch sizes verbatim — a pure move, zero behavior
+      change. → `PLAN.md` Work item 14 step 2. **Done 2026-09-21.**
+- [x] **T-113** Wire `src/pipeline.py`: call `load_pipeline_models_config()`
+      once at import time (right after `load_dotenv()`) and derive
+      `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/
+      `MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/
+      `SUMMARY_BATCH_SIZE` from it as the same plain module attributes as
+      before (`MODEL_REVISIONS` stays a real, mutable `dict`) — every
+      existing call site (`run_<stage>_stage`'s fresh-read-per-call
+      pattern, `setup.py`'s direct import, every `pipeline.<NAME>` test
+      monkeypatch/assertion, `scripts/resample_sentiment_v{3,4,5}_
+      2026_09_15.py`'s runtime `MODEL_REVISIONS[...] = "local"` mutation)
+      needed zero changes. Relocate (not drop) the design-rationale
+      comments that used to sit next to the literal constants into the
+      new loading block's own comment, since JSON has no comment syntax.
+      A malformed/missing config file now fails on `import pipeline`
+      itself, uncaught and unreworded, deliberately (not softened with a
+      try/except fallback). → `PLAN.md` Work item 14 steps 3-4, 6. **Done
+      2026-09-21.**
+- [x] **T-114** Add `tests/news_nlp/test_pipeline_model_config.py`: the
+      real config file parses and matches the pre-existing hardcoded
+      values; `pipeline.py`'s exposed globals match a fresh config load;
+      `MODEL_REVISIONS` stays a real `dict`; strict-mode rejection tests
+      (unknown key, missing stage, non-positive `batch_size`, a
+      `batch_size` under `sentiment`) via `tmp_path` fixtures, mirroring
+      `test_experiment.py`'s `pytest.raises(ValidationError)` pattern.
+      Verify: full `uv run pytest` green (zero changes to any
+      pre-existing test), `uv run mypy --config-file=.code_quality/
+      mypy.ini` zero errors, `ruff check .`/`ruff format --check .`
+      clean. → `PLAN.md` Work item 14 step 5 acceptance criteria. **Done
+      2026-09-21.**
+- [x] **T-115** Update `docs/modules/news-nlp.md`'s "Model pins" section
+      and `SPEC.md` §13 item 4 to name `config/pipeline_models.json` /
+      `src/pipeline_config.py` as the source of truth instead of a
+      `pipeline.py` dict literal, noting no constitution amendment was
+      needed. → `PLAN.md` Work item 14 step 6. **Done 2026-09-21.**
+
 ## Status
 
 T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
