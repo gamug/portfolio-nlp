@@ -10,9 +10,8 @@ uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.js
 
 `--source-db`/`--results-db` override `$SOURCE_DATABASE_URL`/`$DATABASE_URL`
 the same way `cli/news_nlp_eval.py`'s own flags do. A run writes its result
-record to `experiments/results/<name>.result.json` (git-tracked, not
-checked in here yet — the first real run of each spec should commit its
-own result alongside it).
+record to `experiments/results/<name>.result.json` — local scratch output,
+git-ignored (`.gitignore`), not checked in.
 
 ## The specs
 

@@ -234,3 +234,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 models/
+
+# experiments/results/: run_experiment() output (experiments/README.md) --
+# local scratch, not checked in.
+experiments/results/
