@@ -1491,6 +1491,89 @@ correctness contract; `train_sentiment.py`'s fixed `OUTPUT_DIR` paths
 staying fixed (a separate, pre-existing design choice, not something this
 work item's own reproduction depends on being changed).
 
+## Work item 14 — Move production model selection into a git-tracked JSON config (done 2026-09-21)
+
+**Why**: the user asked to make the pipeline's model selection
+configurable via JSON, the same way Work item 11's `ExperimentSpec` made
+experiments JSON-driven. `pipeline.py` hardcoded `SENTIMENT_MODEL`/
+`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`, the `MODEL_REVISIONS` pin
+dict (Work item 1), and three batch-size constants as Python literals.
+Constitution AI-behavior #1 ("model selection is pinned, not dynamic —
+swapping a model is a spec-level change") rules out a runtime
+`--model-config <path>` flag, since that would let anyone point the
+pipeline at an unreviewed file without a constitution amendment; confirmed
+with the user up front (two locked-in decisions: a fixed, git-tracked
+file with no CLI/env override, and model+revision+batch_size scope per
+stage) before any design work, precisely so the result stays compliant
+with that rule without needing to amend it.
+
+**Approach**:
+1. New module `src/pipeline_config.py`: `PipelineModelsConfig` (strict
+   pydantic, `extra="forbid"`, mirroring `experiment.py`'s `_StrictModel`
+   convention including "no regex/SHA-format validation of `revision`")
+   with one nested config per stage (`sentiment`/`ner`/`category`/
+   `c_summary`) — `sentiment` has `model`/`revision` only,
+   `ner`/`category`/`c_summary` also have `batch_size`, since
+   `sentiment_stage.SentimentInference.batch_size()` is hardcoded to `1`
+   and has no constant to move. `load_pipeline_models_config(path=
+   CONFIG_PATH)` parses `config/pipeline_models.json`, anchored via
+   `Path(__file__)` rather than a bare relative path since this loads at
+   import time from every entrypoint, not one explicit CLI invocation.
+2. New top-level `config/` directory (didn't exist before) —
+   `config/pipeline_models.json` reproduces the pre-existing hardcoded
+   values verbatim (pure move, zero behavior change). Not placed under
+   `experiments/`: that directory holds a growing family of point-in-time
+   `ExperimentSpec` files chosen ad hoc via `--config`; this is one
+   canonical, always-current file, never selected per-invocation.
+3. `pipeline.py` calls `load_pipeline_models_config()` once at import
+   time (right after `load_dotenv()`) and derives
+   `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/
+   `MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/
+   `SUMMARY_BATCH_SIZE` from it as real, plain module attributes — the
+   same names as before, still a real mutable `dict` for
+   `MODEL_REVISIONS`, so every existing call site keeps working
+   unchanged: `run_<stage>_stage`'s own fresh-read-per-call pattern,
+   `setup.py`'s direct import, every `pipeline.<NAME>` test monkeypatch/
+   assertion, and `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py`'s
+   runtime `pipeline.MODEL_REVISIONS[candidate] = "local"` mutation. No
+   `*_stage.py` file or `fti.py` needed to change — each `*Inference`
+   class already takes `model_name`/`revision`/`batch_size` as plain
+   constructor kwargs, always passed explicitly by `pipeline.py`'s
+   wrappers.
+4. A malformed/missing `config/pipeline_models.json` now fails on `import
+   pipeline` itself, uncaught and unreworded (pydantic's own
+   `ValidationError` already names what's wrong) — accepted deliberately
+   rather than softened with a try/except fallback, since the file is
+   PR-reviewed like code either way and a silent fallback would undermine
+   "pinned, not dynamic."
+5. `tests/news_nlp/test_pipeline_model_config.py`: the real config file
+   parses and matches the pre-existing hardcoded values; `pipeline.py`'s
+   exposed globals match a fresh config load (catches a field-mapping
+   copy-paste bug); `MODEL_REVISIONS` stays a real `dict`; strict-mode
+   rejection tests (unknown key, missing stage, non-positive `batch_size`,
+   a `batch_size` under `sentiment`) via `tmp_path` fixtures, mirroring
+   `test_experiment.py`'s `pytest.raises(ValidationError)` pattern.
+6. Design-rationale comments that used to sit next to the literal
+   constants (SPEC.md §13 cross-references, VRAM/batch-size tuning notes)
+   relocated, not dropped, into `pipeline.py`'s own comment above the new
+   loading call (JSON has no comment syntax) and into `docs/modules/
+   news-nlp.md`'s "Model pins" section.
+
+**Verified**:
+- `uv run pytest -q` full suite green, including the new test file and
+  every pre-existing test that monkeypatches/asserts on `pipeline.<NAME>`/
+  `setup.<NAME>`, unmodified.
+- `uv run ruff check .`/`ruff format --check .` clean; `uv run mypy
+  --config-file=.code_quality/mypy.ini` zero new errors.
+- `git diff` review: `pipeline.py`'s diff touches only the new import and
+  the constant-definition block — no change to any `run_<stage>_stage`
+  body, any `*_stage.py` file, or `setup.py`.
+
+**Out of scope**: wiring a real, tunable `sentiment` batch size into
+`sentiment_stage.py` (there isn't one today to move); any runtime
+CLI/env override mechanism (would require a separate constitution
+amendment first, per AI-behavior #1).
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -1574,5 +1657,17 @@ other, and independent of one another except where noted:
   changed, then fixed with a two-part change (the reuse query, plus
   regression coverage at both the unit and end-to-end level) and a
   disclosed, separate doc-staleness fix in `docs/evaluation.md`.
+- **Work item 14 (move production model selection into a git-tracked JSON
+  config) is done (2026-09-21)** — the user asked for the pipeline's model
+  selection to be JSON-driven, the same way Work item 11's `ExperimentSpec`
+  made experiments JSON-driven. `pipeline.py`'s hardcoded
+  `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/
+  `MODEL_REVISIONS`/batch-size constants now come from the git-tracked
+  `config/pipeline_models.json` (schema in the new `src/pipeline_config.py`),
+  loaded at import time and re-exposed as the same module attributes so
+  every existing monkeypatch/test/script call site is unaffected. Fixed
+  file, no runtime CLI/env override — confirmed with the user up front,
+  specifically to stay compliant with constitution AI-behavior #1
+  ("pinned, not dynamic") without needing to amend it.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

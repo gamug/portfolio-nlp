@@ -27,6 +27,7 @@ import news_nlp as db
 from category_stage import CategoryFeature, CategoryInference
 from ner_stage import NerFeature, NerInference
 from news_nlp.sector_summary import run_sector_summary_stage
+from pipeline_config import load_pipeline_models_config
 from sentiment_stage import SentimentFeature, SentimentInference
 from summary_stage import SummaryFeature, SummaryInference
 
@@ -38,94 +39,99 @@ from summary_stage import SummaryFeature, SummaryInference
 # more than once.
 load_dotenv()
 
-SENTIMENT_MODEL = "gamug/FinBERT-financial-news"
-# Selected 2026-09-13 as the production sentiment design, after real-data
-# evaluation of four candidates (base/fine-tuned FinBERT x chunk-level/
-# title-only aggregation) against the same 2,000-article pool + LLM judge
-# -- full comparison, diagnosis of the remaining precision gap, and the
-# rejected-fix evidence (confidence threshold, subject-coverage gate,
-# zero-shot materiality gate) in docs/evaluation.md's 2026-09-13
-# follow-ups; decision recorded in SPEC.md SS13 item 1 / PLAN.md Work item
-# 4. Two changes from the original ProsusAI/finbert baseline, chosen
-# together, not independently:
+# Production model selection (name/revision/batch size, one entry per ML
+# stage) lives in the git-tracked config/pipeline_models.json, not here --
+# schema/validation in pipeline_config.py (SPEC.md FR-018, PLAN.md Work
+# item 14; supersedes the literal constants + MODEL_REVISIONS dict this
+# block used to define directly, SPEC.md SS13 item 4). Deliberately loaded
+# at import time, with no CLI/env override: per constitution AI-behavior
+# #1, swapping a model is a spec-level change that goes through normal PR
+# review either way, so there is nothing to gain from a runtime flag and
+# real risk in adding one. This does mean an invalid or missing
+# config/pipeline_models.json now fails on `import pipeline` itself --
+# every real entrypoint (apps/news_nlp_api.py, cli/*.py, `python -m
+# pipeline`, setup.py, this file's own test suite) imports this module, so
+# a broken pin file fails loudly and immediately, everywhere, including in
+# CI (pytest collection), rather than silently shipping and only surfacing
+# the next time someone happens to run the real pipeline. Uncaught/
+# unreworded on purpose -- pydantic's own ValidationError already names
+# exactly what's wrong, matching cli/run_experiment.py's convention for
+# the same JSON+pydantic pattern.
 #
-# 1. A continued fine-tune of ProsusAI/finbert on 5,900 real, LLM-labeled
-#    in-domain sentences (published at the SENTIMENT_MODEL repo above) --
-#    closes a real vocabulary/domain gap (ProsusAI/finbert's own training
-#    data is 2014 Nordic-company news; e.g. it originally missed "crushed"
-#    as a positive earnings idiom).
-# 2. Entity-scoped chunk-weighting (this section): FinBERT has no
-#    per-company reasoning of its own -- a sentence about a *different*
-#    company's earnings, or generic market commentary, reads as "this
-#    article's sentiment" exactly as much as a sentence actually about the
-#    article's subject company under a plain average. A sentence naming
-#    the article's own `company`/`ticker` gets full weight; everything
-#    else gets the lower baseline instead of counting equally.
-#    Deliberately two-tier, not three (no separate "definitely about a
-#    *different* company" tier): that would need real entity extraction
-#    (article_entities), which isn't available yet when sentiment runs --
-#    it's the first stage in run_pipeline, before NER.
-#
-# Known, disclosed limitations this design does NOT solve (chosen anyway,
-# deliberately, because this pipeline favors recall over precision -- see
-# docs/evaluation.md): a sentence that refers to the subject only by
-# pronoun ("the company", "it") rather than by name/ticker gets the
-# baseline weight too, since this is plain text matching, not coreference
-# resolution; and ~40% of directional (positive/negative) predictions are
-# false alarms on multi-company/mixed-signal articles the aggregation has
-# no principled way to net out -- a document-structure-level gap measured
-# and disclosed, not a silent one.
-#
-# The entity-scoped weighting logic itself (`_sentiment_chunk_weights`,
-# `_text_mentions_subject`, `_normalize_company_name`,
-# `_SENTIMENT_SUBJECT_WEIGHT`/`_SENTIMENT_BASELINE_WEIGHT`/
-# `_CORP_SUFFIX_RE`) now lives in `sentiment_stage.py` (PLAN.md Work item
-# 10 / TASKS.md T-083, migrated onto the FTI hierarchy 2026-09-16) --
-# `SENTIMENT_MODEL` stays defined here since `setup.py` and the
-# `scripts/resample_sentiment_v{3,4,5}_2026_09_15.py` candidate-eval
-# scripts still read/monkeypatch it (and `MODEL_REVISIONS` below) directly.
-NER_MODEL = "gamug/sec-bert-finer-ord-ner"
-CATEGORY_MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
+# Design history preserved here since JSON has no comment syntax:
+# - Sentiment (`gamug/FinBERT-financial-news`): selected 2026-09-13 as the
+#   production sentiment design, after real-data evaluation of four
+#   candidates (base/fine-tuned FinBERT x chunk-level/title-only
+#   aggregation) against the same 2,000-article pool + LLM judge -- full
+#   comparison, diagnosis of the remaining precision gap, and the
+#   rejected-fix evidence (confidence threshold, subject-coverage gate,
+#   zero-shot materiality gate) in docs/evaluation.md's 2026-09-13
+#   follow-ups; decision recorded in SPEC.md SS13 item 1 / PLAN.md Work
+#   item 4. The entity-scoped chunk-weighting logic itself
+#   (`_sentiment_chunk_weights`, `_text_mentions_subject`,
+#   `_normalize_company_name`) lives in `sentiment_stage.py` (PLAN.md Work
+#   item 10 / TASKS.md T-083). Current pin: v4 (class-weighted retrain,
+#   PLAN.md Work item 9, TASKS.md T-073) -- published + pinned 2026-09-19,
+#   adopted for its recall_negative gain (0.808->0.832); see
+#   docs/evaluation.md's 2026-09-15 follow-ups and the model card at
+#   https://huggingface.co/gamug/FinBERT-financial-news.
+# - NER batch size: articles per forward pass, not chunks per forward
+#   pass -- every chunk of every article in one ner.batch_size-sized group
+#   of articles is flattened into a single padded tokenizer call (see
+#   ner_stage.NerFeature), so the actual forward-pass batch dimension is
+#   the *total chunk count* across those articles, not this constant
+#   itself -- unlike category.batch_size (a fixed 9 pairs/article, so its
+#   forward-pass width is exactly category.batch_size * 9 every time).
+#   NER's per-article chunk count varies with article length
+#   (docs/evaluation.md's 2026-09-12 follow-up found one 156,053-char
+#   outlier alone worth dozens of chunks). Empirically tune against
+#   SPEC.md NR-001's 6GB VRAM budget before trusting this number on a
+#   full-corpus run (PLAN.md Work item 7 step 5 / TASKS.md T-062 -- needs
+#   a real GPU, not yet re-measured past this starting value).
+# - Category batch size: articles classified per forward pass, not just
+#   labels-per-article -- each article already batches its own 9
+#   (premise, hypothesis) pairs in one call, but 9 rows is too small a
+#   batch to keep a GPU busy. Grouping category.batch_size articles'
+#   pairs into one call (8 * 9 = 72 rows) gets real throughput out of the
+#   GPU without materially raising peak VRAM -- still one model on the
+#   card at a time, just a wider batch through it.
+# - Summary batch size: generate() with beam search is far more
+#   memory-intensive per row than a single classification forward pass
+#   (category's forward-only batching), so this stays smaller despite the
+#   same one-model-at-a-time VRAM budget -- tune down further if a 6GB
+#   card OOMs.
+# - Revision pins: fetched from the HF Hub API (GET /api/models/<repo_id>,
+#   the "sha" field) at pin time, not guessed -- resolving by repo name
+#   alone means an upstream push to any of these four repos changes
+#   results silently, with no signal, undermining the SPEC.md SS9 accuracy
+#   baseline every one of these numbers was measured against. Passed as
+#   `revision=` at every from_pretrained call site below AND in
+#   setup.py's download_models() -- pinning only the pre-download and
+#   leaving from_pretrained(name) unpinned would not actually fix
+#   anything, since HF's local cache resolution isn't guaranteed to serve
+#   the pinned snapshot for an unpinned call. Bumping a pin is a
+#   deliberate, reviewed, one-line diff against config/pipeline_models.json,
+#   not silent drift.
+_MODELS_CONFIG = load_pipeline_models_config()
 
-# Articles per forward pass, not chunks per forward pass: every chunk of
-# every article in one NER_BATCH_SIZE-sized group of articles is flattened
-# into a single padded tokenizer call (see ner_stage.NerFeature), so the actual
-# forward-pass batch dimension is the *total chunk count* across those
-# articles, not this constant itself -- unlike CATEGORY_BATCH_SIZE (a fixed
-# 9 pairs/article, so its forward-pass width is exactly
-# CATEGORY_BATCH_SIZE * 9 every time). NER's per-article chunk count varies
-# with article length (docs/evaluation.md's 2026-09-12 follow-up found one
-# 156,053-char outlier alone worth dozens of chunks), so this same constant
-# can correspond to very different actual batch widths run to run. Starts
-# at CATEGORY_BATCH_SIZE's value as a first guess, not copied blind --
-# empirically tune against SPEC.md NR-001's 6GB VRAM budget before trusting
-# this number on a full-corpus run (PLAN.md Work item 7 step 5 / TASKS.md
-# T-062 -- needs a real GPU, not yet re-measured past this starting value).
-NER_BATCH_SIZE = 8
-SUMMARY_MODEL = "sshleifer/distilbart-cnn-12-6"
+SENTIMENT_MODEL = _MODELS_CONFIG.sentiment.model
+NER_MODEL = _MODELS_CONFIG.ner.model
+CATEGORY_MODEL = _MODELS_CONFIG.category.model
+SUMMARY_MODEL = _MODELS_CONFIG.c_summary.model
 
-# Pin each model to a commit SHA (SPEC.md SS13 item 4, PLAN.md Work item 1):
-# resolving by repo name alone means an upstream push to any of these four
-# repos changes results silently, with no signal, undermining the SPEC.md
-# SS9 accuracy baseline every one of these numbers was measured against.
-# Fetched from the HF Hub API (GET /api/models/<repo_id>, the "sha" field)
-# at pin time, 2026-09-14 -- not guessed. Bumping a pin later is a
-# deliberate, reviewed, one-line diff against this dict, not silent drift.
-# Passed as `revision=` at every from_pretrained call site below AND in
-# setup.py's download_models() -- pinning only the pre-download and leaving
-# from_pretrained(name) unpinned would not actually fix anything, since
-# HF's local cache resolution isn't guaranteed to serve the pinned snapshot
-# for an unpinned call.
+# A real, mutable dict (not e.g. a frozen mapping): scripts/resample_
+# sentiment_v{3,4,5}_2026_09_15.py mutate this in-process at runtime
+# (pipeline.MODEL_REVISIONS[candidate] = "local") to score a candidate
+# checkpoint without touching disk -- that pattern only works if this
+# stays a plain dict, regardless of how it was populated.
 MODEL_REVISIONS: dict[str, str] = {
-    # v4 (class-weighted retrain, PLAN.md Work item 9, TASKS.md T-073) --
-    # published + pinned 2026-09-19, adopted for its recall_negative gain
-    # (0.808->0.832); see docs/evaluation.md's 2026-09-15 follow-ups and the
-    # model card at https://huggingface.co/gamug/FinBERT-financial-news.
-    SENTIMENT_MODEL: "93863fcb7252874e7c0339081b34f691f9e17ff6",
-    NER_MODEL: "ba7b9e43e4aa023ec5691f955b276dc58158354c",
-    CATEGORY_MODEL: "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8",
-    SUMMARY_MODEL: "a4f8f3ea906ed274767e9906dbaede7531d660ff",
+    SENTIMENT_MODEL: _MODELS_CONFIG.sentiment.revision,
+    NER_MODEL: _MODELS_CONFIG.ner.revision,
+    CATEGORY_MODEL: _MODELS_CONFIG.category.revision,
+    SUMMARY_MODEL: _MODELS_CONFIG.c_summary.revision,
 }
+
+NER_BATCH_SIZE = _MODELS_CONFIG.ner.batch_size
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -160,19 +166,10 @@ def _warn_if_cpu() -> None:
         )
 
 
-# Articles classified per forward pass, not just labels-per-article: each
-# article already batches its own 9 (premise, hypothesis) pairs in one call,
-# but 9 rows is too small a batch to keep a GPU busy. Grouping
-# CATEGORY_BATCH_SIZE articles' pairs into one call (8 * 9 = 72 rows) gets
-# real throughput out of the GPU without materially raising peak VRAM --
-# still one model on the card at a time, just a wider batch through it.
-CATEGORY_BATCH_SIZE = 8
-
-# generate() with beam search is far more memory-intensive per row than a
-# single classification forward pass (run_category_stage's forward-only
-# CATEGORY_BATCH_SIZE=8), so this stays smaller despite the same
-# one-model-at-a-time VRAM budget -- tune down further if a 6GB card OOMs.
-SUMMARY_BATCH_SIZE = 4
+# See the design-history comment above _MODELS_CONFIG for the rationale
+# behind each of these batch sizes.
+CATEGORY_BATCH_SIZE = _MODELS_CONFIG.category.batch_size
+SUMMARY_BATCH_SIZE = _MODELS_CONFIG.c_summary.batch_size
 
 
 def free_gpu() -> None:
