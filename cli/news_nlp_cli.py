@@ -76,6 +76,18 @@ class _CliProgress:
             self._bar.close()
             self._bar = None
 
+    def close(self) -> None:
+        """Close any still-open bar. `__call__` only closes a bar on a
+        stage transition or at `processed == total` -- if a stage raises
+        (a model-load failure, a bad row) `run_pipeline` never calls this
+        stage's own `on_progress` again, so without this, a mid-stage
+        crash would leave a stale live `tqdm` bar/cursor state on the
+        terminal. Call from `main()`'s `finally` block, not from
+        `__call__` itself."""
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -113,13 +125,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    run_pipeline(
-        limit=args.limit,
-        summarize=args.summarize,
-        source_db=args.source_db,
-        results_db=args.results_db,
-        on_progress=_CliProgress(),
-    )
+    progress = _CliProgress()
+    try:
+        run_pipeline(
+            limit=args.limit,
+            summarize=args.summarize,
+            source_db=args.source_db,
+            results_db=args.results_db,
+            on_progress=progress,
+        )
+    finally:
+        progress.close()
 
 
 if __name__ == "__main__":
