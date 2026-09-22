@@ -25,10 +25,68 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from tqdm import tqdm
+
 from pipeline import run_pipeline
+
+
+class _CliProgress:
+    """tqdm-backed `on_progress` handler -- restores the per-stage console
+    progress bar sentiment/NER/category/company_summary each used to print
+    directly before the FTI migration (PLAN.md Work item 10, TASKS.md
+    T-083-T-086): every stage's own hand-written loop called
+    `tqdm(rows, desc=<stage>)` unconditionally, but that migration replaced
+    all four with the shared `fti.Inference.run()` template method, which
+    only reports progress through the `on_progress` callback -- and this
+    CLI never wired one up. An undisclosed regression, not a deliberate
+    trade-off (see `docs/evaluation.md`/PR history for T-083-T-086: none
+    mention dropping the printed bar).
+
+    Skips `"sector_summary"`: that stage isn't on the FTI hierarchy and
+    already prints its own `tqdm` bar directly inside
+    `news_nlp/sector_summary/stage.py`, independent of `on_progress` --
+    wiring a second bar here would double it, not restore it.
+
+    One bar at a time, matching `run_pipeline`'s own strictly sequential
+    stage order -- a new stage name closes the previous stage's bar before
+    opening its own.
+    """
+
+    def __init__(self) -> None:
+        self._stage: str | None = None
+        self._bar: Any = None
+
+    def __call__(self, stage: str, processed: int, total: int) -> None:
+        if stage == "sector_summary":
+            return
+        if stage != self._stage:
+            if self._bar is not None:
+                self._bar.close()
+            self._stage = stage
+            self._bar = tqdm(total=total, desc=stage) if total else None
+        if self._bar is None:
+            return
+        self._bar.n = processed
+        self._bar.refresh()
+        if processed >= total:
+            self._bar.close()
+            self._bar = None
+
+    def close(self) -> None:
+        """Close any still-open bar. `__call__` only closes a bar on a
+        stage transition or at `processed == total` -- if a stage raises
+        (a model-load failure, a bad row) `run_pipeline` never calls this
+        stage's own `on_progress` again, so without this, a mid-stage
+        crash would leave a stale live `tqdm` bar/cursor state on the
+        terminal. Call from `main()`'s `finally` block, not from
+        `__call__` itself."""
+        if self._bar is not None:
+            self._bar.close()
+            self._bar = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,12 +125,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    run_pipeline(
-        limit=args.limit,
-        summarize=args.summarize,
-        source_db=args.source_db,
-        results_db=args.results_db,
-    )
+    progress = _CliProgress()
+    try:
+        run_pipeline(
+            limit=args.limit,
+            summarize=args.summarize,
+            source_db=args.source_db,
+            results_db=args.results_db,
+            on_progress=progress,
+        )
+    finally:
+        progress.close()
 
 
 if __name__ == "__main__":
