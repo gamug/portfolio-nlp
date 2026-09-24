@@ -242,139 +242,19 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 
 ## Status
 
-T-001–T-007 (Work item 1, pin checkpoints) are **done** (2026-09-14) —
-see the header of Work item 1 above. T-010–T-016 (Work item 2,
-regression gate) remain blocked on the maintainer's infrastructure
-decision — nothing in that item has started.
+Closed Work items 1, 6 and 8–14 are in `CHANGELOG.md`.
 
-**Model performance checking (Work items 3-7) is fully resolved except
-two non-blocking items:** T-040, T-042, T-021, T-024, T-025, T-020,
-T-023, T-060, T-061, T-063, T-030, T-031/T-032, T-050–T-057, and T-058
-are all done — Work items 3 (NER validation), 4 (sentiment), and 6
-(summarization eval) are fully resolved. Work item 3's only open item is
-T-022 (full-corpus backfill), non-blocking. Work item 7 (NER batching)
-is code-complete, with only T-062 (empirical GPU tuning) left — this
-sandbox gained CUDA access 2026-09-14, so T-062 is actionable, just not
+T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
+infrastructure decision — nothing in that item has started.
+
+**Model performance checking (Work items 3, 4, 5, 7) is resolved except
+non-blocking items:** Work item 3's only open task is T-022 (full-corpus
+backfill); Work item 4's is T-032 (re-solve the purity estimates from measured
+agreement); Work item 5's is T-041 (`other`'s precision, low priority); Work
+item 7 (NER batching) is code-complete with only T-062 (empirical GPU tuning)
+left — CUDA has been available since 2026-09-14, so it is actionable, just not
 yet run.
 
-**Work item 8** (per-model selection justification in the artifact,
-T-064–T-069) is **done (2026-09-19)** — requested the same day, one model
-at a time: sentiment (T-064), category (T-065), NER (T-066), `c_summary`
-(T-067), and `sector_summary` (T-068), each landing a "Why this model" (or,
-for `sector_summary`, "why no model") sub-block in its existing per-model
-block of the Claude Artifact's `#eval` section, mirrored in
-`docs/modules/news-nlp.md` prose in the same commit — closing T-069 as it
-went rather than as a separate final pass. Sourced from `justification.md`
-(a separately link-verified sourcing doc) and `justification_.md` (the
-per-model draft prose). Sentiment's first pass sprawled into several
-tables/essays and, after direct user feedback, was rebuilt down to one
-metrics table (precision/recall/ROC AUC per class per candidate, later
-swapped to accuracy_ovr/recall/ROC AUC per further feedback) plus a short
-justification; every subsequent sub-block used that pared-down format
-from the start.
-
-**Work item 9** (rebalance sentiment training data) is **done (2026-09-19)**:
-T-070–T-072 and T-074–T-080 done 2026-09-14/15 — dataset rebalanced and
-republished, three retraining/architecture approaches tried and measured
-downstream against real traffic (v3 downsampled, v4 class-weighted, v5
-base-checkpoint swap), and the user chose **v4** for production (T-080) —
-its `recall_negative` gain (0.808→0.832, this pipeline's priority metric)
-outweighed the `agreement_rate`/`mean_severity` cost, and beat v5's own
-real but narrower `precision_negative` gain (0.513→0.526) on the metric
-that actually decided the choice. **T-073 (publish v4 to the Hub + move
-`MODEL_REVISIONS`) is now done too** — see its own entry above; the
-previously-blocking "Create Public Surface" permission was given
-explicitly (2026-09-19), along with a request to simplify the model card's
-comparison tables to `accuracy_ovr_<class>` first. The
-`sector_summary` pre-fix rows
-(3,444, from Work item 6's T-058 fix) are still queued to self-heal on
-the next real `--summarize` run, not yet triggered — a deliberate
-production action left to the repo owner, not a task with an ID.
-
-**Work item 10** (formalize the pipeline/evaluation architecture,
-T-082–T-095) is **done (2026-09-18)** — all six sequential steps landed in
-order: the FTI class hierarchy (T-082–T-086), the `sector_summary` module
-move (T-087), the eval module's FTI reuse + live candidate-model scoring
-(T-089), the schema split (T-090), the judge-verdict reuse mechanism
-(T-091), the confusion-matrix/ROC-AUC additions + their regression test
-(T-092–T-094), and the docs/architecture-artifact reconciliation pass
-(T-095) that closes it out. Was priority #1 as of 2026-09-16, superseding
-Work item 8. A direct follow-up the same day (not its own Work item —
-already-filed FR-014's own disclosed gap) closed the two remaining
-"not `experiment`-aware" spots: `eval_run` gained a real `experiment`
-column, MLflow now tags/filters by it, and `queries.latest_eval_runs`/
-`GET /eval/latest` group by `(stage, experiment)`.
-
-**Work item 11** (JSON-driven, single-command experiment runs,
-T-096–T-103) is **done (2026-09-18)** — all five parts landed in order.
-Surfaced directly while walking through the full historical
-sentiment-candidate command sequence (Work item 9) one command at a
-time: no single place declared an experiment's full configuration
-before it ran, and several of the existing one-off scripts mutated
-shared DB tables in place, needing a manual restore step afterward.
-T-096/T-097 (small, independent prerequisites — the training-split
-parameterization, `NoOpTrainer` wiring) landed first as two separate
-PRs; T-098 (`ExperimentSpec`, `src/experiment.py` — every named
-rejection case enforced plus a stricter `extra="forbid"`) came next;
-then T-099 (`run_experiment` — train, auto-resolve the candidate model,
-evaluate via `run_eval` reused verbatim, write a git-tracked result
-JSON; caught and fixed a real gap along the way, `NerTrainConfig` had
-no `base_model` field at all) and T-100 (`cli/run_experiment.py` — "exit
-1 if regressed" free, inherited from `run_eval`'s own `SystemExit(1)`);
-T-101 backfilled all 8 real historical `experiments/*.json` specs
-(values sourced from `docs/evaluation.md`, not guessed — a third
-disclosed gap found along the way, `sentiment_v2_chunklevel_finetuned.json`/
-`_v3_downsampled.json` are deliberately content-identical, see
-`experiments/README.md`); T-102's own end-to-end test shipped with T-099
-instead of being deferred. T-103 closed it out: a new "Experiments"
-section in `docs/evaluation.md`, a pointer + a stale-bullet fix in
-`docs/modules/news-nlp.md`, and both architecture artifacts reconciled
-(same closing pass T-095 did for Work item 10). Superseded Work item 8
-as "next up" in priority while it ran — Work item 8 (per-model selection
-justification in the artifact, T-064–T-069) is now next up again,
-still a valid, scoped, pending item.
-
-**Work item 12** (bring `tests/` under the mypy gate, T-104–T-108) is
-**done (2026-09-18)** — surfaced directly while closing out T-097 (PR
-#77): running `uv run mypy --config-file=.code_quality/mypy.ini .` with an
-explicit path argument (overriding `mypy.ini`'s own `files = src, apps,
-cli` scope, purely to sanity-check a docstring claim rather than using the
-project's documented no-argument command) turned up 208 pre-existing
-errors in `tests/`, confirmed unrelated to T-097 via `git stash`
-(identical count reproduces on an unmodified checkout). Root-caused
-(read-only investigation) to one systemic type-annotation bug, not 19
-independent ones: `tests/news_nlp/conftest.py`'s `conn`/`two_tier_conn`
-fixtures (and `write_stage_predictions`) were typed `sqlite3.Connection`
-but actually construct and return `NewsNlpDatabase` (a composition wrapper
-around a `sqlite3.Connection`, not a subclass of it) — ~18 test files
-copied that wrong annotation into their own test function signatures. All
-four parts landed in order: T-104 (the `conftest.py` root-cause fix,
-including a genuine dual-caller case in `seed_article` needing a
-`sqlite3.Connection | NewsNlpDatabase` union rather than a straight
-retype) → T-105 (cascading the fix through the ~18 files — 9 by mechanical
-`sed`, 2 needing scoped hand-edits around genuine raw-`sqlite3.connect()`
-blocks) → T-106 (the disclosed unrelated fixes, plus one
-previously-undisclosed find caught while re-verifying from scratch:
-`test_eval_store.py`'s own 15 `**dict` kwargs-unpacking errors, fixed with
-two local `TypedDict`s) → T-107 (`.code_quality/mypy.ini`'s `files` widened
-to `src, apps, cli, tests`, `scripts/` deliberately excluded). T-108's full
-verification: `uv run mypy --config-file=.code_quality/mypy.ini` reports
-zero errors across 67 files; `uv run pytest` 279 passed (same count as
-before this work item, zero assertion changes anywhere — every fix here
-was type-only); ruff clean; `git stash` confirmed the pre-fix 208-error
-count is genuinely pre-existing, not introduced by this session. Per the
-user's 2026-09-18 decision this ran ahead of Work item 11's own T-098,
-which is now unblocked.
-
-**Work item 13** (tighten judge-verdict reuse to require a matching
-prediction, T-109–T-110) is **done (2026-09-19)** — filed and closed in one
-pass after the user asked whether T-091's reuse mechanism was actually
-working. Confirmed via direct reproduction before any code changed: two
-`run_eval` calls sharing `candidate_model`/`candidate_revision` (the
-`run_experiment`/fixed-local-checkpoint-path shape Work item 11 enables)
-but a genuinely different underlying prediction silently reused the first
-run's stale verdict for the second — zero fresh judge calls, wrong
-per-run metrics. `find_verdict_json` now also requires the paired
-`eval_inference.prediction_json` to match. `docs/evaluation.md`'s
-unrelated stale "`--run-name` is cosmetic only" comment (2026-09-15) fixed
-alongside it as a disclosed doc correction, not a code bug.
+Not a task with an ID: the 3,444 pre-fix `sector_summary` rows (from Work item
+6's T-058 fix) are still queued to self-heal on the next real `--summarize`
+run — a deliberate production action left to the repo owner.
