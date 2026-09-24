@@ -232,6 +232,15 @@ component; every rule below assumes the stack actually pinned in
     already open for it), give the user the PR's URL in the same turn the
     work completes — a turn that finishes development work with a PR now
     existing for it must not end without stating that link.
+15. **Once a Work Item is finished, move the entire work item to
+    `.specify/memory/CHANGELOG.md`.** When every task in a `TASKS.md` work
+    item is checked (or explicitly superseded/moved elsewhere), cut its whole
+    `## Work item N` section — heading, preamble, and every task, verbatim,
+    task IDs unchanged — out of `TASKS.md` and into `CHANGELOG.md`, in the
+    same change that closes it. `TASKS.md` carries only open work, so the
+    spec-driven loop doesn't re-read closed history on every pass;
+    `CHANGELOG.md` is the legacy record, read only when that history is
+    actually needed.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
@@ -344,4 +353,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.6.1 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-24
+**Version**: 2.7.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-24
