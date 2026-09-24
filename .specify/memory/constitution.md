@@ -239,6 +239,7 @@ ad-hoc invocations:
 ```bash
 uv sync                                     # install deps (dev group)
 uv sync --group eval                        # + strands-agents/mlflow for news_nlp.eval
+uv sync --group notebook                    # + pandas/openpyxl/ipykernel for scripts/*.ipynb
 uv run python -m setup                      # pre-download the four HF models
 
 uv run apps/news_nlp_api.py                 # FastAPI service -> :8003/docs
@@ -343,4 +344,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.6.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-21
+**Version**: 2.6.1 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-24
