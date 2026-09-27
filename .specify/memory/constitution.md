@@ -345,6 +345,21 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    was the checked-out branch at the time, requiring a revert-and-resplit
    into its own PR (#55) after the fact — asking first would have skipped
    that rework entirely.
+10. **Verify the checked-out branch is actually fresh *before* editing a
+    single file for a new task — never assume whatever is checked out is
+    safe to build on.** This is distinct from item 9 above: item 9 is about
+    whether new work belongs on the *currently open* PR's branch; this item
+    is about whether that branch is even valid to build on at all. Before
+    starting development on a new task/fix (item 3), check the current
+    branch's real state: is it `master` itself (about to be branched from),
+    or does it already carry an open PR that is a deliberate continuation of
+    the work about to happen? If neither — if it's a leftover branch whose
+    PR already merged, or one that has fallen behind `origin/master` —
+    create the new branch off up-to-date `origin/master` first, then start
+    editing. Discovering this after work has already begun means salvaging
+    the diff (`git diff` to a patch, discard, rebranch, reapply) instead of
+    a five-second check up front — a real cost in wasted tool calls and
+    tokens, not just tidiness.
 
 ## Governance
 
@@ -364,4 +379,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.7.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-24
+**Version**: 2.8.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-27
