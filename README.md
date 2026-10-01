@@ -21,6 +21,12 @@ uv run pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-t
 uv run python -m setup            # download the HF models
 ```
 
+Opening the repo in the provided **Dev Container** (`.devcontainer/`) also bind-mounts a shared
+`thesis` data directory at `/workspaces/thesis`; set **`THESIS_HOST_DIR`** in your host
+environment (shell profile or OS environment variables, read before VS Code launches) to that
+directory's path on your machine before opening the container. This variable name is shared
+across this project's `portfolio-*` sibling repos that mount the same directory.
+
 ## Run
 
 ```bash
