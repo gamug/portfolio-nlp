@@ -28,9 +28,9 @@ Opening the repo in the provided **Dev Container** (`.devcontainer/`) also bind-
   `docker run --env-file` (`runArgs` in `devcontainer.json`), so its variables are set in the dev shell
   without `export`. The file must exist before the container is created, and its values must be plain
   `KEY=value` (no quotes, no `export`). Paths in it use the in-container layout
-  (`/workspaces/thesis/...`). After editing it, run **Dev Containers: Rebuild Container**.
-  Optionally set `HF_TOKEN` there: a read token avoids anonymous rate limits in `python -m setup`; a
-  write-scope token is required by `scripts/publish_*.py`.
+  (`/workspaces/thesis/...`). Optionally set `HF_TOKEN` there: a read token avoids anonymous rate limits
+  in `python -m setup`; a write-scope token is required by `scripts/publish_*.py`. After editing it, run
+  **Dev Containers: Rebuild Container**.
 - **`THESIS_HOST_DIR`** — host path of the shared `thesis` data directory, bind-mounted at
   `/workspaces/thesis`. The `mounts` entry is resolved on the host before the container exists
   (`${localEnv:THESIS_HOST_DIR}`), so it must be set in your **host environment** (shell profile or OS

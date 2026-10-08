@@ -83,9 +83,9 @@ component; every rule below assumes the stack actually pinned in
    `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI`, plus an optional
    `HF_TOKEN` (Hub downloads rate limit; write scope for
    `scripts/publish_*.py`); `.env.example` is the committed template —
-   keep it in sync with every env var a new feature reads. `pipeline.py` calling `load_dotenv()` at import is the single
-   place `.env` gets loaded; don't add a second `load_dotenv()` call
-   elsewhere.
+   keep it in sync with every env var a new feature reads. `pipeline.py`
+   calling `load_dotenv()` at import is the single place `.env` gets
+   loaded; don't add a second `load_dotenv()` call elsewhere.
 7. **Naming**: modules and functions describe the pipeline stage or DB
    concern they implement — match the stage/table pairing (sentiment ->
    `article_sentiment`, NER -> `article_entities`, category ->
