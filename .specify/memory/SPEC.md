@@ -457,6 +457,8 @@ There is no formal CD pipeline for this repo yet; what exists:
 3. Configure `.env` (or real environment) with `$DATABASE_URL` /
    `$SOURCE_DATABASE_URL` (required for the text-reading stages; not
    required for serving/`sector_summary`-only use — `docs/db-topology.md`).
+   Optionally `$HF_TOKEN` (read scope lifts anonymous Hub rate limits for
+   step 2; write scope is required by `scripts/publish_*.py`).
 4. Run `uv run apps/news_nlp_api.py` (long-lived service, `:8003`) and/or
    invoke `uv run cli/news_nlp_cli.py` on whatever cadence the batch run
    needs (no scheduler is wired in today — see §13).
