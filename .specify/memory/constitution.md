@@ -80,11 +80,12 @@ component; every rule below assumes the stack actually pinned in
    fork a second config file for a tool that already has one.
 6. **Environment**: `.env` (git-ignored) holds `DATABASE_URL` /
    `SOURCE_DATABASE_URL` and, for `news_nlp.eval` only, `LLM_API_KEY` /
-   `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI`; `.env.example` is the
-   committed template — keep it in sync with every env var a new feature
-   reads. `pipeline.py` calling `load_dotenv()` at import is the single
-   place `.env` gets loaded; don't add a second `load_dotenv()` call
-   elsewhere.
+   `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI`, plus an optional
+   `HF_TOKEN` (Hub downloads rate limit; write scope for
+   `scripts/publish_*.py`); `.env.example` is the committed template —
+   keep it in sync with every env var a new feature reads. `pipeline.py`
+   calling `load_dotenv()` at import is the single place `.env` gets
+   loaded; don't add a second `load_dotenv()` call elsewhere.
 7. **Naming**: modules and functions describe the pipeline stage or DB
    concern they implement — match the stage/table pairing (sentiment ->
    `article_sentiment`, NER -> `article_entities`, category ->
@@ -379,4 +380,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.8.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-09-27
+**Version**: 2.9.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-10-08
