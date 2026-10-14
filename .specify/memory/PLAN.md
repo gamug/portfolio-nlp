@@ -1626,13 +1626,15 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   first word*: 97–100% of the `STT` (State Street → `State`), `TGT` (Target)
   and `LYV` (Live Nation → `Live`) rows matched through that word alone, and
   they sit at 57–65% `other`; `DG`/`DLTR` (both → `Dollar`) are also 99%
-  first-word matches but show only ~18% `other`, because dollar news is
-  finance-flavored — they are **not** clean tickers, just wrongly tagged
-  articles that look plausible. `MS` (multiple sclerosis), `AMT`
-  (alternative minimum tax) and `GEN` (Gen-Z) are the same failure.
-  Name-token matches are not all wrong (`AAPL` 33% `other`, mostly real
-  Apple articles); that mode's true error rate is `portfolio-data-mining`
-  T-054's job to measure. Fix tracked as that repo's Work item 9 (PR
+  first-word matches but show only ~18% `other`. Why that rate is low is
+  **not established** — one hypothesis is that "dollar" articles are
+  finance-flavored enough to land in a category anyway; it has not been
+  checked, and a low `other` rate must not be read as correct tagging.
+  `MS` (multiple sclerosis), `AMT` (alternative minimum tax) and `GEN`
+  (Gen-Z) were read by hand as the same failure. Name-token matches are not
+  all wrong either (`AAPL` is 95% first-word matches at 33% `other`), but
+  whether those are articles about Apple has **not been checked**; that
+  mode's true error rate is what `portfolio-data-mining` T-054 measures. Fix tracked as that repo's Work item 9 (PR
   gamug/portfolio-data-mining#53).
 - **CNBC is not the cause.** cnbc.com is 98.8% of the whole corpus
   (453,815 rows), hence ~99% of `other`. Yahoo (4,023 rows, 22.9% `other`)
@@ -1716,14 +1718,34 @@ changing the RESULTS contract):
 6. **Existing rows — full re-run (D2 = yes).** Pipeline runs only process
    rows absent from `article_category`, so nothing changes retroactively on
    its own. Once step 5's result is satisfactory and the user approves it,
-   re-run the **whole** classification over all 459,112 rows with full
-   re-inference (GPU), not a re-label of stored scores: the gate and the new
+   re-run the **whole** classification over every row of the corrected
+   corpus (record the count at launch; it will no longer be 459,112) with
+   full re-inference (GPU), not a re-label of stored scores: the gate and the new
    decision rule both apply, and gated-out articles skip inference. Version
    the old table first (`article_category_v1`, T-025's pattern), validate on
    a scratch DB copy, and measure throughput before launching. No bulk
    re-classification driver exists today (`docs/category-taxonomy.md`); T-124
    builds one. This is deliberately after step 5: never re-run on an
    untested rule.
+6b. **Results for articles the crawler fix removes (new decision D4).** The
+   re-run only touches articles that still exist upstream. RESULTS already
+   holds rows for the ones that don't — in `article_sentiment`,
+   `article_entities`, `article_category`, `article_summary`, the lean
+   `articles` copy and, derived from them, `sector_summary`
+   (`src/news_nlp/sector_summary/queries.py` INNER JOINs all four stage
+   tables and groups by the *tagged* company's sector, so wrong-company
+   articles keep feeding sector summaries and downstream readers). Needed:
+   (a) a hand-off list of the article ids removed upstream (added to
+   `portfolio-data-mining` T-057/T-058); (b) a cleanup of **all** of those
+   tables, versioned in T-025's pattern (`<table>_v1`) rather than deleted in
+   place; (c) regeneration of the affected `sector_summary` rows — either by
+   bumping `SECTOR_SUMMARY_FORMAT_VERSION` (every closed week is then pending
+   again at the next `--summarize` run) or by deleting only the affected
+   `(sector, sub_industry, week)` rows; (d) the owner's decision (D4: purge
+   vs. keep versioned snapshots; whole-table bump vs. targeted deletion),
+   since it widens scope beyond the category stage (constitution AI behavior
+   #10). Done before or together with the step 6 re-run, so no reader sees a
+   half-cleaned store.
 7. **Contingent, not scheduled.** (E) Taxonomy expansion — cluster the
    residual relevant-but-`other` rows (embeddings + HDBSCAN/BERTopic) and add
    categories such as macro/markets-commentary only if the clusters are
@@ -1757,6 +1779,11 @@ changing the RESULTS contract):
   baseline eval (more judge calls) is needed only if the surviving verdict
   set falls below `docs/evaluation.md`'s sample-size floor; T-123 decides and
   records which.
+- Existing results for articles the crawler fix removes (all stage tables,
+  the lean `articles` copy and `sector_summary`) are cleaned up per the
+  owner's D4 decision, versioned not deleted in place, before or together
+  with the full re-run — verified by a query showing no result row, and no
+  `sector_summary` input, whose article is absent from the corrected corpus.
 - No specific slug's precision regresses beyond the project's existing
   regression tolerance (`--check-regression`), per-class, using the
   complete #12 metric set side by side with the recomputed baseline.
@@ -1868,7 +1895,8 @@ other, and independent of one another except where noted:
   articles with the wrong company and re-tags `urls.db`; only T-116 (the
   "before" audit) runs meanwhile. After that hand-off: measure what
   irrelevance remains (T-117), build the gate if still worth it, calibrate,
-  re-evaluate, and only then re-run the entire classification (step 6). It
+  re-evaluate, clean up results for removed articles (D4, step 6b), and only
+  then re-run the entire classification (step 6). It
   absorbs Work item 5's T-041 (`other` precision) and leaves the
   sentiment-side ticker-collision finding (T-127) to its own PR.
 

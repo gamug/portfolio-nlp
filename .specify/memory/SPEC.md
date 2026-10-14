@@ -878,16 +878,19 @@ treating a related FR/NR as done:
     replaces. Until resolved, downstream consumers must not treat
     `label = 'other'` as "verified no category" (already stated for the
     precision gap in `docs/evaluation.md`), nor assume every article is about
-    its ticker's company. **Decided (2026-10-14)**: articles judged not to be about their
-    ticker's company get a new `not_relevant` label (11 labels; `label` is
-    unrestricted `TEXT`, so no table migration), and the entire
-    classification is re-run once the new rule is tested and approved.
+    its ticker's company. **Decided (2026-10-14)**: *if* a relevance gate is built — which
+    `TASKS.md` T-117 decides by measuring what irrelevance remains after the
+    crawler fix — articles it rejects get a new `not_relevant` label (11
+    labels; `label` is unrestricted `TEXT`, so no table migration); and the
+    entire classification is re-run once the new rule is tested and approved.
+    Open (D4): what happens to the existing results, `sector_summary`
+    included, for articles the crawler fix removes (`TASKS.md` T-131).
     The wrong ticker tagging is fixed at its source first
     (`portfolio-data-mining` Work item 9, decided 2026-10-14), then
     re-measured here. Absorbs the open thread of item 2 (`TASKS.md`
     T-041). Requirements (FR-019/FR-020) are added in the PR that
     implements the fix, per this document's own rule — `PLAN.md` Work item
-    15, `TASKS.md` T-116–T-129.
+    15, `TASKS.md` T-116–T-131.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
