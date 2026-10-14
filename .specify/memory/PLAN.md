@@ -1721,14 +1721,17 @@ changing the RESULTS contract):
    re-run the **whole** classification over every row of the corrected
    corpus (record the count at launch; it will no longer be 459,112) with
    full re-inference (GPU), not a re-label of stored scores: the gate and the new
-   decision rule both apply, and gated-out articles skip inference. The old
-   table is versioned or purged by step 6b/T-131 (the only place that renames
-   `article_category`, so the two steps cannot collide); this step starts from
-   an empty current table, validates on a scratch DB copy, and measures
-   throughput before launching. No bulk
-   re-classification driver exists today (`docs/category-taxonomy.md`); T-124
-   builds one. This is deliberately after step 5: never re-run on an
-   untested rule.
+   decision rule both apply, and gated-out articles skip inference. It
+   **always begins by moving the whole `article_category` aside** (snapshot,
+   then rename to `article_category_v1`, T-025's pattern), whatever D4
+   decides: the category stage only selects articles with no row yet, so the
+   full re-run only happens if the current table starts empty. This is the
+   only whole-table rename in this work item (step 6b moves removed ids
+   only), and it runs after 6b so the snapshot is free of removed articles.
+   Validates on a scratch DB copy and measures throughput before launching.
+   No bulk re-classification driver exists today
+   (`docs/category-taxonomy.md`); T-124 builds one. This is deliberately
+   after step 5: never re-run on an untested rule.
 6b. **Results for articles the crawler fix removes (new decision D4).** The
    re-run only touches articles that still exist upstream. RESULTS already
    holds rows for the ones that don't — in `article_sentiment`,
@@ -1738,16 +1741,21 @@ changing the RESULTS contract):
    tables and groups by the *tagged* company's sector, so wrong-company
    articles keep feeding sector summaries and downstream readers). Needed:
    (a) a hand-off list of the article ids removed upstream (added to
-   `portfolio-data-mining` T-057/T-058); (b) a cleanup of **all** of those
-   tables, versioned in T-025's pattern (`<table>_v1`) rather than deleted in
-   place; (c) regeneration of the affected `sector_summary` rows — either by
+   `portfolio-data-mining` T-057/T-058); (b) the **per-table rule: move removed ids only, never rename a
+   table** — for each of those tables (stage tables first, lean `articles`
+   last) copy the removed ids' rows into `<table>_removed` and delete them
+   from the live table in one transaction, dry run first; a whole-table
+   rename would also drop the retained articles' results and force an
+   unplanned full GPU re-run of sentiment/NER/summary;
+   (c) regeneration of the affected `sector_summary` rows — either by
    bumping `SECTOR_SUMMARY_FORMAT_VERSION` (every closed week is then pending
    again at the next `--summarize` run) or by deleting only the affected
-   `(sector, sub_industry, week)` rows; (d) the owner's decision (D4: purge
-   vs. keep versioned snapshots; whole-table bump vs. targeted deletion),
+   `(sector, sub_industry, week)` rows; (d) the owner's decision (D4: keep the `<table>_removed` archives —
+   recommended — or drop them after verification; whole-table bump vs.
+   targeted deletion of `sector_summary` rows),
    since it widens scope beyond the category stage (constitution AI behavior
-   #10). Done before or together with the step 6 re-run, so no reader sees a
-   half-cleaned store.
+   #10). Done **before** the step 6 re-run (never together), so no reader sees
+   a half-cleaned store.
 7. **Contingent, not scheduled.** (E) Taxonomy expansion — cluster the
    residual relevant-but-`other` rows (embeddings + HDBSCAN/BERTopic) and add
    categories such as macro/markets-commentary only if the clusters are
@@ -1783,9 +1791,14 @@ changing the RESULTS contract):
   records which.
 - Existing results for articles the crawler fix removes (all stage tables,
   the lean `articles` copy and `sector_summary`) are cleaned up per the
-  owner's D4 decision, versioned not deleted in place, before or together
-  with the full re-run — verified by a query showing no result row, and no
-  `sector_summary` input, whose article is absent from the corrected corpus.
+  owner's D4 decision: removed ids moved to `<table>_removed` archives (kept
+  or dropped per D4), no table renamed, before the full re-run — verified by
+  a query showing no live-table row, and no `sector_summary` input, whose
+  article is absent from the corrected corpus, and by retained articles'
+  sentiment/NER/summary row counts being unchanged.
+- The full re-run starts from an empty current `article_category` (snapshot
+  kept as `article_category_v1`) under either D4 outcome, and afterwards
+  every article of the corrected corpus has exactly one current row.
 - No specific slug's precision regresses beyond the project's existing
   regression tolerance (`--check-regression`), per-class, using the
   complete #12 metric set side by side with the recomputed baseline.
@@ -1904,8 +1917,9 @@ other, and independent of one another except where noted:
   hand-labels so it is never gated on this one), then that repo's T-054–T-058,
   then here: measure what irrelevance remains (T-117), build the gate if
   still worth it, calibrate, re-evaluate, clean up results for removed
-  articles (D4, step 6b, the only step that versions `article_category`),
-  and only then re-run the entire classification (step 6). It absorbs Work
+  articles (D4, step 6b: removed ids only, no table renamed),
+  and only then re-run the entire classification (step 6, which itself moves
+  `article_category` aside first). It absorbs Work
   item 5's T-041 (`other` precision) and leaves the sentiment-side
   ticker-collision finding (T-127) to its own PR.
 

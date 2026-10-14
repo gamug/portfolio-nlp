@@ -224,6 +224,9 @@ irrelevance remains, build a relevance gate only if it still justifies one
 from stored scores.
 → `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
 
+Tasks are listed in execution order, not ID order (IDs are stable; T-130 and
+T-131 were added after the rest).
+
 - [ ] **T-116** Commit a rerunnable audit script under `scripts/` that
       reproduces the 2026-10-14 figures from the RESULTS store (label
       distribution; level-1-floor vs level-2-threshold split; best-leaf-score
@@ -316,11 +319,16 @@ from stored scores.
       after the crawler re-tag; record the count at launch, it will no longer
       be 459,112; full re-inference on GPU, not a re-label of stored scores), but only
       after T-123 shows a satisfactory, user-approved result — not before.
-      **Does not rename or version `article_category` itself** — T-131 owns
-      all versioning/cleanup (renamed to `article_category_v1` there if D4
-      keeps snapshots), so this run starts from an empty current table and
-      the two tasks can never collide; articles the gate rejects skip
-      inference. Needs a bulk
+      **Always begins by moving the whole `article_category` aside**
+      (snapshot, then `ALTER TABLE article_category RENAME TO
+      article_category_v1`, T-025's pattern), whatever D4 decides: the
+      category stage only selects articles that have no row yet
+      (`fetch_pending_category_articles`: `WHERE r.article_id IS NULL`), so
+      the "entire" re-run only happens if the current table starts empty.
+      This is the **only whole-table rename in this work item**; T-131 never
+      renames a table (it moves removed ids only), so the two cannot
+      collide, and T-124 runs after T-131 so the snapshot is already free of
+      removed articles. Articles the gate rejects skip inference. Needs a bulk
       re-classification driver (none exists in `scripts/`), a dry run on a
       scratch DB copy first (as T-025 did), and a measured throughput so the
       real duration is known before launching. Record the run in
@@ -361,20 +369,26 @@ from stored scores.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) get the list of removed article ids from `portfolio-data-mining`
-      (its T-057/T-058 hand-off must include it); (b) apply the D4 outcome to
-      every affected table (`article_sentiment`, `article_entities`,
-      `article_category`, `article_summary`, lean `articles`): default if D4
-      keeps snapshots is T-025's versioning pattern (`<table>_v1`; this task
-      is the **only** one that renames `article_category` — T-124 then
-      repopulates it), if D4 purges it is a delete of exactly the removed ids;
-      dry run on a scratch DB copy first either way; (c) make `sector_summary`
-      regenerate (bump `SECTOR_SUMMARY_FORMAT_VERSION` so every closed week is
-      pending again, or delete only the affected `(sector, sub_industry,
-      week)` rows) — it regenerates only at the next `--summarize` run;
-      (d) the owner decides D4 (purge vs. keep versioned snapshots, recommended
-      default: keep snapshots; whole-table bump vs. targeted deletion of
-      `sector_summary` rows), which (b) then applies. Before or together with T-124,
-      so no reader sees a half-cleaned store. → step 6b.
+      (its T-057/T-058 hand-off must include it); (b) **per-table rule — move
+      removed ids only, never rename a table:** for each of `article_sentiment`,
+      `article_entities`, `article_category`, `article_summary` and the lean
+      `articles` copy, in one transaction per table, copy the rows whose
+      article id is in the removed list into an archive table
+      (`<table>_removed`) and then delete them from the live table (stage
+      tables first, lean `articles` last), dry run on a scratch DB copy
+      first. A whole-table rename (T-025's pattern) would also remove the
+      *retained* articles' results, make every article pending and force a
+      full GPU re-run of sentiment/NER/summary that nobody planned, so it is
+      not used here; the one whole-table rename in this item is
+      `article_category` in T-124. (c) make `sector_summary` regenerate (bump
+      `SECTOR_SUMMARY_FORMAT_VERSION` so every closed week is pending again,
+      or delete only the affected `(sector, sub_industry, week)` rows) — it
+      regenerates only at the next `--summarize` run; (d) the owner decides D4
+      (keep the `<table>_removed` archives — recommended default — or drop
+      them after verification; whole-table bump vs. targeted deletion of
+      `sector_summary` rows), which (b) and (c) then apply. Runs **before**
+      T-124 (never together), so no reader sees a half-cleaned store.
+      → step 6b.
 - [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
       one FR per behavior that ships (gate if built, calibrated rule, the
       opt-in relevance judge T-130, results cleanup T-131) in the PR that
