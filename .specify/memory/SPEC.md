@@ -578,7 +578,8 @@ treating a related FR/NR as done:
    near-guessing across the board. One related thread stays open:
    `other`'s own precision (0.474) — see `docs/evaluation.md`'s "The
    `other` bucket: a precision problem of its own" — tracked as
-   `TASKS.md` T-041, low priority.
+   `TASKS.md` T-041, low priority. **Update (2026-10-14)**: T-041 is
+   superseded by §13 item 19 / `PLAN.md` Work item 15.
 3. **No SOURCE `articles` contract beyond `body_text`.** Stages and the
    lean-copy depend on `gics_*`/`pub_date`/etc. existing with compatible
    types, but nothing pins or validates that shape (relates to FR-007).
@@ -855,6 +856,34 @@ treating a related FR/NR as done:
     passages in the same doc — corrected alongside this, not itself a code
     bug — FR-015 (tightened), `PLAN.md` Work item 13, `TASKS.md`
     T-109–T-110.
+19. **Category's `other` label covers 42.7% of the corpus and means two
+    different things.** `article_category.label = 'other'` is set on
+    195,993 of 459,112 articles (2026-10-14, RESULTS store); `other`'s own
+    precision is 0.474 (`docs/evaluation.md`, eval_run 21). Only 8.5% of
+    those rows were rejected by level 1's `CATEGORY_GROUP_FLOOR`; 91.5%
+    cleared level 1 and then failed level 2's 0.60 threshold, many of them
+    narrowly (~70k have a best leaf score of 0.5–0.6). The label conflates
+    (a) articles that are not about the ticker's company at all — a
+    relevance problem rooted in ticker linkage, where seven symbols that are
+    ordinary English words (`ON`, `A`, `ARE`, `IT`, `HAS`, `TECH`, `NOW`)
+    hold 38.0% of the corpus — with (b) articles about the company that no
+    dimension clears the bar for, a calibration problem. A hand-read
+    30-title sample put roughly two thirds in (a) and one fifth as clear
+    misses within (b); that is a planning estimate from a small sample, not a measurement
+    (constitution AI behavior #5), and is what Work item 15's first step
+    replaces. Until resolved, downstream consumers must not treat
+    `label = 'other'` as "verified no category" (already stated for the
+    precision gap in `docs/evaluation.md`), nor assume every article is about
+    its ticker's company. **Decided (2026-10-14)**: articles judged not to be about their
+    ticker's company get a new `not_relevant` label (11 labels; `label` is
+    unrestricted `TEXT`, so no table migration), and the entire
+    classification is re-run once the new rule is tested and approved.
+    The wrong ticker tagging is fixed at its source first
+    (`portfolio-data-mining` Work item 9, decided 2026-10-14), then
+    re-measured here. Absorbs the open thread of item 2 (`TASKS.md`
+    T-041). Requirements (FR-019/FR-020) are added in the PR that
+    implements the fix, per this document's own rule — `PLAN.md` Work item
+    15, `TASKS.md` T-116–T-129.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -925,6 +954,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
 | 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
+| 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first, then relevance gate + calibration; see `PLAN.md` Work item 15 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1

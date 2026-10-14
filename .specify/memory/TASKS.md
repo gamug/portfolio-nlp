@@ -172,7 +172,9 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
 
 - [x] **T-040** Confirm the fix + calibration landed and is measured (no
       action — done, see numbers above).
-- [ ] **T-041** `other`'s own precision (0.474) is still an open
+- [~] **T-041** *(superseded 2026-10-14 → Work item 15: the `other` bucket
+      turned out to mix an upstream relevance problem with the calibration
+      problem described here; both are now tracked there.)* `other`'s own precision (0.474) is still an open
       calibration target (`docs/evaluation.md` "The `other` bucket: a
       precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a
       slug-specific threshold next, not another global
@@ -240,6 +242,146 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
+## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2 decided same day)
+
+`other` is 195,993 of 459,112 articles (42.7%) and its own precision is 0.474.
+Read-only investigation (2026-10-14) found it mixes "not about the ticker's
+company" (mostly ticker symbols that are English words — `ON`/`A`/`ARE`/`IT`/
+`HAS`/`TECH`/`NOW` hold 38.0% of the corpus) with "about the company, no
+dimension clears the 0.6 bar". Plan: measure, add a relevance gate, then
+calibrate per-slug thresholds and a margin rule offline from stored scores.
+→ `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
+
+- [ ] **T-116** Commit a rerunnable audit script under `scripts/` that
+      reproduces the 2026-10-14 figures from the RESULTS store (label
+      distribution; level-1-floor vs level-2-threshold split; best-leaf-score
+      bands; `other` rate by source and by ticker; share held by
+      English-word tickers). Read-only; no pipeline or schema change.
+      → `PLAN.md` Work item 15, step 1.
+- [ ] **T-117** *(run on the corrected corpus, after T-128)* Prototype the relevance test as string matching over SOURCE
+      `body_text` + title (company name with aliases; uppercase/explicit-form
+      ticker only — see the plan's design constraints) and **measure it**:
+      share of the corpus failing it, cross-tab vs. current labels, and its
+      false-reject rate on a judge-labeled sample ("is this article about
+      `{company}`?"). Also reports how much irrelevance **remains** after the
+      crawler fix — if little, T-119 shrinks to a thin safety net or is
+      dropped (the `not_relevant` label from D1 stays decided either way).
+      Report; do not ship. → step 1.
+- [x] **T-118** *(user decision)* **Decided 2026-10-14: D1 = (a) new
+      `not_relevant` label; D2 = yes, re-run the entire classification once
+      the new rule is tested and the result is satisfactory (see T-124).
+      D3 = yes, fix the upstream ticker tagging first (T-128).** Original question, kept for
+      the record: answer three plain
+      questions. Background: many articles are tagged with a ticker they are
+      not about (an article on Gen-Z depression is filed under `GEN`; one on
+      the alternative minimum tax under `AMT`). Today those land in `other`
+      next to articles that *are* about the company but fit no category, so
+      `other` can't be trusted. The fix is to detect "this article isn't
+      about its company" and treat it separately. What's undecided is how.
+
+      **D1 — What do we call and store an article that isn't about its
+      company?** Pick one:
+      - **(a) A new label, `not_relevant`** *(recommended).* It goes in the
+        same `label` column as the other 10, so anyone reading categories
+        sees it immediately and can't mistake it for a real category. The
+        table already accepts any text there, so no table change is needed,
+        but the label list grows from 10 to 11, the LLM judge must learn it,
+        and the downstream knowledge-graph module must expect it.
+      - **(b) A separate yes/no column** (e.g. `is_about_company`), leaving
+        `label` as is. Nothing about the label list changes, but a consumer
+        who only reads `label` still sees `other` and never notices the new
+        column — the same trap we're fixing.
+      - **(c) Don't store these articles at all** (filter them out before
+        classifying). Cleanest data, but the exclusion is invisible and
+        irreversible in this table, and we can't audit what the gate threw
+        away.
+
+      **D2 — Do we re-label the 459,112 articles already classified?**
+      - *Yes:* the whole table gets consistent, but it's a bulk rewrite of
+        existing results (we'd keep the old table as `article_category_v1`
+        first, as T-025 did). No GPU needed.
+      - *No, future runs only:* nothing changes retroactively; old and new
+        rows follow different rules until someone backfills.
+      - *Can be decided later* (after T-123 shows the numbers).
+
+      **D3 — Do we also fix where the bad ticker tag comes from?** The root
+      cause is upstream, in `portfolio-data-mining`'s crawler, outside this
+      repo. Fixing it stops the junk at the source; skipping it means this
+      repo filters it forever. Doesn't block anything here either way.
+
+      If you don't want to decide yet, T-116, T-117 and T-121 (measurement
+      and offline calibration) can proceed without it — only the gate's
+      implementation and the label/column changes (T-119, T-120) wait.
+      Constitution AI behavior #10 requires asking because D1 changes what
+      the category table means to its consumers. → step 2.
+- [ ] **T-119** Implement the relevance gate in the category stage's feature
+      step (CPU-only, before any model call), with hermetic tests covering the
+      ambiguous-ticker cases (`ON`, `A`, `IT`, `ARE`) and alias cases (Meta,
+      Berkshire, Bank of America). Depends on T-117, T-118. → step 3.
+- [ ] **T-120** Add the `not_relevant` label (D1 = a): `news_nlp/taxonomy.py`
+      and the `docs/category-taxonomy.md` table (10 → 11 labels), the API
+      response models, and the category judge's prompt/taxonomy in
+      `news_nlp/eval/` so it can answer "not about the company". No table
+      migration (`label` is unrestricted `TEXT`); confirm nothing else
+      enumerates the label list (e.g. `sector_summary`, queries filtering on
+      `label != 'other'`). Tell the knowledge-graph owner the vocabulary
+      grew. → steps 2, 5.
+- [ ] **T-121** Offline calibration: simulate per-slug thresholds and a
+      margin-over-runner-up rule against the stored leaf scores and existing
+      `eval_verdict` rows (no model re-inference), on the gated-in population;
+      pick parameters by per-slug precision; report the trade-off table.
+      → step 4.
+- [ ] **T-122** Ship T-121's chosen rule as constants beside
+      `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
+      in the category stage, with tests. → step 4.
+- [ ] **T-123** Re-run `--stage category` eval; baseline (eval_run 21, mlflow
+      `0a18577e`) recomputed from stored judgements (restricted to articles still in
+      the corrected corpus), candidate computed the
+      same way, one side-by-side table with the complete constitution #12
+      metric set, on the full and the gated-in population; run
+      `--check-regression`. → step 5 / acceptance criteria.
+- [ ] **T-124** *(D2 = yes, decided 2026-10-14)* Re-run the **entire**
+      category classification over the existing corpus (all 459,112 rows,
+      full re-inference on GPU, not a re-label of stored scores), but only
+      after T-123 shows a satisfactory, user-approved result — not before.
+      Version the old table first (`ALTER TABLE article_category RENAME TO
+      article_category_v1`, T-025's pattern) so the pre-change snapshot
+      survives; articles the gate rejects skip inference. Needs a bulk
+      re-classification driver (none exists in `scripts/`), a dry run on a
+      scratch DB copy first (as T-025 did), and a measured throughput so the
+      real duration is known before launching. Record the run in
+      `docs/evaluation.md`. → step 6.
+- [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
+      `other` rows and propose taxonomy additions. Only if `other` is still
+      large after T-123 and the clusters are coherent; amends the taxonomy
+      contract with the knowledge-graph module. → step 7.
+- [ ] **T-126** *(contingent)* Option H: classify on more than title + lead
+      chunk. Only if T-123 shows misses concentrated in weak-lead articles.
+      → step 7.
+- [ ] **T-127** *(separate PR)* Measure the sentiment-side impact of the same
+      weakness: `_text_mentions_subject` matches a lowercased ticker as a bare
+      word (`\bon\b`, `\ba\b`, …), so subject weighting is likely
+      non-discriminating for the seven English-word tickers, and off-topic
+      articles get sentiment attributed to the wrong company. Investigate and
+      report before any fix. → step 8.
+- [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; now a
+      prerequisite, not a follow-up)* `portfolio-data-mining` Work item 9
+      (its `T-053`–`T-059`) fixes the crawler's ticker tagging and re-tags
+      `urls.db`; branch `docs/wi9-ticker-tagging-precision` there. Cause,
+      confirmed in that repo's code: its matcher accepts a ticker **or the
+      first word of the company name** anywhere in a URL, and a hyphen counts
+      as a word boundary, so `A` matches `in-a-month` and `Bank of America`
+      is reduced to `Bank`. **This item closes when that repo hands off the
+      corrected corpus** (its `T-058`). T-119 onward do not start before
+      that; T-116 may run now (it records the "before" picture).
+      → step 2.
+- [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
+      FR-019/FR-020 in the implementing PR (SPEC's own rule), update
+      `docs/category-taxonomy.md`, `docs/evaluation.md` (dated follow-up),
+      `docs/modules/news-nlp.md`; reconcile both architecture artifacts —
+      never rename (constitution AI behavior #11); then move this work item to
+      `CHANGELOG.md` (AI behavior #15). → acceptance criteria.
+
 ## Status
 
 Closed Work items 1, 6 and 8–14 are in `CHANGELOG.md`.
@@ -247,10 +389,17 @@ Closed Work items 1, 6 and 8–14 are in `CHANGELOG.md`.
 T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
 infrastructure decision — nothing in that item has started.
 
+**Work item 15 (category `other` bucket) is open as of 2026-10-14:** T-118
+is decided (new `not_relevant` label; full re-run of the classification after
+a satisfactory test) — D3 is decided too (fix the crawler first, T-128), so development here
+starts after `portfolio-data-mining` Work item 9 hands off the corrected
+corpus; only T-116 (the "before" audit) may run in the meantime. T-124 also
+waits on T-123's result.
+
 **Model performance checking (Work items 3, 4, 5, 7) is resolved except
 non-blocking items:** Work item 3's only open task is T-022 (full-corpus
 backfill); Work item 4's is T-032 (re-solve the purity estimates from measured
-agreement); Work item 5's is T-041 (`other`'s precision, low priority); Work
+agreement); Work item 5's T-041 (`other`'s precision) was superseded 2026-10-14 by Work item 15; Work
 item 7 (NER batching) is code-complete with only T-062 (empirical GPU tuning)
 left — CUDA has been available since 2026-09-14, so it is actionable, just not
 yet run.
