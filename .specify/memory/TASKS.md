@@ -237,7 +237,18 @@ from stored scores.
       `judge_category`, storage in the eval tables, hermetic tests with the
       LLM mocked). Needs the `eval` dependency group and LLM credentials
       (`LLM_API_KEY`/`LLM_MODEL`/`LLM_URL`). Validate it against a small
-      hand-labeled subset before trusting it. → step 3, T-117.
+      hand-labeled subset before trusting it. **Constraints:** it must be
+      opt-in. `sampling.STAGES` feeds `run_eval`'s default stage list (and the
+      CLI's `--stage all`), so adding `relevance` to it would silently change
+      what `all` runs; keep it out of `STAGES`' default set, check whether
+      `--check-regression` iterates stages and exclude it there too, and leave
+      `ExperimentSpec`'s own four-stage `Literal` untouched. Lock this with a
+      snapshot test on the exact default stage list and on the other stages'
+      metric key sets (same shape as FR-016's). As a binary relevance
+      classifier its reported metrics are the complete constitution AI
+      behavior #12 set (precision/recall/F1/`accuracy_ovr` per class; overall
+      accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
+      added in the PR that ships it. → step 3, T-117.
 - [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
@@ -253,11 +264,16 @@ from stored scores.
       a tight interval — by the normal approximation n = 1.96²·p(1−p)/h²,
       a ±1.5-point half-width at p = 0.05 needs about 810 judged articles
       (and N is estimated from `other` rows only); re-derive with
-      `docs/evaluation.md`'s floor logic before spending judge calls. The
-      **labeled sample is shared with `portfolio-data-mining`**: one set of
-      `(url, ticker)` pairs, stratified by match mode by that repo's T-054,
-      labeled with T-130's judge, reused by this task and by that repo's
-      retention measurement — not built twice. That sign-off is what makes
+      `docs/evaluation.md`'s floor logic before spending judge calls. Two
+      different samples, on purpose. (1) The **shared labeled sample** from
+      `portfolio-data-mining`'s T-054 — `(url, ticker)` pairs from the *old*
+      corpus, stratified by the old match mode, labeled with T-130's judge —
+      is reused here **only for the gate's false-reject rate and the crawler
+      rule's retention rate on known-correct pairs** (not built twice). (2) R
+      and N describe the *cleaned* corpus, a different population, so they
+      need a **fresh draw from the cleaned corpus** (unstratified, or
+      stratified and weighted back to population shares); a stratified sample
+      is never read as a corpus share unweighted. Budget judge calls for both. That sign-off is what makes
       T-119 and the `not_relevant` part of T-120 go ahead or be cancelled in
       place. Report; do not ship. → step 1, step 3.
 - [x] **T-118** *(user decision)* **Decided 2026-10-14.** D1 = new
@@ -300,9 +316,11 @@ from stored scores.
       after the crawler re-tag; record the count at launch, it will no longer
       be 459,112; full re-inference on GPU, not a re-label of stored scores), but only
       after T-123 shows a satisfactory, user-approved result — not before.
-      Version the old table first (`ALTER TABLE article_category RENAME TO
-      article_category_v1`, T-025's pattern) so the pre-change snapshot
-      survives; articles the gate rejects skip inference. Needs a bulk
+      **Does not rename or version `article_category` itself** — T-131 owns
+      all versioning/cleanup (renamed to `article_category_v1` there if D4
+      keeps snapshots), so this run starts from an empty current table and
+      the two tasks can never collide; articles the gate rejects skip
+      inference. Needs a bulk
       re-classification driver (none exists in `scripts/`), a dry run on a
       scratch DB copy first (as T-025 did), and a measured throughput so the
       real duration is known before launching. Record the run in
@@ -331,26 +349,36 @@ from stored scores.
       boundary, so `A` matches `in-a-month` and `Bank of America` is reduced
       to `Bank`. **This item closes when that repo's `T-058` (hand-off of the
       corrected corpus, recorded in its `TASKS.md`/`CHANGELOG.md`) is
-      done.** T-117 onward do not start before that (T-130 may); T-116 may run now (it
-      records the "before" picture). The labeled `(url, ticker)` sample is
+      done.** T-117 onward do not start before that; T-116 and T-130 may run now (T-116
+      records the "before" picture). **T-130 is the critical-path item for
+      both repos**: that repo's T-054 labels its sample with it, so the order
+      is T-130 here → its T-054–T-058 → T-117 onward here. Fallback if T-130
+      slips: that repo hand-labels the T-054 sample, so it is never blocked on
+      this one (stated in its PLAN/TASKS too). The labeled `(url, ticker)` sample is
       shared, not duplicated: that repo's T-054 defines the strata, T-130's
       judge labels it, T-117 and that repo's retention measurement reuse it.
       → step 2.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) get the list of removed article ids from `portfolio-data-mining`
-      (its T-057/T-058 hand-off must include it); (b) version, don't delete in
-      place, every affected table (`article_sentiment`, `article_entities`,
-      `article_category`, `article_summary`, lean `articles`), T-025's
-      pattern, dry run on a scratch DB copy first; (c) make `sector_summary`
+      (its T-057/T-058 hand-off must include it); (b) apply the D4 outcome to
+      every affected table (`article_sentiment`, `article_entities`,
+      `article_category`, `article_summary`, lean `articles`): default if D4
+      keeps snapshots is T-025's versioning pattern (`<table>_v1`; this task
+      is the **only** one that renames `article_category` — T-124 then
+      repopulates it), if D4 purges it is a delete of exactly the removed ids;
+      dry run on a scratch DB copy first either way; (c) make `sector_summary`
       regenerate (bump `SECTOR_SUMMARY_FORMAT_VERSION` so every closed week is
       pending again, or delete only the affected `(sector, sub_industry,
       week)` rows) — it regenerates only at the next `--summarize` run;
-      (d) the owner decides D4: purge vs. keep versioned snapshots, and
-      whole-table bump vs. targeted deletion. Before or together with T-124,
+      (d) the owner decides D4 (purge vs. keep versioned snapshots, recommended
+      default: keep snapshots; whole-table bump vs. targeted deletion of
+      `sector_summary` rows), which (b) then applies. Before or together with T-124,
       so no reader sees a half-cleaned store. → step 6b.
 - [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
-      FR-019/FR-020 in the implementing PR (SPEC's own rule), update
+      one FR per behavior that ships (gate if built, calibrated rule, the
+      opt-in relevance judge T-130, results cleanup T-131) in the PR that
+      ships it (SPEC's own rule), update
       `docs/category-taxonomy.md`, `docs/evaluation.md` (dated follow-up),
       `docs/modules/news-nlp.md`; reconcile both architecture artifacts —
       never rename (constitution AI behavior #11); confirm T-130 and T-131 are

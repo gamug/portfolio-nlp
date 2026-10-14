@@ -888,9 +888,10 @@ treating a related FR/NR as done:
     The wrong ticker tagging is fixed at its source first
     (`portfolio-data-mining` Work item 9, decided 2026-10-14), then
     re-measured here. Absorbs the open thread of item 2 (`TASKS.md`
-    T-041). Requirements (FR-019/FR-020) are added in the PR that
-    implements the fix, per this document's own rule — `PLAN.md` Work item
-    15, `TASKS.md` T-116–T-131.
+    T-041). Requirements (FR-019 onward) are added in the PRs that ship each
+    behavior — the relevance gate if built, the calibrated decision rule, the
+    opt-in relevance judge, the results cleanup — per this document's own
+    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-131.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -961,7 +962,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
 | 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
-| 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first, then relevance gate + calibration; see `PLAN.md` Work item 15 | — (already in motion) |
+| 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first; a relevance gate only if it still justifies one after the crawler fix, then calibration; D4 (cleanup of existing results) open; see `PLAN.md` Work item 15 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1

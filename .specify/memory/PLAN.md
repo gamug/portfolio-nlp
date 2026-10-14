@@ -1721,9 +1721,11 @@ changing the RESULTS contract):
    re-run the **whole** classification over every row of the corrected
    corpus (record the count at launch; it will no longer be 459,112) with
    full re-inference (GPU), not a re-label of stored scores: the gate and the new
-   decision rule both apply, and gated-out articles skip inference. Version
-   the old table first (`article_category_v1`, T-025's pattern), validate on
-   a scratch DB copy, and measure throughput before launching. No bulk
+   decision rule both apply, and gated-out articles skip inference. The old
+   table is versioned or purged by step 6b/T-131 (the only place that renames
+   `article_category`, so the two steps cannot collide); this step starts from
+   an empty current table, validates on a scratch DB copy, and measures
+   throughput before launching. No bulk
    re-classification driver exists today (`docs/category-taxonomy.md`); T-124
    builds one. This is deliberately after step 5: never re-run on an
    untested rule.
@@ -1889,15 +1891,22 @@ other, and independent of one another except where noted:
   specifically to stay compliant with constitution AI-behavior #1
   ("pinned, not dynamic") without needing to amend it.
 - **Work item 15 (category `other` bucket) is open (filed 2026-10-14)** —
-  D1 (new `not_relevant` label), D2 (full re-run after a satisfactory test)
-  and D3 (fix the ticker tagging at the source) are decided. It is **blocked
-  on `portfolio-data-mining` Work item 9**, which stops the crawler tagging
-  articles with the wrong company and re-tags `urls.db`; only T-116 (the
-  "before" audit) runs meanwhile. After that hand-off: measure what
-  irrelevance remains (T-117), build the gate if still worth it, calibrate,
-  re-evaluate, clean up results for removed articles (D4, step 6b), and only
-  then re-run the entire classification (step 6). It
-  absorbs Work item 5's T-041 (`other` precision) and leaves the
-  sentiment-side ticker-collision finding (T-127) to its own PR.
+  D1–D3 are decided: the `not_relevant` label is the chosen representation
+  but is produced only if T-117 shows a relevance gate is still worth
+  building; the entire classification is re-run after a satisfactory test;
+  the ticker tagging is fixed at the source first. **D4 is open** (existing
+  results for removed articles, `sector_summary` included, T-131). It is
+  **blocked on `portfolio-data-mining` Work item 9**, which stops the
+  crawler tagging articles with the wrong company and re-tags `urls.db`.
+  Meanwhile T-116 (the "before" audit) and T-130 (the relevance judge, no
+  crawler dependency) run. **Order across the two repos: T-130 here first**
+  (that repo's T-054 labels its sample with it; fallback: that repo
+  hand-labels so it is never gated on this one), then that repo's T-054–T-058,
+  then here: measure what irrelevance remains (T-117), build the gate if
+  still worth it, calibrate, re-evaluate, clean up results for removed
+  articles (D4, step 6b, the only step that versions `article_category`),
+  and only then re-run the entire classification (step 6). It absorbs Work
+  item 5's T-041 (`other` precision) and leaves the sentiment-side
+  ticker-collision finding (T-127) to its own PR.
 
 See `TASKS.md` for the discrete, checkable task breakdown.
