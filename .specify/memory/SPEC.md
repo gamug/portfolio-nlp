@@ -864,9 +864,13 @@ treating a related FR/NR as done:
     cleared level 1 and then failed level 2's 0.60 threshold, many of them
     narrowly (~70k have a best leaf score of 0.5–0.6). The label conflates
     (a) articles that are not about the ticker's company at all — a
-    relevance problem rooted in ticker linkage, where seven symbols that are
-    ordinary English words (`ON`, `A`, `ARE`, `IT`, `HAS`, `TECH`, `NOW`)
-    hold 38.0% of the corpus — with (b) articles about the company that no
+    relevance problem rooted in the crawler's ticker tagging (confirmed in
+    `portfolio-data-mining`'s `BaseConnector._company_pattern`: a ticker **or
+    the first word of the company name** matching anywhere in a URL slug,
+    with a hyphen counting as a word boundary), where eight symbols that are
+    ordinary English words (`ON`, `A`, `ARE`, `IT`, `ALL`, `HAS`, `TECH`,
+    `NOW`) hold 39.0% of the corpus and companies cut to a generic first word
+    (`State`, `Target`, `Live`, `Dollar`) add more — with (b) articles about the company that no
     dimension clears the bar for, a calibration problem. A hand-read
     30-title sample put roughly two thirds in (a) and one fifth as clear
     misses within (b); that is a planning estimate from a small sample, not a measurement
@@ -941,7 +945,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | §13 item | Disposition | Would only matter if |
 |---|---|---|
 | 1 — weak sentiment F1 | **Resolved (2026-09-13)** — fine-tuned model + chunk-level entity-scoped weighting selected and merged; see `PLAN.md` Work item 4 | — |
-| 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision is the one remaining low-priority thread (`PLAN.md` Work item 5) | — |
+| 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision was the one remaining thread, now tracked by §13 item 19 (`PLAN.md` Work item 15; Work item 5 is closed) | — |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
 | 4 — unpinned model checkpoints | **Resolved (2026-09-14)** — `MODEL_REVISIONS` pins all four models to a commit SHA; see `PLAN.md` Work item 1 | — |
 | 5 — ~~no throughput/latency SLA~~ | Retired — a production requirement, and this project has no production phase | — |
