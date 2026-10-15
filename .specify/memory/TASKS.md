@@ -265,7 +265,12 @@ T-131 were added after the rest).
       'quarantined'`, so this repo's default `fetch_status = 'ok'` query does not read
       them; **this task reads exactly** `SELECT a.id, d.ticker, d.company, d.match_reason FROM
       articles a JOIN discovered_urls d ON d.id = a.id WHERE a.fetch_status = 'quarantined'
-      AND d.match_class = 'review'`, the same selection that repo's T-058 cites) with `article id`, ticker,
+      AND d.match_class = 'review'`, the same selection that repo's T-058 cites; **the quarantine shape
+      is the one confirmed 2026-10-15 for that repo's T-057**: `articles.fetch_status = 'quarantined'` for
+      every fetched `review`/`reject` pair, the prior status kept in a new nullable
+      `articles.prev_fetch_status` so clearing the flag restores the row exactly, `accept` rows and
+      `discovered_urls.status` untouched, and `reject` pairs never fetched have no `articles` row. This repo
+      only reads these rows and never writes `fetch_status`) with `article id`, ticker,
       company and the evidence that triggered the class. Build the verdict here,
       from SOURCE `body_text` + title and the NER organization spans (CPU, no
       model call first): `relevant` when the company is a subject of the article
@@ -406,6 +411,12 @@ T-131 were added after the rest).
       shared, not duplicated: that repo's T-054 defines the strata and the
       maintainer labeled it, T-117, T-132 and that repo's retention
       measurement reuse it.
+      **Quarantine contract (that repo's T-057, shared-schema change confirmed
+      2026-10-15):** quarantined rows are `articles.fetch_status = 'quarantined'` with the
+      previous status in `articles.prev_fetch_status`; this repo's pending queries
+      (`fetch_status = 'ok'`, non-empty `body_text`) already exclude them, so no
+      query change is needed here, and the removed-article-id list (T-131) is the
+      fetched `reject` pairs in that same state.
       → step 2.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
