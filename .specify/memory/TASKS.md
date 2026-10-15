@@ -227,6 +227,24 @@ from stored scores.
 Tasks are listed in execution order, not ID order (IDs are stable; T-130 and
 T-131 were added after the rest).
 
+Dependencies at a glance:
+
+| Task | Depends on | Blocks | Can start now? |
+|---|---|---|---|
+| T-116 audit | none | none | yes |
+| T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
+| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | waiting |
+| T-132 quarantined pairs | T-128 | T-117 | no |
+| T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
+| T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
+| T-121, T-122 calibration | T-117 | T-123 | no |
+| T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132, D4 | T-124 | no |
+| T-124 full re-run | T-123 approved, T-131 | T-129 | no |
+| T-125, T-126 contingent | T-123 result | none | no |
+| T-127 sentiment impact | none (separate PR) | none | yes |
+| T-129 close-out | all of the above | none | no |
+
 - [ ] **T-116** Commit a rerunnable audit script under `scripts/` that
       reproduces the 2026-10-14 figures from the RESULTS store (label
       distribution; level-1-floor vs level-2-threshold split; best-leaf-score
@@ -253,47 +271,37 @@ T-131 were added after the rest).
       accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
       added in the PR that ships it. → step 3, T-117.
 - [ ] **T-132** *(new; from `portfolio-data-mining` T-055 design v1, approved
-      2026-10-15)* Decide the quarantined `review` pairs. That repo classes every
-      `(url, ticker)` pair from the URL and title as `accept`, `review` or
-      `reject`. `accept` rows are tagged as before; `reject` rows are quarantined
-      with a reason (reversible, never deleted) and are not seen here; `review`
-      rows have only weak evidence (a distinctive first word, or a non-word ticker,
-      somewhere in the URL/title; about 12% of that corpus, 64% wrong on its
-      hand labels) and are **quarantined, not removed**: kept in `urls.db`,
-      flagged, and left out of the default `articles` query until this repo
-      decides them. They are handed over in its T-058 (quarantined rows have `articles.fetch_status =
-      'quarantined'`, so this repo's default `fetch_status = 'ok'` query does not read
-      them; **this task reads exactly** `SELECT a.id, d.ticker, d.company, d.match_reason FROM
-      articles a JOIN discovered_urls d ON d.id = a.id WHERE a.fetch_status = 'quarantined'
-      AND d.match_class = 'review'`, the same selection that repo's T-058 cites; **the quarantine shape
-      is the one confirmed 2026-10-15 for that repo's T-057**: `articles.fetch_status = 'quarantined'` for
-      every fetched `review`/`reject` pair, the prior status kept in a new nullable
-      `articles.prev_fetch_status` so clearing the flag restores the row exactly, `accept` rows and
-      `discovered_urls.status` untouched, and `reject` pairs never fetched have no `articles` row. This repo
-      only reads these rows and never writes `fetch_status`) with `article id`, ticker,
-      company and the evidence that triggered the class. Build the verdict here,
-      from SOURCE `body_text` + title and the NER organization spans (CPU, no
-      model call first): `relevant` when the company is a subject of the article
-      (full normalized name with aliases repeated, an explicit ticker form, or an
-      ORG span resolving to the company), `not_relevant` when the evidence
-      points at something else, and `undecided` otherwise. **Never exclude on
-      doubt: `undecided` pairs stay in the corpus** and are counted in the
-      report; only a confident `not_relevant` removes a pair, and the removal is
-      recorded, reversible and handled by T-131's per-table rule. Store the
-      verdict in a new additive table in the RESULTS store (key `article_id`,
-      `ticker`; verdict, method, evidence), created idempotently, no existing
-      table renamed. **Measure it** against data-mining's hand labels
-      (`data/ticker_tagging_sample.csv`, the `review` class, plus the fresh
-      ~100-pair validation set from its T-055): precision/recall of each verdict
-      against `yes`/`no`, and the share left `undecided`. Expect the
-      string rule alone to be weak: that repo's prototype found that the full
-      name twice in the body rescued only 2 of the 15 correct `review` pairs in
-      its sample, so the NER evidence, and if needed T-130's opt-in judge on
-      the `undecided` remainder only (calls budgeted), decide whether this task
-      ships a rule or just a report. Depends on T-128 (the hand-off of the
-      quarantine list); runs **before T-117**, because T-117's R and N must be
-      measured after these pairs are decided. Own FR added in the PR that ships
-      it. → step 2b.
+      2026-10-15)* Decide the quarantined `review` pairs. Never exclude on doubt.
+      - **Goal:** answer "is the company a subject of this article?" for the
+        pairs discovery could only mark `review` (weak URL/title evidence;
+        about 12% of that corpus, 64% wrong on its hand labels), with verdicts
+        `relevant`, `not_relevant`, `undecided`.
+      - **Inputs:** the quarantined rows handed over by `portfolio-data-mining`
+        T-058. The quarantine shape and the exact selection query are defined
+        **only there** (its T-057/T-058); this repo reads them and never writes
+        `fetch_status`. Our default `fetch_status = 'ok'` queries already
+        exclude them, so no query change here. Also SOURCE `body_text`, title
+        and the NER organization spans.
+      - **Steps:** (1) CPU rule first, no model call: `relevant` on the full
+        normalized name with aliases repeated, an explicit ticker form, or an
+        ORG span resolving to the company; `not_relevant` when the evidence
+        points elsewhere; else `undecided`. (2) Store verdicts in a new additive
+        RESULTS table (key `article_id`, `ticker`; verdict, method, evidence),
+        created idempotently, no existing table renamed. (3) Measure against
+        that repo's hand labels (`data/ticker_tagging_sample.csv`, `review`
+        class, plus its fresh ~100-pair validation set): precision/recall per
+        verdict and the `undecided` share. (4) The string rule alone is
+        expected to be weak (its prototype rescued 2 of 15 correct pairs), so
+        NER evidence, then T-130's opt-in judge on the `undecided` remainder
+        only (calls budgeted, see T-117), decide whether this ships a rule or
+        only a report.
+      - **Done when:** every handed-over pair has a verdict; `undecided` pairs
+        stay in the corpus and are counted; only a confident `not_relevant`
+        removes a pair, recorded and reversible via T-131's per-table rule; the
+        report states precision/recall against the hand labels; an FR is added
+        in the PR that ships it.
+      - **Depends on:** T-128 (hand-off). **Blocks:** T-117 (its R and N are
+        measured after these pairs are decided). → step 2b.
 - [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
@@ -323,6 +331,16 @@ T-131 were added after the rest).
       is never read as a corpus share unweighted. Budget judge calls for both. That sign-off is what makes
       T-119 and the `not_relevant` part of T-120 go ahead or be cancelled in
       place. Report; do not ship. → step 1, step 3.
+      *Owner and date for the 5% / 20% numbers:* the repo owner (gamug) sets
+      them at T-117 sign-off, before T-119 starts; until then they stay
+      placeholders and T-119/T-120 do not begin.
+      *Judge-call budget (planning estimate, re-derive before spending):*
+      ~810 for R and N, ~300 to validate T-130 against the hand labels,
+      ~400 for T-132's `undecided` remainder, ~400 only if T-123 needs a
+      fresh baseline; about 1,900 in total at most. Record the actual spend
+      in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
+      `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
+      LLM, no live calls).
 - [x] **T-118** *(user decision)* **Decided 2026-10-14.** D1 = new
       `not_relevant` label in the existing `label` column (no table
       migration; added only if a gate is built, see T-117). D2 = yes, re-run
@@ -330,7 +348,13 @@ T-131 were added after the rest).
       satisfactory (T-124). D3 = yes, fix the upstream ticker tagging first
       (T-128). Rejected for D1: a separate yes/no column (readers of `label`
       would still see `other`) and dropping such articles before
-      classification (invisible, unauditable). → step 2.
+      classification (invisible, unauditable).
+      *Plain-language record:* `other` currently means two things, "not about
+      this company" and "about it, but no category fits". D1 gives the first
+      its own label, but only if the post-fix measurement (T-117) says the gate
+      is still worth building; D2 re-runs everything once so old and new
+      results are never mixed; D3 fixes the cause (wrong tagging) before
+      treating the symptom. → step 2.
 - [ ] **T-119** *(conditional on T-117's sign-off; cancel in place if the gate is dropped)* Implement the relevance gate in the category stage's feature
       step (CPU-only, before any model call), with hermetic tests covering the
       ambiguous-ticker cases (`ON`, `A`, `IT`, `ARE`) and alias cases (Meta,
@@ -358,6 +382,12 @@ T-131 were added after the rest).
       same way, one side-by-side table with the complete constitution #12
       metric set, on the full and the gated-in population; run
       `--check-regression`. → step 5 / acceptance criteria.
+      *Provisional success targets (the owner confirms or changes them at
+      T-117 sign-off):* `other` precision at least 0.05 above the recomputed
+      baseline; if a gate is built, false-reject rate at most 5% of articles
+      the judge calls relevant; no per-slug regression beyond
+      `--check-regression`'s tolerance. T-124 does not start unless T-123
+      meets them and the owner approves.
 - [ ] **T-124** *(D2 = yes, decided 2026-10-14)* Re-run the **entire**
       category classification over the corrected corpus (every row remaining
       after the crawler re-tag; record the count at launch, it will no longer
@@ -377,6 +407,10 @@ T-131 were added after the rest).
       scratch DB copy first (as T-025 did), and a measured throughput so the
       real duration is known before launching. Record the run in
       `docs/evaluation.md`. Runs after T-131. → step 6.
+      *Cost stop/go:* the scratch run reports articles per hour and a projected
+      GPU duration for the full corpus; if the projection exceeds 72 hours on
+      the available GPU, stop and bring it to the owner before launching
+      (provisional threshold, the owner may change it).
 - [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
       `other` rows and propose taxonomy additions. Only if `other` is still
       large after T-123 and the clusters are coherent; amends the taxonomy
@@ -390,34 +424,28 @@ T-131 were added after the rest).
       non-discriminating for the eight English-word tickers, and off-topic
       articles get sentiment attributed to the wrong company. Investigate and
       report before any fix. → step 8.
-- [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; now a
-      prerequisite, not a follow-up)* `portfolio-data-mining` Work item 10
-      (its `T-053`–`T-060`; the plan merged in PR gamug/portfolio-data-mining#53,
-      the audit and the hand-labeled sample in #55/#56, the rule design v1 in #57)
-      fixes the crawler's ticker tagging and re-tags `urls.db`. Both PRs are
-      docs-only and merge in either order; merging that one first keeps the
-      IDs cited here resolvable on its `master`. Cause, confirmed in that
-      repo's code: its matcher accepts a ticker **or the first word of the
-      company name** anywhere in a URL, and a hyphen counts as a word
-      boundary, so `A` matches `in-a-month` and `Bank of America` is reduced
-      to `Bank`. **This item closes when that repo's `T-058` (hand-off of the
-      corrected corpus, recorded in its `TASKS.md`/`CHANGELOG.md`) is
-      done.** T-117 onward do not start before that; T-116 and T-130 may run now (T-116
-      records the "before" picture). **T-130 is no longer on that repo's
-      path** (decided 2026-10-14/15: data flows from that repo to this one, so
-      it labels its own sample by hand, which is done). The order is its
-      T-055–T-058 → here T-132 → T-117 onward; T-130 only supports T-132's
-      undecided remainder and T-117. The labeled `(url, ticker)` sample is
-      shared, not duplicated: that repo's T-054 defines the strata and the
-      maintainer labeled it, T-117, T-132 and that repo's retention
-      measurement reuse it.
-      **Quarantine contract (that repo's T-057, shared-schema change confirmed
-      2026-10-15):** quarantined rows are `articles.fetch_status = 'quarantined'` with the
-      previous status in `articles.prev_fetch_status`; this repo's pending queries
-      (`fetch_status = 'ok'`, non-empty `body_text`) already exclude them, so no
-      query change is needed here, and the removed-article-id list (T-131) is the
-      fetched `reject` pairs in that same state.
-      → step 2.
+- [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; a
+      prerequisite, not a follow-up)* Wait for the corrected corpus from
+      `portfolio-data-mining` Work item 10 (its `T-053`–`T-060`).
+      - **Why:** its matcher accepts a ticker **or the first word of the
+        company name** anywhere in a URL, and a hyphen counts as a word
+        boundary, so `A` matches `in-a-month` and `Bank of America` is reduced
+        to `Bank`. That repo fixes the matcher and re-tags `urls.db`.
+      - **Contract:** the quarantine schema, the removed-id list and the
+        hand-off format are specified **only in that repo** (T-057/T-058); this
+        item links there rather than copying it. How this repo consumes it:
+        pending queries (`fetch_status = 'ok'`) already skip quarantined rows,
+        and the removed ids feed T-131.
+      - **Shared sample:** the labeled `(url, ticker)` sample (that repo's T-054,
+        hand-labeled there by the maintainer) is reused, not duplicated, by
+        T-117, T-132 and that repo's retention measurement.
+      - **Order:** its T-055–T-058, then here T-132, then T-117 onward.
+        T-116 and T-130 may run now; T-130 only supports T-132's undecided
+        remainder and T-117.
+      - **Merge order of the two docs PRs:** independent (both docs-only).
+        Whichever merges second should check that the other's IDs resolve.
+      - **Done when:** that repo's `T-058` (hand-off of the corrected corpus)
+        is recorded done in its `TASKS.md`/`CHANGELOG.md`. → step 2.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) get the list of removed article ids from `portfolio-data-mining`
@@ -442,6 +470,12 @@ T-131 were added after the rest).
       `sector_summary` rows), which (b) and (c) then apply. Runs **before**
       T-124 (never together), so no reader sees a half-cleaned store.
       → step 6b.
+      *D4 default and deadline:* T-131 and T-124 need a D4 answer. If the
+      owner has not decided by the time T-123 is approved, the recommended
+      default applies (keep the `<table>_removed` archives;
+      delete only the affected `sector_summary` rows). T-131's execution may
+      ship as its own PR; it stays in this work item because T-124 depends on
+      its removed-id list and ordering.
 - [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
       one FR per behavior that ships (gate if built, calibrated rule, the
       opt-in relevance judge T-130, results cleanup T-131) in the PR that

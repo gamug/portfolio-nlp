@@ -1660,7 +1660,7 @@ changing the RESULTS contract):
    discards real articles is worse than none (precision-over-recall, the same
    logic `docs/category-taxonomy.md` applies to specific labels).
 2. **Representation — decided 2026-10-14** (decision record in
-   `TASKS.md` T-118; the plain-language explanation is in PR #102's discussion). (D1) A new `not_relevant` value in the existing
+   `TASKS.md` T-118, which also carries the plain-language explanation). (D1) A new `not_relevant` value in the existing
    `label` column; `label` is a plain `TEXT NOT NULL` with no value
    restriction (`src/news_nlp/schema.py`; the value is only produced if a gate is built, step 3), so this is a vocabulary change
    (10 → 11 labels; the judge and downstream consumers must learn it), not
@@ -1767,7 +1767,8 @@ changing the RESULTS contract):
    (c) regeneration of the affected `sector_summary` rows — either by
    bumping `SECTOR_SUMMARY_FORMAT_VERSION` (every closed week is then pending
    again at the next `--summarize` run) or by deleting only the affected
-   `(sector, sub_industry, week)` rows; (d) the owner's decision (D4: keep the `<table>_removed` archives —
+   `(sector, sub_industry, week)` rows; (d) the owner's decision, defaulting to the recommended option if none is
+   made by the time T-123 is approved (D4: keep the `<table>_removed` archives —
    recommended — or drop them after verification; whole-table bump vs.
    targeted deletion of `sector_summary` rows),
    since it widens scope beyond the category stage (constitution AI behavior
@@ -1796,9 +1797,11 @@ changing the RESULTS contract):
   the RESULTS store (before the crawler re-tag changes the corpus), and
   T-117 records R and N on the cleaned corpus, with the owner's sign-off on
   the build/drop rule's numbers. If the gate is built, its false-reject rate
-  on a judge-labeled sample is measured and recorded before it ships (no
-  target number is fixed in advance — the measurement sets what is
-  acceptable, and the user signs off on it).
+  on a judge-labeled sample is measured and recorded before it ships.
+  Provisional targets, which the owner confirms or changes at T-117
+  sign-off: false-reject rate at most 5% of articles the judge calls
+  relevant, and `other` precision at least 0.05 above the recomputed
+  baseline. T-124's full re-run is approved only if T-123 meets them.
 - If a gate exists, `other` means "about the company, no dimension fits" and
   `not_relevant` means the opposite; if it was dropped, `other`'s meaning is
   stated as it now is (residual irrelevance quantified, not removed). Either
@@ -1825,8 +1828,8 @@ changing the RESULTS contract):
   complete #12 metric set side by side with the recomputed baseline.
 - `SPEC.md` §13 item 19 and §14's disposition row are annotated with the
   outcome; `docs/category-taxonomy.md` and `docs/evaluation.md` carry the new
-  semantics and a dated follow-up; Work item 5 was already closed by pointer in the PR that filed this item (its T-041 is
-  superseded); both architecture artifacts are reconciled, never
+  semantics and a dated follow-up; Work item 5 is closed (moved to `CHANGELOG.md`; its T-041 is
+  superseded by this item); both architecture artifacts are reconciled, never
   renamed (constitution AI behavior #11).
 
 ## Sequencing
