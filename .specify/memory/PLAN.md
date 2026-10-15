@@ -1634,8 +1634,9 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   (Gen-Z) were read by hand as the same failure. Name-token matches are not
   all wrong either (`AAPL` is 95% first-word matches at 33% `other`), but
   whether those are articles about Apple has **not been checked**; that
-  mode's true error rate is what `portfolio-data-mining` T-054 measures. Fix tracked as that repo's Work item 9 (PR
-  gamug/portfolio-data-mining#53).
+  mode's true error rate was measured by `portfolio-data-mining` T-054 on a hand-labeled
+  sample: 52% wrong for name-token-only matches, 94% for ticker-only, about 70% overall. Fix
+  tracked as that repo's Work item 10 (`T-053`–`T-060`).
 - **CNBC is not the cause.** cnbc.com is 98.8% of the whole corpus
   (453,815 rows), hence ~99% of `other`. Yahoo (4,023 rows, 22.9% `other`)
   and Seeking Alpha (1,274 rows, 34.7%) are too small to conclude from.
@@ -1668,11 +1669,27 @@ changing the RESULTS contract):
    to fix) and dropping such articles before classification (invisible,
    unauditable). (D2) Yes: the entire classification is re-run once the
    rule is tested and the result is satisfactory (step 6). (D3) Yes — the upstream ticker
-   tagging is fixed first, in `portfolio-data-mining` (its Work item 9,
-   `T-053`–`T-059`); development here starts after that repo hands off the
+   tagging is fixed first, in `portfolio-data-mining` (its Work item 10,
+   `T-053`–`T-060`); development here starts after that repo hands off the
    corrected corpus (T-128). Consequence for step 3: after the fix, the gate
    may only need to catch residual irrelevance, so T-117 re-measures on the
    cleaned corpus before deciding how much gate to build.
+2b. **Decide the quarantined `review` pairs (T-132).** `portfolio-data-mining`
+   design v1 (its T-055, approved 2026-10-15) classes every `(url, ticker)` pair from
+   the URL and title: `accept` stays tagged, `reject` is quarantined with a reason
+   (reversible) and never reaches this repo, and `review` (weak evidence only; about
+   12% of its corpus, 64% wrong on its hand labels) is **quarantined**, meaning kept in
+   `urls.db`, flagged, and left out of the default `articles` selection until this
+   repo decides it. This repo answers the question discovery cannot, "is the company a
+   subject of the article", from `body_text`, the title and the NER organization spans,
+   with verdicts `relevant`, `not_relevant` and `undecided`. **Rule: never exclude on
+   doubt.** `undecided` pairs stay in the corpus; only a confident `not_relevant`
+   removes one, recorded and reversible (T-131's per-table rule). The verdict lives in a
+   new additive RESULTS table; no existing table is renamed. It is measured against that
+   repo's hand labels and runs before step 3, because T-117's R and N describe the
+   corpus after these pairs are decided. The string rule alone is expected to be weak
+   (its prototype rescued 2 of 15 correct `review` pairs), so NER evidence, and if
+   needed T-130's judge on the undecided remainder, decide what ships.
 3. **Relevance gate — conditional on T-117.** After the crawler fix, the
    corpus should contain far less wrong-company text, so the gate is built
    only if what remains justifies it. *Decision rule* (the numbers are
@@ -1740,8 +1757,8 @@ changing the RESULTS contract):
    (`src/news_nlp/sector_summary/queries.py` INNER JOINs all four stage
    tables and groups by the *tagged* company's sector, so wrong-company
    articles keep feeding sector summaries and downstream readers). Needed:
-   (a) a hand-off list of the article ids removed upstream (added to
-   `portfolio-data-mining` T-057/T-058); (b) the **per-table rule: move removed ids only, never rename a
+   (a) a hand-off list of the article ids removed upstream, plus the quarantined `review`
+   pairs T-132 decides (both added to `portfolio-data-mining` T-057/T-058); (b) the **per-table rule: move removed ids only, never rename a
    table** — for each of those tables (stage tables first, lean `articles`
    last) copy the removed ids' rows into `<table>_removed` and delete them
    from the live table in one transaction, dry run first; a whole-table
@@ -1771,6 +1788,10 @@ changing the RESULTS contract):
 
 **Acceptance criteria**:
 
+- T-132 decides every quarantined `review` pair handed over by
+  `portfolio-data-mining` (`relevant` / `not_relevant` / `undecided`), measured
+  against its hand labels, with `undecided` pairs kept in the corpus and every
+  removal recorded and reversible.
 - The audit script reproduces the 42.7% / 91.5% / 39.0% figures above from
   the RESULTS store (before the crawler re-tag changes the corpus), and
   T-117 records R and N on the cleaned corpus, with the owner's sign-off on
@@ -1909,13 +1930,13 @@ other, and independent of one another except where noted:
   building; the entire classification is re-run after a satisfactory test;
   the ticker tagging is fixed at the source first. **D4 is open** (existing
   results for removed articles, `sector_summary` included, T-131). It is
-  **blocked on `portfolio-data-mining` Work item 9**, which stops the
-  crawler tagging articles with the wrong company and re-tags `urls.db`.
-  Meanwhile T-116 (the "before" audit) and T-130 (the relevance judge, no
-  crawler dependency) run. **Order across the two repos: T-130 here first**
-  (that repo's T-054 labels its sample with it; fallback: that repo
-  hand-labels so it is never gated on this one), then that repo's T-054–T-058,
-  then here: measure what irrelevance remains (T-117), build the gate if
+  **blocked on `portfolio-data-mining` Work item 10**, which stops the
+  crawler tagging articles with the wrong company and re-tags `urls.db`
+  (its T-053/T-054 are done: the audit and a hand-labeled sample; T-055 design v1 is
+  approved). Meanwhile T-116 (the "before" audit) and T-130 (the relevance judge, no
+  crawler dependency) run. **Order across the two repos:** that repo's
+  T-055–T-058 first (it hand-labels its own sample; nothing there depends on this
+  repo), then here: decide its quarantined `review` pairs (T-132, step 2b), measure what irrelevance remains (T-117), build the gate if
   still worth it, calibrate, re-evaluate, clean up results for removed
   articles (D4, step 6b: removed ids only, no table renamed),
   and only then re-run the entire classification (step 6, which itself moves

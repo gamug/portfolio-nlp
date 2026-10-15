@@ -252,6 +252,39 @@ T-131 were added after the rest).
       behavior #12 set (precision/recall/F1/`accuracy_ovr` per class; overall
       accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
       added in the PR that ships it. → step 3, T-117.
+- [ ] **T-132** *(new; from `portfolio-data-mining` T-055 design v1, approved
+      2026-10-15)* Decide the quarantined `review` pairs. That repo classes every
+      `(url, ticker)` pair from the URL and title as `accept`, `review` or
+      `reject`. `accept` rows are tagged as before; `reject` rows are quarantined
+      with a reason (reversible, never deleted) and are not seen here; `review`
+      rows have only weak evidence (a distinctive first word, or a non-word ticker,
+      somewhere in the URL/title; about 12% of that corpus, 64% wrong on its
+      hand labels) and are **quarantined, not removed**: kept in `urls.db`,
+      flagged, and left out of the default `articles` query until this repo
+      decides them. They are handed over in its T-058 with `article id`, ticker,
+      company and the evidence that triggered the class. Build the verdict here,
+      from SOURCE `body_text` + title and the NER organization spans (CPU, no
+      model call first): `relevant` when the company is a subject of the article
+      (full normalized name with aliases repeated, an explicit ticker form, or an
+      ORG span resolving to the company), `not_relevant` when the evidence
+      points at something else, and `undecided` otherwise. **Never exclude on
+      doubt: `undecided` pairs stay in the corpus** and are counted in the
+      report; only a confident `not_relevant` removes a pair, and the removal is
+      recorded, reversible and handled by T-131's per-table rule. Store the
+      verdict in a new additive table in the RESULTS store (key `article_id`,
+      `ticker`; verdict, method, evidence), created idempotently, no existing
+      table renamed. **Measure it** against data-mining's hand labels
+      (`data/ticker_tagging_sample.csv`, the `review` class, plus the fresh
+      ~100-pair validation set from its T-055): precision/recall of each verdict
+      against `yes`/`no`, and the share left `undecided`. Expect the
+      string rule alone to be weak: that repo's prototype found that the full
+      name twice in the body rescued only 2 of the 15 correct `review` pairs in
+      its sample, so the NER evidence, and if needed T-130's opt-in judge on
+      the `undecided` remainder only (calls budgeted), decide whether this task
+      ships a rule or just a report. Depends on T-128 (the hand-off of the
+      quarantine list); runs **before T-117**, because T-117's R and N must be
+      measured after these pairs are decided. Own FR added in the PR that ships
+      it. → step 2b.
 - [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
@@ -270,8 +303,10 @@ T-131 were added after the rest).
       `docs/evaluation.md`'s floor logic before spending judge calls. Two
       different samples, on purpose. (1) The **shared labeled sample** from
       `portfolio-data-mining`'s T-054 — `(url, ticker)` pairs from the *old*
-      corpus, stratified by the old match mode, labeled with T-130's judge —
-      is reused here **only for the gate's false-reject rate and the crawler
+      corpus, stratified by the old match mode, **labeled by hand by the
+      maintainer in that repo (done, `data/ticker_tagging_sample.csv`), not with
+      T-130's judge**; T-130's judge can instead be validated against those
+      labels — is reused here **only for the gate's false-reject rate and the crawler
       rule's retention rate on known-correct pairs** (not built twice). (2) R
       and N describe the *cleaned* corpus, a different population, so they
       need a **fresh draw from the cleaned corpus** (unstratified, or
@@ -347,8 +382,9 @@ T-131 were added after the rest).
       articles get sentiment attributed to the wrong company. Investigate and
       report before any fix. → step 8.
 - [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; now a
-      prerequisite, not a follow-up)* `portfolio-data-mining` Work item 9
-      (its `T-053`–`T-059`, PR gamug/portfolio-data-mining#53, docs-only)
+      prerequisite, not a follow-up)* `portfolio-data-mining` Work item 10
+      (its `T-053`–`T-060`; the plan merged in PR gamug/portfolio-data-mining#53,
+      the audit and the hand-labeled sample in #55/#56, the rule design v1 in #57)
       fixes the crawler's ticker tagging and re-tags `urls.db`. Both PRs are
       docs-only and merge in either order; merging that one first keeps the
       IDs cited here resolvable on its `master`. Cause, confirmed in that
@@ -358,18 +394,20 @@ T-131 were added after the rest).
       to `Bank`. **This item closes when that repo's `T-058` (hand-off of the
       corrected corpus, recorded in its `TASKS.md`/`CHANGELOG.md`) is
       done.** T-117 onward do not start before that; T-116 and T-130 may run now (T-116
-      records the "before" picture). **T-130 is the critical-path item for
-      both repos**: that repo's T-054 labels its sample with it, so the order
-      is T-130 here → its T-054–T-058 → T-117 onward here. Fallback if T-130
-      slips: that repo hand-labels the T-054 sample, so it is never blocked on
-      this one (stated in its PLAN/TASKS too). The labeled `(url, ticker)` sample is
-      shared, not duplicated: that repo's T-054 defines the strata, T-130's
-      judge labels it, T-117 and that repo's retention measurement reuse it.
+      records the "before" picture). **T-130 is no longer on that repo's
+      path** (decided 2026-10-14/15: data flows from that repo to this one, so
+      it labels its own sample by hand, which is done). The order is its
+      T-055–T-058 → here T-132 → T-117 onward; T-130 only supports T-132's
+      undecided remainder and T-117. The labeled `(url, ticker)` sample is
+      shared, not duplicated: that repo's T-054 defines the strata and the
+      maintainer labeled it, T-117, T-132 and that repo's retention
+      measurement reuse it.
       → step 2.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) get the list of removed article ids from `portfolio-data-mining`
-      (its T-057/T-058 hand-off must include it); (b) **per-table rule — move
+      (its T-057/T-058 hand-off must include it, and the `review` quarantine
+      list that T-132 decides); (b) **per-table rule — move
       removed ids only, never rename a table:** for each of `article_sentiment`,
       `article_entities`, `article_category`, `article_summary` and the lean
       `articles` copy, in one transaction per table, copy the rows whose
@@ -411,7 +449,8 @@ infrastructure decision — nothing in that item has started.
 records D1–D3 (the `not_relevant` label representation, used only if T-117
 justifies building a gate; full re-run after a satisfactory test; fix the
 crawler first, T-128). Development here starts after `portfolio-data-mining`
-Work item 9 hands off the corrected corpus; T-116 (the "before" audit) and
+Work item 10 hands off the corrected corpus and its quarantined `review` pairs
+(T-132 decides them, before T-117); T-116 (the "before" audit) and
 T-130 (the relevance judge, no crawler dependency) may run in the meantime.
 D4 (what to do with existing results for removed articles, T-131) is open.
 T-124 waits on T-123's result and on T-131.

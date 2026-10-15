@@ -886,12 +886,13 @@ treating a related FR/NR as done:
     Open (D4): what happens to the existing results, `sector_summary`
     included, for articles the crawler fix removes (`TASKS.md` T-131).
     The wrong ticker tagging is fixed at its source first
-    (`portfolio-data-mining` Work item 9, decided 2026-10-14), then
+    (`portfolio-data-mining` Work item 10, decided 2026-10-14; its quarantined `review`
+    pairs are decided here, `TASKS.md` T-132), then
     re-measured here. Absorbs the open thread of item 2 (`TASKS.md`
     T-041). Requirements (FR-019 onward) are added in the PRs that ship each
     behavior — the relevance gate if built, the calibrated decision rule, the
     opt-in relevance judge, the results cleanup — per this document's own
-    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-131.
+    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-132.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
