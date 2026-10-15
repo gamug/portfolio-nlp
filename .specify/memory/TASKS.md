@@ -261,7 +261,11 @@ T-131 were added after the rest).
       somewhere in the URL/title; about 12% of that corpus, 64% wrong on its
       hand labels) and are **quarantined, not removed**: kept in `urls.db`,
       flagged, and left out of the default `articles` query until this repo
-      decides them. They are handed over in its T-058 with `article id`, ticker,
+      decides them. They are handed over in its T-058 (quarantined rows have `articles.fetch_status =
+      'quarantined'`, so this repo's default `fetch_status = 'ok'` query does not read
+      them; **this task reads exactly** `SELECT a.id, d.ticker, d.company, d.match_reason FROM
+      articles a JOIN discovered_urls d ON d.id = a.id WHERE a.fetch_status = 'quarantined'
+      AND d.match_class = 'review'`, the same selection that repo's T-058 cites) with `article id`, ticker,
       company and the evidence that triggered the class. Build the verdict here,
       from SOURCE `body_text` + title and the NER organization spans (CPU, no
       model call first): `relevant` when the company is a subject of the article
