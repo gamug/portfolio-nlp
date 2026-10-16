@@ -207,6 +207,12 @@ def test_attach_source_allows_a_live_writers_wal(
         conn = db.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
         try:
             assert conn.articles_rel == "source"
+            # The original bug was reads being blocked, not just ATTACH
+            # raising -- prove a real cross-database read against `source`
+            # actually works while the writer still holds it open.
+            rows = db.fetch_pending_category_articles(conn)
+            assert {r["id"] for r in rows} == {1, 2, 3}
+            assert all("Body text for article" in r["body_text"] for r in rows)
         finally:
             db.detach_source(conn)
             conn.close()
