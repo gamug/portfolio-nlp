@@ -75,7 +75,7 @@ lean `articles` row per processed article, so it stays self-consistent without
 2. unless `SOURCE_DATABASE_URL` resolves to the **same path** as `DATABASE_URL`,
    `connect_two_store` `ATTACH`es the SOURCE store read-only as `source` and
    sets `db.read_schema` (aliased `db.articles_rel`) to `"source"` —
-   delegating the ATTACH and its stale-WAL preflight to
+   delegating the ATTACH and its orphaned-WAL preflight to
    `Database.attach(source, "source", read_only=True)`.
 3. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
    that `articles` table has no `body_text` column or no non-empty `body_text`
@@ -160,14 +160,21 @@ repo needs a second shared read.
 
 ## Caveats
 
-- **Stale WAL on the SOURCE.** A `mode=ro` open cannot replay a write-ahead log,
-  so a SOURCE left with an uncheckpointed `-wal` (crawler killed mid-run, or the
-  file copied without checkpointing) is unusable. `attach_source` checks for a
-  non-empty `<source>-wal` sidecar up front and raises a `RuntimeError` telling
-  you to run `sqlite3 <source> 'PRAGMA wal_checkpoint(TRUNCATE);'` (or let the
-  writer close cleanly) before re-running — rather than failing with a bare
-  `sqlite3.OperationalError` or, worse, silently reading stale data. Do not work
-  around this with `immutable=1`.
+- **Orphaned WAL on the SOURCE.** As of `portfolio-common` v1.2.2, `attach_source`
+  does *not* reject a SOURCE just because its `-wal` is non-empty — a live
+  writer (e.g. `portfolio-data-mining`'s collector, still running) or a hard-killed
+  one (crawler killed mid-run) both leave a non-empty `-wal` *and* a matching
+  `-shm`, and SQLite's own WAL recovery handles both safely on a `mode=ro` open.
+  What's still rejected is a `-wal` copied without its `-shm` (e.g. a backup/rsync
+  that skipped the `-shm`, which SQLite's own docs call disposable): nothing then
+  proves the two files are one consistent snapshot. `attach_source` checks for
+  exactly that shape — non-empty `<source>-wal`, missing `<source>-shm` — and
+  raises a `RuntimeError` telling you to checkpoint first, e.g.
+  `sqlite3 <source> 'PRAGMA wal_checkpoint(TRUNCATE);'`, rather than failing with
+  a bare `sqlite3.OperationalError` or, worse, silently reading stale data. Do not
+  work around this with `immutable=1`. This check is not a backup-safety
+  guarantee either way — it cannot catch a checkpoint-torn copy; see
+  `portfolio-common`'s `test_attach_does_not_catch_a_checkpoint_torn_copy`.
 - **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
   single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
   clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the

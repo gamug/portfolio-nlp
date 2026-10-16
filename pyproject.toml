@@ -94,7 +94,11 @@ package = false
 #   portfolio-common = { path = "../portfolio-common", editable = true }
 [tool.uv.sources]
 torch = { index = "pytorch-cu124" }
-portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.2.0" }
+# v1.2.2 fixes Database.attach(read_only=True) raising for as long as
+# portfolio-data-mining's collector has urls.db open in WAL mode -- the exact
+# bug that made attach_source() fail here while the collector was running.
+# Additive; no signature changes.
+portfolio-common = { git = "https://github.com/gamug/portfolio-common", tag = "v1.2.2" }
 
 [[tool.uv.index]]
 name = "pytorch-cu124"

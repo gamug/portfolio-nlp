@@ -130,14 +130,17 @@ def connect_pipeline(
 def attach_source(db: NewsNlpDatabase, source: str | os.PathLike[str]) -> None:
     """ATTACH `source` read-only as schema `source` and flip `articles_rel`.
 
-    The stale-WAL preflight (a read-only ``mode=ro`` open cannot replay a
-    leftover write-ahead log, so a SOURCE left with an un-checkpointed
-    ``-wal`` -- crawler killed mid-run, or the file copied without
-    checkpointing -- would otherwise silently serve stale data instead of
-    failing loudly) is implemented generically by
-    :meth:`portfolio_common.db.Database.attach`, not reimplemented here. Its
-    ``RuntimeError`` (stale WAL, or the ATTACH itself failing) is left to
-    propagate as-is.
+    The orphaned-WAL preflight is implemented generically by
+    :meth:`portfolio_common.db.Database.attach`, not reimplemented here. As of
+    `portfolio-common` v1.2.2 it does *not* reject a SOURCE just because its
+    ``-wal`` is non-empty -- a live writer (e.g. a concurrently-running
+    `portfolio-data-mining` collector) or a hard-killed one both leave a
+    matching ``-shm`` alongside, and SQLite's own WAL recovery handles both
+    safely on a ``mode=ro`` open. It only rejects a ``-wal`` copied without its
+    ``-shm`` (nothing then proves the two files are one consistent snapshot) --
+    e.g. a backup/rsync that skipped the ``-shm``, SQLite's own docs call it
+    disposable. Its ``RuntimeError`` (orphaned WAL, or the ATTACH itself
+    failing) is left to propagate as-is.
     """
     db.attach_readonly("source", source)
 
