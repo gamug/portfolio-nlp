@@ -178,7 +178,7 @@ def test_require_source_text_passes_on_a_populated_source(
     db.require_source_text(two_tier_conn)  # source has non-empty body_text -> no raise
 
 
-# --- stale-WAL preflight -----------------------------------------------------
+# --- orphaned-WAL preflight ---------------------------------------------------
 #
 # portfolio-common v1.2.2 narrowed `Database.attach(read_only=True)`'s preflight
 # to reject only an *orphaned* WAL (non-empty -wal, no -shm) -- not a live

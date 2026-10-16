@@ -75,7 +75,7 @@ lean `articles` row per processed article, so it stays self-consistent without
 2. unless `SOURCE_DATABASE_URL` resolves to the **same path** as `DATABASE_URL`,
    `connect_two_store` `ATTACH`es the SOURCE store read-only as `source` and
    sets `db.read_schema` (aliased `db.articles_rel`) to `"source"` —
-   delegating the ATTACH and its stale-WAL preflight to
+   delegating the ATTACH and its orphaned-WAL preflight to
    `Database.attach(source, "source", read_only=True)`.
 3. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
    that `articles` table has no `body_text` column or no non-empty `body_text`
