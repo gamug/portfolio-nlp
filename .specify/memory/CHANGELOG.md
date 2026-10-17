@@ -50,6 +50,37 @@ acceptance criteria. Ordered by work item number.
       Portfolio Thesis / Portfolio NLP architecture artifacts not
       updated this pass — see the note in `TASKS.md`'s Status section.
 
+## Work item 5 — Category: hold the line on the hierarchical fix (closed 2026-10-14; T-041 superseded by Work item 15)
+
+Already fixed — hierarchical two-level classification +
+`CATEGORY_CONFIDENCE_THRESHOLD` 0.6 calibration (`docs/evaluation.md`
+2026-09-09 follow-ups, eval_run 19–21; `docs/category-taxonomy.md`
+"Hierarchical classification" / "Threshold calibration").
+`accuracy_vs_judge` 0.442→0.487; the three worst leaf slugs up from
+0.14/0.16/0.33 to 0.61/0.51/0.53. Kept here only for the one remaining
+open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
+`SPEC.md` §13 item 2.
+
+- [x] **T-040** Confirm the fix + calibration landed and is measured (no
+      action — done, see numbers above).
+- [x] **T-041** **Superseded 2026-10-14 → Work item 15** (the `other` bucket
+      turned out to mix an upstream relevance problem with the calibration
+      problem described here; both are now tracked there; no work done under
+      this ID). Original text: `other`'s own precision (0.474) is still an open
+      calibration target (`docs/evaluation.md` "The `other` bucket: a
+      precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a
+      slug-specific threshold next, not another global
+      `CATEGORY_CONFIDENCE_THRESHOLD` move. Low priority, not blocking:
+      revisit once more post-calibration eval data accumulates.
+      → `PLAN.md` Work item 5, step 1.
+- [x] **T-042** Update `SPEC.md` §13 item 2 and the §14 disposition table
+      row to reflect the resolved state — it currently cites the
+      pre-calibration 0.14/0.16/0.20/0.33 numbers, superseded by the
+      2026-09-09 follow-up. Annotate in place, keep the item number.
+      → step 2 / `PLAN.md` Work item 5 acceptance criteria. (Done
+      2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
+      disposition table.)
+
 ## Work item 6 — Summarization (`c_summary` + `sector_summary`): validate eval scope, close the coverage gap, and add a lightweight sector-intro check (resolved 2026-09-14 -- new sector_summary gap found and fixed same day: up to 50.2% intro_text hallucination rate)
 
 Both summarization tasks run the same model (`SUMMARY_MODEL =

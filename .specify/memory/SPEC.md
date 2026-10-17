@@ -578,7 +578,8 @@ treating a related FR/NR as done:
    near-guessing across the board. One related thread stays open:
    `other`'s own precision (0.474) — see `docs/evaluation.md`'s "The
    `other` bucket: a precision problem of its own" — tracked as
-   `TASKS.md` T-041, low priority.
+   `TASKS.md` T-041, low priority. **Update (2026-10-14)**: T-041 is
+   superseded by §13 item 19 / `PLAN.md` Work item 15.
 3. **No SOURCE `articles` contract beyond `body_text`.** Stages and the
    lean-copy depend on `gics_*`/`pub_date`/etc. existing with compatible
    types, but nothing pins or validates that shape (relates to FR-007).
@@ -855,6 +856,43 @@ treating a related FR/NR as done:
     passages in the same doc — corrected alongside this, not itself a code
     bug — FR-015 (tightened), `PLAN.md` Work item 13, `TASKS.md`
     T-109–T-110.
+19. **Category's `other` label covers 42.7% of the corpus and means two
+    different things.** `article_category.label = 'other'` is set on
+    195,993 of 459,112 articles (2026-10-14, RESULTS store); `other`'s own
+    precision is 0.474 (`docs/evaluation.md`, eval_run 21). Only 8.5% of
+    those rows were rejected by level 1's `CATEGORY_GROUP_FLOOR`; 91.5%
+    cleared level 1 and then failed level 2's 0.60 threshold, many of them
+    narrowly (~70k have a best leaf score of 0.5–0.6). The label conflates
+    (a) articles that are not about the ticker's company at all — a
+    relevance problem rooted in the crawler's ticker tagging (confirmed in
+    `portfolio-data-mining`'s `BaseConnector._company_pattern`: a ticker **or
+    the first word of the company name** matching anywhere in a URL slug,
+    with a hyphen counting as a word boundary), where eight symbols that are
+    ordinary English words (`ON`, `A`, `ARE`, `IT`, `ALL`, `HAS`, `TECH`,
+    `NOW`) hold 39.0% of the corpus and companies cut to a generic first word
+    (`State`, `Target`, `Live`, `Dollar`) add more — with (b) articles about the company that no
+    dimension clears the bar for, a calibration problem. A hand-read
+    30-title sample put roughly two thirds in (a) and one fifth as clear
+    misses within (b); that is a planning estimate from a small sample, not a measurement
+    (constitution AI behavior #5), and is what Work item 15's first step
+    replaces. Until resolved, downstream consumers must not treat
+    `label = 'other'` as "verified no category" (already stated for the
+    precision gap in `docs/evaluation.md`), nor assume every article is about
+    its ticker's company. **Decided (2026-10-14)**: *if* a relevance gate is built — which
+    `TASKS.md` T-117 decides by measuring what irrelevance remains after the
+    crawler fix — articles it rejects get a new `not_relevant` label (11
+    labels; `label` is unrestricted `TEXT`, so no table migration); and the
+    entire classification is re-run once the new rule is tested and approved.
+    Open (D4): what happens to the existing results, `sector_summary`
+    included, for articles the crawler fix removes (`TASKS.md` T-131).
+    The wrong ticker tagging is fixed at its source first
+    (`portfolio-data-mining` Work item 10, decided 2026-10-14; its quarantined `review`
+    pairs are decided here, `TASKS.md` T-132), then
+    re-measured here. Absorbs the open thread of item 2 (`TASKS.md`
+    T-041). Requirements (FR-019 onward) are added in the PRs that ship each
+    behavior — the relevance gate if built, the calibrated decision rule, the
+    opt-in relevance judge, the results cleanup — per this document's own
+    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-132.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -912,7 +950,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | §13 item | Disposition | Would only matter if |
 |---|---|---|
 | 1 — weak sentiment F1 | **Resolved (2026-09-13)** — fine-tuned model + chunk-level entity-scoped weighting selected and merged; see `PLAN.md` Work item 4 | — |
-| 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision is the one remaining low-priority thread (`PLAN.md` Work item 5) | — |
+| 2 — near-guessing category labels | **Resolved (2026-09-12)** — hierarchical redesign + 0.6 threshold calibration measured and shipped; `other`'s own precision was the one remaining thread, now tracked by §13 item 19 (`PLAN.md` Work item 15; Work item 5 is closed) | — |
 | 3 — no SOURCE schema contract beyond `body_text` | Accepted; §5's schema-contract table documents the actual (unenforced) dependency | `data-mining`'s `articles` shape changed under this repo |
 | 4 — unpinned model checkpoints | **Resolved (2026-09-14)** — `MODEL_REVISIONS` pins all four models to a commit SHA; see `PLAN.md` Work item 1 | — |
 | 5 — ~~no throughput/latency SLA~~ | Retired — a production requirement, and this project has no production phase | — |
@@ -925,6 +963,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 12 — `sector_summary` `intro_text` hallucination rate | **Resolved (2026-09-14)** — deterministic template replaces the model-paraphrase step; existing rows self-heal via `SECTOR_SUMMARY_FORMAT_VERSION` | — |
 | 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
+| 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first; a relevance gate only if it still justifies one after the crawler fix, then calibration; D4 (cleanup of existing results) open; see `PLAN.md` Work item 15 | — (already in motion) |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1

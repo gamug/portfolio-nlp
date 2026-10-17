@@ -159,34 +159,6 @@ Hugging Face Hub). **None of the three is merged to `master` yet** — which
       all three candidates; final "which one ships" decision explicitly
       left open for the repo owner rather than resolved by these tasks.
 
-## Work item 5 — Category: hold the line on the hierarchical fix (validation only, low priority)
-
-Already fixed — hierarchical two-level classification +
-`CATEGORY_CONFIDENCE_THRESHOLD` 0.6 calibration (`docs/evaluation.md`
-2026-09-09 follow-ups, eval_run 19–21; `docs/category-taxonomy.md`
-"Hierarchical classification" / "Threshold calibration").
-`accuracy_vs_judge` 0.442→0.487; the three worst leaf slugs up from
-0.14/0.16/0.33 to 0.61/0.51/0.53. Kept here only for the one remaining
-open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
-`SPEC.md` §13 item 2.
-
-- [x] **T-040** Confirm the fix + calibration landed and is measured (no
-      action — done, see numbers above).
-- [ ] **T-041** `other`'s own precision (0.474) is still an open
-      calibration target (`docs/evaluation.md` "The `other` bucket: a
-      precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a
-      slug-specific threshold next, not another global
-      `CATEGORY_CONFIDENCE_THRESHOLD` move. Low priority, not blocking:
-      revisit once more post-calibration eval data accumulates.
-      → `PLAN.md` Work item 5, step 1.
-- [x] **T-042** Update `SPEC.md` §13 item 2 and the §14 disposition table
-      row to reflect the resolved state — it currently cites the
-      pre-calibration 0.14/0.16/0.20/0.33 numbers, superseded by the
-      2026-09-09 follow-up. Annotate in place, keep the item number.
-      → step 2 / `PLAN.md` Work item 5 acceptance criteria. (Done
-      2026-09-12, this pass — see `SPEC.md` §13 item 2 and §14's
-      disposition table.)
-
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
 `run_ner_stage` (`src/pipeline.py`) was the only stage with no batching —
@@ -240,18 +212,302 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
+## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open)
+
+`other` is 195,993 of 459,112 articles (42.7%) and its own precision is 0.474.
+Read-only investigation (2026-10-14) found it mixes "not about the ticker's
+company" (mostly ticker symbols that are English words — `ON`/`A`/`ARE`/`IT`/
+`ALL`/`HAS`/`TECH`/`NOW` hold 39.0% of the corpus, plus companies cut to a generic first word) with "about the company, no
+dimension clears the 0.6 bar". Plan: fix the tagging at the source, measure what
+irrelevance remains, build a relevance gate only if it still justifies one
+(T-117's rule), then calibrate per-slug thresholds and a margin rule offline
+from stored scores.
+→ `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
+
+Tasks are listed in execution order, not ID order (IDs are stable; T-130 and
+T-131 were added after the rest).
+
+Dependencies at a glance:
+
+| Task | Depends on | Blocks | Can start now? |
+|---|---|---|---|
+| T-116 audit | none | none | yes |
+| T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
+| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | waiting |
+| T-132 quarantined pairs | T-128 | T-117 | no |
+| T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
+| T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
+| T-121, T-122 calibration | T-117 | T-123 | no |
+| T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132, D4 | T-124 | no |
+| T-124 full re-run | T-123 approved, T-131 | T-129 | no |
+| T-125, T-126 contingent | T-123 result | none | no |
+| T-127 sentiment impact | none (separate PR) | none | yes |
+| T-129 close-out | all of the above | none | no |
+
+- [ ] **T-116** Commit a rerunnable audit script under `scripts/` that
+      reproduces the 2026-10-14 figures from the RESULTS store (label
+      distribution; level-1-floor vs level-2-threshold split; best-leaf-score
+      bands; `other` rate by source and by ticker; share held by
+      English-word tickers, including `ALL`). Read-only; no pipeline or schema change.
+      → `PLAN.md` Work item 15, step 1.
+- [ ] **T-130** *(new; no crawler dependency)* Build the relevance judge
+      T-117 depends on: a new `relevance` task in `news_nlp/eval/` ("is this
+      article about `{company}`?" — prompt under `eval/prompts/`, verdict
+      model, entry in the judge registry beside `judge_sentiment`/
+      `judge_category`, storage in the eval tables, hermetic tests with the
+      LLM mocked). Needs the `eval` dependency group and LLM credentials
+      (`LLM_API_KEY`/`LLM_MODEL`/`LLM_URL`). Validate it against a small
+      hand-labeled subset before trusting it. **Constraints:** it must be
+      opt-in. `sampling.STAGES` feeds `run_eval`'s default stage list (and the
+      CLI's `--stage all`), so adding `relevance` to it would silently change
+      what `all` runs; keep it out of `STAGES`' default set, check whether
+      `--check-regression` iterates stages and exclude it there too, and leave
+      `ExperimentSpec`'s own four-stage `Literal` untouched. Lock this with a
+      snapshot test on the exact default stage list and on the other stages'
+      metric key sets (same shape as FR-016's). As a binary relevance
+      classifier its reported metrics are the complete constitution AI
+      behavior #12 set (precision/recall/F1/`accuracy_ovr` per class; overall
+      accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
+      added in the PR that ships it. → step 3, T-117.
+- [ ] **T-132** *(new; from `portfolio-data-mining` T-055 design v1, approved
+      2026-10-15)* Decide the quarantined `review` pairs. Never exclude on doubt.
+      - **Goal:** answer "is the company a subject of this article?" for the
+        pairs discovery could only mark `review` (weak URL/title evidence;
+        about 12% of that corpus, 64% wrong on its hand labels), with verdicts
+        `relevant`, `not_relevant`, `undecided`.
+      - **Inputs:** the quarantined rows handed over by `portfolio-data-mining`
+        T-058. The quarantine shape and the exact selection query are defined
+        **only there** (its T-057/T-058); this repo reads them and never writes
+        `fetch_status`. Our default `fetch_status = 'ok'` queries already
+        exclude them, so no query change here. Also SOURCE `body_text`, title
+        and the NER organization spans.
+      - **Steps:** (1) CPU rule first, no model call: `relevant` on the full
+        normalized name with aliases repeated, an explicit ticker form, or an
+        ORG span resolving to the company; `not_relevant` when the evidence
+        points elsewhere; else `undecided`. (2) Store verdicts in a new additive
+        RESULTS table (key `article_id`, `ticker`; verdict, method, evidence),
+        created idempotently, no existing table renamed. (3) Measure against
+        that repo's hand labels (`data/ticker_tagging_sample.csv`, `review`
+        class, plus its fresh ~100-pair validation set): precision/recall per
+        verdict and the `undecided` share. (4) The string rule alone is
+        expected to be weak (its prototype rescued 2 of 15 correct pairs), so
+        NER evidence, then T-130's opt-in judge on the `undecided` remainder
+        only (calls budgeted, see T-117), decide whether this ships a rule or
+        only a report.
+      - **Done when:** every handed-over pair has a verdict; `undecided` pairs
+        stay in the corpus and are counted; only a confident `not_relevant`
+        removes a pair, recorded and reversible via T-131's per-table rule; the
+        report states precision/recall against the hand labels; an FR is added
+        in the PR that ships it.
+      - **Depends on:** T-128 (hand-off). **Blocks:** T-117 (its R and N are
+        measured after these pairs are decided). → step 2b.
+- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
+      Prototype the relevance test as string matching over SOURCE `body_text`
+      + title (company name with aliases; uppercase/explicit-form ticker only
+      — see the plan's design constraints) and **measure it**: share of the
+      corpus failing it, cross-tab vs. current labels, and its false-reject
+      rate, using T-130's judge. Report **R** (share of the cleaned corpus
+      judged not about its tagged company) and **N** (share of the remaining
+      `other` rows they make up), then get the owner's sign-off on the
+      build/drop rule in `PLAN.md` Work item 15 step 3. **The 5% / 20%
+      numbers are arbitrary placeholders** chosen only to make the rule
+      concrete; the owner sets the real ones. *Sample size:* to tell R near
+      5% apart from a neighboring value, use a judged sample large enough for
+      a tight interval — by the normal approximation n = 1.96²·p(1−p)/h²,
+      a ±1.5-point half-width at p = 0.05 needs about 810 judged articles
+      (and N is estimated from `other` rows only); re-derive with
+      `docs/evaluation.md`'s floor logic before spending judge calls. Two
+      different samples, on purpose. (1) The **shared labeled sample** from
+      `portfolio-data-mining`'s T-054 — `(url, ticker)` pairs from the *old*
+      corpus, stratified by the old match mode, **labeled by hand by the
+      maintainer in that repo (done, `data/ticker_tagging_sample.csv`), not with
+      T-130's judge**; T-130's judge can instead be validated against those
+      labels — is reused here **only for the gate's false-reject rate and the crawler
+      rule's retention rate on known-correct pairs** (not built twice). (2) R
+      and N describe the *cleaned* corpus, a different population, so they
+      need a **fresh draw from the cleaned corpus** (unstratified, or
+      stratified and weighted back to population shares); a stratified sample
+      is never read as a corpus share unweighted. Budget judge calls for both. That sign-off is what makes
+      T-119 and the `not_relevant` part of T-120 go ahead or be cancelled in
+      place. Report; do not ship. → step 1, step 3.
+      *Owner and date for the 5% / 20% numbers:* the repo owner (gamug) sets
+      them at T-117 sign-off, before T-119 starts; until then they stay
+      placeholders and T-119/T-120 do not begin.
+      *Judge-call budget (planning estimate, re-derive before spending):*
+      ~810 for R and N, ~300 to validate T-130 against the hand labels,
+      ~400 for T-132's `undecided` remainder, ~400 only if T-123 needs a
+      fresh baseline; about 1,900 in total at most. Record the actual spend
+      in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
+      `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
+      LLM, no live calls).
+- [x] **T-118** *(user decision)* **Decided 2026-10-14.** D1 = new
+      `not_relevant` label in the existing `label` column (no table
+      migration; added only if a gate is built, see T-117). D2 = yes, re-run
+      the entire classification once the new rule is tested and the result is
+      satisfactory (T-124). D3 = yes, fix the upstream ticker tagging first
+      (T-128). Rejected for D1: a separate yes/no column (readers of `label`
+      would still see `other`) and dropping such articles before
+      classification (invisible, unauditable).
+      *Plain-language record:* `other` currently means two things, "not about
+      this company" and "about it, but no category fits". D1 gives the first
+      its own label, but only if the post-fix measurement (T-117) says the gate
+      is still worth building; D2 re-runs everything once so old and new
+      results are never mixed; D3 fixes the cause (wrong tagging) before
+      treating the symptom. → step 2.
+- [ ] **T-119** *(conditional on T-117's sign-off; cancel in place if the gate is dropped)* Implement the relevance gate in the category stage's feature
+      step (CPU-only, before any model call), with hermetic tests covering the
+      ambiguous-ticker cases (`ON`, `A`, `IT`, `ARE`) and alias cases (Meta,
+      Berkshire, Bank of America). Depends on T-117, T-128. → step 3.
+- [ ] **T-120** *(conditional on T-117's sign-off, same as T-119)* Add the `not_relevant` label (D1 = a): `news_nlp/taxonomy.py`
+      and the `docs/category-taxonomy.md` table (10 → 11 labels), the API
+      response models, and the category judge's prompt/taxonomy in
+      `news_nlp/eval/` so it can answer "not about the company". No table
+      migration (`label` is unrestricted `TEXT`); confirm nothing else
+      enumerates the label list (e.g. `sector_summary`, queries filtering on
+      `label != 'other'`). Tell the knowledge-graph owner the vocabulary
+      grew. → steps 2, 5.
+- [ ] **T-121** Offline calibration: simulate per-slug thresholds and a
+      margin-over-runner-up rule against the stored leaf scores and existing
+      `eval_verdict` rows (no model re-inference), on the gated-in population;
+      pick parameters by per-slug precision; report the trade-off table.
+      → step 4.
+- [ ] **T-122** Ship T-121's chosen rule as constants beside
+      `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
+      in the category stage, with tests. → step 4.
+- [ ] **T-123** Re-run `--stage category` eval; baseline (eval_run 21, mlflow
+      `0a18577e`) recomputed from stored judgements (restricted to articles still in
+      the corrected corpus; fresh baseline sample only if that falls below
+      the sample-size floor — record which), candidate computed the
+      same way, one side-by-side table with the complete constitution #12
+      metric set, on the full and the gated-in population; run
+      `--check-regression`. → step 5 / acceptance criteria.
+      *Provisional success targets (the owner confirms or changes them at
+      T-117 sign-off):* `other` precision at least 0.05 above the recomputed
+      baseline; if a gate is built, false-reject rate at most 5% of articles
+      the judge calls relevant; no per-slug regression beyond
+      `--check-regression`'s tolerance. T-124 does not start unless T-123
+      meets them and the owner approves.
+- [ ] **T-124** *(D2 = yes, decided 2026-10-14)* Re-run the **entire**
+      category classification over the corrected corpus (every row remaining
+      after the crawler re-tag; record the count at launch, it will no longer
+      be 459,112; full re-inference on GPU, not a re-label of stored scores), but only
+      after T-123 shows a satisfactory, user-approved result — not before.
+      **Always begins by moving the whole `article_category` aside**
+      (snapshot, then `ALTER TABLE article_category RENAME TO
+      article_category_v1`, T-025's pattern), whatever D4 decides: the
+      category stage only selects articles that have no row yet
+      (`fetch_pending_category_articles`: `WHERE r.article_id IS NULL`), so
+      the "entire" re-run only happens if the current table starts empty.
+      This is the **only whole-table rename in this work item**; T-131 never
+      renames a table (it moves removed ids only), so the two cannot
+      collide, and T-124 runs after T-131 so the snapshot is already free of
+      removed articles. Articles the gate rejects skip inference. Needs a bulk
+      re-classification driver (none exists in `scripts/`), a dry run on a
+      scratch DB copy first (as T-025 did), and a measured throughput so the
+      real duration is known before launching. Record the run in
+      `docs/evaluation.md`. Runs after T-131. → step 6.
+      *Cost stop/go:* the scratch run reports articles per hour and a projected
+      GPU duration for the full corpus; if the projection exceeds 72 hours on
+      the available GPU, stop and bring it to the owner before launching
+      (provisional threshold, the owner may change it).
+- [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
+      `other` rows and propose taxonomy additions. Only if `other` is still
+      large after T-123 and the clusters are coherent; amends the taxonomy
+      contract with the knowledge-graph module. → step 7.
+- [ ] **T-126** *(contingent)* Option H: classify on more than title + lead
+      chunk. Only if T-123 shows misses concentrated in weak-lead articles.
+      → step 7.
+- [ ] **T-127** *(separate PR)* Measure the sentiment-side impact of the same
+      weakness: `_text_mentions_subject` matches a lowercased ticker as a bare
+      word (`\bon\b`, `\ba\b`, …), so subject weighting is likely
+      non-discriminating for the eight English-word tickers, and off-topic
+      articles get sentiment attributed to the wrong company. Investigate and
+      report before any fix. → step 8.
+- [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; a
+      prerequisite, not a follow-up)* Wait for the corrected corpus from
+      `portfolio-data-mining` Work item 10 (its `T-053`–`T-060`).
+      - **Why:** its matcher accepts a ticker **or the first word of the
+        company name** anywhere in a URL, and a hyphen counts as a word
+        boundary, so `A` matches `in-a-month` and `Bank of America` is reduced
+        to `Bank`. That repo fixes the matcher and re-tags `urls.db`.
+      - **Contract:** the quarantine schema, the removed-id list and the
+        hand-off format are specified **only in that repo** (T-057/T-058); this
+        item links there rather than copying it. How this repo consumes it:
+        pending queries (`fetch_status = 'ok'`) already skip quarantined rows,
+        and the removed ids feed T-131.
+      - **Shared sample:** the labeled `(url, ticker)` sample (that repo's T-054,
+        hand-labeled there by the maintainer) is reused, not duplicated, by
+        T-117, T-132 and that repo's retention measurement.
+      - **Order:** its T-055–T-058, then here T-132, then T-117 onward.
+        T-116 and T-130 may run now; T-130 only supports T-132's undecided
+        remainder and T-117.
+      - **Merge order of the two docs PRs:** independent (both docs-only).
+        Whichever merges second should check that the other's IDs resolve.
+      - **Done when:** that repo's `T-058` (hand-off of the corrected corpus)
+        is recorded done in its `TASKS.md`/`CHANGELOG.md`. → step 2.
+- [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
+      the cleanup of existing results for articles the crawler fix removes:
+      (a) get the list of removed article ids from `portfolio-data-mining`
+      (its T-057/T-058 hand-off must include it, and the `review` quarantine
+      list that T-132 decides); (b) **per-table rule — move
+      removed ids only, never rename a table:** for each of `article_sentiment`,
+      `article_entities`, `article_category`, `article_summary` and the lean
+      `articles` copy, in one transaction per table, copy the rows whose
+      article id is in the removed list into an archive table
+      (`<table>_removed`) and then delete them from the live table (stage
+      tables first, lean `articles` last), dry run on a scratch DB copy
+      first. A whole-table rename (T-025's pattern) would also remove the
+      *retained* articles' results, make every article pending and force a
+      full GPU re-run of sentiment/NER/summary that nobody planned, so it is
+      not used here; the one whole-table rename in this item is
+      `article_category` in T-124. (c) make `sector_summary` regenerate (bump
+      `SECTOR_SUMMARY_FORMAT_VERSION` so every closed week is pending again,
+      or delete only the affected `(sector, sub_industry, week)` rows) — it
+      regenerates only at the next `--summarize` run; (d) the owner decides D4
+      (keep the `<table>_removed` archives — recommended default — or drop
+      them after verification; whole-table bump vs. targeted deletion of
+      `sector_summary` rows), which (b) and (c) then apply. Runs **before**
+      T-124 (never together), so no reader sees a half-cleaned store.
+      → step 6b.
+      *D4 default and deadline:* T-131 and T-124 need a D4 answer. If the
+      owner has not decided by the time T-123 is approved, the recommended
+      default applies (keep the `<table>_removed` archives;
+      delete only the affected `sector_summary` rows). T-131's execution may
+      ship as its own PR; it stays in this work item because T-124 depends on
+      its removed-id list and ordering.
+- [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
+      one FR per behavior that ships (gate if built, calibrated rule, the
+      opt-in relevance judge T-130, results cleanup T-131) in the PR that
+      ships it (SPEC's own rule), update
+      `docs/category-taxonomy.md`, `docs/evaluation.md` (dated follow-up),
+      `docs/modules/news-nlp.md`; reconcile both architecture artifacts —
+      never rename (constitution AI behavior #11); confirm T-130 and T-131 are
+      done or cancelled in place; then move this work item to
+      `CHANGELOG.md` (AI behavior #15). → acceptance criteria.
+
 ## Status
 
-Closed Work items 1, 6 and 8–14 are in `CHANGELOG.md`.
+Closed Work items 1, 5, 6 and 8–14 are in `CHANGELOG.md` (Work item 5 closed 2026-10-14; its
+only open task, T-041, was superseded by Work item 15).
 
 T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
 infrastructure decision — nothing in that item has started.
 
-**Model performance checking (Work items 3, 4, 5, 7) is resolved except
+**Work item 15 (category `other` bucket) is open as of 2026-10-14:** T-118
+records D1–D3 (the `not_relevant` label representation, used only if T-117
+justifies building a gate; full re-run after a satisfactory test; fix the
+crawler first, T-128). Development here starts after `portfolio-data-mining`
+Work item 10 hands off the corrected corpus and its quarantined `review` pairs
+(T-132 decides them, before T-117); T-116 (the "before" audit) and
+T-130 (the relevance judge, no crawler dependency) may run in the meantime.
+D4 (what to do with existing results for removed articles, T-131) is open.
+T-124 waits on T-123's result and on T-131.
+
+**Model performance checking (Work items 3, 4, 7) is resolved except
 non-blocking items:** Work item 3's only open task is T-022 (full-corpus
 backfill); Work item 4's is T-032 (re-solve the purity estimates from measured
-agreement); Work item 5's is T-041 (`other`'s precision, low priority); Work
-item 7 (NER batching) is code-complete with only T-062 (empirical GPU tuning)
+agreement); Work item 7 (NER batching) is code-complete with only T-062 (empirical GPU tuning)
 left — CUDA has been available since 2026-09-14, so it is actionable, just not
 yet run.
 
