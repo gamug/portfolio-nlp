@@ -247,6 +247,10 @@ Dependencies at a glance:
 | T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
 | T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
 | T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (column guard, recommended order) | T-117 | **yes, after T-135** |
+| T-135 schema guard (WI16) | T-139 (D8) | T-132 (recommended order), T-136 | **yes** (code, hermetic) |
+| T-136 guard docs | T-135 | none | no |
+| T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
+| T-138 multi-company build | T-137 result, the owner | none | no (conditional) |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
@@ -782,20 +786,36 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
 - [ ] **T-135** Implement `check_schema` (name open) in `news_nlp.db`, called by
       `connect_pipeline` / `attach_source` before any query.
       - **Inputs:** the constant `MIN_SOURCE_SCHEMA_VERSION = 3` copied into this repo
-        (never import `data_mining`), the columns this repo selects (at least
-        `articles.id`, `fetch_status`, `pub_date`, `body_text`, `prev_fetch_status`;
-        `discovered_urls.id`, `url`, `ticker`, `match_class`, `match_reason`).
+        (never import `data_mining`), and the columns this repo reads from SOURCE
+        **today** (`articles.id`, `fetch_status`, `body_text`, `company`, `ticker`,
+        `pub_date`, plus what `copy_row_lean` copies). The helper takes the column list
+        as a parameter: T-132 adds `articles.prev_fetch_status` and
+        `discovered_urls` (`id`, `url`, `ticker`, `match_class`, `match_reason`) to it in
+        its own PR, so no run fails on a column nothing reads yet. The minimum 3 is a
+        behavior change (a version-2 file works today); the real `urls.db` is at 5, so
+        nothing is lost, and T-136 says it.
+      - **Scope:** the guard runs only when a SOURCE is attached (SOURCE distinct from
+        RESULTS). A single-file run (SOURCE and RESULTS the same path, RESULTS never
+        stamped) and the serving/query endpoints that need no SOURCE do not run it. The
+        eval scratch run (`eval/candidate.py`) runs it on the real SOURCE before cloning.
       - **Steps:** read `PRAGMA user_version` through a `mode=ro` open; fail on 0 and on
         lower with the path, the version found, the minimum and the action ("start the
         collector or the extractor so it migrates the file, or point to the right
         file"); warn once on higher; then `PRAGMA table_info` on both tables and fail on
-        a missing column even if the number passes; never cache between opens; write
-        nothing.
+        a missing column (the parameterized list) even if the number passes; never cache
+        between opens; write nothing.
       - **Done when:** tests on small generated files pass: version 0 and 2 fail; 3, 4, 5
         pass; 6 passes with one warning; version 3 without `prev_fetch_status` fails on
         the column guard; a file re-stamped 5 → 3 between two opens passes both times; a
         WAL file with a live writer opens read-only; the file hash is identical before
-        and after. CLI exits non-zero with the message, the API answers 5xx carrying it.
+        and after. CLI exits non-zero with the message; an API path that attaches SOURCE
+        answers 503 carrying it (a configuration error, not a client error); the
+        no-SOURCE endpoints are unaffected (tested). **The existing suite stays green:**
+        a shared fixture helper in `tests/news_nlp/conftest.py` stamps the version and
+        creates the guarded columns on the SOURCE fixtures (today they are unstamped,
+        i.e. 0), and tests that need an old or unstamped file build one explicitly. The
+        shipping PR extends FR-007's acceptance (SOURCE is read-only and checked before
+        use), per SPEC §14.
       - **Depends on:** D8 (decided, T-139). **Blocks:** T-132 (recommended order).
 - [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and

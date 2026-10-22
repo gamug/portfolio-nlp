@@ -2058,9 +2058,12 @@ through (`connect_pipeline` / `attach_source`), before any query. **Require a mi
 (3), accept anything higher** (additive, forward-only migrations; an exact match would
 break on a rollback), **fail on lower and on 0** with the path, the version found, the
 minimum and what to do, **warn once on a higher number**, **never cache the result
-across runs**. A second guard on the columns actually selected (`PRAGMA table_info` on
-`articles` and `discovered_urls`), because the number is a promise and the columns are
-the fact. Copy the number into this repo's own constant; never import `data_mining`.
+across runs**. A second guard on the columns actually read (`PRAGMA table_info`, the list a
+parameter: today's `articles` columns; T-132 adds `prev_fetch_status` and
+`discovered_urls` in its own PR), because the number is a promise and the columns are
+the fact. It runs only when a SOURCE is attached (not on single-file runs, not on the
+no-SOURCE serving endpoints); the API answers 503 carrying the message. The minimum 3 is
+a behavior change (a version-2 file works today; the real file is at 5). Copy the number into this repo's own constant; never import `data_mining`.
 The cache tables (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not
 part of the contract: never read, join or attach them. Whether the helper lives here or
 in `portfolio-common` (a generic `require_schema(db, minimum, columns)`) is D8, decided
@@ -2072,7 +2075,9 @@ DB contract (constitution AI behavior #10); the owner's D8 answer is the approva
 passes with one warning; version 3 with `prev_fetch_status` missing fails on the column
 guard; a file re-stamped 5 → 3 between two opens passes both times; a read-only open of
 a WAL file with a live writer works; the file's hash is unchanged before and after.
-One docs line: the minimum, why a minimum, and that the cache tables are not contract.
+The existing suite stays green through a shared fixture helper that stamps the version
+(the fixtures are unstamped today). One docs line: the minimum, why a minimum, and that
+the cache tables are not contract.
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
