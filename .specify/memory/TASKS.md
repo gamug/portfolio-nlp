@@ -808,12 +808,13 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
       - **Steps:** read `PRAGMA user_version` through a `mode=ro` open; fail on 0 and on
         lower with the path, the version found, the minimum and the action ("start the
         collector or the extractor so it migrates the file, or point to the right
-        file"); warn once on higher; then `PRAGMA table_info` on both tables and fail on
+        file"); warn once per process on higher (a module-level flag; each new process warns again); then `PRAGMA table_info` on the tables in the list and fail on
         a missing column (the parameterized list) even if the number passes; never cache
         between opens; write nothing.
       - **Done when:** tests on small generated files pass: version 0 and 2 fail; 3, 4, 5
-        pass; 6 passes with one warning; version 3 without `prev_fetch_status` fails on
-        the column guard; a file re-stamped 5 → 3 between two opens passes both times; a
+        pass; 6 passes with one warning (two opens in one process give one warning; a second
+        process warns again); version 3 without `body_text` fails on the column guard
+        (the `prev_fetch_status` case belongs to T-132's Done-when); a file re-stamped 5 → 3 between two opens passes both times; a
         WAL file with a live writer opens read-only; the file hash is identical before
         and after. CLI exits non-zero with the message. `POST /pipeline/run` (the only API
         path that attaches SOURCE; it answers 202 and runs in a background worker) runs the

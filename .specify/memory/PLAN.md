@@ -2062,7 +2062,7 @@ Upstream's note proposes this as our work item, not blocking.
 through (`connect_pipeline` / `attach_source`), before any query. **Require a minimum
 (3), accept anything higher** (additive, forward-only migrations; an exact match would
 break on a rollback), **fail on lower and on 0** with the path, the version found, the
-minimum and what to do, **warn once on a higher number**, **never cache the result
+minimum and what to do, **warn once per process on a higher number**, **never cache the result
 across runs**. A second guard on the columns actually read (`PRAGMA table_info`, the list a
 parameter: today's `articles` columns; T-132 adds `prev_fetch_status` and
 `discovered_urls` in its own PR), because the number is a promise and the columns are
@@ -2077,8 +2077,9 @@ the column list is a data-mining contract, not a DB-engine one. It touches the t
 DB contract (constitution AI behavior #10); the owner's D8 answer is the approval.
 
 **Acceptance**: tests on small generated files: version 0 and 2 fail; 3, 4, 5 pass; 6
-passes with one warning; version 3 with `prev_fetch_status` missing fails on the column
-guard; a file re-stamped 5 → 3 between two opens passes both times; a read-only open of
+passes with one warning (once per process: two opens give one, a new process warns
+again); version 3 with `body_text` missing fails on the column guard (the
+`prev_fetch_status` case is T-132's); a file re-stamped 5 → 3 between two opens passes both times; a read-only open of
 a WAL file with a live writer works; the file's hash is unchanged before and after.
 The existing suite stays green through a shared fixture helper that stamps the version
 (the fixtures are unstamped today). One docs line: the minimum, why a minimum, and that
