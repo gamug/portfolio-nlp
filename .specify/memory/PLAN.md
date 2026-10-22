@@ -2083,7 +2083,7 @@ again); version 3 with `body_text` missing fails on the column guard (the
 a WAL file with a live writer works; the file's hash is unchanged before and after.
 The existing suite stays green through a shared fixture helper that stamps the version
 (the fixtures are unstamped today). One docs line: the minimum, why a minimum, and that
-the cache tables are not contract.
+the cache tables are not contract. Close-out: T-136b (SPEC item 20, both artifacts, `CHANGELOG.md`).
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
@@ -2125,7 +2125,8 @@ Corp multi-company URLs) measures attribution precision, fact binding and role
 agreement per type, never one average, each with a Wilson interval; thresholds to trust
 a fact are a joint decision. The sizing is a committed read-only script plus a dated
 follow-up in `docs/evaluation.md` (T-137); the 20-per-type hand sample is a smoke test,
-not a measurement, unless the owner sets a larger N.
+not a measurement, unless the owner sets a larger N. Close-out: T-138b (SPEC item 21, both
+artifacts, `CHANGELOG.md`); it closes after T-137's report if the owner stops there.
 
 ## Sequencing
 

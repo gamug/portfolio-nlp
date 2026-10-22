@@ -248,9 +248,11 @@ Dependencies at a glance:
 | T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
 | T-132 quarantined pairs | T-128, T-139 (D5, D6), **T-135** (schema guard, hard) | T-117 | **yes, after T-135** |
 | T-135 schema guard (WI16) | T-139 (D8) | T-132 (hard), T-136 | **yes** (code, hermetic) |
-| T-136 guard docs | T-135 | none | no |
+| T-136 guard docs | T-135 | T-136b | no |
+| T-136b WI16 close-out | T-135, T-136 | none | no |
 | T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
-| T-138 multi-company build | T-137 result, the owner | none | no (conditional) |
+| T-138 multi-company build | T-137 result, the owner | T-138b | no (conditional) |
+| T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
@@ -785,7 +787,7 @@ SOURCE (`urls.db`) is stamped with `PRAGMA user_version` (5 today; additive; a
 documented rollback sets 5 back to 3). This repo reads it on trust, and T-132 will
 read a second table. A read-only guard at the single choke point, minimum 3, fail
 on lower and on 0, warn once on higher, never cached, plus a column guard. →
-`PLAN.md` Work item 16. Task order: T-135, then T-136.
+`PLAN.md` Work item 16. Task order: T-135, T-136, then T-136b (close-out).
 
 - [ ] **T-135** Implement `check_schema(source, minimum, columns)` (name open) in
       `news_nlp.db`, called by `connect_pipeline` / `attach_source` before any query.
@@ -837,12 +839,16 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
 - [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
       `discovery_progress` are not part of the contract. Depends on T-135.
+- [ ] **T-136b** Close-out of Work item 16: annotate `SPEC.md` §13 item 20 / §14 as
+      built, add the FR-007 acceptance extension if T-135's PR did not, reconcile both
+      architecture artifacts (never rename; constitution AI behavior #11), then move the
+      work item to `CHANGELOG.md` (AI behavior #15). Depends on T-135, T-136.
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
 35.9% of the `ok` articles belong to a URL that has pairs for more than one ticker
 (a floor); every stage keys on the pair. Size it before building anything. →
-`PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so.
+`PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so, then T-138b (close-out).
 
 - [ ] **T-137** Sizing run, no build. Stages 0–2 of upstream's suggested pipeline (hand-off
       2026-10-21, 9.2 and 9.4: 0 group, 1 mention detection, 2 type) on a
@@ -893,6 +899,11 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
       by `article_id`) are asked of the owner in that PR, not assumed from D9. Until it
       ships the `multi` rule is not in force; T-137's report is the statement of the
       risk.
+- [ ] **T-138b** Close-out of Work item 17: annotate `SPEC.md` §13 item 21 / §14, reconcile
+      both architecture artifacts (never rename; AI behavior #11), then move the work item
+      to `CHANGELOG.md` (AI behavior #15). It closes after T-137's report if the owner
+      stops there (T-138 cancelled in place, with the reason), or after T-138 ships.
+      Depends on T-137 (and T-138 if built).
 
 ## Status
 
