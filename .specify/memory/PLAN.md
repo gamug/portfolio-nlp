@@ -1897,7 +1897,7 @@ changing the RESULTS contract):
    the 5,132 `ok` articles that had no results on 2026-10-22: a normal run may classify
    them earlier under the old rule, and the snapshot below keeps those rows), so
    that every row follows the new rule and none keeps an old-rule label.
-   **Mechanism (decision D2b, T-140; recommended default: re-label, after a
+   **Mechanism (decision D2b, T-140, decided 2026-10-22 at the recommended default: re-label, after a
    verification).** A GPU re-inference is needed only when the change goes beyond what
    the stored scores support. Measured on the real store (2026-10-22): every stored
    row is the hierarchical scheme; 98.9% of confirmed articles (92,318 of 93,330) took

@@ -248,12 +248,12 @@ Dependencies at a glance:
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
 | T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
-| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **open; conditional default (needs credentials/budget already in place), else waits** |
+| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
 | T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
-| T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **open; default applies at T-123's approval** |
+| T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **decided 2026-10-22, re-label from stored scores** |
 | T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
 | T-125, T-126 contingent | T-123 result | none | no |
 | T-127 sentiment impact | none (separate PR) | none | yes |
@@ -330,7 +330,7 @@ Dependencies at a glance:
       - **Unchanged, as already recorded:** the release threshold for `about` is set
         jointly with data-mining after T-132's measurement; D4 keeps its recommended
         default; T-123's targets stay provisional until T-117's sign-off.
-- [ ] **T-140** *(new user decision D2b, opened 2026-10-22; **open**; if unanswered
+- [x] **T-140** *(new user decision D2b, opened 2026-10-22; **decided 2026-10-22: the recommended default, re-label from stored scores after the 300-article verification**; originally: if unanswered
       by the time T-123 is approved, the recommended default applies, as for D4)* D2
       (re-run the entire classification once the rule is tested) stands. What is asked
       is its mechanism. The plan first specified full GPU re-inference; the stored
@@ -405,7 +405,7 @@ Dependencies at a glance:
         columns before reading `discovered_urls` is recommended and proposed separately;
         it is not a dependency. **Blocks:** T-117 (its R and
         N are measured after these pairs are decided). → step 2b.
-- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
+- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130; **owner thresholds set 2026-10-22, all at the defaults:** the gate is built only if R >= 5% and N >= 20%; T-123's targets are +0.05 `other` precision (paired, lower bound above 0), -0.02 tolerance on `other` recall/accuracy/macro F1, 5% false-reject if a gate exists; T-131's pre-purge stop/go is a 400-article sample with an upper bound of at most 5%. What stays for T-117's sign-off is the measured R and N, not the rule)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
       — see the plan's design constraints) and **measure it**: share of the
@@ -414,8 +414,7 @@ Dependencies at a glance:
       judged not about its tagged company) and **N** (share of the remaining
       `other` rows they make up), then get the owner's sign-off on the
       build/drop rule in `PLAN.md` Work item 15 step 3. **The 5% / 20%
-      numbers are arbitrary placeholders** chosen only to make the rule
-      concrete; the owner sets the real ones. *Sample size:* to tell R near
+      numbers were confirmed by the owner on 2026-10-22** (kept at the placeholders). *Sample size:* to tell R near
       5% apart from a neighboring value, use a judged sample large enough for
       a tight interval — by the normal approximation n = 1.96²·p(1−p)/h²,
       a ±1.5-point half-width at p = 0.05 needs about 810 judged articles
@@ -528,7 +527,7 @@ Dependencies at a glance:
       change to the wording or to D1's label set invalidates the sample and costs a
       re-judge, to be budgeted separately. Needs the `eval` group; no LLM calls in CI.
       **Blocks:** T-121(b). → step 4.
-- [ ] **T-142** *(new user decision D10, opened 2026-10-22; **open**; if unanswered by
+- [x] **T-142** *(new user decision D10, opened 2026-10-22; **decided 2026-10-22: approved, cap 3,800 judge calls, credentials and budget in place**; originally: if unanswered by
       the time T-141 is done, the default applies, as for D4 and T-140)* The spend for
       T-121(b)'s sample: **default, approve up to 3,800 judge calls** (the
       3,300-call base sample plus a 500-call allowance for the discordant top-up) with the maintainer's
