@@ -32,6 +32,16 @@ CREATE TABLE articles (
 LEAN_ARTICLES_SCHEMA = ARTICLES_SCHEMA.replace("    body_text TEXT,\n", "")
 
 
+#: The SOURCE schema version the fixtures stamp (the guard's minimum; a real `urls.db` is
+#: at 5). Tests that need an old or unstamped file build one with `stamp_source`.
+SOURCE_FIXTURE_VERSION = db_module.MIN_SOURCE_SCHEMA_VERSION
+
+
+def stamp_source(conn: sqlite3.Connection, version: int = SOURCE_FIXTURE_VERSION) -> None:
+    """Stamp a SOURCE fixture the way `portfolio-data-mining` does (`PRAGMA user_version`)."""
+    conn.execute(f"PRAGMA user_version = {int(version)}")
+
+
 def seed_article(
     conn: sqlite3.Connection | db_module.NewsNlpDatabase,
     id: int,
@@ -100,6 +110,10 @@ def client(test_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Test
     # but every other test in the suite would otherwise pay that import cost too.
     from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415
 
+    # `pipeline` calls load_dotenv() at import, which can set SOURCE_DATABASE_URL from a
+    # developer's .env (the real urls.db). No test reads the real store: unset it after
+    # the import; a test that needs a SOURCE sets its own.
+    monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
     pipeline_status.reset()
     yield TestClient(app)
     pipeline_status.reset()
@@ -115,6 +129,7 @@ def source_db_path(tmp_path: Path) -> Path:
     path = tmp_path / "source.db"
     conn = sqlite3.connect(path)
     conn.executescript(ARTICLES_SCHEMA)
+    stamp_source(conn)
     for i, (ticker, sector) in enumerate(
         [("MMM", "Industrials"), ("AAPL", "Information Technology"), ("XOM", "Energy")], start=1
     ):
@@ -164,6 +179,7 @@ def build_eval_source(path: Path, n: int) -> None:
     """A SOURCE db with *n* articles (id 1..n), each with distinct body_text."""
     conn = sqlite3.connect(path)
     conn.executescript(ARTICLES_SCHEMA)
+    stamp_source(conn)
     for i in range(1, n + 1):
         seed_article(
             conn,

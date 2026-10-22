@@ -281,7 +281,14 @@ summary (`fetch_pending_articles` / `fetch_pending_category_articles` /
 `POST /pipeline/run`) — read `source.articles`. Every result write also
 copies a lean `main.articles` row (metadata only) from `source` if it isn't
 there yet, so the RESULTS store stays foreign-key-consistent without a
-separate migration step. `db.require_source_text`
+separate migration step. When a SOURCE is attached (not on single-file runs or the
+no-SOURCE endpoints), `db.check_schema` first checks it read-only before any query:
+`PRAGMA user_version` at least 3 (`MIN_SOURCE_SCHEMA_VERSION`; a minimum, not an exact
+match, since upstream's migrations are additive) and the columns this repo reads
+(`SOURCE_REQUIRED_COLUMNS`), else `SourceSchemaError`; a version above the latest seen
+(5) warns once per process. `POST /pipeline/run` runs it before its background worker
+and answers 503 with the message; the CLIs exit with it on one line. Detail:
+`docs/db-topology.md`. Then `db.require_source_text`
 fails the run fast (before any model loads) if `SOURCE_DATABASE_URL` is unset or
 points at a DB with no usable `body_text` — the old failure mode there was a
 silent *"0 pending"*.

@@ -10,6 +10,7 @@ Run:
     -> http://127.0.0.1:8003/docs
 """
 
+import sqlite3
 import sys
 import threading
 from collections.abc import Iterator
@@ -120,6 +121,14 @@ def health() -> dict:
 
 @app.post("/pipeline/run", status_code=202)
 def start_pipeline(req: PipelineRunRequest) -> dict:
+    # A bad SOURCE is a configuration error the caller should see on this request: the
+    # worker's 202 would hide it in the run status. Checked before the run slot is taken.
+    try:
+        db.check_source()
+    except db.SourceSchemaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.Error:
+        pass  # unreadable file (e.g. an orphaned WAL): the worker's attach reports it
     if not pipeline_status.start():
         raise HTTPException(status_code=409, detail=pipeline_status.to_dict())
 

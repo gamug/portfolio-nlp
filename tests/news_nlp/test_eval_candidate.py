@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import stamp_source
 
 import news_nlp as db
 import sentiment_stage
@@ -155,6 +156,7 @@ def test_candidate_scored_connection_tolerates_a_source_articles_fk(
         );
         """
     )
+    stamp_source(raw)
     raw.execute("INSERT INTO discovered_urls (url, domain) VALUES ('http://x.test/1', 'x.test')")
     raw.execute(
         "INSERT INTO articles (id, url, ticker, company, body_text, word_count, "

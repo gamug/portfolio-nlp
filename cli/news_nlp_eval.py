@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from news_nlp.db import exit_on_schema_error
 from news_nlp.eval.config import EvalSettings
 from news_nlp.eval.runner import run_eval, summary_table
 from news_nlp.eval.sampling import STAGES
@@ -160,14 +161,15 @@ def main() -> None:
         f"eval: stages={stages} sample_size={settings.sample_size} "
         f"judge={settings.llm_model} mlflow={settings.mlflow_tracking_uri}"
     )
-    results = run_eval(
-        stages,
-        settings=settings,
-        source_db=str(args.source_db) if args.source_db else None,
-        results_db=str(args.results_db) if args.results_db else None,
-        check_regression=args.check_regression,
-        regression_tolerance=args.regression_tolerance,
-    )
+    with exit_on_schema_error():
+        results = run_eval(
+            stages,
+            settings=settings,
+            source_db=str(args.source_db) if args.source_db else None,
+            results_db=str(args.results_db) if args.results_db else None,
+            check_regression=args.check_regression,
+            regression_tolerance=args.regression_tolerance,
+        )
     print(summary_table(results))
 
 

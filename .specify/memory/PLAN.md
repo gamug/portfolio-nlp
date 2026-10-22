@@ -2062,7 +2062,7 @@ Upstream's note proposes this as our work item, not blocking.
 through (`connect_pipeline` / `attach_source`), before any query. **Require a minimum
 (3), accept anything higher** (additive, forward-only migrations; an exact match would
 break on a rollback), **fail on lower and on 0** with the path, the version found, the
-minimum and what to do, **warn once per process on a higher number**, **never cache the result
+minimum and what to do, **warn once per process on a version above the latest seen (5)**, **never cache the result
 across runs**. A second guard on the columns actually read (`PRAGMA table_info`, the list a
 parameter: today's `articles` columns; T-132 adds `prev_fetch_status` and
 `discovered_urls` in its own PR), because the number is a promise and the columns are
