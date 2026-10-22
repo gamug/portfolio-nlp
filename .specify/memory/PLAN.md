@@ -1769,8 +1769,11 @@ changing the RESULTS contract):
      pairs); decisions stay per pair.
    - **What NER can and cannot settle (reasoned from recorded numbers; T-132 step 3
      measures it).** The NER model emits `PER`/`LOC`/`ORG` spans, no entity linking;
-     on the judge sample its ORG F1 is 0.75, overall precision 0.66 and hallucination
-     rate 0.338 (`docs/evaluation.md`). Within that: it removes the ticker-as-word
+     on the judge sample (post-fix, 2026-09-12, `docs/evaluation.md`) its ORG F1 is
+     0.812, micro precision 0.840 and hallucination rate 0.160, and a later
+     re-measurement on the migrated database (2026-09-19, eval_run 42, recorded in the
+     repository artifact and MLflow, not in `docs/evaluation.md`) read 0.780 / 0.779 /
+     0.221: so roughly one predicted span in five is wrong. Within that: it removes the ticker-as-word
      failure (a bare `on`/`a`/`it` is not an ORG span, so a pair matched only that way
      has no ORG corroboration, strong evidence for `other`); it supplies salience
      features (named in the title or lead, count, share of ORG spans) for `about` vs
@@ -1824,7 +1827,10 @@ changing the RESULTS contract):
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
    table computed by the same code path, baseline = eval_run 21 (mlflow
-   `0a18577e`) recomputed from its stored judgements rather than quoted. The
+   `0a18577e`) recomputed from its stored judgements rather than quoted (T-133 also
+   recomputes eval_run 43, a 2026-09-19 re-measurement on the migrated database that
+   reads `other` precision 0.576 in the repository artifact, so the baseline is chosen
+   from two recomputed runs, not from either quoted figure). The
    judge must be able to answer "not about the company" if D1 adds a label
    (judge prompt/taxonomy change in `news_nlp/eval/`). Report on both the full
    population and the gated-in subset, so the gate's effect and the

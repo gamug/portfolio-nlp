@@ -279,7 +279,10 @@ Dependencies at a glance:
       - **Goal:** replace the hypothesis in the plan ("corrected corpus", "what wrong
         tags do") with a number: category's complete constitution #12 metric set on the
         articles that survive the re-tag, next to the full stored sample.
-      - **Inputs:** every stored category `eval_run` (eval_run 21 first),
+      - **Inputs:** every stored category `eval_run` (eval_run 21, the baseline Work
+        item 15 quotes at `other` precision 0.474, and eval_run 43, the 2026-09-19
+        re-measurement on the migrated database that the repository artifact reports at
+        0.576, are both recomputed before either is used as a target),
         `eval_judgement`/`eval_verdict` rows, the RESULTS article ids, and a read-only
         attach of SOURCE for each article's `fetch_status` (`ok` = survivor,
         `quarantined` = removed or in doubt; reads `articles` only, no new table).
