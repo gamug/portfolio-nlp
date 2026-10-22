@@ -902,9 +902,9 @@ treating a related FR/NR as done:
     the counts keep moving (2026-10-21: 109,982 / 52,039; 98,462 `ok` articles, 63.4%
     published before 2022). The category classifier and its judge never see the
     company, so wrong tags bias the *measured* numbers through sample composition
-    rather than the model's reading (first measurement 2026-10-22: `other` judged
-    correct on 36.8% of confirmed articles vs 67.4% of rejected ones, 68 and 288
-    articles; T-133 owes the complete metric set); sentiment
+    rather than the model's reading (first measurement 2026-10-22 in
+    `docs/evaluation.md`: `other` was judged correct far more often on rejected than on
+    confirmed articles; T-133 owes the complete metric set); sentiment
     does use the company and is affected directly (T-127). The quarantined `review`
     pairs get the verdicts `about` / `mention` / `other` / `unclear` (D5), never acted
     on in doubt, in either direction. Owner decisions D5–D9 were settled at their defaults on 2026-10-22 (T-139).

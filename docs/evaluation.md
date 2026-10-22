@@ -1954,6 +1954,56 @@ above. Three further pieces landed on top of that, all confined to
 this follow-up originally left open was closed later the same day — see
 "Where results go" below.)
 
+### Follow-up (2026-10-22): what the upstream ticker re-tag did to the stored results and to category's measured numbers (Work item 15, T-133 step 1)
+
+Read-only, on the real stores (`urls.db` at schema version 5, `nlp.db`), by
+`scripts/measure_corrected_corpus_2026_10_22.py` (rerunnable; both databases opened
+`mode=ro`). **Not a model evaluation:** nothing was judged again. The category numbers
+below are unweighted agreement rates from judgements already stored, not the complete
+constitution #12 metric set, which T-133 still owes per partition.
+
+**Where the stored results stand upstream.** `portfolio-data-mining` re-tagged `urls.db`
+on 2026-10-15; classes are read from its `discovered_urls.match_class`.
+
+| upstream class | RESULTS articles | share | with stored `article_entities` | with an `ORG` span |
+|---|---|---|---|---|
+| `accept` (`ok`) | 93,330 | 20.3% | 93,286 | 93,268 |
+| `reject` (quarantined) | 315,822 | 68.8% | 315,630 | 314,235 |
+| `review` (quarantined) | 49,960 | 10.9% | 49,949 | 49,766 |
+| total | 459,112 | 100% | | |
+
+**Which category runs can be recomputed.** Only `eval_run` 43 (2026-09-19, 2,800 judged,
+population 459,112) has stored judgements. `eval_run` 21, the baseline Work item 15
+first quoted (`other` precision 0.474), has none (`eval_inference` / `eval_verdict` hold
+no rows for it) and its strata were drawn from a population of about 100k articles, so it
+cannot be recomputed and is not the baseline.
+
+**`eval_run` 43 by upstream class.** The `representative` bucket (896 articles, uniform
+sampling weights, so unweighted equals population-weighted inside it) is 71% `reject`,
+19% `accept`, 10% `review`, matching the population. Judge agreement with the stored
+category label, with 95% Wilson intervals:
+
+| `representative` bucket | `accept` (confirmed) | `reject` | `review` |
+|---|---|---|---|
+| any label | 93/170 = 54.7% (47–62%) | 383/636 = 60.2% (56–64%) | 61/90 = 67.8% (58–77%) |
+| model predicted `other` | **25/68 = 36.8% (26–49%)** | **194/288 = 67.4% (62–73%)** | 24/35 = 68.6% (52–81%) |
+| model predicted a substantive label | 68/102 = 66.7% (57–75%) | 189/348 = 54.3% (49–59%) | 37/55 = 67.3% (54–78%) |
+
+All buckets together (deliberately skewed toward low-confidence and rare labels, so
+shown for sample size only): 1,953 `reject`, 538 `accept`, 309 `review` items judged.
+
+**Reading.** The category model and its judge see only the title and body, never the
+company, so an article that is not about its tagged company has no correct
+company-performance label. `other` was judged correct about twice as often on rejected
+articles (67%) as on confirmed ones (37%): the quoted `other` precision (0.576 in run 43)
+is inflated by off-topic articles, and on confirmed articles it is nearer 0.37. The
+substantive-label difference (67% vs 54%) points the expected way but its intervals
+overlap. The confirmed-article `other` figure rests on 68 articles; a ±5-point estimate
+needs about 359 such articles (about 900 confirmed articles judged), so T-123 needs a fresh
+judged sample (budgeted under T-117). Not claimed: any per-class precision/recall/F1 on
+the confirmed partition, or that these rates carry over to the corrected corpus after
+the next upstream change.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence

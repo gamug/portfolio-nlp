@@ -1683,17 +1683,13 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   the zero-shot model. Sentiment is different, it does use the company and ticker
   (`_text_mentions_subject`), so it is affected directly (T-127). T-133 measures
   the category effect from stored verdicts, with no new judge calls.
-  **First measurement (2026-10-22, read-only; eval_run 43, the only category run whose
-  judgements are stored).** Its `representative` bucket is 896 articles drawn with
-  uniform weights and matches the population (71% rejected, 19% accepted, 10% review).
-  In it, `other` was judged correct on 36.8% of the accepted articles (25 of 68, 95%
-  interval 26–49%) against 67.4% of the rejected ones (194 of 288, 62–73%); a
-  substantive label was judged correct on 66.7% of accepted (68 of 102, 57–75%)
-  against 54.3% of rejected (189 of 348, 49–60%). So the quoted `other` precision is
-  inflated by off-topic articles and on articles still confirmed it is nearer 0.37
-  than 0.57, with a wide interval; the substantive-label effect points the expected
-  way but its intervals overlap. These are unweighted agreement rates, not the complete
-  #12 set, which T-133 still owes.
+  **First measurement (2026-10-22, read-only, eval_run 43, the only category run whose
+  judgements are stored):** in its unskewed `representative` bucket `other` was judged
+  correct on 36.8% of articles still confirmed upstream against 67.4% of rejected
+  ones, so the quoted `other` precision is inflated by off-topic articles; the
+  substantive-label effect points the same way with overlapping intervals. Unweighted
+  agreement only; the numbers, intervals and the rerunnable script are in
+  `docs/evaluation.md`'s 2026-10-22 follow-up (T-133 owes the complete #12 set).
 - **The date window (hand-off note 2026-10-21; reported, not reproduced).** The
   collector's range is 2022-01-01 to today, but a bug in its sitemap reader (fixed
   going forward) meant the range was never applied to the sitemap, so **62,406 of the
@@ -1798,7 +1794,7 @@ changing the RESULTS contract):
      attribution of facts (Work item 17). So it is a **partial** fix: it settles the
      false-positive direction cheaply; the decision rule plus T-130's judge on the
      remainder, measured against hand labels, is what ships. Verified on the real
-     store (2026-10-22): 49,949 of the 49,960 `review` articles already have stored
+     store (2026-10-22, `scripts/measure_corrected_corpus_2026_10_22.py`): 49,949 of the 49,960 `review` articles already have stored
      `article_entities` rows, 49,766 of them with an `ORG` span, so the NER evidence
      costs no GPU.
    - **Measured against** the hand labels upstream owns (its shared sample, its fresh
@@ -1881,7 +1877,11 @@ changing the RESULTS contract):
    the pairs of the known-false-reject list, which now sit in `review`), not read from
    the 2026-10-15 CSV hand-off: that list is stale (the `reject` class has moved since,
    section "corrected corpus" above) and the join is always current; the `review`
-   pairs are not purged until T-132 decides them; (b) the **per-table rule: move removed ids only, never rename a
+   pairs are not purged until T-132 decides them; (a2) a **pre-purge check of the
+   `reject` class's own error rate**: upstream's hand check puts about 2.5% of that
+   class as wrong (roughly 7,900 of 315,822 articles, interval 1,300 to 40,700), so a
+   400-article random sample is labeled first, with a provisional stop/go at an upper
+   bound of 5% (T-131); (b) the **per-table rule: move removed ids only, never rename a
    table** — for each of those tables (stage tables first, lean `articles`
    last) copy the removed ids' rows into `<table>_removed` and delete them
    from the live table in one transaction, dry run first; a whole-table
@@ -1939,9 +1939,10 @@ changing the RESULTS contract):
   0.37 on 68 articles, to be recomputed with the complete set) and recomputed by
   the same code path as the candidate (the crawler fix removes articles from
   the corpus, so the quoted 0.474 and 0.576 are not directly comparable). A fresh
-  baseline eval (more judge calls) is needed only if the surviving verdict
-  set falls below `docs/evaluation.md`'s sample-size floor; T-123 decides and
-  records which.
+  baseline eval (more judge calls) is required: the stored run has only 68
+  `other`-predicted confirmed articles, far below what a ±5-point estimate needs
+  (about 359, i.e. about 900 confirmed articles judged), and it is budgeted under
+  T-117.
 - Existing results for articles the crawler fix removes (all stage tables,
   the lean `articles` copy and `sector_summary`) are cleaned up per the
   owner's D4 decision: removed ids moved to `<table>_removed` archives (kept
@@ -2147,5 +2148,13 @@ other, and independent of one another except where noted:
   `article_category` aside first). It absorbs Work
   item 5's T-041 (`other` precision) and leaves the sentiment-side
   ticker-collision finding (T-127) to its own PR.
+
+- **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
+  first runnable tasks are T-116, T-130 and T-133. Work item 16's T-135 (the schema
+  guard) goes **before** Work item 15's T-132, because T-132 starts reading
+  `discovered_urls`; T-136 follows T-135. Work item 17's T-137 (sizing) goes **after**
+  T-132, because it reuses T-132's body-hash grouping and ORG-to-ticker resolution;
+  T-138 only if T-137 and the owner say so. T-131's cleanup and T-124's re-run stay
+  after T-123, and nothing in Work items 16 or 17 blocks them.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

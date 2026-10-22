@@ -224,8 +224,11 @@ irrelevance remains, build a relevance gate only if it still justifies one
 from stored scores.
 → `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
 
-Tasks are listed in execution order, not ID order (IDs are stable; T-130, T-131,
-T-132 and T-133–T-139 were added after the rest).
+Tasks are listed in execution order within Work item 15, not ID order (IDs are
+stable; T-130, T-131, T-132 and T-133–T-139 were added after the rest). One
+cross-item ordering: Work item 16's T-135 (the schema guard) comes before T-132
+although it is listed further down; the table below and `PLAN.md`'s Sequencing
+section are the authority.
 
 Dependencies at a glance:
 
@@ -284,7 +287,9 @@ Dependencies at a glance:
         store and it sampled a corpus of about 100k, so it is not a baseline), the RESULTS
         article ids, and a read-only attach of SOURCE for each article's `fetch_status`
         and `discovered_urls.match_class` (reads the two existing tables).
-      - **Progress 2026-10-22 (read-only, on the real store):** step 1 is done:
+      - **Progress 2026-10-22 (read-only, on the real store; rerunnable with
+        `scripts/measure_corrected_corpus_2026_10_22.py`, numbers in `docs/evaluation.md`'s
+        2026-10-22 follow-up):** step 1 is done:
         93,330 `accept` / 315,822 `reject` / 49,960 `review`, the 459,112 (plan, "corrected
         corpus"). A first look at step 3 on eval_run 43's `representative` bucket is in the
         plan ("what wrong tags do"): `other` judged correct 36.8% of accepted vs 67.4% of
@@ -304,7 +309,8 @@ Dependencies at a glance:
       - **Depends on:** nothing new. **Blocks:** T-123's baseline, T-117's sizing.
         → plan step 5.
 - [x] **T-139** *(user decision record; **decided 2026-10-22: every decision kept at
-      its default**)* The decisions this work item needed, with the answer recorded:
+      its default**; the owner's words that day: "Keep the decisions in default
+      values", after being shown the list below with its defaults)* The decisions this work item needed, with the answer recorded:
       - **D5 verdict vocabulary** (blocks T-132): adopt data-mining's `about` /
         `mention` / `other` / `unclear`. Sub-question: a confident `mention` does not
         purge existing results until its precision is measured.
@@ -338,8 +344,12 @@ Dependencies at a glance:
       reshaped 2026-10-22 to the 2026-10-21 hand-off)* Decide the quarantined
       `review` pairs. Never act on doubt, in either direction.
       - **Goal:** answer "is the company a subject of this article?" for the pairs
-        discovery could only mark `review` (weak URL/title evidence; 52,039 pairs on
-        2026-10-21, 49,960 articles on 2026-10-22 that were `ok` before the re-tag), with the four
+        discovery could only mark `review` (weak URL/title evidence). **Input:** all the
+        quarantined `review` pairs selected at run time (52,039 on 2026-10-21; the count
+        moves). **Subset that already has results:** 49,960 of the articles in this
+        repo's RESULTS store are `review` (measured 2026-10-22); only those can have
+        results purged (T-131's rule), while a verdict on a pair with no RESULTS rows can
+        only feed upstream's release decision. Verdicts are the four
         verdicts data-mining applies: `about`, `mention`, `other`, `unclear` (D5).
         The correct rate of this class is **not measured** (only 18 of 20 uncontested
         News Corp URLs); do not assume it.
@@ -422,8 +432,9 @@ Dependencies at a glance:
       placeholders and T-119/T-120 do not begin.
       *Judge-call budget (planning estimate, re-derive before spending):*
       ~810 for R and N, ~300 to validate T-130 against the hand labels,
-      ~400 for T-132's `undecided` remainder, ~400 only if T-123 needs a
-      fresh baseline; about 1,900 in total at most. Record the actual spend
+      ~400 for T-132's `undecided` remainder, ~900 for the fresh baseline on
+      confirmed articles that T-123 needs (see T-123), ~400 for T-131's pre-purge
+      check; about 2,800 in total at most. Record the actual spend
       in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
       `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
       LLM, no live calls).
@@ -464,8 +475,12 @@ Dependencies at a glance:
 - [ ] **T-123** Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
       `549ddbdf`; the only category run whose judgements are stored, eval_run 21's are
       not) recomputed from stored judgements (restricted to articles still in
-      the corrected corpus; fresh baseline sample only if that falls below
-      the sample-size floor — record which), candidate computed the
+      the corrected corpus). **A fresh judged sample of confirmed articles is
+      required, not optional:** the stored run has only 68 `other`-predicted confirmed
+      articles in its unskewed bucket (precision about 0.37, interval 26–49%), and a
+      ±5-point estimate of that precision needs about 359 such articles, i.e. about 900
+      confirmed articles judged (40% of them are predicted `other`); budgeted under
+      T-117. Candidate computed the
       same way, one side-by-side table with the complete constitution #12
       metric set, on the full and the gated-in population; run
       `--check-regression`. → step 5 / acceptance criteria.
@@ -553,7 +568,21 @@ Dependencies at a glance:
       `review`, never-fetched sitemap rejects were deleted). Upstream's list of known
       false rejects (at least 433 pairs, `data/retag_known_false_rejects.csv` there,
       mostly News Corp `NWS`/`NWSA`) must be kept out of the purge; most of them now
-      sit in `review`, which this task does not purge (T-132 decides them); (b) **per-table rule — move
+      sit in `review`, which this task does not purge (T-132 decides them);
+      (a2) **pre-purge check of the `reject` class's own error rate.** Upstream's hand
+      check puts about 2.5% of `reject` as wrong (95% interval 0.4–12.9%), i.e. about
+      7,900 (1,300 to 40,700) of 315,822 articles, and it dates from 2026-10-15, before
+      448 pairs moved to `review`. Before any purge, draw 400 `reject` articles with
+      RESULTS rows uniformly at random, label "is this article about its tagged
+      company?" (T-130's judge, validated on upstream's hand labels, with the owner
+      hand-checking the disagreements), and compute the wrong share with its 95%
+      interval. **Provisional stop/go (the owner confirms at the T-117 sign-off):** go
+      if the upper bound is at most 5% (10 wrong of 400 gives 4.5%; 15 gives 6.1% and
+      fails); if it fails, purge only the `match_reason` sub-classes whose own
+      sample clears the bound, or stop and bring it to the owner. Reversibility
+      (the `<table>_removed` archives) is the second safeguard, not a substitute: a
+      purge also forces a `sector_summary` regeneration. The 400 judge calls are in
+      T-117's budget; (b) **per-table rule — move
       removed ids only, never rename a table:** for each of `article_sentiment`,
       `article_entities`, `article_category`, `article_summary` and the lean
       `articles` copy, in one transaction per table, copy the rows whose
