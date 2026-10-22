@@ -844,7 +844,8 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
 (a floor); every stage keys on the pair. Size it before building anything. →
 `PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so.
 
-- [ ] **T-137** Sizing run, no build. Stages 0–2 of upstream's suggested pipeline on a
+- [ ] **T-137** Sizing run, no build. Stages 0–2 of upstream's suggested pipeline (hand-off
+      2026-10-21, 9.2 and 9.4: 0 group, 1 mention detection, 2 type) on a
       stratified sample of about 2,000 groups.
       - **Inputs:** the groups (body hash, tickers, classes, reasons; computed here from
         the T-132 join or taken as upstream's read-only export), the NER spans, upstream's
@@ -866,6 +867,14 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         (a proportion on 20 has an interval of about ±20 points) unless the owner sets a
         larger N, and no trust threshold is set from it; labels by the owner, or by a
         written rule recorded with the report.
+      - **Unit and frame:** the sampling unit is the group (body hash); the report gives
+        the distribution **per group and article-weighted** (each group weighted by its
+        number of `ok` articles, weights stated), because the claim it replaces is
+        "35.9% of `ok` articles". The frame is the groups whose pairs have NER spans in
+        RESULTS; a sampled group with none is excluded, and the report states how many
+        were excluded per stratum and whether the exclusion biases the frame (running NER
+        on them is a cost and scope change, asked of the owner, not assumed). A stratum
+        with fewer than 500 groups is taken whole and its count reported.
       - **Done when:** the real companies-per-article distribution per stratum replaces
         the 16.7% floor, reproducible from the command above; a hand sample (seeded with
         upstream's 42 News Corp multi-company URLs) reports role agreement per type with
@@ -878,7 +887,12 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
       group. A `review` pair is released on its own evidence, never because a sibling
       pair on the URL is `accept` (10,493 of the 52,039 pairs are in that situation). Scope and fact
       types set after T-137 and the knowledge-graph owner's answer; one FR per behavior
-      in the PR that ships it.
+      in the PR that ships it. The `multi` flag is a schema change (upstream sketches
+      `article_group`, `article_company` and `article_fact` tables, or a flag per result
+      table): its name, type and place (a column per result table, or a side table keyed
+      by `article_id`) are asked of the owner in that PR, not assumed from D9. Until it
+      ships the `multi` rule is not in force; T-137's report is the statement of the
+      risk.
 
 ## Status
 

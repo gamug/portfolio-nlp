@@ -2100,21 +2100,27 @@ that also has an `accept` pair; releasing one because its sibling is `accept` is
 explicitly not allowed (a pair is released on its own evidence).
 
 **Approach** (upstream's suggested pipeline, accepted or changed by the owner): sizing
-first, building second. (1) Group by body hash; (2) mention detection by NER resolved
-to the universe with data-mining's alias table; (3) type the article (single-subject,
+first, building second. Stages numbered as in upstream's hand-off (2026-10-21, 9.2 and
+9.4): (0) group by body hash; (1) mention detection by NER resolved
+to the universe with data-mining's alias table; (2) type the article (single-subject,
 multi-subject, comparison, transaction, incidental), rules first. Run these three on a
 stratified sample of about 2,000 groups (all-`accept` multi-pair, `accept` + `review`,
 all-`review`, single-pair control) to replace the 16.7% floor with a measured number of
 companies per article. Only then decide how much of roles, sentence attribution and
 per-company facts (sentiment on attributed spans, numbers bound to the company) to
-build, and which fact types the knowledge graph needs first. Rule that holds from the
-start: **an article-level score on a multi-subject group carries a `multi` flag and is
-never read as one company's score.** Shares the body-hash grouping and the ORG-to-ticker
+build, and which fact types the knowledge graph needs first. Rule: **an article-level
+score on a multi-subject group carries a `multi` flag and is never read as one company's
+score.** It takes effect when T-138 ships; until then it is false today (category, entity
+and summary rows are read as one company's), and T-137's report, `docs/evaluation.md` and
+the architecture artifacts are the only statement of the risk. The flag is a schema
+change (upstream sketches `article_group`, `article_company`, `article_fact` tables): D9
+approved a work item and a sizing run, not a column, so the schema is asked of the owner
+in T-138's PR (constitution AI behavior #10). Shares the body-hash grouping and the ORG-to-ticker
 resolution with T-132, so it is sequenced after it; it is separate work (constitution
 Code & Git #9), and absorbs T-127's sentiment finding when that is measured.
 
 **Acceptance**: the sampled groups report the real companies-per-article distribution
-per stratum; a hand sample (about 20 groups per type, seeded with upstream's 42 News
+per stratum, per group and article-weighted (T-137 fixes the frame); a hand sample (about 20 groups per type, seeded with upstream's 42 News
 Corp multi-company URLs) measures attribution precision, fact binding and role
 agreement per type, never one average, each with a Wilson interval; thresholds to trust
 a fact are a joint decision. The sizing is a committed read-only script plus a dated
