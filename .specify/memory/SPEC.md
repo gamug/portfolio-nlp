@@ -921,11 +921,12 @@ treating a related FR/NR as done:
     about SOURCE (that `body_text` exists), and the `review` check (item 19) reads a
     second table (`discovered_urls`) and the `prev_fetch_status` column. **Decided
     (2026-10-22, at the default of D8):** a read-only guard before any query: minimum
-    version 3, fail on lower and on 0, warn once per process on higher, never cached,
-    plus a column guard; it runs only when a SOURCE is attached (not on single-file runs or
+    version 3, fail on lower and on 0, warn once per process above the latest seen (5),
+    never cached, plus a column guard; it runs only when a SOURCE is attached (not on single-file runs or
     the no-SOURCE endpoints); no import of `data_mining`; the cache tables are not contract.
     Touches the two-tier DB contract (constitution AI behavior #10); the owner's D8
-    answer is the approval. `PLAN.md` Work item 16, `TASKS.md` T-135–T-136.
+    answer is the approval. **Built 2026-10-22 (#109), Work item 16 closed:** `news_nlp.db.check_schema`,
+    FR-007's acceptance extended, `docs/db-topology.md`. `PLAN.md` Work item 16, `CHANGELOG.md` T-135–T-136b.
 21. **An article that names several companies is scored as if it named one.**
     Upstream measured that 22,048 of 132,078 URLs with `accept`/`review` pairs (16.7%,
     a floor) have pairs for more than one ticker, holding 35,387 of the 98,462 `ok`
@@ -1009,7 +1010,7 @@ boundary of what this project is, not a gap someone forgot to close:
 | 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
 | 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first; a relevance gate only if it still justifies one after the crawler fix, then calibration; D4 (cleanup of existing results) open; see `PLAN.md` Work item 15 | — (already in motion) |
-| 20 — `urls.db` schema version is not checked before reading | **Decided (2026-10-22, D8 default)** — build the guard here; see `PLAN.md` Work item 16 | — |
+| 20 — `urls.db` schema version is not checked before reading | **Built (2026-10-22, #109; D8 default)** — see `PLAN.md` Work item 16 and `docs/db-topology.md` | — |
 | 21 — multi-company articles scored as one company | **Decided (2026-10-22, D9 default)** — own work item, sizing first; see `PLAN.md` Work item 17 | — |
 
 Item 8 was the one item on this list originally flagged as worth doing

@@ -1795,7 +1795,8 @@ changing the RESULTS contract):
      query is the one agreed upstream (`articles` joined to `discovered_urls` on
      `id`, `match_class = 'review'`, `fetch_status = 'quarantined'`). It reads a table
      this repo has never read, so it touches the SOURCE contract (constitution AI
-     behavior #10) and is gated by Work item 16's schema guard. The API alternative
+     behavior #10); the schema guard (Work item 16, built in #109) checks it, and
+     this step adds its columns to `SOURCE_REQUIRED_COLUMNS`. The API alternative
      needs two calls and cannot filter by date.
    - **Output**: a new additive RESULTS table, key `(article_id, ticker, run_id)`,
      columns `verdict, confidence, model, evidence`, plus the class and reason seen,
@@ -2042,7 +2043,7 @@ changing the RESULTS contract):
   superseded by this item); both architecture artifacts are reconciled, never
   renamed (constitution AI behavior #11).
 
-## Work item 16 — Check the data-mining schema version before reading (decided 2026-10-22: build it here, D8 default)
+## Work item 16 — Check the data-mining schema version before reading (closed 2026-10-22, #109; D8 default: build it here)
 
 **Why**: SOURCE (`urls.db`) is a database that `portfolio-data-mining` stamps with
 `PRAGMA user_version` (now 5; versions 2–4 additive, 5 drops a private index; not
@@ -2083,7 +2084,7 @@ again); version 3 with `body_text` missing fails on the column guard (the
 a WAL file with a live writer works; the file's hash is unchanged before and after.
 The existing suite stays green through a shared fixture helper that stamps the version
 (the fixtures are unstamped today). One docs line: the minimum, why a minimum, and that
-the cache tables are not contract. Close-out: T-136b (SPEC item 20, both artifacts, `CHANGELOG.md`).
+the cache tables are not contract. **Closed 2026-10-22 (#109):** built as specified; tasks moved to `CHANGELOG.md`.
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
@@ -2254,9 +2255,9 @@ other, and independent of one another except where noted:
 - **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
   first runnable tasks are T-116, T-130, T-133 and T-141 (code, hermetic); T-121(a)
   follows T-133 and needs no spend. Calibration no longer waits for T-117: T-121(b)
-  waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16's
-  T-135 (the schema guard) goes **before** Work item 15's T-132, because T-132 starts
-  reading `discovered_urls`; T-136 follows T-135. Work item 17's T-137 (sizing) goes
+  waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16 (the
+  schema guard) is closed (#109), so T-132 can start; it adds its columns to the guard.
+  Work item 17's T-137 (sizing) goes
   **after** T-132, because it reuses T-132's body-hash grouping and ORG-to-ticker
   resolution; T-138 only if T-137 and the owner say so. T-132 (the `review` check) runs
   before T-117; T-131's cleanup and T-124's re-run stay after T-123, and nothing in
