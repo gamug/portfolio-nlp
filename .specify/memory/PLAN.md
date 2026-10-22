@@ -1947,7 +1947,7 @@ changing the RESULTS contract):
    pairs are not purged until T-132 decides them; (a2) a **pre-purge check of the
    `reject` class's own error rate**: upstream's hand check puts about 2.5% of that
    class as wrong (roughly 7,900 of 315,822 articles, interval 1,300 to 40,700), so a
-   400-article random sample is labeled first, with a provisional stop/go at an upper
+   400-article random sample is labeled first, with a stop/go (confirmed by the owner 2026-10-22) at an upper
    bound of 5% (T-131); (b) the **per-table rule: move removed ids only, never rename a
    table** — for each of those tables (stage tables first, lean `articles`
    last) copy the removed ids' rows into `<table>_removed` and delete them
@@ -1993,8 +1993,8 @@ changing the RESULTS contract):
   T-117 records R and N on the cleaned corpus, with the owner's sign-off on
   the build/drop rule's numbers. If the gate is built, its false-reject rate
   on a judge-labeled sample is measured and recorded before it ships.
-  Provisional targets, which the owner confirms or changes at T-117
-  sign-off: false-reject rate at most 5% of articles the judge calls
+  Targets, confirmed by the owner on 2026-10-22 at the defaults (recorded in
+  `TASKS.md` T-139): false-reject rate at most 5% of articles the judge calls
   relevant, and `other` precision at least 0.05 above the recomputed
   baseline, measured as a paired difference on the same held-out report-half items
   (pooled, population-weighted over confirmed articles) with the lower bound of its
@@ -2002,8 +2002,8 @@ changing the RESULTS contract):
   truth label (full taxonomy, `other` included), thresholds are fitted on the fit half
   only, and the seed, band edges, cell populations and half assignment are recorded in
   the run's config. The same pass requires `other` recall, overall accuracy and macro F1
-  to have a paired-difference lower bound no worse than -0.02 (provisional, owner
-  confirms), so precision is not bought with recall. A candidate whose simulated power
+  to have a paired-difference lower bound no worse than -0.02 (confirmed by the
+  owner), so precision is not bought with recall. A candidate whose simulated power
   to show +0.05 is below 80% (T-121(a)) is reported as "not detectable at this sample";
   if no candidate is detectable the re-run stays blocked until the owner decides. T-124's full re-run is approved only
   if T-123 meets them.
@@ -2140,7 +2140,7 @@ other, and independent of one another except where noted:
   (T-131, 315,822 articles' rows to purge on the 2026-10-22 count, derived by a join,
   not from a stale CSV), T-132 (49,960 `review` articles, 52,039 pairs on 2026-10-21) and T-124 (98,462 articles, not
   459,112). Owner decisions D5–D7 were settled on 2026-10-22 at their recorded defaults
-  (T-139); D4 and the provisional T-123 targets keep the defaults already recorded.
+  (T-139); a second round the same day settled D10, D2b and the T-117 thresholds at the defaults (T-139); D4 stays open with its recorded default.
 - **Work item 15 (category `other` bucket) is open (filed 2026-10-14)** —
   D1–D3 are decided: the `not_relevant` label is the chosen representation
   but is produced only if T-117 shows a relevance gate is still worth

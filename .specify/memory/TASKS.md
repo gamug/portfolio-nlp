@@ -212,7 +212,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
-## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open; D5–D7 decided, see T-139)
+## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open with a recorded default; D5–D7, D10, D2b and the T-117 thresholds decided, see T-139)
 
 `other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
 figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
@@ -252,7 +252,7 @@ Dependencies at a glance:
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
-| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 (open; its default applies at T-123's approval) | T-124 | no |
 | T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **decided 2026-10-22, re-label from stored scores** |
 | T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
 | T-125, T-126 contingent | T-123 result | none | no |
@@ -327,11 +327,23 @@ Dependencies at a glance:
         (constitution AI behavior #10: approved by this answer).
       - **D7 date window** (blocks T-117's sampling and T-124's size, see T-134): no
         filter inside the stages.
-      - **Unchanged, as already recorded:** the release threshold for `about` is set
-        jointly with data-mining after T-132's measurement; D4 keeps its recommended
-        default; T-123's targets stay provisional until T-117's sign-off.
-- [x] **T-140** *(new user decision D2b, opened 2026-10-22; **decided 2026-10-22: the recommended default, re-label from stored scores after the 300-article verification**; originally: if unanswered
-      by the time T-123 is approved, the recommended default applies, as for D4)* D2
+      - **Second round, 2026-10-22, every answer the recommended default (the single
+        record of these values; other text points here):**
+        **D10 (T-142)** spend approved, cap 3,800 judge calls, credentials and budget in
+        place. **D2b (T-140)** re-label from stored scores after the 300-article
+        verification. **Gate rule (T-117):** build `not_relevant` only if R >= 5% and
+        N >= 20%. **T-123 targets:** `other` precision at least +0.05 (paired, lower bound
+        above 0); `other` recall, accuracy and macro F1 each no worse than -0.02; false-reject
+        at most 5% if a gate exists; no per-slug regression beyond `--check-regression`.
+        **T-131 pre-purge stop/go:** 400-article sample, go if the upper bound is at most 5%.
+      - **Still open, with a recorded default:** **D4** (what happens to the existing results
+        of removed articles, T-131): not put to the owner yet; its recommended default
+        (keep the `<table>_removed` archives) applies at T-123's approval unless the owner
+        answers sooner; it is the first item of the next decision round. **The 72-hour GPU
+        stop/go** (T-124) is provisional and not part of the confirmed set; it matters only
+        if the GPU path is used, which D2b makes the exception. The release threshold for
+        `about` is set jointly with data-mining after T-132's measurement.
+- [x] **T-140** *(new user decision D2b, opened 2026-10-22; **decided 2026-10-22: the recommended default, re-label from stored scores after the 300-article verification**)* D2
       (re-run the entire classification once the rule is tested) stands. What is asked
       is its mechanism. The plan first specified full GPU re-inference; the stored
       scores make a re-label equivalent for rules confined to level 2 (PLAN step 6, with
@@ -405,7 +417,7 @@ Dependencies at a glance:
         columns before reading `discovered_urls` is recommended and proposed separately;
         it is not a dependency. **Blocks:** T-117 (its R and
         N are measured after these pairs are decided). → step 2b.
-- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130; **owner thresholds set 2026-10-22, all at the defaults:** the gate is built only if R >= 5% and N >= 20%; T-123's targets are +0.05 `other` precision (paired, lower bound above 0), -0.02 tolerance on `other` recall/accuracy/macro F1, 5% false-reject if a gate exists; T-131's pre-purge stop/go is a 400-article sample with an upper bound of at most 5%. What stays for T-117's sign-off is the measured R and N, not the rule)*
+- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130; **thresholds confirmed by the owner 2026-10-22, recorded in T-139**; what stays for T-117's sign-off is the measured R and N, not the rule)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
       — see the plan's design constraints) and **measure it**: share of the
@@ -527,14 +539,12 @@ Dependencies at a glance:
       change to the wording or to D1's label set invalidates the sample and costs a
       re-judge, to be budgeted separately. Needs the `eval` group; no LLM calls in CI.
       **Blocks:** T-121(b). → step 4.
-- [x] **T-142** *(new user decision D10, opened 2026-10-22; **decided 2026-10-22: approved, cap 3,800 judge calls, credentials and budget in place**; originally: if unanswered by
-      the time T-141 is done, the default applies, as for D4 and T-140)* The spend for
+- [x] **T-142** *(new user decision D10, opened 2026-10-22; **decided 2026-10-22: approved, cap 3,800 judge calls, credentials and budget in place**)* The spend for
       T-121(b)'s sample: **default, approve up to 3,800 judge calls** (the
       3,300-call base sample plus a 500-call allowance for the discordant top-up) with the maintainer's
       LLM credentials, decided on its own and not at T-117's sign-off, so calibration
-      does not wait for the relevance work. **The default is conditional:** it applies only
-      if the maintainer has already put the LLM credentials and a budget in place in
-      writing; otherwise T-121(b) waits for an explicit answer (no spend by silence). Hard
+      does not wait for the relevance work. (Before the answer, the default was conditional on credentials and a budget already in
+      place in writing, so there was no spend by silence.) Hard
       cap at 3,800 calls (base 3,300 plus the top-up allowance of 500); the actual
       spend is logged against the cap in `docs/evaluation.md`; the run stops at the cap. Blocks T-121(b). The rest of the T-117
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
@@ -556,14 +566,13 @@ Dependencies at a glance:
       same way, one side-by-side table with the complete constitution #12
       metric set, on the full and the gated-in population; run
       `--check-regression`. → step 5 / acceptance criteria.
-      *Provisional success targets (the owner confirms or changes them at
-      T-117 sign-off):* `other` precision at least 0.05 above the recomputed
+      *Success targets (confirmed by the owner 2026-10-22, T-139):* `other` precision at least 0.05 above the recomputed
       baseline, as a paired difference on the same report-half items (the same articles are
       scored under both rules, which removes most of the per-cell noise), with the lower
       bound of its 95% interval (bootstrap within cells) above 0, **and no trade bought
       with recall:** the paired differences in `other` recall, overall accuracy and macro F1
-      each have a 95% lower bound no worse than -0.02 (provisional tolerance, owner
-      confirms at T-117 sign-off); a rule that raises precision but breaks this is reported
+      each have a 95% lower bound no worse than -0.02 (tolerance confirmed by the owner,
+      T-139); a rule that raises precision but breaks this is reported
       as a trade-off, not a pass; if a gate is built, false-reject rate at most 5% of articles
       the judge calls relevant; no per-slug regression beyond
       `--check-regression`'s tolerance. T-124 does not start unless T-123
@@ -620,7 +629,7 @@ Dependencies at a glance:
       *Cost stop/go (GPU path only):* the scratch run reports articles per hour and a
       projected GPU duration for the articles that need inference; if the projection
       exceeds 72 hours on the available GPU, stop and bring it to the owner before
-      launching (provisional threshold, the owner may change it).
+      launching (provisional threshold, not among the thresholds the owner confirmed on 2026-10-22; it applies only to the GPU path, which D2b makes the exception).
 - [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
       `other` rows and propose taxonomy additions. Only if `other` is still
       large after T-123 and the clusters are coherent; amends the taxonomy
@@ -680,7 +689,7 @@ Dependencies at a glance:
       RESULTS rows uniformly at random, label "is this article about its tagged
       company?" (T-130's judge, validated on upstream's hand labels, with the owner
       hand-checking the disagreements), and compute the wrong share with its 95%
-      interval. **Provisional stop/go (the owner confirms at the T-117 sign-off):** go
+      interval. **Stop/go (confirmed by the owner 2026-10-22, T-139):** go
       if the upper bound is at most 5% (10 wrong of 400 gives 4.5%; 15 gives 6.1% and
       fails); if it fails, purge only the `match_reason` sub-classes whose own
       sample clears the bound, or stop and bring it to the owner. Reversibility
