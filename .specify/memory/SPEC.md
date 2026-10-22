@@ -892,7 +892,40 @@ treating a related FR/NR as done:
     T-041). Requirements (FR-019 onward) are added in the PRs that ship each
     behavior — the relevance gate if built, the calibrated decision rule, the
     opt-in relevance judge, the results cleanup — per this document's own
-    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-132.
+    rule. `PLAN.md` Work item 15, `TASKS.md` T-116–T-139.
+    **Update (2026-10-22): the upstream fix has landed and resized the problem.**
+    `portfolio-data-mining`'s re-tag (2026-10-15) classed 481,332 pairs as `accept`
+    104,614 / `review` 51,295 / `reject` 325,423; the 459,112 articles classified here
+    split 93,224 / 49,645 / 316,243 (arithmetic on reported figures, confirmed by
+    `TASKS.md` T-133), so about 80% of the RESULTS store is for articles no longer in
+    the corrected corpus. The correct rate of the `review` class is not measured, and
+    the counts keep moving (2026-10-21: 109,982 / 52,039; 98,462 `ok` articles, 63.4%
+    published before 2022). The category classifier and its judge never see the
+    company, so wrong tags bias the *measured* numbers through sample composition
+    rather than the model's reading (read from code; T-133 measures it); sentiment
+    does use the company and is affected directly (T-127). The quarantined `review`
+    pairs get the verdicts `about` / `mention` / `other` / `unclear` (D5), never acted
+    on in doubt, in either direction. Owner decisions D5–D9 are collected in T-139.
+20. **The data-mining database is read on trust, and the next step reads more of it.**
+    `urls.db` carries `PRAGMA user_version` (5 today, additive, not monotonic: a
+    documented rollback sets 5 back to 3). Only `require_source_text` checks anything
+    about SOURCE (that `body_text` exists), and the `review` check (item 19) reads a
+    second table (`discovered_urls`) and the `prev_fetch_status` column. **Proposed
+    (2026-10-22), not accepted:** a read-only guard before any query: minimum
+    version 3, fail on lower and on 0, warn once on higher, never cached, plus a
+    column guard; no import of `data_mining`; the cache tables are not contract.
+    Touches the two-tier DB contract (constitution AI behavior #10), so it needs the
+    owner's D8. `PLAN.md` Work item 16, `TASKS.md` T-135–T-136.
+21. **An article that names several companies is scored as if it named one.**
+    Upstream measured that 22,048 of 132,078 URLs with `accept`/`review` pairs (16.7%,
+    a floor) have pairs for more than one ticker, holding 35,387 of the 98,462 `ok`
+    articles (35.9%); the body is stored once per pair and every stage keys on the
+    pair. Category, NER and summary are company-blind, so a roundup's one result is
+    read as each tagged company's. **Proposed (2026-10-22), not accepted:** size it
+    first (group by body hash, resolve mentions, type the article, on about 2,000
+    groups), build only what the sizing justifies, and carry a `multi` flag on any
+    article-level score of a multi-subject group. Needs D9. `PLAN.md` Work item 17,
+    `TASKS.md` T-137–T-138.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 
@@ -964,6 +997,8 @@ boundary of what this project is, not a gap someone forgot to close:
 | 13 — Models evaluation section lacks selection reasoning | **Resolved (2026-09-19)** — a "Why this model" sub-block landed for all five per-model blocks (sentiment, category, NER, `c_summary`, `sector_summary`), each naming a rejected alternative and sourced from real, verified citations; see `PLAN.md` Work item 8 | — |
 | 14 — sentiment training data class-imbalanced, never deliberately balanced | **New, active priority work (2026-09-14)** — not accepted; see `PLAN.md` Work item 9 | — (already in motion) |
 | 19 — category `other` covers 42.7% of the corpus and conflates "not about the company" with "no dimension fits" | **New, active work (2026-10-14)** — not accepted; measure first; a relevance gate only if it still justifies one after the crawler fix, then calibration; D4 (cleanup of existing results) open; see `PLAN.md` Work item 15 | — (already in motion) |
+| 20 — `urls.db` schema version is not checked before reading | **Proposed (2026-10-22)** — not accepted; waits for D8; see `PLAN.md` Work item 16 | — |
+| 21 — multi-company articles scored as one company | **Proposed (2026-10-22)** — not accepted; sizing first, waits for D9; see `PLAN.md` Work item 17 | — |
 
 Item 8 was the one item on this list originally flagged as worth doing
 regardless of scope — a CI-plumbing change, not new infrastructure. Items 1

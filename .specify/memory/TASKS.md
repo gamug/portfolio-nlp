@@ -212,7 +212,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
-## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open)
+## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4–D9 open, see T-139)
 
 `other` is 195,993 of 459,112 articles (42.7%) and its own precision is 0.474.
 Read-only investigation (2026-10-14) found it mixes "not about the ticker's
@@ -224,8 +224,8 @@ irrelevance remains, build a relevance gate only if it still justifies one
 from stored scores.
 → `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
 
-Tasks are listed in execution order, not ID order (IDs are stable; T-130 and
-T-131 were added after the rest).
+Tasks are listed in execution order, not ID order (IDs are stable; T-130, T-131,
+T-132 and T-133–T-139 were added after the rest).
 
 Dependencies at a glance:
 
@@ -233,13 +233,16 @@ Dependencies at a glance:
 |---|---|---|---|
 | T-116 audit | none | none | yes |
 | T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
-| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | waiting |
-| T-132 quarantined pairs | T-128 | T-117 | no |
+| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | **done 2026-10-22** |
+| T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **yes** |
+| T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **needs the owner** |
+| T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | no |
+| T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (column guard, recommended order) | T-117 | no (needs D5, D6) |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121, T-122 calibration | T-117 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
-| T-131 cleanup (D4) | T-128, T-132, D4 | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
 | T-124 full re-run | T-123 approved, T-131 | T-129 | no |
 | T-125, T-126 contingent | T-123 result | none | no |
 | T-127 sentiment impact | none (separate PR) | none | yes |
@@ -270,38 +273,109 @@ Dependencies at a glance:
       behavior #12 set (precision/recall/F1/`accuracy_ovr` per class; overall
       accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
       added in the PR that ships it. → step 3, T-117.
-- [ ] **T-132** *(new; from `portfolio-data-mining` T-055 design v1, approved
-      2026-10-15)* Decide the quarantined `review` pairs. Never exclude on doubt.
-      - **Goal:** answer "is the company a subject of this article?" for the
-        pairs discovery could only mark `review` (weak URL/title evidence;
-        about 12% of that corpus, 64% wrong on its hand labels), with verdicts
-        `relevant`, `not_relevant`, `undecided`.
-      - **Inputs:** the quarantined rows handed over by `portfolio-data-mining`
-        T-058. The quarantine shape and the exact selection query are defined
-        **only there** (its T-057/T-058); this repo reads them and never writes
-        `fetch_status`. Our default `fetch_status = 'ok'` queries already
-        exclude them, so no query change here. Also SOURCE `body_text`, title
-        and the NER organization spans.
-      - **Steps:** (1) CPU rule first, no model call: `relevant` on the full
-        normalized name with aliases repeated, an explicit ticker form, or an
-        ORG span resolving to the company; `not_relevant` when the evidence
-        points elsewhere; else `undecided`. (2) Store verdicts in a new additive
-        RESULTS table (key `article_id`, `ticker`; verdict, method, evidence),
-        created idempotently, no existing table renamed. (3) Measure against
-        that repo's hand labels (`data/ticker_tagging_sample.csv`, `review`
-        class, plus its fresh ~100-pair validation set): precision/recall per
-        verdict and the `undecided` share. (4) The string rule alone is
-        expected to be weak (its prototype rescued 2 of 15 correct pairs), so
-        NER evidence, then T-130's opt-in judge on the `undecided` remainder
-        only (calls budgeted, see T-117), decide whether this ships a rule or
-        only a report.
-      - **Done when:** every handed-over pair has a verdict; `undecided` pairs
-        stay in the corpus and are counted; only a confident `not_relevant`
-        removes a pair, recorded and reversible via T-131's per-table rule; the
-        report states precision/recall against the hand labels; an FR is added
-        in the PR that ships it.
-      - **Depends on:** T-128 (hand-off). **Blocks:** T-117 (its R and N are
-        measured after these pairs are decided). → step 2b.
+- [ ] **T-133** *(new 2026-10-22; no dependency, can start now)* Measure what the
+      wrong tags did to category's measured quality, from stored verdicts, with **no
+      new judge calls**.
+      - **Goal:** replace the hypothesis in the plan ("corrected corpus", "what wrong
+        tags do") with a number: category's complete constitution #12 metric set on the
+        articles that survive the re-tag, next to the full stored sample.
+      - **Inputs:** every stored category `eval_run` (eval_run 21 first),
+        `eval_judgement`/`eval_verdict` rows, the RESULTS article ids, and a read-only
+        attach of SOURCE for each article's `fetch_status` (`ok` = survivor,
+        `quarantined` = removed or in doubt; reads `articles` only, no new table).
+      - **Steps:** (1) count the RESULTS articles by SOURCE status and confirm or
+        correct 93,224 / 316,243 / 49,645 (the plan's arithmetic). (2) Partition the
+        stored judged items into survivors and quarantined. (3) Recompute through
+        `aggregate_category`, the same code path, per partition and overall: per-class
+        precision/recall/F1/`accuracy_ovr`, overall accuracy and macro F1, plus each
+        partition's judged count against `docs/evaluation.md`'s sample-size floor.
+        (4) Report; change no behavior.
+      - **Done when:** a dated follow-up in `docs/evaluation.md` carries the
+        side-by-side table and counts; it says whether the surviving partition clears
+        the floor (if not, T-123 decides a fresh baseline); the surviving-partition
+        baseline is the one T-123 reuses. Hermetic tests only (LLM not called).
+      - **Depends on:** nothing new. **Blocks:** T-123's baseline, T-117's sizing.
+        → plan step 5.
+- [ ] **T-139** *(user decision record, opened 2026-10-22; defaults apply if no answer
+      by the time the task they block is approved)* The decisions this work item now
+      needs. Recommended default first; nothing here changes a contract until answered
+      (constitution AI behavior #10).
+      - **D5 verdict vocabulary** (blocks T-132): adopt data-mining's `about` /
+        `mention` / `other` / `unclear` (default) or keep a private `relevant` /
+        `not_relevant` / `undecided`. Sub-question: does a confident `mention` also
+        purge existing results? Default: no, until its precision is measured.
+      - **D6 interface** (blocks T-132): read-only attach of SOURCE (default; adds
+        `discovered_urls`, a table this repo has not read, to the SOURCE contract) or
+        the crawler API (two calls joined on `id`, cannot filter by date).
+      - **D7 date window** (blocks T-117's sampling and T-124's size, see T-134).
+      - **D8 schema guard** (blocks Work item 16): build it here (default), or as a
+        generic helper in `portfolio-common` (every stamped-database consumer gets it).
+      - **D9 multi-company** (blocks Work item 17): accept it as its own work item,
+        sizing first (default), unit of work the body group for compute and the pair for
+        decisions; and which fact types the knowledge graph needs first.
+      - **Not a decision here:** the release threshold for `about`, set jointly with
+        data-mining after T-132's measurement; D4 and T-123's provisional targets
+        remain as already recorded.
+- [ ] **T-134** *(user decision D7; the plan's "date window" bullet)* The date window.
+      62,406 of 98,462 `ok` articles (63.4%) were published before 2022 (the
+      collector's range starts 2022-01-01; its sitemap reader never applied it; fixed
+      going forward; nothing deleted; `pub_date` is always present). Options: (a) no
+      filter inside the stages, the window applied explicitly where a consumer needs it
+      and reported separately (default: classification is cheap to keep and a filter
+      cannot be undone cheaply); (b) filter the stages to a stated window (the owner
+      says which, e.g. 2022-01-01 onward); (c) full history everywhere. Effects to
+      record with the answer: T-117's stratification, T-124's article count and GPU
+      projection, and that a sentiment run reads about two thirds of its input from
+      outside 2022+. Depends on T-139. **Blocks:** T-117's sampling, T-124's size.
+- [ ] **T-132** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
+      reshaped 2026-10-22 to the 2026-10-21 hand-off)* Decide the quarantined
+      `review` pairs. Never act on doubt, in either direction.
+      - **Goal:** answer "is the company a subject of this article?" for the pairs
+        discovery could only mark `review` (weak URL/title evidence; 52,039 pairs on
+        2026-10-21, 49,645 articles that were `ok` before the re-tag), with the four
+        verdicts data-mining applies: `about`, `mention`, `other`, `unclear` (D5).
+        The correct rate of this class is **not measured** (only 18 of 20 uncontested
+        News Corp URLs); do not assume it.
+      - **Inputs:** a read-only attach (D6) of SOURCE, selection
+        `articles` ⋈ `discovered_urls` on `id`, `match_class = 'review'`,
+        `fetch_status = 'quarantined'`, **re-run on every run** because the extractor
+        promotes pairs out of the class and the run records the class it saw. The exact
+        query and the quarantine shape are defined only upstream (T-057/T-058); this
+        repo never writes `urls.db`. Also the body, the title, the **stored
+        `article_entities`** of those articles (verify first that they exist; zero GPU if
+        so) and upstream's alias table (names, aliases, ticker forms, offered as a CSV).
+      - **Steps:** (1) dedupe by body hash (share classes carry one body under two
+        pairs; decide per pair, compute per body). (2) CPU rule first, no model call:
+        `about` on the full normalized name with aliases, an explicit ticker form
+        (`NYSE: X`, `$X`, uppercase) or an ORG span resolving to the company, weighted
+        by title/lead presence and share of ORG spans; `other` when only a bare
+        ticker-as-word or a different entity matches; `mention` for a name in a roundup;
+        else `unclear`. (3) Store verdicts in a new additive RESULTS table, key
+        `(article_id, ticker, run_id)`, with `verdict`, `confidence`, `model`,
+        `evidence`, the class and `match_reason` seen; created idempotently, no existing
+        table touched. (4) Export a CSV with exactly `article_id, ticker, verdict,
+        confidence, model, run_id, evidence` for upstream's audited apply pass. (5)
+        Measure against upstream's hand labels (its shared sample, its fresh validation
+        set, the `loose_name` hand sample of 10 News Corp pairs and 20 pairs of other
+        companies, which is the **first pilot**: 413 of the 448 `loose_name` pairs, held on purpose upstream, and 42 URLs
+        that also name another tagged company): precision/recall per verdict and the
+        `unclear` share. (6) The string rule alone is expected to be weak (it rescued 2
+        of 15 correct `review` pairs), so NER evidence, then T-130's opt-in judge on the
+        `unclear` remainder only (calls budgeted under T-117), decide whether this ships
+        a rule or only a report.
+      - **What a verdict does:** here, existing RESULTS rows are purged (T-131's
+        per-table rule, reversible) only on a confident `other`; `mention` and `unclear`
+        keep their rows until a measured rate says otherwise. Upstream applies `about`
+        above a threshold **set jointly after the measurement** as `accept`; nothing is
+        released on an unmeasured verdict.
+      - **Done when:** every selected pair has a verdict and the class seen; the report
+        states precision/recall per verdict against the hand labels and the `unclear`
+        share; the CSV round-trips (upstream can apply it); purges, if any, are recorded
+        and reversible; an FR is added in the PR that ships it; the verdict/`other`
+        naming collision is documented in `docs/category-taxonomy.md`.
+      - **Depends on:** T-128 (met), T-139 (D5, D6); recommended order after T-135 (the
+        schema guard, because this reads `discovered_urls`). **Blocks:** T-117 (its R and
+        N are measured after these pairs are decided). → step 2b.
 - [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
@@ -331,6 +405,11 @@ Dependencies at a glance:
       is never read as a corpus share unweighted. Budget judge calls for both. That sign-off is what makes
       T-119 and the `not_relevant` part of T-120 go ahead or be cancelled in
       place. Report; do not ship. → step 1, step 3.
+      *Window and population (2026-10-22):* R and N describe the corrected corpus
+      (98,462 `ok` articles on 2026-10-21, not 459,112), 63.4% of it published before
+      2022; the fresh draw is stratified by the D7 window and weighted back to
+      population shares, and R and N are reported both with and without the pre-2022
+      articles.
       *Owner and date for the 5% / 20% numbers:* the repo owner (gamug) sets
       them at T-117 sign-off, before T-119 starts; until then they stay
       placeholders and T-119/T-120 do not begin.
@@ -407,6 +486,10 @@ Dependencies at a glance:
       scratch DB copy first (as T-025 did), and a measured throughput so the
       real duration is known before launching. Record the run in
       `docs/evaluation.md`. Runs after T-131. → step 6.
+      *Scale (2026-10-22):* the corrected corpus is 98,462 articles (21.4% of the
+      459,112 originally classified), at most 32.8% if all 52,039 `review` pairs were
+      released, so the GPU projection is redone on that count (and the D7 window), not
+      reused from the old corpus.
       *Cost stop/go:* the scratch run reports articles per hour and a projected
       GPU duration for the full corpus; if the projection exceeds 72 hours on
       the available GPU, stop and bring it to the owner before launching
@@ -423,34 +506,46 @@ Dependencies at a glance:
       word (`\bon\b`, `\ba\b`, …), so subject weighting is likely
       non-discriminating for the eight English-word tickers, and off-topic
       articles get sentiment attributed to the wrong company. Investigate and
-      report before any fix. → step 8.
-- [ ] **T-128** *(D3 = fix at the source, decided 2026-10-14; a
-      prerequisite, not a follow-up)* Wait for the corrected corpus from
+      report before any fix; fold the multi-company case into Work item 17 (an
+      article-level score on a multi-subject group carries a `multi` flag). → step 8.
+- [x] **T-128** *(D3 = fix at the source, decided 2026-10-14; a prerequisite, not
+      a follow-up)* **Done 2026-10-22.** Wait for the corrected corpus from
       `portfolio-data-mining` Work item 10 (its `T-053`–`T-060`).
-      - **Why:** its matcher accepts a ticker **or the first word of the
-        company name** anywhere in a URL, and a hyphen counts as a word
-        boundary, so `A` matches `in-a-month` and `Bank of America` is reduced
-        to `Bank`. That repo fixes the matcher and re-tags `urls.db`.
-      - **Contract:** the quarantine schema, the removed-id list and the
-        hand-off format are specified **only in that repo** (T-057/T-058); this
-        item links there rather than copying it. How this repo consumes it:
-        pending queries (`fetch_status = 'ok'`) already skip quarantined rows,
-        and the removed ids feed T-131.
+      - **Why:** its matcher accepted a ticker **or the first word of the company
+        name** anywhere in a URL, and a hyphen counted as a word boundary, so `A`
+        matched `in-a-month` and `Bank of America` was reduced to `Bank`.
+      - **Contract:** the quarantine schema and the hand-off format are specified
+        **only in that repo** (T-057/T-058); this item links there rather than
+        copying it. How this repo consumes it: the three pending queries
+        (`fetch_pending_articles`, `fetch_pending_sentiment_articles`,
+        `fetch_pending_category_articles`, `queries.py`) filter
+        `fetch_status = 'ok'`, so quarantined rows are never selected.
       - **Shared sample:** the labeled `(url, ticker)` sample (that repo's T-054,
-        hand-labeled there by the maintainer) is reused, not duplicated, by
-        T-117, T-132 and that repo's retention measurement.
-      - **Order:** its T-055–T-058, then here T-132, then T-117 onward.
-        T-116 and T-130 may run now; T-130 only supports T-132's undecided
-        remainder and T-117.
-      - **Merge order of the two docs PRs:** independent (both docs-only).
-        Whichever merges second should check that the other's IDs resolve.
-      - **Done when:** that repo's `T-058` (hand-off of the corrected corpus)
-        is recorded done in its `TASKS.md`/`CHANGELOG.md`. → step 2.
+        hand-labeled there by the maintainer) is reused, not duplicated, by T-117,
+        T-132 and that repo's retention measurement.
+      - **Done when (met):** that repo's `T-058` is recorded done in its
+        `CHANGELOG.md` (Work item 10, T-057 and T-058 `[x]`, 2026-10-15; the
+        hand-off comment with the counts and the selection is on this work item's
+        PR), and its Work items 12, 14 and 15 are closed. Evidence for the next
+        steps: the corrected corpus is 104,614 `accept`, 51,295 `review`, 325,423
+        `reject` pairs, and the 459,112 articles classified here split 93,224 /
+        49,645 / 316,243 (plan, "corrected corpus"; T-133 confirms on the real
+        store). Not claimed: that results already written are clean. The pending
+        queries above stop new wrong-company rows; the rows already in RESULTS, and
+        the summary and `sector_summary` queries that read them, are T-131's.
+        Upstream's one open criterion ("this repo confirms that wrong-company rows
+        no longer reach its pending queries") is answered by the first point; tell
+        that repo, with the caveat. → step 2.
 - [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
       the cleanup of existing results for articles the crawler fix removes:
-      (a) get the list of removed article ids from `portfolio-data-mining`
-      (its T-057/T-058 hand-off must include it, and the `review` quarantine
-      list that T-132 decides); (b) **per-table rule — move
+      (a) **derive the removed ids at run time with a read-only join** of
+      RESULTS article ids to SOURCE (`match_class = 'reject'`, quarantined; about
+      316,243 articles on the 2026-10-15 counts), not from the 2026-10-15 CSV, which
+      is stale: the `reject` class has moved since (448 `loose_name` pairs went to
+      `review`, never-fetched sitemap rejects were deleted). Upstream's list of known
+      false rejects (at least 433 pairs, `data/retag_known_false_rejects.csv` there,
+      mostly News Corp `NWS`/`NWSA`) must be kept out of the purge; most of them now
+      sit in `review`, which this task does not purge (T-132 decides them); (b) **per-table rule — move
       removed ids only, never rename a table:** for each of `article_sentiment`,
       `article_entities`, `article_category`, `article_summary` and the lean
       `articles` copy, in one transaction per table, copy the rows whose
@@ -486,6 +581,67 @@ Dependencies at a glance:
       done or cancelled in place; then move this work item to
       `CHANGELOG.md` (AI behavior #15). → acceptance criteria.
 
+## Work item 16 — Check the data-mining schema version before reading (proposed 2026-10-22; needs D8)
+
+SOURCE (`urls.db`) is stamped with `PRAGMA user_version` (5 today; additive; a
+documented rollback sets 5 back to 3). This repo reads it on trust, and T-132 will
+read a second table. A read-only guard at the single choke point, minimum 3, fail
+on lower and on 0, warn once on higher, never cached, plus a column guard. →
+`PLAN.md` Work item 16. Task order: T-135, then T-136.
+
+- [ ] **T-135** Implement `check_schema` (name open) in `news_nlp.db`, called by
+      `connect_pipeline` / `attach_source` before any query.
+      - **Inputs:** the constant `MIN_SOURCE_SCHEMA_VERSION = 3` copied into this repo
+        (never import `data_mining`), the columns this repo selects (at least
+        `articles.id`, `fetch_status`, `pub_date`, `body_text`, `prev_fetch_status`;
+        `discovered_urls.id`, `url`, `ticker`, `match_class`, `match_reason`).
+      - **Steps:** read `PRAGMA user_version` through a `mode=ro` open; fail on 0 and on
+        lower with the path, the version found, the minimum and the action ("start the
+        collector or the extractor so it migrates the file, or point to the right
+        file"); warn once on higher; then `PRAGMA table_info` on both tables and fail on
+        a missing column even if the number passes; never cache between opens; write
+        nothing.
+      - **Done when:** tests on small generated files pass: version 0 and 2 fail; 3, 4, 5
+        pass; 6 passes with one warning; version 3 without `prev_fetch_status` fails on
+        the column guard; a file re-stamped 5 → 3 between two opens passes both times; a
+        WAL file with a live writer opens read-only; the file hash is identical before
+        and after. CLI exits non-zero with the message, the API answers 5xx carrying it.
+      - **Depends on:** D8 (T-139). **Blocks:** T-132 (recommended order).
+- [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
+      minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
+      `discovery_progress` are not part of the contract. Depends on T-135.
+
+## Work item 17 — Articles that name more than one company (proposed 2026-10-22; sizing first; needs D9)
+
+35.9% of the `ok` articles belong to a URL that has pairs for more than one ticker
+(a floor); every stage keys on the pair. Size it before building anything. →
+`PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so.
+
+- [ ] **T-137** Sizing run, no build. Stages 0–2 of upstream's suggested pipeline on a
+      stratified sample of about 2,000 groups.
+      - **Inputs:** the groups (body hash, tickers, classes, reasons; computed here from
+        the T-132 join or taken as upstream's read-only export), the NER spans, upstream's
+        alias table.
+      - **Steps:** group by body hash; resolve ORG spans, cashtags and `NYSE: X` forms to
+        the universe, keeping unresolved organizations as `other` entities; type each
+        group (single-subject, multi-subject, comparison, transaction, incidental), rules
+        on the number of distinct companies, share of sentences and the lead first;
+        strata: all-`accept` multi-pair, `accept` + `review`, all-`review`, single-pair
+        control.
+      - **Done when:** the real companies-per-article distribution per stratum replaces
+        the 16.7% floor; a hand sample (about 20 groups per type, seeded with upstream's
+        42 News Corp multi-company URLs) reports role agreement per type, never one
+        average. Report; do not ship.
+      - **Depends on:** T-132's grouping and ORG-to-ticker resolution, D9 (T-139).
+- [ ] **T-138** *(conditional on T-137 and D9)* Build the stages the sizing justifies:
+      roles, sentence attribution with offsets (a sentence naming two companies is
+      flagged shared and keeps both), facts per `(article, company)` from attributed
+      spans only, and the `multi` flag on every article-level score of a multi-subject
+      group. A `review` pair is released on its own evidence, never because a sibling
+      pair on the URL is `accept` (10,493 pairs are in that situation). Scope and fact
+      types set after T-137 and the knowledge-graph owner's answer; one FR per behavior
+      in the PR that ships it.
+
 ## Status
 
 Closed Work items 1, 5, 6 and 8–14 are in `CHANGELOG.md` (Work item 5 closed 2026-10-14; its
@@ -494,15 +650,21 @@ only open task, T-041, was superseded by Work item 15).
 T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
 infrastructure decision — nothing in that item has started.
 
-**Work item 15 (category `other` bucket) is open as of 2026-10-14:** T-118
-records D1–D3 (the `not_relevant` label representation, used only if T-117
-justifies building a gate; full re-run after a satisfactory test; fix the
-crawler first, T-128). Development here starts after `portfolio-data-mining`
-Work item 10 hands off the corrected corpus and its quarantined `review` pairs
-(T-132 decides them, before T-117); T-116 (the "before" audit) and
-T-130 (the relevance judge, no crawler dependency) may run in the meantime.
-D4 (what to do with existing results for removed articles, T-131) is open.
-T-124 waits on T-123's result and on T-131.
+**Work item 15 update (2026-10-22):** T-128 is done (data-mining's Work item 10 and
+T-058 hand-off are recorded done upstream), so development can start. The corrected
+corpus is about 80% smaller than the RESULTS store, which resizes T-131, T-132 and
+T-124 (plan, "corrected corpus"). T-116, T-130 and T-133 can run now; D5–D9 wait for
+the owner (T-139). Two proposals from the 2026-10-21 hand-off are open as their own
+work items: 16 (schema guard, T-135–T-136) and 17 (multi-company articles, sizing
+first, T-137–T-138).
+
+**Work item 15 (category `other` bucket), filed 2026-10-14:** T-118 records D1–D3
+(the `not_relevant` label representation, used only if T-117 justifies building a
+gate; full re-run after a satisfactory test; fix the crawler first, T-128, now done).
+`portfolio-data-mining` has handed off the corrected corpus and its quarantined
+`review` pairs (T-132 decides them, before T-117). D4 (what to do with existing
+results for removed articles, T-131) and D5–D9 (T-139) are open. T-124 waits on
+T-123's result and on T-131.
 
 **Model performance checking (Work items 3, 4, 7) is resolved except
 non-blocking items:** Work item 3's only open task is T-022 (full-corpus
