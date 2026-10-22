@@ -246,3 +246,39 @@ def test_attach_source_rejects_an_orphaned_wal(
             db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
     finally:
         holder.close()
+
+
+def test_documented_checkpoint_recipe_clears_an_orphaned_wal(
+    source_db_path: Path, results_db_path: Path, tmp_path: Path
+) -> None:
+    # The operator loop docs/db-topology.md ("Working with a live SOURCE")
+    # promises: an orphaned copy is rejected, the documented checkpoint
+    # statement (run here exactly as the doc gives it) clears it, and the
+    # attach then works and reads the writer's committed row. Guards that
+    # recipe against rotting on a portfolio-common / SQLite change.
+    holder = sqlite3.connect(source_db_path)
+    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    holder.execute("PRAGMA wal_autocheckpoint=0")
+    holder.execute("INSERT INTO articles (id, ticker, company) VALUES (999, 'ZZZ', 'Z Co')")
+    holder.commit()
+    try:
+        orphaned = tmp_path / "orphaned_source.db"
+        shutil.copyfile(source_db_path, orphaned)
+        shutil.copyfile(f"{source_db_path}-wal", f"{orphaned}-wal")
+        assert not Path(f"{orphaned}-shm").exists()
+
+        with pytest.raises(RuntimeError, match="orphaned write-ahead log"):
+            db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
+
+        busy, _, _ = sqlite3.connect(orphaned).execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        assert busy == 0
+
+        conn = db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
+        try:
+            row = conn.execute("SELECT ticker FROM source.articles WHERE id = 999").fetchone()
+            assert row is not None and row["ticker"] == "ZZZ"
+        finally:
+            db.detach_source(conn)
+            conn.close()
+    finally:
+        holder.close()

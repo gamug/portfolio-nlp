@@ -68,6 +68,18 @@ def test_fetch_pending_company_summaries_requires_sentiment_and_entities(
     assert [r["article_id"] for r in rows] == [2]
 
 
+def test_fetch_pending_company_summaries_excludes_an_article_without_sentiment(
+    conn: db.NewsNlpDatabase,
+) -> None:
+    # An article a later stage has seen but sentiment has not (e.g. collected
+    # mid-run, see docs/db-topology.md) is not summarized until sentiment exists.
+    seed_article(conn, id=1)
+    seed_entity(conn, 1)
+    conn.commit()
+
+    assert db.fetch_pending_company_summaries(conn) == []
+
+
 def test_fetch_pending_company_summaries_excludes_low_confidence_and_single_digit_entities(
     conn: db.NewsNlpDatabase,
 ) -> None:
@@ -294,6 +306,22 @@ def test_fetch_company_summaries_for_sector_week_excludes_uncategorized_articles
     seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
     seed_sentiment(conn, 1)
     # no category seeded for article 1
+    seed_company_summary(conn, 1, summary_text="3M summary.")
+    conn.commit()
+
+    rows = db.fetch_company_summaries_for_sector_week(
+        conn, "Industrials", "Industrial Conglomerates", "2026-08-03"
+    )
+
+    assert rows == []
+
+
+def test_fetch_company_summaries_for_sector_week_excludes_articles_without_sentiment(
+    conn: db.NewsNlpDatabase,
+) -> None:
+    seed_article(conn, id=1, company="3M", ticker="MMM", pub_date="2026-08-03T00:00:00Z")
+    seed_category(conn, 1)
+    # no sentiment seeded for article 1
     seed_company_summary(conn, 1, summary_text="3M summary.")
     conn.commit()
 

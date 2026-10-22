@@ -7,7 +7,7 @@ see `docs/portfolio-common-v1-migration-plan.md`). It's imported directly by
 news_nlp import corrections`, `from news_nlp.taxonomy import ...`) — no
 `portfolio_common.news_nlp` and no local re-export facade.
 
-**No engine-specific code lives here.** As of `portfolio-common` v1.2.0 this
+**No engine-specific code lives here.** Since `portfolio-common` v1.2.0 this
 package names no database engine: `NewsNlpDatabase` subclasses
 `portfolio_common.db.TwoTierDatabase` (itself a `Database`), connections are
 opened via `Database.connect_url` (a path today, a `scheme://` URL if the
@@ -137,6 +137,30 @@ export DATABASE_URL=D:/thesis/data/urls.db   # same path
 ATTACH, and reads/writes the one file (`read_schema` / `articles_rel` stays
 `"main"`, the lean upsert is a no-op).
 
+### Working with a live SOURCE
+
+Both recipes use Python because the `sqlite3` CLI is not installed on the
+Windows machine that runs this (the orphaned-WAL error message from
+`portfolio-common` names that CLI: gamug/portfolio-common#17). Substitute
+`<source>` / `<copy>` with real paths; checked on Linux with SQLite 3.40 only
+(Windows paths: see #106).
+
+- **Checkpoint an orphaned WAL** — the one sanctioned write to SOURCE, an
+  operator action this repo never performs. Run it only with the collector
+  stopped or on a copy you own; the command does not enforce that, and it will
+  checkpoint a file a live writer still has open:
+  `python -c "import sqlite3; print(sqlite3.connect(r'<source>').execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone())"`.
+  It prints `(busy, log, checkpointed)`. `busy` must be `0`. `1` means another
+  connection has an **active read or write transaction**, the checkpoint did
+  not complete and the orphaned-WAL error will come back: let that transaction
+  finish and retry. (An idle open connection does not set `busy`.)
+- **Take a consistent copy** of a SOURCE a writer still holds, through SQLite's
+  backup API from a read-only connection (never plain-copy `.db` + `-wal`):
+  `sqlite3.connect('file:<source>?mode=ro', uri=True).backup(sqlite3.connect('<copy>'))`,
+  or `sqlite3.connect('file:<source>?mode=ro', uri=True).execute("VACUUM INTO '<copy>'")`.
+  `VACUUM INTO` fails with `output file already exists` if `<copy>` exists, so
+  use a new filename; `backup()` replaces the contents of whatever database it is given.
+
 ## External consumers
 
 `list_articles` / `get_article_detail` / the `*_stats` functions are shaped for
@@ -169,12 +193,38 @@ repo needs a second shared read.
   that skipped the `-shm`, which SQLite's own docs call disposable): nothing then
   proves the two files are one consistent snapshot. `attach_source` checks for
   exactly that shape — non-empty `<source>-wal`, missing `<source>-shm` — and
-  raises a `RuntimeError` telling you to checkpoint first, e.g.
-  `sqlite3 <source> 'PRAGMA wal_checkpoint(TRUNCATE);'`, rather than failing with
+  raises a `RuntimeError` telling you to checkpoint first, rather than failing with
   a bare `sqlite3.OperationalError` or, worse, silently reading stale data. Do not
   work around this with `immutable=1`. This check is not a backup-safety
   guarantee either way — it cannot catch a checkpoint-torn copy; see
   `portfolio-common`'s `test_attach_does_not_catch_a_checkpoint_torn_copy`.
+- **A live-writer SOURCE is a moving target, not a snapshot.** The read-only
+  attach does not freeze SOURCE: each statement sees whatever the writer has
+  committed so far. This is observed SQLite connection behaviour, not a
+  contract this repo promises, so wrapping a run in one read transaction would
+  be a legitimate change. Within one `run_pipeline`, a stage reads its pending
+  list once, so an article collected mid-run can reach a later stage and miss
+  an earlier one (e.g. NER and category but not sentiment). That is consistent,
+  not corrupting: every query that combines stage outputs (`sector_summary`,
+  the company summary) reads RESULTS tables with INNER JOINs, so such an
+  article is simply excluded until the next run completes its missing stages,
+  and the next run does (see
+  `test_run_pipeline_runs_against_a_live_writers_source`, which also asserts
+  SOURCE is not modified by the pipeline, and in `test_sector_summary.py`
+  `..._excludes_an_article_without_sentiment` /
+  `..._excludes_articles_without_sentiment`). Pre-existing, not specific to a live
+  writer: a `sector_summary` week that was already composed is not regenerated
+  when an article for that week arrives later.
+- **Windows is only partly verified** (remaining work tracked in
+  [#106](https://github.com/gamug/portfolio-nlp/issues/106)). Reported, not
+  reproduced here: the `portfolio-data-mining` maintainers' hand-off note
+  (2026-10-21, not published in either repo) says a read-only open of the real
+  WAL-mode SOURCE (`D:/thesis/data/urls.db`, not the RESULTS `nlp.db`) already
+  works on the Windows machine. Not known: the v1.2.2 orphaned-WAL rejection
+  (it keys on a `-shm` file next to a non-empty `-wal`, and `-shm` lifecycle
+  and copying a live file differ on Windows) and a full `run_pipeline` run
+  there. The WAL tests here run on Linux/CI only. Until #106 is closed, follow
+  [Working with a live SOURCE](#working-with-a-live-source) above.
 - **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
   single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
   clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the

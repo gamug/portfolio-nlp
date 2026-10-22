@@ -260,7 +260,7 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 The DB layer lives in **`src/news_nlp/`**, a local package vendored from
 `portfolio-common` (see `docs/portfolio-common-v1-migration-plan.md`); imported
 directly as `import news_nlp as db` / `from news_nlp import corrections` /
-`from news_nlp.taxonomy import ...` — no re-export facade. As of
+`from news_nlp.taxonomy import ...` — no re-export facade. Since
 `portfolio-common` v1.2.0 it names **no** database engine: connections, the
 two-tier attach, schema introspection, the row type, and every dialect SQL
 fragment go through `portfolio_common.db` (`connect_url`, `two_store`,
