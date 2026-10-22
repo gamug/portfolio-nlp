@@ -441,9 +441,9 @@ Dependencies at a glance:
       placeholders and T-119/T-120 do not begin.
       *Judge-call budget (planning estimate, re-derive before spending):*
       ~810 for R and N, ~300 to validate T-130 against the hand labels,
-      ~400 for T-132's `undecided` remainder, ~900 for the fresh baseline on
-      confirmed articles that T-123 needs (see T-123), ~400 for T-131's pre-purge
-      check; about 2,800 in total at most. Record the actual spend
+      ~400 for T-132's `undecided` remainder, ~2,820 for T-121's stratified sample on
+      confirmed articles, which also serves as T-123's baseline (see T-121; replaces
+      the earlier ~900), ~400 for T-131's pre-purge check; about 4,700 in total at most. Record the actual spend
       in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
       `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
       LLM, no live calls).
@@ -480,7 +480,12 @@ Dependencies at a glance:
       per-slug precision; report the trade-off table. **Depends on T-133, not on
       T-117:** the population check of 2026-10-22 (`other` follows the corpus, 37.9% on
       confirmed articles) makes calibration the main lever, and it needs no relevance
-      measurement. → step 4.
+      measurement. **Input:** a fresh judged sample of confirmed articles, 60 per
+      (predicted slug x score band) cell (45 cells, all populated >=60 on the real store)
+      plus 60 from the level-1 short-circuit stratum; at most 2,820 judge calls, less
+      the eval_run 43 verdicts that already fall in a cell; population-weighted so
+      T-123 reuses it as its baseline. It replaces T-123's ~900-call baseline
+      in the T-117 budget (new planning total about 4,700). → step 4.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. → step 4.
@@ -534,8 +539,13 @@ Dependencies at a glance:
       released, so the cost projection (GPU path only, see T-140) is redone on that count (and the D7 window), not
       reused from the old corpus.
       *Mechanism and verification (D2b, T-140):* first re-infer a random sample of 300
-      confirmed articles on a scratch copy and compare the fresh nine leaf scores and
-      `group_score` with the stored ones (tolerance 1e-4). If all match, re-label every
+      confirmed articles on a scratch copy, record the device and dtype of both runs (the
+      stored scores date from 2026-09-12 or earlier, a CPU-era run; the fresh run will be
+      on GPU), and compare the fresh nine leaf scores and `group_score` with the stored
+      ones: report the maximum absolute difference and how many articles lie within it of
+      a decision threshold. **Pass = zero label flips under the candidate rule on the 300**
+      (zero flips in 300 bounds the true flip rate at about 1%, 95%, rule of three). If it
+      passes, re-label every
       row from its stored scores with the new rule (a text-only gate needs no inference);
       GPU inference then covers only the short-circuited articles if the level-1 floor
       is lowered, or every article if the top-2 selection, hypothesis wording (option D),

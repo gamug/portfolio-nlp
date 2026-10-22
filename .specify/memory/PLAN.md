@@ -1854,7 +1854,15 @@ changing the RESULTS contract):
    here), on the confirmed (`accept`/`ok`) articles' stored scores, or on the
    relevance-gated population if step 3 builds a gate. It needs no relevance
    measurement and no inference, so it can start as soon as T-133 has partitioned the
-   stored verdicts (it does not wait for T-117). Ship as constants beside
+   stored verdicts (it does not wait for T-117). **Input: a fresh judged sample, not
+   the stored verdicts alone** (eval_run 43 holds only 20 to 63 confirmed judged items per
+   predicted slug, too few to fit a per-slug threshold). Stratify confirmed articles
+   by predicted slug (argmax) x score band (<0.4, 0.4-0.5, 0.5-0.6, 0.6-0.8, >=0.8): 9 x 5
+   = 45 cells, plus the level-1 short-circuit stratum (1,012 articles). Measured on the
+   real store (2026-10-22): every cell holds at least 60 articles, so 60 per cell plus 60
+   short-circuit gives 2,820 judge calls (an upper bound; reuse eval_run 43's confirmed
+   verdicts that fall in a cell first). Weight each judged item by cell population / cell
+   sample so the same sample serves T-123's baseline. Ship as constants beside
    `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` (same home, same
    review path). Treat the zeros in the 3rd-place group's columns as "not
    evaluated", never as evidence (`docs/category-taxonomy.md`). Try
@@ -1894,12 +1902,16 @@ changing the RESULTS contract):
    needs no inference either.** GPU inference is needed only (a) for the short-circuited
    articles if the floor is lowered, (b) for every article if the top-2 selection
    changes, or if hypothesis wording (option D), a longer input (option H) or the model
-   changes. The equivalence is argued, not verified: the stored scores predate the
-   2026-09-14 revision pin, so T-124 first re-infers a random sample of 300 confirmed
-   articles on a scratch copy and compares fresh leaf and group scores with the stored
-   ones (tolerance 1e-4) before any re-label is trusted. If they match, the GPU run
-   (and its 72-hour stop/go) applies only to (a) and (b); if not, fall back to full
-   re-inference. It
+   changes. The equivalence is argued, not verified for fresh inference: the stored
+   scores were written no later than 2026-09-12, before the 2026-09-14 revision pin and
+   before CUDA was available here, so they come from a CPU run and a fresh run will be
+   on GPU. T-124 therefore first re-infers a random sample of 300 confirmed articles on
+   a scratch copy, records the device and dtype of both runs, and reports the maximum
+   absolute difference of the nine leaf scores and `group_score` and how many articles lie
+   within that difference of a decision threshold. **Pass = zero label flips under the
+   candidate rule on the 300** (zero flips in 300 bounds the true flip rate at about 1%,
+   95%, rule of three). If it passes, the GPU run (and its 72-hour stop/go) applies only
+   to (a) and (b); on any flip, fall back to full re-inference. It
    **always begins by moving the whole `article_category` aside** (snapshot,
    then rename to `article_category_v1`, T-025's pattern), whatever D4
    decides: the category stage only selects articles with no row yet, so the

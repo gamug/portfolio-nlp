@@ -27,11 +27,15 @@ It reports, in order:
 8. the `other` rate stratified by source and period, and the excess `other` that wrong
    tagging could explain at most (rejected and `review` articles at the confirmed
    articles' rate, overall and within strata);
-9. on one eval run's `representative` bucket (uniform sampling weights, so the
+9. whether the current decision rule applied to the stored scores reproduces every
+   stored label (what a re-label from stored scores relies on);
+10. the number of confirmed articles in each (predicted slug x score band) cell, which
+    sizes the judged sample that per-slug calibration (T-121) needs;
+11. on one eval run's `representative` bucket (uniform sampling weights, so the
    unweighted rates are population rates within it), how often the judge agreed
    with the stored category, by upstream class, with 95% Wilson intervals.
 
-Item 9 is unweighted agreement only, not the complete constitution #12 metric
+Item 11 is unweighted agreement only, not the complete constitution #12 metric
 set; the complete set per partition is T-133's remaining work.
 
 Safe to remove once the numbers are in docs/evaluation.md; keep it in git
@@ -215,6 +219,84 @@ def report_scoring_paths(conn: sqlite3.Connection) -> None:
         )
 
 
+# CATEGORY_CONFIDENCE_THRESHOLD in pipeline/category_stage (kept literal, see GROUP_FLOOR).
+CONFIDENCE_THRESHOLD = 0.60
+LEAF_SLUGS = (
+    "earnings_performance",
+    "mergers_acquisitions",
+    "leadership_governance",
+    "legal_regulatory",
+    "product_innovation",
+    "capital_shareholder_returns",
+    "labor_human_capital",
+    "market_analyst_sentiment",
+    "partnerships_business_dev",
+)
+BAND_EDGES = (0.4, 0.5, 0.6, 0.8)  # upper edges of the score bands; the last band is >= 0.8
+BAND_NAMES = ("<0.4", "0.4-0.5", "0.5-0.6", "0.6-0.8", ">=0.8")
+CELL_N = 60  # judged items per cell in the proposed calibration sample
+
+
+def report_rule_consistency(conn: sqlite3.Connection) -> None:
+    section("Does the current rule, applied to the stored scores, reproduce every stored label?")
+    rows = conn.execute(
+        "SELECT rc.label, rc.group_score, rc.earnings_performance, rc.mergers_acquisitions, "
+        "rc.leadership_governance, rc.legal_regulatory, rc.product_innovation, "
+        "rc.capital_shareholder_returns, rc.labor_human_capital, rc.market_analyst_sentiment, "
+        "rc.partnerships_business_dev FROM r.article_category rc"
+    )
+    total = short_circuit = mismatches = 0
+    for label, group_score, *leaf_scores in rows:
+        total += 1
+        if group_score < GROUP_FLOOR:
+            short_circuit += 1
+            expected = "other"
+        else:
+            best = max(leaf_scores)
+            expected = (
+                LEAF_SLUGS[leaf_scores.index(best)] if best >= CONFIDENCE_THRESHOLD else "other"
+            )
+        mismatches += expected != label
+    print(
+        f"  rows={total} (level-1 short-circuit {short_circuit}); rows where the rule "
+        f"(floor {GROUP_FLOOR}, argmax, threshold {CONFIDENCE_THRESHOLD}) differs from the stored label: {mismatches}"
+    )
+
+
+def report_calibration_cells(conn: sqlite3.Connection) -> None:
+    section("Confirmed articles by predicted slug (argmax) and score band: calibration sample size")
+    rows = conn.execute(
+        "SELECT rc.group_score, rc.earnings_performance, rc.mergers_acquisitions, "
+        "rc.leadership_governance, rc.legal_regulatory, rc.product_innovation, "
+        "rc.capital_shareholder_returns, rc.labor_human_capital, rc.market_analyst_sentiment, "
+        "rc.partnerships_business_dev FROM r.article_category rc "
+        "JOIN main.discovered_urls d ON d.id = rc.article_id WHERE d.match_class = 'accept'"
+    )
+    cells: dict[tuple[str, int], int] = {}
+    short_circuit = 0
+    for group_score, *leaf_scores in rows:
+        if group_score < GROUP_FLOOR:
+            short_circuit += 1
+            continue
+        best = max(leaf_scores)
+        band = sum(best >= edge for edge in BAND_EDGES)
+        key = (LEAF_SLUGS[leaf_scores.index(best)], band)
+        cells[key] = cells.get(key, 0) + 1
+    print(f"  {'slug':<30}" + "".join(f"{name:>9}" for name in BAND_NAMES))
+    for slug in LEAF_SLUGS:
+        print(
+            f"  {slug:<30}"
+            + "".join(f"{cells.get((slug, b), 0):>9}" for b in range(len(BAND_NAMES)))
+        )
+    needed = sum(min(n, CELL_N) for n in cells.values()) + min(short_circuit, CELL_N)
+    small = sum(1 for n in cells.values() if n < CELL_N)
+    print(f"  level-1 short-circuit articles (no leaf scores): {short_circuit}")
+    print(
+        f"  cells={len(cells)} (+1 short-circuit); cells with fewer than {CELL_N} articles: {small}; "
+        f"judged items for {CELL_N} per cell (all of a smaller cell): {needed}"
+    )
+
+
 def report_stratified_other(conn: sqlite3.Connection) -> None:
     section("`other` rate by upstream class, source and period; excess attributable to tagging")
     rows = conn.execute(
@@ -311,6 +393,8 @@ def main() -> int:
     report_other_rates(conn)
     report_stratified_other(conn)
     report_scoring_paths(conn)
+    report_rule_consistency(conn)
+    report_calibration_cells(conn)
     report_unprocessed(conn)
     report_eval(conn, args.eval_run)
     return 0

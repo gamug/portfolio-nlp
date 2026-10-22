@@ -2060,6 +2060,14 @@ judged sample (budgeted under T-117). Not claimed: any per-class precision/recal
 the confirmed partition, or that these rates carry over to the corrected corpus after
 the next upstream change.
 
+**Rule consistency and sample sizing (same script, 2026-10-22).** Applying the current
+rule (group floor 0.4, argmax, threshold 0.6) to the stored scores reproduces the stored
+label on all 459,112 rows (0 mismatches; 16,698 level-1 short-circuits), so a re-label from
+stored scores is exact for the current rule. Confirmed articles by predicted slug x score
+band give 45 cells, all with at least 60 articles (smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
+level-1 short-circuits: 60 per cell plus 60 short-circuit is 2,820 judge calls at most.
+That stratified sample is T-121's input and, population-weighted, T-123's baseline.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence
