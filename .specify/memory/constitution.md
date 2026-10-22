@@ -32,7 +32,7 @@ component; every rule below assumes the stack actually pinned in
 4. **Storage**: SQLite, accessed two-tier (SOURCE ATTACHed read-only, RESULTS
    read/write) through `portfolio_common.db.Database` /
    `Allowlist` / `in_clause`, git-tag-pinned (`portfolio-common @ tag
-   v1.2.0`) rather than a floating version, so a DB-engine-contract change is
+   v1.2.2`) rather than a floating version, so a DB-engine-contract change is
    an explicit, reviewed re-pin (`docs/engine-agnostic-rollout.md`). Chosen
    for zero-ops single-file deployment at this corpus scale; moving off
    SQLite is a `portfolio-common`-level decision, not a change made here.

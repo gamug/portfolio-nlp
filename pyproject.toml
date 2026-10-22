@@ -14,7 +14,7 @@ dependencies = [
     # As of v1.1.0, `news_nlp.queries.fetch_processed_articles` delegates to
     # `portfolio_common.news_export` -- the one read join shared with
     # portfolio-knowledge-graph, not duplicated -- see
-    # docs/portfolio-common-v1.1-news-export.md. As of v1.2.0, every
+    # docs/portfolio-common-v1.1-news-export.md. Since v1.2.0, every
     # engine-specific fragment in src/news_nlp/ (the upsert verb, date/week
     # SQL, GLOB predicate, PRAGMA introspection, the ATTACH two-tier open,
     # the Row type) goes through portfolio_common's Dialect / connect_url /
