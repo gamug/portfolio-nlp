@@ -1355,3 +1355,69 @@ batch size, not just model + revision.
       `src/pipeline_config.py` as the source of truth instead of a
       `pipeline.py` dict literal, noting no constitution amendment was
       needed. → `PLAN.md` Work item 14 step 6. **Done 2026-09-21.**
+
+## Work item 16 — Check the data-mining schema version before reading (closed 2026-10-22, #109; D8 default: build it here)
+
+SOURCE (`urls.db`) is stamped with `PRAGMA user_version` (5 today; additive; a
+documented rollback sets 5 back to 3). This repo reads it on trust, and T-132 will
+read a second table. A read-only guard at the single choke point, minimum 3, fail
+on lower and on 0, warn once on higher, never cached, plus a column guard. →
+`PLAN.md` Work item 16. Task order: T-135, T-136, then T-136b (close-out).
+
+- [x] **T-135** *(done 2026-10-22, `feat/source-schema-guard`)* Implement `check_schema(source, minimum, columns)` (name open) in
+      `news_nlp.db`, called by `connect_pipeline` / `attach_source` before any query.
+      `source` is a path or an open read-only `sqlite3` connection, so it has no
+      dependency on `NewsNlpDatabase` and scripts (the 2026-10-22 measurement script)
+      can call it too; `attach_source` is one caller, not the only one.
+      - **Inputs:** the constant `MIN_SOURCE_SCHEMA_VERSION = 3` copied into this repo
+        (never import `data_mining`), and the columns this repo reads from SOURCE
+        **today** (`articles.id`, `fetch_status`, `body_text`, `company`, `ticker`,
+        `pub_date`, plus what `copy_row_lean` copies). The helper takes the column list
+        as a parameter: T-132 adds `articles.prev_fetch_status` and
+        `discovered_urls` (`id`, `url`, `ticker`, `match_class`, `match_reason`) to it in
+        its own PR, so no run fails on a column nothing reads yet. The minimum 3 is a
+        behavior change (a version-2 file works today); the real `urls.db` is at 5, so
+        nothing is lost, and T-136 says it.
+      - **Scope:** the guard runs only when a SOURCE is attached (SOURCE distinct from
+        RESULTS). A single-file run (SOURCE and RESULTS the same path, RESULTS never
+        stamped) and the serving/query endpoints that need no SOURCE do not run it. The
+        eval scratch run (`eval/candidate.py`) runs it on the real SOURCE before cloning.
+      - **Steps:** read `PRAGMA user_version` through a `mode=ro` open; fail on 0 and on
+        lower with the path, the version found, the minimum and the action ("start the
+        collector or the extractor so it migrates the file, or point to the right
+        file"); warn once per process on a version above the latest seen, 5 (a module-level flag; each new process warns again; 3, 4 and 5 do not warn); then `PRAGMA table_info` on the tables in the list and fail on
+        a missing column (the parameterized list) even if the number passes; never cache
+        between opens; write nothing.
+      - **Done when:** tests on small generated files pass: version 0 and 2 fail; 3, 4, 5
+        pass; 6 passes with one warning (3, 4, 5 none; two opens in one process give one warning; a second
+        process warns again); version 3 without `body_text` fails on the column guard
+        (the `prev_fetch_status` case belongs to T-132's Done-when); a file re-stamped 5 → 3 between two opens passes both times; a
+        WAL file with a live writer opens read-only; the file hash is identical before
+        and after. CLI exits non-zero with the message. `POST /pipeline/run` (the only API
+        path that attaches SOURCE; it answers 202 and runs in a background worker) runs the
+        guard **synchronously in the handler, before** the worker and before the run slot
+        is taken, and answers 503 carrying the message (a configuration error, not a
+        client error); tested: 503, no 409 afterwards, status not left "running". The
+        no-SOURCE endpoints are unaffected (tested). **The existing suite stays green:**
+        a shared fixture helper in `tests/news_nlp/conftest.py` stamps the version and
+        creates the guarded columns on the SOURCE fixtures (today they are unstamped,
+        i.e. 0), and tests that need an old or unstamped file build one explicitly. The
+        shipping PR extends FR-007's acceptance (SOURCE is read-only and checked before
+        use), per SPEC §14.
+      - **Also:** `scripts/measure_corrected_corpus_2026_10_22.py` drops its own
+        version check for this guard (its constant said 5; upstream's table puts
+        `match_class` at 2 and `prev_fetch_status` at 3, so the minimum is 3). Any new
+        SOURCE table or column read (T-132, T-137, …) adds itself to the guard list in
+        its own PR. Test: the helper runs on a bare `mode=ro` connection with no
+        `NewsNlpDatabase`.
+      - **Depends on:** D8 (decided, T-139). **Blocks:** T-132.
+- [x] **T-136** *(done 2026-10-22, in `docs/db-topology.md`, "How a pipeline run uses both" step 3)* Docs: one line in `docs/db-topology.md` with the minimum version, why a
+      minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
+      `discovery_progress` are not part of the contract. Depends on T-135.
+- [x] **T-136b** Close-out of Work item 16: annotate `SPEC.md` §13 item 20 / §14 as
+      built, add the FR-007 acceptance extension if T-135's PR did not, reconcile both
+      architecture artifacts (never rename; constitution AI behavior #11), then move the
+      work item to `CHANGELOG.md` (AI behavior #15). Depends on T-135, T-136.
+      **Done 2026-10-22** — SPEC item 20 and its §14 row annotated as built (#109);
+      FR-007's acceptance was extended in #109 itself; Portfolio NLP and Portfolio
+      Thesis reconciled and republished, titles unchanged; the work item moved here.
