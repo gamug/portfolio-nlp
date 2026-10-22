@@ -1954,6 +1954,128 @@ above. Three further pieces landed on top of that, all confined to
 this follow-up originally left open was closed later the same day — see
 "Where results go" below.)
 
+### Follow-up (2026-10-22): what the upstream ticker re-tag did to the stored results and to category's measured numbers (Work item 15, T-133 step 1)
+
+Read-only, on the real stores (`urls.db` at schema version 5, `nlp.db`), by
+`scripts/measure_corrected_corpus_2026_10_22.py` (rerunnable; both databases opened
+`mode=ro`). **Not a model evaluation:** nothing was judged again. The category numbers
+below are unweighted agreement rates from judgements already stored, not the complete
+constitution #12 metric set, which T-133 still owes per partition.
+
+**Where the stored results stand upstream.** `portfolio-data-mining` re-tagged `urls.db`
+on 2026-10-15; classes are read from its `discovered_urls.match_class`.
+
+| upstream class | RESULTS articles | share | with stored `article_entities` | with an `ORG` span |
+|---|---|---|---|---|
+| `accept` (`ok`) | 93,330 | 20.3% | 93,286 | 93,268 |
+| `reject` (quarantined) | 315,822 | 68.8% | 315,630 | 314,235 |
+| `review` (quarantined) | 49,960 | 10.9% | 49,949 | 49,766 |
+| total | 459,112 | 100% | | |
+
+**Is `other` concentrated on wrong-tagged articles?** No. The `other` rate over all
+459,112 articles, by upstream class:
+
+| upstream class | articles | share of corpus | labelled `other` | `other` rate | share of all `other` |
+|---|---|---|---|---|---|
+| `accept` (confirmed) | 93,330 | 20.3% | 35,368 | 37.9% | 18.0% |
+| `reject` | 315,822 | 68.8% | 138,740 | 43.9% | 70.8% |
+| `review` | 49,960 | 10.9% | 21,885 | 43.8% | 11.2% |
+| total | 459,112 | 100% | 195,993 | 42.7% | 100% |
+
+The eight ordinary-word tickers (`ON`, `A`, `ARE`, `IT`, `ALL`, `HAS`, `TECH`, `NOW`) hold
+179,210 articles (39.0%) with an `other` rate of 45.3%, against 41.0% for the other
+tickers. So `other` follows each group's share of the corpus; it is not concentrated on
+the articles the re-tag rejected, and on the confirmed articles it is still 37.9%. The
+hand-read sample behind Work item 15's first framing (about 20 of 30 `other` titles
+off-topic) is what any random draw of this corpus shows, since about 70% of it was later
+rejected.
+
+**Stratified by source and period, and how much tagging can explain at most.** The
+overall 37.9% vs 43.9% gap is partly composition. `other` rate by upstream class:
+
+| stratum | `accept` (confirmed) | `reject` | `review` |
+|---|---|---|---|
+| CNBC, 2022 onward | 43.3% (26,249) | 44.2% (68,194) | 46.4% (11,870) |
+| CNBC, before 2022 | 36.6% (62,282) | 43.9% (247,354) | 43.0% (37,866) |
+| other domains, 2022 onward | 24.4% (4,701) | 35.3% (269) | 38.6% (207) |
+| other domains, before 2022 | 28.6% (98) | 60.0% (5) | 41.2% (17) |
+
+Counterfactual: if rejected and `review` articles had the confirmed articles' `other`
+rate, the excess is 22,010 `other` unstratified (11.2% of the 195,993) and 21,316
+stratified by source and period (10.9%; strata with at least 50 confirmed articles). That
+is the most wrong tagging can explain under that assumption, and nearly all of it sits in
+the pre-2022 CNBC stratum: within CNBC from 2022 on there is no gap (43.3% vs 44.2%), and
+the confirmed articles' own `other` rate is 43.3% there.
+
+**Scoring path of the stored category rows.** Every stored row is the hierarchical scheme.
+On level-2 rows the nine leaf columns sum to 1.0000 with exactly six non-zero (a softmax
+over the six evaluated candidates); a row that took the level-1 short-circuit
+(`group_score` below 0.40) has no leaf scores.
+
+| upstream class | articles | level-1 short-circuit | level 2 |
+|---|---|---|---|
+| `accept` | 93,330 | 1,012 (1.1%) | 92,318 |
+| `reject` | 315,822 | 13,806 (4.4%) | 302,016 |
+| `review` | 49,960 | 1,880 (3.8%) | 48,080 |
+
+So a rule confined to level 2, or a raised level-1 floor, can be applied to a stored row
+from its stored scores; the short-circuited rows, and any change to the top-2 selection,
+the input or the model, need inference (Work item 15, T-124 and T-140).
+
+**`ok` articles with no results yet.** SOURCE has 98,462 `ok` articles (2026-10-22);
+5,132 have no `article_category` row. All 5,132 were fetched between 2026-10-21 21:21:12
+and 21:21:48 UTC, and the last `article_category` write is 2026-09-12 01:28 UTC.
+
+**Which category runs can be recomputed.** Only `eval_run` 43 (2026-09-19, 2,800 judged,
+population 459,112) has stored judgements. `eval_run` 21, the baseline Work item 15
+first quoted (`other` precision 0.474), has none (`eval_inference` / `eval_verdict` hold
+no rows for it) and its strata were drawn from a population of about 100k articles, so it
+cannot be recomputed and is not the baseline.
+
+**`eval_run` 43 by upstream class.** The `representative` bucket (896 articles, uniform
+sampling weights, so unweighted equals population-weighted inside it) is 71% `reject`,
+19% `accept`, 10% `review`, matching the population. Judge agreement with the stored
+category label, with 95% Wilson intervals:
+
+| `representative` bucket | `accept` (confirmed) | `reject` | `review` |
+|---|---|---|---|
+| any label | 93/170 = 54.7% (47–62%) | 383/636 = 60.2% (56–64%) | 61/90 = 67.8% (58–77%) |
+| model predicted `other` | **25/68 = 36.8% (26–49%)** | **194/288 = 67.4% (62–73%)** | 24/35 = 68.6% (52–81%) |
+| model predicted a substantive label | 68/102 = 66.7% (57–75%) | 189/348 = 54.3% (49–59%) | 37/55 = 67.3% (54–78%) |
+
+All buckets together (deliberately skewed toward low-confidence and rare labels, so
+shown for sample size only): 1,953 `reject`, 538 `accept`, 309 `review` items judged.
+
+**Reading.** The population rates above say wrong tagging does not explain most of
+`other`: what remains on the corrected corpus is mostly the model withholding or missing
+a label, which calibration addresses. The category model and its judge see only the title and body, never the
+company, so an article that is not about its tagged company has no correct
+company-performance label. `other` was judged correct about twice as often on rejected
+articles (67%) as on confirmed ones (37%): the quoted `other` precision (0.576 in run 43)
+is inflated by off-topic articles, and on confirmed articles it is nearer 0.37. The
+substantive-label difference (67% vs 54%) points the expected way but its intervals
+overlap. The confirmed-article `other` figure rests on 68 articles; a ±5-point estimate
+needs about 359 such articles, so T-123 takes its baseline from T-121(b)'s stratified
+judged sample (report half; funded by D10, T-142). Not claimed: any per-class precision/recall/F1 on
+the confirmed partition, or that these rates carry over to the corrected corpus after
+the next upstream change.
+
+**Rule consistency and sample sizing (same script, 2026-10-22).** Applying the current
+rule (group floor 0.4, argmax, threshold 0.6; constants and slug order imported from
+`news_nlp.taxonomy`, the decision restated in the script because `category_stage`'s
+functions take logits or are inline, not callable on stored probabilities) to the stored
+scores reproduces the stored label on all 459,112 rows (0 mismatches; 16,698 level-1
+short-circuits; 141 rows have an exact tie for the highest leaf score, all below 0.5, so
+no stored label depends on the tie-break). T-122 will extract the decision into one pure function so the re-label
+and the stage share code. Reproduce with `uv run python
+scripts/measure_corrected_corpus_2026_10_22.py --source-db <urls.db> --results-db <nlp.db>
+--eval-run 43` (`urls.db` `user_version` 5; RESULTS `article_category` last written
+2026-09-12; run on 2026-10-22). Confirmed articles by predicted slug x score
+band give 45 cells, all with at least 60 articles (counts as of 2026-10-22, not design constants; smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
+level-1 short-circuits. T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere
+and 60 short-circuit. That is 3,300 judge calls at most (cap 3,800 with the discordant top-up), split in halves (fit / report) so T-123's baseline is not scored
+on the data the thresholds were fitted on.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence
