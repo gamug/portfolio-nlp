@@ -1972,6 +1972,27 @@ on 2026-10-15; classes are read from its `discovered_urls.match_class`.
 | `review` (quarantined) | 49,960 | 10.9% | 49,949 | 49,766 |
 | total | 459,112 | 100% | | |
 
+**Is `other` concentrated on wrong-tagged articles?** No. The `other` rate over all
+459,112 articles, by upstream class:
+
+| upstream class | articles | share of corpus | labelled `other` | `other` rate | share of all `other` |
+|---|---|---|---|---|---|
+| `accept` (confirmed) | 93,330 | 20.3% | 35,368 | 37.9% | 18.0% |
+| `reject` | 315,822 | 68.8% | 138,740 | 43.9% | 70.8% |
+| `review` | 49,960 | 10.9% | 21,885 | 43.8% | 11.2% |
+| total | 459,112 | 100% | 195,993 | 42.7% | 100% |
+
+The eight ordinary-word tickers (`ON`, `A`, `ARE`, `IT`, `ALL`, `HAS`, `TECH`, `NOW`) hold
+179,210 articles (39.0%) with an `other` rate of 45.3%, against 41.0% for the other
+tickers. So `other` follows each group's share of the corpus; it is not concentrated on
+the articles the re-tag rejected, and on the confirmed articles it is still 37.9%. The
+hand-read sample behind Work item 15's first framing (about 20 of 30 `other` titles
+off-topic) is what any random draw of this corpus shows, since about 70% of it was later
+rejected.
+
+**`ok` articles with no results yet.** SOURCE has 98,462 `ok` articles (2026-10-22);
+5,132 have no `article_category` row (new discovery since the results were written).
+
 **Which category runs can be recomputed.** Only `eval_run` 43 (2026-09-19, 2,800 judged,
 population 459,112) has stored judgements. `eval_run` 21, the baseline Work item 15
 first quoted (`other` precision 0.474), has none (`eval_inference` / `eval_verdict` hold
@@ -1992,7 +2013,9 @@ category label, with 95% Wilson intervals:
 All buckets together (deliberately skewed toward low-confidence and rare labels, so
 shown for sample size only): 1,953 `reject`, 538 `accept`, 309 `review` items judged.
 
-**Reading.** The category model and its judge see only the title and body, never the
+**Reading.** The population rates above say wrong tagging does not explain most of
+`other`: what remains on the corrected corpus is mostly the model withholding or missing
+a label, which calibration addresses. The category model and its judge see only the title and body, never the
 company, so an article that is not about its tagged company has no correct
 company-performance label. `other` was judged correct about twice as often on rejected
 articles (67%) as on confirmed ones (37%): the quoted `other` precision (0.576 in run 43)

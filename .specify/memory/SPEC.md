@@ -902,7 +902,10 @@ treating a related FR/NR as done:
     the counts keep moving (2026-10-21: 109,982 / 52,039; 98,462 `ok` articles, 63.4%
     published before 2022). The category classifier and its judge never see the
     company, so wrong tags bias the *measured* numbers through sample composition
-    rather than the model's reading (first measurement 2026-10-22 in
+    rather than the model's reading. A population check on 2026-10-22 found `other` is
+    37.9% of confirmed and 43.9% of rejected articles (rejected articles are 68.8% of
+    the corpus and 70.8% of `other`), so wrong tagging does not explain most of the
+    42.7%; calibration is the main remaining lever (first measurement 2026-10-22 in
     `docs/evaluation.md`: `other` was judged correct far more often on rejected than on
     confirmed articles; T-133 owes the complete metric set); sentiment
     does use the company and is affected directly (T-127). The quarantined `review`

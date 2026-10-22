@@ -218,7 +218,10 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 Read-only investigation (2026-10-14) found it mixes "not about the ticker's
 company" (mostly ticker symbols that are English words — `ON`/`A`/`ARE`/`IT`/
 `ALL`/`HAS`/`TECH`/`NOW` hold 39.0% of the corpus, plus companies cut to a generic first word) with "about the company, no
-dimension clears the 0.6 bar". Plan: fix the tagging at the source, measure what
+dimension clears the 0.6 bar". A population check on 2026-10-22 found `other` is
+37.9% of confirmed and 43.9% of rejected articles (rejected articles are 68.8% of the
+corpus and 70.8% of `other`), so wrong tagging does not explain most of it; the
+remaining lever is calibration. Plan: fix the tagging at the source, measure what
 irrelevance remains, build a relevance gate only if it still justifies one
 (T-117's rule), then calibrate per-slug thresholds and a margin rule offline
 from stored scores.
@@ -240,7 +243,8 @@ Dependencies at a glance:
 | T-132 quarantined pairs | T-128, T-139 (D5, D6) | T-117 | **yes** |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121, T-122 calibration | T-117 | T-123 | no |
+| T-121 offline calibration | T-133 (partition of the stored verdicts) | T-122 | **yes, after T-133**; population = confirmed articles (the gated-in one only if a gate is built) |
+| T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
 | T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
 | T-124 full re-run | T-123 approved, T-131 | T-129 | no |
@@ -340,8 +344,8 @@ Dependencies at a glance:
         moves). **Subset that already has results:** 49,960 of the articles in this
         repo's RESULTS store are `review` (measured 2026-10-22); only those can have
         results purged (T-131's rule), while a verdict on a pair with no RESULTS rows can
-        only feed upstream's release decision. Verdicts are the four
-        verdicts data-mining applies: `about`, `mention`, `other`, `unclear` (D5).
+        only feed upstream's release decision. The verdicts are the four data-mining
+        applies: `about`, `mention`, `other`, `unclear` (D5).
         The correct rate of this class is **not measured** (only 18 of 20 uncontested
         News Corp URLs); do not assume it.
       - **Inputs:** a read-only attach (D6) of SOURCE, selection
@@ -458,9 +462,12 @@ Dependencies at a glance:
       grew. → steps 2, 5.
 - [ ] **T-121** Offline calibration: simulate per-slug thresholds and a
       margin-over-runner-up rule against the stored leaf scores and existing
-      `eval_verdict` rows (no model re-inference), on the gated-in population;
-      pick parameters by per-slug precision; report the trade-off table.
-      → step 4.
+      `eval_verdict` rows (no model re-inference), on the confirmed (`accept`/`ok`)
+      articles, or on the gated-in population if T-119 is built; pick parameters by
+      per-slug precision; report the trade-off table. **Depends on T-133, not on
+      T-117:** the population check of 2026-10-22 (`other` follows the corpus, 37.9% on
+      confirmed articles) makes calibration the main lever, and it needs no relevance
+      measurement. → step 4.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. → step 4.
@@ -501,6 +508,13 @@ Dependencies at a glance:
       scratch DB copy first (as T-025 did), and a measured throughput so the
       real duration is known before launching. Record the run in
       `docs/evaluation.md`. Runs after T-131. → step 6.
+      *Articles with no results yet (2026-10-22):* 5,132 `ok` articles have no
+      `article_category` row. Normal runs may classify them before this task under the
+      old rule; that is acceptable, not a mix of old and new results, because this task
+      moves the whole `article_category` aside first (those rows go into
+      `article_category_v1`) and re-classifies every row of the corrected corpus,
+      including them. Until it runs, readers see old-rule labels for them, as for every
+      other row. The count at launch includes them.
       *Scale (2026-10-22):* the corrected corpus is 98,462 articles (21.4% of the
       459,112 originally classified), at most 32.8% if all 52,039 `review` pairs were
       released, so the GPU projection is redone on that count (and the D7 window), not

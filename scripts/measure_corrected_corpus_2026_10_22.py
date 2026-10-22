@@ -15,11 +15,17 @@ It reports, in order:
 3. how the RESULTS articles split by SOURCE `fetch_status` and `match_class`;
 4. how many of each class already have stored `article_entities` (and an `ORG`
    span), i.e. what a NER-based relevance check would cost in GPU time;
-5. on one eval run's `representative` bucket (uniform sampling weights, so the
+5. the share of RESULTS articles labelled `other` over the whole population, by
+   upstream class and for the eight ordinary-word tickers (`ON`, `A`, `ARE`, `IT`,
+   `ALL`, `HAS`, `TECH`, `NOW`) against the rest: is `other` concentrated on the
+   wrong-tagged articles? (It is not: it follows each group's share of the corpus.)
+6. how many `ok` SOURCE articles have no `article_category` row yet (they would be
+   classified by the next normal run, before any new decision rule exists);
+7. on one eval run's `representative` bucket (uniform sampling weights, so the
    unweighted rates are population rates within it), how often the judge agreed
    with the stored category, by upstream class, with 95% Wilson intervals.
 
-Item 5 is unweighted agreement only, not the complete constitution #12 metric
+Item 7 is unweighted agreement only, not the complete constitution #12 metric
 set; the complete set per partition is T-133's remaining work.
 
 Safe to remove once the numbers are in docs/evaluation.md; keep it in git
@@ -121,6 +127,51 @@ def report_entities(conn: sqlite3.Connection) -> None:
         )
 
 
+WORD_TICKERS = ("ON", "A", "ARE", "IT", "ALL", "HAS", "TECH", "NOW")
+
+
+def report_other_rates(conn: sqlite3.Connection) -> None:
+    section("Population `other` rate (all RESULTS articles)")
+    rows = conn.execute(
+        "SELECT d.match_class, COUNT(*), SUM(rc.label = 'other') "
+        "FROM r.article_category rc JOIN main.discovered_urls d ON d.id = rc.article_id "
+        "GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+    total = sum(n for _, n, _ in rows)
+    total_other = sum(o for _, _, o in rows)
+    for match_class, n, other in rows:
+        print(
+            f"  {match_class:<8} articles={n:>7} ({100 * n / total:4.1f}% of corpus) "
+            f"other={other:>7} rate={100 * other / n:4.1f}% "
+            f"share of all other={100 * other / total_other:4.1f}%"
+        )
+    print(f"  total    articles={total} other={total_other} ({100 * total_other / total:.1f}%)")
+    base = (
+        "SELECT COUNT(*), SUM(rc.label = 'other') FROM r.article_category rc "
+        "JOIN r.articles a ON a.id = rc.article_id WHERE a.ticker "
+    )
+    members = "(?, ?, ?, ?, ?, ?, ?, ?)"  # one placeholder per entry of WORD_TICKERS
+    assert members.count("?") == len(WORD_TICKERS)
+    queries = {
+        "word-like tickers": base + "IN " + members,
+        "all other tickers": base + "NOT IN " + members,
+    }
+    for name, sql in queries.items():
+        n, other = conn.execute(sql, WORD_TICKERS).fetchone()
+        print(
+            f"  {name:<18} articles={n:>7} ({100 * n / total:4.1f}%) other rate={100 * other / n:4.1f}%"
+        )
+
+
+def report_unprocessed(conn: sqlite3.Connection) -> None:
+    section("`ok` SOURCE articles with no article_category row yet")
+    ok, missing = conn.execute(
+        "SELECT COUNT(*), SUM(NOT EXISTS (SELECT 1 FROM r.article_category rc WHERE rc.article_id = a.id)) "
+        "FROM main.articles a WHERE a.fetch_status = 'ok'"
+    ).fetchone()
+    print(f"  ok articles={ok}  without a category row={missing}")
+
+
 _JUDGED = (
     "FROM r.eval_inference i JOIN r.eval_verdict v ON v.inference_id = i.id "
     "LEFT JOIN main.discovered_urls d ON d.id = i.article_id "
@@ -175,6 +226,8 @@ def main() -> int:
     report_versions_and_runs(conn)
     report_split(conn)
     report_entities(conn)
+    report_other_rates(conn)
+    report_unprocessed(conn)
     report_eval(conn, args.eval_run)
     return 0
 

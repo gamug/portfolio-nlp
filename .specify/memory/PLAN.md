@@ -1606,13 +1606,30 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   mostly `market_analyst_sentiment` (52.5k of 127k rows with best leaf score
   ≥0.4), then `capital_shareholder_returns` (21.0k), `earnings_performance`
   (15.3k).
-- **Two different things share the label.** A 30-title random sample of
+- **Two different things can share the label.** A 30-title random sample of
   `other` rows, hand-read: ~20 were not about the ticker's company at all
   (the model was right to withhold a corporate-performance category), ~6 were
   clear misses (e.g. a Berkshire legal probe, a Glassdoor best-employers
   list naming Meta, an earnings-week roundup naming BAC), the rest borderline.
-  Small sample, one reader: it motivates the measurement in T-117, it does
-  not replace it.
+  Small sample, one reader. **That split is explained by composition, not by
+  cause (checked 2026-10-22, see the next bullet):** any random draw from this
+  corpus is about 70% articles the re-tag later rejected, so two thirds off-topic
+  is what a draw of any label would show.
+- **Population check of "wrong tagging explains `other`" (2026-10-22, read-only on
+  the real stores; `scripts/measure_corrected_corpus_2026_10_22.py`,
+  `docs/evaluation.md`'s 2026-10-22 follow-up).** The `other` rate over all 459,112
+  articles, by upstream class: confirmed (`accept`) 37.9% (35,368 of 93,330),
+  `reject` 43.9% (138,740 of 315,822), `review` 43.8%. Rejected articles are 68.8% of
+  the corpus and 70.8% of `other`, so `other` follows the corpus, it is not
+  concentrated on wrong-tagged articles; the eight ordinary-word tickers show 45.3%
+  `other` against 41.0% for the rest. Consequences: (1) wrong tagging is a
+  correctness problem for every stage's per-company meaning (T-131's cleanup stays
+  necessary) but it is **not the main reason** `other` is 42.7%; on the corrected
+  corpus `other` is still 37.9% and, from the judged sample, mostly misses (judged
+  correct 36.8% of the time on confirmed articles), so the remaining lever is
+  calibration (step 4), which does not need to wait for the relevance measurement;
+  (2) the prior that a relevance gate pays off is lower than this plan first assumed
+  (step 3's rule still decides, on measured R and N, not on this prior).
 - **Root cause of the first group: the crawler's ticker tagging
   (confirmed in `portfolio-data-mining`'s code, 2026-10-14).**
   `BaseConnector._company_pattern` accepts a ticker **or the first word of
@@ -1826,7 +1843,10 @@ changing the RESULTS contract):
    margin-over-runner-up rule can be **simulated against the stored scores
    and existing `eval_verdict` rows with no model re-inference**. Choose
    parameters by per-slug precision (the metric constitution/docs say matters
-   here), on the relevance-gated population. Ship as constants beside
+   here), on the confirmed (`accept`/`ok`) articles' stored scores, or on the
+   relevance-gated population if step 3 builds a gate. It needs no relevance
+   measurement and no inference, so it can start as soon as T-133 has partitioned the
+   stored verdicts (it does not wait for T-117). Ship as constants beside
    `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` (same home, same
    review path). Treat the zeros in the 3rd-place group's columns as "not
    evaluated", never as evidence (`docs/category-taxonomy.md`). Try
@@ -1848,7 +1868,9 @@ changing the RESULTS contract):
    rows absent from `article_category`, so nothing changes retroactively on
    its own. Once step 5's result is satisfactory and the user approves it,
    re-run the **whole** classification over every row of the corrected
-   corpus (record the count at launch; it will no longer be 459,112) with
+   corpus (record the count at launch; it will no longer be 459,112, and it includes
+   the 5,132 `ok` articles that had no results on 2026-10-22: a normal run may classify
+   them earlier under the old rule, and the snapshot below keeps those rows) with
    full re-inference (GPU), not a re-label of stored scores: the gate and the new
    decision rule both apply, and gated-out articles skip inference. It
    **always begins by moving the whole `article_category` aside** (snapshot,
