@@ -550,7 +550,14 @@ Dependencies at a glance:
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
-      in the category stage, with tests. → step 4.
+      in the category stage, with tests. **Also extract the decision into one pure
+      function** (`group_score`, nine leaf scores -> label, winning score) in
+      `category_stage.py`, used by `CategoryInference.predict_batch` and by T-124's
+      re-label. Today the floor is inline in `predict_batch` and the threshold sits in
+      `classify_category_scores`, which takes logits, so neither can be applied to stored
+      probabilities. Test: under the *current* constants the function reproduces every
+      stored label of a fixture of stored rows (floor, short-circuit, threshold edge and
+      tie cases) before the new constants are switched on. → step 4.
 - [ ] **T-123** Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
       `549ddbdf`; the only category run whose judgements are stored, eval_run 21's are
       not) recomputed from stored judgements (restricted to articles still in
@@ -619,7 +626,8 @@ Dependencies at a glance:
       a decision threshold. **Pass = zero label flips under the candidate rule on the 300**
       (zero flips in 300 bounds the true flip rate at about 1%, 95%, rule of three). If it
       passes, re-label every
-      row from its stored scores with the new rule (a text-only gate needs no inference);
+      row from its stored scores with the new rule, **by calling T-122's pure function, not a
+      separate re-implementation** (a text-only gate needs no inference);
       GPU inference then covers only the short-circuited articles if the level-1 floor
       is lowered, or every article if the top-2 selection, hypothesis wording (option D),
       the input length (option H) or the model changes. If any compared score differs,

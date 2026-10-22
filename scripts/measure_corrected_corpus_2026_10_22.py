@@ -55,6 +55,17 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# The shipped constants and slug order come from the repo, not from literals here, so a
+# change to taxonomy.py cannot leave this check testing stale numbers. Only the pure
+# `news_nlp.taxonomy` module is read (no model, no torch).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from news_nlp.taxonomy import (
+    CATEGORY_CONFIDENCE_THRESHOLD,
+    CATEGORY_GROUP_FLOOR,
+    CATEGORY_SLUGS,
+    OTHER_LABEL,
+)
+
 Z95 = 1.96
 
 
@@ -190,9 +201,8 @@ def report_unprocessed(conn: sqlite3.Connection) -> None:
     print(f"  last article_category write: {last_written}")
 
 
-# CATEGORY_GROUP_FLOOR in news_nlp/taxonomy.py (kept literal here: this script does not
-# import news_nlp). Rows with a level-1 group score below it took the short-circuit path.
-GROUP_FLOOR = 0.40
+# Rows with a level-1 group score below the floor took the short-circuit path.
+GROUP_FLOOR = CATEGORY_GROUP_FLOOR
 MIN_STRATUM = 50  # smallest confirmed-article count for a stratum to be used as a reference
 
 
@@ -219,8 +229,8 @@ def report_scoring_paths(conn: sqlite3.Connection) -> None:
         )
 
 
-# CATEGORY_CONFIDENCE_THRESHOLD in pipeline/category_stage (kept literal, see GROUP_FLOOR).
-CONFIDENCE_THRESHOLD = 0.60
+CONFIDENCE_THRESHOLD = CATEGORY_CONFIDENCE_THRESHOLD
+# Column order of the nine leaf scores in the SELECTs below; asserted against the repo's order.
 LEAF_SLUGS = (
     "earnings_performance",
     "mergers_acquisitions",
@@ -232,12 +242,17 @@ LEAF_SLUGS = (
     "market_analyst_sentiment",
     "partnerships_business_dev",
 )
+assert LEAF_SLUGS == CATEGORY_SLUGS, "SELECT column order no longer matches taxonomy.CATEGORY_SLUGS"
 BAND_EDGES = (0.4, 0.5, 0.6, 0.8)  # upper edges of the score bands; the last band is >= 0.8
 BAND_NAMES = ("<0.4", "0.4-0.5", "0.5-0.6", "0.6-0.8", ">=0.8")
 CELL_N = 60  # judged items per cell in the proposed calibration sample
 
 
 def report_rule_consistency(conn: sqlite3.Connection) -> None:
+    # category_stage's own functions take logits (classify_category_scores) or sit inline in
+    # CategoryInference.predict_batch (the floor), so neither can be called on stored
+    # probabilities. The decision is restated here with the shipped constants and slug order;
+    # TASKS T-122 extracts one pure function that both predict_batch and the re-label use.
     section("Does the current rule, applied to the stored scores, reproduce every stored label?")
     rows = conn.execute(
         "SELECT rc.label, rc.group_score, rc.earnings_performance, rc.mergers_acquisitions, "
@@ -250,11 +265,11 @@ def report_rule_consistency(conn: sqlite3.Connection) -> None:
         total += 1
         if group_score < GROUP_FLOOR:
             short_circuit += 1
-            expected = "other"
+            expected = OTHER_LABEL
         else:
             best = max(leaf_scores)
             expected = (
-                LEAF_SLUGS[leaf_scores.index(best)] if best >= CONFIDENCE_THRESHOLD else "other"
+                LEAF_SLUGS[leaf_scores.index(best)] if best >= CONFIDENCE_THRESHOLD else OTHER_LABEL
             )
         mismatches += expected != label
     print(

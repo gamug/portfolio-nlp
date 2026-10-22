@@ -2061,9 +2061,15 @@ the confirmed partition, or that these rates carry over to the corrected corpus 
 the next upstream change.
 
 **Rule consistency and sample sizing (same script, 2026-10-22).** Applying the current
-rule (group floor 0.4, argmax, threshold 0.6) to the stored scores reproduces the stored
-label on all 459,112 rows (0 mismatches; 16,698 level-1 short-circuits), so a re-label from
-stored scores is exact for the current rule. Confirmed articles by predicted slug x score
+rule (group floor 0.4, argmax, threshold 0.6; constants and slug order imported from
+`news_nlp.taxonomy`, the decision restated in the script because `category_stage`'s
+functions take logits or are inline, not callable on stored probabilities) to the stored
+scores reproduces the stored label on all 459,112 rows (0 mismatches; 16,698 level-1
+short-circuits). T-122 will extract the decision into one pure function so the re-label
+and the stage share code. Reproduce with `uv run python
+scripts/measure_corrected_corpus_2026_10_22.py --source-db <urls.db> --results-db <nlp.db>
+--eval-run 43` (`urls.db` `user_version` 5; RESULTS `article_category` last written
+2026-09-12; run on 2026-10-22). Confirmed articles by predicted slug x score
 band give 45 cells, all with at least 60 articles (counts as of 2026-10-22, not design constants; smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
 level-1 short-circuits. T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere
 and 60 short-circuit. That is 3,300 judge calls at most (cap 3,800 with the discordant top-up), split in halves (fit / report) so T-123's baseline is not scored
