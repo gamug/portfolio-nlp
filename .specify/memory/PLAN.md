@@ -1864,7 +1864,7 @@ changing the RESULTS contract):
    cell holds at least 60 articles. The judge is asked whether the argmax slug fits
    (short-circuit stratum: whether `other` is correct), stored as its own verdict kind.
    Size: 90 per cell in the 0.4-0.6 bands (where thresholds move labels), 60 elsewhere,
-   60 short-circuit: 3,300 judge calls at most. Split each cell at random (seeded) in halves: fit
+   60 short-circuit: 3,300 judge calls at most (cap 3,800 with a 500-call top-up allowance for the discordant articles). Split each cell at random (seeded) in halves: fit
    thresholds on one, report T-123's baseline and candidate on the other (a number tuned
    on the data it is scored on would be inflated). Population-weight each item. The judge
    returns the best-fitting label from the full taxonomy (`other` included), so any rule is
@@ -2001,8 +2001,11 @@ changing the RESULTS contract):
   within-cell bootstrap 95% interval above 0. Every rule is scored against the judge's
   truth label (full taxonomy, `other` included), thresholds are fitted on the fit half
   only, and the seed, band edges, cell populations and half assignment are recorded in
-  the run's config. A candidate too weakly powered to show +0.05 (T-121(a)'s discordant
-  count) is reported as "not detectable at this sample". T-124's full re-run is approved only
+  the run's config. The same pass requires `other` recall, overall accuracy and macro F1
+  to have a paired-difference lower bound no worse than -0.02 (provisional, owner
+  confirms), so precision is not bought with recall. A candidate whose simulated power
+  to show +0.05 is below 80% (T-121(a)) is reported as "not detectable at this sample";
+  if no candidate is detectable the re-run stays blocked until the owner decides. T-124's full re-run is approved only
   if T-123 meets them.
 - If a gate exists, `other` means "about the company, no dimension fits" and
   `not_relevant` means the opposite; if it was dropped, `other`'s meaning is

@@ -445,8 +445,8 @@ Dependencies at a glance:
       *Judge-call budget (planning estimate, re-derive before spending):*
       ~810 for R and N, ~300 to validate T-130 against the hand labels,
       ~400 for T-132's `undecided` remainder, ~400 for T-131's pre-purge check: about 1,900 under T-117's sign-off. T-121(b)'s
-      stratified sample (up to 3,300, which also provides T-123's baseline and replaces
-      the earlier ~900) is funded separately by D10 (T-142); about 5,200 in total at most. Record the actual spend
+      stratified sample (3,300 base, which also provides T-123's baseline and replaces
+      the earlier ~900) is funded separately by D10 (T-142), cap 3,800 with the top-up allowance; about 5,700 in total at most. Record the actual spend
       in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
       `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
       LLM, no live calls).
@@ -489,14 +489,21 @@ Dependencies at a glance:
       equals the argmax slug (score >= 0.6) for a first, coarse trade-off table, **and
       on the stored scores alone (no judge) report, per candidate rule, how many confirmed
       articles it re-labels** (population and per cell). **Power check before any paid
-      call:** a paired difference depends only on the articles the two rules label
-      differently (the discordant set); with `d` discordant report-half items and a net
-      gain `g`, the 95% lower bound is above 0 only if `g >= 1.96 * sqrt(d)`. Record `d`
-      and the `g` that +0.05 on `other` precision implies for each candidate. A candidate
-      whose `d` is too small is reported as "not detectable at this sample", not as a
-      failure. Because identical labels have identical verdicts, the paired difference can
-      be estimated from the discordant set alone: T-123 may judge a stratified extra draw of
-      the discordant articles (within D10's cap) to reach the needed `d`.
+      call:** simulate, per candidate rule, the T-123 estimator itself: the paired
+      difference of the weighted `other` precision (a ratio of weighted sums, because the
+      candidate re-labels items away from `other` and so changes the denominator). The truth
+      model for the simulation is eval_run 43's measured per-cell agreement rates; draw
+      report-half samples of the planned size, take the within-cell bootstrap 95% interval,
+      and report the share of draws whose lower bound is above 0 when the true gain is
+      +0.05 (the power). Require power of at least 80%; a candidate below it is reported as
+      "not detectable at this sample", not as a failure, and gets the discordant top-up
+      (identical labels have identical verdicts, so the paired difference needs only the
+      discordant articles judged; a stratified extra draw of them, within D10's top-up
+      allowance). The rough count rule `g >= 1.96 * sqrt(d)` is an approximation for a net
+      accuracy count and is not used for this ratio. **Read-only:** the query joins
+      `article_category` to the confirmed class (`accept`/`ok`) through the read-only SOURCE
+      attach and reads stored scores only, opened `mode=ro` with `query_only`, as
+      `scripts/measure_corrected_corpus_2026_10_22.py` does; it writes nothing to RESULTS.
       **(b) paid, funded by D10 (T-142), not by T-117's sign-off:** the stratified,
       split judged sample, drawn with T-141's code. **Depends on:** T-141 (code), T-142
       (spend), T-121(a). Fit on the fit half only; every reported number states its half.
@@ -523,12 +530,13 @@ Dependencies at a glance:
       **Blocks:** T-121(b). → step 4.
 - [ ] **T-142** *(new user decision D10, opened 2026-10-22; **open**; if unanswered by
       the time T-141 is done, the default applies, as for D4 and T-140)* The spend for
-      T-121(b)'s sample: **default, approve up to 3,300 judge calls** with the maintainer's
+      T-121(b)'s sample: **default, approve up to 3,800 judge calls** (the
+      3,300-call base sample plus a 500-call allowance for the discordant top-up) with the maintainer's
       LLM credentials, decided on its own and not at T-117's sign-off, so calibration
       does not wait for the relevance work. **The default is conditional:** it applies only
       if the maintainer has already put the LLM credentials and a budget in place in
       writing; otherwise T-121(b) waits for an explicit answer (no spend by silence). Hard
-      cap at 3,300 calls (the discordant top-up in T-121 counts against it); the actual
+      cap at 3,800 calls (base 3,300 plus the top-up allowance of 500); the actual
       spend is logged against the cap in `docs/evaluation.md`; the run stops at the cap. Blocks T-121(b). The rest of the T-117
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
@@ -553,10 +561,17 @@ Dependencies at a glance:
       T-117 sign-off):* `other` precision at least 0.05 above the recomputed
       baseline, as a paired difference on the same report-half items (the same articles are
       scored under both rules, which removes most of the per-cell noise), with the lower
-      bound of its 95% interval (bootstrap within cells) above 0; if a gate is built, false-reject rate at most 5% of articles
+      bound of its 95% interval (bootstrap within cells) above 0, **and no trade bought
+      with recall:** the paired differences in `other` recall, overall accuracy and macro F1
+      each have a 95% lower bound no worse than -0.02 (provisional tolerance, owner
+      confirms at T-117 sign-off); a rule that raises precision but breaks this is reported
+      as a trade-off, not a pass; if a gate is built, false-reject rate at most 5% of articles
       the judge calls relevant; no per-slug regression beyond
       `--check-regression`'s tolerance. T-124 does not start unless T-123
-      meets them and the owner approves.
+      meets them and the owner approves. **If no candidate is detectable** even with the
+      top-up, T-124 stays blocked: T-123 reports the point estimates and intervals, and the
+      owner decides between accepting a rule on its estimate or opening a larger D10; the
+      default is to stay blocked (no full re-run on an unproven rule).
 - [ ] **T-124** *(D2 = yes, decided 2026-10-14; mechanism per T-140)* Re-classify the
       **entire** category classification over the corrected corpus (every row remaining
       after the crawler re-tag; record the count at launch, it will no longer
