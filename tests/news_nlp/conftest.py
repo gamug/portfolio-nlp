@@ -110,6 +110,10 @@ def client(test_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Test
     # but every other test in the suite would otherwise pay that import cost too.
     from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415
 
+    # `pipeline` calls load_dotenv() at import, which can set SOURCE_DATABASE_URL from a
+    # developer's .env (the real urls.db). No test reads the real store: unset it after
+    # the import; a test that needs a SOURCE sets its own.
+    monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
     pipeline_status.reset()
     yield TestClient(app)
     pipeline_status.reset()

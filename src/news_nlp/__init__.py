@@ -33,6 +33,7 @@ from news_nlp.db import (
     connect,
     connect_pipeline,
     detach_source,
+    exit_on_schema_error,
     require_source_text,
 )
 from news_nlp.env import (
@@ -112,6 +113,7 @@ __all__ = [
     "delete_sentiment",
     "detach_source",
     "entity_stats",
+    "exit_on_schema_error",
     "fetch_company_summaries_for_sector_week",
     "fetch_pending_articles",
     "fetch_pending_category_articles",

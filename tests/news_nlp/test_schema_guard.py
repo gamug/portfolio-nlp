@@ -3,9 +3,11 @@ read-only, never cached, warning once per process on a newer version.
 """
 
 import hashlib
+import importlib.util
 import sqlite3
 import subprocess
 import sys
+import time
 import warnings
 from pathlib import Path
 
@@ -172,3 +174,48 @@ def test_the_no_source_endpoints_are_unaffected(
     monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
     assert client.get("/health").status_code == 200
     assert client.get("/articles").status_code == 200
+
+
+def test_the_api_swallows_an_unreadable_source_and_the_worker_reports_it(
+    client: TestClient, tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # check_source cannot open the file (sqlite3.Error): not a 503, not a 500; the
+    # request is accepted and the worker's own attach reports the problem in the status.
+    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
+    monkeypatch.setenv("SOURCE_DATABASE_URL", str(tmp_path / "missing.db"))
+    resp = client.post("/pipeline/run", json={})
+    assert resp.status_code == 202
+    status = {}
+    for _ in range(300):
+        status = client.get("/pipeline/status").json()
+        if status["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert status["status"] == "error"
+    assert status["error"]
+
+
+def test_exit_on_schema_error_gives_a_one_line_exit() -> None:
+    with pytest.raises(SystemExit) as info, db.exit_on_schema_error():
+        raise db.SourceSchemaError("SOURCE database x is at schema version 2")
+    assert str(info.value) == "error: SOURCE database x is at schema version 2"
+    with pytest.raises(ValueError), db.exit_on_schema_error():  # other errors keep their traceback
+        raise ValueError("boom")
+
+
+def test_the_pipeline_cli_exits_with_the_message(
+    tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = _make(tmp_path / "old.db", 2)
+    path = Path(__file__).resolve().parents[2] / "cli" / "news_nlp_cli.py"
+    spec = importlib.util.spec_from_file_location("news_nlp_cli_under_test", path)
+    assert spec is not None and spec.loader is not None
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    monkeypatch.setattr(
+        sys, "argv", ["news_nlp_cli", "--source-db", str(old), "--results-db", str(results_db_path)]
+    )
+    with pytest.raises(SystemExit) as info:
+        cli.main()
+    assert "schema version 2" in str(info.value)
+    assert info.value.code != 0

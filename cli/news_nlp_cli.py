@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from tqdm import tqdm
 
+from news_nlp.db import exit_on_schema_error
 from pipeline import run_pipeline
 
 
@@ -127,13 +128,14 @@ def main() -> None:
     args = parse_args()
     progress = _CliProgress()
     try:
-        run_pipeline(
-            limit=args.limit,
-            summarize=args.summarize,
-            source_db=args.source_db,
-            results_db=args.results_db,
-            on_progress=progress,
-        )
+        with exit_on_schema_error():
+            run_pipeline(
+                limit=args.limit,
+                summarize=args.summarize,
+                source_db=args.source_db,
+                results_db=args.results_db,
+                on_progress=progress,
+            )
     finally:
         progress.close()
 

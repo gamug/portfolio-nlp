@@ -37,6 +37,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Protocol
 
@@ -150,6 +152,17 @@ def check_schema(
             stacklevel=2,
         )
     return version
+
+
+@contextmanager
+def exit_on_schema_error() -> Iterator[None]:
+    """For CLI ``main()`` functions: turn a :class:`SourceSchemaError` into a one-line
+    message and exit status 1, instead of a traceback that buries it. Only this
+    exception: the owner reads it; other errors keep their traceback."""
+    try:
+        yield
+    except SourceSchemaError as exc:
+        raise SystemExit(f"error: {exc}") from exc
 
 
 def check_source(

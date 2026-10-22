@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from experiment import ExperimentSpec, run_experiment
+from news_nlp.db import exit_on_schema_error
 from news_nlp.eval.runner import summary_table
 
 
@@ -57,11 +58,12 @@ def main() -> None:
     spec = ExperimentSpec.model_validate_json(args.config.read_text())
     print(f"experiment: name={spec.name!r} stage={spec.stage} pretrain={spec.pretrain.enabled}")
 
-    result = run_experiment(
-        spec,
-        source_db=str(args.source_db) if args.source_db else None,
-        results_db=str(args.results_db) if args.results_db else None,
-    )
+    with exit_on_schema_error():
+        result = run_experiment(
+            spec,
+            source_db=str(args.source_db) if args.source_db else None,
+            results_db=str(args.results_db) if args.results_db else None,
+        )
 
     if result.train_output_dir:
         print(f"trained: {result.train_output_dir} (metrics: {result.train_metrics})")
