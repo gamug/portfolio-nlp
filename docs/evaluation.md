@@ -1990,8 +1990,41 @@ hand-read sample behind Work item 15's first framing (about 20 of 30 `other` tit
 off-topic) is what any random draw of this corpus shows, since about 70% of it was later
 rejected.
 
+**Stratified by source and period, and how much tagging can explain at most.** The
+overall 37.9% vs 43.9% gap is partly composition. `other` rate by upstream class:
+
+| stratum | `accept` (confirmed) | `reject` | `review` |
+|---|---|---|---|
+| CNBC, 2022 onward | 43.3% (26,249) | 44.2% (68,194) | 46.4% (11,870) |
+| CNBC, before 2022 | 36.6% (62,282) | 43.9% (247,354) | 43.0% (37,866) |
+| other domains, 2022 onward | 24.4% (4,701) | 35.3% (269) | 38.6% (207) |
+| other domains, before 2022 | 28.6% (98) | 60.0% (5) | 41.2% (17) |
+
+Counterfactual: if rejected and `review` articles had the confirmed articles' `other`
+rate, the excess is 22,010 `other` unstratified (11.2% of the 195,993) and 21,316
+stratified by source and period (10.9%; strata with at least 50 confirmed articles). That
+is the most wrong tagging can explain under that assumption, and nearly all of it sits in
+the pre-2022 CNBC stratum: within CNBC from 2022 on there is no gap (43.3% vs 44.2%), and
+the confirmed articles' own `other` rate is 43.3% there.
+
+**Scoring path of the stored category rows.** Every stored row is the hierarchical scheme.
+On level-2 rows the nine leaf columns sum to 1.0000 with exactly six non-zero (a softmax
+over the six evaluated candidates); a row that took the level-1 short-circuit
+(`group_score` below 0.40) has no leaf scores.
+
+| upstream class | articles | level-1 short-circuit | level 2 |
+|---|---|---|---|
+| `accept` | 93,330 | 1,012 (1.1%) | 92,318 |
+| `reject` | 315,822 | 13,806 (4.4%) | 302,016 |
+| `review` | 49,960 | 1,880 (3.8%) | 48,080 |
+
+So a rule confined to level 2, or a raised level-1 floor, can be applied to a stored row
+from its stored scores; the short-circuited rows, and any change to the top-2 selection,
+the input or the model, need inference (Work item 15, T-124 and T-140).
+
 **`ok` articles with no results yet.** SOURCE has 98,462 `ok` articles (2026-10-22);
-5,132 have no `article_category` row (new discovery since the results were written).
+5,132 have no `article_category` row. All 5,132 were fetched between 2026-10-21 21:21:12
+and 21:21:48 UTC, and the last `article_category` write is 2026-09-12 01:28 UTC.
 
 **Which category runs can be recomputed.** Only `eval_run` 43 (2026-09-19, 2,800 judged,
 population 459,112) has stored judgements. `eval_run` 21, the baseline Work item 15

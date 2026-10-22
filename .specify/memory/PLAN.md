@@ -1590,7 +1590,7 @@ with that rule without needing to amend it.
 CLI/env override mechanism (would require a separate constitution
 amendment first, per AI-behavior #1).
 
-## Work item 15 — Category: fix the `other` bucket (fix the tagging first, then calibrate)
+## Work item 15 — Category: fix the `other` bucket (calibrate it, and clean up what the tagging fix removes)
 
 **Why**: `article_category.label = 'other'` covers 195,993 of 459,112
 articles (**42.7%**; the next label, `market_analyst_sentiment`, is 25.3%).
@@ -1629,7 +1629,15 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   correct 36.8% of the time on confirmed articles), so the remaining lever is
   calibration (step 4), which does not need to wait for the relevance measurement;
   (2) the prior that a relevance gate pays off is lower than this plan first assumed
-  (step 3's rule still decides, on measured R and N, not on this prior).
+  (step 3's rule still decides, on measured R and N, not on this prior). **How much
+  tagging can explain, at most:** if rejected and `review` articles had the confirmed
+  articles' `other` rate, the excess is 22,010 `other`, 11.2% of the 195,993 (10.9%,
+  21,316, stratified by source and period). That is an upper bound under that
+  assumption, and the comparison is confounded: within CNBC from 2022 on there is no gap
+  (confirmed 43.3%, rejected 44.2%), the gap sits in the pre-2022 CNBC stratum (36.6% vs
+  43.9%), and confirmed non-CNBC articles are 24.4%. It also bears on D7 (the window):
+  on 2022-onward articles the confirmed `other` rate is 43.3%, higher than the corpus
+  average.
 - **Root cause of the first group: the crawler's ticker tagging
   (confirmed in `portfolio-data-mining`'s code, 2026-10-14).**
   `BaseConnector._company_pattern` accepts a ticker **or the first word of
@@ -1711,7 +1719,7 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   two thirds of its input from outside 2022+, and the size of T-124's re-run is
   now the corrected corpus, **98,462 articles (21.4% of 459,112; at most 32.8% if
   every one of the 52,039 `review` pairs were released), not 459,112**, so its
-  GPU projection must be redone, not reused. Decision D7 (T-134, decided 2026-10-22 at the
+  cost projection (GPU only for what a re-label of stored scores cannot reproduce, T-140) must be redone, not reused. Decision D7 (T-134, decided 2026-10-22 at the
   default: no filter inside the stages, the window applied explicitly where a consumer
   needs it and reported separately).
 - **CNBC is not the cause.** cnbc.com is 98.8% of the whole corpus
@@ -1864,15 +1872,34 @@ changing the RESULTS contract):
    (judge prompt/taxonomy change in `news_nlp/eval/`). Report on both the full
    population and the gated-in subset, so the gate's effect and the
    calibration's effect are separable.
-6. **Existing rows — full re-run (D2 = yes).** Pipeline runs only process
+6. **Existing rows — re-classify (D2 = yes; mechanism: D2b, T-140).** Pipeline runs only process
    rows absent from `article_category`, so nothing changes retroactively on
    its own. Once step 5's result is satisfactory and the user approves it,
    re-run the **whole** classification over every row of the corrected
    corpus (record the count at launch; it will no longer be 459,112, and it includes
    the 5,132 `ok` articles that had no results on 2026-10-22: a normal run may classify
-   them earlier under the old rule, and the snapshot below keeps those rows) with
-   full re-inference (GPU), not a re-label of stored scores: the gate and the new
-   decision rule both apply, and gated-out articles skip inference. It
+   them earlier under the old rule, and the snapshot below keeps those rows), so
+   that every row follows the new rule and none keeps an old-rule label.
+   **Mechanism (decision D2b, T-140; recommended default: re-label, after a
+   verification).** A GPU re-inference is needed only when the change goes beyond what
+   the stored scores support. Measured on the real store (2026-10-22): every stored
+   row is the hierarchical scheme; 98.9% of confirmed articles (92,318 of 93,330) took
+   level 2, where the nine leaf columns are a softmax over exactly six evaluated
+   candidates (mean leaf sum 1.0000, six non-zero leaves) and `group_score` is stored;
+   1,012 (1.1%) took the level-1 short-circuit and have no leaf scores (13,806 rejected
+   and 1,880 `review` articles do too, but they are not re-run). So **a new level-2
+   rule (per-slug thresholds, a margin over the runner-up, a different confidence
+   threshold) and a raised `CATEGORY_GROUP_FLOOR` can be applied to every stored row by
+   a re-label at zero GPU cost, and a `not_relevant` gate, which reads text only,
+   needs no inference either.** GPU inference is needed only (a) for the short-circuited
+   articles if the floor is lowered, (b) for every article if the top-2 selection
+   changes, or if hypothesis wording (option D), a longer input (option H) or the model
+   changes. The equivalence is argued, not verified: the stored scores predate the
+   2026-09-14 revision pin, so T-124 first re-infers a random sample of 300 confirmed
+   articles on a scratch copy and compares fresh leaf and group scores with the stored
+   ones (tolerance 1e-4) before any re-label is trusted. If they match, the GPU run
+   (and its 72-hour stop/go) applies only to (a) and (b); if not, fall back to full
+   re-inference. It
    **always begins by moving the whole `article_category` aside** (snapshot,
    then rename to `article_category_v1`, T-025's pattern), whatever D4
    decides: the category stage only selects articles with no row yet, so the

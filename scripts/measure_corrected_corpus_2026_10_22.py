@@ -19,13 +19,19 @@ It reports, in order:
    upstream class and for the eight ordinary-word tickers (`ON`, `A`, `ARE`, `IT`,
    `ALL`, `HAS`, `TECH`, `NOW`) against the rest: is `other` concentrated on the
    wrong-tagged articles? (It is not: it follows each group's share of the corpus.)
-6. how many `ok` SOURCE articles have no `article_category` row yet (they would be
-   classified by the next normal run, before any new decision rule exists);
-7. on one eval run's `representative` bucket (uniform sampling weights, so the
+6. how many `ok` SOURCE articles have no `article_category` row yet, when they were
+   fetched, and when the last results were written;
+7. which scoring path each stored category row took (level-1 short-circuit: no leaf
+   scores; level 2: a softmax over exactly six evaluated leaves), i.e. what a re-label
+   from stored scores can and cannot reproduce;
+8. the `other` rate stratified by source and period, and the excess `other` that wrong
+   tagging could explain at most (rejected and `review` articles at the confirmed
+   articles' rate, overall and within strata);
+9. on one eval run's `representative` bucket (uniform sampling weights, so the
    unweighted rates are population rates within it), how often the judge agreed
    with the stored category, by upstream class, with 95% Wilson intervals.
 
-Item 7 is unweighted agreement only, not the complete constitution #12 metric
+Item 9 is unweighted agreement only, not the complete constitution #12 metric
 set; the complete set per partition is T-133's remaining work.
 
 Safe to remove once the numbers are in docs/evaluation.md; keep it in git
@@ -170,6 +176,82 @@ def report_unprocessed(conn: sqlite3.Connection) -> None:
         "FROM main.articles a WHERE a.fetch_status = 'ok'"
     ).fetchone()
     print(f"  ok articles={ok}  without a category row={missing}")
+    first, last = conn.execute(
+        "SELECT MIN(a.fetched_at), MAX(a.fetched_at) FROM main.articles a "
+        "WHERE a.fetch_status = 'ok' AND NOT EXISTS "
+        "(SELECT 1 FROM r.article_category rc WHERE rc.article_id = a.id)"
+    ).fetchone()
+    last_written = conn.execute("SELECT MAX(processed_at) FROM r.article_category").fetchone()[0]
+    print(f"  those articles were fetched between {first} and {last}")
+    print(f"  last article_category write: {last_written}")
+
+
+# CATEGORY_GROUP_FLOOR in news_nlp/taxonomy.py (kept literal here: this script does not
+# import news_nlp). Rows with a level-1 group score below it took the short-circuit path.
+GROUP_FLOOR = 0.40
+MIN_STRATUM = 50  # smallest confirmed-article count for a stratum to be used as a reference
+
+
+def report_scoring_paths(conn: sqlite3.Connection) -> None:
+    section("Scoring path of the stored category rows")
+    rows = conn.execute(
+        "SELECT d.match_class, COUNT(*), SUM(rc.group_score < ?), SUM(rc.group_score >= ?), "
+        "AVG(CASE WHEN rc.group_score >= ? THEN rc.earnings_performance + rc.mergers_acquisitions "
+        "+ rc.leadership_governance + rc.legal_regulatory + rc.product_innovation "
+        "+ rc.capital_shareholder_returns + rc.labor_human_capital + rc.market_analyst_sentiment "
+        "+ rc.partnerships_business_dev END), "
+        "AVG(CASE WHEN rc.group_score >= ? THEN (rc.earnings_performance > 0) + (rc.mergers_acquisitions > 0) "
+        "+ (rc.leadership_governance > 0) + (rc.legal_regulatory > 0) + (rc.product_innovation > 0) "
+        "+ (rc.capital_shareholder_returns > 0) + (rc.labor_human_capital > 0) "
+        "+ (rc.market_analyst_sentiment > 0) + (rc.partnerships_business_dev > 0) END) "
+        "FROM r.article_category rc JOIN main.discovered_urls d ON d.id = rc.article_id GROUP BY 1",
+        (GROUP_FLOOR, GROUP_FLOOR, GROUP_FLOOR, GROUP_FLOOR),
+    ).fetchall()
+    for match_class, n, short, level2, leaf_sum, evaluated in rows:
+        print(
+            f"  {match_class:<8} articles={n:>7} level-1 short-circuit (no leaf scores)={short:>6} "
+            f"({100 * short / n:.1f}%) level 2={level2:>7}; on level-2 rows mean leaf sum="
+            f"{leaf_sum:.4f}, mean evaluated leaves={evaluated:.2f}"
+        )
+
+
+def report_stratified_other(conn: sqlite3.Connection) -> None:
+    section("`other` rate by upstream class, source and period; excess attributable to tagging")
+    rows = conn.execute(
+        "SELECT d.match_class, "
+        "CASE WHEN a.source_domain LIKE '%cnbc%' THEN 'cnbc' ELSE 'other-domain' END, "
+        "CASE WHEN a.pub_date < '2022-01-01' THEN 'pre-2022' ELSE '2022+' END, "
+        "COUNT(*), SUM(rc.label = 'other') "
+        "FROM r.article_category rc JOIN r.articles a ON a.id = rc.article_id "
+        "JOIN main.discovered_urls d ON d.id = rc.article_id GROUP BY 1, 2, 3 ORDER BY 2, 3, 1"
+    ).fetchall()
+    cells: dict[tuple[str, str, str], tuple[int, int]] = {}
+    for match_class, domain, period, n, other in rows:
+        cells[(match_class, domain, period)] = (n, other)
+        print(
+            f"  {match_class:<8} {domain:<13} {period:<9} articles={n:>7} other rate={100 * other / n:4.1f}%"
+        )
+    total_other = sum(o for _, o in cells.values())
+    overall = {"accept": [0, 0], "rest": [0, 0]}
+    for (match_class, _, _), (n, other) in cells.items():
+        key = "accept" if match_class == "accept" else "rest"
+        overall[key][0] += n
+        overall[key][1] += other
+    ref = overall["accept"][1] / overall["accept"][0]
+    excess = overall["rest"][1] - overall["rest"][0] * ref
+    print(
+        f"  unstratified: rejected + review articles at the confirmed rate ({100 * ref:.1f}%) "
+        f"leave an excess of {excess:,.0f} `other` = {100 * excess / total_other:.1f}% of all `other`"
+    )
+    stratified = 0.0
+    for (match_class, domain, period), (n, other) in cells.items():
+        accept = cells.get(("accept", domain, period))
+        if match_class != "accept" and accept is not None and accept[0] >= MIN_STRATUM:
+            stratified += other - n * accept[1] / accept[0]
+    print(
+        f"  stratified by source and period (strata with >= {MIN_STRATUM} confirmed articles): excess "
+        f"{stratified:,.0f} = {100 * stratified / total_other:.1f}% of all `other`"
+    )
 
 
 _JUDGED = (
@@ -227,6 +309,8 @@ def main() -> int:
     report_split(conn)
     report_entities(conn)
     report_other_rates(conn)
+    report_stratified_other(conn)
+    report_scoring_paths(conn)
     report_unprocessed(conn)
     report_eval(conn, args.eval_run)
     return 0

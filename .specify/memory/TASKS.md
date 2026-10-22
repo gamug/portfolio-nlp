@@ -214,21 +214,24 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 
 ## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open; D5–D7 decided, see T-139)
 
-`other` is 195,993 of 459,112 articles (42.7%) and its own precision is 0.474.
-Read-only investigation (2026-10-14) found it mixes "not about the ticker's
-company" (mostly ticker symbols that are English words — `ON`/`A`/`ARE`/`IT`/
-`ALL`/`HAS`/`TECH`/`NOW` hold 39.0% of the corpus, plus companies cut to a generic first word) with "about the company, no
-dimension clears the 0.6 bar". A population check on 2026-10-22 found `other` is
-37.9% of confirmed and 43.9% of rejected articles (rejected articles are 68.8% of the
-corpus and 70.8% of `other`), so wrong tagging does not explain most of it; the
-remaining lever is calibration. Plan: fix the tagging at the source, measure what
-irrelevance remains, build a relevance gate only if it still justifies one
-(T-117's rule), then calibrate per-slug thresholds and a margin rule offline
-from stored scores.
+`other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
+figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
+suspected it mixes "not about the ticker's company" (ticker symbols that are English
+words hold 39.0% of the corpus, plus companies cut to a generic first word) with "about
+the company, no dimension clears the 0.6 bar". A population check on 2026-10-22,
+stratified by source and period (`docs/evaluation.md`), found wrong tagging explains at
+most about 11% of `other` (rejected articles are 68.8% of the corpus and 70.8% of
+`other`; `other` is 37.9% of confirmed articles and 43.9% of rejected ones). The main
+lever is therefore calibration, which does not wait for the relevance work. Plan:
+calibrate per-slug thresholds and a margin rule offline from stored scores (T-121, after
+T-133's partition); clean up the results the tagging fix removed (T-131, after a
+pre-purge check); decide the doubtful `review` pairs (T-132); build a relevance gate only
+if what remains justifies one (T-117's rule); then re-evaluate and re-classify (T-123,
+T-124, by a re-label unless T-140 says otherwise).
 → `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
 
-Tasks are listed in execution order, not ID order (IDs are stable; T-130 to T-134
-and T-139 were added after the rest).
+Tasks are listed in execution order, not ID order (IDs are stable; T-130 to T-134,
+T-139 and T-140 were added after the rest).
 
 Dependencies at a glance:
 
@@ -247,7 +250,8 @@ Dependencies at a glance:
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
 | T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
-| T-124 full re-run | T-123 approved, T-131 | T-129 | no |
+| T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **open; default applies at T-123's approval** |
+| T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
 | T-125, T-126 contingent | T-123 result | none | no |
 | T-127 sentiment impact | none (separate PR) | none | yes |
 | T-129 close-out | all of the above | none | no |
@@ -323,6 +327,15 @@ Dependencies at a glance:
       - **Unchanged, as already recorded:** the release threshold for `about` is set
         jointly with data-mining after T-132's measurement; D4 keeps its recommended
         default; T-123's targets stay provisional until T-117's sign-off.
+- [ ] **T-140** *(new user decision D2b, opened 2026-10-22; **open**; if unanswered
+      by the time T-123 is approved, the recommended default applies, as for D4)* D2
+      (re-run the entire classification once the rule is tested) stands. What is asked
+      is its mechanism. The plan first specified full GPU re-inference; the stored
+      scores make a re-label equivalent for rules confined to level 2 (PLAN step 6, with
+      the measured counts). **Recommended default:** re-label from stored scores after
+      the 300-article verification in T-124, with GPU only for what the stored scores
+      cannot reproduce. Alternative: full re-inference regardless (about 98k articles on
+      GPU, with the 72-hour stop/go). Blocks T-124.
 - [x] **T-134** *(user decision D7, **decided 2026-10-22 at the default**; the plan's
       "date window" bullet)* The date window. 62,406 of 98,462 `ok` articles (63.4%) were
       published before 2022 (the collector's range starts 2022-01-01; its sitemap
@@ -489,10 +502,11 @@ Dependencies at a glance:
       the judge calls relevant; no per-slug regression beyond
       `--check-regression`'s tolerance. T-124 does not start unless T-123
       meets them and the owner approves.
-- [ ] **T-124** *(D2 = yes, decided 2026-10-14)* Re-run the **entire**
-      category classification over the corrected corpus (every row remaining
+- [ ] **T-124** *(D2 = yes, decided 2026-10-14; mechanism per T-140)* Re-classify the
+      **entire** category classification over the corrected corpus (every row remaining
       after the crawler re-tag; record the count at launch, it will no longer
-      be 459,112; full re-inference on GPU, not a re-label of stored scores), but only
+      be 459,112), by a re-label of the stored scores unless the verification below
+      fails or the rule needs inputs they lack (PLAN step 6), but only
       after T-123 shows a satisfactory, user-approved result — not before.
       **Always begins by moving the whole `article_category` aside**
       (snapshot, then `ALTER TABLE article_category RENAME TO
@@ -517,12 +531,22 @@ Dependencies at a glance:
       other row. The count at launch includes them.
       *Scale (2026-10-22):* the corrected corpus is 98,462 articles (21.4% of the
       459,112 originally classified), at most 32.8% if all 52,039 `review` pairs were
-      released, so the GPU projection is redone on that count (and the D7 window), not
+      released, so the cost projection (GPU path only, see T-140) is redone on that count (and the D7 window), not
       reused from the old corpus.
-      *Cost stop/go:* the scratch run reports articles per hour and a projected
-      GPU duration for the full corpus; if the projection exceeds 72 hours on
-      the available GPU, stop and bring it to the owner before launching
-      (provisional threshold, the owner may change it).
+      *Mechanism and verification (D2b, T-140):* first re-infer a random sample of 300
+      confirmed articles on a scratch copy and compare the fresh nine leaf scores and
+      `group_score` with the stored ones (tolerance 1e-4). If all match, re-label every
+      row from its stored scores with the new rule (a text-only gate needs no inference);
+      GPU inference then covers only the short-circuited articles if the level-1 floor
+      is lowered, or every article if the top-2 selection, hypothesis wording (option D),
+      the input length (option H) or the model changes. If any compared score differs,
+      use full re-inference. The row counts that bound the re-label are in PLAN step 6
+      (92,318 of 93,330 confirmed articles are re-labelable from level-2 scores; 1,012
+      short-circuited).
+      *Cost stop/go (GPU path only):* the scratch run reports articles per hour and a
+      projected GPU duration for the articles that need inference; if the projection
+      exceeds 72 hours on the available GPU, stop and bring it to the owner before
+      launching (provisional threshold, the owner may change it).
 - [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
       `other` rows and propose taxonomy additions. Only if `other` is still
       large after T-123 and the clusters are coherent; amends the taxonomy
