@@ -60,6 +60,7 @@ from pathlib import Path
 # change to taxonomy.py cannot leave this check testing stale numbers. Only the pure
 # `news_nlp.taxonomy` module is read (no model, no torch).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from news_nlp.db import SourceSchemaError, check_schema
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_FLOOR,
@@ -68,10 +69,6 @@ from news_nlp.taxonomy import (
 )
 
 Z95 = 1.96
-# The script reads discovered_urls.match_class (schema 2) and articles.fetch_status; 3 is the
-# repo-wide minimum (upstream hand-off 2026-10-21, 8.1), kept equal so there is one number.
-# T-135 replaces this check with the shared guard.
-MIN_SOURCE_VERSION = 3
 
 
 def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
@@ -105,13 +102,14 @@ def section(title: str) -> None:
 
 def report_versions_and_runs(conn: sqlite3.Connection) -> None:
     section("SOURCE schema version and stored category judgements")
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    print("urls.db user_version:", version)
-    if version < MIN_SOURCE_VERSION:
-        raise SystemExit(
-            f"urls.db is at user_version {version}; this script reads discovered_urls.match_class "
-            f"and needs {MIN_SOURCE_VERSION} or later. Point --source-db at the corrected crawl store."
+    try:  # the shared SOURCE guard (T-135): the minimum version plus the columns read here
+        version = check_schema(
+            conn,
+            columns={"articles": ("id", "fetch_status"), "discovered_urls": ("id", "match_class")},
         )
+    except SourceSchemaError as exc:
+        raise SystemExit(f"{exc} (this script reads discovered_urls.match_class)") from exc
+    print("urls.db user_version:", version)
     stored = dict(
         conn.execute(
             "SELECT run_id, COUNT(*) FROM r.eval_verdict WHERE task = 'category' GROUP BY run_id"

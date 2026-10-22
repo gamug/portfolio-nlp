@@ -792,7 +792,7 @@ read a second table. A read-only guard at the single choke point, minimum 3, fai
 on lower and on 0, warn once on higher, never cached, plus a column guard. →
 `PLAN.md` Work item 16. Task order: T-135, T-136, then T-136b (close-out).
 
-- [ ] **T-135** Implement `check_schema(source, minimum, columns)` (name open) in
+- [x] **T-135** *(done 2026-10-22, `feat/source-schema-guard`)* Implement `check_schema(source, minimum, columns)` (name open) in
       `news_nlp.db`, called by `connect_pipeline` / `attach_source` before any query.
       `source` is a path or an open read-only `sqlite3` connection, so it has no
       dependency on `NewsNlpDatabase` and scripts (the 2026-10-22 measurement script)
@@ -813,11 +813,11 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
       - **Steps:** read `PRAGMA user_version` through a `mode=ro` open; fail on 0 and on
         lower with the path, the version found, the minimum and the action ("start the
         collector or the extractor so it migrates the file, or point to the right
-        file"); warn once per process on higher (a module-level flag; each new process warns again); then `PRAGMA table_info` on the tables in the list and fail on
+        file"); warn once per process on a version above the latest seen, 5 (a module-level flag; each new process warns again; 3, 4 and 5 do not warn); then `PRAGMA table_info` on the tables in the list and fail on
         a missing column (the parameterized list) even if the number passes; never cache
         between opens; write nothing.
       - **Done when:** tests on small generated files pass: version 0 and 2 fail; 3, 4, 5
-        pass; 6 passes with one warning (two opens in one process give one warning; a second
+        pass; 6 passes with one warning (3, 4, 5 none; two opens in one process give one warning; a second
         process warns again); version 3 without `body_text` fails on the column guard
         (the `prev_fetch_status` case belongs to T-132's Done-when); a file re-stamped 5 → 3 between two opens passes both times; a
         WAL file with a live writer opens read-only; the file hash is identical before
@@ -839,7 +839,7 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         its own PR. Test: the helper runs on a bare `mode=ro` connection with no
         `NewsNlpDatabase`.
       - **Depends on:** D8 (decided, T-139). **Blocks:** T-132.
-- [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
+- [x] **T-136** *(done 2026-10-22, in `docs/db-topology.md`, "How a pipeline run uses both" step 3)* Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
       `discovery_progress` are not part of the contract. Depends on T-135.
 - [ ] **T-136b** Close-out of Work item 16: annotate `SPEC.md` §13 item 20 / §14 as

@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from conftest import LEAN_ARTICLES_SCHEMA
+from conftest import LEAN_ARTICLES_SCHEMA, stamp_source
 
 import news_nlp as db
 
@@ -157,19 +157,25 @@ def test_source_database_is_never_written(
 def test_require_source_text_raises_when_source_lacks_body_text(
     results_db_path: Path, tmp_path: Path
 ) -> None:
+    # A stamped SOURCE without `body_text` is now stopped by the schema guard at
+    # connect_pipeline (the column guard); require_source_text still covers the
+    # single-file case, where nothing is attached and the guard does not run.
     lean_source = tmp_path / "lean_source.db"
     setup = sqlite3.connect(lean_source)
     setup.executescript(LEAN_ARTICLES_SCHEMA)
+    stamp_source(setup)
     setup.commit()
     setup.close()
 
-    conn = db.connect_pipeline(results_db=results_db_path, source_db=lean_source)
+    with pytest.raises(db.SourceSchemaError, match="body_text"):
+        db.connect_pipeline(results_db=results_db_path, source_db=lean_source)
+
+    single = db.connect(lean_source)
     try:
         with pytest.raises(RuntimeError, match="body_text"):
-            db.require_source_text(conn)
+            db.require_source_text(single)
     finally:
-        db.detach_source(conn)
-        conn.close()
+        single.close()
 
 
 def test_require_source_text_passes_on_a_populated_source(

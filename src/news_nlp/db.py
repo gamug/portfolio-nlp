@@ -35,6 +35,10 @@ See ``docs/db-topology.md``.
 from __future__ import annotations
 
 import os
+import sqlite3
+import warnings
+from pathlib import Path
+from typing import Protocol
 
 from portfolio_common.db import Allowlist, TwoTierDatabase, connect_two_store
 
@@ -53,6 +57,114 @@ _NO_SOURCE_TEXT_MSG = (
     "(e.g. urls.db), not the results store. "
     "See docs/db-topology.md."
 )
+
+# The SOURCE (`urls.db`) schema contract this repo relies on. `PRAGMA user_version` is
+# stamped by `portfolio-data-mining`; the number is copied here, never imported
+# (that would couple this repo to its package). Upstream's version table (hand-off
+# 2026-10-21, 8.1): `discovered_urls.match_class` arrives at 2, `articles.prev_fetch_status`
+# and the quarantine semantics at 3; 4 and 5 add nothing read here. Migrations are
+# additive and forward-only, so a minimum is checked, not an exact match (a documented
+# cache rollback re-stamps 5 back to 3). Cache tables (`sitemap_*`, `discovery_progress`)
+# are not part of the contract: never read, join or attach them.
+MIN_SOURCE_SCHEMA_VERSION = 3
+
+# The highest version this repo has seen (today's real file). Above it, warn once per
+# process: a newer schema is probably fine (additive) but nobody here has checked it.
+LATEST_KNOWN_SOURCE_SCHEMA_VERSION = 5
+
+# Columns read from SOURCE today. A new SOURCE table or column read adds itself here
+# in the same PR (T-132 adds `prev_fetch_status` and `discovered_urls`).
+SOURCE_REQUIRED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "articles": ("id", "ticker", "company", "pub_date", "body_text", "fetch_status"),
+}
+
+_warned_newer_schema = False
+
+
+class SourceSchemaError(RuntimeError):
+    """SOURCE is not a database this repo can read: its schema version is below the
+    minimum (or unstamped), or a required column is missing. A configuration error,
+    not a client error."""
+
+
+class _Executes(Protocol):
+    def execute(self, sql: str, /) -> sqlite3.Cursor: ...
+
+
+def check_schema(
+    source: str | os.PathLike[str] | _Executes,
+    minimum: int = MIN_SOURCE_SCHEMA_VERSION,
+    columns: dict[str, tuple[str, ...]] | None = None,
+    *,
+    schema: str = "main",
+    name: str | None = None,
+) -> int:
+    """Check a SOURCE database's ``PRAGMA user_version`` and required columns; return
+    the version found. Read-only; nothing is cached between calls.
+
+    *source* is a path (opened here ``mode=ro`` and closed) or an open connection
+    (anything with ``execute``; *schema* names the database on it, ``"source"`` for an
+    ATTACHed one), so scripts can call it without a ``NewsNlpDatabase``. Raises
+    :class:`SourceSchemaError` on a version below *minimum* (0 included) and on a missing
+    column even when the number passes ("the number is a promise, the columns are the
+    fact"); warns once per process on a higher version.
+    """
+    global _warned_newer_schema  # noqa: PLW0603 -- once-per-process flag by design
+    wanted = SOURCE_REQUIRED_COLUMNS if columns is None else columns
+    if isinstance(source, str | os.PathLike):
+        path = Path(source)
+        raw = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return check_schema(raw, minimum, wanted, schema="main", name=name or str(path))
+        finally:
+            raw.close()
+    if not schema.isidentifier():
+        raise ValueError(f"schema must be an identifier, got {schema!r}")
+    label = name or schema
+    version = int(source.execute(f"PRAGMA {schema}.user_version").fetchone()[0])
+    if version < minimum:
+        raise SourceSchemaError(
+            f"SOURCE database {label} is at schema version {version}; this repo needs "
+            f"{minimum} or later{' (0 means never stamped: not a data-mining database)' if version == 0 else ''}. "
+            "Start the collector or the extractor so it migrates the file, or point "
+            "SOURCE_DATABASE_URL at the right file. See docs/db-topology.md."
+        )
+    for table, cols in wanted.items():
+        if not table.isidentifier():
+            raise ValueError(f"table must be an identifier, got {table!r}")
+        present = {row[1] for row in source.execute(f"PRAGMA {schema}.table_info({table})")}
+        missing = [c for c in cols if c not in present]
+        if missing:
+            raise SourceSchemaError(
+                f"SOURCE database {label} (schema version {version}) has no "
+                f"{table}.{', '.join(missing)}; the number passed but the columns this repo "
+                "reads are not all there. Point SOURCE_DATABASE_URL at the crawl database "
+                "(e.g. urls.db). See docs/db-topology.md."
+            )
+    if version > LATEST_KNOWN_SOURCE_SCHEMA_VERSION and not _warned_newer_schema:
+        _warned_newer_schema = True
+        warnings.warn(
+            f"SOURCE database {label} is at schema version {version}, newer than the "
+            f"latest this repo has seen ({LATEST_KNOWN_SOURCE_SCHEMA_VERSION}); migrations are "
+            "additive, so continuing.",
+            stacklevel=2,
+        )
+    return version
+
+
+def check_source(
+    source_db: str | os.PathLike[str] | None = None,
+    results_db: str | os.PathLike[str] | None = None,
+) -> None:
+    """Run :func:`check_schema` on the configured SOURCE *before* a run starts (the API
+    handler does this, ahead of its background worker). A no-op when no SOURCE is
+    configured or it is the same file as RESULTS (nothing is attached then; the
+    pipeline raises its own message)."""
+    source = env.source_db_path(source_db)
+    if source is None or source.resolve() == env.results_db_path(results_db).resolve():
+        return
+    check_schema(source)
+
 
 # Only ever "main" (single-file / serving) or "source" (a SOURCE DB is
 # ATTACHed) -- `_articles_rel` reads it off the connection's tracked
@@ -121,9 +233,15 @@ def connect_pipeline(
     source = env.source_db_path(source_db)
     if source is None:
         raise RuntimeError(_NO_SOURCE_MSG)
-    db, _ = connect_two_store(
+    db, read_schema = connect_two_store(
         results, source, alias="source", factory=NewsNlpDatabase, foreign_keys=True
     )
+    if read_schema == "source":  # a distinct SOURCE is attached: check it before any query
+        try:
+            check_schema(db, schema="source", name=str(source))
+        except Exception:
+            db.close()
+            raise
     return db
 
 

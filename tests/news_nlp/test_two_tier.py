@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from conftest import LEAN_ARTICLES_SCHEMA, seed_article
+from conftest import LEAN_ARTICLES_SCHEMA, seed_article, stamp_source
 from fastapi.testclient import TestClient
 
 import news_nlp as db
@@ -30,6 +30,7 @@ def test_run_pipeline_raises_when_source_lacks_body_text(
     lean_source = tmp_path / "lean_source.db"
     setup = sqlite3.connect(lean_source)
     setup.executescript(LEAN_ARTICLES_SCHEMA)
+    stamp_source(setup)
     setup.commit()
     setup.close()
 

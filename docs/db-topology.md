@@ -77,7 +77,18 @@ lean `articles` row per processed article, so it stays self-consistent without
    sets `db.read_schema` (aliased `db.articles_rel`) to `"source"` —
    delegating the ATTACH and its orphaned-WAL preflight to
    `Database.attach(source, "source", read_only=True)`.
-3. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
+3. `news_nlp.db.check_schema()` then checks the attached SOURCE (only when one is
+   attached, so not on single-file runs or the no-SOURCE endpoints): `PRAGMA user_version`
+   must be **at least `MIN_SOURCE_SCHEMA_VERSION` (3)** and the columns this repo reads
+   (`SOURCE_REQUIRED_COLUMNS`) must exist, else `SourceSchemaError`; a version above the
+   latest seen (5) warns once per process. It is a minimum, not an exact match, because
+   `portfolio-data-mining`'s migrations are additive and forward-only (a documented
+   cache rollback re-stamps 5 back to 3, which an exact match would reject). The
+   minimum is a copied constant, never an import of `data_mining`; the real `urls.db` is at 5. The cache tables
+   (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not part of the
+   contract and are never read, joined or attached. `POST /pipeline/run` runs the same
+   check before its background worker and answers 503 with the message.
+4. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
    that `articles` table has no `body_text` column or no non-empty `body_text`
    row — the common "pointed a text stage at the results store" mistake, which
    used to surface as a silent *"0 pending"*.
