@@ -66,7 +66,9 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
 - [x] **T-041** **Superseded 2026-10-14 → Work item 15** (the `other` bucket
       turned out to mix an upstream relevance problem with the calibration
       problem described here; both are now tracked there; no work done under
-      this ID). Original text: `other`'s own precision (0.474) is still an open
+      this ID; Work item 15's calibration step, T-121, now plans a stratified
+      judged sample of up to 3,300 calls with a fit/report split, 2026-10-22).
+      Original text: `other`'s own precision (0.474) is still an open
       calibration target (`docs/evaluation.md` "The `other` bucket: a
       precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a
       slug-specific threshold next, not another global

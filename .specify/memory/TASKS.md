@@ -223,8 +223,8 @@ stratified by source and period (`docs/evaluation.md`), found wrong tagging expl
 most about 11% of `other` (rejected articles are 68.8% of the corpus and 70.8% of
 `other`; `other` is 37.9% of confirmed articles and 43.9% of rejected ones). The main
 lever is therefore calibration, which does not wait for the relevance work. Plan:
-calibrate per-slug thresholds and a margin rule offline from stored scores (T-121, after
-T-133's partition); clean up the results the tagging fix removed (T-131, after a
+calibrate per-slug thresholds and a margin rule offline from stored scores (T-121(a) after
+T-133's partition, then T-121(b)'s judged sample once the owner approves the spend); clean up the results the tagging fix removed (T-131, after a
 pre-purge check); decide the doubtful `review` pairs (T-132); build a relevance gate only
 if what remains justifies one (T-117's rule); then re-evaluate and re-classify (T-123,
 T-124, by a re-label unless T-140 says otherwise).
@@ -246,7 +246,8 @@ Dependencies at a glance:
 | T-132 quarantined pairs | T-128, T-139 (D5, D6) | T-117 | **yes** |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121 offline calibration | T-133 (partition of the stored verdicts) | T-122 | **yes, after T-133**; population = confirmed articles (the gated-in one only if a gate is built) |
+| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
+| T-121(b) judged calibration sample | T-121(a), owner's spend approval (~3,300 calls) and LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
 | T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 | T-124 | no |
@@ -441,9 +442,9 @@ Dependencies at a glance:
       placeholders and T-119/T-120 do not begin.
       *Judge-call budget (planning estimate, re-derive before spending):*
       ~810 for R and N, ~300 to validate T-130 against the hand labels,
-      ~400 for T-132's `undecided` remainder, ~2,820 for T-121's stratified sample on
-      confirmed articles, which also serves as T-123's baseline (see T-121; replaces
-      the earlier ~900), ~400 for T-131's pre-purge check; about 4,700 in total at most. Record the actual spend
+      ~400 for T-132's `undecided` remainder, ~3,300 for T-121(b)'s stratified sample on
+      confirmed articles, which also provides T-123's baseline (see T-121; replaces
+      the earlier ~900), ~400 for T-131's pre-purge check; about 5,200 in total at most. Record the actual spend
       in `docs/evaluation.md`. LLM credentials (`LLM_API_KEY`/`LLM_MODEL`/
       `LLM_URL`) belong to the maintainer; CI tests stay hermetic (mocked
       LLM, no live calls).
@@ -480,24 +481,38 @@ Dependencies at a glance:
       per-slug precision; report the trade-off table. **Depends on T-133, not on
       T-117:** the population check of 2026-10-22 (`other` follows the corpus, 37.9% on
       confirmed articles) makes calibration the main lever, and it needs no relevance
-      measurement. **Input:** a fresh judged sample of confirmed articles, 60 per
-      (predicted slug x score band) cell (45 cells, all populated >=60 on the real store)
-      plus 60 from the level-1 short-circuit stratum; at most 2,820 judge calls, less
-      the eval_run 43 verdicts that already fall in a cell; population-weighted so
-      T-123 reuses it as its baseline. It replaces T-123's ~900-call baseline
-      in the T-117 budget (new planning total about 4,700). → step 4.
+      measurement. Two parts:
+      **(a) free:** re-simulate on eval_run 43's stored verdicts (where the stored label
+      equals the argmax slug, i.e. score >= 0.6) to get a first, coarse trade-off table.
+      **(b) paid, needs the owner's spend approval at T-117 sign-off:** a fresh judged
+      sample of confirmed articles, stratified by predicted slug (argmax) x score band
+      (45 cells, all populated >= 60 on the real store as counted 2026-10-22) plus the
+      level-1 short-circuit stratum. **What is judged:** the judge is asked whether the
+      *argmax slug* fits the article (a per-slug precision question, new judge prompt
+      wording, stored as its own `eval_verdict` kind so it never mixes with the
+      stored-label verdicts); the short-circuit stratum is asked whether `other` is
+      correct. eval_run 43's verdicts answer a different question below 0.6 (they graded
+      `other`), so they are reused only in the >= 0.6 cells, where label = argmax.
+      **Size:** 90 per cell in the 0.4-0.5 and 0.5-0.6 bands (18 cells; the band where a
+      threshold moves labels; 95% interval about +-10 points on the half used for
+      reporting, 45 items), 60 per cell elsewhere (27 cells), 60 short-circuit: 3,300
+      calls at most, less reuse. **Held-out split:** each cell is split at random (seeded)
+      in halves; thresholds and the margin rule are fitted on the fit half only, and
+      T-123's baseline and candidate numbers are computed on the report half only (each
+      table states which half it uses). Items are population-weighted (cell population /
+      cell sample). Replaces T-123's ~900-call baseline in the T-117 budget (new
+      planning total about 5,200). → step 4.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. → step 4.
 - [ ] **T-123** Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
       `549ddbdf`; the only category run whose judgements are stored, eval_run 21's are
       not) recomputed from stored judgements (restricted to articles still in
-      the corrected corpus). **A fresh judged sample of confirmed articles is
-      required, not optional:** the stored run has only 68 `other`-predicted confirmed
-      articles in its unskewed bucket (precision about 0.37, interval 26–49%), and a
-      ±5-point estimate of that precision needs about 359 such articles, i.e. about 900
-      confirmed articles judged (40% of them are predicted `other`); budgeted under
-      T-117. Candidate computed the
+      the corrected corpus). **The baseline comes from T-121(b)'s
+      stratified sample, report half only** (the stored run has only 68
+      `other`-predicted confirmed articles in its unskewed bucket, precision about 0.37,
+      interval 26-49%, too few; a +-5-point estimate would need about 359 such
+      articles). Budgeted under T-117 as T-121(b). Candidate computed the
       same way, one side-by-side table with the complete constitution #12
       metric set, on the full and the gated-in population; run
       `--check-regression`. → step 5 / acceptance criteria.

@@ -2055,8 +2055,8 @@ articles (67%) as on confirmed ones (37%): the quoted `other` precision (0.576 i
 is inflated by off-topic articles, and on confirmed articles it is nearer 0.37. The
 substantive-label difference (67% vs 54%) points the expected way but its intervals
 overlap. The confirmed-article `other` figure rests on 68 articles; a ±5-point estimate
-needs about 359 such articles (about 900 confirmed articles judged), so T-123 needs a fresh
-judged sample (budgeted under T-117). Not claimed: any per-class precision/recall/F1 on
+needs about 359 such articles, so T-123 takes its baseline from T-121(b)'s stratified
+judged sample (report half; budgeted under T-117). Not claimed: any per-class precision/recall/F1 on
 the confirmed partition, or that these rates carry over to the corrected corpus after
 the next upstream change.
 
@@ -2064,9 +2064,10 @@ the next upstream change.
 rule (group floor 0.4, argmax, threshold 0.6) to the stored scores reproduces the stored
 label on all 459,112 rows (0 mismatches; 16,698 level-1 short-circuits), so a re-label from
 stored scores is exact for the current rule. Confirmed articles by predicted slug x score
-band give 45 cells, all with at least 60 articles (smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
-level-1 short-circuits: 60 per cell plus 60 short-circuit is 2,820 judge calls at most.
-That stratified sample is T-121's input and, population-weighted, T-123's baseline.
+band give 45 cells, all with at least 60 articles (counts as of 2026-10-22, not design constants; smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
+level-1 short-circuits: T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere and 60 short-circuit:
+3,300 judge calls at most, split in halves (fit / report) so T-123's baseline is not scored
+on the data the thresholds were fitted on.
 
 ## What it evaluates
 
