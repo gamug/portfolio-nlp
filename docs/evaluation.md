@@ -2056,7 +2056,7 @@ is inflated by off-topic articles, and on confirmed articles it is nearer 0.37. 
 substantive-label difference (67% vs 54%) points the expected way but its intervals
 overlap. The confirmed-article `other` figure rests on 68 articles; a ±5-point estimate
 needs about 359 such articles, so T-123 takes its baseline from T-121(b)'s stratified
-judged sample (report half; budgeted under T-117). Not claimed: any per-class precision/recall/F1 on
+judged sample (report half; funded by D10, T-142). Not claimed: any per-class precision/recall/F1 on
 the confirmed partition, or that these rates carry over to the corrected corpus after
 the next upstream change.
 

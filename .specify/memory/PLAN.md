@@ -1857,16 +1857,21 @@ changing the RESULTS contract):
    stored verdicts (it does not wait for T-117). **Input: a fresh judged sample, not
    the stored verdicts alone** (eval_run 43 holds only 20 to 63 confirmed judged items per
    predicted slug, and below 0.6 it graded `other`, not the argmax slug). Part (a) is free:
-   re-simulate on the stored verdicts where label = argmax. Part (b) is paid (owner's spend
-   approval at T-117 sign-off): stratify confirmed articles by predicted slug (argmax) x
+   re-simulate on the stored verdicts where label = argmax. Part (b) is paid (its own spend
+   decision, D10): stratify confirmed articles by predicted slug (argmax) x
    score band (<0.4, 0.4-0.5, 0.5-0.6, 0.6-0.8, >=0.8): 45 cells, plus the level-1
    short-circuit stratum (1,012 articles). Counted on the real store (2026-10-22): every
    cell holds at least 60 articles. The judge is asked whether the argmax slug fits
    (short-circuit stratum: whether `other` is correct), stored as its own verdict kind.
    Size: 90 per cell in the 0.4-0.6 bands (where thresholds move labels), 60 elsewhere,
-   60 short-circuit: 3,300 judge calls at most. Split each cell at random in halves: fit
+   60 short-circuit: 3,300 judge calls at most. Split each cell at random (seeded) in halves: fit
    thresholds on one, report T-123's baseline and candidate on the other (a number tuned
-   on the data it is scored on would be inflated). Population-weight each item. Ship as constants beside
+   on the data it is scored on would be inflated). Population-weight each item. The judge
+   returns the best-fitting label from the full taxonomy (`other` included), so any rule is
+   scored against the same truth label, below 0.6 as well. Store the seed, band edges,
+   cell populations and half assignment in the run's config. The code is T-141 (judge
+   wording frozen there; a later wording or D1 change forces a re-judge); the spend is
+   D10 (T-142), decided on its own, so calibration does not wait for T-117's sign-off. Ship as constants beside
    `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` (same home, same
    review path). Treat the zeros in the 3rd-place group's columns as "not
    evaluated", never as evidence (`docs/category-taxonomy.md`). Try
@@ -2003,7 +2008,7 @@ changing the RESULTS contract):
   the corpus, so the quoted 0.474 and 0.576 are not directly comparable). The
   baseline is T-121(b)'s stratified sample, report half only (the stored run has only 68
   `other`-predicted confirmed articles, far below what a +-5-point estimate needs); its
-  cost is budgeted under T-117.
+  cost is funded by D10 (T-142).
 - Existing results for articles the crawler fix removes (all stage tables,
   the lean `articles` copy and `sector_summary`) are cleaned up per the
   owner's D4 decision: removed ids moved to `<table>_removed` archives (kept
