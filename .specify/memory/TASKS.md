@@ -231,7 +231,10 @@ T-124, by a re-label unless T-140 says otherwise).
 → `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
 
 Tasks are listed in execution order within Work item 15, not ID order (IDs are
-stable; T-130 to T-134, T-139 to T-142 were added after the rest). One cross-item
+stable; T-130 to T-134, T-139 to T-142 were added after the rest; T-135 to T-138
+belong to Work items 16 and 17, which is why the numbers skip; a letter suffix such as
+`T-136b` is the close-out of its work item, unlike T-121(a)/(b), which are parts of one
+task). One cross-item
 ordering: Work item 16's T-135 (the schema guard) comes before T-132 although it is
 listed further down; the table below and `PLAN.md`'s Sequencing section are the
 authority.

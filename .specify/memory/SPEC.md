@@ -895,7 +895,7 @@ treating a related FR/NR as done:
     opt-in relevance judge, the results cleanup — per this document's own
     rule. The calibrated decision rule is fitted on a stratified, held-out judged sample
     (`TASKS.md` T-121, T-141; spend decision D10, T-142). `PLAN.md` Work item 15,
-    `TASKS.md` T-116–T-142.
+    `TASKS.md` T-116–T-134 and T-139–T-142 (T-135–T-138 are Work items 16 and 17).
     **Update (2026-10-22): the upstream fix has landed and resized the problem.**
     `portfolio-data-mining`'s re-tag (2026-10-15) classed 481,332 pairs as `accept`
     104,614 / `review` 51,295 / `reject` 325,423; the 459,112 articles classified here
