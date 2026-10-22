@@ -787,8 +787,11 @@ read a second table. A read-only guard at the single choke point, minimum 3, fai
 on lower and on 0, warn once on higher, never cached, plus a column guard. →
 `PLAN.md` Work item 16. Task order: T-135, then T-136.
 
-- [ ] **T-135** Implement `check_schema` (name open) in `news_nlp.db`, called by
-      `connect_pipeline` / `attach_source` before any query.
+- [ ] **T-135** Implement `check_schema(source, minimum, columns)` (name open) in
+      `news_nlp.db`, called by `connect_pipeline` / `attach_source` before any query.
+      `source` is a path or an open read-only `sqlite3` connection, so it has no
+      dependency on `NewsNlpDatabase` and scripts (the 2026-10-22 measurement script)
+      can call it too; `attach_source` is one caller, not the only one.
       - **Inputs:** the constant `MIN_SOURCE_SCHEMA_VERSION = 3` copied into this repo
         (never import `data_mining`), and the columns this repo reads from SOURCE
         **today** (`articles.id`, `fetch_status`, `body_text`, `company`, `ticker`,
@@ -827,7 +830,8 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         version check for this guard (its constant said 5; upstream's table puts
         `match_class` at 2 and `prev_fetch_status` at 3, so the minimum is 3). Any new
         SOURCE table or column read (T-132, T-137, …) adds itself to the guard list in
-        its own PR.
+        its own PR. Test: the helper runs on a bare `mode=ro` connection with no
+        `NewsNlpDatabase`.
       - **Depends on:** D8 (decided, T-139). **Blocks:** T-132.
 - [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
