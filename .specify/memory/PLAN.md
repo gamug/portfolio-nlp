@@ -2095,7 +2095,7 @@ than one ticker, holding 51,991 of 162,021 pairs (32.1%) and **35,387 of the 98,
 tickers, never the body), and some are share-class twins, not multi-company articles
 (deduped by body hash). In this repo every stage keys on `article_id`, i.e. on the pair,
 and only sentiment scopes to the subject, so a roundup's one category, entity list and
-summary are read as each tagged company's. 10,493 `review` pairs (20.2%) sit on a URL
+summary are read as each tagged company's. 10,493 of the 52,039 `review` pairs (20.2%) sit on a URL
 that also has an `accept` pair; releasing one because its sibling is `accept` is
 explicitly not allowed (a pair is released on its own evidence).
 
@@ -2116,7 +2116,10 @@ Code & Git #9), and absorbs T-127's sentiment finding when that is measured.
 **Acceptance**: the sampled groups report the real companies-per-article distribution
 per stratum; a hand sample (about 20 groups per type, seeded with upstream's 42 News
 Corp multi-company URLs) measures attribution precision, fact binding and role
-agreement per type, never one average; thresholds to trust a fact are a joint decision.
+agreement per type, never one average, each with a Wilson interval; thresholds to trust
+a fact are a joint decision. The sizing is a committed read-only script plus a dated
+follow-up in `docs/evaluation.md` (T-137); the 20-per-type hand sample is a smoke test,
+not a measurement, unless the owner sets a larger N.
 
 ## Sequencing
 

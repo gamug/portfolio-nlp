@@ -855,17 +855,28 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         on the number of distinct companies, share of sentences and the lead first;
         strata: all-`accept` multi-pair, `accept` + `review`, all-`review`, single-pair
         control.
+      - **Where:** a committed, rerunnable, read-only script under `scripts/` (both stores
+        opened `mode=ro`, the T-135 guard called on SOURCE); the exact command and the
+        result in a dated follow-up in `docs/evaluation.md`, as Work item 15 does.
+      - **Sample:** allocation 500 groups per stratum (equal, so the small strata
+        are measured; the all-`review` stratum is the large one, so pooled figures are
+        re-weighted by stratum population and both are reported), the seed stored in the
+        report, Wilson 95% intervals on every per-stratum and per-type proportion; the
+        hand sample of about 20 groups per type is a **smoke test, not a measurement**
+        (a proportion on 20 has an interval of about ±20 points) unless the owner sets a
+        larger N, and no trust threshold is set from it; labels by the owner, or by a
+        written rule recorded with the report.
       - **Done when:** the real companies-per-article distribution per stratum replaces
-        the 16.7% floor; a hand sample (about 20 groups per type, seeded with upstream's
-        42 News Corp multi-company URLs) reports role agreement per type, never one
-        average. Report; do not ship.
+        the 16.7% floor, reproducible from the command above; a hand sample (seeded with
+        upstream's 42 News Corp multi-company URLs) reports role agreement per type with
+        its interval, never one average. Report; do not ship.
       - **Depends on:** T-132's grouping and ORG-to-ticker resolution; D9 (decided, T-139).
 - [ ] **T-138** *(conditional on T-137's result; D9 decided)* Build the stages the sizing justifies:
       roles, sentence attribution with offsets (a sentence naming two companies is
       flagged shared and keeps both), facts per `(article, company)` from attributed
       spans only, and the `multi` flag on every article-level score of a multi-subject
       group. A `review` pair is released on its own evidence, never because a sibling
-      pair on the URL is `accept` (10,493 pairs are in that situation). Scope and fact
+      pair on the URL is `accept` (10,493 of the 52,039 pairs are in that situation). Scope and fact
       types set after T-137 and the knowledge-graph owner's answer; one FR per behavior
       in the PR that ships it.
 
