@@ -68,7 +68,7 @@ open thread and the doc-consistency cleanup. → `PLAN.md` Work item 5,
       problem described here; both are now tracked there; no work done under
       this ID; Work item 15's calibration step, T-121, now plans a stratified
       judged sample of 3,300 calls (cap 3,800) with a fit/report split, a dedicated judge and
-      sampler (T-141) and its own spend decision (T-142), 2026-10-22; the owner approved D10 at a 3,800-call cap, chose re-label for D2b and confirmed the T-117 thresholds at the defaults the same day).
+      sampler (T-141) and its own spend decision (T-142), 2026-10-22; the owner approved D10 at a 3,800-call cap, chose re-label for D2b and confirmed the T-117 thresholds and D4 at the recommended defaults the same day).
       Original text: `other`'s own precision (0.474) is still an open
       calibration target (`docs/evaluation.md` "The `other` bucket: a
       precision problem of its own") — likely `CATEGORY_GROUP_FLOOR` or a

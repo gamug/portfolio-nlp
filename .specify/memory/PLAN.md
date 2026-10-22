@@ -1959,10 +1959,9 @@ changing the RESULTS contract):
    (c) regeneration of the affected `sector_summary` rows — either by
    bumping `SECTOR_SUMMARY_FORMAT_VERSION` (every closed week is then pending
    again at the next `--summarize` run) or by deleting only the affected
-   `(sector, sub_industry, week)` rows; (d) the owner's decision, defaulting to the recommended option if none is
-   made by the time T-123 is approved (D4: keep the `<table>_removed` archives —
-   recommended — or drop them after verification; whole-table bump vs.
-   targeted deletion of `sector_summary` rows),
+   `(sector, sub_industry, week)` rows; (d) the owner's decision D4, made on 2026-10-22 at the recommended options (keep the
+   `<table>_removed` archives; delete only the affected `sector_summary` rows, no version
+   bump),
    since it widens scope beyond the category stage (constitution AI behavior
    #10). Done **before** the step 6 re-run (never together), so no reader sees
    a half-cleaned store.
@@ -2023,13 +2022,13 @@ changing the RESULTS contract):
   cost is funded by D10 (T-142).
 - Existing results for articles the crawler fix removes (all stage tables,
   the lean `articles` copy and `sector_summary`) are cleaned up per the
-  owner's D4 decision: removed ids moved to `<table>_removed` archives (kept
-  or dropped per D4), no table renamed, before the full re-run — verified by
+  owner's D4 decision (2026-10-22): removed ids moved to `<table>_removed` archives
+  (kept), no table renamed, before the full re-run — verified by
   a query showing no live-table row, and no `sector_summary` input, whose
   article is absent from the corrected corpus, and by retained articles'
   sentiment/NER/summary row counts being unchanged.
 - The full re-run starts from an empty current `article_category` (snapshot
-  kept as `article_category_v1`) under either D4 outcome, and afterwards
+  kept as `article_category_v1`) and afterwards
   every article of the corrected corpus has exactly one current row.
 - No specific slug's precision regresses beyond the project's existing
   regression tolerance (`--check-regression`), per-class, using the
@@ -2142,13 +2141,14 @@ other, and independent of one another except where noted:
   (T-131, 315,822 articles' rows to purge on the 2026-10-22 count, derived by a join,
   not from a stale CSV), T-132 (49,960 `review` articles, 52,039 pairs on 2026-10-21) and T-124 (98,462 articles, not
   459,112). Owner decisions D5–D7 were settled on 2026-10-22 at their recorded defaults
-  (T-139); a second round the same day settled D10, D2b and the T-117 thresholds at the defaults (T-139); D4 stays open with its recorded default.
+  (T-139); a second round the same day settled D10, D2b and the T-117 thresholds at the defaults (T-139); D4 was settled the same day at its recommended defaults.
 - **Work item 15 (category `other` bucket) is open (filed 2026-10-14)** —
   D1–D3 are decided: the `not_relevant` label is the chosen representation
   but is produced only if T-117 shows a relevance gate is still worth
   building; the entire classification is re-run after a satisfactory test;
-  the ticker tagging is fixed at the source first. **D4 is open** (existing
-  results for removed articles, `sector_summary` included, T-131). It was
+  the ticker tagging is fixed at the source first. **D4 was settled on
+  2026-10-22 at its recommended defaults** (existing results for removed articles,
+  `sector_summary` included, T-131: keep the archives, delete only the affected rows). The work item was
   blocked on `portfolio-data-mining` Work item 10 (stop the crawler tagging
   articles with the wrong company and re-tag `urls.db`); that block is lifted, see
   the update above. T-116 (the "before" audit) and T-130 (the relevance judge, no

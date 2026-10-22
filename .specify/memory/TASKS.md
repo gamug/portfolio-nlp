@@ -212,7 +212,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
       "no VRAM regression" / "measured throughput" criteria, which need
       T-062).
 
-## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4 open with a recorded default; D5–D7, D10, D2b and the T-117 thresholds decided, see T-139)
+## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4, D5–D9, D10, D2b and the T-117 thresholds decided, see T-139)
 
 `other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
 figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
@@ -252,7 +252,7 @@ Dependencies at a glance:
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
-| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 (open; its default applies at T-123's approval) | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 (decided 2026-10-22, defaults) | T-124 | no |
 | T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **decided 2026-10-22, re-label from stored scores** |
 | T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
 | T-125, T-126 contingent | T-123 result | none | no |
@@ -336,11 +336,12 @@ Dependencies at a glance:
         above 0); `other` recall, accuracy and macro F1 each no worse than -0.02; false-reject
         at most 5% if a gate exists; no per-slug regression beyond `--check-regression`.
         **T-131 pre-purge stop/go:** 400-article sample, go if the upper bound is at most 5%.
-      - **Still open, with a recorded default:** **D4** (what happens to the existing results
-        of removed articles, T-131): not put to the owner yet; its recommended default
-        (keep the `<table>_removed` archives) applies at T-123's approval unless the owner
-        answers sooner; it is the first item of the next decision round. **The 72-hour GPU
-        stop/go** (T-124) is provisional and not part of the confirmed set; it matters only
+      - **D4 (T-131), decided 2026-10-22, both recommended defaults preserved:** (1) the
+        removed ids' rows are **kept** in `<table>_removed` archives (copy, then delete from
+        the live table, one transaction per table, dry run first), not dropped; (2)
+        `sector_summary` regenerates by **deleting only the affected `(sector, sub_industry,
+        week)` rows**, not by bumping `SECTOR_SUMMARY_FORMAT_VERSION`.
+      - **Still provisional:** **the 72-hour GPU stop/go** (T-124), not part of the confirmed set; it matters only
         if the GPU path is used, which D2b makes the exception. The release threshold for
         `about` is set jointly with data-mining after T-132's measurement.
 - [x] **T-140** *(new user decision D2b, opened 2026-10-22; **decided 2026-10-22: the recommended default, re-label from stored scores after the 300-article verification**)* D2
@@ -704,7 +705,7 @@ Dependencies at a glance:
         Upstream's one open criterion ("this repo confirms that wrong-company rows
         no longer reach its pending queries") is answered by the first point; tell
         that repo, with the caveat. → step 2.
-- [ ] **T-131** *(new; owner decision D4)* Plan and, once decided, execute
+- [ ] **T-131** *(new; owner decision D4, decided 2026-10-22 at the recommended defaults, see T-139)* Plan and execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) **derive the removed ids at run time with a read-only join** of
       RESULTS article ids to SOURCE (`match_class = 'reject'`, quarantined; about
@@ -741,16 +742,15 @@ Dependencies at a glance:
       `article_category` in T-124. (c) make `sector_summary` regenerate (bump
       `SECTOR_SUMMARY_FORMAT_VERSION` so every closed week is pending again,
       or delete only the affected `(sector, sub_industry, week)` rows) — it
-      regenerates only at the next `--summarize` run; (d) the owner decides D4
-      (keep the `<table>_removed` archives — recommended default — or drop
-      them after verification; whole-table bump vs. targeted deletion of
-      `sector_summary` rows), which (b) and (c) then apply. Runs **before**
+      regenerates only at the next `--summarize` run; (d) the owner decided D4 on
+      2026-10-22 at the recommended defaults: keep the `<table>_removed` archives, and
+      delete only the affected `sector_summary` rows (no version bump), which (b) and (c)
+      apply. Runs **before**
       T-124 (never together), so no reader sees a half-cleaned store.
       → step 6b.
-      *D4 default and deadline:* T-131 and T-124 need a D4 answer. If the
-      owner has not decided by the time T-123 is approved, the recommended
-      default applies (keep the `<table>_removed` archives;
-      delete only the affected `sector_summary` rows). T-131's execution may
+      *D4 (decided 2026-10-22):* the recommended defaults apply (keep the
+      `<table>_removed` archives; delete only the affected `sector_summary` rows).
+      T-131's execution may
       ship as its own PR; it stays in this work item because T-124 depends on
       its removed-id list and ordering.
 - [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
@@ -782,8 +782,8 @@ settled at their defaults on 2026-10-22 (T-139).
 gate; full re-run after a satisfactory test; fix the crawler first, T-128, now done).
 `portfolio-data-mining` has handed off the corrected corpus and its quarantined
 `review` pairs (T-132 decides them, before T-117). D4 (what to do with existing
-results for removed articles, T-131) is open (D5–D7 were settled at their defaults on
-2026-10-22, T-139). T-124 waits on
+results for removed articles, T-131) was settled on 2026-10-22 at its recommended
+defaults, with D5–D9 (T-139). T-124 waits on
 T-123's result and on T-131.
 
 **Model performance checking (Work items 3, 4, 7) is resolved except

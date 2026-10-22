@@ -883,8 +883,9 @@ treating a related FR/NR as done:
     crawler fix — articles it rejects get a new `not_relevant` label (11
     labels; `label` is unrestricted `TEXT`, so no table migration); and the
     entire classification is re-run once the new rule is tested and approved.
-    Open (D4): what happens to the existing results, `sector_summary`
-    included, for articles the crawler fix removes (`TASKS.md` T-131).
+    Decided (D4, 2026-10-22, recommended defaults): the existing results for articles the
+    crawler fix removes are archived, not dropped, and only the affected `sector_summary`
+    rows are deleted (`TASKS.md` T-131).
     The wrong ticker tagging is fixed at its source first
     (`portfolio-data-mining` Work item 10, decided 2026-10-14; its quarantined `review`
     pairs are decided here, `TASKS.md` T-132), then
