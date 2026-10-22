@@ -921,8 +921,9 @@ treating a related FR/NR as done:
     about SOURCE (that `body_text` exists), and the `review` check (item 19) reads a
     second table (`discovered_urls`) and the `prev_fetch_status` column. **Decided
     (2026-10-22, at the default of D8):** a read-only guard before any query: minimum
-    version 3, fail on lower and on 0, warn once on higher, never cached, plus a
-    column guard; no import of `data_mining`; the cache tables are not contract.
+    version 3, fail on lower and on 0, warn once per process on higher, never cached,
+    plus a column guard; it runs only when a SOURCE is attached (not on single-file runs or
+    the no-SOURCE endpoints); no import of `data_mining`; the cache tables are not contract.
     Touches the two-tier DB contract (constitution AI behavior #10); the owner's D8
     answer is the approval. `PLAN.md` Work item 16, `TASKS.md` T-135–T-136.
 21. **An article that names several companies is scored as if it named one.**
@@ -932,8 +933,10 @@ treating a related FR/NR as done:
     pair. Category, NER and summary are company-blind, so a roundup's one result is
     read as each tagged company's. **Decided (2026-10-22, at the default of D9):** size it
     first (group by body hash, resolve mentions, type the article, on about 2,000
-    groups), build only what the sizing justifies, and carry a `multi` flag on any
-    article-level score of a multi-subject group. `PLAN.md` Work item 17,
+    groups) and build only what the sizing justifies. The intended rule is a `multi`
+    flag on any article-level score of a multi-subject group; it is **not in force**
+    today, takes effect with T-138, and is a schema change the owner approves in that
+    PR (D9 did not). `PLAN.md` Work item 17,
     `TASKS.md` T-137–T-138.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
