@@ -87,7 +87,9 @@ lean `articles` row per processed article, so it stays self-consistent without
    minimum is a copied constant, never an import of `data_mining`; the real `urls.db` is at 5. The cache tables
    (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not part of the
    contract and are never read, joined or attached. `POST /pipeline/run` runs the same
-   check before its background worker and answers 503 with the message.
+   check before its background worker and answers 503 with the message; the CLIs
+   (`news_nlp_cli`, `news_nlp_eval`, `run_experiment`) exit with it on one line
+   (`error: ...`, status 1) instead of a traceback.
 4. `news_nlp.db.require_source_text()` then fails fast (before any model loads) if
    that `articles` table has no `body_text` column or no non-empty `body_text`
    row — the common "pointed a text stage at the results store" mistake, which
