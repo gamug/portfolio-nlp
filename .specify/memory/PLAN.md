@@ -29,7 +29,12 @@ project. This plan still does not resurrect anything §14 leaves closed for
 the other items — see Non-goals below. Item 19 (category's `other` label
 covers 42.7% of the corpus and conflates "not about this company" with "about
 the company, no dimension fits", added 2026-10-14) is **Work item 15**; it
-absorbs the `other`-precision thread Work item 5 left open (T-041).
+absorbs the `other`-precision thread Work item 5 left open (T-041). The
+`portfolio-data-mining` hand-off of 2026-10-21 added two proposals, accepted on
+2026-10-22, that this repo
+owns and that are not part of item 15: **Work item 16** (check the data-mining schema
+version before reading) and **Work item 17** (articles that name more than one
+company, sizing first); both accepted on 2026-10-22 at the defaults of D8/D9 (T-139).
 
 ## Goal
 
@@ -1790,8 +1795,7 @@ changing the RESULTS contract):
      query is the one agreed upstream (`articles` joined to `discovered_urls` on
      `id`, `match_class = 'review'`, `fetch_status = 'quarantined'`). It reads a table
      this repo has never read, so it touches the SOURCE contract (constitution AI
-     behavior #10); a check of the schema version and columns before reading it is
-     recommended and is proposed separately, not part of this item. The API alternative
+     behavior #10) and is gated by Work item 16's schema guard. The API alternative
      needs two calls and cannot filter by date.
    - **Output**: a new additive RESULTS table, key `(article_id, ticker, run_id)`,
      columns `verdict, confidence, model, evidence`, plus the class and reason seen,
@@ -1812,8 +1816,7 @@ changing the RESULTS contract):
      `mention`. It cannot link a span to a ticker without the alias table
      data-mining offers, cannot separate generic first-word names ("State", "Target",
      "Live", "Dollar") from the company by itself, and gives no per-company
-     attribution of facts (articles that name several companies are a separate
-     problem). So it is a **partial** fix: it settles the
+     attribution of facts (Work item 17). So it is a **partial** fix: it settles the
      false-positive direction cheaply; the decision rule plus T-130's judge on the
      remainder, measured against hand labels, is what ships. Verified on the real
      store (2026-10-22, `scripts/measure_corrected_corpus_2026_10_22.py`): 49,949 of the 49,960 `review` articles already have stored
@@ -2039,6 +2042,92 @@ changing the RESULTS contract):
   superseded by this item); both architecture artifacts are reconciled, never
   renamed (constitution AI behavior #11).
 
+## Work item 16 — Check the data-mining schema version before reading (decided 2026-10-22: build it here, D8 default)
+
+**Why**: SOURCE (`urls.db`) is a database that `portfolio-data-mining` stamps with
+`PRAGMA user_version` (now 5; versions 2–4 additive, 5 drops a private index; not
+monotonic: a documented cache rollback sets 5 back to 3 and an old build re-stamps
+what it knows). This repo reads it on trust: only `require_source_text` checks that
+`body_text` exists. Work item 15's T-132 starts reading a second table
+(`discovered_urls`: `match_class`, `match_reason`, `url`, `ticker`) and the
+quarantine column `articles.prev_fetch_status`: per upstream's version table (hand-off
+2026-10-21, 8.1) `match_class` and `match_reason` arrive at version 2 and
+`prev_fetch_status` and the quarantine semantics at 3, so 3 covers every read. The
+`MIN_SOURCE_VERSION = 5` in the 2026-10-22 measurement script was wrong, not stricter;
+T-135 replaces that check with the shared guard. Rule: any new SOURCE table or column
+read adds itself to the guard list in the same PR.
+Upstream's note proposes this as our work item, not blocking.
+
+**Approach**: a read-only start-up guard at the single choke point every command goes
+through (`connect_pipeline` / `attach_source`), before any query. **Require a minimum
+(3), accept anything higher** (additive, forward-only migrations; an exact match would
+break on a rollback), **fail on lower and on 0** with the path, the version found, the
+minimum and what to do, **warn once per process on a higher number**, **never cache the result
+across runs**. A second guard on the columns actually read (`PRAGMA table_info`, the list a
+parameter: today's `articles` columns; T-132 adds `prev_fetch_status` and
+`discovered_urls` in its own PR), because the number is a promise and the columns are
+the fact. It runs only when a SOURCE is attached (not on single-file runs, not on the
+no-SOURCE serving endpoints); `POST /pipeline/run` runs it in the handler before the background worker and answers 503 carrying the message (the worker's 202 would hide it). The minimum 3 is
+a behavior change (a version-2 file works today; the real file is at 5). Copy the number into this repo's own constant; never import `data_mining`.
+The cache tables (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not
+part of the contract: never read, join or attach them. Whether the helper lives here or
+in `portfolio-common` (a generic `require_schema(db, minimum, columns)`) is D8, decided
+2026-10-22 at the default: here, and upstream only if a second consumer asks, because
+the column list is a data-mining contract, not a DB-engine one. It touches the two-tier
+DB contract (constitution AI behavior #10); the owner's D8 answer is the approval.
+
+**Acceptance**: tests on small generated files: version 0 and 2 fail; 3, 4, 5 pass; 6
+passes with one warning (once per process: two opens give one, a new process warns
+again); version 3 with `body_text` missing fails on the column guard (the
+`prev_fetch_status` case is T-132's); a file re-stamped 5 → 3 between two opens passes both times; a read-only open of
+a WAL file with a live writer works; the file's hash is unchanged before and after.
+The existing suite stays green through a shared fixture helper that stamps the version
+(the fixtures are unstamped today). One docs line: the minimum, why a minimum, and that
+the cache tables are not contract. Close-out: T-136b (SPEC item 20, both artifacts, `CHANGELOG.md`).
+
+## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
+
+**Why** (hand-off note 2026-10-21, reported, not reproduced): the data is per pair, one
+`articles` row per `(url, ticker)` with the same body stored once per pair. Measured
+upstream on `accept`/`review` pairs: 22,048 of 132,078 URLs (16.7%) have pairs for more
+than one ticker, holding 51,991 of 162,021 pairs (32.1%) and **35,387 of the 98,462
+`ok` articles (35.9%)**; 16.7% is a floor (the matcher reads the URL and title for 503
+tickers, never the body), and some are share-class twins, not multi-company articles
+(deduped by body hash). In this repo every stage keys on `article_id`, i.e. on the pair,
+and only sentiment scopes to the subject, so a roundup's one category, entity list and
+summary are read as each tagged company's. 10,493 of the 52,039 `review` pairs (20.2%) sit on a URL
+that also has an `accept` pair; releasing one because its sibling is `accept` is
+explicitly not allowed (a pair is released on its own evidence).
+
+**Approach** (upstream's suggested pipeline, accepted or changed by the owner): sizing
+first, building second. Stages numbered as in upstream's hand-off (2026-10-21, 9.2 and
+9.4): (0) group by body hash; (1) mention detection by NER resolved
+to the universe with data-mining's alias table; (2) type the article (single-subject,
+multi-subject, comparison, transaction, incidental), rules first. Run these three on a
+stratified sample of about 2,000 groups (all-`accept` multi-pair, `accept` + `review`,
+all-`review`, single-pair control) to replace the 16.7% floor with a measured number of
+companies per article. Only then decide how much of roles, sentence attribution and
+per-company facts (sentiment on attributed spans, numbers bound to the company) to
+build, and which fact types the knowledge graph needs first. Rule: **an article-level
+score on a multi-subject group carries a `multi` flag and is never read as one company's
+score.** It takes effect when T-138 ships; until then it is false today (category, entity
+and summary rows are read as one company's), and T-137's report, `docs/evaluation.md` and
+the architecture artifacts are the only statement of the risk. The flag is a schema
+change (upstream sketches `article_group`, `article_company`, `article_fact` tables): D9
+approved a work item and a sizing run, not a column, so the schema is asked of the owner
+in T-138's PR (constitution AI behavior #10). Shares the body-hash grouping and the ORG-to-ticker
+resolution with T-132, so it is sequenced after it; it is separate work (constitution
+Code & Git #9), and absorbs T-127's sentiment finding when that is measured.
+
+**Acceptance**: the sampled groups report the real companies-per-article distribution
+per stratum, per group and article-weighted (T-137 fixes the frame); a hand sample (about 20 groups per type, seeded with upstream's 42 News
+Corp multi-company URLs) measures attribution precision, fact binding and role
+agreement per type, never one average, each with a Wilson interval; thresholds to trust
+a fact are a joint decision. The sizing is a committed read-only script plus a dated
+follow-up in `docs/evaluation.md` (T-137); the 20-per-type hand sample is a smoke test,
+not a measurement, unless the owner sets a larger N. Close-out: T-138b (SPEC item 21, both
+artifacts, `CHANGELOG.md`); it closes after T-137's report if the owner stops there.
+
 ## Sequencing
 
 Work items 1 and 2 are independent of each other — no ordering
@@ -2140,7 +2229,7 @@ other, and independent of one another except where noted:
   corrected corpus is smaller than the RESULTS store by about 80%, which resizes D4
   (T-131, 315,822 articles' rows to purge on the 2026-10-22 count, derived by a join,
   not from a stale CSV), T-132 (49,960 `review` articles, 52,039 pairs on 2026-10-21) and T-124 (98,462 articles, not
-  459,112). Owner decisions D5–D7 were settled on 2026-10-22 at their recorded defaults
+  459,112). Owner decisions D5–D9 were settled on 2026-10-22 at their recorded defaults
   (T-139); a second round the same day settled D10, D2b and the T-117 thresholds at the defaults (T-139); D4 was settled the same day at its recommended defaults.
 - **Work item 15 (category `other` bucket) is open (filed 2026-10-14)** —
   D1–D3 are decided: the `not_relevant` label is the chosen representation
@@ -2162,10 +2251,15 @@ other, and independent of one another except where noted:
   item 5's T-041 (`other` precision) and leaves the sentiment-side
   ticker-collision finding (T-127) to its own PR.
 
-- **Work item 15 (2026-10-22), ordering.** Its first runnable tasks are T-116, T-130,
-  T-133 and T-141 (code, hermetic); T-121(a) follows T-133 and needs no spend. Calibration
-  no longer waits for T-117: T-121(b) waits for T-141 and for D10 (T-142), a spend decision
-  of its own. T-132 (the `review` check) runs before T-117, T-131's cleanup and T-124's
-  re-run stay after T-123.
+- **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
+  first runnable tasks are T-116, T-130, T-133 and T-141 (code, hermetic); T-121(a)
+  follows T-133 and needs no spend. Calibration no longer waits for T-117: T-121(b)
+  waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16's
+  T-135 (the schema guard) goes **before** Work item 15's T-132, because T-132 starts
+  reading `discovered_urls`; T-136 follows T-135. Work item 17's T-137 (sizing) goes
+  **after** T-132, because it reuses T-132's body-hash grouping and ORG-to-ticker
+  resolution; T-138 only if T-137 and the owner say so. T-132 (the `review` check) runs
+  before T-117; T-131's cleanup and T-124's re-run stay after T-123, and nothing in
+  Work items 16 or 17 blocks them.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

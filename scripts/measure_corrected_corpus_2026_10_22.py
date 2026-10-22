@@ -68,7 +68,10 @@ from news_nlp.taxonomy import (
 )
 
 Z95 = 1.96
-MIN_SOURCE_VERSION = 5  # the schema that has discovered_urls.match_class
+# The script reads discovered_urls.match_class (schema 2) and articles.fetch_status; 3 is the
+# repo-wide minimum (upstream hand-off 2026-10-21, 8.1), kept equal so there is one number.
+# T-135 replaces this check with the shared guard.
+MIN_SOURCE_VERSION = 3
 
 
 def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
