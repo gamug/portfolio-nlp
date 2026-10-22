@@ -556,8 +556,19 @@ Dependencies at a glance:
       re-label. Today the floor is inline in `predict_batch` and the threshold sits in
       `classify_category_scores`, which takes logits, so neither can be applied to stored
       probabilities. Test: under the *current* constants the function reproduces every
-      stored label of a fixture of stored rows (floor, short-circuit, threshold edge and
-      tie cases) before the new constants are switched on. → step 4.
+      stored label of a fixture of rows before the new constants are switched on. **The
+      fixture is synthetic** (CI has no real store): boundary rows below, at and above the
+      floor, at and either side of the threshold, a zero-filled third group, and exact ties.
+      The real-store check stays the measurement script's non-CI run. **Tie-break, defined
+      here:** an exact tie between two leaf scores goes to the earlier slug in
+      `CATEGORY_SLUGS` order. Production's `max` over the candidate order (top-2 groups,
+      ranked by group score) breaks a tie differently; routing `predict_batch` through the
+      pure function makes the stage follow the taxonomy order. Measured on the real store
+      (2026-10-22): 141 of 459,112 rows have an exact tie for the highest leaf score, all
+      below 0.5 (two equal scores cannot both reach 0.6), so under the current threshold
+      no stored label depends on the tie-break; it matters only for a candidate rule whose
+      threshold is at or below 0.5 and for which slug a tied article is assigned to in
+      T-121's argmax cells. A test covers it. → step 4.
 - [ ] **T-123** Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
       `549ddbdf`; the only category run whose judgements are stored, eval_run 21's are
       not) recomputed from stored judgements (restricted to articles still in

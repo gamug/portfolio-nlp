@@ -38,8 +38,9 @@ It reports, in order:
 Item 11 is unweighted agreement only, not the complete constitution #12 metric
 set; the complete set per partition is T-133's remaining work.
 
-Safe to remove once the numbers are in docs/evaluation.md; keep it in git
-history so a rerun after the next upstream change has a starting point.
+Kept in the repository: docs/evaluation.md cites it as the command that reproduces
+the 2026-10-22 figures, and a rerun after the next upstream change starts here. A dated
+one-shot, like the other scripts/ one-shots (not part of the mypy gate, not run in CI).
 
 Usage:
     uv run python scripts/measure_corrected_corpus_2026_10_22.py \\
@@ -67,6 +68,7 @@ from news_nlp.taxonomy import (
 )
 
 Z95 = 1.96
+MIN_SOURCE_VERSION = 5  # the schema that has discovered_urls.match_class
 
 
 def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
@@ -100,7 +102,13 @@ def section(title: str) -> None:
 
 def report_versions_and_runs(conn: sqlite3.Connection) -> None:
     section("SOURCE schema version and stored category judgements")
-    print("urls.db user_version:", conn.execute("PRAGMA user_version").fetchone()[0])
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    print("urls.db user_version:", version)
+    if version < MIN_SOURCE_VERSION:
+        raise SystemExit(
+            f"urls.db is at user_version {version}; this script reads discovered_urls.match_class "
+            f"and needs {MIN_SOURCE_VERSION} or later. Point --source-db at the corrected crawl store."
+        )
     stored = dict(
         conn.execute(
             "SELECT run_id, COUNT(*) FROM r.eval_verdict WHERE task = 'category' GROUP BY run_id"
@@ -260,7 +268,7 @@ def report_rule_consistency(conn: sqlite3.Connection) -> None:
         "rc.capital_shareholder_returns, rc.labor_human_capital, rc.market_analyst_sentiment, "
         "rc.partnerships_business_dev FROM r.article_category rc"
     )
-    total = short_circuit = mismatches = 0
+    total = short_circuit = mismatches = tied = 0
     for label, group_score, *leaf_scores in rows:
         total += 1
         if group_score < GROUP_FLOOR:
@@ -268,6 +276,7 @@ def report_rule_consistency(conn: sqlite3.Connection) -> None:
             expected = OTHER_LABEL
         else:
             best = max(leaf_scores)
+            tied += leaf_scores.count(best) > 1
             expected = (
                 LEAF_SLUGS[leaf_scores.index(best)] if best >= CONFIDENCE_THRESHOLD else OTHER_LABEL
             )
@@ -276,6 +285,7 @@ def report_rule_consistency(conn: sqlite3.Connection) -> None:
         f"  rows={total} (level-1 short-circuit {short_circuit}); rows where the rule "
         f"(floor {GROUP_FLOOR}, argmax, threshold {CONFIDENCE_THRESHOLD}) differs from the stored label: {mismatches}"
     )
+    print(f"  rows whose highest leaf score is an exact tie between two slugs: {tied}")
 
 
 def report_calibration_cells(conn: sqlite3.Connection) -> None:
