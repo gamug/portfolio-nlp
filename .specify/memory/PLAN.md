@@ -1869,7 +1869,9 @@ changing the RESULTS contract):
    on the data it is scored on would be inflated). Population-weight each item. The judge
    returns the best-fitting label from the full taxonomy (`other` included), so any rule is
    scored against the same truth label, below 0.6 as well. Store the seed, band edges,
-   cell populations and half assignment in the run's config. The code is T-141 (judge
+   cell populations and half assignment in the run's config, with the judge model id,
+   temperature/seed settings, prompt hash and date. The discordant top-up is drawn only after the
+   rule is frozen and only from articles outside the fit half, weighted to its own strata. The code is T-141 (judge
    wording frozen there; a later wording or D1 change forces a re-judge); the spend is
    D10 (T-142), decided on its own, so calibration does not wait for T-117's sign-off. Ship as constants beside
    `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` (same home, same

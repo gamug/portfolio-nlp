@@ -503,14 +503,24 @@ Dependencies at a glance:
       call:** simulate, per candidate rule, the T-123 estimator itself: the paired
       difference of the weighted `other` precision (a ratio of weighted sums, because the
       candidate re-labels items away from `other` and so changes the denominator). The truth
-      model for the simulation is eval_run 43's measured per-cell agreement rates; draw
+      model: in the >= 0.6 cells, eval_run 43's measured per-cell agreement rates (they
+      graded the stored label, which there is the argmax slug); in the 0.4-0.6 cells and the
+      short-circuit stratum there is no measured truth distribution, so assume the measured
+      `other` agreement plus an explicit share of articles whose truth is the argmax slug,
+      swept over a stated range (for example 10% to 50%), and report the power across the
+      range, not one number. Draw
       report-half samples of the planned size, take the within-cell bootstrap 95% interval,
       and report the share of draws whose lower bound is above 0 when the true gain is
       +0.05 (the power). Require power of at least 80%; a candidate below it is reported as
       "not detectable at this sample", not as a failure, and gets the discordant top-up
       (identical labels have identical verdicts, so the paired difference needs only the
       discordant articles judged; a stratified extra draw of them, within D10's top-up
-      allowance). The rough count rule `g >= 1.96 * sqrt(d)` is an approximation for a net
+      allowance). **The top-up is drawn only after the rule is frozen and only from
+      articles outside the fit half** (the fit-half items were used to tune the rule, so
+      judging them again would be optimistic; they are about 2% of the confirmed population
+      and are removed from the sampling frame), stratified by cell, and weighted back to
+      the discordant population of its own strata, never pooled unweighted with the base
+      report items. The rough count rule `g >= 1.96 * sqrt(d)` is an approximation for a net
       accuracy count and is not used for this ratio. **Read-only:** the query joins
       `article_category` to the confirmed class (`accept`/`ok`) through the read-only SOURCE
       attach and reads stored scores only, opened `mode=ro` with `query_only`, as
@@ -523,8 +533,9 @@ Dependencies at a glance:
       target is the pooled, population-weighted report-half figure over all confirmed
       articles; per-slug and per-cell figures are reported but are not the target. The seed,
       band edges, per-cell populations and the half assignment are stored in the
-      run's recorded config (the article ids are already in `eval_inference`), so the
-      draw can be reproduced. → step 4.
+      run's recorded config (the article ids are already in `eval_inference`), together with the judge model id, its temperature and
+      seed settings, the prompt hash and the date, so a later re-judge can tell a model
+      change from a wording change; the draw can be reproduced. → step 4.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default
@@ -565,7 +576,7 @@ Dependencies at a glance:
       ranked by group score) breaks a tie differently; routing `predict_batch` through the
       pure function makes the stage follow the taxonomy order. Measured on the real store
       (2026-10-22): 141 of 459,112 rows have an exact tie for the highest leaf score, all
-      below 0.5 (two equal scores cannot both reach 0.6), so under the current threshold
+      below 0.5 (measured maximum 0.490; two equal scores cannot reach 0.6), so under the current threshold
       no stored label depends on the tie-break; it matters only for a candidate rule whose
       threshold is at or below 0.5 and for which slug a tied article is assigned to in
       T-121's argmax cells. A test covers it. → step 4.
@@ -582,7 +593,9 @@ Dependencies at a glance:
       macro F1 are computed against the truth label with the cell weights, below 0.6
       included. Candidate computed the
       same way, one side-by-side table with the complete constitution #12
-      metric set, on the full and the gated-in population; run
+      metric set, on the full and the gated-in population (**"full" means all confirmed
+      articles**: rejected and `review` articles are outside the sample by design, being
+      removed or decided by T-131/T-132, so the result says nothing about the 459,112); run
       `--check-regression`. → step 5 / acceptance criteria.
       *Success targets (confirmed by the owner 2026-10-22, T-139):* `other` precision at least 0.05 above the recomputed
       baseline, as a paired difference on the same report-half items (the same articles are
