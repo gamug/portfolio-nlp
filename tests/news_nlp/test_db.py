@@ -6,6 +6,7 @@ a lean ``articles`` subset). See docs/db-topology.md.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -177,14 +178,55 @@ def test_require_source_text_passes_on_a_populated_source(
     db.require_source_text(two_tier_conn)  # source has non-empty body_text -> no raise
 
 
-# --- stale-WAL preflight -----------------------------------------------------
+# --- orphaned-WAL preflight ---------------------------------------------------
+#
+# portfolio-common v1.2.2 narrowed `Database.attach(read_only=True)`'s preflight
+# to reject only an *orphaned* WAL (non-empty -wal, no -shm) -- not a live
+# writer's WAL. Before that fix, this exact scenario (a SOURCE db held open by
+# another process, e.g. portfolio-data-mining's collector) made attach_source()
+# raise for as long as the writer was running, which was the production bug
+# this bump exists to pick up. See portfolio-common CHANGELOG v1.2.2.
 
 
-def test_attach_source_rejects_source_with_uncheckpointed_wal(
+def test_attach_source_allows_a_live_writers_wal(
     source_db_path: Path, results_db_path: Path
 ) -> None:
-    # Leave an un-checkpointed -wal next to the SOURCE: WAL mode, auto-checkpoint
-    # off, a real committed write, connection kept open so it is never flushed.
+    # A real writer keeps the SOURCE db open in WAL mode with auto-checkpoint
+    # off, so the -wal stays non-empty and the -shm stays present the whole
+    # time -- the exact shape a concurrent portfolio-data-mining collector run
+    # leaves behind. attach_source() must not be blocked by this.
+    holder = sqlite3.connect(source_db_path)
+    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    holder.execute("PRAGMA wal_autocheckpoint=0")
+    holder.execute("INSERT INTO articles (id, ticker, company) VALUES (999, 'ZZZ', 'Z Co')")
+    holder.commit()
+    try:
+        assert Path(f"{source_db_path}-wal").stat().st_size > 0
+        assert Path(f"{source_db_path}-shm").exists()
+
+        conn = db.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+        try:
+            assert conn.articles_rel == "source"
+            # The original bug was reads being blocked, not just ATTACH
+            # raising -- prove a real cross-database read against `source`
+            # actually works while the writer still holds it open.
+            rows = db.fetch_pending_category_articles(conn)
+            assert {r["id"] for r in rows} == {1, 2, 3}
+            assert all("Body text for article" in r["body_text"] for r in rows)
+        finally:
+            db.detach_source(conn)
+            conn.close()
+    finally:
+        holder.close()
+
+
+def test_attach_source_rejects_an_orphaned_wal(
+    source_db_path: Path, results_db_path: Path, tmp_path: Path
+) -> None:
+    # A -wal copied without its -shm, e.g. a backup/rsync that skipped the
+    # (SQLite docs call it disposable) -shm file: no process has *this copy*
+    # open, so its WAL can't be trusted as a consistent snapshot. Still
+    # rejected -- the one real danger this preflight does catch.
     holder = sqlite3.connect(source_db_path)
     assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
     holder.execute("PRAGMA wal_autocheckpoint=0")
@@ -193,7 +235,50 @@ def test_attach_source_rejects_source_with_uncheckpointed_wal(
     try:
         assert Path(f"{source_db_path}-wal").stat().st_size > 0
 
-        with pytest.raises(RuntimeError, match="wal_checkpoint"):
-            db.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+        # Simulate the backup: copy the db + -wal while the writer is still
+        # open, deliberately not -shm.
+        orphaned = tmp_path / "orphaned_source.db"
+        shutil.copyfile(source_db_path, orphaned)
+        shutil.copyfile(f"{source_db_path}-wal", f"{orphaned}-wal")
+        assert not Path(f"{orphaned}-shm").exists()
+
+        with pytest.raises(RuntimeError, match="orphaned write-ahead log"):
+            db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
+    finally:
+        holder.close()
+
+
+def test_documented_checkpoint_recipe_clears_an_orphaned_wal(
+    source_db_path: Path, results_db_path: Path, tmp_path: Path
+) -> None:
+    # The operator loop docs/db-topology.md ("Working with a live SOURCE")
+    # promises: an orphaned copy is rejected, the documented checkpoint
+    # statement (run here exactly as the doc gives it) clears it, and the
+    # attach then works and reads the writer's committed row. Guards that
+    # recipe against rotting on a portfolio-common / SQLite change.
+    holder = sqlite3.connect(source_db_path)
+    assert holder.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    holder.execute("PRAGMA wal_autocheckpoint=0")
+    holder.execute("INSERT INTO articles (id, ticker, company) VALUES (999, 'ZZZ', 'Z Co')")
+    holder.commit()
+    try:
+        orphaned = tmp_path / "orphaned_source.db"
+        shutil.copyfile(source_db_path, orphaned)
+        shutil.copyfile(f"{source_db_path}-wal", f"{orphaned}-wal")
+        assert not Path(f"{orphaned}-shm").exists()
+
+        with pytest.raises(RuntimeError, match="orphaned write-ahead log"):
+            db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
+
+        busy, _, _ = sqlite3.connect(orphaned).execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        assert busy == 0
+
+        conn = db.connect_pipeline(results_db=results_db_path, source_db=orphaned)
+        try:
+            row = conn.execute("SELECT ticker FROM source.articles WHERE id = 999").fetchone()
+            assert row is not None and row["ticker"] == "ZZZ"
+        finally:
+            db.detach_source(conn)
+            conn.close()
     finally:
         holder.close()
