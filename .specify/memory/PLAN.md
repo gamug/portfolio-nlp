@@ -30,10 +30,11 @@ the other items — see Non-goals below. Item 19 (category's `other` label
 covers 42.7% of the corpus and conflates "not about this company" with "about
 the company, no dimension fits", added 2026-10-14) is **Work item 15**; it
 absorbs the `other`-precision thread Work item 5 left open (T-041). The
-`portfolio-data-mining` hand-off of 2026-10-21 added two proposals that this repo
+`portfolio-data-mining` hand-off of 2026-10-21 added two proposals, accepted on
+2026-10-22, that this repo
 owns and that are not part of item 15: **Work item 16** (check the data-mining schema
 version before reading) and **Work item 17** (articles that name more than one
-company, sizing first); both wait for the owner's D8/D9 (T-139).
+company, sizing first); both accepted on 2026-10-22 at the defaults of D8/D9 (T-139).
 
 ## Goal
 
@@ -1648,12 +1649,14 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   either repo (reported, not reproduced here). The re-tag classed all 481,332
   `(url, ticker)` pairs as `accept` 104,614 (21.7%), `review` 51,295 (10.7%) or
   `reject` 325,423 (67.6%); its fresh hand check passed (1 of 60 `accept` wrong,
-  1 of 40 `reject` right). By previous status, the pairs whose article was `ok`
-  before the re-tag are 93,224 `accept` + 49,645 `review` + 316,243 `reject` =
-  459,112, **exactly the size of this RESULTS store**: about 80% of the articles
-  classified here (68.9% `reject`, 10.8% `review`) are no longer in the corrected
-  corpus, and 20.3% are. That is arithmetic on two reported figures; T-133
-  confirms it by a read-only join before anything relies on it. What is and is
+  1 of 40 `reject` right). By previous status, the pairs whose article was `ok` before the re-tag were
+  93,224 `accept` + 49,645 `review` + 316,243 `reject` = 459,112, the exact size of
+  this RESULTS store. **Measured on the real store, read-only, 2026-10-22** (`urls.db`
+  at schema version 5 joined to `nlp.db`): 93,330 `accept` (20.3%), 315,822 `reject`
+  (68.8%) and 49,960 `review` (10.9%), the same 459,112, every article with a
+  `discovered_urls` row (the small shifts since 2026-10-15 are later promotions and
+  the 448 pairs moved from `reject` to `review`). **About 80% of the articles
+  classified here are no longer in the corrected corpus; 20.3% are.** What is and is
   not known about correctness: about 2.5% of `reject` is wrong (95% interval
   0.4–12.9%, hand check); **nothing is measured for the `review` class**, the
   only rate is 18 of 20 uncontested News Corp URLs, and the earlier "64% wrong"
@@ -1672,13 +1675,25 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   label, so any substantive label on it counts as an error and `other` counts as
   right (the judge's rubric defines `other` as "not about a single company's
   performance"). With about 69% of the classified articles now rejected upstream,
-  the eval samples were probably mostly drawn from that population, so per-slug
-  precision is likely biased down and `other`'s 0.474 mixes two populations; none
-  of it is comparable until recomputed on surviving articles. It does **not**
+  the eval samples were mostly drawn from that population (measured below: 71% of
+  eval_run 43's representative bucket), so per-slug precision is likely biased down
+  and `other`'s quoted precision mixes two populations (measured below); none of it
+  is comparable until recomputed on surviving articles. It does **not**
   explain the four weak slugs (0.14–0.33 accuracy, `docs/evaluation.md`): that is
   the zero-shot model. Sentiment is different, it does use the company and ticker
   (`_text_mentions_subject`), so it is affected directly (T-127). T-133 measures
   the category effect from stored verdicts, with no new judge calls.
+  **First measurement (2026-10-22, read-only; eval_run 43, the only category run whose
+  judgements are stored).** Its `representative` bucket is 896 articles drawn with
+  uniform weights and matches the population (71% rejected, 19% accepted, 10% review).
+  In it, `other` was judged correct on 36.8% of the accepted articles (25 of 68, 95%
+  interval 26–49%) against 67.4% of the rejected ones (194 of 288, 62–73%); a
+  substantive label was judged correct on 66.7% of accepted (68 of 102, 57–75%)
+  against 54.3% of rejected (189 of 348, 49–60%). So the quoted `other` precision is
+  inflated by off-topic articles and on articles still confirmed it is nearer 0.37
+  than 0.57, with a wide interval; the substantive-label effect points the expected
+  way but its intervals overlap. These are unweighted agreement rates, not the complete
+  #12 set, which T-133 still owes.
 - **The date window (hand-off note 2026-10-21; reported, not reproduced).** The
   collector's range is 2022-01-01 to today, but a bug in its sitemap reader (fixed
   going forward) meant the range was never applied to the sitemap, so **62,406 of the
@@ -1688,9 +1703,9 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   two thirds of its input from outside 2022+, and the size of T-124's re-run is
   now the corrected corpus, **98,462 articles (21.4% of 459,112; at most 32.8% if
   every one of the 52,039 `review` pairs were released), not 459,112**, so its
-  GPU projection must be redone, not reused. Decision D7 (T-134, proposed default:
-  no filter inside the stages, the window applied explicitly where a consumer needs
-  it and reported separately).
+  GPU projection must be redone, not reused. Decision D7 (T-134, decided 2026-10-22 at the
+  default: no filter inside the stages, the window applied explicitly where a consumer
+  needs it and reported separately).
 - **CNBC is not the cause.** cnbc.com is 98.8% of the whole corpus
   (453,815 rows), hence ~99% of `other`. Yahoo (4,023 rows, 22.9% `other`)
   and Seeking Alpha (1,274 rows, 34.7%) are too small to conclude from.
@@ -1737,7 +1752,7 @@ changing the RESULTS contract):
    from `body_text`, the title and the NER organization spans. On 2026-10-21 the
    doubt class is 52,039 pairs, **not fixed between runs** (the extractor promotes
    pairs out of it), so every run re-selects it and records the class it saw.
-   - **Verdicts (decision D5, proposed default): adopt the four labels data-mining
+   - **Verdicts (decision D5, decided 2026-10-22 at the default): adopt the four labels data-mining
      applies, `about`, `mention`, `other`, `unclear`,** not a private vocabulary
      with a translation layer. `about` = the company is a main subject; `mention` =
      named, not the subject (a roundup, a market wrap); `other` = the name is a
@@ -1755,7 +1770,7 @@ changing the RESULTS contract):
      threshold as `accept` (the quarantine sync then releases the article); `mention`,
      `other` and `unclear` change nothing there. Nothing is released on a verdict
      nobody has measured, and this repo never writes `urls.db`.
-   - **Interface (decision D6, proposed default): read-only attach**, the selection
+   - **Interface (decision D6, decided 2026-10-22 at the default): read-only attach**, the selection
      query is the one agreed upstream (`articles` joined to `discovered_urls` on
      `id`, `match_class = 'review'`, `fetch_status = 'quarantined'`). It reads a table
      this repo has never read, so it touches the SOURCE contract (constitution AI
@@ -1782,9 +1797,10 @@ changing the RESULTS contract):
      "Live", "Dollar") from the company by itself, and gives no per-company
      attribution of facts (Work item 17). So it is a **partial** fix: it settles the
      false-positive direction cheaply; the decision rule plus T-130's judge on the
-     remainder, measured against hand labels, is what ships. The 49,645 `review`
-     articles were `ok` and classified before the re-tag, so their `article_entities`
-     rows probably already exist (zero GPU); T-132 verifies that first.
+     remainder, measured against hand labels, is what ships. Verified on the real
+     store (2026-10-22): 49,949 of the 49,960 `review` articles already have stored
+     `article_entities` rows, 49,766 of them with an `ORG` span, so the NER evidence
+     costs no GPU.
    - **Measured against** the hand labels upstream owns (its shared sample, its fresh
      validation set, and the `loose_name` hand sample: 10 News Corp pairs and 20 pairs of other companies). The string
      rule alone is expected to be weak (its prototype rescued 2 of 15 correct `review`
@@ -1826,11 +1842,11 @@ changing the RESULTS contract):
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
-   table computed by the same code path, baseline = eval_run 21 (mlflow
-   `0a18577e`) recomputed from its stored judgements rather than quoted (T-133 also
-   recomputes eval_run 43, a 2026-09-19 re-measurement on the migrated database that
-   reads `other` precision 0.576 in the repository artifact, so the baseline is chosen
-   from two recomputed runs, not from either quoted figure). The
+   table computed by the same code path, baseline = recomputed from stored judgements, not
+   quoted. Only eval_run 43 (2026-09-19, mlflow `549ddbdf`, 2,800 judged, population
+   459,112) has judgements in the store: eval_run 21's rows are not there, and it
+   sampled a corpus of about 100k articles, so it cannot be recomputed and is not the
+   baseline (its 0.474 `other` precision is a quoted figure from a different corpus). The
    judge must be able to answer "not about the company" if D1 adds a label
    (judge prompt/taxonomy change in `news_nlp/eval/`). Report on both the full
    population and the gated-in subset, so the gate's effect and the
@@ -1918,10 +1934,11 @@ changing the RESULTS contract):
   `not_relevant` means the opposite; if it was dropped, `other`'s meaning is
   stated as it now is (residual irrelevance quantified, not removed). Either
   way `other` precision is recorded on the cleaned corpus and is higher than
-  the 0.474 baseline, where the baseline is eval_run 21's stored verdicts
-  **restricted to articles still in the corrected corpus** and recomputed by
+  the baseline, where the baseline is eval_run 43's stored verdicts
+  **restricted to articles still in the corrected corpus** (first measurement about
+  0.37 on 68 articles, to be recomputed with the complete set) and recomputed by
   the same code path as the candidate (the crawler fix removes articles from
-  the corpus, so the quoted 0.474 is not directly comparable). A fresh
+  the corpus, so the quoted 0.474 and 0.576 are not directly comparable). A fresh
   baseline eval (more judge calls) is needed only if the surviving verdict
   set falls below `docs/evaluation.md`'s sample-size floor; T-123 decides and
   records which.
@@ -1944,7 +1961,7 @@ changing the RESULTS contract):
   superseded by this item); both architecture artifacts are reconciled, never
   renamed (constitution AI behavior #11).
 
-## Work item 16 — Check the data-mining schema version before reading (proposed 2026-10-22; needs D8)
+## Work item 16 — Check the data-mining schema version before reading (decided 2026-10-22: build it here, D8 default)
 
 **Why**: SOURCE (`urls.db`) is a database that `portfolio-data-mining` stamps with
 `PRAGMA user_version` (now 5; versions 2–4 additive, 5 drops a private index; not
@@ -1965,10 +1982,10 @@ across runs**. A second guard on the columns actually selected (`PRAGMA table_in
 the fact. Copy the number into this repo's own constant; never import `data_mining`.
 The cache tables (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not
 part of the contract: never read, join or attach them. Whether the helper lives here or
-in `portfolio-common` (a generic `require_schema(db, minimum, columns)`) is D8; default
-here, and upstream only if a second consumer asks, because the column list is a
-data-mining contract, not a DB-engine one. Touches the two-tier DB contract
-(constitution AI behavior #10): approval is D8.
+in `portfolio-common` (a generic `require_schema(db, minimum, columns)`) is D8, decided
+2026-10-22 at the default: here, and upstream only if a second consumer asks, because
+the column list is a data-mining contract, not a DB-engine one. It touches the two-tier
+DB contract (constitution AI behavior #10); the owner's D8 answer is the approval.
 
 **Acceptance**: tests on small generated files: version 0 and 2 fail; 3, 4, 5 pass; 6
 passes with one warning; version 3 with `prev_fetch_status` missing fails on the column
@@ -1976,7 +1993,7 @@ guard; a file re-stamped 5 → 3 between two opens passes both times; a read-onl
 a WAL file with a live writer works; the file's hash is unchanged before and after.
 One docs line: the minimum, why a minimum, and that the cache tables are not contract.
 
-## Work item 17 — Articles that name more than one company (proposed 2026-10-22; sizing first; needs D9)
+## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
 **Why** (hand-off note 2026-10-21, reported, not reproduced): the data is per pair, one
 `articles` row per `(url, ticker)` with the same body stored once per pair. Measured
@@ -2108,10 +2125,10 @@ other, and independent of one another except where noted:
   closed (data-mining's Work item 10 is done and its T-058 hand-off was posted on this
   work item's PR on 2026-10-15; its Work items 12, 14 and 15 closed since). The
   corrected corpus is smaller than the RESULTS store by about 80%, which resizes D4
-  (T-131, 316,243 articles' rows to purge, derived by a join, not from a stale CSV),
-  T-132 (49,645 `review` articles, 52,039 pairs today) and T-124 (98,462 articles, not
-  459,112). Open owner decisions are collected in T-139 (D5–D9) next to the existing
-  D4 and the provisional T-123 targets.
+  (T-131, 315,822 articles' rows to purge on the 2026-10-22 count, derived by a join,
+  not from a stale CSV), T-132 (49,960 `review` articles, 52,039 pairs on 2026-10-21) and T-124 (98,462 articles, not
+  459,112). Owner decisions D5–D9 were settled on 2026-10-22 at their recorded defaults
+  (T-139); D4 and the provisional T-123 targets keep the defaults already recorded.
 - **Work item 15 (category `other` bucket) is open (filed 2026-10-14)** —
   D1–D3 are decided: the `not_relevant` label is the chosen representation
   but is produced only if T-117 shows a relevance gate is still worth
