@@ -34,24 +34,24 @@ def _make(path: Path, version: int, schema: str = ARTICLES_SCHEMA) -> Path:
 
 
 @pytest.mark.parametrize("version", [0, 2])
-def test_versions_below_the_minimum_fail(tmp_path: Path, version: int) -> None:
+def test_versions_below_the_minimum_fail(tmp_path: Path, version: int) -> None:  # FR-007
     with pytest.raises(db.SourceSchemaError, match=rf"schema version {version};"):
         db.check_schema(_make(tmp_path / "s.db", version))
 
 
 @pytest.mark.parametrize("version", [3, 4, 5])
-def test_versions_at_or_above_the_minimum_pass(tmp_path: Path, version: int) -> None:
+def test_versions_at_or_above_the_minimum_pass(tmp_path: Path, version: int) -> None:  # FR-007
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # 3, 4 and 5 must not warn (the real file is at 5)
         assert db.check_schema(_make(tmp_path / "s.db", version)) == version
 
 
-def test_version_zero_message_says_never_stamped(tmp_path: Path) -> None:
+def test_version_zero_message_says_never_stamped(tmp_path: Path) -> None:  # FR-007
     with pytest.raises(db.SourceSchemaError, match="never stamped"):
         db.check_schema(_make(tmp_path / "s.db", 0))
 
 
-def test_a_newer_version_warns_once_per_process(tmp_path: Path) -> None:
+def test_a_newer_version_warns_once_per_process(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 6)
     with pytest.warns(UserWarning, match="newer than the latest"):
         db.check_schema(path)
@@ -71,19 +71,19 @@ def test_a_newer_version_warns_once_per_process(tmp_path: Path) -> None:
     assert out.stdout.strip() == "1"
 
 
-def test_a_missing_column_fails_even_when_the_number_passes(tmp_path: Path) -> None:
+def test_a_missing_column_fails_even_when_the_number_passes(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 3, ARTICLES_SCHEMA.replace("    body_text TEXT,\n", ""))
     with pytest.raises(db.SourceSchemaError, match=r"articles\.body_text"):
         db.check_schema(path)
 
 
-def test_the_column_list_is_a_parameter(tmp_path: Path) -> None:
+def test_the_column_list_is_a_parameter(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 5)
     with pytest.raises(db.SourceSchemaError, match=r"articles\.prev_fetch_status"):
         db.check_schema(path, columns={"articles": ("id", "prev_fetch_status")})
 
 
-def test_a_restamped_file_passes_both_times(tmp_path: Path) -> None:
+def test_a_restamped_file_passes_both_times(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 5)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -95,7 +95,7 @@ def test_a_restamped_file_passes_both_times(tmp_path: Path) -> None:
         assert db.check_schema(path) == 3  # not cached from the first open
 
 
-def test_the_helper_runs_on_a_bare_read_only_connection(tmp_path: Path) -> None:
+def test_the_helper_runs_on_a_bare_read_only_connection(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 4)
     raw = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     try:
@@ -106,7 +106,7 @@ def test_the_helper_runs_on_a_bare_read_only_connection(tmp_path: Path) -> None:
         raw.close()
 
 
-def test_the_guard_writes_nothing(tmp_path: Path) -> None:
+def test_the_guard_writes_nothing(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 5)
     before = hashlib.sha256(path.read_bytes()).hexdigest()
     with warnings.catch_warnings():
@@ -115,7 +115,7 @@ def test_the_guard_writes_nothing(tmp_path: Path) -> None:
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
 
 
-def test_a_wal_file_with_a_live_writer_is_read_only_checkable(tmp_path: Path) -> None:
+def test_a_wal_file_with_a_live_writer_is_read_only_checkable(tmp_path: Path) -> None:  # FR-007
     path = _make(tmp_path / "s.db", 5)
     writer = sqlite3.connect(path)
     assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
@@ -133,7 +133,7 @@ def test_a_wal_file_with_a_live_writer_is_read_only_checkable(tmp_path: Path) ->
 # --- wiring: connect_pipeline, single-file runs, the API -----------------------
 
 
-def test_connect_pipeline_rejects_an_old_source_and_closes(
+def test_connect_pipeline_rejects_an_old_source_and_closes(  # FR-007
     tmp_path: Path, results_db_path: Path
 ) -> None:
     old = _make(tmp_path / "old.db", 2)
@@ -141,7 +141,7 @@ def test_connect_pipeline_rejects_an_old_source_and_closes(
         db.connect_pipeline(results_db=results_db_path, source_db=old)
 
 
-def test_a_single_file_run_does_not_run_the_guard(source_db_path: Path) -> None:
+def test_a_single_file_run_does_not_run_the_guard(source_db_path: Path) -> None:  # FR-007
     # SOURCE == RESULTS: nothing is attached, and RESULTS is never stamped.
     c = sqlite3.connect(source_db_path)
     stamp_source(c, 0)
@@ -151,7 +151,7 @@ def test_a_single_file_run_does_not_run_the_guard(source_db_path: Path) -> None:
     conn.close()
 
 
-def test_the_api_answers_503_and_takes_no_run_slot(
+def test_the_api_answers_503_and_takes_no_run_slot(  # FR-007
     client: TestClient,
     tmp_path: Path,
     results_db_path: Path,
@@ -168,7 +168,7 @@ def test_the_api_answers_503_and_takes_no_run_slot(
     assert client.get("/pipeline/status").json()["status"] != "running"
 
 
-def test_the_no_source_endpoints_are_unaffected(
+def test_the_no_source_endpoints_are_unaffected(  # FR-007
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
@@ -176,7 +176,7 @@ def test_the_no_source_endpoints_are_unaffected(
     assert client.get("/articles").status_code == 200
 
 
-def test_the_api_swallows_an_unreadable_source_and_the_worker_reports_it(
+def test_the_api_swallows_an_unreadable_source_and_the_worker_reports_it(  # FR-007
     client: TestClient, tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # check_source cannot open the file (sqlite3.Error): not a 503, not a 500; the
@@ -195,7 +195,7 @@ def test_the_api_swallows_an_unreadable_source_and_the_worker_reports_it(
     assert status["error"]
 
 
-def test_exit_on_schema_error_gives_a_one_line_exit() -> None:
+def test_exit_on_schema_error_gives_a_one_line_exit() -> None:  # FR-007
     with pytest.raises(SystemExit) as info, db.exit_on_schema_error():
         raise db.SourceSchemaError("SOURCE database x is at schema version 2")
     assert str(info.value) == "error: SOURCE database x is at schema version 2"
@@ -203,7 +203,7 @@ def test_exit_on_schema_error_gives_a_one_line_exit() -> None:
         raise ValueError("boom")
 
 
-def test_the_pipeline_cli_exits_with_the_message(
+def test_the_pipeline_cli_exits_with_the_message(  # FR-007
     tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     old = _make(tmp_path / "old.db", 2)

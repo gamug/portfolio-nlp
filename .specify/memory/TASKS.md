@@ -249,10 +249,10 @@ Dependencies at a glance:
 | T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **yes** |
 | T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
 | T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
-| T-132 quarantined pairs | T-128, T-139 (D5, D6), **T-135** (schema guard, hard) | T-117 | **yes, after T-135** |
-| T-135 schema guard (WI16) | T-139 (D8) | T-132 (hard), T-136 | **yes** (code, hermetic) |
-| T-136 guard docs | T-135 | T-136b | no |
-| T-136b WI16 close-out | T-135, T-136 | none | no |
+| T-132 quarantined pairs | T-128, T-139 (D5, D6), **T-135** (schema guard, hard; done in #109) | T-117 | **yes** (T-135 done 2026-10-22) |
+| T-135 schema guard (WI16) | T-139 (D8) | T-132 (hard), T-136 | **done 2026-10-22 (#109)** |
+| T-136 guard docs | T-135 | T-136b | **done 2026-10-22 (#109)** |
+| T-136b WI16 close-out | T-135, T-136 | none | **yes, after #109 merges** |
 | T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
 | T-138 multi-company build | T-137 result, the owner | T-138b | no (conditional) |
 | T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
