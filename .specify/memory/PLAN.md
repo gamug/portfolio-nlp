@@ -1996,7 +1996,14 @@ changing the RESULTS contract):
   Provisional targets, which the owner confirms or changes at T-117
   sign-off: false-reject rate at most 5% of articles the judge calls
   relevant, and `other` precision at least 0.05 above the recomputed
-  baseline. T-124's full re-run is approved only if T-123 meets them.
+  baseline, measured as a paired difference on the same held-out report-half items
+  (pooled, population-weighted over confirmed articles) with the lower bound of its
+  within-cell bootstrap 95% interval above 0. Every rule is scored against the judge's
+  truth label (full taxonomy, `other` included), thresholds are fitted on the fit half
+  only, and the seed, band edges, cell populations and half assignment are recorded in
+  the run's config. A candidate too weakly powered to show +0.05 (T-121(a)'s discordant
+  count) is reported as "not detectable at this sample". T-124's full re-run is approved only
+  if T-123 meets them.
 - If a gate exists, `other` means "about the company, no dimension fits" and
   `not_relevant` means the opposite; if it was dropped, `other`'s meaning is
   stated as it now is (residual irrelevance quantified, not removed). Either
@@ -2150,8 +2157,10 @@ other, and independent of one another except where noted:
   item 5's T-041 (`other` precision) and leaves the sentiment-side
   ticker-collision finding (T-127) to its own PR.
 
-- **Work item 15 (2026-10-22), ordering.** Its first runnable tasks are T-116, T-130
-  and T-133. T-132 (the `review` check) runs before T-117, T-131's cleanup and T-124's
+- **Work item 15 (2026-10-22), ordering.** Its first runnable tasks are T-116, T-130,
+  T-133 and T-141 (code, hermetic); T-121(a) follows T-133 and needs no spend. Calibration
+  no longer waits for T-117: T-121(b) waits for T-141 and for D10 (T-142), a spend decision
+  of its own. T-132 (the `review` check) runs before T-117, T-131's cleanup and T-124's
   re-run stay after T-123.
 
 See `TASKS.md` for the discrete, checkable task breakdown.

@@ -248,7 +248,7 @@ Dependencies at a glance:
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
 | T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
-| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **open; default applies when T-141 is done** |
+| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **open; conditional default (needs credentials/budget already in place), else waits** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
 | T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
@@ -486,11 +486,25 @@ Dependencies at a glance:
       measurement. Two parts (design, sizes and the held-out split: PLAN
       Work item 15 step 4, the single place they are defined):
       **(a) free:** re-simulate on eval_run 43's stored verdicts where the stored label
-      equals the argmax slug (score >= 0.6) for a first, coarse trade-off table.
+      equals the argmax slug (score >= 0.6) for a first, coarse trade-off table, **and
+      on the stored scores alone (no judge) report, per candidate rule, how many confirmed
+      articles it re-labels** (population and per cell). **Power check before any paid
+      call:** a paired difference depends only on the articles the two rules label
+      differently (the discordant set); with `d` discordant report-half items and a net
+      gain `g`, the 95% lower bound is above 0 only if `g >= 1.96 * sqrt(d)`. Record `d`
+      and the `g` that +0.05 on `other` precision implies for each candidate. A candidate
+      whose `d` is too small is reported as "not detectable at this sample", not as a
+      failure. Because identical labels have identical verdicts, the paired difference can
+      be estimated from the discordant set alone: T-123 may judge a stratified extra draw of
+      the discordant articles (within D10's cap) to reach the needed `d`.
       **(b) paid, funded by D10 (T-142), not by T-117's sign-off:** the stratified,
       split judged sample, drawn with T-141's code. **Depends on:** T-141 (code), T-142
       (spend), T-121(a). Fit on the fit half only; every reported number states its half.
-      The seed, band edges, per-cell populations and the half assignment are stored in the
+      **Short-circuit stratum:** 30 fit / 30 report; it informs only the
+      `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
+      target is the pooled, population-weighted report-half figure over all confirmed
+      articles; per-slug and per-cell figures are reported but are not the target. The seed,
+      band edges, per-cell populations and the half assignment are stored in the
       run's recorded config (the article ids are already in `eval_inference`), so the
       draw can be reproduced. → step 4.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
@@ -511,7 +525,11 @@ Dependencies at a glance:
       the time T-141 is done, the default applies, as for D4 and T-140)* The spend for
       T-121(b)'s sample: **default, approve up to 3,300 judge calls** with the maintainer's
       LLM credentials, decided on its own and not at T-117's sign-off, so calibration
-      does not wait for the relevance work. Blocks T-121(b). The rest of the T-117
+      does not wait for the relevance work. **The default is conditional:** it applies only
+      if the maintainer has already put the LLM credentials and a budget in place in
+      writing; otherwise T-121(b) waits for an explicit answer (no spend by silence). Hard
+      cap at 3,300 calls (the discordant top-up in T-121 counts against it); the actual
+      spend is logged against the cap in `docs/evaluation.md`; the run stops at the cap. Blocks T-121(b). The rest of the T-117
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it

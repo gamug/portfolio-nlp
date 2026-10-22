@@ -2065,8 +2065,8 @@ rule (group floor 0.4, argmax, threshold 0.6) to the stored scores reproduces th
 label on all 459,112 rows (0 mismatches; 16,698 level-1 short-circuits), so a re-label from
 stored scores is exact for the current rule. Confirmed articles by predicted slug x score
 band give 45 cells, all with at least 60 articles (counts as of 2026-10-22, not design constants; smallest: 186, `mergers_acquisitions` below 0.4), plus 1,012
-level-1 short-circuits: T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere and 60 short-circuit:
-3,300 judge calls at most, split in halves (fit / report) so T-123's baseline is not scored
+level-1 short-circuits. T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere
+and 60 short-circuit. That is 3,300 judge calls at most, split in halves (fit / report) so T-123's baseline is not scored
 on the data the thresholds were fitted on.
 
 ## What it evaluates
