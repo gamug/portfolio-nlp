@@ -244,7 +244,7 @@ Dependencies at a glance:
 | T-116 audit | none | none | yes |
 | T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
 | T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | **done 2026-10-22** |
-| T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **yes** |
+| T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **done 2026-10-22** |
 | T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
 | T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
 | T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (schema guard, done in #109, `CHANGELOG.md`) | T-117 | **yes** |
@@ -253,7 +253,7 @@ Dependencies at a glance:
 | T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts) | T-121(b) design check | **yes, after T-133** (no cost) |
+| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **yes** (no cost) |
 | T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
 | T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
@@ -291,7 +291,7 @@ Dependencies at a glance:
       behavior #12 set (precision/recall/F1/`accuracy_ovr` per class; overall
       accuracy and macro F1), not a subset. Needs its own FR in `SPEC.md`,
       added in the PR that ships it. → step 3, T-117.
-- [ ] **T-133** *(new 2026-10-22; no dependency, can start now)* Measure what the
+- [x] **T-133** *(new 2026-10-22; no dependency; **done 2026-10-22**, see the closing note)* Measure what the
       wrong tags did to category's measured quality, from stored verdicts, with **no
       new judge calls**.
       - **Goal:** replace the hypothesis in the plan ("corrected corpus", "what wrong
@@ -323,6 +323,15 @@ Dependencies at a glance:
         baseline is the one T-123 reuses. Hermetic tests only (LLM not called).
       - **Depends on:** nothing new. **Blocks:** T-123's baseline, T-117's sizing.
         → plan step 5.
+      - **Done 2026-10-22:** steps 2-4 ran on the real stores (`news_nlp.eval.partition`
+        plus section 12 of `scripts/measure_corrected_corpus_2026_10_22.py`; hermetic tests
+        in `tests/news_nlp/test_eval_partition.py`; the `all` column reproduces run 43's
+        stored `metrics_json`); the side-by-side table is in `docs/evaluation.md`'s
+        2026-10-22 follow-up. Result: on `accept` (538 judged) `other` precision is 0.32
+        against 0.58 for the whole run, and the partition does **not** clear the floor
+        (538 against about 2,500-3,000; 11 true `capital_shareholder_returns`), so run 43's
+        `accept` partition is not T-123's baseline: T-123 takes the report half of
+        T-121(b)'s sample, as planned.
 - [x] **T-139** *(user decision record; **decided 2026-10-22: every decision kept at
       its default**; the owner's words that day: "Keep the decisions in default
       values", after being shown the list below with its defaults)* The decisions this work item needed, with the answer recorded:

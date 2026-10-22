@@ -1714,7 +1714,10 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   ones, so the quoted `other` precision is inflated by off-topic articles; the
   substantive-label effect points the same way with overlapping intervals. Unweighted
   agreement only; the numbers, intervals and the rerunnable script are in
-  `docs/evaluation.md`'s 2026-10-22 follow-up (T-133 owes the complete #12 set).
+  `docs/evaluation.md`'s 2026-10-22 follow-up. T-133 then reported the complete #12 set per
+  class (done 2026-10-22): `other` precision on the confirmed articles is 0.32 against
+  0.58 for the whole run, and that partition (538 judged) does not clear the sample-size
+  floor, so T-123's baseline is T-121(b)'s report half.
 - **The date window (hand-off note 2026-10-21; reported, not reproduced).** The
   collector's range is 2022-01-01 to today, but a bug in its sitemap reader (fixed
   going forward) meant the range was never applied to the sitemap, so **62,406 of the
@@ -1992,7 +1995,8 @@ changing the RESULTS contract):
 - T-133 reports, from stored verdicts and no new judge calls, category's per-class
   metrics (the complete #12 set) on the articles that survive the re-tag next to
   the full stored sample, so the effect of wrong tags on the measured numbers is a
-  number, not a hypothesis.
+  number, not a hypothesis. **Done 2026-10-22** (`docs/evaluation.md`): the partition
+  does not clear the floor; T-123 takes its baseline from T-121(b).
 - The audit script reproduces the 42.7% / 91.5% / 39.0% figures above from
   the RESULTS store (before the crawler re-tag changes the corpus), and
   T-117 records R and N on the cleaned corpus, with the owner's sign-off on
@@ -2242,7 +2246,7 @@ other, and independent of one another except where noted:
   blocked on `portfolio-data-mining` Work item 10 (stop the crawler tagging
   articles with the wrong company and re-tag `urls.db`); that block is lifted, see
   the update above. T-116 (the "before" audit) and T-130 (the relevance judge, no
-  crawler dependency) can run now, and so can T-133 (the clean-subset re-read).
+  crawler dependency) can run now; T-133 (the clean-subset re-read) is done.
   **Order across the two repos:** that repo's
   T-055–T-058 came first (done); here: decide its quarantined `review` pairs (T-132, step 2b), measure what irrelevance remains (T-117), build the gate if
   still worth it, calibrate, re-evaluate, clean up results for removed
@@ -2253,8 +2257,8 @@ other, and independent of one another except where noted:
   ticker-collision finding (T-127) to its own PR.
 
 - **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
-  first runnable tasks are T-116, T-130, T-133 and T-141 (code, hermetic); T-121(a)
-  follows T-133 and needs no spend. Calibration no longer waits for T-117: T-121(b)
+  first runnable tasks are T-116, T-130 and T-141 (code, hermetic); T-133 is done and
+  T-121(a), which follows it, needs no spend. Calibration no longer waits for T-117: T-121(b)
   waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16 (the
   schema guard) is closed (#109), so T-132 can start; it adds its columns to the guard.
   Work item 17's T-137 (sizing) goes

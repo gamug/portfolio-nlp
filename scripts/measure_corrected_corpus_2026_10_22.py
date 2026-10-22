@@ -33,10 +33,14 @@ It reports, in order:
     sizes the judged sample that per-slug calibration (T-121) needs;
 11. on one eval run's `representative` bucket (uniform sampling weights, so the
    unweighted rates are population rates within it), how often the judge agreed
-   with the stored category, by upstream class, with 95% Wilson intervals.
+   with the stored category, by upstream class, with 95% Wilson intervals;
+12. the same eval run through `aggregate_category`, split by upstream class with each
+    stratum's population rescaled to a domain estimate (news_nlp.eval.partition):
+    per-class precision, recall, F1 and one-vs-rest accuracy, overall accuracy and
+    macro F1, and the judged counts.
 
-Item 11 is unweighted agreement only, not the complete constitution #12 metric
-set; the complete set per partition is T-133's remaining work.
+Item 11 is unweighted agreement only. Item 12 is the complete constitution #12 metric
+set per upstream class (T-133 steps 2-4), through `aggregate_category`.
 
 Kept in the repository: docs/evaluation.md cites it as the command that reproduces
 the 2026-10-22 figures, and a rerun after the next upstream change starts here. A dated
@@ -61,6 +65,7 @@ from pathlib import Path
 # `news_nlp.taxonomy` module is read (no model, no torch).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.db import SourceSchemaError, check_schema
+from news_nlp.eval.partition import judged_counts, load_category_pairs, metrics_by_partition
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_FLOOR,
@@ -399,6 +404,50 @@ def report_eval(conn: sqlite3.Connection, run_id: int) -> None:
             print(f"    {match_class:<8} {rate(agree, n)}")
 
 
+def report_partitions(conn: sqlite3.Connection, results: Path, run_id: int) -> None:
+    """T-133 steps 2-4: the stored judgements of one run, split by upstream class and
+    run back through `aggregate_category` (the live-run code path, no judge call). Each
+    partition's strata are reweighted to a domain estimate (news_nlp.eval.partition)."""
+    section(f"eval_run {run_id}: complete metric set per upstream class (domain-reweighted)")
+    stored = sqlite3.connect(f"file:{results.as_posix()}?mode=ro", uri=True)
+    try:
+        pairs = load_category_pairs(stored, run_id)
+    finally:
+        stored.close()
+    ids = sorted({it.article_id for it, _ in pairs})
+    partition_of: dict[int, str] = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start : start + 500]
+        marks = ",".join("?" * len(chunk))
+        for aid, match_class in conn.execute(
+            f"SELECT id, COALESCE(match_class, '(none)') FROM main.discovered_urls WHERE id IN ({marks})",  # noqa: S608 -- placeholders only
+            chunk,
+        ):
+            partition_of[aid] = match_class
+    counts = judged_counts(pairs, partition_of)
+    out = metrics_by_partition(pairs, partition_of)
+    names = ["all", *[n for n in ("accept", "review", "reject") if n in out]]
+    print("  judged items (parse ok) by bucket:")
+    for name, by_bucket in counts.items():
+        print(f"    {name:<8} total={sum(by_bucket.values()):>5}  {by_bucket}")
+    print("  judge's own labels per partition (true examples per class, unweighted):")
+    from collections import Counter  # noqa: PLC0415 -- only this report uses it
+
+    for name in names[1:]:
+        c = Counter(v.ideal_slug for it, v in pairs if partition_of.get(it.article_id) == name)
+        print(f"    {name:<8} " + ", ".join(f"{k}={n}" for k, n in sorted(c.items())))
+    keys = sorted({k for o in out.values() for k in o if not k.endswith("_naive_pooled")})
+    wanted = [
+        k
+        for k in keys
+        if k in {"n", "accuracy_vs_judge", "macro_f1", "other_rate_model", "other_rate_judge"}
+        or k.startswith(("precision_", "recall_", "f1_", "accuracy_ovr_"))
+    ]
+    print(f"  {'metric':<44}" + "".join(f"{n:>10}" for n in names))
+    for k in wanted:
+        print(f"  {k:<44}" + "".join(f"{out[n].get(k, float('nan')):>10.3f}" for n in names))
+
+
 def default_path(env: str) -> Path | None:
     value = os.environ.get(env)
     return Path(value) if value else None
@@ -423,6 +472,7 @@ def main() -> int:
     report_calibration_cells(conn)
     report_unprocessed(conn)
     report_eval(conn, args.eval_run)
+    report_partitions(conn, args.results_db, args.eval_run)
     return 0
 
 
