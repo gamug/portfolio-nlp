@@ -246,8 +246,8 @@ Dependencies at a glance:
 | T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **yes** |
 | T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
 | T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
-| T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (column guard, recommended order) | T-117 | **yes, after T-135** |
-| T-135 schema guard (WI16) | T-139 (D8) | T-132 (recommended order), T-136 | **yes** (code, hermetic) |
+| T-132 quarantined pairs | T-128, T-139 (D5, D6), **T-135** (schema guard, hard) | T-117 | **yes, after T-135** |
+| T-135 schema guard (WI16) | T-139 (D8) | T-132 (hard), T-136 | **yes** (code, hermetic) |
 | T-136 guard docs | T-135 | none | no |
 | T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
 | T-138 multi-company build | T-137 result, the owner | none | no (conditional) |
@@ -425,10 +425,14 @@ Dependencies at a glance:
       - **Done when:** every selected pair has a verdict and the class seen; the report
         states precision/recall per verdict against the hand labels and the `unclear`
         share; the CSV round-trips (upstream can apply it); purges, if any, are recorded
-        and reversible; an FR is added in the PR that ships it; the verdict/`other`
+        and reversible; its columns are added to the T-135 guard list, with a test where
+        one is missing (the run fails with the message); an FR is added in the PR that
+        ships it; the verdict/`other`
         naming collision is documented in `docs/category-taxonomy.md`.
-      - **Depends on:** T-128 (met), T-139 (D5, D6); recommended order after T-135 (the
-        schema guard, because this reads `discovered_urls`). **Blocks:** T-117 (its R and
+      - **Depends on:** T-128 (met), T-139 (D5, D6); **T-135** (the
+        schema guard; a hard dependency: this task adds its columns to the guard's list,
+        `articles.prev_fetch_status` and `discovered_urls`, and the helper must exist
+        first). **Blocks:** T-117 (its R and
         N are measured after these pairs are decided). → step 2b.
 - [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130; **thresholds confirmed by the owner 2026-10-22, recorded in T-139**; what stays for T-117's sign-off is the measured R and N, not the rule)*
       Prototype the relevance test as string matching over SOURCE `body_text`
@@ -808,15 +812,18 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         pass; 6 passes with one warning; version 3 without `prev_fetch_status` fails on
         the column guard; a file re-stamped 5 → 3 between two opens passes both times; a
         WAL file with a live writer opens read-only; the file hash is identical before
-        and after. CLI exits non-zero with the message; an API path that attaches SOURCE
-        answers 503 carrying it (a configuration error, not a client error); the
+        and after. CLI exits non-zero with the message. `POST /pipeline/run` (the only API
+        path that attaches SOURCE; it answers 202 and runs in a background worker) runs the
+        guard **synchronously in the handler, before** the worker and before the run slot
+        is taken, and answers 503 carrying the message (a configuration error, not a
+        client error); tested: 503, no 409 afterwards, status not left "running". The
         no-SOURCE endpoints are unaffected (tested). **The existing suite stays green:**
         a shared fixture helper in `tests/news_nlp/conftest.py` stamps the version and
         creates the guarded columns on the SOURCE fixtures (today they are unstamped,
         i.e. 0), and tests that need an old or unstamped file build one explicitly. The
         shipping PR extends FR-007's acceptance (SOURCE is read-only and checked before
         use), per SPEC §14.
-      - **Depends on:** D8 (decided, T-139). **Blocks:** T-132 (recommended order).
+      - **Depends on:** D8 (decided, T-139). **Blocks:** T-132.
 - [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and
       `discovery_progress` are not part of the contract. Depends on T-135.

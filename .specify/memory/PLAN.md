@@ -2062,7 +2062,7 @@ across runs**. A second guard on the columns actually read (`PRAGMA table_info`,
 parameter: today's `articles` columns; T-132 adds `prev_fetch_status` and
 `discovered_urls` in its own PR), because the number is a promise and the columns are
 the fact. It runs only when a SOURCE is attached (not on single-file runs, not on the
-no-SOURCE serving endpoints); the API answers 503 carrying the message. The minimum 3 is
+no-SOURCE serving endpoints); `POST /pipeline/run` runs it in the handler before the background worker and answers 503 carrying the message (the worker's 202 would hide it). The minimum 3 is
 a behavior change (a version-2 file works today; the real file is at 5). Copy the number into this repo's own constant; never import `data_mining`.
 The cache tables (`sitemap_entries`, `sitemap_crawls`) and `discovery_progress` are not
 part of the contract: never read, join or attach them. Whether the helper lives here or
