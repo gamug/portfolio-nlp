@@ -1795,7 +1795,8 @@ changing the RESULTS contract):
      query is the one agreed upstream (`articles` joined to `discovered_urls` on
      `id`, `match_class = 'review'`, `fetch_status = 'quarantined'`). It reads a table
      this repo has never read, so it touches the SOURCE contract (constitution AI
-     behavior #10) and is gated by Work item 16's schema guard. The API alternative
+     behavior #10); the schema guard (Work item 16, built in #109) checks it, and
+     this step adds its columns to `SOURCE_REQUIRED_COLUMNS`. The API alternative
      needs two calls and cannot filter by date.
    - **Output**: a new additive RESULTS table, key `(article_id, ticker, run_id)`,
      columns `verdict, confidence, model, evidence`, plus the class and reason seen,
