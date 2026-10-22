@@ -823,6 +823,11 @@ on lower and on 0, warn once on higher, never cached, plus a column guard. →
         i.e. 0), and tests that need an old or unstamped file build one explicitly. The
         shipping PR extends FR-007's acceptance (SOURCE is read-only and checked before
         use), per SPEC §14.
+      - **Also:** `scripts/measure_corrected_corpus_2026_10_22.py` drops its own
+        version check for this guard (its constant said 5; upstream's table puts
+        `match_class` at 2 and `prev_fetch_status` at 3, so the minimum is 3). Any new
+        SOURCE table or column read (T-132, T-137, …) adds itself to the guard list in
+        its own PR.
       - **Depends on:** D8 (decided, T-139). **Blocks:** T-132.
 - [ ] **T-136** Docs: one line in `docs/db-topology.md` with the minimum version, why a
       minimum and not an exact match, and that `sitemap_entries`, `sitemap_crawls` and

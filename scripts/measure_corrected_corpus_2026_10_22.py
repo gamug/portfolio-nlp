@@ -68,7 +68,9 @@ from news_nlp.taxonomy import (
 )
 
 Z95 = 1.96
-MIN_SOURCE_VERSION = 5  # the schema that has discovered_urls.match_class
+# match_class arrives at schema 2, prev_fetch_status/quarantine at 3 (upstream hand-off
+# 2026-10-21, 8.1); T-135 replaces this check with the shared guard.
+MIN_SOURCE_VERSION = 3
 
 
 def wilson(k: int, n: int, z: float = Z95) -> tuple[float, float]:
@@ -107,7 +109,7 @@ def report_versions_and_runs(conn: sqlite3.Connection) -> None:
     if version < MIN_SOURCE_VERSION:
         raise SystemExit(
             f"urls.db is at user_version {version}; this script reads discovered_urls.match_class "
-            f"and needs {MIN_SOURCE_VERSION} or later. Point --source-db at the corrected crawl store."
+            f"and the quarantine and needs {MIN_SOURCE_VERSION} or later. Point --source-db at the corrected crawl store."
         )
     stored = dict(
         conn.execute(

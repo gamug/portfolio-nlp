@@ -2050,7 +2050,12 @@ monotonic: a documented cache rollback sets 5 back to 3 and an old build re-stam
 what it knows). This repo reads it on trust: only `require_source_text` checks that
 `body_text` exists. Work item 15's T-132 starts reading a second table
 (`discovered_urls`: `match_class`, `match_reason`, `url`, `ticker`) and the
-quarantine column `articles.prev_fetch_status`, which only exist from versions 2 and 3.
+quarantine column `articles.prev_fetch_status`: per upstream's version table (hand-off
+2026-10-21, 8.1) `match_class` and `match_reason` arrive at version 2 and
+`prev_fetch_status` and the quarantine semantics at 3, so 3 covers every read. The
+`MIN_SOURCE_VERSION = 5` in the 2026-10-22 measurement script was wrong, not stricter;
+T-135 replaces that check with the shared guard. Rule: any new SOURCE table or column
+read adds itself to the guard list in the same PR.
 Upstream's note proposes this as our work item, not blocking.
 
 **Approach**: a read-only start-up guard at the single choke point every command goes
