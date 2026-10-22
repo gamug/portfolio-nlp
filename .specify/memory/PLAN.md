@@ -1904,7 +1904,7 @@ changing the RESULTS contract):
    changes, or if hypothesis wording (option D), a longer input (option H) or the model
    changes. The equivalence is argued, not verified for fresh inference: the stored
    scores were written no later than 2026-09-12, before the 2026-09-14 revision pin and
-   before CUDA was available here, so they come from a CPU run and a fresh run will be
+   before CUDA was available here, so they come from a CPU run (the current rule reproduces all 459,112 stored labels from the stored scores, 0 mismatches, so the check concerns score drift only) and a fresh run will be
    on GPU. T-124 therefore first re-infers a random sample of 300 confirmed articles on
    a scratch copy, records the device and dtype of both runs, and reports the maximum
    absolute difference of the nine leaf scores and `group_score` and how many articles lie
