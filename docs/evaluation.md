@@ -1960,7 +1960,8 @@ Read-only, on the real stores (`urls.db` at schema version 5, `nlp.db`), by
 `scripts/measure_corrected_corpus_2026_10_22.py` (rerunnable; both databases opened
 `mode=ro`). **Not a model evaluation:** nothing was judged again. The category numbers
 below are unweighted agreement rates from judgements already stored, not the complete
-constitution #12 metric set, which T-133 still owes per partition.
+constitution #12 metric set, which the T-133 steps 2-4 subsection at the end of this
+follow-up reports per partition.
 
 **Where the stored results stand upstream.** `portfolio-data-mining` re-tagged `urls.db`
 on 2026-10-15; classes are read from its `discovered_urls.match_class`.
@@ -2075,6 +2076,62 @@ band give 45 cells, all with at least 60 articles (counts as of 2026-10-22, not 
 level-1 short-circuits. T-121(b)'s sample is 90 per cell in the 0.4-0.6 bands, 60 elsewhere
 and 60 short-circuit. That is 3,300 judge calls at most (cap 3,800 with the discordant top-up), split in halves (fit / report) so T-123's baseline is not scored
 on the data the thresholds were fitted on.
+
+**T-133 steps 2-4: the complete metric set per upstream class (same script, section 12;
+no judge call; run on 2026-10-22, per-class label counts and intervals re-derived on
+2026-10-23 after review).** The stored judgements of eval_run 43 (2,800 items)
+are split by `discovered_urls.match_class` and each part is run back through
+`aggregate_category`, the live-run code path (`news_nlp.eval.partition`). Each part keeps
+the run's own weight per article: a stratum's population is rescaled to
+`N_h * n_h(part) / n_h`, the standard domain estimator, so the weight stays `N_h / n_h`.
+Sanity check: the `all` column reproduces the run's stored `metrics_json` (accuracy
+0.576, macro F1 0.551, `other` precision 0.576, recall 0.627, F1 0.601, model and judge
+`other` rates 0.444 and 0.408). `n` counts parse-ok items including the `low_conf`
+bucket, which the estimators exclude. The only figures given an interval are the `other`
+precisions below, by a stratified bootstrap (500 replicates, seed 0, each bucket redrawn
+at its own size; `news_nlp.eval.partition.bootstrap_interval`, free, printed by the
+script): all 0.576 [0.540, 0.613]; `accept` 0.319 [0.242, 0.403]; `reject` 0.639
+[0.599, 0.681]; `accept` minus `reject` -0.320 [-0.405, -0.233]. The other cells carry no
+interval and the small per-class cells in `accept` are indicative only. A partition's
+rescaled stratum population is rounded and clamped to at least 1. Robustness: seed 1
+with 1,000 replicates gives `accept` [0.241, 0.398], `reject` [0.596, 0.684] and the
+difference [-0.411, -0.226], within 0.01 of the bounds above; every replicate had a
+defined statistic (the bootstrap skips a replicate whose `precision_`/`recall_` has an
+empty denominator, and reports how many were used).
+
+| metric | all | `accept` (survivors) | `review` | `reject` |
+|---|---|---|---|---|
+| judged items (parse ok) | 2,800 | 538 | 309 | 1,953 |
+| accuracy vs judge | 0.576 | 0.526 | 0.654 | 0.580 |
+| macro F1 | 0.551 | 0.558 | 0.616 | 0.533 |
+| `other`: precision / recall / F1 | 0.576 / 0.627 / 0.601 | **0.319** / 0.661 / 0.430 | 0.600 / 0.644 / 0.621 | 0.639 / 0.621 / 0.630 |
+| `other` rate, model / judge | 0.444 / 0.408 | 0.407 / **0.196** | 0.430 / 0.401 | 0.456 / 0.469 |
+| `other` one-vs-rest accuracy | 0.660 | 0.656 | 0.685 | 0.658 |
+
+The full per-class precision, recall, F1 and one-vs-rest accuracy for all ten labels
+and the four columns are printed by the script (section 12) and are not repeated here.
+
+**Reading.** On the confirmed articles the model labels `other` about as often as
+elsewhere (0.41 against 0.44) but the judge does so far less (0.20 against 0.41), so
+`other` precision on them is 0.32 (interval 0.24-0.40), not the 0.58 quoted for the
+whole run: about two thirds of the confirmed articles the model sends to `other` (point
+estimate 68%, interval 60-76%) carry a real category in the judge's view. That agrees in direction with the unweighted 37% above and makes the
+`other` problem of Work item 15 a property of the confirmed corpus, not an artefact of
+the wrongly tagged articles (they inflate the quoted precision). `other` recall is
+similar across parts (0.62-0.66), so the cost of the rule is mostly in precision.
+
+**Does the surviving partition clear the sample-size floor? No.** `accept` has 538
+judged items (488 outside `low_conf`); the floor for a regression-tracked category run is
+about 2,500-3,000 items (the "Sample-size floor" section above derives it from the
++-0.07-0.10 interval a regression check needs), and the per-class floor is about
+200-370 true examples, but the judge's own labels on `accept` (parse ok, outside
+`low_conf`, unweighted) give only 11 `capital_shareholder_returns`, 33
+`legal_regulatory`, 39 `earnings_performance` and 40 `labor_human_capital` (the rest are
+42-76). So per-class figures on `accept`
+(for example `capital_shareholder_returns` F1 0.254) are indicative only. Consequence
+for the plan: eval_run 43's `accept` partition is **not** T-123's baseline; T-123 takes
+its baseline from the report half of T-121(b)'s stratified judged sample (already the
+plan above), and this table is the reason that sample exists. No behavior was changed.
 
 ## What it evaluates
 
