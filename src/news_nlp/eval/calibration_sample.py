@@ -20,6 +20,7 @@ random within their cell and half, which the recorded list lets a reader check.
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -41,6 +42,10 @@ def text_fingerprint(title: str, body: str) -> str:
     """SHA-256 of the text the judge reads."""
     return hashlib.sha256(f"{title}\n{body}".encode()).hexdigest()
 
+
+#: Share of the draw above which dropping articles (no text, no stored row) is worth a warning.
+DROP_WARN_FRACTION = 0.02
+_log = logging.getLogger(__name__)
 
 Half = Literal["fit", "report"]
 HALVES: tuple[Half, ...] = ("fit", "report")
@@ -206,4 +211,11 @@ def sample_items(
             prediction={"text_sha256": text_fingerprint(title, body)},
         )
     effective = restrict(sample, set(built))
+    if sample.drawn and len(effective.dropped) / len(sample.drawn) > DROP_WARN_FRACTION:
+        _log.warning(
+            "%d of %d drawn articles had no text or stored row and were dropped; the weights "
+            "assume they are missing at random",
+            len(effective.dropped),
+            len(sample.drawn),
+        )
     return [(a, built[a.article_id]) for a in effective.drawn], effective

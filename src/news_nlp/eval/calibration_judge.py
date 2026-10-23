@@ -9,8 +9,8 @@ text. Verdicts are stored under their own ``eval_verdict.task`` (:data:`TASK`), 
 verdict (task ``category``) can never satisfy a lookup here, and the opposite. Opt-in: this module
 is not in ``sampling.STAGES``, ``judges.JUDGES`` or ``verdicts.VERDICT_MODELS``.
 
-**The wording in ``prompts/calibration.md`` is frozen**: ``test_eval_calibration_judge`` pins its
-hash, and the reuse key carries the prompt hash and the judge model (:func:`truth_experiment`), so
+**The wording is frozen** (``prompts/calibration.md``, the user template and the repair prompt
+in this module): ``test_eval_calibration_judge`` pins the hash and the rendered user prompt, and the reuse key carries the prompt hash and the judge model (:func:`truth_experiment`), so
 a verdict made under other wording or another model is never reused. A change to the wording or to
 the label set invalidates every verdict stored under :data:`TASK` and costs a re-judge, to be
 budgeted separately.
@@ -47,13 +47,7 @@ from pydantic import BaseModel, field_validator
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.eval.calibration_sample import HALVES, CalibrationSample, Half, run_config
 from news_nlp.eval.config import JUDGE_TEMPERATURE
-from news_nlp.eval.judges import (
-    _REPAIR_PROMPT,
-    JudgeAgent,
-    _article_block,
-    _coerce,
-    load_prompt,
-)
+from news_nlp.eval.judges import JudgeAgent, _coerce, load_prompt
 from news_nlp.eval.sampling import EvalItem
 from news_nlp.eval.store import (
     create_eval_run,
@@ -102,9 +96,25 @@ class TruthVerdict(BaseModel):
         return value
 
 
+#: Everything the judge is told besides the system prompt file is owned here, not borrowed from
+#: the helpers other judges share, so editing those can never change this judge's input unseen.
+_USER_TEMPLATE = "ARTICLE\nTitle: {title}\n\n{body}\n\nReturn your JSON verdict."
+_REPAIR = (
+    "That was not valid JSON. Reply again with ONLY the JSON object described above, "
+    "nothing else -- no prose, no markdown fences."
+)
+
+
+def render_user_prompt(item: EvalItem) -> str:
+    """The user message of one judge call: the article alone, no classifier output."""
+    return _USER_TEMPLATE.format(title=item.title, body=item.body_text)
+
+
 def prompt_hash() -> str:
-    """SHA-256 of the frozen prompt text, stored in the run's config."""
-    return hashlib.sha256(load_prompt(PROMPT_NAME).encode("utf-8")).hexdigest()
+    """SHA-256 of the frozen wording: the system prompt file, the user template and the repair
+    prompt, in that order. Stored in the run's config and part of the reuse key."""
+    frozen = "\x00".join((load_prompt(PROMPT_NAME), _USER_TEMPLATE, _REPAIR))
+    return hashlib.sha256(frozen.encode("utf-8")).hexdigest()
 
 
 def truth_experiment(judge_model: str) -> str:
@@ -117,8 +127,7 @@ def judge_truth(agent: JudgeAgent, item: EvalItem) -> TruthVerdict:
     """One judge call on the article alone (the classifier's output is not shown), with one
     repair prompt for an unusable reply. A reply that stays unusable gives the ``parse_failed``
     fallback; a failure of the call itself raises :class:`JudgeTransportError`."""
-    prompt = f"{_article_block(item)}\n\nReturn your JSON verdict."
-    for text in (prompt, _REPAIR_PROMPT):
+    for text in (render_user_prompt(item), _REPAIR):
         try:
             reply = str(agent(text))
         except Exception as exc:

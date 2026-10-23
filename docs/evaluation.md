@@ -2735,7 +2735,9 @@ classifier reads, so it is the best label for that text, not for the whole artic
   `parse_failed` fallback, which is never reused. `load_truths` excludes those rows and
   reports their count and rate, and re-weights each half over the usable articles (assuming
   they are missing at random within the cell and half); so does an article left unjudged.
-* **The wording is frozen.** `test_eval_calibration_judge.py` pins the prompt's SHA-256, the
+* **The wording is frozen.** It is the system prompt file, the user template and the repair
+  prompt, all owned by `calibration_judge` (not borrowed from the helpers other judges share).
+  `test_eval_calibration_judge.py` pins the hash of the three and the rendered user message, the
   reuse key (`truth_experiment`) carries the prompt hash and the judge model, and a run
   started under another hash is refused. A change to the wording or to the label set
   invalidates every stored `category_truth` verdict and costs a re-judge, to be budgeted

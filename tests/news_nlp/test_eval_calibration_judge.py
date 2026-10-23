@@ -26,7 +26,10 @@ from news_nlp.taxonomy import CATEGORY_GROUP_FLOOR, CATEGORY_SLUGS
 
 #: Pinned so that a change to the frozen wording is a deliberate, reviewed act that also
 #: re-budgets the judge calls (TASKS T-141): update this hash in the same commit, on purpose.
-FROZEN_PROMPT_SHA256 = "de1cedad523f8868a445b06650b18f31f0bbd573781edf7af977045be533464d"
+FROZEN_PROMPT_SHA256 = "a65bc3850f23cfcbf6510055baea6c4df26f059bc6c8e7cd29a6b6d4d8ede437"
+#: Review 6: the hash now also covers the user template and the repair prompt (it was the system
+#: prompt file alone, de1cedad...), and the rendered user message is pinned below.
+FROZEN_USER_PROMPT = "ARTICLE\nTitle: Acme buys Beta\n\nAcme agreed to acquire Beta for $1bn.\n\nReturn your JSON verdict."
 
 
 class FakeAgent:
@@ -60,11 +63,26 @@ def _article(i: int, slug_index: int, score: float, group: float = 0.9) -> Confi
 
 
 def test_prompt_is_frozen() -> None:
-    assert (
-        cj.prompt_hash()
-        == hashlib.sha256(cj.load_prompt(cj.PROMPT_NAME).encode("utf-8")).hexdigest()
-    )
+    frozen = "\x00".join((cj.load_prompt(cj.PROMPT_NAME), cj._USER_TEMPLATE, cj._REPAIR))
+    assert cj.prompt_hash() == hashlib.sha256(frozen.encode("utf-8")).hexdigest()
     assert cj.prompt_hash() == FROZEN_PROMPT_SHA256
+    assert cj.render_user_prompt(_item()) == FROZEN_USER_PROMPT
+
+
+def test_the_judge_input_does_not_borrow_text_other_judges_share(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Editing the shared helpers (used by the sentiment/category/NER judges) must not change
+    what the calibration judge sends, nor its frozen hash."""
+    from news_nlp.eval import judges  # noqa: PLC0415
+
+    before = (cj.render_user_prompt(_item()), cj.prompt_hash())
+    monkeypatch.setattr(judges, "_article_block", lambda _i: "CHANGED")
+    monkeypatch.setattr(judges, "_REPAIR_PROMPT", "CHANGED")
+    assert (cj.render_user_prompt(_item()), cj.prompt_hash()) == before
+    agent = FakeAgent(["no", '{"truth_slug": "other"}'])
+    cj.judge_truth(agent, _item())
+    assert agent.prompts == [FROZEN_USER_PROMPT, cj._REPAIR]
 
 
 def test_prompt_lists_every_label_and_hides_the_classifier_output() -> None:
@@ -673,6 +691,28 @@ def test_items_outside_the_runs_sample_are_refused_before_any_call(
         cj.judge_and_record(conn, run, [*items, stray], agent_factory=factory, max_calls=100)
     assert calls == []
     assert conn.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()[0] == 0
+
+
+def test_a_large_share_of_dropped_articles_logs_a_warning(
+    eval_conn: db_module.NewsNlpDatabase, caplog: pytest.LogCaptureFixture
+) -> None:
+    first = int(eval_conn.execute("SELECT MIN(article_id) FROM article_category").fetchone()[0])
+    sample = cs.CalibrationSample(
+        1,
+        (
+            cs.SampledArticle(first, "c|2", "fit", 10, 2),
+            cs.SampledArticle(999_999, "c|2", "fit", 10, 2),
+        ),
+        {"c|2": 10},
+    )
+    with caplog.at_level("WARNING", logger=cs.__name__):
+        cs.sample_items(eval_conn, sample)
+    assert any("were dropped" in r.message for r in caplog.records)
+    caplog.clear()
+    whole = cs.CalibrationSample(1, sample.drawn[:1], {"c|2": 10})
+    with caplog.at_level("WARNING", logger=cs.__name__):
+        cs.sample_items(eval_conn, whole)
+    assert not caplog.records
 
 
 def test_judge_truth_raises_on_a_failed_call_but_falls_back_on_a_bad_reply() -> None:
