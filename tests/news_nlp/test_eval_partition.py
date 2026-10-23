@@ -1,6 +1,9 @@
-"""Re-reading a stored category run per partition (T-133): hermetic, no judge call."""
+"""Re-reading a stored category run per partition (TASKS.md T-133; the metric set of
+SPEC.md FR-016 per partition): hermetic, no judge call."""
 
+import importlib.util
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -8,7 +11,9 @@ import pytest
 import news_nlp as db
 from news_nlp.eval.metrics import aggregate_category
 from news_nlp.eval.partition import (
+    bootstrap_interval,
     domain_pairs,
+    judge_label_counts,
     judged_counts,
     load_category_pairs,
     metrics_by_partition,
@@ -111,3 +116,85 @@ def test_load_category_pairs_reads_a_stored_run(tmp_path: Path) -> None:
     assert pair[0].article_id == 42 and pair[0].stratum_population == 123
     assert pair[1].ideal_slug == "other"
     conn.close()
+
+
+def test_a_single_item_in_a_large_stratum_keeps_a_positive_weight() -> None:
+    # 1 of 1000 sampled items is in the partition of a 10-article stratum:
+    # round(10 * 1 / 1000) is 0, which would zero the item; it is clamped to 1.
+    pairs = [_pair(i, "representative", 10, "other", "other") for i in range(1, 1001)]
+    part = domain_pairs(pairs, lambda aid: aid == 1)
+    assert [it.stratum_population for it, _ in part] == [1]
+
+
+def test_judge_label_counts_match_the_estimator_inputs() -> None:
+    bad = (
+        _pair(3, "representative", 10, "other", "other")[0],
+        CategoryVerdict(agrees=False, ideal_slug="legal_regulatory", parse_failed=True),
+    )
+    pairs = [
+        _pair(1, "representative", 10, "other", "other"),
+        _pair(2, "low_conf", 10, "other", "legal_regulatory"),
+        bad,
+        _pair(4, "representative", 10, "other", "legal_regulatory"),
+    ]
+    got = judge_label_counts(pairs, {1: "accept", 2: "accept", 3: "accept"})
+    assert got == {"(none)": {"legal_regulatory": 1}, "accept": {"other": 1}}
+
+
+def test_bootstrap_interval_brackets_the_estimate_and_is_deterministic() -> None:
+    pairs = [
+        _pair(i, "representative", 1000, "other", "other" if i % 3 else "legal_regulatory")
+        for i in range(1, 61)
+    ]
+    part = {i: ("accept" if i <= 30 else "reject") for i in range(1, 61)}
+    est, low, high = bootstrap_interval(pairs, part, "precision_other", partition="accept", reps=80)
+    assert low <= est <= high
+    assert bootstrap_interval(pairs, part, "precision_other", partition="accept", reps=80) == (
+        est,
+        low,
+        high,
+    )
+    diff, dlow, dhigh = bootstrap_interval(
+        pairs, part, "precision_other", minus=("accept", "reject"), reps=80
+    )
+    assert dlow <= diff <= dhigh
+
+
+def test_load_category_pairs_names_a_missing_bucket_and_run(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "r.db")
+    db.init_schema(conn)
+    with pytest.raises(ValueError, match="not found"):
+        load_category_pairs(conn, 99)
+    conn.execute(
+        "INSERT INTO eval_run (id, stage, started_at, sample_size, low_conf_n, random_n, seed, "
+        "judge_model, judge_url, code_version, metrics_json, status, strata_json, experiment) "
+        "VALUES (8, 'category', 't', 1, 0, 1, 1, 'j', 'u', 'c', '{}', 'ok', '{}', 'e')"
+    )
+    conn.execute(
+        "INSERT INTO eval_inference (id, run_id, article_id, task, experiment, bucket, prediction_json, created_at) "
+        "VALUES (1, 8, 42, 'category', 'e', 'representative', '{}', 't')"
+    )
+    conn.execute(
+        "INSERT INTO eval_verdict (inference_id, run_id, article_id, task, experiment, verdict_json, correct, judged_at) "
+        "VALUES (1, 8, 42, 'category', 'e', '{\"agrees\": true, \"ideal_slug\": \"other\"}', 1, 't')"
+    )
+    with pytest.raises(ValueError, match="missing from strata_json"):
+        load_category_pairs(conn, 8)
+    conn.close()
+
+
+def test_the_measurement_script_maps_articles_to_their_upstream_class(tmp_path: Path) -> None:
+    script = (
+        Path(__file__).resolve().parents[2] / "scripts" / "measure_corrected_corpus_2026_10_22.py"
+    )
+    spec = importlib.util.spec_from_file_location("measure_script", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    urls = sqlite3.connect(tmp_path / "urls.db")
+    urls.execute("CREATE TABLE discovered_urls (id INTEGER PRIMARY KEY, match_class TEXT)")
+    urls.executemany(
+        "INSERT INTO discovered_urls VALUES (?, ?)", [(1, "accept"), (2, "reject"), (3, None)]
+    )
+    assert module.load_partition_of(urls, [1, 2, 3, 4]) == {1: "accept", 2: "reject", 3: "(none)"}
+    urls.close()

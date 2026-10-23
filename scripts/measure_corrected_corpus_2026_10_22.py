@@ -65,7 +65,13 @@ from pathlib import Path
 # `news_nlp.taxonomy` module is read (no model, no torch).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.db import SourceSchemaError, check_schema
-from news_nlp.eval.partition import judged_counts, load_category_pairs, metrics_by_partition
+from news_nlp.eval.partition import (
+    bootstrap_interval,
+    judge_label_counts,
+    judged_counts,
+    load_category_pairs,
+    metrics_by_partition,
+)
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
     CATEGORY_GROUP_FLOOR,
@@ -414,7 +420,46 @@ def report_partitions(conn: sqlite3.Connection, results: Path, run_id: int) -> N
         pairs = load_category_pairs(stored, run_id)
     finally:
         stored.close()
-    ids = sorted({it.article_id for it, _ in pairs})
+    partition_of = load_partition_of(conn, sorted({it.article_id for it, _ in pairs}))
+    counts = judged_counts(pairs, partition_of)
+    out = metrics_by_partition(pairs, partition_of)
+    names = ["all", *[n for n in ("accept", "review", "reject") if n in out]]
+    print("  judged items (parse ok) by bucket:")
+    for name, by_bucket in counts.items():
+        print(f"    {name:<8} total={sum(by_bucket.values()):>5}  {by_bucket}")
+    print("  judge's own labels per partition (parse ok, outside low_conf, unweighted):")
+    for name, labels in judge_label_counts(pairs, partition_of).items():
+        print(f"    {name:<8} " + ", ".join(f"{k}={n}" for k, n in labels.items()))
+    keys = sorted({k for o in out.values() for k in o})
+    shown = [
+        k
+        for k in keys
+        if not k.endswith("_naive_pooled")
+        and not k.startswith("roc_auc_")
+        and (
+            k in {"n", "accuracy_vs_judge", "macro_f1", "other_rate_model", "other_rate_judge"}
+            or k.startswith(("precision_", "recall_", "f1_", "accuracy_ovr_"))
+        )
+    ]
+    print(f"  {'metric':<44}" + "".join(f"{n:>10}" for n in names))
+    for k in shown:
+        print(f"  {k:<44}" + "".join(f"{out[n].get(k, float('nan')):>10.3f}" for n in names))
+    hidden = [k for k in keys if k not in shown]
+    print(f"  not printed ({len(hidden)}, in metrics_by_partition): {', '.join(hidden)}")
+    if "accept" in out and "reject" in out:
+        print("  95% stratified-bootstrap intervals (500 replicates, seed 0):")
+        for label, kwargs in (
+            ("precision_other, all", {"partition": "all"}),
+            ("precision_other, accept", {"partition": "accept"}),
+            ("precision_other, reject", {"partition": "reject"}),
+            ("precision_other, accept - reject", {"minus": ("accept", "reject")}),
+        ):
+            est, low, high = bootstrap_interval(pairs, partition_of, "precision_other", **kwargs)  # type: ignore[arg-type]
+            print(f"    {label:<34} {est:>7.3f}  [{low:.3f}, {high:.3f}]")
+
+
+def load_partition_of(conn: sqlite3.Connection, ids: list[int]) -> dict[int, str]:
+    """``discovered_urls.match_class`` per article id (``(none)`` when NULL), in chunks."""
     partition_of: dict[int, str] = {}
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
@@ -424,28 +469,7 @@ def report_partitions(conn: sqlite3.Connection, results: Path, run_id: int) -> N
             chunk,
         ):
             partition_of[aid] = match_class
-    counts = judged_counts(pairs, partition_of)
-    out = metrics_by_partition(pairs, partition_of)
-    names = ["all", *[n for n in ("accept", "review", "reject") if n in out]]
-    print("  judged items (parse ok) by bucket:")
-    for name, by_bucket in counts.items():
-        print(f"    {name:<8} total={sum(by_bucket.values()):>5}  {by_bucket}")
-    print("  judge's own labels per partition (true examples per class, unweighted):")
-    from collections import Counter  # noqa: PLC0415 -- only this report uses it
-
-    for name in names[1:]:
-        c = Counter(v.ideal_slug for it, v in pairs if partition_of.get(it.article_id) == name)
-        print(f"    {name:<8} " + ", ".join(f"{k}={n}" for k, n in sorted(c.items())))
-    keys = sorted({k for o in out.values() for k in o if not k.endswith("_naive_pooled")})
-    wanted = [
-        k
-        for k in keys
-        if k in {"n", "accuracy_vs_judge", "macro_f1", "other_rate_model", "other_rate_judge"}
-        or k.startswith(("precision_", "recall_", "f1_", "accuracy_ovr_"))
-    ]
-    print(f"  {'metric':<44}" + "".join(f"{n:>10}" for n in names))
-    for k in wanted:
-        print(f"  {k:<44}" + "".join(f"{out[n].get(k, float('nan')):>10.3f}" for n in names))
+    return partition_of
 
 
 def default_path(env: str) -> Path | None:

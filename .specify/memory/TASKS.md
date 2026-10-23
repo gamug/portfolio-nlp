@@ -327,7 +327,7 @@ Dependencies at a glance:
         plus section 12 of `scripts/measure_corrected_corpus_2026_10_22.py`; hermetic tests
         in `tests/news_nlp/test_eval_partition.py`; the `all` column reproduces run 43's
         stored `metrics_json`); the side-by-side table is in `docs/evaluation.md`'s
-        2026-10-22 follow-up. Result: on `accept` (538 judged) `other` precision is 0.32
+        2026-10-22 follow-up. Result: on `accept` (538 judged) `other` precision is 0.32 (95% interval 0.24-0.40)
         against 0.58 for the whole run, and the partition does **not** clear the floor
         (538 against about 2,500-3,000; 11 true `capital_shareholder_returns`), so run 43's
         `accept` partition is not T-123's baseline: T-123 takes the report half of

@@ -2086,8 +2086,13 @@ the run's own weight per article: a stratum's population is rescaled to
 Sanity check: the `all` column reproduces the run's stored `metrics_json` (accuracy
 0.576, macro F1 0.551, `other` precision 0.576, recall 0.627, F1 0.601, model and judge
 `other` rates 0.444 and 0.408). `n` counts parse-ok items including the `low_conf`
-bucket, which the estimators exclude; no sampling interval is computed for these
-domain estimates (the unweighted intervals above are the ones with a stated interval).
+bucket, which the estimators exclude. The only figures given an interval are the `other`
+precisions below, by a stratified bootstrap (500 replicates, seed 0, each bucket redrawn
+at its own size; `news_nlp.eval.partition.bootstrap_interval`, free, printed by the
+script): all 0.576 [0.540, 0.613]; `accept` 0.319 [0.242, 0.403]; `reject` 0.639
+[0.599, 0.681]; `accept` minus `reject` -0.320 [-0.405, -0.233]. The other cells carry no
+interval and the small per-class cells in `accept` are indicative only. A partition's
+rescaled stratum population is rounded and clamped to at least 1.
 
 | metric | all | `accept` (survivors) | `review` | `reject` |
 |---|---|---|---|---|
@@ -2103,7 +2108,7 @@ and the four columns are printed by the script (section 12) and are not repeated
 
 **Reading.** On the confirmed articles the model labels `other` about as often as
 elsewhere (0.41 against 0.44) but the judge does so far less (0.20 against 0.41), so
-`other` precision on them is 0.32, not the 0.58 quoted for the whole run: more than two
+`other` precision on them is 0.32 (interval 0.24-0.40), not the 0.58 quoted for the whole run: more than two
 thirds of the confirmed articles the model sends to `other` carry a real category in the
 judge's view. That agrees in direction with the unweighted 37% above and makes the
 `other` problem of Work item 15 a property of the confirmed corpus, not an artefact of
@@ -2112,10 +2117,12 @@ similar across parts (0.62-0.66), so the cost of the rule is mostly in precision
 
 **Does the surviving partition clear the sample-size floor? No.** `accept` has 538
 judged items (488 outside `low_conf`); the floor for a regression-tracked category run is
-about 2,500-3,000 items (above, "Sample-size floor"), and the per-class floor is about
-200-370 true examples, but the judge's own labels on `accept` give only 11
-`capital_shareholder_returns`, 34 `legal_regulatory`, 40 `earnings_performance` and
-42 `labor_human_capital` (the rest are 43-109). So per-class figures on `accept`
+about 2,500-3,000 items (the "Sample-size floor" section above derives it from the
++-0.07-0.10 interval a regression check needs), and the per-class floor is about
+200-370 true examples, but the judge's own labels on `accept` (parse ok, outside
+`low_conf`, unweighted) give only 11 `capital_shareholder_returns`, 33
+`legal_regulatory`, 39 `earnings_performance` and 40 `labor_human_capital` (the rest are
+42-76). So per-class figures on `accept`
 (for example `capital_shareholder_returns` F1 0.254) are indicative only. Consequence
 for the plan: eval_run 43's `accept` partition is **not** T-123's baseline; T-123 takes
 its baseline from the report half of T-121(b)'s stratified judged sample (already the
