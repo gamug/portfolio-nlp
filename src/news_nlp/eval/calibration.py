@@ -20,7 +20,9 @@ The truth model has to be assumed where nothing was measured: in the >= 0.6 cell
 stored label is the argmax slug and eval_run 43 measured how often it was right; in the
 0.4-0.6 cells and the short-circuit stratum the stored label is ``other`` and the judge
 graded ``other``, so the share of articles whose truth is the argmax slug is a swept
-parameter (:class:`TruthModel` ``slug_share``), not a number.
+parameter, not a number: the probability that an article in the 0.5-0.6 band is truly
+``other`` (:class:`TruthModel` ``low_other``), constrained so that the model reproduces the
+measured `other` precision of the stored run.
 """
 
 from __future__ import annotations
@@ -55,26 +57,22 @@ REPORT_HALF_OTHER_BANDS = 30
 REPORT_HALF_SHORT_CIRCUIT = 30
 #: The two bands where a threshold moves labels.
 THRESHOLD_BANDS = (1, 2)
-#: Band key of the short-circuit stratum in a ramp (it has no score band).
+#: Band key of the short-circuit stratum among the low cells (it has no score band).
 SHORT_CIRCUIT_BAND = -1
-#: How the swept ``slug_share`` varies with the score band of a cell whose stored label is
-#: ``other``. The share of articles whose truth is the argmax slug is assumed, never
-#: measured, and its shape matters: a flat share over every low cell makes the articles a
-#: loosening rule re-labels look like the ones left behind, so no rule could change the
-#: `other` precision. Three shapes are run (the first is the default; the T-121(a)
-#: sensitivity check reports all three):
+#: How the probability that an article is truly `other` varies over the cells whose stored
+#: label is `other`. Whatever the shape, the average over the articles labelled `other` is
+#: fixed at the stored run's measured `other` precision (0.319 on the `accept` partition): the
+#: stored judgements already say that about two thirds of them have a real category in the
+#: judge's view, spread over any of the nine slugs, and nothing a shape does may move that.
 #:
-#: * ``graded``: 0 below 0.4 and in the short-circuit stratum, half in 0.4-0.5, full in
-#:   0.5-0.6 (the share rises towards the threshold);
-#: * ``band``: full in 0.4-0.5 and 0.5-0.6, 0 below 0.4 and in the short-circuit stratum;
-#: * ``flat``: the same share in every low cell, short-circuit included (TASKS.md's
-#:   original wording; a rule that only moves 0.5-0.6 articles cannot gain under it).
-RAMPS: dict[str, dict[int, float]] = {
-    "graded": {0: 0.0, 1: 0.5, 2: 1.0, SHORT_CIRCUIT_BAND: 0.0},
-    "band": {0: 0.0, 1: 1.0, 2: 1.0, SHORT_CIRCUIT_BAND: 0.0},
-    "flat": {0: 1.0, 1: 1.0, 2: 1.0, SHORT_CIRCUIT_BAND: 1.0},
-}
-DEFAULT_RAMP = "graded"
+#: * ``band2``: only the 0.5-0.6 band differs (the swept rate); every other low cell shares
+#:   the rate that keeps the average at the measured value;
+#: * ``graded``: the 0.5-0.6 band is the swept rate, 0.4-0.5 is halfway between it and the
+#:   rate of the remaining cells (< 0.4 and the short-circuit stratum);
+#: * ``flat``: every low cell has the measured rate (no cell is cleaner than another, so no
+#:   rule can gain: the zero-gain check of the estimator).
+SHAPES = ("graded", "band2", "flat")
+DEFAULT_SHAPE = "graded"
 #: The first band at or above the shipped threshold (CATEGORY_CONFIDENCE_THRESHOLD = 0.6).
 FIRST_CONFIDENT_BAND = 3
 
@@ -255,33 +253,86 @@ class TruthModel:
       is listed in ``fallback_cells``); when the judge disagreed, ``other_given_wrong`` of
       the time the truth was ``other``.
     * cells whose stored label is ``other`` (bands < 0.6, short-circuit): the truth is
-      the argmax slug with probability ``slug_share * ramp[band]`` (the swept assumption,
-      shape in :data:`RAMPS`), else ``other`` with probability ``other_agreement``
-      (measured: the weighted `other` precision of the stored run), else a third label.
+      ``other`` with probability ``low_other[band]`` (by default the measured weighted
+      `other` precision of the stored run, ``other_agreement``; :func:`shaped` varies it
+      across bands while keeping its average at the measured value), and otherwise the
+      argmax slug with probability ``slug_fraction`` of the remaining mass and some other
+      slug with the rest. ``slug_fraction`` only matters to accuracy and macro F1: neither
+      `other` precision nor `other` recall depends on it.
     """
 
     agree: Mapping[str, float]
     other_given_wrong: float
     other_agreement: float
-    slug_share: float
-    ramp: Mapping[int, float] = field(default_factory=lambda: dict(RAMPS[DEFAULT_RAMP]))
+    low_other: Mapping[int, float] = field(default_factory=dict)
+    slug_fraction: float = 0.5
     fallback_cells: tuple[str, ...] = ()
+
+    def low_rate(self, band: int | None) -> float:
+        """P(truth = other) of a low cell: *band* is its score band, ``None`` for the
+        short-circuit stratum."""
+        key = SHORT_CIRCUIT_BAND if band is None else band
+        return self.low_other.get(key, self.other_agreement)
 
     def probabilities(self, cell: str) -> tuple[float, float]:
         """``(P(argmax slug), P(other))`` for *cell*."""
         band = _band_of_cell(cell)
         if band is None or band < FIRST_CONFIDENT_BAND:
-            p_slug = self.slug_share * self.ramp[SHORT_CIRCUIT_BAND if band is None else band]
-            return p_slug, (1 - p_slug) * self.other_agreement
+            p_other = self.low_rate(band)
+            return self.slug_fraction * (1 - p_other), p_other
         p_slug = self.agree[cell]
         return p_slug, (1 - p_slug) * self.other_given_wrong
+
+
+LOW_BANDS = (0, 1, 2, SHORT_CIRCUIT_BAND)
+
+
+def low_band_counts(articles: Sequence[ConfirmedArticle]) -> dict[int, int]:
+    """How many of *articles* the shipped rule labels `other`, per low band (the
+    short-circuit stratum under :data:`SHORT_CIRCUIT_BAND`): the weights of the average
+    that :func:`shaped` keeps at the measured `other` precision."""
+    counts = dict.fromkeys(LOW_BANDS, 0)
+    for a in articles:
+        if apply_rule(a.group_score, a.leaf_scores) != OTHER_LABEL:
+            continue
+        band = _band_of_cell(cell_of(a.group_score, a.leaf_scores))
+        counts[SHORT_CIRCUIT_BAND if band is None else band] += 1
+    return counts
+
+
+def shaped(truth: TruthModel, counts: Mapping[int, int], rate: float, shape: str) -> TruthModel:
+    """*truth* with the `other` probability of the 0.5-0.6 band set to *rate* and the other
+    low cells set according to *shape* (:data:`SHAPES`), so that the average over the
+    articles the shipped rule labels `other` stays at ``other_agreement`` exactly: the
+    model reproduces the measured baseline `other` precision whatever the rate. Raises
+    ``ValueError`` if no probability in [0, 1] does."""
+    if shape not in SHAPES:
+        raise ValueError(f"unknown shape {shape!r}; valid: {', '.join(SHAPES)}")
+    n0, n1, n2, nsc = (counts[0], counts[1], counts[2], counts[SHORT_CIRCUIT_BAND])
+    total = truth.other_agreement * (n0 + n1 + n2 + nsc)
+    if shape == "flat":
+        rates = dict.fromkeys(LOW_BANDS, truth.other_agreement)
+    else:
+        rest_weight: float
+        if shape == "band2":
+            rest_weight, rest_mass = n0 + n1 + nsc, total - rate * n2
+        else:  # graded: the 0.4-0.5 band sits halfway between the swept rate and the rest
+            rest_weight, rest_mass = n1 / 2 + n0 + nsc, total - rate * n2 - rate * n1 / 2
+        rest = rest_mass / rest_weight if rest_weight else 0.0
+        rates = {0: rest, 1: rest if shape == "band2" else (rate + rest) / 2, 2: rate}
+        rates[SHORT_CIRCUIT_BAND] = rest
+    if any(not 0.0 <= r <= 1.0 for r in rates.values()):
+        raise ValueError(
+            f"no rate in [0, 1] for the other low cells keeps the average at "
+            f"{truth.other_agreement:.3f} with a 0.5-0.6 rate of {rate:.3f} ({shape})"
+        )
+    return replace(truth, low_other=rates)
 
 
 def fit_truth_model(
     accept_pairs: Sequence[Pair],
     *,
-    slug_share: float,
-    ramp: str = DEFAULT_RAMP,
+    slug_fraction: float = 0.5,
     min_judged: int = 10,
 ) -> TruthModel:
     """Measure the truth model's inputs on the stored judgements of one partition (the
@@ -337,15 +388,14 @@ def fit_truth_model(
         other_agreement=aggregate_category([it for it, _ in ok], [v for _, v in ok]).get(
             "precision_other", 0.0
         ),
-        slug_share=slug_share,
-        ramp=dict(RAMPS[ramp]),
+        slug_fraction=slug_fraction,
         fallback_cells=tuple(fallback),
     )
 
 
 class PowerRow(NamedTuple):
     rule: Rule
-    slug_share: float
+    rate: float  # the probability that a 0.5-0.6 article is truly `other`
     implied_gain: float  # population difference of the weighted `other` precision
     power: float  # share of draws whose interval's lower bound is above 0
     defined: int  # draws with a usable interval (the bootstrap kept a replicate)
@@ -441,46 +491,140 @@ def implied_gain(frame: Frame, truth: TruthModel) -> float:
     return implied_changes(frame, truth).precision
 
 
-def slug_share_for_recall(
-    frame: Frame, truth: TruthModel, bound: float = RECALL_TOLERANCE, *, tol: float = 1e-4
-) -> float | None:
-    """The smallest ``slug_share`` at which the rule's implied `other`-recall change is
-    at least *bound*, by bisection on [0, 1]; ``None`` if even a share of 1 does not get
-    there. The recall change rises with the share (fewer of the re-labelled articles were
-    ``other``)."""
-    hi = replace(truth, slug_share=1.0)
-    if implied_changes(frame, hi).recall < bound:
-        return None
-    if implied_changes(frame, replace(truth, slug_share=0.0)).recall >= bound:
-        return 0.0
-    lo_s, hi_s = 0.0, 1.0
-    while hi_s - lo_s > tol:
-        mid = (lo_s + hi_s) / 2
-        if implied_changes(frame, replace(truth, slug_share=mid)).recall >= bound:
-            hi_s = mid
-        else:
-            lo_s = mid
-    return hi_s
+def _at_rate(truth: TruthModel, counts: Mapping[int, int], shape: str, rate: float) -> TruthModel:
+    return shaped(truth, counts, rate, shape)
 
 
-def slug_share_for_gain(
-    frame: Frame, truth: TruthModel, gain: float, *, tol: float = 1e-4
+def rate_for_gain(
+    frame: Frame,
+    truth: TruthModel,
+    counts: Mapping[int, int],
+    shape: str,
+    gain: float,
+    *,
+    tol: float = 1e-5,
 ) -> float | None:
-    """The ``slug_share`` at which the rule's implied gain equals *gain*, by bisection on
-    [0, 1]; ``None`` if the end points do not straddle it."""
-    lo, hi = 0.0, 1.0
-    g_lo = implied_gain(frame, replace(truth, slug_share=lo))
-    g_hi = implied_gain(frame, replace(truth, slug_share=hi))
-    if not (min(g_lo, g_hi) <= gain <= max(g_lo, g_hi)):
+    """The probability that a 0.5-0.6 article is truly `other` at which the rule's implied
+    `other`-precision gain equals *gain* (:func:`shaped` fixes the other cells), by bisection
+    on [0, the measured `other` precision]: the gain is 0 at the measured value (nothing is
+    cleaner than anything else) and grows as the rate falls. ``None`` if even a rate of 0
+    does not reach it."""
+    hi = truth.other_agreement
+    lo = 0.0
+    if implied_gain(frame, _at_rate(truth, counts, shape, lo)) < gain:
         return None
     while hi - lo > tol:
         mid = (lo + hi) / 2
-        g_mid = implied_gain(frame, replace(truth, slug_share=mid))
-        if (g_mid < gain) == (g_lo < gain):
-            lo, g_lo = mid, g_mid
+        if implied_gain(frame, _at_rate(truth, counts, shape, mid)) >= gain:
+            lo = mid
         else:
             hi = mid
     return (lo + hi) / 2
+
+
+def rate_for_recall(
+    frame: Frame,
+    truth: TruthModel,
+    counts: Mapping[int, int],
+    shape: str,
+    bound: float = RECALL_TOLERANCE,
+    *,
+    tol: float = 1e-5,
+) -> float | None:
+    """The largest probability that a 0.5-0.6 article is truly `other` at which the rule's
+    implied `other`-recall change is still at least *bound*, by bisection on [0, the
+    measured `other` precision]; ``None`` if no rate on it keeps recall that high, and the
+    measured value itself if even that does (a rule that removes nothing). The recall change
+    falls as the rate rises: more of the removed articles were `other`."""
+    hi = truth.other_agreement
+    if implied_changes(frame, _at_rate(truth, counts, shape, hi)).recall >= bound:
+        return hi
+    lo = 0.0
+    if implied_changes(frame, _at_rate(truth, counts, shape, lo)).recall < bound:
+        return None
+    while hi - lo > tol:
+        mid = (lo + hi) / 2
+        if implied_changes(frame, _at_rate(truth, counts, shape, mid)).recall >= bound:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def baseline_under(frame: Frame, truth: TruthModel) -> tuple[float, float]:
+    """The shipped rule's `other` precision and recall under *truth*: what a calibrated
+    model must reproduce from the stored run (measured 0.319 and 0.661 on eval_run 43's
+    `accept` partition)."""
+    p_other = _cell_probabilities(frame, truth)[1][frame.cell]
+    hit = float((p_other * frame.base_other).sum())
+    return hit / frame.base_other.sum(), hit / float(p_other.sum())
+
+
+def confident_other_rates(
+    truth: TruthModel, articles: Sequence[ConfirmedArticle]
+) -> dict[int, float]:
+    """The probability that an article the shipped rule labels with a slug is truly
+    `other`, per confident band (3: 0.6-0.8, 4: >= 0.8), averaged over *articles*: the
+    cleanest the stored verdicts say a labelled set gets, to compare with the cap of
+    :func:`loosening_bound`."""
+    totals: dict[int, float] = dict.fromkeys(range(FIRST_CONFIDENT_BAND, len(BAND_NAMES)), 0.0)
+    counts: dict[int, int] = dict.fromkeys(totals, 0)
+    for a in articles:
+        cell = cell_of(a.group_score, a.leaf_scores)
+        band = _band_of_cell(cell)
+        if band is None or band < FIRST_CONFIDENT_BAND:
+            continue
+        totals[band] += truth.probabilities(cell)[1]
+        counts[band] += 1
+    return {b: totals[b] / counts[b] for b in totals if counts[b]}
+
+
+class LooseningBound(NamedTuple):
+    """What a loosening rule must achieve to meet T-123, from the measured aggregates alone
+    (no truth model): of the *removed* articles at most ``max_truth_other`` may be truly
+    `other` (``max_rate`` of them), and at least ``min_removed`` must be removed."""
+
+    labelled_other: int  # articles the shipped rule labels `other`
+    removed: int  # articles the rule takes out of `other`
+    truth_other_total: float  # truly-`other` articles in the population
+    max_truth_other: float  # allowed truly-`other` articles among the removed
+    max_rate: float  # the same as a share of the removed
+    min_removed: float  # the fewest articles that can reach the precision gain
+
+
+def loosening_bound(
+    labelled_other: int,
+    removed: int,
+    precision: float,
+    recall: float,
+    *,
+    gain: float = 0.05,
+    tolerance: float = -RECALL_TOLERANCE,
+) -> LooseningBound:
+    """The bound a loosening rule has to meet to raise `other` precision by *gain* while
+    keeping `other` recall within *tolerance*, given the measured baseline *precision* and
+    *recall* of the articles labelled `other`. With ``H = precision x labelled_other``
+    truly-`other` articles among them and ``T = H / recall`` in the population, removing
+    *removed* articles of which X are truly `other` gives recall change ``-X / T`` and
+    precision ``(H - X) / (labelled_other - removed)``. Both conditions hold iff
+    ``X <= tolerance x T`` and ``X <= H - (precision + gain) x (labelled_other - removed)``;
+    the second is looser for the large removals this task considers. It is a necessary
+    condition: T-123 asks for the 95% *lower* bound of the recall change to be within the
+    tolerance, which needs more room than the point estimate."""
+    hits = precision * labelled_other
+    total = hits / recall
+    by_recall = tolerance * total
+    by_precision = hits - (precision + gain) * (labelled_other - removed)
+    allowed = max(0.0, min(by_recall, by_precision))
+    min_removed = (labelled_other - (hits - by_recall) / (precision + gain)) if by_recall else 0.0
+    return LooseningBound(
+        labelled_other,
+        removed,
+        total,
+        allowed,
+        allowed / removed if removed else 0.0,
+        min_removed,
+    )
 
 
 #: T-121(a)'s detectability bar and the width of the zone around it that is re-run with more
@@ -513,7 +657,8 @@ def null_truth(truth: TruthModel) -> TruthModel:
         truth,
         agree=dict.fromkeys(truth.agree, 0.0),
         other_given_wrong=truth.other_agreement,
-        slug_share=0.0,
+        low_other=dict.fromkeys(LOW_BANDS, truth.other_agreement),
+        slug_fraction=0.0,
     )
 
 
@@ -686,7 +831,7 @@ def simulate_power(
     )
     return PowerRow(
         frame.rule,
-        truth.slug_share,
+        truth.low_rate(2),
         implied_gain(frame, truth),
         sum(lo > critical for lo in d.lower) / defined if defined else 0.0,
         defined,

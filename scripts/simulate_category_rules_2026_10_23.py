@@ -13,8 +13,10 @@ minimum margin of the best slug over the runner-up):
    table with paired bootstrap intervals against the shipped rule;
 3. the power of T-123's estimator (paired difference of the weighted `other` precision,
    within-cell bootstrap) at the planned report-half sample size, under a truth model
-   with a swept share of articles whose truth is the argmax slug, and at the share where
-   the model's own implied gain is +0.05, for each share shape in `--ramps`.
+   with a swept probability that a 0.5-0.6 article is truly `other` (the average over the
+   articles labelled `other` stays at the measured precision), and at the rate where the
+   model's own implied gain is +0.05, for each shape in `--shapes`; the closed-form bound
+   of T-123 (how many removed articles may be truly `other`) needs no truth model.
 
 Usage:
     uv run python scripts/simulate_category_rules_2026_10_23.py \\
@@ -29,7 +31,6 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -38,34 +39,40 @@ from news_nlp.eval.calibration import (
     BAND_NAMES,
     BASELINE,
     POWER_TARGET,
-    RAMPS,
     RECALL_TOLERANCE,
+    SHAPES,
     ConfirmedArticle,
     Frame,
     RelabelRow,
     Rule,
     TruthModel,
     apply_rule,
+    baseline_under,
     candidate_rules,
     cell_of,
     classify_power,
+    confident_other_rates,
     fit_truth_model,
     frame_for,
     implied_changes,
+    loosening_bound,
+    low_band_counts,
     needs_refinement,
     null_critical,
     paired_rule_interval,
+    rate_for_gain,
+    rate_for_recall,
     relabel_table,
+    shaped,
     simulate_power,
-    slug_share_for_gain,
-    slug_share_for_recall,
     verdict_table,
 )
+from news_nlp.eval.metrics import aggregate_category
 from news_nlp.eval.partition import domain_pairs, load_category_pairs
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
 GAIN = 0.05
-SHARES = (0.1, 0.3, 0.5)
+RATES = (0.30, 0.20, 0.10, 0.05)  # P(a 0.5-0.6 article is truly `other`); measured average 0.319
 COLUMNS = ("group_score", *CATEGORY_SLUGS)
 
 
@@ -197,7 +204,8 @@ def report_verdicts(
             )
 
 
-SAME_SHARE = 0.005  # a swept share this close to the share that reaches +GAIN is that row
+SAME_RATE = 0.002  # a swept rate this close to the rate that reaches +GAIN is that row
+CALIBRATION_TOLERANCE = 0.005  # the model's baseline `other` precision vs the measured one
 
 
 class PowerSettings(NamedTuple):
@@ -208,91 +216,146 @@ class PowerSettings(NamedTuple):
     null_seeds: int
 
 
-def share_rows(frame: Frame, truth: TruthModel) -> tuple[list[tuple[float, bool]], bool]:
-    """The shares to simulate for one rule, and whether +GAIN is reached at any share:
-    the sweep, with the row at which the implied gain is +GAIN marked (merged into the
-    sweep row when it is the same share)."""
-    shares: list[tuple[float, bool]] = [(s, False) for s in SHARES]
-    star = slug_share_for_gain(frame, truth, GAIN)
+class Scenario(NamedTuple):
+    """The measured truth model, the per-band counts of articles labelled `other` that
+    :func:`shaped` calibrates against, and the shape of the swept rate."""
+
+    truth: TruthModel
+    counts: dict[int, int]
+    shape: str
+    recall: float  # the measured `other` recall of the stored run
+
+
+def rate_rows(frame: Frame, sc: Scenario) -> tuple[list[tuple[float, bool]], bool]:
+    """The rates (probability that a 0.5-0.6 article is truly `other`) to simulate for one
+    rule, and whether +GAIN is reached at any rate: the sweep, with the row at which the
+    implied gain is +GAIN marked (merged into the sweep row when it is the same rate)."""
+    rows: list[tuple[float, bool]] = [(r, False) for r in RATES]
+    star = rate_for_gain(frame, sc.truth, sc.counts, sc.shape, GAIN)
     if star is None:
-        return shares, False
-    near = [i for i, (s, _) in enumerate(shares) if abs(s - star) < SAME_SHARE]
+        return rows, False
+    near = [i for i, (r, _) in enumerate(rows) if abs(r - star) < SAME_RATE]
     if near:
-        shares[near[0]] = (star, True)
+        rows[near[0]] = (star, True)
     else:
-        shares.append((star, True))
-    return shares, True
+        rows.append((star, True))
+    return rows, True
+
+
+def check_calibration(frame: Frame, shaped_truth: TruthModel, measured: float) -> None:
+    """The shaped model must reproduce the measured baseline `other` precision, or its
+    gains and recall losses describe a world the stored judgements contradict."""
+    precision, _ = baseline_under(frame, shaped_truth)
+    if abs(precision - measured) > CALIBRATION_TOLERANCE:
+        raise SystemExit(
+            f"truth model baseline `other` precision {precision:.3f} differs from the "
+            f"measured {measured:.3f}"
+        )
 
 
 def power_row(
     frame: Frame,
-    truth: TruthModel,
-    share: float,
+    sc: Scenario,
+    rate: float,
     at_target: bool,
     cfg: PowerSettings,
     null_cache: dict[tuple[bytes, int], float],
 ) -> None:
-    shared = replace(truth, slug_share=share)
+    shared = shaped(sc.truth, sc.counts, rate, sc.shape)
+    check_calibration(frame, shared, sc.truth.other_agreement)
     row = simulate_power(frame, shared, draws=cfg.draws, boot_reps=cfg.boot_reps, seed=cfg.seed)
-    rerun = cfg.refine_draws > cfg.draws and (at_target or needs_refinement(row.power))
+    rerun = cfg.refine_draws > cfg.draws and needs_refinement(row.power)
     if rerun:
         row = simulate_power(
             frame, shared, draws=cfg.refine_draws, boot_reps=cfg.boot_reps, seed=cfg.seed
         )
     implied = implied_changes(frame, shared)
+    precision, recall = baseline_under(frame, shared)
     note = (
         f"+{GAIN} reached [{classify_power(row.power, row.power_se)}]"
         if at_target
-        else ("power at this gain")
+        else "power at this gain"
     )
     if rerun:
         note += f"; {cfg.refine_draws} draws, one stream, same seed"
     print(
-        f"  {frame.rule.name:<12}{share:>7.2f}{implied.precision:>+8.3f}{implied.recall:>+9.3f}"
-        f"{implied.accuracy:>+7.3f}{row.power:>7.2f}{row.power_se:>7.3f}"
-        f"{row.joint_power:>7.2f}{row.defined:>9}{row.sd_diff:>7.4f}  {note}"
+        f"  {frame.rule.name:<12}{rate:>6.3f}{shared.low_rate(0):>7.3f}{implied.precision:>+8.3f}"
+        f"{implied.recall:>+9.3f}{implied.accuracy:>+7.3f}{row.power:>7.2f}{row.power_se:>7.3f}"
+        f"{row.joint_power:>7.2f}{row.defined:>9}{row.sd_diff:>7.4f}"
+        f"  base {precision:.3f}/{recall:.3f}  {note}"
     )
-    if at_target or rerun:
-        report_calibrated(frame, shared, truth, cfg, null_cache)
+    if rerun and at_target:  # only the verdict row near the bar needs the calibrated check
+        report_calibrated(frame, shared, sc.truth, cfg, null_cache)
 
 
 def report_joint(
-    articles: list[ConfirmedArticle],
-    rules: list[Rule],
-    truth: TruthModel,
-    cfg: PowerSettings,
-    ramp: str,
+    articles: list[ConfirmedArticle], rules: list[Rule], sc: Scenario, cfg: PowerSettings
 ) -> None:
     section(
-        f"Joint condition ({ramp} ramp): the smallest share at which the implied `other` recall "
-        f"is within {RECALL_TOLERANCE}, what the rule gains there, and the joint power at that "
-        "share and at share 1.0 (the best case for recall)"
+        f"Joint condition ({sc.shape} shape): the largest probability that a 0.5-0.6 article is "
+        f"truly `other` at which the implied `other` recall stays within {RECALL_TOLERANCE}, what "
+        "the rule gains there, and the joint power there and at rate 0 (the best case for recall)"
     )
     print(
-        f"  {'rule':<12}{'share':>7}{'d prec':>8}{'d recall':>9}{'d acc':>7}"
-        f"{'joint@share':>13}{'joint@1.0':>11}"
+        f"  {'rule':<12}{'rate':>6}{'d prec':>8}{'d recall':>9}{'d acc':>7}"
+        f"{'joint@rate':>12}{'joint@0':>9}"
     )
     for rule in rules:
         frame = frame_for(articles, rule)
-        needed = slug_share_for_recall(frame, truth)
-        if needed is None:
-            print(f"  {rule.name:<12}  not within {RECALL_TOLERANCE} at any share")
+        rate = rate_for_recall(frame, sc.truth, sc.counts, sc.shape)
+        if rate is None:
+            print(f"  {rule.name:<12}  not within {RECALL_TOLERANCE} at any rate")
             continue
-        at = implied_changes(frame, replace(truth, slug_share=needed))
+        at = implied_changes(frame, shaped(sc.truth, sc.counts, rate, sc.shape))
         joint = [
             simulate_power(
                 frame,
-                replace(truth, slug_share=share),
+                shaped(sc.truth, sc.counts, r, sc.shape),
                 draws=cfg.draws,
                 boot_reps=cfg.boot_reps,
                 seed=cfg.seed,
             ).joint_power
-            for share in (needed, 1.0)
+            for r in (rate, 0.0)
         ]
         print(
-            f"  {rule.name:<12}{needed:>7.3f}{at.precision:>+8.3f}{at.recall:>+9.3f}"
-            f"{at.accuracy:>+7.3f}{joint[0]:>13.2f}{joint[1]:>11.2f}"
+            f"  {rule.name:<12}{rate:>6.3f}{at.precision:>+8.3f}{at.recall:>+9.3f}"
+            f"{at.accuracy:>+7.3f}{joint[0]:>12.2f}{joint[1]:>9.2f}"
         )
+
+
+def report_bounds(
+    articles: list[ConfirmedArticle], rules: list[Rule], truth: TruthModel, recall: float
+) -> None:
+    """The closed-form bound of T-123 for each loosening rule: no truth model, only the
+    measured `other` precision and recall of the stored run."""
+    section(
+        f"What a loosening rule must achieve to raise `other` precision by {GAIN} with `other` "
+        f"recall within {RECALL_TOLERANCE} (measured precision {truth.other_agreement:.3f}, "
+        f"recall {recall:.3f}; a necessary condition, the 95% lower bound needs more room)"
+    )
+    print(f"  {'rule':<12}{'removed':>9}{'max truly other':>17}{'max rate':>10}{'min removed':>13}")
+    seen: set[bytes] = set()
+    for rule in rules:
+        frame = frame_for(articles, rule)
+        if frame.signature in seen:
+            continue
+        seen.add(frame.signature)
+        removed = int(frame.base_other.sum() - frame.cand_other.sum())
+        pure = not (frame.cand_other & ~frame.base_other).any()
+        if removed <= 0 or not pure:
+            continue  # a rule that also adds articles to `other` is not a pure loosening
+        bound = loosening_bound(
+            int(frame.base_other.sum()), removed, truth.other_agreement, recall, gain=GAIN
+        )
+        print(
+            f"  {rule.name:<12}{removed:>9}{bound.max_truth_other:>17.0f}"
+            f"{100 * bound.max_rate:>9.1f}%{bound.min_removed:>13.0f}"
+        )
+    rates = confident_other_rates(truth, articles)
+    print(
+        "  for comparison, articles the shipped rule labels with a slug are truly `other` in "
+        + " and ".join(f"{100 * rates[b]:.1f}% ({BAND_NAMES[b]})" for b in sorted(rates))
+    )
 
 
 def report_power(
@@ -301,30 +364,41 @@ def report_power(
     articles: list[ConfirmedArticle],
     rules: list[Rule],
     cfg: PowerSettings,
-    ramp: str,
+    shape: str,
     null_cache: dict[tuple[bytes, int], float],
+    *,
+    bounds: bool,
 ) -> None:
-    pairs = load_category_pairs(conn, run_id)
     accept = accept_ids(conn)
-    truth = fit_truth_model(domain_pairs(pairs, lambda a: a in accept), slug_share=0.0, ramp=ramp)
-    section(f"Truth model (ramp {ramp!r}: {RAMPS[ramp]}) measured on eval_run stored verdicts")
-    print(f"  `other` agreement of the stored `other` label: {truth.other_agreement:.3f}")
+    pairs = domain_pairs(load_category_pairs(conn, run_id), lambda a: a in accept)
+    truth = fit_truth_model(pairs)
+    measured = aggregate_category([it for it, _ in pairs], [v for _, v in pairs])
+    sc = Scenario(truth, low_band_counts(articles), shape, measured["recall_other"])
+    section(f"Truth model ({shape} shape) measured on eval_run {run_id}'s stored verdicts")
+    print(
+        f"  `other` precision of the stored label (the calibration target): {truth.other_agreement:.3f}"
+    )
+    print(f"  `other` recall: {sc.recall:.3f}; articles labelled `other` per low band: {sc.counts}")
     print(f"  share of wrong >= 0.6 labels whose truth is `other`: {truth.other_given_wrong:.3f}")
     print(
         f"  confident cells whose agreement fell back to their band's rate "
         f"(fewer than 10 judged): {len(truth.fallback_cells)} of {len(truth.agree)}"
     )
     print(f"    {', '.join(truth.fallback_cells) or '(none)'}")
+    if bounds:
+        report_bounds(articles, rules, truth, sc.recall)
     section(
-        f"Power ({ramp} ramp) of the paired weighted `other`-precision difference (report half; "
+        f"Power ({shape} shape) of the paired weighted `other`-precision difference (report half; "
         f"{cfg.draws} draws x {cfg.boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%} at "
-        f"+{GAIN}). `d recall` is the implied change in `other` recall (T-123: lower bound >= "
+        f"+{GAIN}). `rate` is the probability that a 0.5-0.6 article is truly `other`, `rest` "
+        f"that of the other low cells (calibrated so the average stays at the measured value); "
+        f"`d recall` is the implied change in `other` recall (T-123: lower bound >= "
         f"{RECALL_TOLERANCE}); `joint` also requires the recall and accuracy lower bounds to "
-        "stay within it"
+        "stay within it; `base` is the model's baseline `other` precision/recall"
     )
     print(
-        f"  {'rule':<12}{'share':>7}{'d prec':>8}{'d recall':>9}{'d acc':>7}{'power':>7}{'(se)':>7}"
-        f"{'joint':>7}{'defined':>9}{'sd':>7}  note"
+        f"  {'rule':<12}{'rate':>6}{'rest':>7}{'d prec':>8}{'d recall':>9}{'d acc':>7}{'power':>7}"
+        f"{'(se)':>7}{'joint':>7}{'defined':>9}{'sd':>7}  note"
     )
     seen: dict[bytes, str] = {}
     simulated: list[Rule] = []
@@ -337,12 +411,12 @@ def report_power(
             continue
         seen[frame.signature] = rule.name
         simulated.append(rule)
-        shares, reached = share_rows(frame, truth)
-        for share, at_target in shares:
-            power_row(frame, truth, share, at_target, cfg, null_cache)
+        rows, reached = rate_rows(frame, sc)
+        for rate, at_target in rows:
+            power_row(frame, sc, rate, at_target, cfg, null_cache)
         if not reached:
-            print(f"  {rule.name:<12}{'':>7}  +{GAIN} is not reached for any share in [0, 1]")
-    report_joint(articles, [r for r in simulated if not r.tightens], truth, cfg, ramp)
+            print(f"  {rule.name:<12}{'':>6}  +{GAIN} is not reached at any rate")
+    report_joint(articles, [r for r in simulated if not r.tightens], sc, cfg)
 
 
 def report_calibrated(
@@ -409,24 +483,24 @@ def main() -> int:
     ap.add_argument("--null-seeds", type=int, default=3, help="null runs for the critical value")
     ap.add_argument("--cells", action="store_true", help="print the per-cell re-label grids")
     ap.add_argument(
-        "--ramps",
-        default="graded,band,flat",
-        help=f"comma-separated slug-share shapes ({', '.join(RAMPS)}); the first is the default "
-        "and covers every rule, the others only the loosening rules (tightening ones lose "
-        "under every shape)",
+        "--shapes",
+        default="graded,band2,flat",
+        help=f"comma-separated shapes of the truly-`other` rate ({', '.join(SHAPES)}); the first "
+        "covers every rule, the others only the loosening rules (tightening ones lose under "
+        "every shape)",
     )
     args = ap.parse_args()
     if args.source_db is None or args.results_db is None:
         ap.error(
             "--source-db and --results-db (or SOURCE_DATABASE_URL / DATABASE_URL) are required"
         )
-    ramps = args.ramps.split(",")
-    unknown = [r for r in ramps if r not in RAMPS]
+    shapes = args.shapes.split(",")
+    unknown = [r for r in shapes if r not in SHAPES]
     parts = args.sections.split(",")
     unknown_parts = [p for p in parts if p not in ("relabel", "verdicts", "power")]
     if unknown or unknown_parts:
         ap.error(
-            f"unknown --ramps {unknown} (valid: {', '.join(RAMPS)}) or "
+            f"unknown --shapes {unknown} (valid: {', '.join(SHAPES)}) or "
             f"--sections {unknown_parts} (valid: relabel, verdicts, power)"
         )
     conn = connect(args.source_db, args.results_db)
@@ -440,9 +514,9 @@ def main() -> int:
     cfg = PowerSettings(
         args.draws, args.bootstrap_reps, args.seed, args.refine_draws, args.null_seeds
     )
-    for i, ramp in enumerate(ramps if "power" in parts else []):
+    for i, shape in enumerate(shapes if "power" in parts else []):
         subset = rules if i == 0 else [r for r in rules if not r.tightens]
-        report_power(conn, args.eval_run, articles, subset, cfg, ramp, null_cache)
+        report_power(conn, args.eval_run, articles, subset, cfg, shape, null_cache, bounds=i == 0)
     return 0
 
 

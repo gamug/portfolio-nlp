@@ -560,16 +560,14 @@ Dependencies at a glance:
       **(b) paid, funded by D10 (T-142), not by T-117's sign-off:** the stratified,
       split judged sample, drawn with T-141's code. **Depends on:** T-141 (code), T-142
       (spend), T-121(a). Fit on the fit half only; every reported number states its half.
-      **Deliverable added after T-121(a) (2026-10-23):** report, per score band (< 0.4, 0.4-0.5,
-      0.5-0.6) and pooled over slugs, the population-weighted share of articles whose truth
-      label (the judge's `ideal_slug`) is the argmax slug, with a 95% interval, on the report
-      half (9 cells of 45 per threshold band). T-121(a) showed the gain of any loosening rule
-      depends on that share and on how it varies with the band (`docs/evaluation.md`,
-      2026-10-23): the shape (`graded`, `band` or `flat`) is chosen from this measurement,
-      then the power check and the discordant top-up are rerun on it before the rule is frozen.
-      With it, report the separation (AUC) of truth-`other` from truth-slug articles by the maximum
-      score, the margin and the group score, and the implied `other`-recall change of every
-      candidate (T-121(a): a uniform loosening costs 0.04-0.30 against a tolerance of 0.02).
+      **Deliverable added after T-121(a) (2026-10-23):** for every candidate rule, the
+      population-weighted share of the articles it would re-label (away from `other`) that are
+      truly `other` in the judge's view (`ideal_slug`), with a 95% interval, on the report half,
+      and the pass/fail check against the bound of T-121(a) recomputed on the real counts (at
+      most about 341 truly-`other` articles among at least 5,718 re-labelled, i.e. 2.1-5.5% for
+      the rules studied); also the separation (AUC) of truly-`other` from truly-slug articles by
+      the maximum score, the margin and the group score. The power check and the discordant
+      top-up are rerun on the measured rate before the rule is frozen.
       **Short-circuit stratum:** 30 fit / 30 report; it informs only the
       `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
       target is the pooled, population-weighted report-half figure over all confirmed
@@ -584,26 +582,29 @@ Dependencies at a glance:
       confirmed articles (per-cell grids with `--cells`). On eval_run 43's `accept`
       verdicts a stricter threshold lowers overall accuracy and raises `other` recall at every
       threshold from 0.65, and lowers `other` precision with a paired 95% interval below 0 from
-      0.75 up (at 0.65 and 0.70 the interval includes 0). Only loosening rules (`t0.50`,
-      `t0.55`) can raise `other` precision, **and they cannot meet T-123's recall condition:**
-      they re-label 7,957 to 16,359 articles away from `other`, so the implied `other`
-      recall falls by 0.09-0.30 at the shares swept (-0.043 at best, at share 0.93 under the
-      `band` shape, where +0.05 precision is reached), against a tolerance of -0.02. Keeping it
-      within -0.02 needs 92-98% of the re-labelled articles to belong to the argmax slug, more
-      than the 61.7% (0.6-0.8) and 79.9% (>= 0.8) agreement of the shipped labels in the bands
-      above them. So **no uniform threshold rule is a T-123 candidate**; the precision test
-      alone shows `t0.50+m0.10` detectable (0.89, null-calibrated 0.85-0.88) and `t0.50+m0.00`
-      not (0.78, calibrated 0.73-0.76), and that does not change the conclusion. **Deviation from
-      the wording above, recorded here:** the share of articles whose truth is the argmax slug is
-      not one flat share in the < 0.6 cells and the short-circuit stratum (a flat share gives every
-      rule a precision gain of exactly 0), so three shapes were run (`graded`, the default,
-      `band`, `flat`: this task's original wording); the direction of the conclusion does not
-      depend on which. **T-121(b) therefore reports, per band and per slug, the share of articles
-      whose truth is the argmax slug with an interval, and how well the maximum score, the margin
-      and the group score separate truth-`other` from truth-slug articles (an AUC): only a
-      discriminator better than the maximum score can raise `other` precision without costing
-      recall, and per-slug thresholds are tested on that data, not assumed to help.** Its top-up
-      design waits for the frozen rule.
+      0.75 up; only loosening rules (`t0.50`, `t0.55`, with or without a margin) can raise it.
+      **T-123 also bounds `other` recall (and accuracy, macro F1) at -0.02, and the measured
+      aggregates fix what that costs, with no truth model:** with `other` precision 0.319 and
+      recall 0.661 on 35,368 `other`-labelled articles, a loosening rule passes iff its
+      re-labelled set holds at most 341 truly-`other` articles and at least 5,718 articles:
+      **at most 2.1% (`t0.50`), 2.3%, 3.5% (`t0.50+m0.20`), 4.3% (`t0.55`) or 5.5%
+      (`t0.55+m0.20`) of it truly `other`**, against 6.8% (>= 0.8) and 13.0% (0.6-0.8) among the
+      articles the shipped rule labels with a slug. Uniform thresholds are therefore **not ruled
+      out and not shown**: the margin rules have the most room, the no-margin rules need a set
+      cleaner than the model's own best band, and the stored verdicts cannot say (the judge
+      graded `other` there). The power check (truth model calibrated to the measured baseline;
+      the swept quantity is the truly-`other` rate of the 0.5-0.6 band) says the precision test
+      alone is passed by `t0.50+m0.20`, `t0.55+m0.00` and `t0.55+m0.20` (power 0.94-1.00) and not
+      by `t0.50+m0.00`/`m0.10` (0.65, 0.75; calibrated 0.71-0.74), and that it is the recall
+      tolerance that binds. **Deviation from the wording above, recorded here:** the < 0.6 cells
+      and the short-circuit stratum are not given one flat share of argmax-slug truths (a flat
+      truth gives every rule a precision gain of exactly 0 and, with a share, contradicted the
+      stored baseline); they are parametrised by their truly-`other` rate, constrained to the
+      measured 0.319. **T-121(b) therefore reports, per candidate rule, the truly-`other` rate of
+      the set the rule would re-label with a 95% interval, compared with the bound above (the
+      pass/fail check), and how well the maximum score, the margin and the group score separate
+      truly-`other` from truly-slug articles (an AUC); per-slug thresholds are tested on that
+      data.** Its top-up design waits for the frozen rule.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default

@@ -1888,17 +1888,17 @@ changing the RESULTS contract):
    it needs inference.
    **Part (a) executed (2026-10-23):** `docs/evaluation.md`'s 2026-10-23 follow-up. Stored
    verdicts show a stricter threshold lowers overall accuracy, raises `other` recall and (from 0.75,
-   with a paired interval) lowers `other` precision. Loosening (0.50 to 0.55) is the only direction
-   that can raise `other` precision, but it re-labels 7,957 to 16,359 articles away from `other` and
-   the implied `other` recall falls by 0.09-0.30 (0.04 at best) against T-123's tolerance of -0.02,
-   which needs 92-98% of those articles to belong to the argmax slug (the shipped labels in the
-   bands above agree 62% and 80%). **So no uniform threshold rule can meet T-123; the lever is not
-   a threshold on the maximum score.** Power for a +0.05 precision gain alone: 0.78 (0.73-0.76
-   null-calibrated, not detectable) for `t0.50+m0.00` and 0.89 (0.85-0.88, detectable) for
-   `t0.50+m0.10` under the `graded` shape. T-121(b) must measure, per band and slug, the share of
-   articles whose truth is the argmax slug and how well the maximum score, the margin and the group
-   score separate truth-`other` from truth-slug articles, and test per-slug thresholds on that data
-   (TASKS T-121(b) deliverable).
+   with a paired interval) lowers `other` precision, so only loosening can raise it. T-123 also bounds
+   `other` recall at -0.02; from the measured `other` precision 0.319 and recall 0.661, a loosening
+   rule passes iff the set it re-labels is truly `other` in at most 341 articles (and holds at least
+   5,718): 2.1% for `t0.50`, 3.5% for `t0.50+m0.20`, 4.3% for `t0.55`, 5.5% for `t0.55+m0.20`,
+   against 6.8% (>= 0.8) and 13.0% (0.6-0.8) among the articles the shipped rule labels with a slug.
+   Uniform thresholds are neither ruled out nor shown: the margin rules have the most room, the
+   no-margin rules need a set cleaner than the model's best band, and the stored verdicts cannot say
+   (the judge graded `other` there). T-121(b) measures the truly-`other` rate of each candidate's
+   re-labelled set with an interval, checks it against the bound, and reports how well the maximum
+   score, the margin and the group score separate truly-`other` from truly-slug articles (TASKS
+   T-121(b) deliverable); per-slug thresholds are tested on that data.
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
