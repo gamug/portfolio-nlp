@@ -1900,7 +1900,9 @@ changing the RESULTS contract):
    a set that clean is open. T-121(b) measures the truly-`other` rate of each candidate's
    re-labelled set with an interval, checks it against the bound, and reports how well the maximum
    score, the margin and the group score separate truly-`other` from truly-slug articles (TASKS
-   T-121(b) deliverable); per-slug thresholds are tested on that data.
+   T-121(b) deliverable); per-slug thresholds are tested on that data. The sample for the margin
+   rules is staged (350 judged articles inside each `m0.20` removed set, stop rule and budget in TASKS
+   T-121(b), sized with `items_to_decide` and the sampler's design effect).
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side

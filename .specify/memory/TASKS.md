@@ -569,8 +569,9 @@ Dependencies at a glance:
       the maximum score, the margin and the group score. **The AUC is the main deliverable:** the stored
       verdicts already put the 0.5-0.6 band at 0.19 truly `other` (0.09-0.31) and the 0.2-margin
       subsets at 8-9% (25-36 judged), so a uniform rule passes only if a margin or score isolates a
-      2-5.5% subset; oversample the `m0.20` subsets. The power check and the discordant
-      top-up are rerun on the measured rate before the rule is frozen.
+      2-5.5% subset; oversample the `m0.20` subsets. The power check (which in T-121(a) gives every rule the 0.5-0.6 band average) and the
+      discordant top-up are rerun on each rule's own measured removed-set rate before the rule is
+      frozen.
       **Short-circuit stratum:** 30 fit / 30 report; it informs only the
       `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
       target is the pooled, population-weighted report-half figure over all confirmed
