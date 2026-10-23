@@ -27,6 +27,9 @@ DEFAULT_SAMPLE_SIZE = 80
 DEFAULT_LOW_CONF_FRAC = 0.2
 DEFAULT_TARGET_FRAC = 0.6
 DEFAULT_MAX_WORKERS = 4
+#: The judge's sampling temperature: read by ``model.build_model`` and stored in the
+#: calibration run's config, so the stored value cannot drift from the real one.
+JUDGE_TEMPERATURE = 0.0
 DEFAULT_REGRESSION_TOLERANCE = 0.05
 
 

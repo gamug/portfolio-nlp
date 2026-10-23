@@ -2721,30 +2721,43 @@ each ending with a strict "reply with ONLY a raw JSON object" instruction.
 (`news_nlp/eval/calibration_judge.py`) that T-121(b) uses. It shows the judge the article
 only (never the classifier's output) and asks for the best-fitting label of the full
 taxonomy, `other` included: the **truth label**. "The argmax slug fits" is truth == argmax;
-for the short-circuit stratum, "`other` is correct" is truth == `other`.
+for the short-circuit stratum, "`other` is correct" is truth == `other`. **What "truth" means:**
+the judge reads the same capped lead of the article (the first 6,000 characters) the category
+classifier reads, so it is the best label for that text, not for the whole article.
 
 * Verdicts are stored under `eval_verdict.task = "category_truth"` (and `eval_run.stage` the
   same), so a stored-label verdict (task `category`) never satisfies a truth lookup. The task
-  is outside `sampling.STAGES`, `judges.JUDGES` and `VERDICT_MODELS`: `--stage all` and
-  `ExperimentSpec` do not see it. Its `eval_run` rows do appear in `latest_eval_runs` under that stage name.
+  is outside `sampling.STAGES`, `judges.JUDGES` and `VERDICT_MODELS`, and `ExperimentSpec`'s
+  stages are unchanged (a test pins all four lists): `--stage all` and experiments do not see
+  it. Its `eval_run` rows do appear in `latest_eval_runs` under that stage name.
 * An out-of-taxonomy slug is not coerced to `other`: it goes to the repair prompt and then to a
-  `parse_failed` fallback, which is never reused and is counted in the run's usage.
-* **The wording is frozen.** `test_eval_calibration_judge.py` pins the prompt's SHA-256;
-  a change to the wording or to the label set invalidates every stored `category_truth`
-  verdict and costs a re-judge, to be budgeted separately from D10.
-* `judge_and_record` reuses a stored verdict (same article, task, experiment and prediction),
-  judges the rest through a worker pool, records them, and refuses to start if the number of
-  needed calls is over `max_calls` (the D10 cap), so a run never half-spends.
-* The sampler (`calibration_sample.draw_sample`) stratifies confirmed articles by
-  (argmax slug x score band) plus the short-circuit stratum, draws `2 x report_half_size`
-  per cell (all of a smaller cell), and splits each cell at random into a fit and a report
-  half. Each cell has its own generator seeded from the run seed and the cell name, so the
-  same inputs and seed give the same draw and one cell's population never moves another's.
-  An article's weight in a half is the cell population over the cell's articles in that
-  half; `design_effect` gives the Kish factor of a half's weights, which the sizing in
-  `calibration.items_to_decide` needs. `run_config` returns what must be stored with the
-  run: seed, band edges, cell populations, half assignment, judge model, temperature,
-  judge seed, prompt hash, date.
+  `parse_failed` fallback, which is never reused. `load_truths` excludes those rows and
+  reports their count and rate, and re-weights each half over the usable articles (assuming
+  they are missing at random within the cell and half); so does an article left unjudged.
+* **The wording is frozen.** `test_eval_calibration_judge.py` pins the prompt's SHA-256, the
+  reuse key (`truth_experiment`) carries the prompt hash and the judge model, and a run
+  started under another hash is refused. A change to the wording or to the label set
+  invalidates every stored `category_truth` verdict and costs a re-judge, to be budgeted
+  separately from D10.
+* **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
+  calls an article may need (the reply and one repair), counts the calls it really makes,
+  records and commits each verdict as it arrives (a crash loses at most the calls in flight)
+  and stops at `max_calls` rather than start an article it might not finish (status
+  `stopped_at_cap`). The calls used are kept in the run's `metrics_json` as it goes;
+  pass `remaining_calls(conn)` as the cap so it holds across runs. Duplicate articles are refused.
+* `start_calibration_run` creates the `eval_run` with the config in `strata_json`: seed, band
+  edges, cell populations, half assignment, dropped articles, judge model, temperature
+  (`config.JUDGE_TEMPERATURE`, the one `build_model` uses), judge seed, prompt hash, date.
+* The sampler (`calibration_sample.draw_sample`) stratifies the confirmed articles
+  (`load_confirmed`: `match_class = 'accept'`) by (argmax slug x score band) plus the
+  short-circuit stratum, draws `2 x report_half_size` per cell (all of a smaller cell), and
+  splits each cell at random into a fit and a report half. Each cell has its own generator
+  seeded from the run seed and the cell name, so the same inputs and seed give the same draw
+  and one cell's population never moves another's. An article's weight in a half is the cell
+  population over the cell's articles in that half; `sample_items` drops an article whose
+  text or stored row is missing, lists it in the sample and recomputes the weights
+  (`restrict`). `design_effect` gives the Kish factor of a half's weights, which the sizing in
+  `calibration.items_to_decide` needs.
 
 ## Experiments: JSON-driven, single-command runs
 

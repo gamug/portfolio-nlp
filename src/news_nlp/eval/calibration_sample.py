@@ -10,16 +10,20 @@ contributes all of them. The draw is split at random into a **fit** half and a *
 it was tuned on). Each half is a simple random sample of its cell, so an article's population
 weight in a half is ``cell population / articles of that cell in that half``.
 
-No database access here: :func:`sample_items` turns the draw into judgeable ``EvalItem`` s.
+:func:`load_confirmed` reads the population, :func:`sample_items` turns a draw into judgeable
+``EvalItem`` s. An article whose text or stored row is missing is dropped **and the weights are
+recomputed** from the articles that remain (:func:`restrict`), the drops are listed in the
+sample and in :func:`run_config`; the estimates then assume the missing ones are missing at
+random within their cell and half, which the recorded list lets a reader check.
 """
 
 from __future__ import annotations
 
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any, Literal, NamedTuple
+from dataclasses import dataclass, replace
+from typing import Any, Literal, NamedTuple, Protocol
 
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.eval.calibration import (
@@ -29,9 +33,38 @@ from news_nlp.eval.calibration import (
     report_half_size,
 )
 from news_nlp.eval.sampling import EvalItem, _prediction, _require_source, _text
+from news_nlp.taxonomy import CATEGORY_SLUGS
 
 Half = Literal["fit", "report"]
 HALVES: tuple[Half, ...] = ("fit", "report")
+
+
+#: Schema names :func:`load_confirmed` may interpolate (never caller input beyond this set).
+_SCHEMAS = frozenset({"main", "r", "source"})
+_COLUMNS = ("group_score", *CATEGORY_SLUGS)
+
+
+class _Executes(Protocol):
+    def execute(self, sql: str, params: tuple[Any, ...] = (), /) -> Any: ...
+
+
+def load_confirmed(
+    conn: _Executes, *, results_schema: str = "r", urls_schema: str = "main"
+) -> list[ConfirmedArticle]:
+    """Every article whose ``discovered_urls.match_class`` is ``accept`` (the confirmed
+    population), with its stored group score and nine leaf scores. *results_schema* holds
+    ``article_category`` and *urls_schema* ``discovered_urls`` (two attached databases in the
+    real stores)."""
+    if results_schema not in _SCHEMAS or urls_schema not in _SCHEMAS:
+        raise ValueError(f"schema names must be in {sorted(_SCHEMAS)}")
+    cols = ", ".join(f"rc.{c}" for c in _COLUMNS)
+    rows = conn.execute(
+        f"SELECT rc.article_id, rc.label, {cols} "  # noqa: S608 -- schemas allowlisted, columns constants
+        f"FROM {results_schema}.article_category rc "
+        f"JOIN {urls_schema}.discovered_urls d ON d.id = rc.article_id "
+        "WHERE d.match_class = 'accept' ORDER BY rc.article_id"
+    )
+    return [ConfirmedArticle(i, label, g, tuple(leaves)) for i, label, g, *leaves in rows]
 
 
 class SampledArticle(NamedTuple):
@@ -52,6 +85,7 @@ class CalibrationSample:
     seed: int
     drawn: tuple[SampledArticle, ...]
     populations: Mapping[str, int]
+    dropped: tuple[int, ...] = ()  # drawn articles removed by :func:`restrict`
 
     def half(self, half: Half) -> list[SampledArticle]:
         return [a for a in self.drawn if a.half == half]
@@ -76,6 +110,18 @@ def draw_sample(articles: Sequence[ConfirmedArticle], *, seed: int) -> Calibrati
                 SampledArticle(i, cell, half, len(ids), len(members)) for i in sorted(members)
             )
     return CalibrationSample(seed, tuple(drawn), populations)
+
+
+def restrict(sample: CalibrationSample, keep: set[int]) -> CalibrationSample:
+    """The sample without the articles outside *keep*, weights recomputed: ``n_half`` is the
+    number of articles that remain in the cell and half, so a half still sums to its cell's
+    population. A cell-half left empty vanishes (``design_effect`` and the weights only see
+    what was judged)."""
+    kept = [a for a in sample.drawn if a.article_id in keep]
+    counts = Counter((a.cell, a.half) for a in kept)
+    drawn = tuple(a._replace(n_half=counts[(a.cell, a.half)]) for a in kept)
+    dropped = tuple(sorted({a.article_id for a in sample.drawn} - keep))
+    return replace(sample, drawn=drawn, dropped=sample.dropped + dropped)
 
 
 def design_effect(sample: CalibrationSample, half: Half) -> float | None:
@@ -115,34 +161,32 @@ def run_config(
         "judge_seed": judge_seed,
         "prompt_hash": prompt_hash,
         "date": date,
+        "dropped": list(sample.dropped),
     }
 
 
 def sample_items(
     conn: NewsNlpDatabase, sample: CalibrationSample
-) -> list[tuple[SampledArticle, EvalItem]]:
-    """The judgeable item of every drawn article, in draw order. ``bucket`` is the cell and
-    ``stratum_population`` its population. Articles whose text or stored row is missing are
-    skipped (the caller compares lengths)."""
+) -> tuple[list[tuple[SampledArticle, EvalItem]], CalibrationSample]:
+    """The judgeable item of every drawn article, in draw order, and the sample the items
+    belong to: an article whose text or stored row is missing is dropped and the returned
+    sample's weights are recomputed without it (:func:`restrict`; the drops are in its
+    ``dropped``). ``bucket`` is the cell and ``stratum_population`` its population."""
     schema = _require_source(conn)
-    out: list[tuple[SampledArticle, EvalItem]] = []
+    built: dict[int, EvalItem] = {}
     for drawn in sample.drawn:
         text = _text(conn, schema, drawn.article_id, "category")
         prediction = _prediction(conn, "category", drawn.article_id)
         if text is None or prediction is None:
             continue
         title, body = text
-        out.append(
-            (
-                drawn,
-                EvalItem(
-                    article_id=drawn.article_id,
-                    bucket=drawn.cell,
-                    stratum_population=drawn.population,
-                    title=title,
-                    body_text=body,
-                    prediction=prediction,
-                ),
-            )
+        built[drawn.article_id] = EvalItem(
+            article_id=drawn.article_id,
+            bucket=drawn.cell,
+            stratum_population=drawn.population,
+            title=title,
+            body_text=body,
+            prediction=prediction,
         )
-    return out
+    effective = restrict(sample, set(built))
+    return [(a, built[a.article_id]) for a in effective.drawn], effective

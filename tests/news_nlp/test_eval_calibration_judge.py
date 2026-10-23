@@ -5,13 +5,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
+from collections.abc import Callable
+from pathlib import Path
+from typing import get_args
 
 import pytest
 
 import news_nlp as db_module
+from experiment import Stage
 from news_nlp.eval import calibration_judge as cj
 from news_nlp.eval import calibration_sample as cs
 from news_nlp.eval.calibration import ConfirmedArticle, cell_of
+from news_nlp.eval.config import JUDGE_TEMPERATURE
+from news_nlp.eval.judges import JUDGES, JudgeAgent
 from news_nlp.eval.sampling import STAGES, EvalItem
 from news_nlp.eval.store import create_eval_run, record_inference, record_verdict
 from news_nlp.eval.verdicts import VERDICT_MODELS
@@ -89,15 +96,22 @@ def test_unknown_slug_is_repaired_then_falls_back_rather_than_becoming_other() -
     assert not repaired.parse_failed
 
 
-def test_calibration_judge_is_opt_in() -> None:
+def test_calibration_judge_is_opt_in_and_the_default_stage_lists_are_unchanged() -> None:
+    assert STAGES == ("sentiment", "category", "ner", "c_summary", "sector_summary")
+    assert set(JUDGES) == set(STAGES)
+    assert set(VERDICT_MODELS) == set(STAGES)
+    assert get_args(Stage) == ("sentiment", "ner", "category", "c_summary")
     assert cj.TASK not in STAGES
-    assert cj.TASK not in VERDICT_MODELS
+
+
+def test_the_judge_temperature_is_the_one_the_model_uses() -> None:
+    assert JUDGE_TEMPERATURE == 0.0
 
 
 # --- verdict reuse -----------------------------------------------------------
 
 
-def _stored(conn: db_module.NewsNlpDatabase, item: EvalItem, *, task: str, verdict: dict) -> None:
+def _new_run(conn: db_module.NewsNlpDatabase, task: str, experiment: str = "base") -> int:
     run = create_eval_run(
         conn,
         stage=task,
@@ -108,14 +122,27 @@ def _stored(conn: db_module.NewsNlpDatabase, item: EvalItem, *, task: str, verdi
         judge_model="m",
         judge_url="u",
         code_version="v",
-        experiment="base",
+        experiment=experiment,
     )
+    conn.commit()
+    return run
+
+
+def _stored(
+    conn: db_module.NewsNlpDatabase,
+    item: EvalItem,
+    *,
+    task: str,
+    verdict: dict,
+    experiment: str = "base",
+) -> None:
+    run = _new_run(conn, task, experiment)
     inf = record_inference(
         conn,
         run,
         article_id=item.article_id,
         task=task,
-        experiment="base",
+        experiment=experiment,
         bucket=item.bucket,
         prediction=item.prediction,
     )
@@ -125,7 +152,7 @@ def _stored(conn: db_module.NewsNlpDatabase, item: EvalItem, *, task: str, verdi
         run,
         article_id=item.article_id,
         task=task,
-        experiment="base",
+        experiment=experiment,
         verdict=verdict,
         correct=None,
         severity=None,
@@ -158,54 +185,216 @@ def test_a_changed_prediction_is_not_reused(conn: db_module.NewsNlpDatabase) -> 
     assert cj.find_truth_verdict(conn, changed, experiment="base") is None
 
 
-def test_judge_and_record_reuses_judges_and_records(conn: db_module.NewsNlpDatabase) -> None:
-    done, fresh = _item(1), _item(2)
-    _stored(conn, done, task=cj.TASK, verdict={"truth_slug": "legal_regulatory"})
-    run = create_eval_run(
+def test_the_reuse_key_carries_the_prompt_hash_and_the_judge_model(
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = _item()
+    key = cj.truth_experiment("model-a")
+    _stored(conn, item, task=cj.TASK, verdict={"truth_slug": "other"}, experiment=key)
+    assert cj.find_truth_verdict(conn, item, experiment=cj.truth_experiment("model-a"))
+    assert cj.find_truth_verdict(conn, item, experiment=cj.truth_experiment("model-b")) is None
+    monkeypatch.setattr(cj, "prompt_hash", lambda: "0" * 64)
+    assert cj.find_truth_verdict(conn, item, experiment=cj.truth_experiment("model-a")) is None
+
+
+# --- the run -----------------------------------------------------------------
+
+
+def _sample_of(ids: list[int], cell: str = "legal_regulatory|2") -> cs.CalibrationSample:
+    half = len(ids) // 2
+    drawn = [
+        cs.SampledArticle(i, cell, "fit" if n < half else "report", 100, half or 1)
+        for n, i in enumerate(ids)
+    ]
+    return cs.CalibrationSample(seed=1, drawn=tuple(drawn), populations={cell: 100})
+
+
+def _start(conn: db_module.NewsNlpDatabase, ids: list[int]) -> int:
+    return cj.start_calibration_run(
         conn,
-        stage=cj.TASK,
-        sample_size=2,
-        low_conf_n=0,
-        random_n=2,
-        seed=1,
+        _sample_of(ids),
         judge_model="m",
         judge_url="u",
         code_version="v",
-        experiment="base",
+        date="2026-10-23",
     )
-    calls: list[str] = []
 
-    def factory(prompt: str) -> FakeAgent:
-        calls.append(prompt)
-        return FakeAgent(['{"truth_slug": "product_innovation"}'])
 
-    verdicts, usage = cj.judge_and_record(
-        conn, run, [done, fresh], agent_factory=factory, experiment="base", max_workers=1
+def _factory(replies: dict[int, list[str]], items: list[EvalItem]) -> Callable[[str], JudgeAgent]:
+    """An agent factory that serves each article its own replies (matched on the title)."""
+    by_title = {
+        f"T{it.article_id}": replies[it.article_id] for it in items if it.article_id in replies
+    }
+
+    def factory(_prompt: str) -> JudgeAgent:
+        class _Agent:
+            def __init__(self) -> None:
+                self.replies: list[str] | None = None
+
+            def __call__(self, prompt: str) -> str:
+                if self.replies is None:
+                    title = next(t for t in by_title if t in prompt)
+                    self.replies = list(by_title[title])
+                return self.replies.pop(0)
+
+        return _Agent()
+
+    return factory
+
+
+def _numbered(i: int) -> EvalItem:
+    base = _item(i)
+    return EvalItem(
+        article_id=i,
+        bucket=base.bucket,
+        stratum_population=100,
+        title=f"T{i}",
+        body_text=base.body_text,
+        prediction=base.prediction,
     )
-    assert [v.truth_slug for v in verdicts] == ["legal_regulatory", "product_innovation"]
-    assert (usage.reused, usage.judged, usage.parse_failed) == (1, 1, 0)
-    assert len(calls) == 1
+
+
+def test_start_calibration_run_stores_the_config(conn: db_module.NewsNlpDatabase) -> None:
+    run = _start(conn, [1, 2, 3, 4])
+    row = conn.execute(
+        "SELECT stage, experiment, strata_json FROM eval_run WHERE id = ?", (run,)
+    ).fetchone()
+    cfg = json.loads(row[2])
+    assert row[0] == cj.TASK
+    assert row[1] == cj.truth_experiment("m")
+    assert cfg["prompt_hash"] == cj.prompt_hash()
+    assert cfg["temperature"] == JUDGE_TEMPERATURE
+    assert cfg["date"] == "2026-10-23"
+    assert cfg["halves"]["legal_regulatory|2"] == {"fit": [1, 2], "report": [3, 4]}
+
+
+def test_a_run_started_under_other_wording_is_refused(
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run = _start(conn, [1, 2])
+    monkeypatch.setattr(cj, "prompt_hash", lambda: "f" * 64)
+    with pytest.raises(ValueError, match="frozen"):
+        cj.judge_and_record(
+            conn, run, [_numbered(1)], agent_factory=lambda _p: FakeAgent([]), max_calls=10
+        )
+    other = _new_run(conn, "category")
+    with pytest.raises(ValueError, match="not a category_truth run"):
+        cj.judge_and_record(
+            conn, other, [_numbered(1)], agent_factory=lambda _p: FakeAgent([]), max_calls=10
+        )
+
+
+def test_judge_and_record_reuses_judges_and_records(conn: db_module.NewsNlpDatabase) -> None:
+    run = _start(conn, [1, 2])
+    items = [_numbered(1), _numbered(2)]
+    _stored(
+        conn,
+        items[0],
+        task=cj.TASK,
+        verdict={"truth_slug": "legal_regulatory"},
+        experiment=cj.truth_experiment("m"),
+    )
+    factory = _factory({2: ['{"truth_slug": "product_innovation"}']}, items)
+    pairs, usage = cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=10)
+    assert [v.truth_slug for _, v in pairs] == ["legal_regulatory", "product_innovation"]
+    assert (usage.reused, usage.judged, usage.parse_failed, usage.calls) == (1, 1, 0, 1)
     rows = conn.execute(
         "SELECT article_id, task FROM eval_verdict WHERE run_id = ? ORDER BY article_id", (run,)
     ).fetchall()
     assert [(r[0], r[1]) for r in rows] == [(1, cj.TASK), (2, cj.TASK)]
+    assert cj.calls_spent(conn) == 1
 
 
-def test_judge_and_record_refuses_to_exceed_the_call_cap(
+def test_a_crash_keeps_every_verdict_already_paid_for(
+    conn: db_module.NewsNlpDatabase, test_db_path: Path
+) -> None:
+    run = _start(conn, [1, 2, 3])
+    items = [_numbered(i) for i in (1, 2, 3)]
+    good = FakeAgent(['{"truth_slug": "other"}'])
+
+    def factory(_prompt: str) -> JudgeAgent:
+        if not factory.served:  # type: ignore[attr-defined]
+            factory.served = True  # type: ignore[attr-defined]
+            return good
+        raise KeyboardInterrupt
+
+    factory.served = False  # type: ignore[attr-defined]
+    with pytest.raises(KeyboardInterrupt):
+        cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=10, max_workers=1)
+    other = db_module.connect(test_db_path)  # a second connection sees only what was committed
+    try:
+        rows = other.execute(
+            "SELECT article_id FROM eval_verdict WHERE run_id = ?", (run,)
+        ).fetchall()
+        calls = json.loads(
+            other.execute("SELECT metrics_json FROM eval_run WHERE id = ?", (run,)).fetchone()[0]
+        )["calls"]
+    finally:
+        other.close()
+    assert [r[0] for r in rows] == [1]
+    assert calls == 1
+
+
+def test_the_cap_is_on_calls_and_the_run_stops_cleanly_at_it(
     conn: db_module.NewsNlpDatabase,
 ) -> None:
-    calls: list[str] = []
+    run = _start(conn, [1, 2, 3])
+    items = [_numbered(i) for i in (1, 2, 3)]
+    factory = _factory(
+        {
+            1: ["not json", '{"truth_slug": "other"}'],  # a repair: 2 calls
+            2: ['{"truth_slug": "other"}'],
+            3: ['{"truth_slug": "other"}'],
+        },
+        items,
+    )
+    pairs, usage = cj.judge_and_record(
+        conn, run, items, agent_factory=factory, max_calls=3, max_workers=1
+    )
+    # item 1 used 2 calls; 1 is left, below the 2 an article may need: stop, do not start item 2
+    assert [it.article_id for it, _ in pairs] == [1]
+    assert (usage.calls, usage.judged, usage.not_judged) == (2, 1, 2)
+    status = conn.execute("SELECT status FROM eval_run WHERE id = ?", (run,)).fetchone()[0]
+    assert status == "stopped_at_cap"
+    assert cj.remaining_calls(conn, cap=10) == 8
+    assert cj.remaining_calls(conn) == cj.D10_CAP - 2
 
-    def factory(prompt: str) -> FakeAgent:
-        calls.append(prompt)
-        return FakeAgent(['{"truth_slug": "other"}'])
 
-    with pytest.raises(ValueError, match="cap of 1"):
+def test_duplicate_articles_are_refused(conn: db_module.NewsNlpDatabase) -> None:
+    run = _start(conn, [1, 2])
+    with pytest.raises(ValueError, match="duplicate"):
         cj.judge_and_record(
-            conn, 1, [_item(1), _item(2)], agent_factory=factory, experiment="base", max_calls=1
+            conn,
+            run,
+            [_numbered(1), _numbered(1)],
+            agent_factory=lambda _p: FakeAgent([]),
+            max_calls=10,
         )
-    assert calls == []
-    assert conn.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()[0] == 0
+
+
+def test_load_truths_excludes_parse_failures_and_reweights(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    run = _start(conn, [1, 2, 3, 4, 5, 6])  # fit 1,2,3; report 4,5,6; cell population 100
+    items = [_numbered(i) for i in (1, 2, 3, 4, 5)]  # 6 is never judged
+    factory = _factory(
+        {
+            1: ['{"truth_slug": "other"}'],
+            2: ["bad", "bad"],  # parse_failed
+            3: ['{"truth_slug": "legal_regulatory"}'],
+            4: ['{"truth_slug": "other"}'],
+            5: ['{"truth_slug": "other"}'],
+        },
+        items,
+    )
+    cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=20)
+    truths = cj.load_truths(conn, run)
+    assert (truths.parse_failed, truths.unjudged) == (1, 1)
+    assert truths.parse_failed_rate == pytest.approx(1 / 6)
+    assert sorted(t.article_id for t in truths.rows) == [1, 3, 4, 5]
+    weights = {t.article_id: t.weight for t in truths.rows}
+    assert weights[1] == weights[3] == 100 / 2  # fit half: 2 usable
+    assert weights[4] == weights[5] == 100 / 2  # report half: 2 usable
 
 
 # --- the sampler -------------------------------------------------------------
@@ -313,9 +502,70 @@ def test_sample_items_reads_text_and_the_stored_prediction(
         drawn=(cs.SampledArticle(int(rows[0][0]), "cell", "fit", 10, 5),),
         populations={"cell": 10},
     )
-    ((drawn, item),) = cs.sample_items(eval_conn, sample)
+    ((drawn, item),), effective = cs.sample_items(eval_conn, sample)
     assert item.article_id == drawn.article_id
     assert item.bucket == "cell"
     assert item.stratum_population == 10
     assert item.body_text.strip()
     assert item.prediction["score"] == rows[0][1]
+    assert effective.drawn[0].n_half == 1  # recomputed: 1 remains, not the 5 drawn
+
+
+def test_a_dropped_article_is_recorded_and_the_weights_are_recomputed(
+    eval_conn: db_module.NewsNlpDatabase,
+) -> None:
+    first = int(eval_conn.execute("SELECT MIN(article_id) FROM article_category").fetchone()[0])
+    sample = cs.CalibrationSample(
+        seed=1,
+        drawn=(
+            cs.SampledArticle(first, "cell", "fit", 10, 2),
+            cs.SampledArticle(999_999, "cell", "fit", 10, 2),  # no text, no stored row
+        ),
+        populations={"cell": 10},
+    )
+    pairs, effective = cs.sample_items(eval_conn, sample)
+    assert [a.article_id for a, _ in pairs] == [first]
+    assert effective.dropped == (999_999,)
+    assert effective.drawn[0].weight == 10.0  # was 10 / 2: the half still sums to the cell
+    cfg = cs.run_config(
+        effective,
+        judge_model="m",
+        temperature=0.0,
+        judge_seed=None,
+        prompt_hash="h",
+        date="2026-10-23",
+    )
+    assert cfg["dropped"] == [999_999]
+
+
+def test_restrict_keeps_each_half_summing_to_its_cell_population() -> None:
+    sample = cs.draw_sample([_article(i, 0, 0.55) for i in range(1, 300)], seed=2)
+    victims = {a.article_id for a in sample.drawn[::7]}
+    kept = cs.restrict(sample, {a.article_id for a in sample.drawn} - victims)
+    assert set(kept.dropped) == victims
+    cell = next(iter(kept.populations))
+    for half in cs.HALVES:
+        assert sum(a.weight for a in kept.half(half)) == pytest.approx(kept.populations[cell])
+
+
+def test_load_confirmed_reads_only_accepted_articles() -> None:
+    db = sqlite3.connect(":memory:")
+    db.execute("ATTACH DATABASE ':memory:' AS r")
+    db.execute("CREATE TABLE main.discovered_urls (id INTEGER, match_class TEXT)")
+    leaves = ", ".join(f"{s} REAL" for s in CATEGORY_SLUGS)
+    db.execute(
+        f"CREATE TABLE r.article_category (article_id INTEGER, label TEXT, group_score REAL, {leaves})"
+    )
+    for i, klass in ((2, "accept"), (1, "accept"), (3, "reject")):
+        db.execute("INSERT INTO main.discovered_urls VALUES (?, ?)", (i, klass))
+        marks = ", ".join("?" for _ in range(3 + len(CATEGORY_SLUGS)))
+        db.execute(
+            f"INSERT INTO r.article_category VALUES ({marks})",  # noqa: S608 -- test placeholders
+            (i, "other", 0.8, *([0.1 * i] * len(CATEGORY_SLUGS))),
+        )
+    articles = cs.load_confirmed(db)
+    assert [a.article_id for a in articles] == [1, 2]
+    assert articles[0].group_score == 0.8
+    assert len(articles[0].leaf_scores) == len(CATEGORY_SLUGS)
+    with pytest.raises(ValueError, match="schema names"):
+        cs.load_confirmed(db, results_schema="r; DROP TABLE x")

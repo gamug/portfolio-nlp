@@ -12,7 +12,7 @@ from __future__ import annotations
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
-from news_nlp.eval.config import EvalSettings
+from news_nlp.eval.config import JUDGE_TEMPERATURE, EvalSettings
 
 
 def build_model(settings: EvalSettings) -> OpenAIModel:
@@ -20,7 +20,7 @@ def build_model(settings: EvalSettings) -> OpenAIModel:
     return OpenAIModel(
         client_args={"api_key": settings.llm_api_key, "base_url": settings.llm_url},
         model_id=settings.llm_model,
-        params={"temperature": 0.0, "max_tokens": 2000},
+        params={"temperature": JUDGE_TEMPERATURE, "max_tokens": 2000},
     )
 
 

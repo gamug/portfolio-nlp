@@ -80,6 +80,7 @@ from news_nlp.eval.calibration import (
     subset_effect,
     verdict_table,
 )
+from news_nlp.eval.calibration_sample import load_confirmed
 from news_nlp.eval.metrics import aggregate_category
 from news_nlp.eval.partition import domain_pairs, load_category_pairs
 from news_nlp.taxonomy import CATEGORY_SLUGS
@@ -87,7 +88,6 @@ from news_nlp.taxonomy import CATEGORY_SLUGS
 GAIN = 0.05
 THRESHOLD_BAND = 2  # the 0.5-0.6 band, the one a loosened threshold would move to a slug
 RATES = (0.30, 0.20, 0.10, 0.05)  # P(a 0.5-0.6 article is truly `other`); measured average 0.319
-COLUMNS = ("group_score", *CATEGORY_SLUGS)
 
 
 def connect(source: Path, results: Path) -> sqlite3.Connection:
@@ -95,15 +95,6 @@ def connect(source: Path, results: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA query_only=ON")
     conn.execute("ATTACH DATABASE ? AS r", (f"file:{results.as_posix()}?mode=ro",))
     return conn
-
-
-def load_confirmed(conn: sqlite3.Connection) -> list[ConfirmedArticle]:
-    cols = ", ".join(f"rc.{c}" for c in COLUMNS)
-    rows = conn.execute(
-        f"SELECT rc.article_id, rc.label, {cols} FROM r.article_category rc "  # noqa: S608 -- repo constants
-        "JOIN main.discovered_urls d ON d.id = rc.article_id WHERE d.match_class = 'accept'"
-    )
-    return [ConfirmedArticle(i, label, g, tuple(leaves)) for i, label, g, *leaves in rows]
 
 
 def section(title: str) -> None:
