@@ -30,12 +30,15 @@ from typing import Any, Literal, NamedTuple, Protocol
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.eval.calibration import (
     BAND_EDGES,
+    SHORT_CIRCUIT,
     ConfirmedArticle,
+    Rule,
+    apply_rule,
     cell_of,
     report_half_size,
 )
 from news_nlp.eval.sampling import EvalItem, _prediction, _require_source, _text
-from news_nlp.taxonomy import CATEGORY_SLUGS
+from news_nlp.taxonomy import CATEGORY_SLUGS, OTHER_LABEL
 
 
 def text_fingerprint(title: str, body: str) -> str:
@@ -46,6 +49,62 @@ def text_fingerprint(title: str, body: str) -> str:
 #: Share of the draw above which dropping articles (no text, no stored row) is worth a warning.
 DROP_WARN_FRACTION = 0.02
 _log = logging.getLogger(__name__)
+
+# --- the 0.5-0.6 band, split by the candidate rules (T-121(b)) ---------------------------------
+#
+# Every loosening rule still open after T-121(a) moves articles out of `other` only inside the
+# 0.5-0.6 band, and each one's removed set is a union of the sub-cells below, so oversampling the
+# sub-cells measures the quantity T-123 caps (the truly-`other` share of the removed set) with a
+# plain stratified estimator. In the band the stored label is always `other`.
+#:   A  = removed by t0.55+m0.20 (and so by t0.50+m0.20 and t0.55+m0.00 too)
+#:   U  = removed by t0.50+m0.20 but not by A
+#:   V  = removed by t0.55+m0.00 but not by A
+#:   W  = removed by none of the three
+SUBCELLS = ("A", "U", "V", "W")
+SUBCELL_RULES = {
+    "A": Rule(0.55, 0.20),
+    "U": Rule(0.50, 0.20),
+    "V": Rule(0.55, 0.00),
+}
+#: Report-half draw per slug in each sub-cell (the cell's total stays 2 x 45 = 90, as in the
+#: plan): 40 + 24 + 16 + 10 = 90 per slug, 810 over the nine slugs.
+SUBCELL_REPORT_HALF = {"A": 20, "U": 12, "V": 8, "W": 5}
+#: The sub-cells judged first (stage 1): the ones inside a candidate's removed set.
+STAGE_ONE_SUBCELLS = frozenset({"A", "U", "V"})
+_BAND_WITH_SUBCELLS = 2
+
+
+def subcell_of(group_score: float, leaf_scores: Sequence[float]) -> str:
+    """The sub-cell of an article of the 0.5-0.6 band: the first of A, U, V whose rule re-labels
+    it away from `other`, else W."""
+    for name in ("A", "U", "V"):
+        if apply_rule(group_score, leaf_scores, SUBCELL_RULES[name]) != OTHER_LABEL:
+            return name
+    return "W"
+
+
+def stratum_of(group_score: float, leaf_scores: Sequence[float]) -> str:
+    """:func:`cell_of`, with the 0.5-0.6 band cells split into :data:`SUBCELLS`
+    (``"<slug>|2|A"``); every other cell (and the short-circuit stratum) keeps its name."""
+    cell = cell_of(group_score, leaf_scores)
+    if cell != SHORT_CIRCUIT and int(cell.rsplit("|", 1)[1]) == _BAND_WITH_SUBCELLS:
+        return f"{cell}|{subcell_of(group_score, leaf_scores)}"
+    return cell
+
+
+def cell_half_size(cell: str) -> int:
+    """Report-half draw of one stratum (a sub-cell, or a :func:`report_half_size` cell)."""
+    parts = cell.split("|")
+    if len(parts) == 3:  # noqa: PLR2004 -- slug | band | sub-cell
+        return SUBCELL_REPORT_HALF[parts[2]]
+    return report_half_size(cell)
+
+
+def stage_of(cell: str) -> int:
+    """1 for the strata inside a candidate rule's removed set (judged first), 2 for the rest."""
+    parts = cell.split("|")
+    return 1 if len(parts) == 3 and parts[2] in STAGE_ONE_SUBCELLS else 2  # noqa: PLR2004
+
 
 Half = Literal["fit", "report"]
 HALVES: tuple[Half, ...] = ("fit", "report")
@@ -104,17 +163,17 @@ class CalibrationSample:
 
 
 def draw_sample(articles: Sequence[ConfirmedArticle], *, seed: int) -> CalibrationSample:
-    """Stratify *articles* by :func:`cell_of` and draw each cell's fit and report halves."""
+    """Stratify *articles* by :func:`stratum_of` and draw each cell's fit and report halves."""
     by_cell: dict[str, list[int]] = defaultdict(list)
     for article in articles:
-        by_cell[cell_of(article.group_score, article.leaf_scores)].append(article.article_id)
+        by_cell[stratum_of(article.group_score, article.leaf_scores)].append(article.article_id)
     drawn: list[SampledArticle] = []
     populations: dict[str, int] = {}
     for cell in sorted(by_cell):
         ids = sorted(by_cell[cell])
         populations[cell] = len(ids)
         random.Random(f"{seed}|{cell}").shuffle(ids)  # noqa: S311 -- sample selection
-        chosen = ids[: 2 * report_half_size(cell)]
+        chosen = ids[: 2 * cell_half_size(cell)]
         n_fit = len(chosen) // 2
         halves: dict[Half, list[int]] = {"fit": chosen[:n_fit], "report": chosen[n_fit:]}
         for half, members in halves.items():

@@ -600,10 +600,10 @@ def test_the_realised_design_effect_uses_the_usable_weights() -> None:
         cj.Truth(4, "a|2", "fit", 5.0, "other"),
         cj.Truth(5, "a|2", "fit", 5.0, "other"),
     ]
-    truths = cj.TruthSet(rows, parse_failed=0, unjudged=0)
+    truths = cj.TruthSet(rows, parse_failed=0, unjudged=0, populations={})
     assert truths.design_effect("fit") == pytest.approx(1.0)
     assert truths.design_effect("report") == pytest.approx(3 * (100 + 100 + 1600) / 60**2)
-    assert cj.TruthSet([], 0, 0).design_effect("fit") is None
+    assert cj.TruthSet([], 0, 0, {}).design_effect("fit") is None
 
 
 def test_a_sample_that_still_draws_a_dropped_article_is_refused(
@@ -846,10 +846,12 @@ def test_cell_sizes_halves_and_weights() -> None:
     by_cell: dict[str, list[cs.SampledArticle]] = {}
     for a in sample.drawn:
         by_cell.setdefault(a.cell, []).append(a)
-    band2 = cell_of(0.9, _article(0, 0, 0.55).leaf_scores)
-    assert len(by_cell[band2]) == 90
+    # a 0.5-0.6 article with no close runner-up is in sub-cell A: 2 x 20 drawn per slug
+    band2 = cs.stratum_of(0.9, _article(0, 0, 0.55).leaf_scores)
+    assert band2.endswith("|2|A")
+    assert len(by_cell[band2]) == 40
     assert {a.half for a in by_cell[band2]} == {"fit", "report"}
-    assert sum(a.half == "fit" for a in by_cell[band2]) == 45
+    assert sum(a.half == "fit" for a in by_cell[band2]) == 20
     top = cell_of(0.9, _article(0, 0, 0.9).leaf_scores)
     assert len(by_cell[top]) == 60  # 30 per half outside the 0.4-0.6 bands
     assert all(a.weight == 80 / 30 for a in by_cell[top])
@@ -863,23 +865,40 @@ def test_cell_sizes_halves_and_weights() -> None:
             assert sum(a.weight for a in part) == pytest.approx(sample.populations[cell])
 
 
+def _band2(i: int, slug_index: int, best: float, second: float) -> ConfirmedArticle:
+    leaves = [0.02] * len(CATEGORY_SLUGS)
+    leaves[slug_index] = best
+    leaves[(slug_index + 1) % len(CATEGORY_SLUGS)] = second
+    return ConfirmedArticle(i, "other", 0.9, tuple(leaves))
+
+
 def test_the_base_sample_is_the_3300_calls_of_the_plan() -> None:
-    """9 slugs x 5 bands + the short-circuit stratum: 90 per cell in the two threshold bands,
-    60 elsewhere, 60 short-circuit; the D10 cap of 3,800 leaves 500 for the top-up."""
+    """9 slugs x 5 bands + the short-circuit stratum: 90 per slug in the 0.5-0.6 band (split
+    over its four sub-cells), 90 in the 0.4-0.5 band, 60 elsewhere, 60 short-circuit; the D10
+    cap of 3,800 leaves 500 for the top-up."""
     articles: list[ConfirmedArticle] = []
     i = 0
     for slug_index in range(len(CATEGORY_SLUGS)):
-        for score in (0.30, 0.45, 0.55, 0.70, 0.90):
+        for score in (0.30, 0.45, 0.70, 0.90):
             for _ in range(200):
                 i += 1
                 articles.append(_article(i, slug_index, score))
+        for best, second in ((0.57, 0.05), (0.52, 0.05), (0.57, 0.45), (0.52, 0.45)):  # A U V W
+            for _ in range(200):
+                i += 1
+                articles.append(_band2(i, slug_index, best, second))
     for _ in range(200):
         i += 1
         articles.append(_article(i, 0, 0.5, group=CATEGORY_GROUP_FLOOR - 0.1))
     sample = cs.draw_sample(articles, seed=1)
-    assert len(sample.populations) == 46
+    assert len(sample.populations) == 9 * (4 + 4) + 1
     assert len(sample.drawn) == 3300
     assert cj.D10_CAP - len(sample.drawn) == 500
+    stage_one = [a for a in sample.drawn if cs.stage_of(a.cell) == 1]
+    assert len(stage_one) == 9 * (40 + 24 + 16)  # A + U + V: 720 calls
+    assert {a.cell.rsplit("|", 1)[1] for a in sample.drawn if a.cell.count("|") == 2} == set(
+        cs.SUBCELLS
+    )
 
 
 def test_a_small_cell_is_taken_whole_and_split_evenly() -> None:
