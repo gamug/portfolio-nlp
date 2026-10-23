@@ -2276,7 +2276,8 @@ other, and independent of one another except where noted:
   ticker-collision finding (T-127) to its own PR.
 
 - **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
-  first runnable tasks are T-116, T-130 and T-141 (code, hermetic); T-133 is done and
+  first runnable tasks are T-116 and T-130 (code, hermetic); T-141 (the calibration judge and
+  sampler, code, hermetic) is done (2026-10-23); T-133 is done and
   T-121(a), which followed it, is done (2026-10-23, no spend). Calibration no longer waits for T-117: T-121(b)
   waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16 (the
   schema guard) is closed (#109), so T-132 can start; it adds its columns to the guard.

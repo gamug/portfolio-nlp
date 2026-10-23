@@ -229,3 +229,12 @@ def test_json_round_trip_preserves_every_field() -> None:
     )
     reparsed = ExperimentSpec.model_validate_json(spec.model_dump_json())
     assert reparsed == spec
+
+
+def test_the_experiment_stages_exclude_the_calibration_judge() -> None:
+    """T-141's opt-in `category_truth` judge must not become an experiment stage."""
+    from typing import get_args  # noqa: PLC0415
+
+    from experiment import Stage  # noqa: PLC0415 -- keeps the module header untouched
+
+    assert get_args(Stage) == ("sentiment", "ner", "category", "c_summary")

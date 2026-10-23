@@ -331,7 +331,11 @@ corpus (for example per upstream `match_class`) with no judge call, reweighted a
 domain estimate and with bootstrap intervals (`news_nlp.eval.partition`; see
 `docs/evaluation.md`'s 2026-10-22 follow-up). Candidate category decision rules
 are simulated against stored scores and stored verdicts, and their power estimated, by
-`news_nlp.eval.calibration` (2026-10-23 follow-up). `sector_summary`'s
+`news_nlp.eval.calibration` (2026-10-23 follow-up). The paid sample that settles them is
+drawn by `news_nlp.eval.calibration_sample` (confirmed articles stratified by slug x score band,
+seeded fit/report halves, weights) and judged by the opt-in truth-label judge
+`news_nlp.eval.calibration_judge` (`prompts/calibration.md`, frozen; crash-safe, resumable, capped
+on calls; see `docs/evaluation.md`'s "Calibration judge and sampler"). `sector_summary`'s
 `intro_text` had its own dedicated eval path added 2026-09-14 — its
 population is small enough (thousands of rows) to judge in full every run
 instead of sampling, checked for faithfulness against its own `facts_json`

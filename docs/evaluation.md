@@ -2715,6 +2715,89 @@ each ending with a strict "reply with ONLY a raw JSON object" instruction.
 `category.md` embeds the 10-label taxonomy; keep it in sync with
 `news_nlp.taxonomy` / `docs/category-taxonomy.md` if the labels change.
 
+### Calibration judge and sampler (T-141)
+
+`calibration.md` is not a stage prompt: it belongs to the opt-in calibration judge
+(`news_nlp/eval/calibration_judge.py`) that T-121(b) uses. It shows the judge the article
+only (never the classifier's output) and asks for the best-fitting label of the full
+taxonomy, `other` included: the **truth label**. "The argmax slug fits" is truth == argmax;
+for the short-circuit stratum, "`other` is correct" is truth == `other`. **What "truth" means:**
+the judge reads the same capped lead of the article (the first 6,000 characters) the category
+classifier reads, so it is the best label for that text, not for the whole article.
+
+* Verdicts are stored under `eval_verdict.task = "category_truth"` (and `eval_run.stage` the
+  same), so a stored-label verdict (task `category`) never satisfies a truth lookup. The task
+  is outside `sampling.STAGES`, `judges.JUDGES` and `VERDICT_MODELS`, and `ExperimentSpec`'s
+  stages are unchanged (a test pins all four lists): `--stage all` and experiments do not see
+  it. Its `eval_run` rows are left out of `latest_eval_runs` and `GET /eval/latest`
+  (`queries.NON_ACCURACY_EVAL_STAGES`): their metrics are call counters, not accuracy.
+* An out-of-taxonomy slug is not coerced to `other`: it goes to the repair prompt and then to a
+  `parse_failed` fallback, which is never reused. `load_truths` excludes those rows and
+  reports their count and rate, and re-weights each half over the usable articles (assuming
+  they are missing at random within the cell and half); so does an article left unjudged.
+* **The wording is frozen.** It is the system prompt file, the user template and the repair
+  prompt, all owned by `calibration_judge` (not borrowed from the helpers other judges share).
+  `test_eval_calibration_judge.py` pins the hash of the three and the rendered user message, the
+  reuse key (`truth_experiment`) carries the prompt hash and the judge model, and a run
+  started under another hash is refused. A change to the wording or to the label set
+  invalidates every stored `category_truth` verdict and costs a re-judge, to be budgeted
+  separately from D10.
+  The reuse key also carries the item's `prediction`, which for a calibration item is only
+  `{"text_sha256"}` (the hash of the title and capped text the judge read): the judge never sees
+  the classifier's output, so T-122's new rule or T-124's re-label never forces a re-buy, and a
+  change of the text always does. The label and scores to analyse against come from
+  `article_category` by article id. `judge_and_record` refuses items outside the run's sample.
+* **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
+  calls an article may need (the reply and one repair), counts the calls it really makes,
+  records and commits each verdict as it arrives and stops at `max_calls` rather than start an
+  article it might not finish (status `stopped_at_cap`; `error` for an outage or any unexpected exception, an interrupt leaves `running`; `incomplete` when articles lack a verdict for another reason, such as
+  transport errors below the outage threshold, `ok` only when every item has one). The calls used are kept in the run's
+  `metrics_json` as it goes; pass `remaining_calls(conn)` as the cap so it holds across runs.
+  The base sample is 3,300 calls at one call per article (a test pins it), leaving 500 under
+  the cap; if every reply needed a repair it would cost 6,600, so the run logs a warning
+  whenever `max_calls` is below two calls per pending article. Duplicate articles are refused.
+* **Resuming, interrupts, outages.** Calling `judge_and_record` again on the same run resumes
+  it: usage carries over, an article already judged in the run is not recorded twice, a
+  `parse_failed` one is judged again and replaced. Articles go out round-robin across
+  (cell, half), seeded within each, so a stop at the cap leaves an even gap, not whole cells.
+  An interrupt cancels the queue (only the calls in flight finish, and their verdicts are
+  kept). A failed call (rate limit, 5xx, auth, network) is a `JudgeTransportError`, never a
+  verdict; five in a row stop the run with `JudgeOutage` (status `error`).
+* `start_calibration_run` creates the `eval_run` with the config in `strata_json`: seed, band
+  edges, cell populations, half assignment, dropped articles, judge model, temperature
+  (`config.JUDGE_TEMPERATURE`, the one `build_model` uses), judge seed, prompt hash, date.
+* The sampler (`calibration_sample.draw_sample`) stratifies the confirmed articles
+  (`load_confirmed`: `match_class = 'accept'`) by (argmax slug x score band) plus the
+  short-circuit stratum, draws `2 x report_half_size` per cell (all of a smaller cell), and
+  splits each cell at random into a fit and a report half. Each cell has its own generator
+  seeded from the run seed and the cell name, so the same inputs and seed give the same draw
+  and one cell's population never moves another's. An article's weight in a half is the cell
+  population over the cell's articles in that half; `sample_items` drops an article whose
+  text or stored row is missing, lists it in the sample and recomputes the weights
+  (`restrict`). `design_effect` gives the Kish factor of a half's weights, which the sizing in
+  `calibration.items_to_decide` needs; `run_config` stores each half's size and design effect, and `load_truths(...).design_effect(half)` gives the realised one over the usable rows. `start_calibration_run` refuses a sample that still draws a dropped article.
+  A reused verdict is the latest *valid* one (a newer `parse_failed` never hides it).
+  `model.calibration_agent_factory(settings)` builds the `agent_factory`.
+
+**Recipe (what T-121(b) calls, in this order)**
+
+```python
+population = load_confirmed(conn)                      # match_class = 'accept'
+drawn = draw_sample(population, seed=SEED)             # cells, halves, weights
+pairs, sample = sample_items(conn, drawn)              # drops articles without text
+run_id = start_calibration_run(conn, sample, judge_model=..., judge_url=..., code_version=...)
+judge_and_record(conn, run_id, [i for _, i in pairs],
+                 agent_factory=calibration_agent_factory(settings),
+                 max_calls=remaining_calls(conn))      # resume = call it again on run_id
+truths = load_truths(conn, run_id)                     # usable labels + weights
+```
+
+Two traps: pass `start_calibration_run` the **effective** sample `sample_items` returns, not
+`drawn` (it refuses a sample that still draws a dropped article), and pass `remaining_calls(conn)`,
+not the full 3,800, so the D10 cap holds across runs. The label and scores to analyse against are
+read from `article_category` by article id. Check `truths.parse_failed_rate`, `truths.unjudged`
+and `truths.design_effect(half)` before trusting an estimate.
+
 ## Experiments: JSON-driven, single-command runs
 
 (2026-09-18, `PLAN.md` Work item 11, `SPEC.md` FR-017, `TASKS.md`

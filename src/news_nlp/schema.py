@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS article_category (
 -- behind GET /eval/latest. See docs/evaluation.md.
 CREATE TABLE IF NOT EXISTS eval_run (
     id {autoincrement_pk},
-    stage         TEXT NOT NULL,   -- sentiment | category | ner | c_summary | sector_summary
+    stage         TEXT NOT NULL,   -- sentiment | category | ner | c_summary | sector_summary | category_truth (opt-in calibration judge, T-141)
     started_at    TEXT NOT NULL,
     finished_at   TEXT,
     sample_size   INTEGER NOT NULL,
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS eval_run (
     mlflow_run_id TEXT,
     metrics_json  TEXT NOT NULL DEFAULT '{}',
     strata_json   TEXT NOT NULL DEFAULT '{}',  -- {bucket: {"population": N_h, "n": n_h}}; '{}' for pre-stratification runs
-    status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error
+    status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error | stopped_at_cap | incomplete (the last two: category_truth runs)
     error         TEXT,
     experiment    TEXT NOT NULL DEFAULT 'base'  -- which model produced this run's inferences
                                                  -- ("base" for the pinned production model, or
