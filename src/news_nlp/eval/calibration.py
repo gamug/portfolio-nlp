@@ -35,7 +35,7 @@ from typing import NamedTuple
 import numpy as np
 
 from news_nlp.eval.metrics import DIAGNOSTIC_ONLY_BUCKETS, aggregate_category
-from news_nlp.eval.partition import Pair, _defined
+from news_nlp.eval.partition import Pair, is_defined
 from news_nlp.eval.sampling import EvalItem
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
@@ -348,7 +348,15 @@ class PowerRow(NamedTuple):
     slug_share: float
     implied_gain: float  # population difference of the weighted `other` precision
     power: float  # share of draws whose interval's lower bound is above 0
-    defined: int  # draws with a usable interval
+    defined: int  # draws with a usable interval (the bootstrap kept a replicate)
+    mean_diff: float = 0.0  # mean over draws of the sample's paired point difference
+    sd_diff: float = 0.0  # its standard deviation over draws (the sampling spread)
+    mean_lower: float = 0.0  # mean over draws of the interval's lower bound
+
+    @property
+    def power_se(self) -> float:
+        """Monte Carlo standard error of :attr:`power` (binomial over the draws)."""
+        return math.sqrt(self.power * (1 - self.power) / self.defined) if self.defined else 0.0
 
 
 @dataclass(frozen=True)
@@ -429,7 +437,13 @@ def simulate_power(
     size_of: Callable[[str], int] = report_half_size,
     level: float = 0.95,
 ) -> PowerRow:
-    """Power of T-123's estimator to detect the frame's rule gain under *truth*.
+    """Power of T-123's estimator to detect the frame rule's gain under *truth*.
+
+    Returns a :class:`PowerRow`; ``defined`` counts the draws on which the bootstrap kept
+    at least one replicate (a replicate is dropped when either rule has no `other`
+    label in the resample), and the point-difference and lower-bound summaries explain a
+    power: a high power with a small spread is a nearly deterministic difference, not a
+    luckier estimator.
 
     Each draw takes the planned report-half sample per cell without replacement (all of
     a smaller cell), draws every sampled article's truth from the truth model, forms
@@ -445,6 +459,8 @@ def simulate_power(
     take = [min(size_of(name), len(m)) for name, m in zip(frame.names, members, strict=True)]
     pops = [len(m) for m in members]
     wins = defined = 0
+    points: list[float] = []
+    lowers: list[float] = []
     for _ in range(draws):
         idx, weight = [], []
         for m, n, pop in zip(members, take, pops, strict=True):
@@ -477,13 +493,19 @@ def simulate_power(
         defined += 1
         # nearest-rank lower percentile over the usable replicates
         k = max(1, math.ceil((1 - level) / 2 * len(diff)))
-        wins += np.sort(diff)[min(k, len(diff)) - 1] > 0
+        lower = float(np.sort(diff)[min(k, len(diff)) - 1])
+        wins += lower > 0
+        lowers.append(lower)
+        points.append(float(w @ cand_hit / (w @ cand) - w @ base_hit / (w @ base)))
     return PowerRow(
         frame.rule,
         truth.slug_share,
         implied_gain(frame, truth),
         wins / defined if defined else 0.0,
         defined,
+        float(np.mean(points)) if points else 0.0,
+        float(np.std(points)) if points else 0.0,
+        float(np.mean(lowers)) if lowers else 0.0,
     )
 
 
@@ -517,7 +539,7 @@ def paired_rule_interval(
 
     def metric(sample: Sequence[Pair], tagged: bool) -> float:
         items = [retag(it, rule) if tagged else it for it, _ in sample]
-        if not _defined(
+        if not is_defined(
             key, [(it, v) for it, (_, v) in zip(items, sample, strict=True)], {}, "all"
         ):
             return math.nan

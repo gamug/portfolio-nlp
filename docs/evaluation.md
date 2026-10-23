@@ -2187,10 +2187,13 @@ items *away* from `other` cannot be scored from these verdicts (the judge graded
 slug) and needs T-121(b)'s sample.
 
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of
-weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 200 draws,
-300-replicate within-cell bootstrap, nearest-rank 95% interval, seed 0). A cell smaller than its
-sample is taken whole and still resampled in the bootstrap (no finite-population correction), so the
-power is slightly conservative. Truth model:
+weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 300-replicate
+within-cell bootstrap, nearest-rank 95% interval, seed 0). Power is the share of draws whose interval's
+lower bound is above 0, from 200 draws; a power within 0.10 of the 80% bar is re-run at 1,000 draws, and
+every power is printed with its Monte Carlo standard error (up to 0.035 at 200 draws, 0.016 at 1,000), so a
+verdict is "clear" only when it is two standard errors from the bar. A cell smaller than its sample is
+taken whole and still resampled in the bootstrap (no finite-population correction), so the power is slightly
+conservative. Truth model:
 
 * in the >= 0.6 cells, eval_run 43's agreement per cell, weighted by each item's Horvitz-Thompson weight
   (3 of the 18 cells have fewer than 10 judged items and use their band's pooled rate); when the label is
@@ -2204,33 +2207,50 @@ power is slightly conservative. Truth model:
   `band` (full in 0.4-0.5 and 0.5-0.6, 0 elsewhere), and `flat` (the same share in every low cell, which
   is TASKS.md's original wording).
 
-| rule (re-labelled) | `graded`: gain at share 0.1 / 0.3 / 0.5; power | `band` | `flat` |
-|---|---|---|---|
-| `t0.50+m0.00` (16,359) | +0.010 / +0.030 / +0.050; 0.07 / 0.40 / 0.73 | +0.005 / +0.016 / +0.027; 0.04 / 0.20 / 0.38; +0.05 at share 0.93, power 1.00 | gain 0.000 at every share; power 0.01-0.05 |
-| `t0.50+m0.10` (14,582) | +0.008 / +0.025 / +0.041; 0.05 / 0.33 / 0.64; +0.05 at share 0.61, power 0.86 | +0.004 / +0.013 / +0.022; 0.04 / 0.14 / 0.28; not reached | 0.000 |
-| `t0.50+m0.20` (9,728) | +0.004 / +0.013 / +0.022; power 0.06 / 0.23 / 0.43; not reached | +0.012 at 0.5; not reached | 0.000 |
-| `t0.55+m0.00` (7,957) | +0.003 / +0.010 / +0.017; power 0.07 / 0.26 / 0.33; not reached | +0.009 at 0.5; not reached | 0.000 |
-| `t0.55+m0.20` | +0.012 at 0.5; not reached | +0.007 at 0.5; not reached | 0.000 |
-| margin 0.3 below 0.6, and `t0.60+m0.30` | negative or zero at every share | same | same |
-| every `t >= 0.65` | negative at every share; power 0.00 | same | same |
+`graded` shape (`sd` is the spread over draws of the sampled paired difference, whose mean matches the gain):
 
-(The power figures are those of the table's own gain: where "+0.05 is not reached", no share in [0, 1]
-gives a gain of +0.05, so there is no power to report at that target.)
+| rule (re-labelled) | share | gain | power (SE) | sd | verdict |
+|---|---|---|---|---|---|
+| `t0.50+m0.00` (16,359) | 0.10 / 0.30 | +0.010 / +0.030 | 0.07 (0.018) / 0.40 (0.035) | 0.019 | not detectable |
+| | 0.50 (+0.05) | +0.050 | 0.79 (0.013, 1,000 draws) | 0.018 | borderline: within two SE of the bar |
+| `t0.50+m0.10` (14,582) | 0.10 / 0.30 / 0.50 | +0.008 / +0.025 / +0.041 | 0.05 / 0.33 / 0.64 | 0.017-0.019 | not detectable |
+| | 0.61 (+0.05) | +0.050 | 0.89 (0.010, 1,000 draws) | 0.015 | clears the bar |
+| `t0.50+m0.20` (9,728) | 0.10 / 0.30 / 0.50 | +0.004 / +0.013 / +0.022 | 0.06 / 0.23 / 0.43 | 0.013-0.014 | not detectable; +0.05 not reached |
+| `t0.55+m0.00` (7,957) | 0.10 / 0.30 / 0.50 | +0.003 / +0.010 / +0.017 | 0.07 / 0.26 / 0.33 | 0.011-0.014 | not detectable; +0.05 not reached |
+| `t0.55+m0.20` (6,198) | 0.50 | +0.012 | 0.28 | 0.010 | not detectable; +0.05 not reached |
+
+`band` shape: `t0.50+m0.00` reaches +0.05 only at a share of 0.93, with power 1.00 (SE 0.000); its
+other rows are 0.04 / 0.20 / 0.38 at gains of +0.005 / +0.016 / +0.027. `t0.50+m0.10`, `t0.50+m0.20`,
+`t0.55+m0.00` and `t0.55+m0.20` do not reach +0.05 at any share (best: +0.022, +0.012, +0.009 and +0.007
+at 0.5; power 0.28, 0.18, 0.16, 0.14). **Why 1.00 here but 0.79 under `graded` at the same +0.05:** at a
+share of 0.93 the 0.4-0.6 articles are almost never `other`, so the sampled difference barely moves between
+draws: its spread is 0.008 against 0.018 under `graded`, and the mean lower bound is +0.033 (well clear of 0)
+against +0.016. The power measures how often the interval clears 0, and a quieter difference clears it
+every time; it is a property of the truth model, not a better estimator.
+
+`flat` shape: the loosening rules have a gain of 0.000 at every share (the articles they re-label look like
+the ones left behind). The power at zero gain is the estimator's false-positive rate at one side of a 95%
+interval (nominally 0.025): the 15 zero-gain rows range from 0.01 to 0.07 and average 0.046. So the
+interval is mildly liberal at these sample sizes (a percentile bootstrap over 30-45 articles per cell) and
+every power above is, if anything, a little optimistic. Rules with a margin of 0.3 (and `t0.60+m0.30`) have a
+negative or zero gain under all three shapes, and every rule with `t >= 0.65` has a negative gain and a power
+of 0.00.
 
 **Reading.** The detectability of a loosening rule depends on how the unmeasured share varies with the
-score, not only on its size: with a flat share no rule gains anything (the articles it re-labels look
-like the ones left behind), with the `band` shape only `t0.50+m0.00` can reach +0.05 (at a share of 0.93),
-and with the `graded` shape `t0.50+m0.00` reaches it at 0.50 with a power of 0.73 (below 80%: "not
-detectable at this sample", it takes the discordant top-up, drawn only after the rule is frozen, outside
-the fit half and weighted to its own strata) and `t0.50+m0.10` at 0.61 with a power of 0.86. What holds under every shape:
-a rule that raises the threshold is not a candidate for T-123's `other`-precision target, and no
-loosening rule is shown to gain until T-121(b) measures how often the argmax slug is the truth in the
-0.4-0.6 cells, per band. This is a design check of T-121(b)'s sample, not a result about the real truth.
+score, not only on its size: with a flat share no rule gains anything, with the `band` shape only
+`t0.50+m0.00` can reach +0.05 (at a share of 0.93, which would mean 93% of 0.4-0.6 articles belong to
+their top slug), and with the `graded` shape `t0.50+m0.00` reaches +0.05 at a share of 0.50 with a power of
+0.79 (a borderline result at the 80% bar: a draw of the discordant top-up, taken only after the rule is
+frozen, outside the fit half and weighted to its own strata, would settle it) and `t0.50+m0.10` at 0.61 with
+0.89. What holds under every shape: a rule that raises the threshold is not a candidate for T-123's
+`other`-precision target, and no loosening rule is shown to gain until T-121(b) measures how often the
+argmax slug is the truth in the 0.4-0.6 cells, per band (its deliverable, TASKS.md T-121). This is a design
+check of T-121(b)'s sample, not a result about the real truth.
 
 Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
-/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (about 30 minutes at the defaults,
-200 draws and three ramps; `--draws`, `--bootstrap-reps`, `--interval-reps` and `--ramps` shorten it).
-Nothing is written.
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (about 40 minutes at the defaults:
+200 draws, borderline rows at 1,000, three ramps; `--draws`, `--refine-draws`, `--bootstrap-reps`,
+`--interval-reps`, `--ramps` and `--sections relabel,verdicts,power` shorten it). Nothing is written.
 
 ## What it evaluates
 

@@ -38,7 +38,6 @@ from news_nlp.eval.calibration import (
     BASELINE,
     RAMPS,
     ConfirmedArticle,
-    PowerRow,
     RelabelRow,
     Rule,
     apply_rule,
@@ -56,6 +55,9 @@ from news_nlp.eval.partition import domain_pairs, load_category_pairs
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
 POWER_TARGET = 0.80
+#: A power within this distance of the target is re-run with more draws: at 200 draws its
+#: Monte Carlo standard error (up to 0.035) is too close to the bar to call it either way.
+BORDERLINE = 0.10
 GAIN = 0.05
 SHARES = (0.1, 0.3, 0.5)
 COLUMNS = ("group_score", *CATEGORY_SLUGS)
@@ -198,6 +200,7 @@ def report_power(
     boot_reps: int,
     seed: int,
     ramp: str,
+    refine_draws: int,
 ) -> None:
     pairs = load_category_pairs(conn, run_id)
     accept = accept_ids(conn)
@@ -213,7 +216,10 @@ def report_power(
         f"Power ({ramp} ramp) of the paired weighted `other`-precision difference (report half; "
         f"{draws} draws x {boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%})"
     )
-    print(f"  {'rule':<12}{'share':>7}{'implied gain':>14}{'power':>8}{'defined':>9}  note")
+    print(
+        f"  {'rule':<12}{'share':>7}{'implied gain':>14}{'power':>8}{'(se)':>8}{'defined':>9}"
+        f"{'mean diff':>11}{'sd':>7}{'mean lower':>12}  note"
+    )
     seen: dict[bytes, str] = {}
     for rule in rules:
         if rule == BASELINE:
@@ -227,18 +233,34 @@ def report_power(
         star = slug_share_for_gain(frame, truth, GAIN)
         if star is not None:
             shares.append((star, f"share at which the implied gain is +{GAIN}"))
-        for share, note in shares:
-            row: PowerRow = simulate_power(
+        for share, label in shares:
+            note = label
+            row = simulate_power(
                 frame,
                 replace(truth, slug_share=share),
                 draws=draws,
                 boot_reps=boot_reps,
                 seed=seed,
             )
-            flag = "" if row.power >= POWER_TARGET else " (not detectable at this sample)"
+            if abs(row.power - POWER_TARGET) < BORDERLINE and refine_draws > draws:
+                row = simulate_power(
+                    frame,
+                    replace(truth, slug_share=share),
+                    draws=refine_draws,
+                    boot_reps=boot_reps,
+                    seed=seed,
+                )
+                note += f"; re-run at {refine_draws} draws"
+            if row.power - 2 * row.power_se >= POWER_TARGET:
+                flag = ""
+            elif row.power + 2 * row.power_se < POWER_TARGET:
+                flag = " (not detectable at this sample)"
+            else:
+                flag = " (within two standard errors of the bar)"
             print(
                 f"  {rule.name:<12}{share:>7.2f}{row.implied_gain:>+14.3f}{row.power:>8.2f}"
-                f"{row.defined:>9}  {note}{flag}"
+                f"{row.power_se:>8.3f}{row.defined:>9}{row.mean_diff:>+11.4f}{row.sd_diff:>7.4f}"
+                f"{row.mean_lower:>+12.4f}  {note}{flag}"
             )
         if star is None:
             print(f"  {rule.name:<12}{'':>7}  +{GAIN} is not reached for any share in [0, 1]")
@@ -260,6 +282,12 @@ def main() -> int:
     ap.add_argument(
         "--interval-reps", type=int, default=500, help="bootstrap reps, paired intervals"
     )
+    ap.add_argument("--refine-draws", type=int, default=1000, help="draws for borderline powers")
+    ap.add_argument(
+        "--sections",
+        default="relabel,verdicts,power",
+        help="comma-separated parts to run: relabel, verdicts, power",
+    )
     ap.add_argument("--cells", action="store_true", help="print the per-cell re-label grids")
     ap.add_argument(
         "--ramps",
@@ -274,14 +302,33 @@ def main() -> int:
             "--source-db and --results-db (or SOURCE_DATABASE_URL / DATABASE_URL) are required"
         )
     conn = connect(args.source_db, args.results_db)
+    ramps = args.ramps.split(",")
+    unknown = [r for r in ramps if r not in RAMPS]
+    parts = args.sections.split(",")
+    unknown_parts = [p for p in parts if p not in ("relabel", "verdicts", "power")]
+    if unknown or unknown_parts:
+        ap.error(
+            f"unknown --ramps {unknown} (valid: {', '.join(RAMPS)}) or "
+            f"--sections {unknown_parts} (valid: relabel, verdicts, power)"
+        )
     articles = load_confirmed(conn)
     rules = candidate_rules()
-    report_relabels(articles, rules, args.cells)
-    report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
-    for i, ramp in enumerate(args.ramps.split(",")):
+    if "relabel" in parts:
+        report_relabels(articles, rules, args.cells)
+    if "verdicts" in parts:
+        report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
+    for i, ramp in enumerate(ramps if "power" in parts else []):
         subset = rules if i == 0 else [r for r in rules if not r.tightens]
         report_power(
-            conn, args.eval_run, articles, subset, args.draws, args.bootstrap_reps, args.seed, ramp
+            conn,
+            args.eval_run,
+            articles,
+            subset,
+            args.draws,
+            args.bootstrap_reps,
+            args.seed,
+            ramp,
+            args.refine_draws,
         )
     return 0
 

@@ -322,3 +322,24 @@ def test_the_script_loads_the_confirmed_articles_with_leaf_scores_in_slug_order(
     # the connection is read-only
     with pytest.raises(sqlite3.OperationalError):
         conn.execute("DELETE FROM discovered_urls")
+
+
+def test_power_row_reports_its_spread_and_monte_carlo_error() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    big = TruthModel(**{**_TRUTH.__dict__, "slug_share": 1.0})
+    row = simulate_power(frame, big, draws=30, boot_reps=60, seed=5)
+    assert row.defined == 30
+    assert row.power_se == pytest.approx((row.power * (1 - row.power) / 30) ** 0.5)
+    # the sampled paired difference centres on the implied gain and its lower bound sits below it
+    assert row.mean_diff == pytest.approx(row.implied_gain, abs=0.03)
+    assert row.sd_diff >= 0.0 and row.mean_lower < row.mean_diff
+    # a draw count with no defined draw has no error to report
+    assert row._replace(defined=0).power_se == 0.0
+
+
+def test_partition_and_calibration_share_the_empty_denominator_rule() -> None:
+    from news_nlp.eval.partition import is_defined  # noqa: PLC0415
+
+    pairs = [_judged(1, OTHER_LABEL, OTHER_LABEL, 0.3)]
+    assert is_defined("precision_other", pairs, {}, "all")
+    assert not is_defined(f"precision_{CATEGORY_SLUGS[0]}", pairs, {}, "all")

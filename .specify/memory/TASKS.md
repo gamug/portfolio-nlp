@@ -553,6 +553,13 @@ Dependencies at a glance:
       **(b) paid, funded by D10 (T-142), not by T-117's sign-off:** the stratified,
       split judged sample, drawn with T-141's code. **Depends on:** T-141 (code), T-142
       (spend), T-121(a). Fit on the fit half only; every reported number states its half.
+      **Deliverable added after T-121(a) (2026-10-23):** report, per score band (< 0.4, 0.4-0.5,
+      0.5-0.6) and pooled over slugs, the population-weighted share of articles whose truth
+      label (the judge's `ideal_slug`) is the argmax slug, with a 95% interval, on the report
+      half (9 cells of 45 per threshold band). T-121(a) showed the gain of any loosening rule
+      depends on that share and on how it varies with the band (`docs/evaluation.md`,
+      2026-10-23): the shape (`graded`, `band` or `flat`) is chosen from this measurement,
+      then the power check and the discordant top-up are rerun on it before the rule is frozen.
       **Short-circuit stratum:** 30 fit / 30 report; it informs only the
       `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
       target is the pooled, population-weighted report-half figure over all confirmed
@@ -573,9 +580,9 @@ Dependencies at a glance:
       the short-circuit stratum. A flat share gives every rule a gain of exactly 0, so three
       shapes were run (`graded`, the default: 0 below 0.4 and in the short-circuit stratum, half
       in 0.4-0.5, full in 0.5-0.6; `band`; `flat`, this task's original wording). The
-      result is shape-dependent: under `graded`, `t0.50+m0.00` has power 0.73 at +0.05
-      (below 80%: discordant top-up) and `t0.50+m0.10` 0.86 at a share of 0.61 (outside the
-      10-50% range); under `band` only `t0.50+m0.00` reaches +0.05 (share 0.93); under `flat`
+      result is shape-dependent: under `graded`, `t0.50+m0.00` has power 0.79 at +0.05
+      (1,000 draws, SE 0.013: borderline against 80%, so a discordant top-up would settle it) and
+      `t0.50+m0.10` 0.89 at a share of 0.61 (outside the 10-50% range); under `band` only `t0.50+m0.00` reaches +0.05 (share 0.93); under `flat`
       none gains. So T-121(b) must measure the share per band in the 0.4-0.6 cells, and
       its top-up design waits for the frozen rule.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
