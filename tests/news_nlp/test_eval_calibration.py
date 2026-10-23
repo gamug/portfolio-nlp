@@ -24,6 +24,7 @@ from news_nlp.eval.calibration import (
     cell_of,
     classify_power,
     confident_other_rates,
+    design_effect,
     fit_truth_model,
     frame_for,
     implied_changes,
@@ -562,3 +563,23 @@ def test_items_to_decide_matches_the_hand_formula_and_rejects_equal_rates() -> N
     assert items_to_decide(0.035, 0.12) < items_to_decide(0.035, 0.08)
     with pytest.raises(ValueError, match="two different rates"):
         items_to_decide(0.05, 0.05)
+
+
+def test_design_effect_inflates_the_sample_and_is_one_for_equal_weights() -> None:
+    assert items_to_decide(0.035, 0.08, design_effect=1.5) == pytest.approx(
+        1.5 * items_to_decide(0.035, 0.08), abs=2
+    )
+    with pytest.raises(ValueError, match="at least 1"):
+        items_to_decide(0.035, 0.08, design_effect=0.5)
+    # equal weights (one bucket) -> 1.0; unequal weights across buckets -> above 1
+    top = CATEGORY_SLUGS[0]
+    even = [_judged(i, OTHER_LABEL, top, 0.55) for i in range(1, 5)]
+    assert design_effect(even, Rule(0.5, 0.0)) == pytest.approx(1.0)
+    uneven = [
+        _judged(1, OTHER_LABEL, top, 0.55, bucket="a", pop=1000),
+        _judged(2, OTHER_LABEL, top, 0.55, bucket="b", pop=10),
+    ]
+    unequal = design_effect(uneven, Rule(0.5, 0.0))
+    assert unequal is not None
+    assert unequal > 1.5
+    assert design_effect(even, Rule(0.6, 0.0)) is None

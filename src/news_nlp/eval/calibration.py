@@ -517,23 +517,49 @@ def measure_rule(accept_pairs: Sequence[Pair], rule: Rule) -> BandMeasure | None
 
 
 def items_to_decide(
-    cap: float, true_rate: float, *, alpha: float = 0.05, power: float = 0.80
+    cap: float,
+    true_rate: float,
+    *,
+    alpha: float = 0.05,
+    power: float = 0.80,
+    design_effect: float = 1.0,
 ) -> int:
     """Judged articles needed inside a rule's removed set to tell, one-sided at *alpha* with
     the given *power*, that its truly-`other` rate is on the other side of *cap* from
     *true_rate* (above it to fail the rule, below it to pass it): the normal approximation
-    ``((z_a sqrt(c(1-c)) + z_b sqrt(p(1-p))) / (p - c))^2`` of a one-sample test. A planning
-    figure for T-121(b)'s staged sample, not a guarantee. Raises ``ValueError`` if the two
-    rates are equal or outside (0, 1)."""
+    ``((z_a sqrt(c(1-c)) + z_b sqrt(p(1-p))) / (p - c))^2`` of a one-sample test, times the
+    *design_effect* of the sampler (:func:`design_effect`; 1.0 is a simple random sample, and
+    a weighted stratified sample needs more). A planning figure for T-121(b)'s staged
+    sample, not a guarantee. Raises ``ValueError`` if the two rates are equal or outside
+    (0, 1), or the design effect is below 1."""
     if not (0 < cap < 1 and 0 < true_rate < 1) or cap == true_rate:
         raise ValueError(
             f"need two different rates in (0, 1), got cap={cap}, true_rate={true_rate}"
         )
+    if design_effect < 1.0:
+        raise ValueError(f"design_effect is at least 1, got {design_effect}")
     z = NormalDist()
     spread = z.inv_cdf(1 - alpha) * math.sqrt(cap * (1 - cap)) + z.inv_cdf(power) * math.sqrt(
         true_rate * (1 - true_rate)
     )
-    return math.ceil((spread / (true_rate - cap)) ** 2)
+    return math.ceil(design_effect * (spread / (true_rate - cap)) ** 2)
+
+
+def design_effect(accept_pairs: Sequence[Pair], rule: Rule) -> float | None:
+    """Kish's design effect of the judged articles a loosening *rule* would take out of
+    `other`: ``n / n_eff`` with ``n_eff = (sum w)^2 / sum w^2`` over their Horvitz-Thompson
+    weights. It is how many times more judged articles the weighted share needs than a simple
+    random sample would. ``None`` if no judged article is re-labelled."""
+    ok = [(it, v) for it, v in accept_pairs if it.bucket not in DIAGNOSTIC_ONLY_BUCKETS]
+    n_bucket = Counter(it.bucket for it, _ in ok)
+    weights = [
+        it.stratum_population / n_bucket[it.bucket]
+        for it, _ in ok
+        if _stored_other(it) and apply_rule(1.0, _scores_of(it), rule) != OTHER_LABEL
+    ]
+    if not weights:
+        return None
+    return len(weights) * sum(w * w for w in weights) / sum(weights) ** 2
 
 
 class SubsetEffect(NamedTuple):

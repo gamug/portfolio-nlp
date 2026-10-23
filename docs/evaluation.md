@@ -2254,12 +2254,23 @@ precision test can detect. Macro F1 is in neither. Whether a margin or a score i
 `other` in only 2-5.5% of cases is the open question for T-121(b), which should oversample the `m0.20`
 subsets.
 
-**How many judged articles T-121(b) needs inside each removed set** (`items_to_decide`; one-sided 95%, 80%
-power, normal approximation, a planning figure): to show a rule fails at the stored rate, 11 (`t0.50`), 13
-(`m0.10`), 145 (`t0.50+m0.20`), 28 (`t0.55`) and 359 (`t0.55+m0.20`); to show it passes if its true rate were
-half the cap, 946 / 841 / 555 / 451 / 348, and at three quarters of the cap 4,241 / 3,771 / 2,488 / 2,020 /
-1,555. Failing a rule is cheap; passing one is affordable only if the removed set is well below its cap, so
-T-121(b) samples in stages (TASKS.md T-121(b)).
+**How many judged articles T-121(b) needs inside each removed set** (`items_to_decide`; one-sided, 80% power,
+normal approximation, a planning figure). The weighted share is a design-weighted estimate, so a simple
+random sample understates the need by the design effect (Kish: judged n over the effective n of the weights;
+`design_effect`), measured on the stored run's judged sets at 1.47-1.61. With it:
+
+| rule | cap | stored rate | design effect | to fail it, 95% | to fail it, 98.75% | to pass if rate = 0.5 cap | to pass if rate = 0.75 cap |
+|---|---|---|---|---|---|---|---|
+| `t0.50+m0.00` | 2.1% | 0.193 | 1.47 | 16 | 22 | 1,389 | 6,230 |
+| `t0.50+m0.10` | 2.3% | 0.186 | 1.50 | 19 | 26 | 1,259 | 5,648 |
+| `t0.50+m0.20` | 3.5% | 0.079 | 1.61 | 233 | 339 | 893 | 4,001 |
+| `t0.55+m0.00` | 4.3% | 0.166 | 1.47 | 41 | 57 | 662 | 2,965 |
+| `t0.55+m0.20` | 5.5% | 0.087 | 1.58 | 565 | 844 | 548 | 2,452 |
+
+(The sizes scale with the design effect of T-121(b)'s sampler, which T-141 must report; 98.75% is the
+Bonferroni level for a stop after one of two looks on two rules.) Failing a rule is cheap; passing one is
+affordable only if the removed set is well below its cap, so T-121(b) samples in stages and treats the early
+decisions as screens (TASKS.md T-121(b)).
 
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of weighted
 sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 300-replicate within-cell

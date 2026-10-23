@@ -609,14 +609,19 @@ Dependencies at a glance:
       truth gives every rule a precision gain of exactly 0 and, with a share, contradicted the
       stored baseline); they are parametrised by their truly-`other` rate, constrained to the
       measured 0.319. **Staged sample for the margin rules (sizing from
-      `news_nlp.eval.calibration.items_to_decide`, T-121(a)):** judged articles needed inside a rule's
-      removed set, one-sided 95% / 80% power: to fail it at the stored rate 145 (`t0.50+m0.20`) and 359
-      (`t0.55+m0.20`); to pass it if its true rate were half its cap 555 and 348, at three quarters of the
-      cap 2,488 and 1,555. So: stage 1 judges 200 articles inside each `m0.20` removed set (inside the
-      3,800 cap of T-142); a rule whose one-sided 95% lower bound of the truly-`other` rate is above its cap
-      stops there (fails); one whose upper bound is below the cap continues to the joint T-123 check; one
-      that is still undecided gets a second stage of 200 only while the running total stays inside the
-      cap; the owner is asked before any stage that would exceed it. **T-121(b) therefore reports, per candidate rule, the truly-`other` rate of
+      `news_nlp.eval.calibration.items_to_decide` and `design_effect`, T-121(a); the weights of the stored
+      run give a design effect of 1.5-1.6, T-141 reports the sampler's own):** judged articles needed
+      inside a rule's removed set, one-sided 80% power: to fail it at the stored rate 233
+      (`t0.50+m0.20`) and 565 (`t0.55+m0.20`) at 95%, 339 and 844 at 98.75%; to pass it if its true
+      rate were half its cap 893 and 548, at three quarters of the cap 4,001 and 2,452. So: stage 1
+      judges 350 articles inside each `m0.20` removed set (inside the 3,800 cap of T-142); a rule whose
+      one-sided **98.75%** lower bound of the truly-`other` rate is above its cap stops there (the
+      stricter level pays for two looks on two rules); a rule whose upper bound is below its cap
+      continues to the joint T-123 check (that is a screen, **not a pass**: the cap is the necessary
+      point-estimate condition, T-123 needs the *lower bound* of the recall change within -0.02); one
+      that is still undecided gets a second stage of up to 500 more only while the running total stays
+      inside the cap; the owner is asked before any stage that would exceed it. The final pass/fail of
+      a rule uses the pooled sample at the full 95%. **T-121(b) therefore reports, per candidate rule, the truly-`other` rate of
       the set the rule would re-label with a 95% interval, compared with the bound above (the
       pass/fail check), and how well the maximum score, the margin and the group score separate
       truly-`other` from truly-slug articles (an AUC); per-slug thresholds are tested on that

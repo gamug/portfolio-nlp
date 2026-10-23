@@ -59,6 +59,7 @@ from news_nlp.eval.calibration import (
     cell_of,
     classify_power,
     confident_other_rates,
+    design_effect,
     fit_truth_model,
     frame_for,
     implied_changes,
@@ -484,7 +485,7 @@ def report_stored(
         f"  {'rule':<12}{'removed':>8}{'judged':>7}{'raw':>7}{'weighted':>9}  {'95%':<14}"
         f"{'cap':>6}  {'d recall (pt / lo..hi)':<28}{'d precision':>12}  reading"
     )
-    sizes: list[tuple[str, float, float]] = []
+    sizes: list[tuple[str, float, float, float]] = []
     seen: set[bytes] = set()
     n_other = int(frame_for(articles, BASELINE).base_other.sum())
     for rule in rules:
@@ -515,27 +516,34 @@ def report_stored(
             f"{effects[0].recall:>+.2f} / {effects[1].recall:+.2f}..{effects[2].recall:+.2f}"
             f"{'':>6}{effects[0].precision:>+10.2f}  {reading}"
         )
-        sizes.append((rule.name, m.other, cap.max_rate))
+        sizes.append((rule.name, m.other, cap.max_rate, design_effect(pairs, rule) or 1.0))
 
     report_sizing(sizes)
 
 
-def report_sizing(sizes: list[tuple[str, float, float]]) -> None:
+def report_sizing(sizes: list[tuple[str, float, float, float]]) -> None:
     """Judged articles needed inside each rule's removed set (T-121(b)'s sizing), one-sided
-    95% with 80% power: to show the rule fails when its truly-`other` rate is the stored
-    estimate, and to show it passes if the rate were half or three quarters of the cap."""
+    80% power, times the design effect measured on the stored run's weighted sample: to show
+    the rule fails when its truly-`other` rate is the stored estimate (at 95%, and at 98.75%
+    for a stop after one of two looks on two rules), and to show it passes if the rate were half
+    or three quarters of the cap (95%)."""
     section(
         "Judged articles needed inside the removed set to decide each rule against its cap "
-        "(one-sided 95%, 80% power, normal approximation)"
+        "(one-sided, 80% power, normal approximation, times the stored run's design effect "
+        "`deff`; a simple random sample is `deff` times smaller)"
     )
     print(
-        f"  {'rule':<12}{'cap':>6}{'stored':>8}{'to fail it':>12}{'pass @0.5 cap':>15}{'pass @0.75 cap':>16}"
+        f"  {'rule':<12}{'cap':>6}{'stored':>8}{'deff':>6}{'fail@95%':>10}{'fail@98.75%':>13}"
+        f"{'pass@0.5cap':>13}{'pass@0.75cap':>14}"
     )
-    for name, rate, cap in sizes:
-        fail = f"{items_to_decide(cap, rate)}" if rate > cap else "-"
+    for name, rate, cap, deff in sizes:
+        fail = rate > cap
+        f95 = f"{items_to_decide(cap, rate, design_effect=deff)}" if fail else "-"
+        f98 = f"{items_to_decide(cap, rate, alpha=0.0125, design_effect=deff)}" if fail else "-"
         print(
-            f"  {name:<12}{100 * cap:>5.1f}%{rate:>8.3f}{fail:>12}"
-            f"{items_to_decide(cap, 0.5 * cap):>15}{items_to_decide(cap, 0.75 * cap):>16}"
+            f"  {name:<12}{100 * cap:>5.1f}%{rate:>8.3f}{deff:>6.2f}{f95:>10}{f98:>13}"
+            f"{items_to_decide(cap, 0.5 * cap, design_effect=deff):>13}"
+            f"{items_to_decide(cap, 0.75 * cap, design_effect=deff):>14}"
         )
 
 
