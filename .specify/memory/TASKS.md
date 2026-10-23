@@ -859,7 +859,7 @@ infrastructure decision — nothing in that item has started.
 **Work item 15 update (2026-10-22):** T-128 is done (data-mining's Work item 10 and
 T-058 hand-off are recorded done upstream), so development can start. The corrected
 corpus is about 80% smaller than the RESULTS store, which resizes T-131, T-132 and
-T-124 (plan, "corrected corpus"). T-116, T-130 and T-133 can run now; D5–D9 were
+T-124 (plan, "corrected corpus"). T-116, T-130 and T-121(a) can run now (T-133 is done); D5–D9 were
 settled at their defaults on 2026-10-22 (T-139). Two proposals from the 2026-10-21
 hand-off are accepted as their own work items: 16 (schema guard, T-135–T-136, closed 2026-10-22, `CHANGELOG.md`) and 17 (multi-company articles, sizing
 first, T-137–T-138).
