@@ -31,6 +31,7 @@ from news_nlp.eval.calibration import (
     loosening_bound,
     low_band_counts,
     measure_bands,
+    measure_rule,
     needs_refinement,
     null_critical,
     null_truth,
@@ -43,6 +44,7 @@ from news_nlp.eval.calibration import (
     retag,
     shaped,
     simulate_power,
+    subset_effect,
     verdict_table,
 )
 from news_nlp.eval.sampling import EvalItem
@@ -516,3 +518,36 @@ def test_measure_bands_reads_the_judges_slug_per_band() -> None:
     assert pooled_slug_fraction(got, counts) == pytest.approx(1.0)
     assert pooled_slug_fraction({}, counts) is None
     assert isinstance(got[2], BandMeasure)
+
+
+def test_measure_rule_scores_only_the_articles_a_margin_takes_out_of_other() -> None:
+    top = CATEGORY_SLUGS[0]
+
+    # three `other`-labelled items at top score 0.55; a margin separates them: the runner-up
+    # of items 1-2 holds 0.4 (margin 0.15), that of item 3 holds 0.05 (margin 0.50)
+    def item(aid: int, ideal: str, runner_up: float) -> tuple:
+        it, v = _judged(aid, OTHER_LABEL, ideal, 0.55)
+        dist = dict.fromkeys(CATEGORY_SLUGS, 0.0)
+        dist[top], dist[CATEGORY_SLUGS[1]] = 0.55, runner_up
+        it.prediction["distribution"] = dist
+        return it, v
+
+    pairs = [item(1, OTHER_LABEL, 0.40), item(2, OTHER_LABEL, 0.40), item(3, top, 0.05)]
+    loose = measure_rule(pairs, Rule(0.5, 0.0))
+    assert loose is not None
+    assert (loose.n, loose.n_other) == (3, 2)
+    clean = measure_rule(pairs, Rule(0.5, 0.3))  # only the wide-margin item is re-labelled
+    assert clean is not None
+    assert (clean.n, clean.n_other, clean.other) == (1, 0, 0.0)
+    assert measure_rule(pairs, Rule(0.6, 0.0)) is None  # removes nothing from `other`
+    assert loose.low <= loose.other <= loose.high
+
+
+def test_subset_effect_matches_the_closed_form_bound() -> None:
+    # at the cap of loosening_bound the recall change is exactly -tolerance
+    bound = loosening_bound(35368, 9728, 0.319, 0.661)
+    eff = subset_effect(35368, 9728, bound.max_rate, 0.319, 0.661)
+    assert eff.recall == pytest.approx(-0.02)
+    assert eff.precision > 0.05  # the precision side is looser for this removal
+    clean = subset_effect(35368, 9728, 0.0, 0.319, 0.661)
+    assert clean.recall == 0.0

@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.eval.calibration import (
     BAND_NAMES,
     BASELINE,
+    DEFAULT_SHAPE,
     POWER_TARGET,
     RECALL_TOLERANCE,
     SHAPES,
@@ -60,6 +61,7 @@ from news_nlp.eval.calibration import (
     loosening_bound,
     low_band_counts,
     measure_bands,
+    measure_rule,
     needs_refinement,
     null_critical,
     paired_rule_interval,
@@ -69,6 +71,7 @@ from news_nlp.eval.calibration import (
     relabel_table,
     shaped,
     simulate_power,
+    subset_effect,
     verdict_table,
 )
 from news_nlp.eval.metrics import aggregate_category
@@ -393,13 +396,14 @@ def report_measured(
     varies; the `graded`/`band2` shapes are compared with the other bands."""
     section("Measured on the stored verdicts (no model): P(truth is `other`) per score band")
     print(
-        f"  {'stored label':<14}{'band':<10}{'judged':>7}{'raw':>9}{'weighted':>10}  95% (raw)  argmax"
+        f"  {'stored label':<14}{'band':<10}{'judged':>7}{'raw':>9}{'weighted':>10}  "
+        "95% (weighted bootstrap)  argmax"
     )
     for label, bands in (("other", low), ("slug", confident)):
         for b, m in sorted(bands.items()):
             print(
                 f"  {label:<14}{BAND_NAMES[b]:<10}{m.n:>7}{m.n_other:>4}/{m.n:<4}"
-                f"{m.other:>10.3f}  [{m.low:.2f}, {m.high:.2f}]  {m.top:.3f}"
+                f"{m.other:>10.3f}  [{m.low:.2f}, {m.high:.2f}]{'':>14}{m.top:.3f}"
             )
     if sc.measured_rate is None:
         return
@@ -443,6 +447,70 @@ def report_accuracy(
         print(f"  {rule.name:<12}" + "".join(f"{c:>+10.3f}" for c in cells))
 
 
+def report_stored(
+    conn: sqlite3.Connection,
+    run_id: int,
+    articles: list[ConfirmedArticle],
+    rules: list[Rule],
+) -> None:
+    """The stored verdicts' own answer, without a truth model: P(truth is `other`) per score
+    band and, for every pure loosening rule, among the judged articles it would take out of
+    `other` (the quantity T-123's bound caps), with the recall and precision change that
+    rate implies."""
+    accept = accept_ids(conn)
+    pairs = domain_pairs(load_category_pairs(conn, run_id), lambda a: a in accept)
+    truth = fit_truth_model(pairs)
+    measured = aggregate_category([it for it, _ in pairs], [v for _, v in pairs])
+    low = measure_bands(pairs, stored_other=True)
+    sc = Scenario(
+        truth,
+        low_band_counts(articles),
+        DEFAULT_SHAPE,
+        measured["recall_other"],
+        low[THRESHOLD_BAND].other if THRESHOLD_BAND in low else None,
+    )
+    report_measured(low, measure_bands(pairs, stored_other=False), sc, truth)
+    section(
+        "Per rule, on the judged articles it would take out of `other`: P(truth is `other`) "
+        "against the cap of the T-123 bound, and the recall / precision change that rate implies "
+        "(closed form; point estimate, then the interval's ends)"
+    )
+    print(
+        f"  {'rule':<12}{'removed':>8}{'judged':>7}{'raw':>7}{'weighted':>9}  {'95%':<14}"
+        f"{'cap':>6}  {'d recall (pt / lo..hi)':<28}{'d precision':>12}  reading"
+    )
+    seen: set[bytes] = set()
+    n_other = int(frame_for(articles, BASELINE).base_other.sum())
+    for rule in rules:
+        frame = frame_for(articles, rule)
+        removed = int(frame.base_other.sum() - frame.cand_other.sum())
+        if frame.signature in seen or removed <= 0 or (frame.cand_other & ~frame.base_other).any():
+            continue
+        seen.add(frame.signature)
+        m = measure_rule(pairs, rule)
+        cap = loosening_bound(n_other, removed, truth.other_agreement, sc.recall, gain=GAIN)
+        if m is None:
+            print(f"  {rule.name:<12}{removed:>8}  no judged article is re-labelled")
+            continue
+        effects = [
+            subset_effect(n_other, removed, r, truth.other_agreement, sc.recall)
+            for r in (m.other, m.low, m.high)
+        ]
+        reading = (
+            "above the cap"
+            if m.low > cap.max_rate
+            else "within the cap"
+            if m.high <= cap.max_rate
+            else "interval includes the cap"
+        )
+        print(
+            f"  {rule.name:<12}{removed:>8}{m.n:>7}{m.n_other:>4}/{m.n:<2}{m.other:>8.3f}  "
+            f"[{m.low:.2f}, {m.high:.2f}]{'':>3}{100 * cap.max_rate:>5.1f}%  "
+            f"{effects[0].recall:>+.3f} / {effects[1].recall:+.3f}..{effects[2].recall:+.3f}"
+            f"{'':>6}{effects[0].precision:>+10.3f}  {reading}"
+        )
+
+
 def report_power(
     conn: sqlite3.Connection,
     run_id: int,
@@ -479,7 +547,6 @@ def report_power(
         f"(fewer than 10 judged): {len(truth.fallback_cells)} of {len(truth.agree)}"
     )
     print(f"    {', '.join(truth.fallback_cells) or '(none)'}")
-    report_measured(low, confident, sc, truth)
     if bounds:
         report_bounds(articles, rules, truth, sc.recall, confident)
     section(
@@ -574,8 +641,8 @@ def main() -> int:
     ap.add_argument("--refine-draws", type=int, default=1000, help="draws for borderline powers")
     ap.add_argument(
         "--sections",
-        default="relabel,verdicts,power",
-        help="comma-separated parts to run: relabel, verdicts, power",
+        default="relabel,verdicts,stored,power",
+        help="comma-separated parts to run: relabel, verdicts, stored, power",
     )
     ap.add_argument("--null-seeds", type=int, default=3, help="null runs for the critical value")
     ap.add_argument("--cells", action="store_true", help="print the per-cell re-label grids")
@@ -594,11 +661,11 @@ def main() -> int:
     shapes = args.shapes.split(",")
     unknown = [r for r in shapes if r not in SHAPES]
     parts = args.sections.split(",")
-    unknown_parts = [p for p in parts if p not in ("relabel", "verdicts", "power")]
+    unknown_parts = [p for p in parts if p not in ("relabel", "verdicts", "stored", "power")]
     if unknown or unknown_parts:
         ap.error(
             f"unknown --shapes {unknown} (valid: {', '.join(SHAPES)}) or "
-            f"--sections {unknown_parts} (valid: relabel, verdicts, power)"
+            f"--sections {unknown_parts} (valid: relabel, verdicts, stored, power)"
         )
     conn = connect(args.source_db, args.results_db)
     articles = load_confirmed(conn)
@@ -607,6 +674,8 @@ def main() -> int:
         report_relabels(articles, rules, args.cells)
     if "verdicts" in parts:
         report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
+    if "stored" in parts:
+        report_stored(conn, args.eval_run, articles, rules)
     null_cache: dict[tuple[bytes, int], float] = {}
     cfg = PowerSettings(
         args.draws, args.bootstrap_reps, args.seed, args.refine_draws, args.null_seeds

@@ -394,24 +394,53 @@ def fit_truth_model(
 
 
 class BandMeasure(NamedTuple):
-    """What the stored judgements say about the articles of one score band that carry one
-    kind of stored label (``other``, or a slug)."""
+    """What the stored judgements say about a set of judged articles that carry one kind of
+    stored label (`other`, or a slug): one score band, or the articles a rule would
+    re-label."""
 
     n: int  # judged items
     n_other: int  # of which the judge's `ideal_slug` is `other`
     other: float  # weighted share whose truth is `other` (Horvitz-Thompson item weights)
-    low: float  # Wilson 95% interval of the raw share n_other / n
+    low: float  # 95% stratified-bootstrap interval of that weighted share
     high: float
-    top: float  # weighted share whose truth is the band's argmax slug
+    top: float  # weighted share whose truth is the band's argmax slug (0 for a rule's set)
 
 
-def _wilson(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    if not n:
-        return 0.0, 1.0
-    p = hits / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return max(0.0, centre - half), min(1.0, centre + half)
+#: One judged item as the bootstrap sees it: bucket, Horvitz-Thompson weight, whether it is in
+#: the set being measured, whether its truth is `other`.
+_ShareRow = tuple[str, float, bool, bool]
+
+
+def _share_interval(
+    rows: Sequence[_ShareRow], *, reps: int = 1000, seed: int = 0, level: float = 0.95
+) -> tuple[float, float]:
+    """Percentile interval of the weighted share of `other` truths in the set, by a
+    stratified bootstrap: each replicate redraws every bucket's items with replacement at
+    the bucket's own size (the weights stay ``N_h / n_h``). A replicate with no item in the
+    set is skipped; ``(nan, nan)`` if every one is."""
+    groups: dict[str, list[_ShareRow]] = {}
+    for row in rows:
+        groups.setdefault(row[0], []).append(row)
+    rng = random.Random(seed)  # noqa: S311 -- resampling, not cryptography
+    draws: list[float] = []
+    for _ in range(reps):
+        num = den = 0.0
+        for group in groups.values():
+            for _b, weight, inside, hit in rng.choices(group, k=len(group)):
+                if inside:
+                    den += weight
+                    num += weight * hit
+        if den > 0:
+            draws.append(num / den)
+    if not draws:
+        return math.nan, math.nan
+    draws.sort()
+    tail = (1 - level) / 2
+    return draws[int(tail * (len(draws) - 1))], draws[round((1 - tail) * (len(draws) - 1))]
+
+
+def _stored_other(it: EvalItem) -> bool:
+    return str(it.prediction.get("label", OTHER_LABEL)) == OTHER_LABEL
 
 
 def measure_bands(accept_pairs: Sequence[Pair], *, stored_other: bool) -> dict[int, BandMeasure]:
@@ -419,36 +448,92 @@ def measure_bands(accept_pairs: Sequence[Pair], *, stored_other: bool) -> dict[i
     is the argmax slug, among those the shipped rule labelled `other` (*stored_other*, the
     low bands 0-2) or a slug (the confident bands 3-4). Measured directly on the judge's
     ``ideal_slug``: no model. The point estimate is Horvitz-Thompson weighted (the buckets
-    are not uniform-weight); the interval is a Wilson interval on the raw counts, so it is
-    approximate for the weighted share. Diagnostic-only buckets are left out."""
+    are not uniform-weight) and so is its stratified-bootstrap interval. Diagnostic-only
+    buckets are left out."""
     ok = [(it, v) for it, v in accept_pairs if it.bucket not in DIAGNOSTIC_ONLY_BUCKETS]
     n_bucket = Counter(it.bucket for it, _ in ok)
-    seen: defaultdict[int, float] = defaultdict(float)
-    other: defaultdict[int, float] = defaultdict(float)
-    top: defaultdict[int, float] = defaultdict(float)
-    raw: Counter[int] = Counter()
-    raw_other: Counter[int] = Counter()
+    items: list[tuple[str, float, int, bool, bool]] = []
     for it, v in ok:
-        if (str(it.prediction.get("label", OTHER_LABEL)) == OTHER_LABEL) != stored_other:
+        if _stored_other(it) != stored_other:
             continue
         slug, band_text = cell_of(1.0, _scores_of(it)).rsplit("|", 1)
-        band = int(band_text)
-        weight = it.stratum_population / n_bucket[it.bucket]
-        seen[band] += weight
-        other[band] += weight * (v.ideal_slug == OTHER_LABEL)
-        top[band] += weight * (v.ideal_slug == slug)
-        raw[band] += 1
-        raw_other[band] += v.ideal_slug == OTHER_LABEL
-    return {
-        b: BandMeasure(
-            raw[b],
-            raw_other[b],
-            other[b] / seen[b],
-            *_wilson(raw_other[b], raw[b]),
-            top[b] / seen[b],
+        items.append(
+            (
+                it.bucket,
+                it.stratum_population / n_bucket[it.bucket],
+                int(band_text),
+                v.ideal_slug == OTHER_LABEL,
+                v.ideal_slug == slug,
+            )
         )
-        for b in sorted(raw)
-    }
+    out: dict[int, BandMeasure] = {}
+    for band in sorted({i[2] for i in items}):
+        inside = [i for i in items if i[2] == band]
+        seen = sum(i[1] for i in inside)
+        low, high = _share_interval([(i[0], i[1], i[2] == band, i[3]) for i in items])
+        out[band] = BandMeasure(
+            len(inside),
+            sum(i[3] for i in inside),
+            sum(i[1] for i in inside if i[3]) / seen,
+            low,
+            high,
+            sum(i[1] for i in inside if i[4]) / seen,
+        )
+    return out
+
+
+def measure_rule(accept_pairs: Sequence[Pair], rule: Rule) -> BandMeasure | None:
+    """For a loosening *rule*, the judged articles it would take out of `other` (stored
+    label `other`, label under *rule* a slug): how many, and the weighted share whose truth
+    is `other` with a stratified-bootstrap interval, the quantity T-123's bound
+    (:func:`loosening_bound`) is a cap on. ``None`` if no judged article is re-labelled."""
+    ok = [(it, v) for it, v in accept_pairs if it.bucket not in DIAGNOSTIC_ONLY_BUCKETS]
+    n_bucket = Counter(it.bucket for it, _ in ok)
+    rows: list[_ShareRow] = []
+    for it, v in ok:
+        moved = _stored_other(it) and apply_rule(1.0, _scores_of(it), rule) != OTHER_LABEL
+        rows.append(
+            (
+                it.bucket,
+                it.stratum_population / n_bucket[it.bucket],
+                moved,
+                v.ideal_slug == OTHER_LABEL,
+            )
+        )
+    inside = [r for r in rows if r[2]]
+    if not inside:
+        return None
+    seen = sum(r[1] for r in inside)
+    low, high = _share_interval(rows)
+    return BandMeasure(
+        len(inside),
+        sum(r[3] for r in inside),
+        sum(r[1] for r in inside if r[3]) / seen,
+        low,
+        high,
+        0.0,
+    )
+
+
+class SubsetEffect(NamedTuple):
+    """The change a loosening rule brings if the articles it removes are truly `other` at
+    a given rate: ``recall`` and ``precision`` differences of the `other` class."""
+
+    recall: float
+    precision: float
+
+
+def subset_effect(
+    labelled_other: int, removed: int, rate: float, precision: float, recall: float
+) -> SubsetEffect:
+    """Closed-form effect of removing *removed* of the *labelled_other* articles from
+    `other` when a share *rate* of them is truly `other` (X = rate x removed), from the
+    baseline *precision* and *recall* alone, as in :func:`loosening_bound`: recall changes
+    by ``-X / T`` and precision to ``(H - X) / (labelled_other - removed)``."""
+    hits = precision * labelled_other
+    total = hits / recall
+    lost = rate * removed
+    return SubsetEffect(-lost / total, (hits - lost) / (labelled_other - removed) - precision)
 
 
 def pooled_slug_fraction(
