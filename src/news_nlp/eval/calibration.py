@@ -352,6 +352,7 @@ class PowerRow(NamedTuple):
     mean_diff: float = 0.0  # mean over draws of the sample's paired point difference
     sd_diff: float = 0.0  # its standard deviation over draws (the sampling spread)
     mean_lower: float = 0.0  # mean over draws of the interval's lower bound
+    critical: float = 0.0  # the lower-bound value a draw has to exceed to count
 
     @property
     def power_se(self) -> float:
@@ -427,38 +428,59 @@ def slug_share_for_gain(
     return (lo + hi) / 2
 
 
-def simulate_power(
+#: T-121(a)'s detectability bar and the width of the zone around it that is re-run with more
+#: draws (a 200-draw power has a standard error up to 0.035, too close to the bar to call).
+POWER_TARGET = 0.80
+BORDERLINE = 0.10
+
+
+def classify_power(power: float, se: float, *, target: float = POWER_TARGET) -> str:
+    """``"detectable"`` when the power clears *target* by two standard errors,
+    ``"not detectable"`` when it falls short by two, else ``"borderline"``. A borderline
+    candidate is treated like a miss: it takes the discordant top-up (TASKS.md T-121(a))."""
+    if power - 2 * se >= target:
+        return "detectable"
+    if power + 2 * se < target:
+        return "not detectable"
+    return "borderline"
+
+
+def needs_refinement(power: float, *, target: float = POWER_TARGET) -> bool:
+    """Whether a power is within :data:`BORDERLINE` of *target* and is re-run with more draws."""
+    return abs(power - target) < BORDERLINE
+
+
+def null_truth(truth: TruthModel) -> TruthModel:
+    """*truth* with the same ``other`` probability in every cell and no argmax-slug share:
+    exchangeable articles, so every rule's gain is exactly 0. Its power is the estimator's
+    false-positive rate."""
+    return replace(
+        truth,
+        agree=dict.fromkeys(truth.agree, 0.0),
+        other_given_wrong=truth.other_agreement,
+        slug_share=0.0,
+    )
+
+
+def _draw_summaries(
     frame: Frame,
     truth: TruthModel,
     *,
-    draws: int = 200,
-    boot_reps: int = 300,
-    seed: int = 0,
-    size_of: Callable[[str], int] = report_half_size,
-    level: float = 0.95,
-) -> PowerRow:
-    """Power of T-123's estimator to detect the frame rule's gain under *truth*.
-
-    Returns a :class:`PowerRow`; ``defined`` counts the draws on which the bootstrap kept
-    at least one replicate (a replicate is dropped when either rule has no `other`
-    label in the resample), and the point-difference and lower-bound summaries explain a
-    power: a high power with a small spread is a nearly deterministic difference, not a
-    luckier estimator.
-
-    Each draw takes the planned report-half sample per cell without replacement (all of
-    a smaller cell), draws every sampled article's truth from the truth model, forms
-    the paired difference of the population-weighted ``other`` precision, and takes a
-    stratified (within-cell) bootstrap interval with nearest-rank percentiles. Power is
-    the share of draws whose lower bound is above 0; a draw whose bootstrap leaves the
-    denominator empty in every replicate is not counted as defined.
-    """
+    draws: int,
+    boot_reps: int,
+    seed: int,
+    size_of: Callable[[str], int],
+    level: float,
+) -> tuple[list[float], list[float]]:
+    """Per defined draw: the interval's lower bound and the sample's paired point
+    difference. Draws come from one random stream, so a longer run starts with the draws of
+    a shorter one that has the same seed."""
     rng = np.random.default_rng(seed)
     p_slug_cell, p_other_cell = _cell_probabilities(frame, truth)
     p_slug, p_other = p_slug_cell[frame.cell], p_other_cell[frame.cell]
     members = [np.flatnonzero(frame.cell == i) for i in range(len(frame.names))]
     take = [min(size_of(name), len(m)) for name, m in zip(frame.names, members, strict=True)]
     pops = [len(m) for m in members]
-    wins = defined = 0
     points: list[float] = []
     lowers: list[float] = []
     for _ in range(draws):
@@ -490,22 +512,89 @@ def simulate_power(
         if not ok.any():
             continue
         diff = (wc @ cand_hit)[ok] / den_c[ok] - (wc @ base_hit)[ok] / den_b[ok]
-        defined += 1
         # nearest-rank lower percentile over the usable replicates
         k = max(1, math.ceil((1 - level) / 2 * len(diff)))
-        lower = float(np.sort(diff)[min(k, len(diff)) - 1])
-        wins += lower > 0
-        lowers.append(lower)
+        lowers.append(float(np.sort(diff)[min(k, len(diff)) - 1]))
         points.append(float(w @ cand_hit / (w @ cand) - w @ base_hit / (w @ base)))
+    return lowers, points
+
+
+def null_critical(
+    frame: Frame,
+    truth: TruthModel,
+    *,
+    draws: int = 1000,
+    boot_reps: int = 300,
+    seed: int = 0,
+    size_of: Callable[[str], int] = report_half_size,
+    level: float = 0.95,
+) -> float:
+    """The lower-bound value that only ``(1 - level) / 2`` of the draws exceed when the
+    true gain is 0 (:func:`null_truth`): the critical value that makes this interval's
+    false-positive rate nominal at this sample size. Pass it to :func:`simulate_power` as
+    ``critical`` for a power that does not benefit from a liberal interval."""
+    lowers, _ = _draw_summaries(
+        frame,
+        null_truth(truth),
+        draws=draws,
+        boot_reps=boot_reps,
+        seed=seed,
+        size_of=size_of,
+        level=level,
+    )
+    if not lowers:
+        return math.nan
+    rank = math.ceil((1 - (1 - level) / 2) * len(lowers))
+    return max(0.0, sorted(lowers)[rank - 1])
+
+
+def simulate_power(
+    frame: Frame,
+    truth: TruthModel,
+    *,
+    draws: int = 200,
+    boot_reps: int = 300,
+    seed: int = 0,
+    size_of: Callable[[str], int] = report_half_size,
+    level: float = 0.95,
+    critical: float = 0.0,
+) -> PowerRow:
+    """Power of T-123's estimator to detect the frame rule's gain under *truth*.
+
+    Returns a :class:`PowerRow`; ``defined`` counts the draws on which the bootstrap kept
+    at least one replicate (a replicate is dropped when either rule has no `other`
+    label in the resample), and the point-difference and lower-bound summaries explain a
+    power: a high power with a small spread is a nearly deterministic difference, not a
+    luckier estimator.
+
+    Each draw takes the planned report-half sample per cell without replacement (all of
+    a smaller cell), draws every sampled article's truth from the truth model, forms
+    the paired difference of the population-weighted ``other`` precision, and takes a
+    stratified (within-cell) bootstrap interval with nearest-rank percentiles. Power is
+    the share of draws whose lower bound is above *critical* (0 by default; the nominal
+    test), and a draw whose bootstrap leaves the denominator empty in every replicate is
+    not counted as defined.
+    """
+    lowers, points = _draw_summaries(
+        frame,
+        truth,
+        draws=draws,
+        boot_reps=boot_reps,
+        seed=seed,
+        size_of=size_of,
+        level=level,
+    )
+    defined = len(lowers)
     return PowerRow(
         frame.rule,
         truth.slug_share,
         implied_gain(frame, truth),
-        wins / defined if defined else 0.0,
+        sum(lo > critical for lo in lowers) / defined if defined else 0.0,
         defined,
         float(np.mean(points)) if points else 0.0,
         float(np.std(points)) if points else 0.0,
         float(np.mean(lowers)) if lowers else 0.0,
+        critical,
     )
 
 

@@ -10,6 +10,7 @@ import pytest
 
 from news_nlp.eval.calibration import (
     BASELINE,
+    POWER_TARGET,
     RAMPS,
     ConfirmedArticle,
     Rule,
@@ -18,9 +19,13 @@ from news_nlp.eval.calibration import (
     band_of,
     candidate_rules,
     cell_of,
+    classify_power,
     fit_truth_model,
     frame_for,
     implied_gain,
+    needs_refinement,
+    null_critical,
+    null_truth,
     paired_rule_interval,
     relabel_table,
     report_half_size,
@@ -343,3 +348,58 @@ def test_partition_and_calibration_share_the_empty_denominator_rule() -> None:
     pairs = [_judged(1, OTHER_LABEL, OTHER_LABEL, 0.3)]
     assert is_defined("precision_other", pairs, {}, "all")
     assert not is_defined(f"precision_{CATEGORY_SLUGS[0]}", pairs, {}, "all")
+
+
+def test_power_is_classified_by_two_standard_errors_from_the_bar() -> None:
+    assert classify_power(0.95, 0.01) == "detectable"
+    assert classify_power(0.79, 0.013) == "borderline"  # the T-121(a) borderline row
+    assert classify_power(0.89, 0.010) == "detectable"
+    assert classify_power(0.40, 0.035) == "not detectable"
+    # the boundaries: exactly two standard errors clear, or short, count as clear
+    assert classify_power(POWER_TARGET + 0.04, 0.02) == "detectable"
+    assert classify_power(POWER_TARGET - 0.04, 0.02) == "borderline"
+    assert classify_power(POWER_TARGET - 0.0401, 0.02) == "not detectable"
+
+
+def test_only_a_power_near_the_bar_is_rerun() -> None:
+    assert needs_refinement(0.79) and needs_refinement(0.71) and needs_refinement(0.89)
+    assert not needs_refinement(0.69) and not needs_refinement(0.91) and not needs_refinement(0.05)
+
+
+def test_the_null_truth_gives_every_rule_a_gain_of_zero() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    for share in (0.0, 0.5, 1.0):
+        assert implied_gain(
+            frame, null_truth(TruthModel(**{**_TRUTH.__dict__, "slug_share": share}))
+        ) == pytest.approx(0.0)
+    assert implied_gain(frame_for(_population(), Rule(0.8)), null_truth(_TRUTH)) == pytest.approx(
+        0.0
+    )
+
+
+def test_a_null_critical_value_brings_the_false_positive_rate_to_nominal() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    critical = null_critical(frame, _TRUTH, draws=200, boot_reps=100, seed=7)
+    assert critical >= 0.0  # a conservative interval is never made more liberal
+    again = simulate_power(
+        frame, null_truth(_TRUTH), draws=200, boot_reps=100, seed=7, critical=critical
+    )
+    assert again.power <= 0.03  # 2.5% of 200 draws exceed it, up to ties
+    assert again.critical == critical
+    # under a real gain the calibrated power can only be at or below the nominal one
+    big = TruthModel(**{**_TRUTH.__dict__, "slug_share": 1.0})
+    nominal = simulate_power(frame, big, draws=40, boot_reps=100, seed=7)
+    calibrated = simulate_power(frame, big, draws=40, boot_reps=100, seed=7, critical=critical)
+    assert calibrated.power <= nominal.power
+
+
+def test_the_script_rejects_an_unknown_ramp_or_section_before_opening_a_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    base = ["prog", "--source-db", "/nonexistent/urls.db", "--results-db", "/nonexistent/nlp.db"]
+    for bad in (["--ramps", "graded,nope"], ["--sections", "power,oops"]):
+        monkeypatch.setattr("sys.argv", [*base, *bad])
+        with pytest.raises(SystemExit) as exc:
+            script.main()  # type: ignore[attr-defined]
+        assert exc.value.code == 2

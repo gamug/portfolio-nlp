@@ -1891,7 +1891,7 @@ changing the RESULTS contract):
    with a paired interval) lowers `other` precision, so the lever is a looser threshold (0.50 to
    0.55). Whether it gains depends on the unmeasured share of articles whose truth is the argmax
    slug and on its shape over the score bands (three shapes run: power for a +0.05 gain is
-   0.79 (borderline) for `t0.50+m0.00` and 0.89 for `t0.50+m0.10` under the `graded` shape, only
+   0.79 (0.76 null-calibrated; borderline or not detectable) for `t0.50+m0.00` and 0.89 (0.85) for `t0.50+m0.10` under the `graded` shape, only
    `t0.50+m0.00` under `band`, none under a flat share). T-121(b) must measure that share
    per band in the 0.4-0.6 cells, with an interval, and rerun the power check and the top-up
    design on it (TASKS T-121(b) deliverable).
@@ -2022,7 +2022,9 @@ changing the RESULTS contract):
   the run's config. The same pass requires `other` recall, overall accuracy and macro F1
   to have a paired-difference lower bound no worse than -0.02 (confirmed by the
   owner), so precision is not bought with recall. A candidate whose simulated power
-  to show +0.05 is below 80% (T-121(a)) is reported as "not detectable at this sample";
+  to show +0.05 is not clearly above 80% (T-121(a); "borderline", within two Monte Carlo
+  standard errors of the bar on the null-calibrated power, counts as not clearly above: TASKS
+  T-121 sets the rule) is reported as "not detectable at this sample";
   if no candidate is detectable the re-run stays blocked until the owner decides. T-124's full re-run is approved only
   if T-123 meets them.
 - If a gate exists, `other` means "about the company, no dimension fits" and

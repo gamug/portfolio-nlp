@@ -2191,7 +2191,13 @@ weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short
 within-cell bootstrap, nearest-rank 95% interval, seed 0). Power is the share of draws whose interval's
 lower bound is above 0, from 200 draws; a power within 0.10 of the 80% bar is re-run at 1,000 draws, and
 every power is printed with its Monte Carlo standard error (up to 0.035 at 200 draws, 0.016 at 1,000), so a
-verdict is "clear" only when it is two standard errors from the bar. A cell smaller than its sample is
+verdict is "detectable" or "not detectable" only when the power is two standard errors from the bar and
+"borderline" otherwise (a borderline candidate is treated like a miss and takes the discordant top-up;
+the rule is fixed in TASKS.md T-121). A re-run at 1,000 draws uses the same seed and the same random
+stream, so its first 200 draws are the original ones: it extends the run, it is not a second one. The
+percentile interval is mildly liberal (see the zero-gain rows below), so the verdict is taken on the
+**null-calibrated power**: the lower bound is compared with the value that only 2.5% of zero-gain draws
+exceed (+0.0022 for `t0.50+m0.00`, +0.0028 for `t0.50+m0.10`; 1,000 draws each), not with 0. A cell smaller than its sample is
 taken whole and still resampled in the bootstrap (no finite-population correction), so the power is slightly
 conservative. Truth model:
 
@@ -2212,21 +2218,23 @@ conservative. Truth model:
 | rule (re-labelled) | share | gain | power (SE) | sd | verdict |
 |---|---|---|---|---|---|
 | `t0.50+m0.00` (16,359) | 0.10 / 0.30 | +0.010 / +0.030 | 0.07 (0.018) / 0.40 (0.035) | 0.019 | not detectable |
-| | 0.50 (+0.05) | +0.050 | 0.79 (0.013, 1,000 draws) | 0.018 | borderline: within two SE of the bar |
+| | 0.50 (+0.05) | +0.050 | 0.79 (0.013, 1,000 draws); null-calibrated 0.76 (0.014) | 0.018 | nominal borderline; calibrated, not detectable (0.76 + 2 SE = 0.79 < 0.80) |
 | `t0.50+m0.10` (14,582) | 0.10 / 0.30 / 0.50 | +0.008 / +0.025 / +0.041 | 0.05 / 0.33 / 0.64 | 0.017-0.019 | not detectable |
-| | 0.61 (+0.05) | +0.050 | 0.89 (0.010, 1,000 draws) | 0.015 | clears the bar |
+| | 0.61 (+0.05) | +0.050 | 0.89 (0.010, 1,000 draws); null-calibrated 0.85 (0.011) | 0.015 | clears the bar on either basis |
 | `t0.50+m0.20` (9,728) | 0.10 / 0.30 / 0.50 | +0.004 / +0.013 / +0.022 | 0.06 / 0.23 / 0.43 | 0.013-0.014 | not detectable; +0.05 not reached |
 | `t0.55+m0.00` (7,957) | 0.10 / 0.30 / 0.50 | +0.003 / +0.010 / +0.017 | 0.07 / 0.26 / 0.33 | 0.011-0.014 | not detectable; +0.05 not reached |
 | `t0.55+m0.20` (6,198) | 0.50 | +0.012 | 0.28 | 0.010 | not detectable; +0.05 not reached |
 
-`band` shape: `t0.50+m0.00` reaches +0.05 only at a share of 0.93, with power 1.00 (SE 0.000); its
+`band` shape: `t0.50+m0.00` reaches +0.05 only at a share of 0.93, with power 1.00 (SE 0.000; null-calibrated 1.00 at 1,000 draws); its
 other rows are 0.04 / 0.20 / 0.38 at gains of +0.005 / +0.016 / +0.027. `t0.50+m0.10`, `t0.50+m0.20`,
 `t0.55+m0.00` and `t0.55+m0.20` do not reach +0.05 at any share (best: +0.022, +0.012, +0.009 and +0.007
 at 0.5; power 0.28, 0.18, 0.16, 0.14). **Why 1.00 here but 0.79 under `graded` at the same +0.05:** at a
 share of 0.93 the 0.4-0.6 articles are almost never `other`, so the sampled difference barely moves between
 draws: its spread is 0.008 against 0.018 under `graded`, and the mean lower bound is +0.033 (well clear of 0)
 against +0.016. The power measures how often the interval clears 0, and a quieter difference clears it
-every time; it is a property of the truth model, not a better estimator.
+every time; it is a property of the truth model, not a better estimator. The three confident cells whose
+agreement fell back to their band's rate (fewer than 10 judged items) are `earnings_performance` and
+`product_innovation` in 0.6-0.8 and `capital_shareholder_returns` in >= 0.8.
 
 `flat` shape: the loosening rules have a gain of 0.000 at every share (the articles they re-label look like
 the ones left behind). The power at zero gain is the estimator's false-positive rate at one side of a 95%
@@ -2239,16 +2247,17 @@ of 0.00.
 **Reading.** The detectability of a loosening rule depends on how the unmeasured share varies with the
 score, not only on its size: with a flat share no rule gains anything, with the `band` shape only
 `t0.50+m0.00` can reach +0.05 (at a share of 0.93, which would mean 93% of 0.4-0.6 articles belong to
-their top slug), and with the `graded` shape `t0.50+m0.00` reaches +0.05 at a share of 0.50 with a power of
-0.79 (a borderline result at the 80% bar: a draw of the discordant top-up, taken only after the rule is
-frozen, outside the fit half and weighted to its own strata, would settle it) and `t0.50+m0.10` at 0.61 with
-0.89. What holds under every shape: a rule that raises the threshold is not a candidate for T-123's
+their top slug), and with the `graded` shape `t0.50+m0.00` reaches +0.05 at a share of 0.50 with a nominal power of
+0.79 and a null-calibrated power of 0.76 (borderline on one basis, not detectable on the other: the
+discordant top-up, taken only after the rule is frozen, outside the fit half and weighted to its own strata,
+adds judged items and so raises the power) and `t0.50+m0.10` at 0.61 with 0.89 nominal and 0.85 calibrated
+(detectable). What holds under every shape: a rule that raises the threshold is not a candidate for T-123's
 `other`-precision target, and no loosening rule is shown to gain until T-121(b) measures how often the
 argmax slug is the truth in the 0.4-0.6 cells, per band (its deliverable, TASKS.md T-121). This is a design
 check of T-121(b)'s sample, not a result about the real truth.
 
 Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
-/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (about 40 minutes at the defaults:
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (36 minutes measured on the last full run at the defaults, 2026-10-23:
 200 draws, borderline rows at 1,000, three ramps; `--draws`, `--refine-draws`, `--bootstrap-reps`,
 `--interval-reps`, `--ramps` and `--sections relabel,verdicts,power` shorten it). Nothing is written.
 

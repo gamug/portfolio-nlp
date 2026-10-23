@@ -538,6 +538,13 @@ Dependencies at a glance:
       and report the share of draws whose lower bound is above 0 when the true gain is
       +0.05 (the power). Require power of at least 80%; a candidate below it is reported as
       "not detectable at this sample", not as a failure, and gets the discordant top-up
+      (**verdict rule, fixed after T-121(a), 2026-10-23:** a power within 0.10 of 80% is
+      re-run at 1,000 draws or more and reported with its Monte Carlo standard error; it
+      is "detectable" when power - 2 SE >= 80%, "not detectable" when power + 2 SE < 80%,
+      and otherwise "borderline", which is treated like "not detectable": it takes the
+      top-up. The verdict uses the null-calibrated power, because the percentile interval
+      is mildly liberal at 30-45 articles per cell: the lower bound is compared with the
+      value that only 2.5% of zero-gain draws exceed, not with 0, and never with less than 0.)
       (identical labels have identical verdicts, so the paired difference needs only the
       discordant articles judged; a stratified extra draw of them, within D10's top-up
       allowance). **The top-up is drawn only after the rule is frozen and only from
@@ -581,8 +588,9 @@ Dependencies at a glance:
       shapes were run (`graded`, the default: 0 below 0.4 and in the short-circuit stratum, half
       in 0.4-0.5, full in 0.5-0.6; `band`; `flat`, this task's original wording). The
       result is shape-dependent: under `graded`, `t0.50+m0.00` has power 0.79 at +0.05
-      (1,000 draws, SE 0.013: borderline against 80%, so a discordant top-up would settle it) and
-      `t0.50+m0.10` 0.89 at a share of 0.61 (outside the 10-50% range); under `band` only `t0.50+m0.00` reaches +0.05 (share 0.93); under `flat`
+      (1,000 draws, SE 0.013; 0.76 null-calibrated: borderline or not detectable, so it takes the
+      discordant top-up) and `t0.50+m0.10` 0.89 (0.85 calibrated: detectable) at a share of 0.61
+      (outside the 10-50% range); under `band` only `t0.50+m0.00` reaches +0.05 (share 0.93); under `flat`
       none gains. So T-121(b) must measure the share per band in the 0.4-0.6 cells, and
       its top-up design waits for the frozen rule.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in

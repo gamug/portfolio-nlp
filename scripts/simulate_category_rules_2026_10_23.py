@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.eval.calibration import (
     BAND_NAMES,
     BASELINE,
+    POWER_TARGET,
     RAMPS,
     ConfirmedArticle,
     RelabelRow,
@@ -43,8 +44,11 @@ from news_nlp.eval.calibration import (
     apply_rule,
     candidate_rules,
     cell_of,
+    classify_power,
     fit_truth_model,
     frame_for,
+    needs_refinement,
+    null_critical,
     paired_rule_interval,
     relabel_table,
     simulate_power,
@@ -54,10 +58,6 @@ from news_nlp.eval.calibration import (
 from news_nlp.eval.partition import domain_pairs, load_category_pairs
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
-POWER_TARGET = 0.80
-#: A power within this distance of the target is re-run with more draws: at 200 draws its
-#: Monte Carlo standard error (up to 0.035) is too close to the bar to call it either way.
-BORDERLINE = 0.10
 GAIN = 0.05
 SHARES = (0.1, 0.3, 0.5)
 COLUMNS = ("group_score", *CATEGORY_SLUGS)
@@ -201,6 +201,7 @@ def report_power(
     seed: int,
     ramp: str,
     refine_draws: int,
+    null_cache: dict[bytes, float],
 ) -> None:
     pairs = load_category_pairs(conn, run_id)
     accept = accept_ids(conn)
@@ -212,6 +213,7 @@ def report_power(
         f"  confident cells whose agreement fell back to their band's rate "
         f"(fewer than 10 judged): {len(truth.fallback_cells)} of {len(truth.agree)}"
     )
+    print(f"    {', '.join(truth.fallback_cells) or '(none)'}")
     section(
         f"Power ({ramp} ramp) of the paired weighted `other`-precision difference (report half; "
         f"{draws} draws x {boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%})"
@@ -235,33 +237,45 @@ def report_power(
             shares.append((star, f"share at which the implied gain is +{GAIN}"))
         for share, label in shares:
             note = label
-            row = simulate_power(
-                frame,
-                replace(truth, slug_share=share),
-                draws=draws,
-                boot_reps=boot_reps,
-                seed=seed,
-            )
-            if abs(row.power - POWER_TARGET) < BORDERLINE and refine_draws > draws:
+            shared = replace(truth, slug_share=share)
+            row = simulate_power(frame, shared, draws=draws, boot_reps=boot_reps, seed=seed)
+            refined = needs_refinement(row.power) and refine_draws > draws
+            if refined:
                 row = simulate_power(
-                    frame,
-                    replace(truth, slug_share=share),
-                    draws=refine_draws,
-                    boot_reps=boot_reps,
-                    seed=seed,
+                    frame, shared, draws=refine_draws, boot_reps=boot_reps, seed=seed
                 )
-                note += f"; re-run at {refine_draws} draws"
-            if row.power - 2 * row.power_se >= POWER_TARGET:
-                flag = ""
-            elif row.power + 2 * row.power_se < POWER_TARGET:
-                flag = " (not detectable at this sample)"
-            else:
-                flag = " (within two standard errors of the bar)"
+                note = f"{note}; re-run at {refine_draws} draws (one stream, same seed)"
+            verdict = classify_power(row.power, row.power_se)
             print(
                 f"  {rule.name:<12}{share:>7.2f}{row.implied_gain:>+14.3f}{row.power:>8.2f}"
                 f"{row.power_se:>8.3f}{row.defined:>9}{row.mean_diff:>+11.4f}{row.sd_diff:>7.4f}"
-                f"{row.mean_lower:>+12.4f}  {note}{flag}"
+                f"{row.mean_lower:>+12.4f}  {note} [{verdict}]"
             )
+            if refined or note.startswith("share at which"):
+                # the interval's false-positive rate is above nominal (see the null rows
+                # under the flat ramp), so also give the power at the null-calibrated bound
+                if frame.signature not in null_cache:
+                    null_cache[frame.signature] = null_critical(
+                        frame,
+                        truth,
+                        draws=max(refine_draws, draws),
+                        boot_reps=boot_reps,
+                        seed=seed,
+                    )
+                crit = null_cache[frame.signature]
+                cal = simulate_power(
+                    frame,
+                    shared,
+                    draws=max(refine_draws, draws),
+                    boot_reps=boot_reps,
+                    seed=seed,
+                    critical=crit,
+                )
+                print(
+                    f"  {'':<12}{'':>7}{'':>14}{cal.power:>8.2f}{cal.power_se:>8.3f}"
+                    f"{cal.defined:>9}  null-calibrated: lower bound must exceed "
+                    f"{crit:+.4f} [{classify_power(cal.power, cal.power_se)}]"
+                )
         if star is None:
             print(f"  {rule.name:<12}{'':>7}  +{GAIN} is not reached for any share in [0, 1]")
 
@@ -301,7 +315,6 @@ def main() -> int:
         ap.error(
             "--source-db and --results-db (or SOURCE_DATABASE_URL / DATABASE_URL) are required"
         )
-    conn = connect(args.source_db, args.results_db)
     ramps = args.ramps.split(",")
     unknown = [r for r in ramps if r not in RAMPS]
     parts = args.sections.split(",")
@@ -311,12 +324,14 @@ def main() -> int:
             f"unknown --ramps {unknown} (valid: {', '.join(RAMPS)}) or "
             f"--sections {unknown_parts} (valid: relabel, verdicts, power)"
         )
+    conn = connect(args.source_db, args.results_db)
     articles = load_confirmed(conn)
     rules = candidate_rules()
     if "relabel" in parts:
         report_relabels(articles, rules, args.cells)
     if "verdicts" in parts:
         report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
+    null_cache: dict[bytes, float] = {}
     for i, ramp in enumerate(ramps if "power" in parts else []):
         subset = rules if i == 0 else [r for r in rules if not r.tightens]
         report_power(
@@ -329,6 +344,7 @@ def main() -> int:
             args.seed,
             ramp,
             args.refine_draws,
+            null_cache,
         )
     return 0
 
