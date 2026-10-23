@@ -1886,6 +1886,23 @@ changing the RESULTS contract):
    evaluated", never as evidence (`docs/category-taxonomy.md`). Try
    hypothesis-template wording (option D) only if the offline pass plateaus —
    it needs inference.
+   **Part (a) executed (2026-10-23):** `docs/evaluation.md`'s 2026-10-23 follow-up. Stored
+   verdicts show a stricter threshold lowers overall accuracy, raises `other` recall and (from 0.75,
+   with a paired interval) lowers `other` precision, so only loosening can raise it. T-123 also bounds
+   `other` recall at -0.02; from the measured `other` precision 0.319 and recall 0.661, a loosening
+   rule passes iff the set it re-labels is truly `other` in at most 341 articles (and holds at least
+   5,718): 2.1% for `t0.50`, 3.5% for `t0.50+m0.20`, 4.3% for `t0.55`, 5.5% for `t0.55+m0.20`,
+   against 7.5% (>= 0.8) and 15.4% (0.6-0.8) measured among the articles the shipped rule labels with a
+   slug. The stored verdicts measure the 0.5-0.6 band (12 of 78 judged truly `other`, weighted 0.19, 95% 0.09-0.31)
+   and, per rule, the set it would take out of `other`: 0.19 for `t0.50` and `t0.50+m0.10` (interval
+   excludes the 2.1-2.3% cap: they fail), 0.08-0.17 for `t0.50+m0.20`, `t0.55` and `t0.55+m0.20`
+   (25-38 judged, intervals include the 3.5-5.5% cap: not excluded). Whether a margin or score isolates
+   a set that clean is open. T-121(b) measures the truly-`other` rate of each candidate's
+   re-labelled set with an interval, checks it against the bound, and reports how well the maximum
+   score, the margin and the group score separate truly-`other` from truly-slug articles (TASKS
+   T-121(b) deliverable); per-slug thresholds are tested on that data. The sample for the margin
+   rules is staged (350 judged articles inside each `m0.20` removed set, stop rule and budget in TASKS
+   T-121(b), sized with `items_to_decide` and the sampler's design effect).
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
@@ -2013,7 +2030,9 @@ changing the RESULTS contract):
   the run's config. The same pass requires `other` recall, overall accuracy and macro F1
   to have a paired-difference lower bound no worse than -0.02 (confirmed by the
   owner), so precision is not bought with recall. A candidate whose simulated power
-  to show +0.05 is below 80% (T-121(a)) is reported as "not detectable at this sample";
+  to show +0.05 is not clearly above 80% (T-121(a); "borderline", within two Monte Carlo
+  standard errors of the bar on the null-calibrated power, counts as not clearly above: TASKS
+  T-121 sets the rule) is reported as "not detectable at this sample";
   if no candidate is detectable the re-run stays blocked until the owner decides. T-124's full re-run is approved only
   if T-123 meets them.
 - If a gate exists, `other` means "about the company, no dimension fits" and
@@ -2258,7 +2277,7 @@ other, and independent of one another except where noted:
 
 - **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
   first runnable tasks are T-116, T-130 and T-141 (code, hermetic); T-133 is done and
-  T-121(a), which follows it, needs no spend. Calibration no longer waits for T-117: T-121(b)
+  T-121(a), which followed it, is done (2026-10-23, no spend). Calibration no longer waits for T-117: T-121(b)
   waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16 (the
   schema guard) is closed (#109), so T-132 can start; it adds its columns to the guard.
   Work item 17's T-137 (sizing) goes

@@ -253,7 +253,7 @@ Dependencies at a glance:
 | T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **yes** (no cost) |
+| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **done 2026-10-23** |
 | T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
 | T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
@@ -538,6 +538,13 @@ Dependencies at a glance:
       and report the share of draws whose lower bound is above 0 when the true gain is
       +0.05 (the power). Require power of at least 80%; a candidate below it is reported as
       "not detectable at this sample", not as a failure, and gets the discordant top-up
+      (**verdict rule, fixed after T-121(a), 2026-10-23:** a power within 0.10 of 80% is
+      re-run at 1,000 draws or more and reported with its Monte Carlo standard error; it
+      is "detectable" when power - 2 SE >= 80%, "not detectable" when power + 2 SE < 80%,
+      and otherwise "borderline", which is treated like "not detectable": it takes the
+      top-up. The verdict uses the null-calibrated power, because the percentile interval
+      is mildly liberal at 30-45 articles per cell: the lower bound is compared with the
+      value that only 2.5% of zero-gain draws exceed, not with 0, and never with less than 0.)
       (identical labels have identical verdicts, so the paired difference needs only the
       discordant articles judged; a stratified extra draw of them, within D10's top-up
       allowance). **The top-up is drawn only after the rule is frozen and only from
@@ -553,6 +560,18 @@ Dependencies at a glance:
       **(b) paid, funded by D10 (T-142), not by T-117's sign-off:** the stratified,
       split judged sample, drawn with T-141's code. **Depends on:** T-141 (code), T-142
       (spend), T-121(a). Fit on the fit half only; every reported number states its half.
+      **Deliverable added after T-121(a) (2026-10-23):** for every candidate rule, the
+      population-weighted share of the articles it would re-label (away from `other`) that are
+      truly `other` in the judge's view (`ideal_slug`), with a 95% interval, on the report half,
+      and the pass/fail check against the bound of T-121(a) recomputed on the real counts (at
+      most about 341 truly-`other` articles among at least 5,718 re-labelled, i.e. 2.1-5.5% for
+      the rules studied); also the separation (AUC) of truly-`other` from truly-slug articles by
+      the maximum score, the margin and the group score. **The AUC is the main deliverable:** the stored
+      verdicts already put the 0.5-0.6 band at 0.19 truly `other` (0.09-0.31) and the 0.2-margin
+      subsets at 8-9% (25-36 judged), so a uniform rule passes only if a margin or score isolates a
+      2-5.5% subset; oversample the `m0.20` subsets. The power check (which in T-121(a) gives every rule the 0.5-0.6 band average) and the
+      discordant top-up are rerun on each rule's own measured removed-set rate before the rule is
+      frozen.
       **Short-circuit stratum:** 30 fit / 30 report; it informs only the
       `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
       target is the pooled, population-weighted report-half figure over all confirmed
@@ -561,6 +580,53 @@ Dependencies at a glance:
       run's recorded config (the article ids are already in `eval_inference`), together with the judge model id, its temperature and
       seed settings, the prompt hash and the date, so a later re-judge can tell a model
       change from a wording change; the draw can be reproduced. → step 4.
+      **(a) done 2026-10-23** (`news_nlp.eval.calibration`,
+      `scripts/simulate_category_rules_2026_10_23.py`, `docs/evaluation.md`'s 2026-10-23
+      follow-up): 32 uniform rules (threshold x margin) re-label 0 to 45.5% of the 93,330
+      confirmed articles (per-cell grids with `--cells`). On eval_run 43's `accept`
+      verdicts a stricter threshold lowers overall accuracy and raises `other` recall at every
+      threshold from 0.65, and lowers `other` precision with a paired 95% interval below 0 from
+      0.75 up; only loosening rules (`t0.50`, `t0.55`, with or without a margin) can raise it.
+      **T-123 also bounds `other` recall (and accuracy, macro F1) at -0.02, and the measured
+      aggregates fix what that costs, with no truth model:** with `other` precision 0.319 and
+      recall 0.661 on 35,368 `other`-labelled articles, a loosening rule passes iff its
+      re-labelled set holds at most 341 truly-`other` articles and at least 5,718 articles:
+      **at most 2.1% (`t0.50`), 2.3%, 3.5% (`t0.50+m0.20`), 4.3% (`t0.55`) or 5.5%
+      (`t0.55+m0.20`) of it truly `other`**, against 7.5% (>= 0.8) and 15.4% (0.6-0.8) measured among the
+      articles the shipped rule labels with a slug. **The stored verdicts do measure the 0.5-0.6
+      band** (the judge gave an `ideal_slug` to `other`-labelled items too): 12 of 78 judged
+      (weighted 0.19, 95% 0.09-0.31) are truly `other`. Per rule, among the judged articles it
+      would take out of `other`: **`t0.50` 0.19 and `t0.50+m0.10` 0.19 (interval excludes the 2.1% /
+      2.3% cap: they fail); `t0.50+m0.20` 0.079 (4/36), `t0.55` 0.166 (5/38) and `t0.55+m0.20`
+      0.087 (2/25) have intervals that include their 3.5% / 4.3% / 5.5% cap: not excluded**
+      (point recall change -0.045 / -0.078 / -0.032 against -0.02). The power tables use the band
+      average for every rule. Accuracy does not bind (within -0.02 at `slug_fraction`
+      0.25-0.75; measured 0.534); macro F1 is not modelled. The power check (truth model calibrated to the measured baseline;
+      the swept quantity is the truly-`other` rate of the 0.5-0.6 band) says the precision test
+      alone is passed by `t0.50+m0.20`, `t0.55+m0.00` and `t0.55+m0.20` (power 0.94-1.00) and not
+      by `t0.50+m0.00`/`m0.10` (0.65, 0.75; calibrated 0.71-0.74), and that it is the recall
+      tolerance that binds. **Deviation from the wording above, recorded here:** the < 0.6 cells
+      and the short-circuit stratum are not given one flat share of argmax-slug truths (a flat
+      truth gives every rule a precision gain of exactly 0 and, with a share, contradicted the
+      stored baseline); they are parametrised by their truly-`other` rate, constrained to the
+      measured 0.319. **Staged sample for the margin rules (sizing from
+      `news_nlp.eval.calibration.items_to_decide` and `design_effect`, T-121(a); the weights of the stored
+      run give a design effect of 1.5-1.6, T-141 reports the sampler's own):** judged articles needed
+      inside a rule's removed set, one-sided 80% power: to fail it at the stored rate 233
+      (`t0.50+m0.20`) and 565 (`t0.55+m0.20`) at 95%, 339 and 844 at 98.75%; to pass it if its true
+      rate were half its cap 893 and 548, at three quarters of the cap 4,001 and 2,452. So: stage 1
+      judges 350 articles inside each `m0.20` removed set (inside the 3,800 cap of T-142); a rule whose
+      one-sided **98.75%** lower bound of the truly-`other` rate is above its cap stops there (the
+      stricter level pays for two looks on two rules); a rule whose upper bound is below its cap
+      continues to the joint T-123 check (that is a screen, **not a pass**: the cap is the necessary
+      point-estimate condition, T-123 needs the *lower bound* of the recall change within -0.02); one
+      that is still undecided gets a second stage of up to 500 more only while the running total stays
+      inside the cap; the owner is asked before any stage that would exceed it. The final pass/fail of
+      a rule uses the pooled sample at the full 95%. **T-121(b) therefore reports, per candidate rule, the truly-`other` rate of
+      the set the rule would re-label with a 95% interval, compared with the bound above (the
+      pass/fail check), and how well the maximum score, the margin and the group score separate
+      truly-`other` from truly-slug articles (an AUC); per-slug thresholds are tested on that
+      data.** Its top-up design waits for the frozen rule.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default
@@ -859,7 +925,7 @@ infrastructure decision — nothing in that item has started.
 **Work item 15 update (2026-10-22):** T-128 is done (data-mining's Work item 10 and
 T-058 hand-off are recorded done upstream), so development can start. The corrected
 corpus is about 80% smaller than the RESULTS store, which resizes T-131, T-132 and
-T-124 (plan, "corrected corpus"). T-116, T-130 and T-121(a) can run now (T-133 is done); D5–D9 were
+T-124 (plan, "corrected corpus"). T-116 and T-130 can run now (T-133 and T-121(a) are done); D5–D9 were
 settled at their defaults on 2026-10-22 (T-139). Two proposals from the 2026-10-21
 hand-off are accepted as their own work items: 16 (schema guard, T-135–T-136, closed 2026-10-22, `CHANGELOG.md`) and 17 (multi-company articles, sizing
 first, T-137–T-138).

@@ -329,7 +329,9 @@ models independently, and can score a candidate model/checkpoint live
 first. A stored category run can also be re-read per subset of the
 corpus (for example per upstream `match_class`) with no judge call, reweighted as a
 domain estimate and with bootstrap intervals (`news_nlp.eval.partition`; see
-`docs/evaluation.md`'s 2026-10-22 follow-up). `sector_summary`'s
+`docs/evaluation.md`'s 2026-10-22 follow-up). Candidate category decision rules
+are simulated against stored scores and stored verdicts, and their power estimated, by
+`news_nlp.eval.calibration` (2026-10-23 follow-up). `sector_summary`'s
 `intro_text` had its own dedicated eval path added 2026-09-14 — its
 population is small enough (thousands of rows) to judge in full every run
 instead of sampling, checked for faithfulness against its own `facts_json`

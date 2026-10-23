@@ -160,8 +160,11 @@ class Interval(NamedTuple):
     reps: int
 
 
-def _defined(key: str, sample: Sequence[Pair], partition_of: Mapping[int, str], name: str) -> bool:
-    """Whether *key* has a non-empty denominator for *name* in *sample*: ``precision_<slug>``
+def is_defined(
+    key: str, sample: Sequence[Pair], partition_of: Mapping[int, str], name: str
+) -> bool:
+    """Public so :mod:`news_nlp.eval.calibration` applies the same empty-denominator rule.
+    Whether *key* has a non-empty denominator for *name* in *sample*: ``precision_<slug>``
     needs an item the model put in ``<slug>``, ``recall_<slug>`` one the judge did. The HT
     ratios return 0.0 on an empty denominator, which would otherwise enter the draws as a
     real value."""
@@ -204,7 +207,7 @@ def bootstrap_interval(
     names = minus if minus else (partition,)
 
     def stat(sample: Sequence[Pair]) -> float:
-        if not all(_defined(key, sample, partition_of, n) for n in names):
+        if not all(is_defined(key, sample, partition_of, n) for n in names):
             return math.nan
         out = metrics_by_partition(sample, partition_of)
         if minus:
