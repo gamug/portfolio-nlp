@@ -2189,21 +2189,24 @@ slug) and needs T-121(b)'s sample.
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of
 weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 300-replicate
 within-cell bootstrap, nearest-rank 95% interval, seed 0). Power is the share of draws whose interval's
-lower bound is above 0, from 200 draws; a power within 0.10 of the 80% bar is re-run at 1,000 draws, and
-every power is printed with its Monte Carlo standard error (up to 0.035 at 200 draws, 0.016 at 1,000), so a
-verdict is "detectable" or "not detectable" only when the power is two standard errors from the bar and
-"borderline" otherwise (a borderline candidate is treated like a miss and takes the discordant top-up;
-the rule is fixed in TASKS.md T-121). A re-run at 1,000 draws uses the same seed and the same random
-stream, so its first 200 draws are the original ones: it extends the run, it is not a second one. The
-percentile interval is mildly liberal (see the zero-gain rows below), so the verdict is taken on the
-**null-calibrated power**: the lower bound is compared with the value that only 2.5% of zero-gain draws
-exceed (+0.0022 for `t0.50+m0.00`, +0.0028 for `t0.50+m0.10`; 1,000 draws each), not with 0. A cell smaller than its sample is
-taken whole and still resampled in the bootstrap (no finite-population correction), so the power is slightly
-conservative. Truth model:
+lower bound is above 0, from 200 draws; a power within 0.10 of the 80% bar, and every row where the
+gain is +0.05, is re-run at 1,000 draws (same seed and random stream: its first 200 draws are the
+original ones, so it extends the run). Every power is printed with its Monte Carlo standard error (up to
+0.035 at 200 draws, 0.016 at 1,000). A verdict is "detectable" or "not detectable" only when the power is
+two standard errors from the bar and "borderline" otherwise (a borderline candidate is treated like a miss
+and takes the discordant top-up; the rule is fixed in TASKS.md T-121), and **only the rows at a gain of
++0.05 carry a verdict**; the other rows say "power at this gain". The percentile interval is mildly
+liberal (see the zero-gain rows below), so the verdict is taken on the **null-calibrated power**: the
+lower bound is compared with the value that only 2.5% of zero-gain draws exceed, from 1,000 null draws,
+repeated for three null seeds to show how stable that critical value is. A cell smaller than its sample is
+taken whole and still resampled in the bootstrap (no finite-population correction), so the power is
+slightly conservative. Truth model:
 
 * in the >= 0.6 cells, eval_run 43's agreement per cell, weighted by each item's Horvitz-Thompson weight
-  (3 of the 18 cells have fewer than 10 judged items and use their band's pooled rate); when the label is
-  wrong, the truth is `other` 33.9% of the time;
+  (3 of the 18 cells have fewer than 10 judged items and use their band's pooled rate: `earnings_performance`
+  and `product_innovation` in 0.6-0.8, `capital_shareholder_returns` in >= 0.8); when the label is wrong,
+  the truth is `other` 33.9% of the time. Population-weighted, the shipped labels agree with the judge on
+  **61.7% of the 28,916 articles in 0.6-0.8 and 79.9% of the 29,046 in >= 0.8**;
 * in the < 0.6 cells and the short-circuit stratum, `other` agreement is the measured weighted precision
   (0.319) and the share of articles whose truth is the argmax slug is **assumed**. It cannot be
   measured from stored verdicts (the judge graded `other` there), and its *shape* over the score bands matters
@@ -2213,53 +2216,67 @@ conservative. Truth model:
   `band` (full in 0.4-0.5 and 0.5-0.6, 0 elsewhere), and `flat` (the same share in every low cell, which
   is TASKS.md's original wording).
 
-`graded` shape (`sd` is the spread over draws of the sampled paired difference, whose mean matches the gain):
+**T-123 also bounds `other` recall, overall accuracy and macro F1** (each paired difference with a 95% lower
+bound no worse than -0.02, tolerance confirmed by the owner), so the simulation reports the implied change
+in `other` recall and accuracy next to the precision gain, and a `joint` power that requires all three
+lower bounds to hold. Macro F1 is not derived: the truth model puts the rest of the mass on an unspecified
+third label, so a per-class F1 has no class to land on; T-121(b) measures it. `graded` shape, loosening
+rules (`d` = implied change in expectation; `power` is the precision test alone; `sd` is the spread
+over draws of the sampled paired difference):
 
-| rule (re-labelled) | share | gain | power (SE) | sd | verdict |
+| rule (re-labelled) | share | d precision | d recall | d accuracy | power (SE) | joint | verdict at +0.05 |
+|---|---|---|---|---|---|---|---|
+| `t0.50+m0.00` (16,359) | 0.10 / 0.30 | +0.010 / +0.030 | -0.288 / -0.246 | -0.033 / +0.013 | 0.07 / 0.40 | 0.00 | power at this gain |
+| | 0.50 | +0.050 | -0.195 | +0.059 | 0.78 (0.013, 1,000 draws); null-calibrated 0.73-0.76 over 3 null seeds | 0.00 | not detectable (stable) |
+| `t0.50+m0.10` (14,582) | 0.10 / 0.30 / 0.50 | +0.008 / +0.025 / +0.041 | -0.257 / -0.219 / -0.173 | -0.029 / +0.012 / +0.053 | 0.05 / 0.33 / 0.64 | 0.00 | power at this gain |
+| | 0.61 | +0.050 | -0.144 | +0.076 | 0.89 (0.010); calibrated 0.85-0.88 | 0.00 | detectable on the precision test |
+| `t0.50+m0.20` (9,728) | 0.10 / 0.30 / 0.50 | +0.004 / +0.013 / +0.022 | -0.171 / -0.146 / -0.115 | -0.019 / +0.008 / +0.035 | 0.06 / 0.23 / 0.43 | 0.00 | +0.05 not reached |
+| `t0.55+m0.00` (7,957) | 0.10 / 0.30 / 0.50 | +0.003 / +0.010 / +0.017 | -0.140 / -0.119 / -0.094 | -0.016 / +0.007 / +0.029 | 0.07 / 0.26 / 0.33 | 0.00 | +0.05 not reached |
+
+`band` shape: `t0.50+m0.00` reaches +0.05 only at a share of 0.93 (power 1.00, calibrated 1.00 over 3 null
+seeds; sd 0.0085 against 0.018 under `graded`, which is why the interval clears 0 in every draw: the
+articles are almost never `other`, so the sampled difference barely moves), where the implied `other`
+recall change is **-0.043** and the joint power 0.02. `t0.50+m0.10`, `t0.50+m0.20` and `t0.55+m0.00` do
+not reach +0.05 at any share (best +0.022, +0.012, +0.009 at 0.5; implied recall -0.186, -0.124, -0.102).
+`flat` shape: every loosening rule has a precision gain of 0.000 at every share; their power (0.01-0.07)
+is the estimator's false-positive rate at one side of a 95% interval (nominally 0.025), 0.046 on average
+over the 15 zero-gain rows, so the interval is mildly liberal at these sample sizes and the nominal powers
+are, if anything, a little optimistic. Rules with a margin of 0.3 (and `t0.60+m0.30`) have a negative or
+zero gain under all three shapes, and every rule with `t >= 0.65` has a negative precision gain, a power of
+0.00 and, on the stored verdicts above, an `other`-recall *gain* of +0.06 to +0.27 (the price is accuracy, -0.03 to -0.19).
+
+**Joint condition: what it takes for a loosening rule to keep `other` recall within -0.02.** The smallest
+share at which the implied recall change is within the tolerance (the point estimate: a lower bound needs more):
+
+| rule | `graded` share (d precision, d accuracy) | `band` share | `flat` share | joint power at that share (graded / band) | joint power at share 1.0 (graded / band / flat) |
 |---|---|---|---|---|---|
-| `t0.50+m0.00` (16,359) | 0.10 / 0.30 | +0.010 / +0.030 | 0.07 (0.018) / 0.40 (0.035) | 0.019 | not detectable |
-| | 0.50 (+0.05) | +0.050 | 0.79 (0.013, 1,000 draws); null-calibrated 0.76 (0.014) | 0.018 | nominal borderline; calibrated, not detectable (0.76 + 2 SE = 0.79 < 0.80) |
-| `t0.50+m0.10` (14,582) | 0.10 / 0.30 / 0.50 | +0.008 / +0.025 / +0.041 | 0.05 / 0.33 / 0.64 | 0.017-0.019 | not detectable |
-| | 0.61 (+0.05) | +0.050 | 0.89 (0.010, 1,000 draws); null-calibrated 0.85 (0.011) | 0.015 | clears the bar on either basis |
-| `t0.50+m0.20` (9,728) | 0.10 / 0.30 / 0.50 | +0.004 / +0.013 / +0.022 | 0.06 / 0.23 / 0.43 | 0.013-0.014 | not detectable; +0.05 not reached |
-| `t0.55+m0.00` (7,957) | 0.10 / 0.30 / 0.50 | +0.003 / +0.010 / +0.017 | 0.07 / 0.26 / 0.33 | 0.011-0.014 | not detectable; +0.05 not reached |
-| `t0.55+m0.20` (6,198) | 0.50 | +0.012 | 0.28 | 0.010 | not detectable; +0.05 not reached |
+| `t0.50+m0.00` | 0.961 (+0.097, +0.166) | 0.968 | 0.977 | 0.20 / 0.23 | 1.00 / 1.00 / 0.00 |
+| `t0.50+m0.10` | 0.956 (+0.078, +0.147) | 0.964 | 0.974 | 0.26 / 0.23 | 1.00 / 1.00 / 0.00 |
+| `t0.50+m0.20` | 0.933 (+0.041, +0.095) | 0.946 | 0.960 | 0.23 / 0.28 | 1.00 / 1.00 / 0.00 |
+| `t0.55+m0.00` | 0.918 (+0.031, +0.076) | 0.933 | 0.950 | 0.27 / 0.19 | 1.00 / 1.00 / 0.00 |
 
-`band` shape: `t0.50+m0.00` reaches +0.05 only at a share of 0.93, with power 1.00 (SE 0.000; null-calibrated 1.00 at 1,000 draws); its
-other rows are 0.04 / 0.20 / 0.38 at gains of +0.005 / +0.016 / +0.027. `t0.50+m0.10`, `t0.50+m0.20`,
-`t0.55+m0.00` and `t0.55+m0.20` do not reach +0.05 at any share (best: +0.022, +0.012, +0.009 and +0.007
-at 0.5; power 0.28, 0.18, 0.16, 0.14). **Why 1.00 here but 0.79 under `graded` at the same +0.05:** at a
-share of 0.93 the 0.4-0.6 articles are almost never `other`, so the sampled difference barely moves between
-draws: its spread is 0.008 against 0.018 under `graded`, and the mean lower bound is +0.033 (well clear of 0)
-against +0.016. The power measures how often the interval clears 0, and a quieter difference clears it
-every time; it is a property of the truth model, not a better estimator. The three confident cells whose
-agreement fell back to their band's rate (fewer than 10 judged items) are `earnings_performance` and
-`product_innovation` in 0.6-0.8 and `capital_shareholder_returns` in >= 0.8.
-
-`flat` shape: the loosening rules have a gain of 0.000 at every share (the articles they re-label look like
-the ones left behind). The power at zero gain is the estimator's false-positive rate at one side of a 95%
-interval (nominally 0.025): the 15 zero-gain rows range from 0.01 to 0.07 and average 0.046. So the
-interval is mildly liberal at these sample sizes (a percentile bootstrap over 30-45 articles per cell) and
-every power above is, if anything, a little optimistic. Rules with a margin of 0.3 (and `t0.60+m0.30`) have a
-negative or zero gain under all three shapes, and every rule with `t >= 0.65` has a negative gain and a power
-of 0.00.
-
-**Reading.** The detectability of a loosening rule depends on how the unmeasured share varies with the
-score, not only on its size: with a flat share no rule gains anything, with the `band` shape only
-`t0.50+m0.00` can reach +0.05 (at a share of 0.93, which would mean 93% of 0.4-0.6 articles belong to
-their top slug), and with the `graded` shape `t0.50+m0.00` reaches +0.05 at a share of 0.50 with a nominal power of
-0.79 and a null-calibrated power of 0.76 (borderline on one basis, not detectable on the other: the
-discordant top-up, taken only after the rule is frozen, outside the fit half and weighted to its own strata,
-adds judged items and so raises the power) and `t0.50+m0.10` at 0.61 with 0.89 nominal and 0.85 calibrated
-(detectable). What holds under every shape: a rule that raises the threshold is not a candidate for T-123's
-`other`-precision target, and no loosening rule is shown to gain until T-121(b) measures how often the
-argmax slug is the truth in the 0.4-0.6 cells, per band (its deliverable, TASKS.md T-121). This is a design
-check of T-121(b)'s sample, not a result about the real truth.
+**Reading.** A uniform threshold cannot meet T-123's three conditions on this score. Loosening is the only
+direction that can raise `other` precision, and every loosening rule re-labels articles that are `other` in
+the judge's view with probability 1 minus the share, so `other` recall falls by 0.09-0.30 at the shares
+the sweep covers and by 0.04 even at 0.93. To keep it within -0.02 (point estimate) at least 92-98% of the
+articles it re-labels must belong to the argmax slug, which would make them *more* accurate than the
+0.6-0.8 articles the shipped rule already labels (61.7% agreement) and than the >= 0.8 ones (79.9%). That is
+not credible for a score that is lower for these articles, so no uniform loosening rule is a candidate for
+T-123's target, and a tightening rule loses precision. The precision test alone makes `t0.50+m0.10` look
+detectable (0.89 nominal, 0.85-0.88 calibrated); that is the answer to the question T-121(a) was asked,
+and the joint condition says the answer does not help. What T-121(b) should therefore do: measure, per band
+and per slug, the share of articles whose truth is the argmax slug with an interval, and how well the score,
+the margin and the group score *separate* truth-`other` from truth-slug articles (an AUC), because only a
+discriminator better than the maximum score alone can raise `other` precision without costing recall; per-slug
+thresholds (already planned) are tested on that data, not assumed to help. This is a design check of
+T-121(b)'s sample, not a result about the real truth, but its direction does not depend on which share is
+assumed.
 
 Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
-/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (36 minutes measured on the last full run at the defaults, 2026-10-23:
-200 draws, borderline rows at 1,000, three ramps; `--draws`, `--refine-draws`, `--bootstrap-reps`,
-`--interval-reps`, `--ramps` and `--sections relabel,verdicts,power` shorten it). Nothing is written.
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (58 minutes measured on the last
+full run at the defaults, 2026-10-23: 200 draws, 1,000 for the +0.05 and borderline rows, three ramps, three
+null seeds; `--draws`, `--refine-draws`, `--bootstrap-reps`, `--interval-reps`, `--null-seeds`, `--ramps`
+and `--sections relabel,verdicts,power` shorten it). Nothing is written.
 
 ## What it evaluates
 

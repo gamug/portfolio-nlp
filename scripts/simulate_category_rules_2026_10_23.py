@@ -31,6 +31,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.eval.calibration import (
@@ -38,21 +39,26 @@ from news_nlp.eval.calibration import (
     BASELINE,
     POWER_TARGET,
     RAMPS,
+    RECALL_TOLERANCE,
     ConfirmedArticle,
+    Frame,
     RelabelRow,
     Rule,
+    TruthModel,
     apply_rule,
     candidate_rules,
     cell_of,
     classify_power,
     fit_truth_model,
     frame_for,
+    implied_changes,
     needs_refinement,
     null_critical,
     paired_rule_interval,
     relabel_table,
     simulate_power,
     slug_share_for_gain,
+    slug_share_for_recall,
     verdict_table,
 )
 from news_nlp.eval.partition import domain_pairs, load_category_pairs
@@ -191,17 +197,112 @@ def report_verdicts(
             )
 
 
+SAME_SHARE = 0.005  # a swept share this close to the share that reaches +GAIN is that row
+
+
+class PowerSettings(NamedTuple):
+    draws: int
+    boot_reps: int
+    seed: int
+    refine_draws: int
+    null_seeds: int
+
+
+def share_rows(frame: Frame, truth: TruthModel) -> tuple[list[tuple[float, bool]], bool]:
+    """The shares to simulate for one rule, and whether +GAIN is reached at any share:
+    the sweep, with the row at which the implied gain is +GAIN marked (merged into the
+    sweep row when it is the same share)."""
+    shares: list[tuple[float, bool]] = [(s, False) for s in SHARES]
+    star = slug_share_for_gain(frame, truth, GAIN)
+    if star is None:
+        return shares, False
+    near = [i for i, (s, _) in enumerate(shares) if abs(s - star) < SAME_SHARE]
+    if near:
+        shares[near[0]] = (star, True)
+    else:
+        shares.append((star, True))
+    return shares, True
+
+
+def power_row(
+    frame: Frame,
+    truth: TruthModel,
+    share: float,
+    at_target: bool,
+    cfg: PowerSettings,
+    null_cache: dict[tuple[bytes, int], float],
+) -> None:
+    shared = replace(truth, slug_share=share)
+    row = simulate_power(frame, shared, draws=cfg.draws, boot_reps=cfg.boot_reps, seed=cfg.seed)
+    rerun = cfg.refine_draws > cfg.draws and (at_target or needs_refinement(row.power))
+    if rerun:
+        row = simulate_power(
+            frame, shared, draws=cfg.refine_draws, boot_reps=cfg.boot_reps, seed=cfg.seed
+        )
+    implied = implied_changes(frame, shared)
+    note = (
+        f"+{GAIN} reached [{classify_power(row.power, row.power_se)}]"
+        if at_target
+        else ("power at this gain")
+    )
+    if rerun:
+        note += f"; {cfg.refine_draws} draws, one stream, same seed"
+    print(
+        f"  {frame.rule.name:<12}{share:>7.2f}{implied.precision:>+8.3f}{implied.recall:>+9.3f}"
+        f"{implied.accuracy:>+7.3f}{row.power:>7.2f}{row.power_se:>7.3f}"
+        f"{row.joint_power:>7.2f}{row.defined:>9}{row.sd_diff:>7.4f}  {note}"
+    )
+    if at_target or rerun:
+        report_calibrated(frame, shared, truth, cfg, null_cache)
+
+
+def report_joint(
+    articles: list[ConfirmedArticle],
+    rules: list[Rule],
+    truth: TruthModel,
+    cfg: PowerSettings,
+    ramp: str,
+) -> None:
+    section(
+        f"Joint condition ({ramp} ramp): the smallest share at which the implied `other` recall "
+        f"is within {RECALL_TOLERANCE}, what the rule gains there, and the joint power at that "
+        "share and at share 1.0 (the best case for recall)"
+    )
+    print(
+        f"  {'rule':<12}{'share':>7}{'d prec':>8}{'d recall':>9}{'d acc':>7}"
+        f"{'joint@share':>13}{'joint@1.0':>11}"
+    )
+    for rule in rules:
+        frame = frame_for(articles, rule)
+        needed = slug_share_for_recall(frame, truth)
+        if needed is None:
+            print(f"  {rule.name:<12}  not within {RECALL_TOLERANCE} at any share")
+            continue
+        at = implied_changes(frame, replace(truth, slug_share=needed))
+        joint = [
+            simulate_power(
+                frame,
+                replace(truth, slug_share=share),
+                draws=cfg.draws,
+                boot_reps=cfg.boot_reps,
+                seed=cfg.seed,
+            ).joint_power
+            for share in (needed, 1.0)
+        ]
+        print(
+            f"  {rule.name:<12}{needed:>7.3f}{at.precision:>+8.3f}{at.recall:>+9.3f}"
+            f"{at.accuracy:>+7.3f}{joint[0]:>13.2f}{joint[1]:>11.2f}"
+        )
+
+
 def report_power(
     conn: sqlite3.Connection,
     run_id: int,
     articles: list[ConfirmedArticle],
     rules: list[Rule],
-    draws: int,
-    boot_reps: int,
-    seed: int,
+    cfg: PowerSettings,
     ramp: str,
-    refine_draws: int,
-    null_cache: dict[bytes, float],
+    null_cache: dict[tuple[bytes, int], float],
 ) -> None:
     pairs = load_category_pairs(conn, run_id)
     accept = accept_ids(conn)
@@ -216,13 +317,17 @@ def report_power(
     print(f"    {', '.join(truth.fallback_cells) or '(none)'}")
     section(
         f"Power ({ramp} ramp) of the paired weighted `other`-precision difference (report half; "
-        f"{draws} draws x {boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%})"
+        f"{cfg.draws} draws x {cfg.boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%} at "
+        f"+{GAIN}). `d recall` is the implied change in `other` recall (T-123: lower bound >= "
+        f"{RECALL_TOLERANCE}); `joint` also requires the recall and accuracy lower bounds to "
+        "stay within it"
     )
     print(
-        f"  {'rule':<12}{'share':>7}{'implied gain':>14}{'power':>8}{'(se)':>8}{'defined':>9}"
-        f"{'mean diff':>11}{'sd':>7}{'mean lower':>12}  note"
+        f"  {'rule':<12}{'share':>7}{'d prec':>8}{'d recall':>9}{'d acc':>7}{'power':>7}{'(se)':>7}"
+        f"{'joint':>7}{'defined':>9}{'sd':>7}  note"
     )
     seen: dict[bytes, str] = {}
+    simulated: list[Rule] = []
     for rule in rules:
         if rule == BASELINE:
             continue
@@ -231,53 +336,52 @@ def report_power(
             print(f"  {rule.name:<12} labels every article as {seen[frame.signature]} does")
             continue
         seen[frame.signature] = rule.name
-        shares: list[tuple[float, str]] = [(s, "swept") for s in SHARES]
-        star = slug_share_for_gain(frame, truth, GAIN)
-        if star is not None:
-            shares.append((star, f"share at which the implied gain is +{GAIN}"))
-        for share, label in shares:
-            note = label
-            shared = replace(truth, slug_share=share)
-            row = simulate_power(frame, shared, draws=draws, boot_reps=boot_reps, seed=seed)
-            refined = needs_refinement(row.power) and refine_draws > draws
-            if refined:
-                row = simulate_power(
-                    frame, shared, draws=refine_draws, boot_reps=boot_reps, seed=seed
-                )
-                note = f"{note}; re-run at {refine_draws} draws (one stream, same seed)"
-            verdict = classify_power(row.power, row.power_se)
-            print(
-                f"  {rule.name:<12}{share:>7.2f}{row.implied_gain:>+14.3f}{row.power:>8.2f}"
-                f"{row.power_se:>8.3f}{row.defined:>9}{row.mean_diff:>+11.4f}{row.sd_diff:>7.4f}"
-                f"{row.mean_lower:>+12.4f}  {note} [{verdict}]"
-            )
-            if refined or note.startswith("share at which"):
-                # the interval's false-positive rate is above nominal (see the null rows
-                # under the flat ramp), so also give the power at the null-calibrated bound
-                if frame.signature not in null_cache:
-                    null_cache[frame.signature] = null_critical(
-                        frame,
-                        truth,
-                        draws=max(refine_draws, draws),
-                        boot_reps=boot_reps,
-                        seed=seed,
-                    )
-                crit = null_cache[frame.signature]
-                cal = simulate_power(
-                    frame,
-                    shared,
-                    draws=max(refine_draws, draws),
-                    boot_reps=boot_reps,
-                    seed=seed,
-                    critical=crit,
-                )
-                print(
-                    f"  {'':<12}{'':>7}{'':>14}{cal.power:>8.2f}{cal.power_se:>8.3f}"
-                    f"{cal.defined:>9}  null-calibrated: lower bound must exceed "
-                    f"{crit:+.4f} [{classify_power(cal.power, cal.power_se)}]"
-                )
-        if star is None:
+        simulated.append(rule)
+        shares, reached = share_rows(frame, truth)
+        for share, at_target in shares:
+            power_row(frame, truth, share, at_target, cfg, null_cache)
+        if not reached:
             print(f"  {rule.name:<12}{'':>7}  +{GAIN} is not reached for any share in [0, 1]")
+    report_joint(articles, [r for r in simulated if not r.tightens], truth, cfg, ramp)
+
+
+def report_calibrated(
+    frame: Frame,
+    shared: TruthModel,
+    truth: TruthModel,
+    cfg: PowerSettings,
+    null_cache: dict[tuple[bytes, int], float],
+) -> None:
+    """The power at the null-calibrated bound, once per null seed: the interval's
+    false-positive rate is above nominal (see the null rows under the flat ramp), and the
+    critical value is itself a 2.5% tail of *draws* draws, so its spread shows how far the
+    calibrated verdict can be trusted."""
+    draws = max(cfg.refine_draws, cfg.draws)
+    powers = []
+    for k in range(cfg.null_seeds):
+        key = (frame.signature, k)
+        if key not in null_cache:
+            null_cache[key] = null_critical(
+                frame, truth, draws=draws, boot_reps=cfg.boot_reps, seed=cfg.seed + 1000 + k
+            )
+        cal = simulate_power(
+            frame,
+            shared,
+            draws=draws,
+            boot_reps=cfg.boot_reps,
+            seed=cfg.seed,
+            critical=null_cache[key],
+        )
+        powers.append((cal, null_cache[key]))
+    verdicts = {classify_power(c.power, c.power_se) for c, _ in powers}
+    lo = min(c.power for c, _ in powers)
+    hi = max(c.power for c, _ in powers)
+    crits = ", ".join(f"{crit:+.4f}" for _, crit in powers)
+    stable = next(iter(verdicts)) if len(verdicts) == 1 else "unstable across null seeds"
+    print(
+        f"  {'':<12}{'':>7}  null-calibrated power {lo:.2f}-{hi:.2f} "
+        f"(critical values {crits}; {cfg.null_seeds} null seeds) [{stable}]"
+    )
 
 
 def default_path(env: str) -> Path | None:
@@ -302,6 +406,7 @@ def main() -> int:
         default="relabel,verdicts,power",
         help="comma-separated parts to run: relabel, verdicts, power",
     )
+    ap.add_argument("--null-seeds", type=int, default=3, help="null runs for the critical value")
     ap.add_argument("--cells", action="store_true", help="print the per-cell re-label grids")
     ap.add_argument(
         "--ramps",
@@ -331,21 +436,13 @@ def main() -> int:
         report_relabels(articles, rules, args.cells)
     if "verdicts" in parts:
         report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
-    null_cache: dict[bytes, float] = {}
+    null_cache: dict[tuple[bytes, int], float] = {}
+    cfg = PowerSettings(
+        args.draws, args.bootstrap_reps, args.seed, args.refine_draws, args.null_seeds
+    )
     for i, ramp in enumerate(ramps if "power" in parts else []):
         subset = rules if i == 0 else [r for r in rules if not r.tightens]
-        report_power(
-            conn,
-            args.eval_run,
-            articles,
-            subset,
-            args.draws,
-            args.bootstrap_reps,
-            args.seed,
-            ramp,
-            args.refine_draws,
-            null_cache,
-        )
+        report_power(conn, args.eval_run, articles, subset, cfg, ramp, null_cache)
     return 0
 
 

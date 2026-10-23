@@ -353,6 +353,9 @@ class PowerRow(NamedTuple):
     sd_diff: float = 0.0  # its standard deviation over draws (the sampling spread)
     mean_lower: float = 0.0  # mean over draws of the interval's lower bound
     critical: float = 0.0  # the lower-bound value a draw has to exceed to count
+    joint_power: float = 0.0  # share of draws that also keep recall and accuracy within tolerance
+    recall_diff: float = 0.0  # mean over draws of the sample's paired `other`-recall difference
+    accuracy_diff: float = 0.0  # the same for overall accuracy
 
     @property
     def power_se(self) -> float:
@@ -396,16 +399,68 @@ def _cell_probabilities(frame: Frame, truth: TruthModel) -> tuple[np.ndarray, np
     return np.array([p[0] for p in probs]), np.array([p[1] for p in probs])
 
 
+class Implied(NamedTuple):
+    """Candidate minus shipped rule, in expectation under a truth model (no sampling)."""
+
+    precision: float  # weighted `other` precision
+    recall: float  # `other` recall
+    accuracy: float  # overall accuracy against the truth label
+
+
+#: T-123's tolerance (owner-confirmed, TASKS.md): the paired differences in `other` recall,
+#: overall accuracy and macro F1 must each have a 95% lower bound no worse than this.
+RECALL_TOLERANCE = -0.02
+
+
+def implied_changes(frame: Frame, truth: TruthModel) -> Implied:
+    """The change in `other` precision, `other` recall and overall accuracy the rule
+    brings under *truth*, as expectations: precision is the sum of P(truth = other) over
+    the articles labelled ``other`` over their count, recall the same sum over the sum of
+    P(truth = other) of all articles, accuracy the mean probability that the label is the
+    truth (``other`` is right with P(other), the argmax slug with P(argmax slug)). Macro F1
+    is not derived: the truth model puts the rest of the mass on an unspecified third
+    label, so a per-class F1 has no class to land on; T-121(b) measures it."""
+    p_slug_cell, p_other_cell = _cell_probabilities(frame, truth)
+    p_slug, p_other = p_slug_cell[frame.cell], p_other_cell[frame.cell]
+    total_other = p_other.sum()
+
+    def stats(flag: np.ndarray) -> tuple[float, float, float]:
+        hit = float((p_other * flag).sum())
+        precision = hit / flag.sum() if flag.sum() else 0.0
+        recall = hit / total_other if total_other else 0.0
+        accuracy = float((np.where(flag, p_other, p_slug)).mean())
+        return precision, recall, accuracy
+
+    cand, base = stats(frame.cand_other), stats(frame.base_other)
+    return Implied(cand[0] - base[0], cand[1] - base[1], cand[2] - base[2])
+
+
 def implied_gain(frame: Frame, truth: TruthModel) -> float:
     """Population difference of the weighted `other` precision under *truth* (an
-    expectation, no sampling): the sum of P(truth=other) over the articles labelled
-    ``other``, over their count, for the candidate minus the baseline."""
-    p_other = _cell_probabilities(frame, truth)[1][frame.cell]
+    expectation, no sampling): :attr:`Implied.precision` of :func:`implied_changes`."""
+    return implied_changes(frame, truth).precision
 
-    def precision(flag: np.ndarray) -> float:
-        return float((p_other * flag).sum() / flag.sum()) if flag.sum() else 0.0
 
-    return precision(frame.cand_other) - precision(frame.base_other)
+def slug_share_for_recall(
+    frame: Frame, truth: TruthModel, bound: float = RECALL_TOLERANCE, *, tol: float = 1e-4
+) -> float | None:
+    """The smallest ``slug_share`` at which the rule's implied `other`-recall change is
+    at least *bound*, by bisection on [0, 1]; ``None`` if even a share of 1 does not get
+    there. The recall change rises with the share (fewer of the re-labelled articles were
+    ``other``)."""
+    hi = replace(truth, slug_share=1.0)
+    if implied_changes(frame, hi).recall < bound:
+        return None
+    if implied_changes(frame, replace(truth, slug_share=0.0)).recall >= bound:
+        return 0.0
+    lo_s, hi_s = 0.0, 1.0
+    while hi_s - lo_s > tol:
+        mid = (lo_s + hi_s) / 2
+        if implied_changes(frame, replace(truth, slug_share=mid)).recall >= bound:
+            hi_s = mid
+        else:
+            lo_s = mid
+    return hi_s
 
 
 def slug_share_for_gain(
@@ -462,6 +517,26 @@ def null_truth(truth: TruthModel) -> TruthModel:
     )
 
 
+@dataclass(frozen=True)
+class _Draws:
+    """Per defined draw: the lower bound of the precision, recall and accuracy differences
+    (an undefined recall or accuracy bound is ``-inf``, a failure) and the sample's paired
+    point differences."""
+
+    lower: list[float]
+    point: list[float]
+    recall_lower: list[float]
+    recall_point: list[float]
+    accuracy_lower: list[float]
+    accuracy_point: list[float]
+
+
+def _lower(diff: np.ndarray, level: float) -> float:
+    """Nearest-rank lower percentile of the usable replicates."""
+    k = max(1, math.ceil((1 - level) / 2 * len(diff)))
+    return float(np.sort(diff)[min(k, len(diff)) - 1])
+
+
 def _draw_summaries(
     frame: Frame,
     truth: TruthModel,
@@ -471,18 +546,16 @@ def _draw_summaries(
     seed: int,
     size_of: Callable[[str], int],
     level: float,
-) -> tuple[list[float], list[float]]:
-    """Per defined draw: the interval's lower bound and the sample's paired point
-    difference. Draws come from one random stream, so a longer run starts with the draws of
-    a shorter one that has the same seed."""
+) -> _Draws:
+    """Simulate *draws* report-half samples. Draws come from one random stream, so a
+    longer run starts with the draws of a shorter one that has the same seed."""
     rng = np.random.default_rng(seed)
     p_slug_cell, p_other_cell = _cell_probabilities(frame, truth)
     p_slug, p_other = p_slug_cell[frame.cell], p_other_cell[frame.cell]
     members = [np.flatnonzero(frame.cell == i) for i in range(len(frame.names))]
     take = [min(size_of(name), len(m)) for name, m in zip(frame.names, members, strict=True)]
     pops = [len(m) for m in members]
-    points: list[float] = []
-    lowers: list[float] = []
+    out = _Draws([], [], [], [], [], [])
     for _ in range(draws):
         idx, weight = [], []
         for m, n, pop in zip(members, take, pops, strict=True):
@@ -494,11 +567,16 @@ def _draw_summaries(
         roll = rng.random(len(sel))
         # P(other) is stored as an absolute probability; resolve the three-way draw
         # from one uniform: [0, p_slug) slug, [p_slug, p_slug + p_other) other, else third.
+        is_slug = roll < p_slug[sel]
         is_other = (roll >= p_slug[sel]) & (roll < p_slug[sel] + p_other[sel])
         base = frame.base_other[sel].astype(float)
         cand = frame.cand_other[sel].astype(float)
         base_hit = base * is_other
         cand_hit = cand * is_other
+        # an article is labelled correctly if `other` and the truth is `other`, or the slug
+        # and the truth is the argmax slug
+        base_right = base_hit + (1 - base) * is_slug
+        cand_right = cand_hit + (1 - cand) * is_slug
         # bootstrap counts, within cell
         counts = np.zeros((boot_reps, len(sel)))
         start = 0
@@ -512,11 +590,24 @@ def _draw_summaries(
         if not ok.any():
             continue
         diff = (wc @ cand_hit)[ok] / den_c[ok] - (wc @ base_hit)[ok] / den_b[ok]
-        # nearest-rank lower percentile over the usable replicates
-        k = max(1, math.ceil((1 - level) / 2 * len(diff)))
-        lowers.append(float(np.sort(diff)[min(k, len(diff)) - 1]))
-        points.append(float(w @ cand_hit / (w @ cand) - w @ base_hit / (w @ base)))
-    return lowers, points
+        out.lower.append(_lower(diff, level))
+        out.point.append(float(w @ cand_hit / (w @ cand) - w @ base_hit / (w @ base)))
+        # `other` recall: the same truth-other total under both rules
+        truth_other = wc @ is_other
+        rok = truth_other > 0
+        if rok.any():
+            rdiff = (wc @ (cand_hit - base_hit))[rok] / truth_other[rok]
+            out.recall_lower.append(_lower(rdiff, level))
+        else:
+            out.recall_lower.append(-math.inf)
+        total = wc.sum(axis=1)
+        adiff = (wc @ (cand_right - base_right)) / total
+        out.accuracy_lower.append(_lower(adiff, level))
+        out.recall_point.append(
+            float(w @ (cand_hit - base_hit) / (w @ is_other)) if is_other.any() else 0.0
+        )
+        out.accuracy_point.append(float(w @ (cand_right - base_right) / w.sum()))
+    return out
 
 
 def null_critical(
@@ -532,8 +623,9 @@ def null_critical(
     """The lower-bound value that only ``(1 - level) / 2`` of the draws exceed when the
     true gain is 0 (:func:`null_truth`): the critical value that makes this interval's
     false-positive rate nominal at this sample size. Pass it to :func:`simulate_power` as
-    ``critical`` for a power that does not benefit from a liberal interval."""
-    lowers, _ = _draw_summaries(
+    ``critical`` for a power that does not benefit from a liberal interval. Its own
+    sampling error is that of a 2.5% tail of *draws* draws: vary *seed* to see it."""
+    lowers = _draw_summaries(
         frame,
         null_truth(truth),
         draws=draws,
@@ -541,7 +633,7 @@ def null_critical(
         seed=seed,
         size_of=size_of,
         level=level,
-    )
+    ).lower
     if not lowers:
         return math.nan
     rank = math.ceil((1 - (1 - level) / 2) * len(lowers))
@@ -558,6 +650,7 @@ def simulate_power(
     size_of: Callable[[str], int] = report_half_size,
     level: float = 0.95,
     critical: float = 0.0,
+    tolerance: float = RECALL_TOLERANCE,
 ) -> PowerRow:
     """Power of T-123's estimator to detect the frame rule's gain under *truth*.
 
@@ -570,12 +663,14 @@ def simulate_power(
     Each draw takes the planned report-half sample per cell without replacement (all of
     a smaller cell), draws every sampled article's truth from the truth model, forms
     the paired difference of the population-weighted ``other`` precision, and takes a
-    stratified (within-cell) bootstrap interval with nearest-rank percentiles. Power is
-    the share of draws whose lower bound is above *critical* (0 by default; the nominal
-    test), and a draw whose bootstrap leaves the denominator empty in every replicate is
-    not counted as defined.
+    stratified (within-cell) bootstrap interval with nearest-rank percentiles. ``power``
+    is the share of draws whose lower bound is above *critical* (0 by default; the nominal
+    test). ``joint_power`` also requires the lower bounds of the paired `other`-recall and
+    overall-accuracy differences to be no worse than *tolerance* (T-123's conditions; macro
+    F1 is not modelled, see :func:`implied_changes`). A draw whose bootstrap leaves the
+    denominator empty in every replicate is not counted as defined.
     """
-    lowers, points = _draw_summaries(
+    d = _draw_summaries(
         frame,
         truth,
         draws=draws,
@@ -584,17 +679,24 @@ def simulate_power(
         size_of=size_of,
         level=level,
     )
-    defined = len(lowers)
+    defined = len(d.lower)
+    joint = sum(
+        lo > critical and rl >= tolerance and al >= tolerance
+        for lo, rl, al in zip(d.lower, d.recall_lower, d.accuracy_lower, strict=True)
+    )
     return PowerRow(
         frame.rule,
         truth.slug_share,
         implied_gain(frame, truth),
-        sum(lo > critical for lo in lowers) / defined if defined else 0.0,
+        sum(lo > critical for lo in d.lower) / defined if defined else 0.0,
         defined,
-        float(np.mean(points)) if points else 0.0,
-        float(np.std(points)) if points else 0.0,
-        float(np.mean(lowers)) if lowers else 0.0,
+        float(np.mean(d.point)) if d.point else 0.0,
+        float(np.std(d.point)) if d.point else 0.0,
+        float(np.mean(d.lower)) if d.lower else 0.0,
         critical,
+        joint / defined if defined else 0.0,
+        float(np.mean(d.recall_point)) if d.recall_point else 0.0,
+        float(np.mean(d.accuracy_point)) if d.accuracy_point else 0.0,
     )
 
 

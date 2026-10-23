@@ -1888,13 +1888,17 @@ changing the RESULTS contract):
    it needs inference.
    **Part (a) executed (2026-10-23):** `docs/evaluation.md`'s 2026-10-23 follow-up. Stored
    verdicts show a stricter threshold lowers overall accuracy, raises `other` recall and (from 0.75,
-   with a paired interval) lowers `other` precision, so the lever is a looser threshold (0.50 to
-   0.55). Whether it gains depends on the unmeasured share of articles whose truth is the argmax
-   slug and on its shape over the score bands (three shapes run: power for a +0.05 gain is
-   0.79 (0.76 null-calibrated; borderline or not detectable) for `t0.50+m0.00` and 0.89 (0.85) for `t0.50+m0.10` under the `graded` shape, only
-   `t0.50+m0.00` under `band`, none under a flat share). T-121(b) must measure that share
-   per band in the 0.4-0.6 cells, with an interval, and rerun the power check and the top-up
-   design on it (TASKS T-121(b) deliverable).
+   with a paired interval) lowers `other` precision. Loosening (0.50 to 0.55) is the only direction
+   that can raise `other` precision, but it re-labels 7,957 to 16,359 articles away from `other` and
+   the implied `other` recall falls by 0.09-0.30 (0.04 at best) against T-123's tolerance of -0.02,
+   which needs 92-98% of those articles to belong to the argmax slug (the shipped labels in the
+   bands above agree 62% and 80%). **So no uniform threshold rule can meet T-123; the lever is not
+   a threshold on the maximum score.** Power for a +0.05 precision gain alone: 0.78 (0.73-0.76
+   null-calibrated, not detectable) for `t0.50+m0.00` and 0.89 (0.85-0.88, detectable) for
+   `t0.50+m0.10` under the `graded` shape. T-121(b) must measure, per band and slug, the share of
+   articles whose truth is the argmax slug and how well the maximum score, the margin and the group
+   score separate truth-`other` from truth-slug articles, and test per-slug thresholds on that data
+   (TASKS T-121(b) deliverable).
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side

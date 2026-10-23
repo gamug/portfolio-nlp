@@ -12,6 +12,7 @@ from news_nlp.eval.calibration import (
     BASELINE,
     POWER_TARGET,
     RAMPS,
+    RECALL_TOLERANCE,
     ConfirmedArticle,
     Rule,
     TruthModel,
@@ -22,6 +23,7 @@ from news_nlp.eval.calibration import (
     classify_power,
     fit_truth_model,
     frame_for,
+    implied_changes,
     implied_gain,
     needs_refinement,
     null_critical,
@@ -32,6 +34,7 @@ from news_nlp.eval.calibration import (
     retag,
     simulate_power,
     slug_share_for_gain,
+    slug_share_for_recall,
     verdict_table,
 )
 from news_nlp.eval.sampling import EvalItem
@@ -377,20 +380,58 @@ def test_the_null_truth_gives_every_rule_a_gain_of_zero() -> None:
     )
 
 
-def test_a_null_critical_value_brings_the_false_positive_rate_to_nominal() -> None:
+def test_a_null_critical_value_holds_the_false_positive_rate_on_fresh_draws() -> None:
     frame = frame_for(_population(), Rule(0.5))
-    critical = null_critical(frame, _TRUTH, draws=200, boot_reps=100, seed=7)
+    critical = null_critical(frame, _TRUTH, draws=300, boot_reps=100, seed=7)
     assert critical >= 0.0  # a conservative interval is never made more liberal
-    again = simulate_power(
-        frame, null_truth(_TRUTH), draws=200, boot_reps=100, seed=7, critical=critical
+    # evaluated on draws the critical value was not fitted on (another seed, more draws):
+    # nominal is 0.025, and 400 draws put five standard deviations at about 0.065
+    fresh = simulate_power(
+        frame, null_truth(_TRUTH), draws=400, boot_reps=100, seed=99, critical=critical
     )
-    assert again.power <= 0.03  # 2.5% of 200 draws exceed it, up to ties
-    assert again.critical == critical
+    assert fresh.power <= 0.065
+    assert fresh.critical == critical
     # under a real gain the calibrated power can only be at or below the nominal one
     big = TruthModel(**{**_TRUTH.__dict__, "slug_share": 1.0})
     nominal = simulate_power(frame, big, draws=40, boot_reps=100, seed=7)
     calibrated = simulate_power(frame, big, draws=40, boot_reps=100, seed=7, critical=critical)
     assert calibrated.power <= nominal.power
+
+
+def test_a_loosening_rule_costs_other_recall_and_gains_accuracy() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    half = implied_changes(frame, TruthModel(**{**_TRUTH.__dict__, "slug_share": 0.5}))
+    full = implied_changes(frame, TruthModel(**{**_TRUTH.__dict__, "slug_share": 1.0}))
+    # the 200 articles at 0.5-0.6 stop being `other`; the more of them were really the slug,
+    # the less `other` recall is lost and the more accuracy and precision are gained
+    assert half.recall < full.recall <= 0.0  # at a share of 1 none of them was `other`
+    assert half.precision < full.precision and half.accuracy < full.accuracy
+    # a tightening rule does the opposite: more `other`, so more recall, less precision
+    tight = implied_changes(frame_for(_population(), Rule(0.8)), _TRUTH)
+    assert tight.recall > 0.0 and tight.precision < 0.0 and tight.accuracy < 0.0
+    assert implied_changes(frame_for(_population(), BASELINE), _TRUTH) == (0.0, 0.0, 0.0)
+
+
+def test_the_share_that_keeps_other_recall_within_tolerance_is_found_by_bisection() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    share = slug_share_for_recall(frame, _TRUTH)
+    assert share is not None and 0.0 < share < 1.0
+    at = implied_changes(frame, TruthModel(**{**_TRUTH.__dict__, "slug_share": share}))
+    assert at.recall == pytest.approx(RECALL_TOLERANCE, abs=1e-3)
+    # a bound that no share can reach, and one every share already meets
+    assert slug_share_for_recall(frame, _TRUTH, bound=0.5) is None
+    assert slug_share_for_recall(frame, _TRUTH, bound=-5.0) == 0.0
+
+
+def test_the_joint_power_is_zero_when_the_recall_loss_breaks_the_tolerance() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    low = TruthModel(**{**_TRUTH.__dict__, "slug_share": 0.5})
+    row = simulate_power(frame, low, draws=30, boot_reps=100, seed=2)
+    assert row.recall_diff < RECALL_TOLERANCE and row.joint_power == 0.0
+    # the precision test alone can still pass: that is the manager's point
+    big = TruthModel(**{**_TRUTH.__dict__, "slug_share": 1.0})
+    best = simulate_power(frame, big, draws=30, boot_reps=100, seed=2)
+    assert best.joint_power <= best.power
 
 
 def test_the_script_rejects_an_unknown_ramp_or_section_before_opening_a_database(
