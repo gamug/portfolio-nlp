@@ -543,6 +543,7 @@ class TruthSet(NamedTuple):
     rows: list[Truth]
     parse_failed: int  # drawn, judged, reply unusable: excluded from ``rows``
     unjudged: int  # drawn but no verdict (a run stopped at the cap)
+    populations: dict[str, int]  # cell -> population N, from the run's config
 
     def design_effect(self, half: Half) -> float | None:
         """Kish ``n * sum(w^2) / (sum w)^2`` of the weights this half's usable rows are
@@ -591,4 +592,4 @@ def load_truths(conn: NewsNlpDatabase, run_id: int) -> TruthSet:
         for (cell, half), members in sorted(usable.items())
         for a, slug in members
     ]
-    return TruthSet(rows, parse_failed, unjudged)
+    return TruthSet(rows, parse_failed, unjudged, populations)

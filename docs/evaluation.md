@@ -2414,6 +2414,61 @@ row's own stored per-class probability, not from the discrete predicted
 label the other per-class metrics use — see "FTI restructure, judge-verdict
 reuse, confusion matrix, and ROC/AUC" above for the formula.
 
+### Follow-up (2026-10-23): the judged calibration sample, stage 1 (Work item 15, T-121(b))
+
+Run with `scripts/calibrate_category_2026_10_23.py` (`plan` / `run --stage 1` / `report`), seed
+20261023, eval_run 45 in the real RESULTS store, blind truth-label judge (`category_truth`, the
+article only, the classifier's label not shown; DeepSeek endpoint of `LLM_*`). **Spend: 720 of
+the 3,800 calls of D10** (10 smoke-test articles, then the other 710 of stage 1; 0 parse failures,
+0 transport errors). The 3,300-article sample is drawn (46 + 27 strata over the 93,330 confirmed
+articles); the 0.5-0.6 band is split by the candidate rules into sub-cells A (removed by
+`t0.55+m0.20`, hence by `t0.50+m0.20` and `t0.55+m0.00`), U (removed by `t0.50+m0.20` only), V
+(removed by `t0.55+m0.00` only) and W (none); stage 1 judged every article drawn in A, U and V
+(40 + 24 + 16 per slug, 720 in all) and none of the other strata.
+
+| rule | removed (of 35,368 `other`) | judged inside | truly `other` | weighted rate | 95% | one-sided 98.75% lower | cap (T-123) | design effect | result |
+|---|---|---|---|---|---|---|---|---|---|
+| `t0.50+m0.20` | 9,728 | 576 | 139 | 0.287 | 0.231-0.349 | 0.226 | 0.035 | 2.63 | **fails** |
+| `t0.55+m0.00` | 7,957 | 504 | 101 | 0.285 | 0.222-0.356 | 0.214 | 0.043 | 2.82 | **fails** |
+| `t0.55+m0.20` | 6,198 | 360 | 87 | 0.335 | 0.257-0.422 | 0.246 | 0.055 | 2.72 | **fails** |
+
+By sub-cell, the weighted share truly `other` is **A 0.335** (360 judged, 6,198 articles),
+**U 0.204** (216, 3,530) and **V 0.111** (144, 1,759). Overall 153 of the 720 verdicts are `other`
+and 48% equal the argmax slug (unweighted).
+
+**Reading.**
+
+* **Every candidate loosening rule fails the T-123 co-requirement, early (the stage-1 stop rule
+  of the staged design):** the one-sided 98.75% lower bound of the truly-`other` rate of the
+  removed set is 5 to 7 times its cap. The conclusion does not depend on the baseline: the caps
+  use `other` precision 0.319 and recall 0.661 measured with the *anchored* judge of eval_run
+  43; even if the total of truly-`other` articles T were all 93,330, the recall tolerance
+  (-0.02) would allow 1,866 truly-`other` articles to leave `other`, and `t0.55+m0.20` alone
+  would remove about 2,076 (6,198 x 0.335).
+* **No score separates the subsets.** Among the 720 judged stored-`other` articles of the
+  0.4-0.6 bands, P(truly-slug article has a higher value than a truly-`other` one) is **0.42
+  (0.34-0.50) for the maximum score, 0.40 (0.33-0.47) for the margin over the runner-up and 0.63
+  (0.56-0.70) for the group score**. A higher score or a larger margin does not make an article
+  more likely to have a real category; the sub-cell with the clearest margin and score (A) is the
+  dirtiest. The group score separates a little. So a threshold or margin on the leaf scores
+  cannot isolate a clean subset, which was the open question left by T-121(a).
+* **These rates are 2 to 4 times the ones the stored verdicts gave** (A-like subsets 8-17%, the
+  0.5-0.6 band 19%). The stored verdicts came from a judge that saw the model's label; this one
+  does not. Only 5 articles are common to both runs, so the gap between an anchored and a blind
+  judge is not measured here. What stage 1 does show is that, against a label chosen from the
+  article alone, a large share of what the classifier calls `other` in 0.5-0.6 is
+  genuinely `other` (multi-company round-ups, generic market commentary).
+* **Limits.** Stage 1 covers only the sub-cells A, U and V, so it says nothing yet about the
+  other cells: the T-123 baseline under the blind judge, the short-circuit stratum
+  (`CATEGORY_GROUP_FLOOR`), per-slug thresholds in the other bands, and the loosening of
+  `t0.50`/`m0.10` (already excluded by T-121(a)). The design effect (2.6-2.8) is large because the
+  sub-cells are sampled at very different rates; the intervals above include it.
+
+**Not run (2,580 calls left in the sample, 3,080 in the cap):** stage 2 (the other 2,580 strata).
+It would re-measure the baseline `other` precision and recall with the blind judge, the AUCs on
+all cells, per-slug thresholds and the floor decision. See TASKS T-121(b) for the owner's
+decision on it.
+
 ## Sampling: low-confidence + targeted + representative strata
 
 Each run draws `--sample-size` rows per stage as a **disjoint,
