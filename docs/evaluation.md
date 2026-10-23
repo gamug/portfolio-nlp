@@ -2237,22 +2237,29 @@ closed form of `loosening_bound` at that share, point and interval ends):
 
 | rule | removed (population) | judged | truly `other` | weighted (95%) | cap | d recall (point; interval) | d precision | reading |
 |---|---|---|---|---|---|---|---|---|
-| `t0.50+m0.00` | 16,359 | 78 | 12 | 0.193 (0.09-0.30) | 2.1% | -0.186 (-0.287 to -0.082) | +0.108 | above the cap |
-| `t0.50+m0.10` | 14,582 | 64 | 10 | 0.186 (0.07-0.30) | 2.3% | -0.159 (-0.256 to -0.061) | +0.093 | above the cap |
-| `t0.50+m0.20` | 9,728 | 36 | 4 | 0.079 (0.01-0.21) | 3.5% | -0.045 (-0.117 to -0.003) | +0.091 | interval includes the cap |
-| `t0.55+m0.00` | 7,957 | 38 | 5 | 0.166 (0.03-0.31) | 4.3% | -0.078 (-0.147 to -0.016) | +0.044 | interval includes the cap |
-| `t0.55+m0.20` | 6,198 | 25 | 2 | 0.087 (0.00-0.25) | 5.5% | -0.032 (-0.092 to -0.000) | +0.049 | interval includes the cap |
+| `t0.50+m0.00` | 16,359 | 78 | 12 | 0.193 (0.09-0.30) | 2.1% | -0.19 (-0.29 to -0.08) | +0.11 | above the cap |
+| `t0.50+m0.10` | 14,582 | 64 | 10 | 0.186 (0.07-0.30) | 2.3% | -0.16 (-0.26 to -0.06) | +0.09 | above the cap |
+| `t0.50+m0.20` | 9,728 | 36 | 4 | 0.079 (0.01-0.21) | 3.5% | -0.05 (-0.12 to -0.00) | +0.09 | interval includes the cap |
+| `t0.55+m0.00` | 7,957 | 38 | 5 | 0.166 (0.03-0.31) | 4.3% | -0.08 (-0.15 to -0.02) | +0.04 | interval includes the cap |
+| `t0.55+m0.20` | 6,198 | 25 | 2 | 0.087 (0.00-0.25) | 5.5% | -0.03 (-0.09 to -0.00) | +0.05 | interval includes the cap |
 
 On the stored evidence **the two lowest-margin rules fail**: `t0.50+m0.00` and `t0.50+m0.10` remove a set
 that is truly `other` 19% of the time against a cap of 2%, with an interval that excludes the cap. The
 margin of 0.2 halves the rate (0.19 to 0.08-0.09), which is still above the cap at the point estimate
-(recall change -0.045 and -0.032 against -0.02) but, with 36 and 25 judged items, **not excluded**; nor is
+(recall change -0.05 and -0.03 against -0.02) but, with 36 and 25 judged items, **not excluded**; nor is
 `t0.55+m0.00` (38 items). The power and joint tables below give every rule the band average (0.193), so
 their recall columns are those of the band, not of the margin subsets (for `t0.50+m0.20` the band figure is
--0.11, the subset figure -0.045): read this table for the recall verdict and the power tables for what the
+-0.11, the subset figure -0.05): read this table for the recall verdict and the power tables for what the
 precision test can detect. Macro F1 is in neither. Whether a margin or a score isolates a set truly
 `other` in only 2-5.5% of cases is the open question for T-121(b), which should oversample the `m0.20`
 subsets.
+
+**How many judged articles T-121(b) needs inside each removed set** (`items_to_decide`; one-sided 95%, 80%
+power, normal approximation, a planning figure): to show a rule fails at the stored rate, 11 (`t0.50`), 13
+(`m0.10`), 145 (`t0.50+m0.20`), 28 (`t0.55`) and 359 (`t0.55+m0.20`); to show it passes if its true rate were
+half the cap, 946 / 841 / 555 / 451 / 348, and at three quarters of the cap 4,241 / 3,771 / 2,488 / 2,020 /
+1,555. Failing a rule is cheap; passing one is affordable only if the removed set is well below its cap, so
+T-121(b) samples in stages (TASKS.md T-121(b)).
 
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of weighted
 sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 300-replicate within-cell

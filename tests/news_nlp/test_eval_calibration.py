@@ -28,6 +28,7 @@ from news_nlp.eval.calibration import (
     frame_for,
     implied_changes,
     implied_gain,
+    items_to_decide,
     loosening_bound,
     low_band_counts,
     measure_bands,
@@ -551,3 +552,13 @@ def test_subset_effect_matches_the_closed_form_bound() -> None:
     assert eff.precision > 0.05  # the precision side is looser for this removal
     clean = subset_effect(35368, 9728, 0.0, 0.319, 0.661)
     assert clean.recall == 0.0
+
+
+def test_items_to_decide_matches_the_hand_formula_and_rejects_equal_rates() -> None:
+    # one-sided 95%, 80% power: ((1.645 sqrt(.035 .965) + .8416 sqrt(.08 .92)) / .045)^2 = 139
+    assert 135 <= items_to_decide(0.035, 0.08) <= 145
+    # passing costs more than failing, and a farther rate needs fewer items
+    assert items_to_decide(0.035, 0.0175) > items_to_decide(0.035, 0.08)
+    assert items_to_decide(0.035, 0.12) < items_to_decide(0.035, 0.08)
+    with pytest.raises(ValueError, match="two different rates"):
+        items_to_decide(0.05, 0.05)

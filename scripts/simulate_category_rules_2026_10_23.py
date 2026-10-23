@@ -11,7 +11,11 @@ minimum margin of the best slug over the runner-up):
 2. for the rules that only tighten the shipped one, the stored eval run's metrics on the
    `accept` partition (the judge's `ideal_slug` is the truth), a first coarse trade-off
    table with paired bootstrap intervals against the shipped rule;
-3. the power of T-123's estimator (paired difference of the weighted `other` precision,
+3. the stored verdicts' own answer (`--sections stored`, seconds): P(truth is `other`) per
+   score band and, per loosening rule, among the judged articles it would take out of
+   `other`, against the cap of the T-123 bound, plus the judged articles T-121(b) needs to
+   decide each rule;
+4. the power of T-123's estimator (paired difference of the weighted `other` precision,
    within-cell bootstrap) at the planned report-half sample size, under a truth model
    with a swept probability that a 0.5-0.6 article is truly `other` (the average over the
    articles labelled `other` stays at the measured precision), and at the rate where the
@@ -58,6 +62,7 @@ from news_nlp.eval.calibration import (
     fit_truth_model,
     frame_for,
     implied_changes,
+    items_to_decide,
     loosening_bound,
     low_band_counts,
     measure_bands,
@@ -479,6 +484,7 @@ def report_stored(
         f"  {'rule':<12}{'removed':>8}{'judged':>7}{'raw':>7}{'weighted':>9}  {'95%':<14}"
         f"{'cap':>6}  {'d recall (pt / lo..hi)':<28}{'d precision':>12}  reading"
     )
+    sizes: list[tuple[str, float, float]] = []
     seen: set[bytes] = set()
     n_other = int(frame_for(articles, BASELINE).base_other.sum())
     for rule in rules:
@@ -506,8 +512,30 @@ def report_stored(
         print(
             f"  {rule.name:<12}{removed:>8}{m.n:>7}{m.n_other:>4}/{m.n:<2}{m.other:>8.3f}  "
             f"[{m.low:.2f}, {m.high:.2f}]{'':>3}{100 * cap.max_rate:>5.1f}%  "
-            f"{effects[0].recall:>+.3f} / {effects[1].recall:+.3f}..{effects[2].recall:+.3f}"
-            f"{'':>6}{effects[0].precision:>+10.3f}  {reading}"
+            f"{effects[0].recall:>+.2f} / {effects[1].recall:+.2f}..{effects[2].recall:+.2f}"
+            f"{'':>6}{effects[0].precision:>+10.2f}  {reading}"
+        )
+        sizes.append((rule.name, m.other, cap.max_rate))
+
+    report_sizing(sizes)
+
+
+def report_sizing(sizes: list[tuple[str, float, float]]) -> None:
+    """Judged articles needed inside each rule's removed set (T-121(b)'s sizing), one-sided
+    95% with 80% power: to show the rule fails when its truly-`other` rate is the stored
+    estimate, and to show it passes if the rate were half or three quarters of the cap."""
+    section(
+        "Judged articles needed inside the removed set to decide each rule against its cap "
+        "(one-sided 95%, 80% power, normal approximation)"
+    )
+    print(
+        f"  {'rule':<12}{'cap':>6}{'stored':>8}{'to fail it':>12}{'pass @0.5 cap':>15}{'pass @0.75 cap':>16}"
+    )
+    for name, rate, cap in sizes:
+        fail = f"{items_to_decide(cap, rate)}" if rate > cap else "-"
+        print(
+            f"  {name:<12}{100 * cap:>5.1f}%{rate:>8.3f}{fail:>12}"
+            f"{items_to_decide(cap, 0.5 * cap):>15}{items_to_decide(cap, 0.75 * cap):>16}"
         )
 
 

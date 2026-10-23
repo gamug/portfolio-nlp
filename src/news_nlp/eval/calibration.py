@@ -32,6 +32,7 @@ import random
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from statistics import NormalDist
 from typing import NamedTuple
 
 import numpy as np
@@ -513,6 +514,26 @@ def measure_rule(accept_pairs: Sequence[Pair], rule: Rule) -> BandMeasure | None
         high,
         0.0,
     )
+
+
+def items_to_decide(
+    cap: float, true_rate: float, *, alpha: float = 0.05, power: float = 0.80
+) -> int:
+    """Judged articles needed inside a rule's removed set to tell, one-sided at *alpha* with
+    the given *power*, that its truly-`other` rate is on the other side of *cap* from
+    *true_rate* (above it to fail the rule, below it to pass it): the normal approximation
+    ``((z_a sqrt(c(1-c)) + z_b sqrt(p(1-p))) / (p - c))^2`` of a one-sample test. A planning
+    figure for T-121(b)'s staged sample, not a guarantee. Raises ``ValueError`` if the two
+    rates are equal or outside (0, 1)."""
+    if not (0 < cap < 1 and 0 < true_rate < 1) or cap == true_rate:
+        raise ValueError(
+            f"need two different rates in (0, 1), got cap={cap}, true_rate={true_rate}"
+        )
+    z = NormalDist()
+    spread = z.inv_cdf(1 - alpha) * math.sqrt(cap * (1 - cap)) + z.inv_cdf(power) * math.sqrt(
+        true_rate * (1 - true_rate)
+    )
+    return math.ceil((spread / (true_rate - cap)) ** 2)
 
 
 class SubsetEffect(NamedTuple):
