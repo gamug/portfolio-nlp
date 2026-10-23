@@ -2078,7 +2078,8 @@ and 60 short-circuit. That is 3,300 judge calls at most (cap 3,800 with the disc
 on the data the thresholds were fitted on.
 
 **T-133 steps 2-4: the complete metric set per upstream class (same script, section 12;
-no judge call; run on 2026-10-22).** The stored judgements of eval_run 43 (2,800 items)
+no judge call; run on 2026-10-22, per-class label counts and intervals re-derived on
+2026-10-23 after review).** The stored judgements of eval_run 43 (2,800 items)
 are split by `discovered_urls.match_class` and each part is run back through
 `aggregate_category`, the live-run code path (`news_nlp.eval.partition`). Each part keeps
 the run's own weight per article: a stratum's population is rescaled to
@@ -2092,7 +2093,11 @@ at its own size; `news_nlp.eval.partition.bootstrap_interval`, free, printed by 
 script): all 0.576 [0.540, 0.613]; `accept` 0.319 [0.242, 0.403]; `reject` 0.639
 [0.599, 0.681]; `accept` minus `reject` -0.320 [-0.405, -0.233]. The other cells carry no
 interval and the small per-class cells in `accept` are indicative only. A partition's
-rescaled stratum population is rounded and clamped to at least 1.
+rescaled stratum population is rounded and clamped to at least 1. Robustness: seed 1
+with 1,000 replicates gives `accept` [0.241, 0.398], `reject` [0.596, 0.684] and the
+difference [-0.411, -0.226], within 0.01 of the bounds above; every replicate had a
+defined statistic (the bootstrap skips a replicate whose `precision_`/`recall_` has an
+empty denominator, and reports how many were used).
 
 | metric | all | `accept` (survivors) | `review` | `reject` |
 |---|---|---|---|---|
@@ -2108,9 +2113,9 @@ and the four columns are printed by the script (section 12) and are not repeated
 
 **Reading.** On the confirmed articles the model labels `other` about as often as
 elsewhere (0.41 against 0.44) but the judge does so far less (0.20 against 0.41), so
-`other` precision on them is 0.32 (interval 0.24-0.40), not the 0.58 quoted for the whole run: more than two
-thirds of the confirmed articles the model sends to `other` carry a real category in the
-judge's view. That agrees in direction with the unweighted 37% above and makes the
+`other` precision on them is 0.32 (interval 0.24-0.40), not the 0.58 quoted for the
+whole run: about two thirds of the confirmed articles the model sends to `other` (point
+estimate 68%, interval 60-76%) carry a real category in the judge's view. That agrees in direction with the unweighted 37% above and makes the
 `other` problem of Work item 15 a property of the confirmed corpus, not an artefact of
 the wrongly tagged articles (they inflate the quoted precision). `other` recall is
 similar across parts (0.62-0.66), so the cost of the rule is mostly in precision.

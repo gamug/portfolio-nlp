@@ -147,14 +147,19 @@ def test_bootstrap_interval_brackets_the_estimate_and_is_deterministic() -> None
         for i in range(1, 61)
     ]
     part = {i: ("accept" if i <= 30 else "reject") for i in range(1, 61)}
-    est, low, high = bootstrap_interval(pairs, part, "precision_other", partition="accept", reps=80)
+    est, low, high, used, reps = bootstrap_interval(
+        pairs, part, "precision_other", partition="accept", reps=80
+    )
+    assert (used, reps) == (80, 80)
     assert low <= est <= high
     assert bootstrap_interval(pairs, part, "precision_other", partition="accept", reps=80) == (
         est,
         low,
         high,
+        used,
+        reps,
     )
-    diff, dlow, dhigh = bootstrap_interval(
+    diff, dlow, dhigh, _, _ = bootstrap_interval(
         pairs, part, "precision_other", minus=("accept", "reject"), reps=80
     )
     assert dlow <= diff <= dhigh
@@ -198,3 +203,18 @@ def test_the_measurement_script_maps_articles_to_their_upstream_class(tmp_path: 
     )
     assert module.load_partition_of(urls, [1, 2, 3, 4]) == {1: "accept", 2: "reject", 3: "(none)"}
     urls.close()
+
+
+def test_bootstrap_skips_replicates_with_an_empty_denominator() -> None:
+    # Only article 1 is predicted `other` in `accept`; a replicate that redraws it away
+    # (or never draws it) has no predicted `other` there: precision is undefined, not 0.
+    pairs = [_pair(1, "representative", 100, "other", "other")] + [
+        _pair(i, "representative", 100, "legal_regulatory", "legal_regulatory")
+        for i in range(2, 12)
+    ]
+    part = dict.fromkeys(range(1, 12), "accept")
+    out = bootstrap_interval(pairs, part, "precision_other", partition="accept", reps=200)
+    assert out.used < out.reps
+    assert out.low == out.high == 1.0  # every usable replicate has precision 1
+    none = bootstrap_interval(pairs[1:], part, "precision_other", partition="accept", reps=20)
+    assert none.used == 0

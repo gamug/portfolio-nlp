@@ -410,7 +410,9 @@ def report_eval(conn: sqlite3.Connection, run_id: int) -> None:
             print(f"    {match_class:<8} {rate(agree, n)}")
 
 
-def report_partitions(conn: sqlite3.Connection, results: Path, run_id: int) -> None:
+def report_partitions(
+    conn: sqlite3.Connection, results: Path, run_id: int, reps: int = 500, seed: int = 0
+) -> None:
     """T-133 steps 2-4: the stored judgements of one run, split by upstream class and
     run back through `aggregate_category` (the live-run code path, no judge call). Each
     partition's strata are reweighted to a domain estimate (news_nlp.eval.partition)."""
@@ -447,15 +449,41 @@ def report_partitions(conn: sqlite3.Connection, results: Path, run_id: int) -> N
     hidden = [k for k in keys if k not in shown]
     print(f"  not printed ({len(hidden)}, in metrics_by_partition): {', '.join(hidden)}")
     if "accept" in out and "reject" in out:
-        print("  95% stratified-bootstrap intervals (500 replicates, seed 0):")
-        for label, kwargs in (
-            ("precision_other, all", {"partition": "all"}),
-            ("precision_other, accept", {"partition": "accept"}),
-            ("precision_other, reject", {"partition": "reject"}),
-            ("precision_other, accept - reject", {"minus": ("accept", "reject")}),
+        print(f"  95% stratified-bootstrap intervals ({reps} replicates, seed {seed}):")
+        for label, interval in (
+            (
+                "all",
+                bootstrap_interval(pairs, partition_of, "precision_other", reps=reps, seed=seed),
+            ),
+            (
+                "accept",
+                bootstrap_interval(
+                    pairs, partition_of, "precision_other", partition="accept", reps=reps, seed=seed
+                ),
+            ),
+            (
+                "reject",
+                bootstrap_interval(
+                    pairs, partition_of, "precision_other", partition="reject", reps=reps, seed=seed
+                ),
+            ),
+            (
+                "accept - reject",
+                bootstrap_interval(
+                    pairs,
+                    partition_of,
+                    "precision_other",
+                    minus=("accept", "reject"),
+                    reps=reps,
+                    seed=seed,
+                ),
+            ),
         ):
-            est, low, high = bootstrap_interval(pairs, partition_of, "precision_other", **kwargs)  # type: ignore[arg-type]
-            print(f"    {label:<34} {est:>7.3f}  [{low:.3f}, {high:.3f}]")
+            est, low, high, used, reps = interval
+            print(
+                f"    precision_other, {label:<16} {est:>7.3f}  [{low:.3f}, {high:.3f}]"
+                f"  ({used}/{reps} usable)"
+            )
 
 
 def load_partition_of(conn: sqlite3.Connection, ids: list[int]) -> dict[int, str]:
@@ -481,6 +509,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--source-db", type=Path, default=default_path("SOURCE_DATABASE_URL"))
     parser.add_argument("--results-db", type=Path, default=default_path("DATABASE_URL"))
+    parser.add_argument("--bootstrap-reps", type=int, default=500)
+    parser.add_argument("--bootstrap-seed", type=int, default=0)
     parser.add_argument("--eval-run", type=int, default=43, help="category eval_run to partition")
     args = parser.parse_args()
     if args.source_db is None or args.results_db is None:
@@ -496,7 +526,9 @@ def main() -> int:
     report_calibration_cells(conn)
     report_unprocessed(conn)
     report_eval(conn, args.eval_run)
-    report_partitions(conn, args.results_db, args.eval_run)
+    report_partitions(
+        conn, args.results_db, args.eval_run, args.bootstrap_reps, args.bootstrap_seed
+    )
     return 0
 
 

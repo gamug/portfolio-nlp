@@ -77,14 +77,14 @@ def _rate(flags: Sequence[bool]) -> float:
 #: stress test / soft-probability class targeting) and must never feed a
 #: population-estimate metric. See sampling.py's module docstring and
 #: docs/evaluation.md's "Statistical methodology" section.
-_DIAGNOSTIC_ONLY_BUCKETS: frozenset[str] = frozenset({"low_conf"})
+DIAGNOSTIC_ONLY_BUCKETS: frozenset[str] = frozenset({"low_conf"})
 
 
 def _ht_sum(
     items: Sequence[EvalItem],
     flags: Sequence[float],
     *,
-    exclude: frozenset[str] = _DIAGNOSTIC_ONLY_BUCKETS,
+    exclude: frozenset[str] = DIAGNOSTIC_ONLY_BUCKETS,
 ) -> float:
     """Horvitz-Thompson population-total estimate of *flags* from a disjoint
     stratified sample: each non-excluded stratum ``h`` contributes
@@ -113,7 +113,7 @@ def _ht_ratio(
     numerator_flags: Sequence[float],
     denominator_flags: Sequence[float],
     *,
-    exclude: frozenset[str] = _DIAGNOSTIC_ONLY_BUCKETS,
+    exclude: frozenset[str] = DIAGNOSTIC_ONLY_BUCKETS,
 ) -> float:
     """HT estimate of ``sum(numerator)/sum(denominator)`` over the population.
     A weighted mean is the special case
@@ -129,7 +129,7 @@ def _prf_ht(
     fp_flags: Sequence[float],
     fn_flags: Sequence[float],
     *,
-    exclude: frozenset[str] = _DIAGNOSTIC_ONLY_BUCKETS,
+    exclude: frozenset[str] = DIAGNOSTIC_ONLY_BUCKETS,
 ) -> tuple[float, float, float]:
     tp = _ht_sum(items, tp_flags, exclude=exclude)
     fp = _ht_sum(items, fp_flags, exclude=exclude)
@@ -168,7 +168,7 @@ def _per_bucket(items: Sequence[EvalItem], values: Sequence[float]) -> dict[str,
 
 
 def _ht_weights(
-    items: Sequence[EvalItem], *, exclude: frozenset[str] = _DIAGNOSTIC_ONLY_BUCKETS
+    items: Sequence[EvalItem], *, exclude: frozenset[str] = DIAGNOSTIC_ONLY_BUCKETS
 ) -> list[float]:
     """Per-item Horvitz-Thompson weight (``population_h / n_h'``), 0.0 for an
     excluded (diagnostic-only) bucket -- the same per-bucket reweighting

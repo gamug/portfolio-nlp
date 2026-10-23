@@ -29,9 +29,9 @@ import math
 import random
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
-from news_nlp.eval.metrics import _DIAGNOSTIC_ONLY_BUCKETS, aggregate_category
+from news_nlp.eval.metrics import DIAGNOSTIC_ONLY_BUCKETS, aggregate_category
 from news_nlp.eval.sampling import EvalItem
 from news_nlp.eval.verdicts import CategoryVerdict
 
@@ -143,10 +143,42 @@ def judge_label_counts(
     article missing from *partition_of* is the partition ``"(none)"``."""
     out: dict[str, Counter[str]] = {}
     for it, v in pairs:
-        if v.parse_failed or it.bucket in _DIAGNOSTIC_ONLY_BUCKETS:
+        if v.parse_failed or it.bucket in DIAGNOSTIC_ONLY_BUCKETS:
             continue
         out.setdefault(partition_of.get(it.article_id, "(none)"), Counter())[v.ideal_slug] += 1
     return {name: dict(sorted(c.items())) for name, c in sorted(out.items())}
+
+
+class Interval(NamedTuple):
+    """A bootstrap interval: the point estimate, the percentile bounds, and how many of the
+    replicates the statistic was defined on (``used`` of ``reps``)."""
+
+    estimate: float
+    low: float
+    high: float
+    used: int
+    reps: int
+
+
+def _defined(key: str, sample: Sequence[Pair], partition_of: Mapping[int, str], name: str) -> bool:
+    """Whether *key* has a non-empty denominator for *name* in *sample*: ``precision_<slug>``
+    needs an item the model put in ``<slug>``, ``recall_<slug>`` one the judge did. The HT
+    ratios return 0.0 on an empty denominator, which would otherwise enter the draws as a
+    real value."""
+    if key.startswith("precision_"):
+        slug, field = key[len("precision_") :], "model"
+    elif key.startswith("recall_"):
+        slug, field = key[len("recall_") :], "judge"
+    else:
+        return True
+    for it, v in sample:
+        if v.parse_failed or it.bucket in DIAGNOSTIC_ONLY_BUCKETS:
+            continue
+        if name != "all" and partition_of.get(it.article_id, "(none)") != name:
+            continue
+        if (it.prediction.get("label") if field == "model" else v.ideal_slug) == slug:
+            return True
+    return False
 
 
 def bootstrap_interval(
@@ -159,14 +191,19 @@ def bootstrap_interval(
     reps: int = 500,
     seed: int = 0,
     level: float = 0.95,
-) -> tuple[float, float, float]:
-    """``(estimate, low, high)`` of metric *key* for *partition*, by a stratified bootstrap:
-    each replicate redraws every bucket's items with replacement at the bucket's own size,
-    then recomputes :func:`metrics_by_partition`. With ``minus=(a, b)`` the statistic is
-    ``metric(a) - metric(b)`` instead (*partition* is ignored). Replicates where the
-    statistic is not finite (an empty class) are skipped. Free: no judge call."""
+) -> Interval:
+    """Interval of metric *key* for *partition*, by a stratified bootstrap: each replicate
+    redraws every bucket's items with replacement at the bucket's own size, then recomputes
+    :func:`metrics_by_partition`. With ``minus=(a, b)`` the statistic is
+    ``metric(a) - metric(b)`` instead (*partition* is ignored). A replicate is skipped when
+    the statistic is not finite or when a ``precision_``/``recall_`` metric has an empty
+    denominator in a partition it uses; ``Interval.used`` says how many remained. Free: no
+    judge call."""
+    names = minus if minus else (partition,)
 
     def stat(sample: Sequence[Pair]) -> float:
+        if not all(_defined(key, sample, partition_of, n) for n in names):
+            return math.nan
         out = metrics_by_partition(sample, partition_of)
         if minus:
             return out.get(minus[0], {}).get(key, math.nan) - out.get(minus[1], {}).get(
@@ -186,11 +223,13 @@ def bootstrap_interval(
             draws.append(value)
     point = stat(pairs)
     if not draws:
-        return point, math.nan, math.nan
+        return Interval(point, math.nan, math.nan, 0, reps)
     draws.sort()
     tail = (1 - level) / 2
-    return (
+    return Interval(
         point,
         draws[int(tail * (len(draws) - 1))],
         draws[round((1 - tail) * (len(draws) - 1))],
+        len(draws),
+        reps,
     )
