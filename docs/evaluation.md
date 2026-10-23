@@ -2715,6 +2715,37 @@ each ending with a strict "reply with ONLY a raw JSON object" instruction.
 `category.md` embeds the 10-label taxonomy; keep it in sync with
 `news_nlp.taxonomy` / `docs/category-taxonomy.md` if the labels change.
 
+### Calibration judge and sampler (T-141)
+
+`calibration.md` is not a stage prompt: it belongs to the opt-in calibration judge
+(`news_nlp/eval/calibration_judge.py`) that T-121(b) uses. It shows the judge the article
+only (never the classifier's output) and asks for the best-fitting label of the full
+taxonomy, `other` included: the **truth label**. "The argmax slug fits" is truth == argmax;
+for the short-circuit stratum, "`other` is correct" is truth == `other`.
+
+* Verdicts are stored under `eval_verdict.task = "category_truth"` (and `eval_run.stage` the
+  same), so a stored-label verdict (task `category`) never satisfies a truth lookup. The task
+  is outside `sampling.STAGES`, `judges.JUDGES` and `VERDICT_MODELS`: `--stage all` and
+  `ExperimentSpec` do not see it. Its `eval_run` rows do appear in `latest_eval_runs` under that stage name.
+* An out-of-taxonomy slug is not coerced to `other`: it goes to the repair prompt and then to a
+  `parse_failed` fallback, which is never reused and is counted in the run's usage.
+* **The wording is frozen.** `test_eval_calibration_judge.py` pins the prompt's SHA-256;
+  a change to the wording or to the label set invalidates every stored `category_truth`
+  verdict and costs a re-judge, to be budgeted separately from D10.
+* `judge_and_record` reuses a stored verdict (same article, task, experiment and prediction),
+  judges the rest through a worker pool, records them, and refuses to start if the number of
+  needed calls is over `max_calls` (the D10 cap), so a run never half-spends.
+* The sampler (`calibration_sample.draw_sample`) stratifies confirmed articles by
+  (argmax slug x score band) plus the short-circuit stratum, draws `2 x report_half_size`
+  per cell (all of a smaller cell), and splits each cell at random into a fit and a report
+  half. Each cell has its own generator seeded from the run seed and the cell name, so the
+  same inputs and seed give the same draw and one cell's population never moves another's.
+  An article's weight in a half is the cell population over the cell's articles in that
+  half; `design_effect` gives the Kish factor of a half's weights, which the sizing in
+  `calibration.items_to_decide` needs. `run_config` returns what must be stored with the
+  run: seed, band edges, cell populations, half assignment, judge model, temperature,
+  judge seed, prompt hash, date.
+
 ## Experiments: JSON-driven, single-command runs
 
 (2026-09-18, `PLAN.md` Work item 11, `SPEC.md` FR-017, `TASKS.md`

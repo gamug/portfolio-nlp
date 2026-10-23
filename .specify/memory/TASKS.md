@@ -254,7 +254,7 @@ Dependencies at a glance:
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
 | T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **done 2026-10-23** |
-| T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
+| T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **done 2026-10-23** |
 | T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
 | T-122 ship the rule | T-121 | T-123 | no |
@@ -627,7 +627,7 @@ Dependencies at a glance:
       pass/fail check), and how well the maximum score, the margin and the group score separate
       truly-`other` from truly-slug articles (an AUC); per-slug thresholds are tested on that
       data.** Its top-up design waits for the frozen rule.
-- [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
+- [x] **T-141** *(new; done 2026-10-23, `news_nlp/eval/calibration_judge.py`, `calibration_sample.py`, `prompts/calibration.md`; `docs/evaluation.md` "Calibration judge and sampler")* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default
       stage list). The judge returns the **best-fitting label from the full taxonomy,
