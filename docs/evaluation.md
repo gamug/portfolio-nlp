@@ -2133,6 +2133,74 @@ for the plan: eval_run 43's `accept` partition is **not** T-123's baseline; T-12
 its baseline from the report half of T-121(b)'s stratified judged sample (already the
 plan above), and this table is the reason that sample exists. No behavior was changed.
 
+### Follow-up (2026-10-23): offline simulation of candidate decision rules, no judge call (Work item 15, T-121(a))
+
+`scripts/simulate_category_rules_2026_10_23.py` (read-only, both databases `mode=ro`;
+logic in `news_nlp.eval.calibration`) reruns on the stored scores of the 93,330
+confirmed (`accept`) articles. Rules are uniform: one confidence threshold for all slugs and a minimum
+margin of the best slug over the runner-up (32 candidates; per-slug thresholds are fitted
+on T-121(b)'s fit half, there is too little per-slug data to fit nine of them here).
+`t0.60+m0.00` is the shipped rule and reproduces every stored label.
+
+**Re-labelled articles** (of 93,330; the full per-band split is in the script's output):
+
+| rule | re-labelled | direction |
+|---|---|---|
+| `t0.50` | 16,359 (17.5%) | all `other` -> slug, all in the 0.5-0.6 band |
+| `t0.55` | 7,957 (8.5%) | `other` -> slug |
+| `t0.65` | 7,843 (8.4%) | slug -> `other` |
+| `t0.70` | 15,138 (16.2%) | slug -> `other` |
+| `t0.80` | 28,916 (31.0%) | slug -> `other` |
+| `t0.90` | 42,450 (45.5%) | slug -> `other` |
+
+A margin does little at a threshold of 0.6 or more: a best score of 0.6 leaves at most 0.4 for the
+runner-up, so margins up to 0.2 never bind; a margin of 0.1 is the same rule as 0.0 at every
+threshold, and only 0.3 changes labels (1,918 articles at `t0.60`, to `other`).
+
+**Stored verdicts, tightening rules only** (eval_run 43, `accept` partition, 538 judged,
+point estimates, no interval): the judge's `ideal_slug` is the truth, so the rules that
+only send items to `other` are scored exactly. Raising the threshold raises the mean per-slug precision
+(0.698 at 0.60, 0.739 at 0.70, 0.845 at 0.90) and `other` recall (0.661 to 0.798 to 0.931),
+and **lowers** `other` precision (0.319 to 0.284 to 0.224), overall accuracy (0.526 to 0.474
+to 0.337) and macro F1 (0.558 to 0.510 to 0.318): the articles it moves to `other` are
+mostly ones the judge gave a real category. So a stricter threshold trades `other` precision
+for slug precision; it does not fix the `other` problem. A rule that moves items *away* from
+`other` cannot be scored from these verdicts (the judge graded `other` on them, not the slug)
+and needs T-121(b)'s sample.
+
+**Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of
+weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 200 draws,
+300-replicate within-cell bootstrap, nearest-rank 95% interval, seed 0). Truth model: in the
+>= 0.6 cells, eval_run 43's measured per-cell agreement (a cell with fewer than 10 judged items
+uses its band's rate) and, when wrong, the truth is `other` 33.3% of the time; in the < 0.6 cells and the
+short-circuit stratum, `other` agreement is the measured weighted precision (0.319) and the share
+of articles whose truth is the argmax slug is **assumed**, swept at 0.1, 0.3 and 0.5 of a ramp
+(0 below 0.4 and in the short-circuit stratum, half in 0.4-0.5, full in 0.5-0.6). The ramp is
+needed: with a flat share the re-labelled articles look like the ones left behind and no rule
+could change the precision. It is an assumption, not a measurement.
+
+| rule | re-labelled | gain at share 0.1 / 0.3 / 0.5 | power | share at which the gain is +0.05 |
+|---|---|---|---|---|
+| `t0.50+m0.00` | 16,359 | +0.010 / +0.030 / +0.050 | 0.07 / 0.40 / 0.73 | 0.50: power 0.73 |
+| `t0.50+m0.10` | 14,582 | +0.008 / +0.025 / +0.041 | 0.05 / 0.33 / 0.64 | 0.61: power 0.86 |
+| `t0.50+m0.20` | 9,728 | +0.004 / +0.013 / +0.022 | 0.06 / 0.23 / 0.43 | not reached |
+| `t0.55+m0.00` | 7,957 | +0.003 / +0.010 / +0.017 | 0.07 / 0.26 / 0.33 | not reached |
+| `t0.60+m0.30` | 1,918 | -0.009 / -0.007 / -0.005 | 0.00 | not reached |
+| every `t >= 0.65` | 7,843 to 42,450 | negative at every share | 0.00 | not reached |
+
+Reading: only the two loosest rules can reach +0.05, and only at a slug share of 0.5 or more
+in the 0.5-0.6 band; `t0.50+m0.00` at +0.05 has a power of 0.73, below the 80% requirement, so it is
+"not detectable at this sample" and takes the discordant top-up (T-121's rule: drawn only after the
+rule is frozen, outside the fit half, weighted to its own strata). `t0.50+m0.10` clears 80% (0.86)
+only where its gain is +0.05, which needs a share of 0.61. Rules that raise the threshold are
+not candidates for T-123's `other`-precision target at all, whatever the sample. This
+is a design check of T-121(b)'s sample, not a result about the real truth: the real share is what
+the paid sample measures. The measurement cannot be skipped on the strength of this table.
+
+Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43` (about 10 minutes at the
+default 200 draws; `--draws` and `--bootstrap-reps` shorten it). Nothing is written.
+
 ## What it evaluates
 
 Four per-article stages, plus `sector_summary`'s own one-sentence

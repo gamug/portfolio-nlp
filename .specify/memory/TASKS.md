@@ -253,7 +253,7 @@ Dependencies at a glance:
 | T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
 | T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
 | T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **yes** (no cost) |
+| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **done 2026-10-23** |
 | T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **yes** |
 | T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
 | T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
@@ -561,6 +561,14 @@ Dependencies at a glance:
       run's recorded config (the article ids are already in `eval_inference`), together with the judge model id, its temperature and
       seed settings, the prompt hash and the date, so a later re-judge can tell a model
       change from a wording change; the draw can be reproduced. → step 4.
+      **(a) done 2026-10-23** (`news_nlp.eval.calibration`,
+      `scripts/simulate_category_rules_2026_10_23.py`, `docs/evaluation.md`'s 2026-10-23
+      follow-up): 32 uniform rules (threshold x margin) re-label 0 to 45.5% of the 93,330
+      confirmed articles; on eval_run 43's `accept` verdicts a stricter threshold raises
+      per-slug precision and `other` recall but lowers `other` precision, so only loosening
+      rules (`t0.50`, `t0.55`) can raise it; power at the planned report half is 0.73 for
+      `t0.50+m0.00` at +0.05 (below 80%: top-up) and 0.86 for `t0.50+m0.10` (needs a slug
+      share of 0.61); the slug share is an assumption, so T-121(b) stays necessary.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default
@@ -859,7 +867,7 @@ infrastructure decision — nothing in that item has started.
 **Work item 15 update (2026-10-22):** T-128 is done (data-mining's Work item 10 and
 T-058 hand-off are recorded done upstream), so development can start. The corrected
 corpus is about 80% smaller than the RESULTS store, which resizes T-131, T-132 and
-T-124 (plan, "corrected corpus"). T-116, T-130 and T-121(a) can run now (T-133 is done); D5–D9 were
+T-124 (plan, "corrected corpus"). T-116 and T-130 can run now (T-133 and T-121(a) are done); D5–D9 were
 settled at their defaults on 2026-10-22 (T-139). Two proposals from the 2026-10-21
 hand-off are accepted as their own work items: 16 (schema guard, T-135–T-136, closed 2026-10-22, `CHANGELOG.md`) and 17 (multi-company articles, sizing
 first, T-137–T-138).

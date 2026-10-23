@@ -1886,6 +1886,11 @@ changing the RESULTS contract):
    evaluated", never as evidence (`docs/category-taxonomy.md`). Try
    hypothesis-template wording (option D) only if the offline pass plateaus —
    it needs inference.
+   **Part (a) executed (2026-10-23):** `docs/evaluation.md`'s 2026-10-23 follow-up. Stored
+   verdicts show a stricter threshold lowers `other` precision, so the lever is a looser
+   threshold (0.50 to 0.55), whose gain depends on the unmeasured share of articles whose
+   truth is the argmax slug; the power check puts `t0.50+m0.00` at 0.73 (top-up) and
+   `t0.50+m0.10` at 0.86 for a +0.05 gain.
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
@@ -2258,7 +2263,7 @@ other, and independent of one another except where noted:
 
 - **Work items 15, 16 and 17 (2026-10-22), ordering.** Work item 15 is open; its
   first runnable tasks are T-116, T-130 and T-141 (code, hermetic); T-133 is done and
-  T-121(a), which follows it, needs no spend. Calibration no longer waits for T-117: T-121(b)
+  T-121(a), which followed it, is done (2026-10-23, no spend). Calibration no longer waits for T-117: T-121(b)
   waits for T-141 and for D10 (T-142), a spend decision of its own. Work item 16 (the
   schema guard) is closed (#109), so T-132 can start; it adds its columns to the guard.
   Work item 17's T-137 (sizing) goes
