@@ -179,7 +179,11 @@ def start_calibration_run(
 ) -> int:
     """Create the ``eval_run`` of one calibration sample, with the config a rerun and a
     re-weighting need (seed, band edges, cell populations, half assignment, the dropped
-    articles, judge model, temperature, judge seed, prompt hash, date) in ``strata_json``."""
+    articles, judge model, temperature, judge seed, prompt hash, date) in ``strata_json``.
+    *sample* must be the one ``calibration_sample.sample_items`` returns (articles dropped for
+    want of text are out of ``drawn``); a sample that still draws a dropped article is refused."""
+    if {a.article_id for a in sample.drawn} & set(sample.dropped):
+        raise ValueError("sample still draws articles listed as dropped: pass sample_items' sample")
     config = run_config(
         sample,
         judge_model=judge_model,
@@ -402,11 +406,12 @@ class _Judging:
             pool.shutdown()
         except BaseException as exc:
             pool.shutdown(wait=True, cancel_futures=True)  # only the calls in flight finish
-            self.salvage(futures)
-            self.save()
-            if isinstance(exc, JudgeOutage):
-                self.finish("error", str(exc))
-            self.conn.commit()
+            with contextlib.suppress(Exception):  # bookkeeping never hides the original error
+                self.salvage(futures)
+                self.save()
+                if isinstance(exc, Exception):  # an interrupt leaves the run resumable, 'running'
+                    self.finish("error", f"{type(exc).__name__}: {exc}")
+                self.conn.commit()
             raise
 
     def salvage(self, futures: list[Future[Any]]) -> None:
@@ -414,7 +419,7 @@ class _Judging:
         for future in futures:
             if future in self.processed or future.cancelled() or future.exception() is not None:
                 continue
-            with contextlib.suppress(JudgeOutage):
+            with contextlib.suppress(JudgeOutage):  # the run is already stopping
                 self.process(future)
 
     def finish(self, status: str, error: str | None = None) -> None:
@@ -518,6 +523,15 @@ class TruthSet(NamedTuple):
     rows: list[Truth]
     parse_failed: int  # drawn, judged, reply unusable: excluded from ``rows``
     unjudged: int  # drawn but no verdict (a run stopped at the cap)
+
+    def design_effect(self, half: Half) -> float | None:
+        """Kish ``n * sum(w^2) / (sum w)^2`` of the weights this half's usable rows are
+        analysed with (after parse failures and unjudged articles), the value T-121(b)'s
+        sizing should use; ``None`` if the half has no usable row."""
+        weights = [t.weight for t in self.rows if t.half == half]
+        if not weights:
+            return None
+        return len(weights) * sum(w * w for w in weights) / sum(weights) ** 2
 
     @property
     def parse_failed_rate(self) -> float:

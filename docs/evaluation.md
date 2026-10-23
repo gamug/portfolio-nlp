@@ -2729,7 +2729,8 @@ classifier reads, so it is the best label for that text, not for the whole artic
   same), so a stored-label verdict (task `category`) never satisfies a truth lookup. The task
   is outside `sampling.STAGES`, `judges.JUDGES` and `VERDICT_MODELS`, and `ExperimentSpec`'s
   stages are unchanged (a test pins all four lists): `--stage all` and experiments do not see
-  it. Its `eval_run` rows do appear in `latest_eval_runs` under that stage name.
+  it. Its `eval_run` rows are left out of `latest_eval_runs` and `GET /eval/latest`
+  (`queries.NON_ACCURACY_EVAL_STAGES`): their metrics are call counters, not accuracy.
 * An out-of-taxonomy slug is not coerced to `other`: it goes to the repair prompt and then to a
   `parse_failed` fallback, which is never reused. `load_truths` excludes those rows and
   reports their count and rate, and re-weights each half over the usable articles (assuming
@@ -2742,7 +2743,7 @@ classifier reads, so it is the best label for that text, not for the whole artic
 * **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
   calls an article may need (the reply and one repair), counts the calls it really makes,
   records and commits each verdict as it arrives and stops at `max_calls` rather than start an
-  article it might not finish (status `stopped_at_cap`; `incomplete` when articles lack a verdict for another reason, such as
+  article it might not finish (status `stopped_at_cap`; `error` for an outage or any unexpected exception, an interrupt leaves `running`; `incomplete` when articles lack a verdict for another reason, such as
   transport errors below the outage threshold, `ok` only when every item has one). The calls used are kept in the run's
   `metrics_json` as it goes; pass `remaining_calls(conn)` as the cap so it holds across runs.
   The base sample is 3,300 calls at one call per article (a test pins it), leaving 500 under
@@ -2767,7 +2768,7 @@ classifier reads, so it is the best label for that text, not for the whole artic
   population over the cell's articles in that half; `sample_items` drops an article whose
   text or stored row is missing, lists it in the sample and recomputes the weights
   (`restrict`). `design_effect` gives the Kish factor of a half's weights, which the sizing in
-  `calibration.items_to_decide` needs; `run_config` stores each half's size and design effect.
+  `calibration.items_to_decide` needs; `run_config` stores each half's size and design effect, and `load_truths(...).design_effect(half)` gives the realised one over the usable rows. `start_calibration_run` refuses a sample that still draws a dropped article.
   A reused verdict is the latest *valid* one (a newer `parse_failed` never hides it).
   `model.calibration_agent_factory(settings)` builds the `agent_factory`.
 

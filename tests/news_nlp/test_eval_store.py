@@ -413,3 +413,22 @@ def test_record_confusion_cells_writes_one_row_per_distinct_cell(
         )
         is None
     )
+
+
+def test_latest_eval_runs_leaves_out_the_calibration_judge(conn: db_module.NewsNlpDatabase) -> None:
+    from news_nlp.eval.calibration_judge import TASK  # noqa: PLC0415
+
+    assert TASK in db_module.queries.NON_ACCURACY_EVAL_STAGES
+    common: _RunKwargs = {
+        "sample_size": 1,
+        "low_conf_n": 1,
+        "random_n": 0,
+        "seed": None,
+        "judge_model": "m",
+        "judge_url": "u",
+        "code_version": "v",
+    }
+    create_eval_run(conn, stage="category", **common)
+    create_eval_run(conn, stage=TASK, **common)
+    conn.commit()
+    assert {r["stage"] for r in db_module.latest_eval_runs(conn)} == {"category"}

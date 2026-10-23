@@ -9,12 +9,11 @@ import sqlite3
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any
 
 import pytest
 
 import news_nlp as db_module
-from experiment import Stage
 from news_nlp.eval import calibration_judge as cj
 from news_nlp.eval import calibration_sample as cs
 from news_nlp.eval.calibration import ConfirmedArticle, cell_of
@@ -101,7 +100,6 @@ def test_calibration_judge_is_opt_in_and_the_default_stage_lists_are_unchanged()
     assert STAGES == ("sentiment", "category", "ner", "c_summary", "sector_summary")
     assert set(JUDGES) == set(STAGES)
     assert set(VERDICT_MODELS) == set(STAGES)
-    assert get_args(Stage) == ("sentiment", "ner", "category", "c_summary")
     assert cj.TASK not in STAGES
 
 
@@ -549,6 +547,87 @@ def test_calibration_agent_factory_builds_a_fresh_agent_per_call(
     factory("p1")
     factory("p2")
     assert built == ["shared-model|p1", "shared-model|p2"]
+
+
+def test_an_unexpected_exception_marks_the_run_error_and_is_not_masked(
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample, items = _sample_cells(["c|2"], 3)
+    run = _start_sample(conn, sample)
+    real = cj.record_verdict
+    seen = {"n": 0}
+
+    def flaky(*args: Any, **kwargs: Any) -> None:
+        seen["n"] += 1
+        if seen["n"] == 2:
+            raise OSError("disk full")
+        real(*args, **kwargs)
+
+    monkeypatch.setattr(cj, "record_verdict", flaky)
+    with pytest.raises(OSError, match="disk full"):
+        cj.judge_and_record(conn, run, items, agent_factory=_always(), max_calls=100, max_workers=1)
+    status, error = conn.execute(
+        "SELECT status, error FROM eval_run WHERE id = ?", (run,)
+    ).fetchone()
+    assert status == "error"
+    assert "OSError" in error
+    assert "disk full" in error
+
+
+def test_the_realised_design_effect_uses_the_usable_weights() -> None:
+    rows = [
+        cj.Truth(1, "a|2", "report", 10.0, "other"),
+        cj.Truth(2, "a|2", "report", 10.0, "other"),
+        cj.Truth(3, "b|2", "report", 40.0, "other"),
+        cj.Truth(4, "a|2", "fit", 5.0, "other"),
+        cj.Truth(5, "a|2", "fit", 5.0, "other"),
+    ]
+    truths = cj.TruthSet(rows, parse_failed=0, unjudged=0)
+    assert truths.design_effect("fit") == pytest.approx(1.0)
+    assert truths.design_effect("report") == pytest.approx(3 * (100 + 100 + 1600) / 60**2)
+    assert cj.TruthSet([], 0, 0).design_effect("fit") is None
+
+
+def test_a_sample_that_still_draws_a_dropped_article_is_refused(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, _ = _sample_cells(["c|2"], 2)
+    bad = cs.CalibrationSample(sample.seed, sample.drawn, sample.populations, dropped=(1,))
+    with pytest.raises(ValueError, match="dropped"):
+        _start_sample(conn, bad)
+
+
+def test_the_wiring_from_the_confirmed_population_to_the_weighted_truths(
+    eval_conn: db_module.NewsNlpDatabase,
+) -> None:
+    """load -> draw -> sample_items -> start (effective sample) -> judge -> load_truths, with
+    one drawn article that has no text."""
+    cols = ", ".join(("group_score", *CATEGORY_SLUGS))
+    rows = eval_conn.execute(
+        f"SELECT article_id, label, {cols} FROM article_category ORDER BY article_id"  # noqa: S608
+    ).fetchall()
+    population = [ConfirmedArticle(r[0], r[1], r[2], tuple(r[3:])) for r in rows]
+    population.append(ConfirmedArticle(999_999, "other", 0.9, tuple([0.1] * len(CATEGORY_SLUGS))))
+    drawn = cs.draw_sample(population, seed=3)
+    pairs, effective = cs.sample_items(eval_conn, drawn)
+    assert effective.dropped == (999_999,)
+    with pytest.raises(ValueError, match="dropped"):
+        _start_sample(
+            eval_conn, cs.CalibrationSample(1, drawn.drawn, drawn.populations, (999_999,))
+        )
+    run = _start_sample(eval_conn, effective)
+    items = [item for _, item in pairs]
+    verdicts, usage = cj.judge_and_record(
+        eval_conn, run, items, agent_factory=_always(), max_calls=100, max_workers=1
+    )
+    assert (usage.unjudged, len(verdicts)) == (0, len(items))
+    truths = cj.load_truths(eval_conn, run)
+    assert (truths.parse_failed, truths.unjudged, len(truths.rows)) == (0, 0, len(items))
+    for cell in effective.populations:
+        for half in cs.HALVES:
+            part = [t for t in truths.rows if t.cell == cell and t.half == half]
+            if part:
+                assert sum(t.weight for t in part) == pytest.approx(effective.populations[cell])
 
 
 def test_judge_truth_raises_on_a_failed_call_but_falls_back_on_a_bad_reply() -> None:
