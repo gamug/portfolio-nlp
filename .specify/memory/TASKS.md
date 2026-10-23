@@ -566,7 +566,9 @@ Dependencies at a glance:
       and the pass/fail check against the bound of T-121(a) recomputed on the real counts (at
       most about 341 truly-`other` articles among at least 5,718 re-labelled, i.e. 2.1-5.5% for
       the rules studied); also the separation (AUC) of truly-`other` from truly-slug articles by
-      the maximum score, the margin and the group score. The power check and the discordant
+      the maximum score, the margin and the group score. **The AUC is the main deliverable:** the stored
+      verdicts already put the 0.5-0.6 band at 0.19 truly `other` (0.09-0.25), so a uniform rule
+      passes only if a score isolates a 2-5.5% subset. The power check and the discordant
       top-up are rerun on the measured rate before the rule is frozen.
       **Short-circuit stratum:** 30 fit / 30 report; it informs only the
       `CATEGORY_GROUP_FLOOR` decision. **Target level, fixed now:** T-123's `other`-precision
@@ -588,11 +590,15 @@ Dependencies at a glance:
       recall 0.661 on 35,368 `other`-labelled articles, a loosening rule passes iff its
       re-labelled set holds at most 341 truly-`other` articles and at least 5,718 articles:
       **at most 2.1% (`t0.50`), 2.3%, 3.5% (`t0.50+m0.20`), 4.3% (`t0.55`) or 5.5%
-      (`t0.55+m0.20`) of it truly `other`**, against 6.8% (>= 0.8) and 13.0% (0.6-0.8) among the
-      articles the shipped rule labels with a slug. Uniform thresholds are therefore **not ruled
-      out and not shown**: the margin rules have the most room, the no-margin rules need a set
-      cleaner than the model's own best band, and the stored verdicts cannot say (the judge
-      graded `other` there). The power check (truth model calibrated to the measured baseline;
+      (`t0.55+m0.20`) of it truly `other`**, against 7.5% (>= 0.8) and 15.4% (0.6-0.8) measured among the
+      articles the shipped rule labels with a slug. **The stored verdicts do measure the 0.5-0.6
+      band** (the judge gave an `ideal_slug` to `other`-labelled items too): 12 of 78 judged
+      (weighted 0.19, 95% 0.09-0.25) are truly `other`, 48% have the argmax slug as truth. At 0.19
+      the implied `other`-recall change is -0.07 (`t0.55+m0.20`) to -0.19 (`t0.50`), against -0.02,
+      and joint power is 0.00 for every loosening rule: **uniform thresholds are unlikely to pass
+      T-123 on the stored evidence**, unless a margin or score isolates a set truly `other` in
+      only 2-5.5% of cases (open, for T-121(b)). Accuracy does not bind (within -0.02 at
+      `slug_fraction` 0.25-0.75; measured 0.534); macro F1 is not modelled. The power check (truth model calibrated to the measured baseline;
       the swept quantity is the truly-`other` rate of the 0.5-0.6 band) says the precision test
       alone is passed by `t0.50+m0.20`, `t0.55+m0.00` and `t0.55+m0.20` (power 0.94-1.00) and not
       by `t0.50+m0.00`/`m0.10` (0.65, 0.75; calibrated 0.71-0.74), and that it is the recall

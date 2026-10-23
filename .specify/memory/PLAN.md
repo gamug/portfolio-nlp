@@ -1892,10 +1892,11 @@ changing the RESULTS contract):
    `other` recall at -0.02; from the measured `other` precision 0.319 and recall 0.661, a loosening
    rule passes iff the set it re-labels is truly `other` in at most 341 articles (and holds at least
    5,718): 2.1% for `t0.50`, 3.5% for `t0.50+m0.20`, 4.3% for `t0.55`, 5.5% for `t0.55+m0.20`,
-   against 6.8% (>= 0.8) and 13.0% (0.6-0.8) among the articles the shipped rule labels with a slug.
-   Uniform thresholds are neither ruled out nor shown: the margin rules have the most room, the
-   no-margin rules need a set cleaner than the model's best band, and the stored verdicts cannot say
-   (the judge graded `other` there). T-121(b) measures the truly-`other` rate of each candidate's
+   against 7.5% (>= 0.8) and 15.4% (0.6-0.8) measured among the articles the shipped rule labels with a
+   slug. The stored verdicts measure the 0.5-0.6 band: 12 of 78 judged (weighted 0.19, 95% 0.09-0.25)
+   are truly `other`, so the implied `other`-recall change is -0.07 to -0.19 and uniform thresholds are
+   unlikely to pass T-123 on the stored evidence; whether a margin or score isolates a clean subset
+   (2-5.5% truly `other`) is open. T-121(b) measures the truly-`other` rate of each candidate's
    re-labelled set with an interval, checks it against the bound, and reports how well the maximum
    score, the margin and the group score separate truly-`other` from truly-slug articles (TASKS
    T-121(b) deliverable); per-slug thresholds are tested on that data.

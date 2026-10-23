@@ -393,6 +393,78 @@ def fit_truth_model(
     )
 
 
+class BandMeasure(NamedTuple):
+    """What the stored judgements say about the articles of one score band that carry one
+    kind of stored label (``other``, or a slug)."""
+
+    n: int  # judged items
+    n_other: int  # of which the judge's `ideal_slug` is `other`
+    other: float  # weighted share whose truth is `other` (Horvitz-Thompson item weights)
+    low: float  # Wilson 95% interval of the raw share n_other / n
+    high: float
+    top: float  # weighted share whose truth is the band's argmax slug
+
+
+def _wilson(hits: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    if not n:
+        return 0.0, 1.0
+    p = hits / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def measure_bands(accept_pairs: Sequence[Pair], *, stored_other: bool) -> dict[int, BandMeasure]:
+    """Per score band, the share of judged articles whose truth is `other` and whose truth
+    is the argmax slug, among those the shipped rule labelled `other` (*stored_other*, the
+    low bands 0-2) or a slug (the confident bands 3-4). Measured directly on the judge's
+    ``ideal_slug``: no model. The point estimate is Horvitz-Thompson weighted (the buckets
+    are not uniform-weight); the interval is a Wilson interval on the raw counts, so it is
+    approximate for the weighted share. Diagnostic-only buckets are left out."""
+    ok = [(it, v) for it, v in accept_pairs if it.bucket not in DIAGNOSTIC_ONLY_BUCKETS]
+    n_bucket = Counter(it.bucket for it, _ in ok)
+    seen: defaultdict[int, float] = defaultdict(float)
+    other: defaultdict[int, float] = defaultdict(float)
+    top: defaultdict[int, float] = defaultdict(float)
+    raw: Counter[int] = Counter()
+    raw_other: Counter[int] = Counter()
+    for it, v in ok:
+        if (str(it.prediction.get("label", OTHER_LABEL)) == OTHER_LABEL) != stored_other:
+            continue
+        slug, band_text = cell_of(1.0, _scores_of(it)).rsplit("|", 1)
+        band = int(band_text)
+        weight = it.stratum_population / n_bucket[it.bucket]
+        seen[band] += weight
+        other[band] += weight * (v.ideal_slug == OTHER_LABEL)
+        top[band] += weight * (v.ideal_slug == slug)
+        raw[band] += 1
+        raw_other[band] += v.ideal_slug == OTHER_LABEL
+    return {
+        b: BandMeasure(
+            raw[b],
+            raw_other[b],
+            other[b] / seen[b],
+            *_wilson(raw_other[b], raw[b]),
+            top[b] / seen[b],
+        )
+        for b in sorted(raw)
+    }
+
+
+def pooled_slug_fraction(
+    measured: Mapping[int, BandMeasure], counts: Mapping[int, int]
+) -> float | None:
+    """The measured share of the non-`other` mass whose truth is the argmax slug, pooled
+    over the low bands 0-2 by the number of articles the shipped rule labels `other` there
+    (what :attr:`TruthModel.slug_fraction` stands for). ``None`` if nothing was measured."""
+    top = rest = 0.0
+    for band, m in measured.items():
+        if band in LOW_BANDS and band != SHORT_CIRCUIT_BAND:
+            top += counts.get(band, 0) * m.top
+            rest += counts.get(band, 0) * (1 - m.other)
+    return top / rest if rest else None
+
+
 class PowerRow(NamedTuple):
     rule: Rule
     rate: float  # the probability that a 0.5-0.6 article is truly `other`
@@ -563,10 +635,10 @@ def baseline_under(frame: Frame, truth: TruthModel) -> tuple[float, float]:
 def confident_other_rates(
     truth: TruthModel, articles: Sequence[ConfirmedArticle]
 ) -> dict[int, float]:
-    """The probability that an article the shipped rule labels with a slug is truly
-    `other`, per confident band (3: 0.6-0.8, 4: >= 0.8), averaged over *articles*: the
-    cleanest the stored verdicts say a labelled set gets, to compare with the cap of
-    :func:`loosening_bound`."""
+    """*Modelled* probability that an article the shipped rule labels with a slug is truly
+    `other`, per confident band (3: 0.6-0.8, 4: >= 0.8), averaged over *articles*:
+    ``(1 - agreement) x other_given_wrong`` with one pooled `other` share for all bands.
+    :func:`measure_bands` gives the measured value; the script prints both."""
     totals: dict[int, float] = dict.fromkeys(range(FIRST_CONFIDENT_BAND, len(BAND_NAMES)), 0.0)
     counts: dict[int, int] = dict.fromkeys(totals, 0)
     for a in articles:

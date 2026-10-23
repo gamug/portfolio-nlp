@@ -13,6 +13,7 @@ from news_nlp.eval.calibration import (
     POWER_TARGET,
     RECALL_TOLERANCE,
     SHAPES,
+    BandMeasure,
     ConfirmedArticle,
     Rule,
     TruthModel,
@@ -29,10 +30,12 @@ from news_nlp.eval.calibration import (
     implied_gain,
     loosening_bound,
     low_band_counts,
+    measure_bands,
     needs_refinement,
     null_critical,
     null_truth,
     paired_rule_interval,
+    pooled_slug_fraction,
     rate_for_gain,
     rate_for_recall,
     relabel_table,
@@ -486,3 +489,30 @@ def test_the_script_rejects_an_unknown_shape_or_section_before_opening_a_databas
         with pytest.raises(SystemExit) as exc:
             script.main()  # type: ignore[attr-defined]
         assert exc.value.code == 2
+
+
+def test_measure_bands_reads_the_judges_slug_per_band() -> None:
+    top, other = CATEGORY_SLUGS[0], CATEGORY_SLUGS[1]
+    # stored `other`, top score 0.55 (band 2): 4 judged, truth is other / top / top / other
+    low = [
+        _judged(1, OTHER_LABEL, OTHER_LABEL, 0.55),
+        _judged(2, OTHER_LABEL, top, 0.55),
+        _judged(3, OTHER_LABEL, top, 0.55),
+        _judged(4, OTHER_LABEL, OTHER_LABEL, 0.55),
+    ]
+    # stored slug at 0.9 (band 4): 1 of 4 is truly other, none is the argmax slug right
+    confident = [_judged(10 + i, top, OTHER_LABEL if i == 0 else other, 0.9) for i in range(4)]
+    pairs = [*low, *confident]
+    got = measure_bands(pairs, stored_other=True)
+    assert set(got) == {2}
+    assert (got[2].n, got[2].n_other) == (4, 2)
+    assert got[2].other == pytest.approx(0.5)
+    assert got[2].top == pytest.approx(0.5)
+    assert got[2].low < 0.5 < got[2].high
+    sure = measure_bands(pairs, stored_other=False)
+    assert (sure[4].n, sure[4].n_other, sure[4].other) == (4, 1, pytest.approx(0.25))
+    # the pooled share of the non-`other` mass on the argmax slug: 0.5 / (1 - 0.5)
+    counts = {0: 0, 1: 0, 2: 100, -1: 0}
+    assert pooled_slug_fraction(got, counts) == pytest.approx(1.0)
+    assert pooled_slug_fraction({}, counts) is None
+    assert isinstance(got[2], BandMeasure)

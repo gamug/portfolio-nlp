@@ -2206,13 +2206,36 @@ needs X <= 341, and +0.05 precision then needs R >= 5,718**; both are necessary 
 | `t0.55+m0.00` | 7,957 | 341 | 4.3% |
 | `t0.55+m0.20` | 6,198 | 341 | **5.5%** |
 
-For scale, the articles the shipped rule labels with a slug are truly `other` in **13.0%** (0.6-0.8) and
-**6.8%** (>= 0.8) of cases (the stored agreement with the judge is 61.7% and 79.9% there). So a loosening
-rule passes T-123 only if the articles it re-labels are about as clean as the cleanest band the model
-already labels: the no-margin rules need a set cleaner than that band (2.1% and 4.3% against 6.8%), the
-margin rules a little cleaner (3.5% and 5.5%). A tightening rule fails the precision side instead (above).
-This bound has no assumption in it. The stored verdicts cannot say whether the 0.5-0.6 articles meet it,
-because the judge graded `other` on them, not the slug: that is what T-121(b) measures first.
+For scale, the articles the shipped rule labels with a slug are truly `other` in **15.4%** (0.6-0.8; 141
+judged, Wilson 0.08-0.19) and **7.5%** (>= 0.8; 155 judged, 0.03-0.11), measured on the judge's `ideal_slug`
+(a model, `(1 - agreement) x 0.339` with one pooled share for all bands, gives 13.0% and 6.8% and is what
+the power tables use). So a loosening rule passes T-123 only if the articles it re-labels are about as clean
+as the cleanest band the model already labels: all five rules need a set cleaner than 7.5% (2.1% to 5.5%).
+A tightening rule fails the precision side instead (above). The bound uses the weighted `accept`
+precision 0.319 and recall 0.661 as exact; they are estimates (a precision error of 0.03 moves the 341 by
+about 10%), so it is a planning figure, not a test.
+
+**The stored verdicts do measure the 0.5-0.6 band.** The judge gave an `ideal_slug` to the items the shipped
+rule labelled `other` too, so the share of `other`-labelled articles whose truth is `other`, and the share
+whose truth is the argmax slug, can be read per band (`news_nlp.eval.calibration.measure_bands`; no model;
+weighted by the Horvitz-Thompson item weights, Wilson interval on the raw counts):
+
+| stored label | band | judged | truth is `other` (raw) | weighted | 95% (raw) | truth is the argmax slug |
+|---|---|---|---|---|---|---|
+| `other` | < 0.4 | 23 | 9/23 | 0.474 | 0.22-0.59 | 0.238 |
+| `other` | 0.4-0.5 | 91 | 28/91 | 0.392 | 0.22-0.41 | 0.272 |
+| **`other`** | **0.5-0.6** | **78** | **12/78** | **0.193** | **0.09-0.25** | **0.484** |
+| slug | 0.6-0.8 | 141 | 18/141 | 0.154 | 0.08-0.19 | 0.547 |
+| slug | >= 0.8 | 155 | 9/155 | 0.075 | 0.03-0.11 | 0.779 |
+
+The 0.5-0.6 rate the power sweep varies is therefore measured at **0.19** (0.09-0.25 on the raw counts). The
+`graded` shape at that rate sets the < 0.4 and 0.4-0.5 bands to 0.536 and 0.365, against the measured 0.474
+and 0.392: close, inside the intervals. At 0.19 the loosening rules' implied `other`-recall change is
+**-0.19 (`t0.50`), -0.17 (`t0.50+m0.10`), -0.11 (`t0.50+m0.20`), -0.09 (`t0.55`), -0.07 (`t0.55+m0.20`)**
+against a tolerance of -0.02 (joint power 0.00 for all five), and at the lower end of the interval (0.09)
+the best of them, `t0.55+m0.20`, is still about -0.03. **On the stored evidence uniform loosening does not
+pass T-123** unless the margin or the score isolates a set far cleaner than its band (2-5.5% truly `other`
+against 19% for the band): that is the open question for T-121(b).
 
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of weighted
 sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 300-replicate within-cell
@@ -2281,6 +2304,22 @@ of 0:
 because the recall *lower bound* sits below the point estimate; it reaches 1.00 when the removed set is
 free of truly `other` articles.)
 
+**At the measured rate (0.193).** Power of the precision test, 200 draws (1,000 where near the bar), `graded`
+shape: `t0.50+m0.00` 1.00 (implied d precision +0.108), `t0.50+m0.10` 0.99 (+0.088), `t0.50+m0.20` 0.91
+(+0.048), `t0.55+m0.00` 0.84 (+0.036), `t0.55+m0.20` 0.68 (+0.027); the rules with a margin of 0.3 gain
+nothing (+0.004 and 0.000). Joint power is 0.00 for every rule (recall change -0.19 to -0.07, above). The
+precision test is passed by the rules that remove the most `other`-labelled articles, and it is the
+recall that fails.
+
+**Accuracy does not bind; it depends on `slug_fraction`.** The accuracy columns depend on the share of the
+non-`other` mass whose truth is the argmax slug, 0.5 in the tables. Measured on the stored verdicts above
+(pooled over the three low bands by article count) it is 0.534. Implied accuracy change of the loosening
+rules at the measured rate for 0.25 / 0.50 / 0.75 / measured: `t0.50+m0.00` +0.001 / +0.037 / +0.072 /
++0.042; `t0.55+m0.20` +0.001 / +0.014 / +0.027 / +0.016; `t0.50+m0.30` -0.010 / -0.001 / +0.007 / -0.000.
+So accuracy is within -0.02 at every fraction tried; the joint failure comes from recall. Macro F1 is
+not modelled (the third label has no class), so the joint condition checks two of T-123's three
+co-requirements; T-121(b) measures the third.
+
 **Reading.** Two things hold whatever the rate. A tightening rule cannot raise `other` precision, and a
 loosening rule can raise it by +0.05 only at a rate well below the measured 0.319: 0.25-0.26 for the
 no-margin and 0.1 margin `t0.50` rules (then recall falls by 0.21-0.25, and the precision test is not
@@ -2290,17 +2329,21 @@ tolerance is what binds. **A uniform loosening rule passes T-123 only if the art
 truly `other` at most 2.1-5.5% of the time** (the bound above), which is about as clean as the cleanest band
 the model labels (6.8%). The margin rules have the most room (`t0.55+m0.20`: 5.5% over 6,198 articles;
 `t0.50+m0.20`: 3.5% over 9,728); the no-margin rules need a set cleaner than the model's own best band. The
-stored verdicts cannot tell which holds, so uniform thresholds are not ruled out and not shown. T-121(b)
-should therefore report, per candidate rule, the truly-`other` rate of the set it would re-label with a 95%
+measured band rate is 0.19 (0.09-0.25) and the recall change at that rate is -0.07 to -0.19, so uniform
+thresholds are unlikely to pass on the stored evidence; whether a margin or a score isolates a clean
+subset is open. T-121(b) should therefore report, per candidate rule, the truly-`other` rate of the set it would re-label with a 95%
 interval and compare it with the bound (the pass/fail check), together with how well the maximum score, the
 margin and the group score separate truly-`other` from truly-slug articles (an AUC), which is what per-slug
 thresholds would exploit.
 
 Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
-/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (62 minutes measured on the last
-full run at the defaults, 2026-10-23: 200 draws, 1,000 for the borderline rows, three shapes, three null
-seeds; `--draws`, `--refine-draws`, `--bootstrap-reps`, `--interval-reps`, `--null-seeds`, `--shapes` and
-`--sections relabel,verdicts,power` shorten it). Nothing is written.
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (62 minutes at the defaults: 200 draws,
+1,000 for the borderline rows, three shapes, three null seeds). The tables above other than the
+measured-rate rows, the measured-band table and the accuracy sensitivity come from that full run; those
+three come from a re-run of `--sections power --shapes graded --null-seeds 1` (22 minutes), whose rows for
+the swept rates are identical to the full run's (same seed and code path). `--draws`, `--refine-draws`,
+`--bootstrap-reps`, `--interval-reps`, `--null-seeds`, `--shapes` and
+`--sections relabel,verdicts,power` shorten it. Nothing is written.
 
 ## What it evaluates
 

@@ -31,6 +31,7 @@ import sqlite3
 import sys
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -41,6 +42,7 @@ from news_nlp.eval.calibration import (
     POWER_TARGET,
     RECALL_TOLERANCE,
     SHAPES,
+    BandMeasure,
     ConfirmedArticle,
     Frame,
     RelabelRow,
@@ -57,9 +59,11 @@ from news_nlp.eval.calibration import (
     implied_changes,
     loosening_bound,
     low_band_counts,
+    measure_bands,
     needs_refinement,
     null_critical,
     paired_rule_interval,
+    pooled_slug_fraction,
     rate_for_gain,
     rate_for_recall,
     relabel_table,
@@ -72,6 +76,7 @@ from news_nlp.eval.partition import domain_pairs, load_category_pairs
 from news_nlp.taxonomy import CATEGORY_SLUGS
 
 GAIN = 0.05
+THRESHOLD_BAND = 2  # the 0.5-0.6 band, the one a loosened threshold would move to a slug
 RATES = (0.30, 0.20, 0.10, 0.05)  # P(a 0.5-0.6 article is truly `other`); measured average 0.319
 COLUMNS = ("group_score", *CATEGORY_SLUGS)
 
@@ -224,6 +229,7 @@ class Scenario(NamedTuple):
     counts: dict[int, int]
     shape: str
     recall: float  # the measured `other` recall of the stored run
+    measured_rate: float | None = None  # measured P(truth is `other`) of stored-`other` 0.5-0.6
 
 
 def rate_rows(frame: Frame, sc: Scenario) -> tuple[list[tuple[float, bool]], bool]:
@@ -231,6 +237,8 @@ def rate_rows(frame: Frame, sc: Scenario) -> tuple[list[tuple[float, bool]], boo
     rule, and whether +GAIN is reached at any rate: the sweep, with the row at which the
     implied gain is +GAIN marked (merged into the sweep row when it is the same rate)."""
     rows: list[tuple[float, bool]] = [(r, False) for r in RATES]
+    if sc.measured_rate is not None:  # the stored verdicts' own estimate is always simulated
+        rows.append((sc.measured_rate, False))
     star = rate_for_gain(frame, sc.truth, sc.counts, sc.shape, GAIN)
     if star is None:
         return rows, False
@@ -276,6 +284,8 @@ def power_row(
         if at_target
         else "power at this gain"
     )
+    if sc.measured_rate is not None and abs(rate - sc.measured_rate) < SAME_RATE:
+        note += "; MEASURED rate of the stored verdicts"
     if rerun:
         note += f"; {cfg.refine_draws} draws, one stream, same seed"
     print(
@@ -324,7 +334,11 @@ def report_joint(
 
 
 def report_bounds(
-    articles: list[ConfirmedArticle], rules: list[Rule], truth: TruthModel, recall: float
+    articles: list[ConfirmedArticle],
+    rules: list[Rule],
+    truth: TruthModel,
+    recall: float,
+    confident: Mapping[int, BandMeasure] | None = None,
 ) -> None:
     """The closed-form bound of T-123 for each loosening rule: no truth model, only the
     measured `other` precision and recall of the stored run."""
@@ -355,7 +369,78 @@ def report_bounds(
     print(
         "  for comparison, articles the shipped rule labels with a slug are truly `other` in "
         + " and ".join(f"{100 * rates[b]:.1f}% ({BAND_NAMES[b]})" for b in sorted(rates))
+        + " (MODELLED: (1 - agreement) x the pooled share of wrong labels that are `other`)"
     )
+    if confident is not None:
+        print(
+            "  measured directly on the judged slug-labelled items: "
+            + " and ".join(
+                f"{100 * m.other:.1f}% ({BAND_NAMES[b]}, {m.n} items)"
+                for b, m in sorted(confident.items())
+            )
+        )
+
+
+def report_measured(
+    low: Mapping[int, BandMeasure],
+    confident: Mapping[int, BandMeasure],
+    sc: Scenario,
+    truth: TruthModel,
+) -> None:
+    """What the judge's `ideal_slug` says directly about each score band (no model): the
+    probability that the truth is `other`, with a Wilson interval on the raw counts, and the
+    share whose truth is the argmax slug. The 0.5-0.6 row is the quantity the power sweep
+    varies; the `graded`/`band2` shapes are compared with the other bands."""
+    section("Measured on the stored verdicts (no model): P(truth is `other`) per score band")
+    print(
+        f"  {'stored label':<14}{'band':<10}{'judged':>7}{'raw':>9}{'weighted':>10}  95% (raw)  argmax"
+    )
+    for label, bands in (("other", low), ("slug", confident)):
+        for b, m in sorted(bands.items()):
+            print(
+                f"  {label:<14}{BAND_NAMES[b]:<10}{m.n:>7}{m.n_other:>4}/{m.n:<4}"
+                f"{m.other:>10.3f}  [{m.low:.2f}, {m.high:.2f}]  {m.top:.3f}"
+            )
+    if sc.measured_rate is None:
+        return
+    model = shaped(truth, sc.counts, sc.measured_rate, sc.shape).low_other
+    print(
+        f"  the {sc.shape} model at the measured 0.5-0.6 rate {sc.measured_rate:.3f} sets "
+        f"< 0.4: {model[0]:.3f} (measured {low[0].other if 0 in low else float('nan'):.3f}), "
+        f"0.4-0.5: {model[1]:.3f} (measured {low[1].other if 1 in low else float('nan'):.3f})"
+    )
+
+
+def report_accuracy(
+    articles: list[ConfirmedArticle],
+    rules: list[Rule],
+    sc: Scenario,
+    measured_fraction: float | None,
+) -> None:
+    """The accuracy change of each loosening rule at the measured 0.5-0.6 rate for several
+    values of ``slug_fraction`` (the share of the non-`other` mass on the argmax slug), which
+    the accuracy columns and the accuracy half of `joint` depend on. Expectation only."""
+    if sc.measured_rate is None:
+        return
+    fractions = [0.25, 0.5, 0.75]
+    if measured_fraction is not None:
+        fractions.append(measured_fraction)
+    section(
+        "Accuracy change at the measured 0.5-0.6 rate for several slug fractions "
+        f"(the share of the non-`other` mass whose truth is the argmax slug; measured pooled "
+        f"{'n/a' if measured_fraction is None else f'{measured_fraction:.3f}'})"
+    )
+    print(f"  {'rule':<12}" + "".join(f"{f'sf={f:.2f}':>10}" for f in fractions))
+    for rule in rules:
+        frame = frame_for(articles, rule)
+        cells = [
+            implied_changes(
+                frame,
+                replace(shaped(sc.truth, sc.counts, sc.measured_rate, sc.shape), slug_fraction=f),
+            ).accuracy
+            for f in fractions
+        ]
+        print(f"  {rule.name:<12}" + "".join(f"{c:>+10.3f}" for c in cells))
 
 
 def report_power(
@@ -373,7 +458,16 @@ def report_power(
     pairs = domain_pairs(load_category_pairs(conn, run_id), lambda a: a in accept)
     truth = fit_truth_model(pairs)
     measured = aggregate_category([it for it, _ in pairs], [v for _, v in pairs])
-    sc = Scenario(truth, low_band_counts(articles), shape, measured["recall_other"])
+    counts = low_band_counts(articles)
+    low = measure_bands(pairs, stored_other=True)
+    confident = measure_bands(pairs, stored_other=False)
+    sc = Scenario(
+        truth,
+        counts,
+        shape,
+        measured["recall_other"],
+        low[THRESHOLD_BAND].other if THRESHOLD_BAND in low else None,
+    )
     section(f"Truth model ({shape} shape) measured on eval_run {run_id}'s stored verdicts")
     print(
         f"  `other` precision of the stored label (the calibration target): {truth.other_agreement:.3f}"
@@ -385,8 +479,9 @@ def report_power(
         f"(fewer than 10 judged): {len(truth.fallback_cells)} of {len(truth.agree)}"
     )
     print(f"    {', '.join(truth.fallback_cells) or '(none)'}")
+    report_measured(low, confident, sc, truth)
     if bounds:
-        report_bounds(articles, rules, truth, sc.recall)
+        report_bounds(articles, rules, truth, sc.recall, confident)
     section(
         f"Power ({shape} shape) of the paired weighted `other`-precision difference (report half; "
         f"{cfg.draws} draws x {cfg.boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%} at "
@@ -416,7 +511,9 @@ def report_power(
             power_row(frame, sc, rate, at_target, cfg, null_cache)
         if not reached:
             print(f"  {rule.name:<12}{'':>6}  +{GAIN} is not reached at any rate")
-    report_joint(articles, [r for r in simulated if not r.tightens], sc, cfg)
+    loosening = [r for r in simulated if not r.tightens]
+    report_joint(articles, loosening, sc, cfg)
+    report_accuracy(articles, loosening, sc, pooled_slug_fraction(low, counts))
 
 
 def report_calibrated(
