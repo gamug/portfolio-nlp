@@ -564,11 +564,20 @@ Dependencies at a glance:
       **(a) done 2026-10-23** (`news_nlp.eval.calibration`,
       `scripts/simulate_category_rules_2026_10_23.py`, `docs/evaluation.md`'s 2026-10-23
       follow-up): 32 uniform rules (threshold x margin) re-label 0 to 45.5% of the 93,330
-      confirmed articles; on eval_run 43's `accept` verdicts a stricter threshold raises
-      per-slug precision and `other` recall but lowers `other` precision, so only loosening
-      rules (`t0.50`, `t0.55`) can raise it; power at the planned report half is 0.73 for
-      `t0.50+m0.00` at +0.05 (below 80%: top-up) and 0.86 for `t0.50+m0.10` (needs a slug
-      share of 0.61); the slug share is an assumption, so T-121(b) stays necessary.
+      confirmed articles (per-cell grids with `--cells`). On eval_run 43's `accept`
+      verdicts a stricter threshold lowers overall accuracy and raises `other` recall at every
+      threshold from 0.65, and lowers `other` precision with a paired 95% interval below 0 from
+      0.75 up (at 0.65 and 0.70 the interval includes 0); only loosening rules (`t0.50`,
+      `t0.55`) can raise it. **Deviation from the wording above, recorded here:** the share
+      of articles whose truth is the argmax slug is not one flat share in the < 0.6 cells and
+      the short-circuit stratum. A flat share gives every rule a gain of exactly 0, so three
+      shapes were run (`graded`, the default: 0 below 0.4 and in the short-circuit stratum, half
+      in 0.4-0.5, full in 0.5-0.6; `band`; `flat`, this task's original wording). The
+      result is shape-dependent: under `graded`, `t0.50+m0.00` has power 0.73 at +0.05
+      (below 80%: discordant top-up) and `t0.50+m0.10` 0.86 at a share of 0.61 (outside the
+      10-50% range); under `band` only `t0.50+m0.00` reaches +0.05 (share 0.93); under `flat`
+      none gains. So T-121(b) must measure the share per band in the 0.4-0.6 cells, and
+      its top-up design waits for the frozen rule.
 - [ ] **T-141** *(new)* Build the calibration judge and sampler T-121(b) needs, in
       `news_nlp/eval/`, opt-in like T-130 (not in `sampling.STAGES`' default set, not in
       `--stage all`, `ExperimentSpec`'s `Literal` untouched; snapshot test on the default

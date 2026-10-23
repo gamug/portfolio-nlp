@@ -2142,7 +2142,9 @@ margin of the best slug over the runner-up (32 candidates; per-slug thresholds a
 on T-121(b)'s fit half, there is too little per-slug data to fit nine of them here).
 `t0.60+m0.00` is the shipped rule and reproduces every stored label.
 
-**Re-labelled articles** (of 93,330; the full per-band split is in the script's output):
+**Re-labelled articles** (of 93,330; `--cells` prints the full slug x band grid of the
+population and of every distinct rule's re-labelled articles, the per-cell counts
+T-121 asks for; the script's output also splits each rule by band):
 
 | rule | re-labelled | direction |
 |---|---|---|
@@ -2153,53 +2155,82 @@ on T-121(b)'s fit half, there is too little per-slug data to fit nine of them he
 | `t0.80` | 28,916 (31.0%) | slug -> `other` |
 | `t0.90` | 42,450 (45.5%) | slug -> `other` |
 
-A margin does little at a threshold of 0.6 or more: a best score of 0.6 leaves at most 0.4 for the
-runner-up, so margins up to 0.2 never bind; a margin of 0.1 is the same rule as 0.0 at every
-threshold, and only 0.3 changes labels (1,918 articles at `t0.60`, to `other`).
+The margin binds only at some thresholds. At a threshold of 0.6 or more the runner-up of a
+confident article holds at most 0.4, so a margin up to 0.2 never binds there (the rules
+`t0.60+m0.10`, `t0.60+m0.20` and every `t >= 0.65` rule with a margin up to 0.3 re-label exactly what
+the margin-free rule does), and only a margin of 0.3 changes labels at `t0.60` (1,918 articles, to `other`).
+Below 0.6 a margin does bind: `t0.50` re-labels 16,359 articles with no margin, 14,582 with 0.1,
+9,728 with 0.2 and 5,782 with 0.3; `t0.55` re-labels 7,957 with margin 0.0 or 0.1, 6,198
+with 0.2 and 4,798 with 0.3. Rules with a margin of 0.3 below the shipped threshold also send
+some articles to `other`.
 
-**Stored verdicts, tightening rules only** (eval_run 43, `accept` partition, 538 judged,
-point estimates, no interval): the judge's `ideal_slug` is the truth, so the rules that
-only send items to `other` are scored exactly. Raising the threshold raises the mean per-slug precision
-(0.698 at 0.60, 0.739 at 0.70, 0.845 at 0.90) and `other` recall (0.661 to 0.798 to 0.931),
-and **lowers** `other` precision (0.319 to 0.284 to 0.224), overall accuracy (0.526 to 0.474
-to 0.337) and macro F1 (0.558 to 0.510 to 0.318): the articles it moves to `other` are
-mostly ones the judge gave a real category. So a stricter threshold trades `other` precision
-for slug precision; it does not fix the `other` problem. A rule that moves items *away* from
-`other` cannot be scored from these verdicts (the judge graded `other` on them, not the slug)
-and needs T-121(b)'s sample.
+**Stored verdicts, tightening rules only** (eval_run 43, `accept` partition, 538 judged): the
+judge's `ideal_slug` is the truth, so the rules that only send items to `other` are scored
+exactly. Raising the threshold raises the mean per-slug precision (0.698 at 0.60, 0.739 at
+0.70, 0.845 at 0.90; a point estimate) and `other` recall. Against the shipped rule, on the same
+items (paired stratified bootstrap, 500 reps, 95%):
+
+| rule | `other` precision | `other` recall | accuracy vs judge |
+|---|---|---|---|
+| `t0.60+m0.30` | -0.015 [-0.027, -0.004] | +0.000 | -0.013 [-0.027, -0.002] |
+| `t0.65` | -0.027 [-0.053, +0.003] | +0.058 [+0.005, +0.123] | -0.028 [-0.053, -0.006] |
+| `t0.70` | -0.035 [-0.074, +0.007] | +0.136 [+0.053, +0.230] | -0.052 [-0.090, -0.019] |
+| `t0.75` | -0.051 [-0.094, -0.003] | +0.211 [+0.117, +0.329] | -0.081 [-0.123, -0.035] |
+| `t0.80` | -0.067 [-0.114, -0.017] | +0.220 [+0.124, +0.340] | -0.110 [-0.153, -0.059] |
+| `t0.90` | -0.095 [-0.147, -0.040] | +0.270 [+0.160, +0.394] | -0.189 [-0.237, -0.129] |
+
+Overall accuracy falls and `other` recall rises at every threshold from 0.65 up, and the
+`other` precision falls at 0.75 and above and at `t0.60+m0.30`; at 0.65 and 0.70 the interval
+includes 0, so for those two the direction is a point estimate only. A stricter threshold trades
+`other` precision for slug precision; it does not fix the `other` problem. A rule that moves
+items *away* from `other` cannot be scored from these verdicts (the judge graded `other` on them, not the
+slug) and needs T-121(b)'s sample.
 
 **Power of T-123's estimator** (paired difference of the weighted `other` precision, a ratio of
 weighted sums; report-half sample of 45 per 0.4-0.6 cell, 30 elsewhere, 30 short-circuit; 200 draws,
-300-replicate within-cell bootstrap, nearest-rank 95% interval, seed 0). Truth model: in the
->= 0.6 cells, eval_run 43's measured per-cell agreement (a cell with fewer than 10 judged items
-uses its band's rate) and, when wrong, the truth is `other` 33.3% of the time; in the < 0.6 cells and the
-short-circuit stratum, `other` agreement is the measured weighted precision (0.319) and the share
-of articles whose truth is the argmax slug is **assumed**, swept at 0.1, 0.3 and 0.5 of a ramp
-(0 below 0.4 and in the short-circuit stratum, half in 0.4-0.5, full in 0.5-0.6). The ramp is
-needed: with a flat share the re-labelled articles look like the ones left behind and no rule
-could change the precision. It is an assumption, not a measurement.
+300-replicate within-cell bootstrap, nearest-rank 95% interval, seed 0). A cell smaller than its
+sample is taken whole and still resampled in the bootstrap (no finite-population correction), so the
+power is slightly conservative. Truth model:
 
-| rule | re-labelled | gain at share 0.1 / 0.3 / 0.5 | power | share at which the gain is +0.05 |
-|---|---|---|---|---|
-| `t0.50+m0.00` | 16,359 | +0.010 / +0.030 / +0.050 | 0.07 / 0.40 / 0.73 | 0.50: power 0.73 |
-| `t0.50+m0.10` | 14,582 | +0.008 / +0.025 / +0.041 | 0.05 / 0.33 / 0.64 | 0.61: power 0.86 |
-| `t0.50+m0.20` | 9,728 | +0.004 / +0.013 / +0.022 | 0.06 / 0.23 / 0.43 | not reached |
-| `t0.55+m0.00` | 7,957 | +0.003 / +0.010 / +0.017 | 0.07 / 0.26 / 0.33 | not reached |
-| `t0.60+m0.30` | 1,918 | -0.009 / -0.007 / -0.005 | 0.00 | not reached |
-| every `t >= 0.65` | 7,843 to 42,450 | negative at every share | 0.00 | not reached |
+* in the >= 0.6 cells, eval_run 43's agreement per cell, weighted by each item's Horvitz-Thompson weight
+  (3 of the 18 cells have fewer than 10 judged items and use their band's pooled rate); when the label is
+  wrong, the truth is `other` 33.9% of the time;
+* in the < 0.6 cells and the short-circuit stratum, `other` agreement is the measured weighted precision
+  (0.319) and the share of articles whose truth is the argmax slug is **assumed**. It cannot be
+  measured from stored verdicts (the judge graded `other` there), and its *shape* over the score bands matters
+  as much as its size, so three shapes were run, each swept over a share of 0.1, 0.3 and 0.5 (and the
+  share at which the model's gain is +0.05, where one exists):
+  `graded` (0 below 0.4 and in the short-circuit stratum, half in 0.4-0.5, full in 0.5-0.6),
+  `band` (full in 0.4-0.5 and 0.5-0.6, 0 elsewhere), and `flat` (the same share in every low cell, which
+  is TASKS.md's original wording).
 
-Reading: only the two loosest rules can reach +0.05, and only at a slug share of 0.5 or more
-in the 0.5-0.6 band; `t0.50+m0.00` at +0.05 has a power of 0.73, below the 80% requirement, so it is
-"not detectable at this sample" and takes the discordant top-up (T-121's rule: drawn only after the
-rule is frozen, outside the fit half, weighted to its own strata). `t0.50+m0.10` clears 80% (0.86)
-only where its gain is +0.05, which needs a share of 0.61. Rules that raise the threshold are
-not candidates for T-123's `other`-precision target at all, whatever the sample. This
-is a design check of T-121(b)'s sample, not a result about the real truth: the real share is what
-the paid sample measures. The measurement cannot be skipped on the strength of this table.
+| rule (re-labelled) | `graded`: gain at share 0.1 / 0.3 / 0.5; power | `band` | `flat` |
+|---|---|---|---|
+| `t0.50+m0.00` (16,359) | +0.010 / +0.030 / +0.050; 0.07 / 0.40 / 0.73 | +0.005 / +0.016 / +0.027; 0.04 / 0.20 / 0.38; +0.05 at share 0.93, power 1.00 | gain 0.000 at every share; power 0.01-0.05 |
+| `t0.50+m0.10` (14,582) | +0.008 / +0.025 / +0.041; 0.05 / 0.33 / 0.64; +0.05 at share 0.61, power 0.86 | +0.004 / +0.013 / +0.022; 0.04 / 0.14 / 0.28; not reached | 0.000 |
+| `t0.50+m0.20` (9,728) | +0.004 / +0.013 / +0.022; power 0.06 / 0.23 / 0.43; not reached | +0.012 at 0.5; not reached | 0.000 |
+| `t0.55+m0.00` (7,957) | +0.003 / +0.010 / +0.017; power 0.07 / 0.26 / 0.33; not reached | +0.009 at 0.5; not reached | 0.000 |
+| `t0.55+m0.20` | +0.012 at 0.5; not reached | +0.007 at 0.5; not reached | 0.000 |
+| margin 0.3 below 0.6, and `t0.60+m0.30` | negative or zero at every share | same | same |
+| every `t >= 0.65` | negative at every share; power 0.00 | same | same |
+
+(The power figures are those of the table's own gain: where "+0.05 is not reached", no share in [0, 1]
+gives a gain of +0.05, so there is no power to report at that target.)
+
+**Reading.** The detectability of a loosening rule depends on how the unmeasured share varies with the
+score, not only on its size: with a flat share no rule gains anything (the articles it re-labels look
+like the ones left behind), with the `band` shape only `t0.50+m0.00` can reach +0.05 (at a share of 0.93),
+and with the `graded` shape `t0.50+m0.00` reaches it at 0.50 with a power of 0.73 (below 80%: "not
+detectable at this sample", it takes the discordant top-up, drawn only after the rule is frozen, outside
+the fit half and weighted to its own strata) and `t0.50+m0.10` at 0.61 with a power of 0.86. What holds under every shape:
+a rule that raises the threshold is not a candidate for T-123's `other`-precision target, and no
+loosening rule is shown to gain until T-121(b) measures how often the argmax slug is the truth in the
+0.4-0.6 cells, per band. This is a design check of T-121(b)'s sample, not a result about the real truth.
 
 Reproduce: `uv run python scripts/simulate_category_rules_2026_10_23.py --source-db
-/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43` (about 10 minutes at the
-default 200 draws; `--draws` and `--bootstrap-reps` shorten it). Nothing is written.
+/path/to/urls.db --results-db /path/to/nlp.db --eval-run 43 --cells` (about 30 minutes at the defaults,
+200 draws and three ramps; `--draws`, `--bootstrap-reps`, `--interval-reps` and `--ramps` shorten it).
+Nothing is written.
 
 ## What it evaluates
 

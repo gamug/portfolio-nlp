@@ -1887,10 +1887,13 @@ changing the RESULTS contract):
    hypothesis-template wording (option D) only if the offline pass plateaus —
    it needs inference.
    **Part (a) executed (2026-10-23):** `docs/evaluation.md`'s 2026-10-23 follow-up. Stored
-   verdicts show a stricter threshold lowers `other` precision, so the lever is a looser
-   threshold (0.50 to 0.55), whose gain depends on the unmeasured share of articles whose
-   truth is the argmax slug; the power check puts `t0.50+m0.00` at 0.73 (top-up) and
-   `t0.50+m0.10` at 0.86 for a +0.05 gain.
+   verdicts show a stricter threshold lowers overall accuracy, raises `other` recall and (from 0.75,
+   with a paired interval) lowers `other` precision, so the lever is a looser threshold (0.50 to
+   0.55). Whether it gains depends on the unmeasured share of articles whose truth is the argmax
+   slug and on its shape over the score bands (three shapes run: power for a +0.05 gain is
+   0.73 for `t0.50+m0.00` and 0.86 for `t0.50+m0.10` under the `graded` shape, only
+   `t0.50+m0.00` under `band`, none under a flat share). T-121(b) must measure that share
+   per band in the 0.4-0.6 cells.
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side

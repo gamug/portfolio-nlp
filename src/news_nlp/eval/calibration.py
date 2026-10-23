@@ -26,15 +26,16 @@ parameter (:class:`TruthModel` ``slug_share``), not a number.
 from __future__ import annotations
 
 import math
-from collections import Counter
+import random
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import NamedTuple
 
 import numpy as np
 
 from news_nlp.eval.metrics import DIAGNOSTIC_ONLY_BUCKETS, aggregate_category
-from news_nlp.eval.partition import Pair
+from news_nlp.eval.partition import Pair, _defined
 from news_nlp.eval.sampling import EvalItem
 from news_nlp.taxonomy import (
     CATEGORY_CONFIDENCE_THRESHOLD,
@@ -54,13 +55,26 @@ REPORT_HALF_OTHER_BANDS = 30
 REPORT_HALF_SHORT_CIRCUIT = 30
 #: The two bands where a threshold moves labels.
 THRESHOLD_BANDS = (1, 2)
+#: Band key of the short-circuit stratum in a ramp (it has no score band).
+SHORT_CIRCUIT_BAND = -1
 #: How the swept ``slug_share`` varies with the score band of a cell whose stored label is
-#: ``other``: the share of articles whose truth is the argmax slug is highest just under the
-#: threshold and zero in the lowest band (a near-uniform softmax) and in the short-circuit
-#: stratum (no leaf scores). A flat share would make every re-labelled item look like the
-#: ones left behind, so no rule could change the `other` precision; the ramp is the
-#: assumption that gives a loosening rule something to gain, and it is stated, not measured.
-SLUG_SHARE_RAMP = {0: 0.0, 1: 0.5, 2: 1.0}
+#: ``other``. The share of articles whose truth is the argmax slug is assumed, never
+#: measured, and its shape matters: a flat share over every low cell makes the articles a
+#: loosening rule re-labels look like the ones left behind, so no rule could change the
+#: `other` precision. Three shapes are run (the first is the default; the T-121(a)
+#: sensitivity check reports all three):
+#:
+#: * ``graded``: 0 below 0.4 and in the short-circuit stratum, half in 0.4-0.5, full in
+#:   0.5-0.6 (the share rises towards the threshold);
+#: * ``band``: full in 0.4-0.5 and 0.5-0.6, 0 below 0.4 and in the short-circuit stratum;
+#: * ``flat``: the same share in every low cell, short-circuit included (TASKS.md's
+#:   original wording; a rule that only moves 0.5-0.6 articles cannot gain under it).
+RAMPS: dict[str, dict[int, float]] = {
+    "graded": {0: 0.0, 1: 0.5, 2: 1.0, SHORT_CIRCUIT_BAND: 0.0},
+    "band": {0: 0.0, 1: 1.0, 2: 1.0, SHORT_CIRCUIT_BAND: 0.0},
+    "flat": {0: 1.0, 1: 1.0, 2: 1.0, SHORT_CIRCUIT_BAND: 1.0},
+}
+DEFAULT_RAMP = "graded"
 #: The first band at or above the shipped threshold (CATEGORY_CONFIDENCE_THRESHOLD = 0.6).
 FIRST_CONFIDENT_BAND = 3
 
@@ -78,8 +92,10 @@ class Rule(NamedTuple):
 
     @property
     def tightens(self) -> bool:
-        """True when every label this rule gives is the shipped rule's label or ``other``."""
-        return self.threshold >= CATEGORY_CONFIDENCE_THRESHOLD and self.margin >= 0.0
+        """True when every label this rule gives is the shipped rule's label or ``other``
+        (a threshold at or above the shipped one). A margin can only remove labels, so it
+        never decides this: a rule with a lower threshold loosens whatever its margin."""
+        return self.threshold >= CATEGORY_CONFIDENCE_THRESHOLD
 
 
 BASELINE = Rule()
@@ -234,65 +250,87 @@ class TruthModel:
     """P(truth = argmax slug), P(truth = other), else some third label, per cell.
 
     * cells with a stored label equal to the argmax slug (band >= 0.6): the measured
-      agreement rate of eval_run 43 (``agree``; a cell with too few judged items falls
-      back to its band's pooled rate); when the judge disagreed, ``other_given_wrong`` of
+      agreement rate of the stored run (``agree``, weighted by the Horvitz-Thompson item
+      weights; a cell with too few judged items falls back to its band's pooled rate and
+      is listed in ``fallback_cells``); when the judge disagreed, ``other_given_wrong`` of
       the time the truth was ``other``.
     * cells whose stored label is ``other`` (bands < 0.6, short-circuit): the truth is
-      the argmax slug with probability ``slug_share * SLUG_SHARE_RAMP[band]`` (the swept
-      assumption), else ``other`` with probability ``other_agreement`` (measured: the
-      weighted `other` precision of the stored run), else a third label.
+      the argmax slug with probability ``slug_share * ramp[band]`` (the swept assumption,
+      shape in :data:`RAMPS`), else ``other`` with probability ``other_agreement``
+      (measured: the weighted `other` precision of the stored run), else a third label.
     """
 
     agree: Mapping[str, float]
     other_given_wrong: float
     other_agreement: float
     slug_share: float
+    ramp: Mapping[int, float] = field(default_factory=lambda: dict(RAMPS[DEFAULT_RAMP]))
+    fallback_cells: tuple[str, ...] = ()
 
     def probabilities(self, cell: str) -> tuple[float, float]:
         """``(P(argmax slug), P(other))`` for *cell*."""
         band = _band_of_cell(cell)
         if band is None or band < FIRST_CONFIDENT_BAND:
-            p_slug = self.slug_share * SLUG_SHARE_RAMP.get(band, 0.0) if band is not None else 0.0
+            p_slug = self.slug_share * self.ramp[SHORT_CIRCUIT_BAND if band is None else band]
             return p_slug, (1 - p_slug) * self.other_agreement
         p_slug = self.agree[cell]
         return p_slug, (1 - p_slug) * self.other_given_wrong
 
 
 def fit_truth_model(
-    accept_pairs: Sequence[Pair], *, slug_share: float, min_judged: int = 10
+    accept_pairs: Sequence[Pair],
+    *,
+    slug_share: float,
+    ramp: str = DEFAULT_RAMP,
+    min_judged: int = 10,
 ) -> TruthModel:
     """Measure the truth model's inputs on the stored judgements of one partition (the
     output of :func:`news_nlp.eval.partition.domain_pairs`). Diagnostic-only buckets are
-    left out. Cell agreement rates are unweighted; the `other` agreement is the weighted
-    ``precision_other`` of :func:`news_nlp.eval.metrics.aggregate_category`."""
+    left out. Agreement rates and the `other` share of wrong labels are weighted by the
+    Horvitz-Thompson weight ``N_h / n_h`` of each item (the buckets are not uniform-weight);
+    the `other` agreement is the weighted ``precision_other`` of
+    :func:`news_nlp.eval.metrics.aggregate_category`. Raises ``ValueError`` if a confident
+    band has no judged item at all: there is nothing to fall back on, and a 0.0
+    agreement would read as "every confident label is wrong"."""
     ok = [(it, v) for it, v in accept_pairs if it.bucket not in DIAGNOSTIC_ONLY_BUCKETS]
-    hits: Counter[str] = Counter()
-    seen: Counter[str] = Counter()
-    band_hits: Counter[int] = Counter()
-    band_seen: Counter[int] = Counter()
-    wrong = wrong_other = 0
+    n_bucket = Counter(it.bucket for it, _ in ok)
+    hits: defaultdict[str, float] = defaultdict(float)
+    seen: defaultdict[str, float] = defaultdict(float)
+    count: Counter[str] = Counter()
+    band_hits: defaultdict[int, float] = defaultdict(float)
+    band_seen: defaultdict[int, float] = defaultdict(float)
+    wrong = wrong_other = 0.0
     for it, v in ok:
         label = str(it.prediction.get("label", OTHER_LABEL))
         if label == OTHER_LABEL:
             continue
+        weight = it.stratum_population / n_bucket[it.bucket]
         cell = cell_of(1.0, _scores_of(it))
         band = int(cell.rsplit("|", 1)[1])
         right = v.ideal_slug == label
-        hits[cell] += right
-        seen[cell] += 1
-        band_hits[band] += right
-        band_seen[band] += 1
+        hits[cell] += weight * right
+        seen[cell] += weight
+        count[cell] += 1
+        band_hits[band] += weight * right
+        band_seen[band] += weight
         if not right:
-            wrong += 1
-            wrong_other += v.ideal_slug == OTHER_LABEL
+            wrong += weight
+            wrong_other += weight * (v.ideal_slug == OTHER_LABEL)
     agree: dict[str, float] = {}
-    for slug in CATEGORY_SLUGS:
-        for band in range(FIRST_CONFIDENT_BAND, len(BAND_NAMES)):
+    fallback: list[str] = []
+    for band in range(FIRST_CONFIDENT_BAND, len(BAND_NAMES)):
+        if not band_seen[band]:
+            raise ValueError(
+                f"no judged item with a stored slug label in band {BAND_NAMES[band]}: "
+                "the truth model has no agreement rate for it"
+            )
+        for slug in CATEGORY_SLUGS:
             cell = f"{slug}|{band}"
-            if seen[cell] >= min_judged:
+            if count[cell] >= min_judged:
                 agree[cell] = hits[cell] / seen[cell]
             else:
-                agree[cell] = band_hits[band] / band_seen[band] if band_seen[band] else 0.0
+                agree[cell] = band_hits[band] / band_seen[band]
+                fallback.append(cell)
     return TruthModel(
         agree=agree,
         other_given_wrong=wrong_other / wrong if wrong else 0.0,
@@ -300,6 +338,8 @@ def fit_truth_model(
             "precision_other", 0.0
         ),
         slug_share=slug_share,
+        ramp=dict(RAMPS[ramp]),
+        fallback_cells=tuple(fallback),
     )
 
 
@@ -444,4 +484,66 @@ def simulate_power(
         implied_gain(frame, truth),
         wins / defined if defined else 0.0,
         defined,
+    )
+
+
+class PairedInterval(NamedTuple):
+    """Rule minus shipped rule on one metric: the point difference, the bootstrap bounds
+    and how many of the ``reps`` replicates were usable."""
+
+    difference: float
+    low: float
+    high: float
+    used: int
+    reps: int
+
+
+def paired_rule_interval(
+    pairs: Sequence[Pair],
+    rule: Rule,
+    key: str,
+    *,
+    reps: int = 500,
+    seed: int = 0,
+    level: float = 0.95,
+) -> PairedInterval:
+    """``metric(rule) - metric(shipped rule)`` on the same stored items, with a stratified
+    bootstrap (each replicate redraws every bucket's items with replacement at the
+    bucket's own size and scores both rules on that one resample, so the difference is
+    paired). *pairs* is one partition from :func:`news_nlp.eval.partition.domain_pairs`;
+    *rule* must tighten the shipped one (see :func:`retag`). A replicate is skipped when a
+    ``precision_``/``recall_`` metric has an empty denominator under either rule.
+    Nearest-rank percentiles, approximate to about a hundredth. Free: no judge call."""
+
+    def metric(sample: Sequence[Pair], tagged: bool) -> float:
+        items = [retag(it, rule) if tagged else it for it, _ in sample]
+        if not _defined(
+            key, [(it, v) for it, (_, v) in zip(items, sample, strict=True)], {}, "all"
+        ):
+            return math.nan
+        return aggregate_category(items, [v for _, v in sample]).get(key, math.nan)
+
+    def difference(sample: Sequence[Pair]) -> float:
+        return metric(sample, True) - metric(sample, False)
+
+    by_bucket: dict[str, list[Pair]] = {}
+    for pair in pairs:
+        by_bucket.setdefault(pair[0].bucket, []).append(pair)
+    rng = random.Random(seed)  # noqa: S311 -- resampling, not cryptography
+    draws: list[float] = []
+    for _ in range(reps):
+        value = difference([p for g in by_bucket.values() for p in rng.choices(g, k=len(g))])
+        if math.isfinite(value):
+            draws.append(value)
+    point = difference(pairs)
+    if not draws:
+        return PairedInterval(point, math.nan, math.nan, 0, reps)
+    draws.sort()
+    tail = (1 - level) / 2
+    return PairedInterval(
+        point,
+        draws[int(tail * (len(draws) - 1))],
+        draws[round((1 - tail) * (len(draws) - 1))],
+        len(draws),
+        reps,
     )

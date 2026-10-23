@@ -7,14 +7,14 @@ It reports, for a grid of uniform rules (one confidence threshold for every slug
 minimum margin of the best slug over the runner-up):
 
 1. how many confirmed (`accept`) articles each rule re-labels, from the stored leaf scores
-   alone, in total, by direction, and by (slug x band) cell;
+   alone, in total, by direction, by band, and (with `--cells`) by (slug x band) cell;
 2. for the rules that only tighten the shipped one, the stored eval run's metrics on the
    `accept` partition (the judge's `ideal_slug` is the truth), a first coarse trade-off
-   table;
+   table with paired bootstrap intervals against the shipped rule;
 3. the power of T-123's estimator (paired difference of the weighted `other` precision,
    within-cell bootstrap) at the planned report-half sample size, under a truth model
    with a swept share of articles whose truth is the argmax slug, and at the share where
-   the model's own implied gain is +0.05.
+   the model's own implied gain is +0.05, for each share shape in `--ramps`.
 
 Usage:
     uv run python scripts/simulate_category_rules_2026_10_23.py \\
@@ -27,6 +27,8 @@ import argparse
 import os
 import sqlite3
 import sys
+from collections import Counter
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -34,13 +36,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.eval.calibration import (
     BAND_NAMES,
     BASELINE,
+    RAMPS,
     ConfirmedArticle,
     PowerRow,
+    RelabelRow,
     Rule,
     apply_rule,
     candidate_rules,
+    cell_of,
     fit_truth_model,
     frame_for,
+    paired_rule_interval,
     relabel_table,
     simulate_power,
     slug_share_for_gain,
@@ -75,7 +81,7 @@ def section(title: str) -> None:
     print(f"\n== {title}")
 
 
-def report_relabels(articles: list[ConfirmedArticle], rules: list[Rule]) -> None:
+def report_relabels(articles: list[ConfirmedArticle], rules: list[Rule], show_cells: bool) -> None:
     mismatches = sum(apply_rule(a.group_score, a.leaf_scores) != a.stored_label for a in articles)
     section(f"Re-labelled confirmed articles per rule (of {len(articles)})")
     print(f"  baseline {BASELINE.name} reproduces the stored label on all but {mismatches}")
@@ -98,14 +104,53 @@ def report_relabels(articles: list[ConfirmedArticle], rules: list[Rule]) -> None
             + "".join(f"{n:>9}" for n in by_band)
             + f"{row.by_cell.get('short_circuit', 0):>9}"
         )
+    if show_cells:
+        report_cells(articles, table)
 
 
-def report_verdicts(conn: sqlite3.Connection, run_id: int, rules: list[Rule]) -> None:
-    pairs = load_category_pairs(conn, run_id)
-    accept = {
+def report_cells(articles: list[ConfirmedArticle], table: list[RelabelRow]) -> None:
+    """The slug x band grid of the confirmed population and, per distinct rule, of the
+    articles it re-labels (the population and per-cell counts T-121(a) asks for)."""
+    population = Counter(cell_of(a.group_score, a.leaf_scores) for a in articles)
+
+    def grid(counts: Mapping[str, int]) -> None:
+        print(f"  {'slug':<30}" + "".join(f"{b:>9}" for b in BAND_NAMES))
+        for slug in CATEGORY_SLUGS:
+            print(
+                f"  {slug:<30}"
+                + "".join(f"{counts.get(f'{slug}|{b}', 0):>9}" for b in range(len(BAND_NAMES)))
+            )
+        print(f"  short-circuit stratum: {counts.get('short_circuit', 0)}")
+
+    section("Confirmed articles per cell (the population)")
+    grid(population)
+    seen: dict[tuple[tuple[str, int], ...], str] = {}
+    for row in table:
+        key = tuple(sorted(row.by_cell.items()))
+        if not key:
+            continue
+        if key in seen:
+            section(
+                f"Re-labelled per cell: {row.rule.name} re-labels the same articles as {seen[key]}"
+            )
+            continue
+        seen[key] = row.rule.name
+        section(f"Re-labelled per cell: {row.rule.name} ({row.changed})")
+        grid(row.by_cell)
+
+
+def accept_ids(conn: sqlite3.Connection) -> set[int]:
+    return {
         i
         for (i,) in conn.execute("SELECT id FROM main.discovered_urls WHERE match_class = 'accept'")
     }
+
+
+def report_verdicts(
+    conn: sqlite3.Connection, run_id: int, rules: list[Rule], reps: int, seed: int
+) -> None:
+    pairs = load_category_pairs(conn, run_id)
+    accept = accept_ids(conn)
     domain = domain_pairs(pairs, lambda a: a in accept)
     section(f"eval_run {run_id}, `accept` partition: stored verdicts under the tightening rules")
     print(f"  judged items in the partition: {len(domain)}")
@@ -113,12 +158,35 @@ def report_verdicts(conn: sqlite3.Connection, run_id: int, rules: list[Rule]) ->
         f"  {'rule':<12}{'other_prec':>11}{'other_rec':>10}{'acc':>7}{'macroF1':>9}"
         f"{'mean slug prec':>16}{'other rate':>12}"
     )
-    for name, m in verdict_table(domain, rules).items():
+    table = verdict_table(domain, rules)
+    for name, m in table.items():
         print(
             f"  {name:<12}{m.get('precision_other', 0):>11.3f}{m.get('recall_other', 0):>10.3f}"
             f"{m['accuracy_vs_judge']:>7.3f}{m['macro_f1']:>9.3f}"
             f"{m['mean_slug_precision']:>16.3f}{m['other_rate_model']:>12.3f}"
         )
+    section(
+        f"Rule minus shipped rule, paired stratified bootstrap ({reps} reps, 95%): "
+        "same items scored under both"
+    )
+    print(f"  {'rule':<12}{'metric':<22}{'difference':>11}  {'interval':<20}{'used':>10}")
+    done: dict[tuple[float, ...], str] = {}
+    for rule in rules:
+        if not rule.tightens or rule == BASELINE:
+            continue
+        signature = tuple(
+            round(table[rule.name][k], 9) for k in ("precision_other", "recall_other")
+        )
+        if signature in done:
+            print(f"  {rule.name:<12}same labels as {done[signature]}")
+            continue
+        done[signature] = rule.name
+        for key in ("precision_other", "recall_other", "accuracy_vs_judge"):
+            iv = paired_rule_interval(domain, rule, key, reps=reps, seed=seed)
+            print(
+                f"  {rule.name:<12}{key:<22}{iv.difference:>+11.3f}  "
+                f"[{iv.low:+.3f}, {iv.high:+.3f}]{iv.used:>6}/{iv.reps}"
+            )
 
 
 def report_power(
@@ -129,18 +197,20 @@ def report_power(
     draws: int,
     boot_reps: int,
     seed: int,
+    ramp: str,
 ) -> None:
     pairs = load_category_pairs(conn, run_id)
-    accept = {
-        i
-        for (i,) in conn.execute("SELECT id FROM main.discovered_urls WHERE match_class = 'accept'")
-    }
-    truth = fit_truth_model(domain_pairs(pairs, lambda a: a in accept), slug_share=0.0)
-    section("Truth model measured on eval_run stored verdicts (accept partition)")
+    accept = accept_ids(conn)
+    truth = fit_truth_model(domain_pairs(pairs, lambda a: a in accept), slug_share=0.0, ramp=ramp)
+    section(f"Truth model (ramp {ramp!r}: {RAMPS[ramp]}) measured on eval_run stored verdicts")
     print(f"  `other` agreement of the stored `other` label: {truth.other_agreement:.3f}")
     print(f"  share of wrong >= 0.6 labels whose truth is `other`: {truth.other_given_wrong:.3f}")
+    print(
+        f"  confident cells whose agreement fell back to their band's rate "
+        f"(fewer than 10 judged): {len(truth.fallback_cells)} of {len(truth.agree)}"
+    )
     section(
-        f"Power of the paired weighted `other`-precision difference (report half; "
+        f"Power ({ramp} ramp) of the paired weighted `other`-precision difference (report half; "
         f"{draws} draws x {boot_reps} bootstrap reps; need >= {POWER_TARGET:.0%})"
     )
     print(f"  {'rule':<12}{'share':>7}{'implied gain':>14}{'power':>8}{'defined':>9}  note")
@@ -187,6 +257,17 @@ def main() -> int:
     ap.add_argument("--draws", type=int, default=200)
     ap.add_argument("--bootstrap-reps", type=int, default=300)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--interval-reps", type=int, default=500, help="bootstrap reps, paired intervals"
+    )
+    ap.add_argument("--cells", action="store_true", help="print the per-cell re-label grids")
+    ap.add_argument(
+        "--ramps",
+        default="graded,band,flat",
+        help=f"comma-separated slug-share shapes ({', '.join(RAMPS)}); the first is the default "
+        "and covers every rule, the others only the loosening rules (tightening ones lose "
+        "under every shape)",
+    )
     args = ap.parse_args()
     if args.source_db is None or args.results_db is None:
         ap.error(
@@ -195,9 +276,13 @@ def main() -> int:
     conn = connect(args.source_db, args.results_db)
     articles = load_confirmed(conn)
     rules = candidate_rules()
-    report_relabels(articles, rules)
-    report_verdicts(conn, args.eval_run, rules)
-    report_power(conn, args.eval_run, articles, rules, args.draws, args.bootstrap_reps, args.seed)
+    report_relabels(articles, rules, args.cells)
+    report_verdicts(conn, args.eval_run, rules, args.interval_reps, args.seed)
+    for i, ramp in enumerate(args.ramps.split(",")):
+        subset = rules if i == 0 else [r for r in rules if not r.tightens]
+        report_power(
+            conn, args.eval_run, articles, subset, args.draws, args.bootstrap_reps, args.seed, ramp
+        )
     return 0
 
 

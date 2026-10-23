@@ -1,11 +1,16 @@
 """Offline simulation of category decision rules (TASKS.md T-121(a)): hermetic, no judge
 call, no model."""
 
-import numpy as np
+import importlib.util
+import random
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from news_nlp.eval.calibration import (
     BASELINE,
+    RAMPS,
     ConfirmedArticle,
     Rule,
     TruthModel,
@@ -16,6 +21,7 @@ from news_nlp.eval.calibration import (
     fit_truth_model,
     frame_for,
     implied_gain,
+    paired_rule_interval,
     relabel_table,
     report_half_size,
     retag,
@@ -85,13 +91,15 @@ def test_the_baseline_relabels_nothing() -> None:
     assert relabel_table(articles, [BASELINE])[0].changed == 0
 
 
-def _judged(aid: int, label: str, ideal: str, top: float, bucket: str = "representative") -> tuple:
+def _judged(
+    aid: int, label: str, ideal: str, top: float, bucket: str = "representative", pop: int = 100
+) -> tuple:
     leaves = _leaves(0, top)
     dist = dict(zip(CATEGORY_SLUGS, leaves, strict=True))
     item = EvalItem(
         article_id=aid,
         bucket=bucket,
-        stratum_population=100,
+        stratum_population=pop,
         title="",
         body_text="",
         prediction={"label": label, "score": top, "distribution": dist},
@@ -129,6 +137,7 @@ def test_truth_model_reads_agreement_and_other_precision_from_stored_verdicts() 
     pairs = (
         [_judged(i, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.9) for i in range(1, 9)]
         + [_judged(i, CATEGORY_SLUGS[0], OTHER_LABEL, 0.9) for i in range(9, 11)]
+        + [_judged(i, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.7) for i in range(15, 17)]
         + [_judged(i, OTHER_LABEL, OTHER_LABEL, 0.3) for i in range(11, 13)]
         + [_judged(i, OTHER_LABEL, CATEGORY_SLUGS[0], 0.55) for i in range(13, 15)]
     )
@@ -136,8 +145,10 @@ def test_truth_model_reads_agreement_and_other_precision_from_stored_verdicts() 
     assert truth.agree[f"{CATEGORY_SLUGS[0]}|4"] == pytest.approx(0.8)
     assert truth.other_given_wrong == 1.0
     assert truth.other_agreement == pytest.approx(0.5)
-    # a >= 0.6 cell with too few judged items falls back to nothing measured: its band rate
+    # a >= 0.6 cell with fewer than min_judged items uses its band's pooled rate, and is listed
     assert truth.agree[f"{CATEGORY_SLUGS[1]}|4"] == pytest.approx(0.8)
+    assert f"{CATEGORY_SLUGS[1]}|4" in truth.fallback_cells
+    assert f"{CATEGORY_SLUGS[0]}|4" not in truth.fallback_cells
     assert truth.probabilities(f"{CATEGORY_SLUGS[0]}|4") == pytest.approx((0.8, 0.2))
     # the slug share ramps with the band and is zero below 0.4 and in the short-circuit cell
     assert truth.probabilities(f"{CATEGORY_SLUGS[0]}|2")[0] == pytest.approx(0.3)
@@ -200,4 +211,114 @@ def test_candidate_rules_are_the_grid_and_include_the_shipped_rule() -> None:
     rules = candidate_rules()
     assert BASELINE in rules
     assert len(rules) == len(set(rules))
-    assert np.isclose(min(r.threshold for r in rules), 0.5)
+    assert min(r.threshold for r in rules) == 0.5
+
+
+def test_a_confident_band_with_no_judged_item_is_an_error_not_a_zero() -> None:
+    only_band_four = [_judged(i, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.9) for i in range(1, 4)]
+    with pytest.raises(ValueError, match=r"0\.6-0\.8"):
+        fit_truth_model(only_band_four, slug_share=0.3)
+
+
+def test_cell_agreement_is_weighted_by_the_stratum_weight() -> None:
+    # two buckets, same cell: one wrong item in a bucket standing for 900, nine right ones
+    # in a bucket of ten items standing for 100 (weights 900 and 10 each): the weighted rate
+    # is 90/990, not the unweighted 0.9.
+    heavy = _judged(1, CATEGORY_SLUGS[0], OTHER_LABEL, 0.9, bucket="heavy", pop=900)
+    light = [
+        _judged(i, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.9, bucket="light", pop=100)
+        for i in range(2, 11)
+    ]
+    band_three = _judged(50, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.7, bucket="light", pop=100)
+    truth = fit_truth_model([heavy, *light, band_three], slug_share=0.0, min_judged=10)
+    assert truth.agree[f"{CATEGORY_SLUGS[0]}|4"] == pytest.approx(90 / 990)
+
+
+def test_a_flat_slug_share_leaves_no_gain_and_a_graded_one_does() -> None:
+    frame = frame_for(_population(), Rule(0.5))
+    flat = TruthModel(**{**_TRUTH.__dict__, "slug_share": 0.5, "ramp": RAMPS["flat"]})
+    graded = TruthModel(**{**_TRUTH.__dict__, "slug_share": 0.5, "ramp": RAMPS["graded"]})
+    band = TruthModel(**{**_TRUTH.__dict__, "slug_share": 0.5, "ramp": RAMPS["band"]})
+    assert implied_gain(frame, graded) > 0.0
+    assert implied_gain(frame, band) > 0.0
+    # the population here has no 0.4-0.5 or < 0.4 articles, so `band` equals `graded`
+    # at the 0.5-0.6 band and `flat` differs only by the short-circuit stratum
+    assert implied_gain(frame, flat) < implied_gain(frame, graded)
+
+
+def test_a_tightening_rule_only_ever_gives_the_baseline_label_or_other() -> None:
+    rng = random.Random(1)  # noqa: S311 -- a test fixture, not cryptography
+    for _ in range(300):
+        leaves = tuple(rng.random() * 0.3 for _ in CATEGORY_SLUGS)
+        top = rng.randrange(len(CATEGORY_SLUGS))
+        leaves = tuple(rng.uniform(0.3, 1.0) if i == top else x for i, x in enumerate(leaves))
+        rule = Rule(rng.choice([0.6, 0.65, 0.8, 0.95]), rng.choice([0.0, 0.1, 0.3]))
+        assert rule.tightens
+        assert apply_rule(0.9, leaves, rule) in (apply_rule(0.9, leaves), OTHER_LABEL)
+    assert not Rule(0.55, 0.3).tightens
+
+
+def test_paired_interval_is_deterministic_and_matches_the_point_difference() -> None:
+    pairs = [_judged(i, CATEGORY_SLUGS[0], CATEGORY_SLUGS[0], 0.9) for i in range(1, 21)]
+    pairs += [_judged(i, CATEGORY_SLUGS[0], OTHER_LABEL, 0.65) for i in range(21, 31)]
+    pairs += [_judged(i, OTHER_LABEL, OTHER_LABEL, 0.3) for i in range(31, 36)]
+    pairs += [_judged(i, OTHER_LABEL, CATEGORY_SLUGS[0], 0.3) for i in range(36, 41)]
+    a = paired_rule_interval(pairs, Rule(0.7), "precision_other", reps=100, seed=2)
+    assert a == paired_rule_interval(pairs, Rule(0.7), "precision_other", reps=100, seed=2)
+    # the ten wrong 0.65 labels go to `other`, where the judge says `other`: precision
+    # rises from 5/10 to 15/20
+    assert a.difference > 0 and a.low <= a.difference <= a.high and a.used == a.reps
+    assert paired_rule_interval(pairs, BASELINE, "precision_other", reps=50).difference == 0.0
+    with pytest.raises(ValueError, match="away from 'other'"):
+        paired_rule_interval(pairs, Rule(0.5), "precision_other", reps=5)
+
+
+def _script() -> object:
+    path = Path(__file__).resolve().parents[2] / "scripts" / "simulate_category_rules_2026_10_23.py"
+    spec = importlib.util.spec_from_file_location("simulate_category_rules", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_script_loads_the_confirmed_articles_with_leaf_scores_in_slug_order(
+    tmp_path: Path,
+) -> None:
+    script = _script()
+    source, results = tmp_path / "urls.db", tmp_path / "nlp.db"
+    with sqlite3.connect(source) as c:
+        c.execute("CREATE TABLE discovered_urls (id INTEGER PRIMARY KEY, match_class TEXT)")
+        c.executemany(
+            "INSERT INTO discovered_urls VALUES (?, ?)",
+            [(1, "accept"), (2, "reject"), (3, "accept")],
+        )
+    leaf_cols = ", ".join(f"{s} REAL" for s in CATEGORY_SLUGS)
+    with sqlite3.connect(results) as c:
+        c.execute(
+            "CREATE TABLE article_category (article_id INTEGER, label TEXT, group_score REAL, "
+            + leaf_cols
+            + ")"
+        )
+        marks = ", ".join("?" for _ in CATEGORY_SLUGS)
+        for aid, label, group in [
+            (1, CATEGORY_SLUGS[8], 0.9),
+            (2, OTHER_LABEL, 0.9),
+            (3, OTHER_LABEL, 0.1),
+        ]:
+            scores = [0.01 * (i + 1) for i in range(9)]
+            scores[8] = 0.8 if aid == 1 else 0.3
+            c.execute(
+                f"INSERT INTO article_category VALUES (?, ?, ?, {marks})",  # noqa: S608
+                (aid, label, group, *scores),
+            )
+    conn = script.connect(source, results)  # type: ignore[attr-defined]
+    articles = script.load_confirmed(conn)  # type: ignore[attr-defined]
+    assert [a.article_id for a in articles] == [1, 3]  # the rejected article is left out
+    first = articles[0]
+    assert first.stored_label == CATEGORY_SLUGS[8] and first.leaf_scores[8] == 0.8
+    assert first.leaf_scores[0] == pytest.approx(0.01)  # column order is CATEGORY_SLUGS order
+    assert apply_rule(first.group_score, first.leaf_scores) == first.stored_label
+    # the connection is read-only
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("DELETE FROM discovered_urls")
