@@ -6,9 +6,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 
@@ -331,8 +332,189 @@ def test_a_crash_keeps_every_verdict_already_paid_for(
         )["calls"]
     finally:
         other.close()
-    assert [r[0] for r in rows] == [1]
+    assert len(rows) == 1  # the one article judged before the interrupt
     assert calls == 1
+
+
+def _sample_cells(cells: list[str], per_half: int) -> tuple[cs.CalibrationSample, list[EvalItem]]:
+    drawn: list[cs.SampledArticle] = []
+    items: list[EvalItem] = []
+    next_id = 1
+    for cell in cells:
+        for half in cs.HALVES:
+            for _ in range(per_half):
+                drawn.append(cs.SampledArticle(next_id, cell, half, 100, per_half))
+                items.append(_numbered(next_id))
+                next_id += 1
+    return cs.CalibrationSample(1, tuple(drawn), {c: 100 for c in cells}), items
+
+
+def _always(slug: str = "other") -> Callable[[str], JudgeAgent]:
+    return lambda _p: FakeAgent([f'{{"truth_slug": "{slug}"}}'])
+
+
+def _start_sample(conn: db_module.NewsNlpDatabase, sample: cs.CalibrationSample) -> int:
+    return cj.start_calibration_run(
+        conn, sample, judge_model="m", judge_url="u", code_version="v", date="2026-10-23"
+    )
+
+
+def test_a_run_can_be_resumed_without_double_recording_or_losing_its_call_count(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["c|2"], 2)
+    run = _start_sample(conn, sample)
+    cj.judge_and_record(conn, run, items[:2], agent_factory=_always(), max_calls=10)
+    assert cj.calls_spent(conn) == 2
+    pairs, usage = cj.judge_and_record(conn, run, items, agent_factory=_always(), max_calls=10)
+    assert len(pairs) == 4
+    assert (usage.reused, usage.judged, usage.calls) == (2, 4, 4)  # judged/calls carry over
+    assert cj.calls_spent(conn) == 4
+    rows = conn.execute("SELECT COUNT(*) FROM eval_verdict WHERE run_id = ?", (run,)).fetchone()
+    assert rows[0] == 4
+
+
+def test_a_parse_failed_verdict_is_judged_again_on_resume_and_replaced(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["c|2"], 1)
+    run = _start_sample(conn, sample)
+    bad = lambda _p: FakeAgent(["no", "no"])  # noqa: E731
+    cj.judge_and_record(conn, run, items, agent_factory=bad, max_calls=10)
+    assert cj.load_truths(conn, run).parse_failed == 2
+    cj.judge_and_record(conn, run, items, agent_factory=_always(), max_calls=10)
+    truths = cj.load_truths(conn, run)
+    assert (truths.parse_failed, len(truths.rows)) == (0, 2)
+    n = conn.execute("SELECT COUNT(*) FROM eval_verdict WHERE run_id = ?", (run,)).fetchone()[0]
+    assert n == 2
+
+
+def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["c|2"], 10)
+    run = _start_sample(conn, sample)
+    log: list[str] = []
+    made = {"n": 0}
+
+    class Agent:
+        def __call__(self, prompt: str) -> str:
+            log.append(prompt)
+            time.sleep(0.05)  # keep the queue unfinished when the interrupt arrives
+            return '{"truth_slug": "other"}'
+
+    def factory(_prompt: str) -> JudgeAgent:
+        made["n"] += 1
+        if made["n"] == 2:
+            raise KeyboardInterrupt
+        return Agent()
+
+    with pytest.raises(KeyboardInterrupt):
+        cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=100, max_workers=1)
+    assert len(log) <= 3  # not the 20: the queued articles were cancelled, never sent
+
+
+def test_items_go_out_round_robin_so_a_stop_leaves_every_group_covered() -> None:
+    sample, items = _sample_cells(["a|1", "b|1", "c|1"], 5)
+    config: dict[str, Any] = {"halves": {}}
+    for a in sample.drawn:
+        config["halves"].setdefault(a.cell, {"fit": [], "report": []})[a.half].append(a.article_id)
+    ordered = cj._round_robin(items, config, seed=1)
+    groups = {(a.cell, a.half): a.article_id for a in sample.drawn}
+    by_id = {a.article_id: (a.cell, a.half) for a in sample.drawn}
+    first = {by_id[i.article_id] for i in ordered[: len(groups)]}
+    assert first == set(groups)  # the first six items hit all six (cell, half) groups
+    assert sorted(i.article_id for i in ordered) == sorted(i.article_id for i in items)
+
+
+def test_a_stop_at_the_cap_judges_a_spread_not_whole_cells(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["a|1", "b|1", "c|1"], 5)
+    run = _start_sample(conn, sample)
+    pairs, usage = cj.judge_and_record(
+        conn, run, items, agent_factory=_always(), max_calls=12, max_workers=1
+    )
+    assert usage.judged == 11 and usage.not_judged == 19  # 12 calls: 2 reserved, 1 used each
+    cell_of_id = {a.article_id: (a.cell, a.half) for a in sample.drawn}
+    assert len({cell_of_id[it.article_id] for it, _ in pairs}) == 6  # all six groups covered
+
+
+def test_a_transport_error_is_not_recorded_and_an_outage_stops_the_run(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["c|2"], 5)
+    run = _start_sample(conn, sample)
+
+    class Down:
+        def __call__(self, prompt: str) -> str:
+            raise ConnectionError("503")
+
+    with pytest.raises(cj.JudgeOutage):
+        cj.judge_and_record(
+            conn, run, items, agent_factory=lambda _p: Down(), max_calls=100, max_workers=1
+        )
+    assert conn.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()[0] == 0
+    status, metrics = conn.execute(
+        "SELECT status, metrics_json FROM eval_run WHERE id = ?", (run,)
+    ).fetchone()
+    assert status == "error"
+    saved = json.loads(metrics)
+    assert saved["errors"] >= cj.MAX_CONSECUTIVE_ERRORS
+    assert saved["calls"] == saved["errors"]  # every failed attempt is a counted call
+
+
+def test_one_transient_error_does_not_stop_the_run(conn: db_module.NewsNlpDatabase) -> None:
+    sample, items = _sample_cells(["c|2"], 2)
+    run = _start_sample(conn, sample)
+    flaky = {"n": 0}
+
+    class Agent:
+        def __call__(self, prompt: str) -> str:
+            flaky["n"] += 1
+            if flaky["n"] == 1:
+                raise TimeoutError("slow")
+            return '{"truth_slug": "other"}'
+
+    pairs, usage = cj.judge_and_record(
+        conn, run, items, agent_factory=lambda _p: Agent(), max_calls=100, max_workers=1
+    )
+    assert (usage.errors, usage.judged, len(pairs)) == (
+        1,
+        3,
+        3,
+    )  # the failed one is retried next run
+    assert cj.load_truths(conn, run).unjudged == 1
+
+
+def test_judge_truth_raises_on_a_failed_call_but_falls_back_on_a_bad_reply() -> None:
+    class Down:
+        def __call__(self, prompt: str) -> str:
+            raise OSError("boom")
+
+    with pytest.raises(cj.JudgeTransportError):
+        cj.judge_truth(Down(), _item())
+    assert cj.judge_truth(FakeAgent(["x", "y"]), _item()).parse_failed
+
+
+def test_a_cap_below_the_need_logs_a_warning(
+    conn: db_module.NewsNlpDatabase, caplog: pytest.LogCaptureFixture
+) -> None:
+    sample, items = _sample_cells(["c|2"], 2)
+    run = _start_sample(conn, sample)
+    with caplog.at_level("WARNING", logger=cj.__name__):
+        cj.judge_and_record(conn, run, items, agent_factory=_always(), max_calls=3)
+    assert any("cap may stop" in r.message for r in caplog.records)
+
+
+def test_old_results_stay_readable_after_the_prompt_changes(
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample, items = _sample_cells(["c|2"], 1)
+    run = _start_sample(conn, sample)
+    cj.judge_and_record(conn, run, items, agent_factory=_always(), max_calls=10)
+    monkeypatch.setattr(cj, "prompt_hash", lambda: "0" * 64)
+    assert len(cj.load_truths(conn, run).rows) == 2
 
 
 def test_the_cap_is_on_calls_and_the_run_stops_cleanly_at_it(
@@ -451,6 +633,25 @@ def test_cell_sizes_halves_and_weights() -> None:
         for half in cs.HALVES:
             part = [a for a in members if a.half == half]
             assert sum(a.weight for a in part) == pytest.approx(sample.populations[cell])
+
+
+def test_the_base_sample_is_the_3300_calls_of_the_plan() -> None:
+    """9 slugs x 5 bands + the short-circuit stratum: 90 per cell in the two threshold bands,
+    60 elsewhere, 60 short-circuit; the D10 cap of 3,800 leaves 500 for the top-up."""
+    articles: list[ConfirmedArticle] = []
+    i = 0
+    for slug_index in range(len(CATEGORY_SLUGS)):
+        for score in (0.30, 0.45, 0.55, 0.70, 0.90):
+            for _ in range(200):
+                i += 1
+                articles.append(_article(i, slug_index, score))
+    for _ in range(200):
+        i += 1
+        articles.append(_article(i, 0, 0.5, group=CATEGORY_GROUP_FLOOR - 0.1))
+    sample = cs.draw_sample(articles, seed=1)
+    assert len(sample.populations) == 46
+    assert len(sample.drawn) == 3300
+    assert cj.D10_CAP - len(sample.drawn) == 500
 
 
 def test_a_small_cell_is_taken_whole_and_split_evenly() -> None:

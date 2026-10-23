@@ -2741,10 +2741,19 @@ classifier reads, so it is the best label for that text, not for the whole artic
   separately from D10.
 * **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
   calls an article may need (the reply and one repair), counts the calls it really makes,
-  records and commits each verdict as it arrives (a crash loses at most the calls in flight)
-  and stops at `max_calls` rather than start an article it might not finish (status
-  `stopped_at_cap`). The calls used are kept in the run's `metrics_json` as it goes;
-  pass `remaining_calls(conn)` as the cap so it holds across runs. Duplicate articles are refused.
+  records and commits each verdict as it arrives and stops at `max_calls` rather than start an
+  article it might not finish (status `stopped_at_cap`). The calls used are kept in the run's
+  `metrics_json` as it goes; pass `remaining_calls(conn)` as the cap so it holds across runs.
+  The base sample is 3,300 calls at one call per article (a test pins it), leaving 500 under
+  the cap; if every reply needed a repair it would cost 6,600, so the run logs a warning
+  whenever `max_calls` is below two calls per pending article. Duplicate articles are refused.
+* **Resuming, interrupts, outages.** Calling `judge_and_record` again on the same run resumes
+  it: usage carries over, an article already judged in the run is not recorded twice, a
+  `parse_failed` one is judged again and replaced. Articles go out round-robin across
+  (cell, half), seeded within each, so a stop at the cap leaves an even gap, not whole cells.
+  An interrupt cancels the queue (only the calls in flight finish, and their verdicts are
+  kept). A failed call (rate limit, 5xx, auth, network) is a `JudgeTransportError`, never a
+  verdict; five in a row stop the run with `JudgeOutage` (status `error`).
 * `start_calibration_run` creates the `eval_run` with the config in `strata_json`: seed, band
   edges, cell populations, half assignment, dropped articles, judge model, temperature
   (`config.JUDGE_TEMPERATURE`, the one `build_model` uses), judge seed, prompt hash, date.

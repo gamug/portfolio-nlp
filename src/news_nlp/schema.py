@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS eval_run (
     mlflow_run_id TEXT,
     metrics_json  TEXT NOT NULL DEFAULT '{}',
     strata_json   TEXT NOT NULL DEFAULT '{}',  -- {bucket: {"population": N_h, "n": n_h}}; '{}' for pre-stratification runs
-    status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error
+    status        TEXT NOT NULL DEFAULT 'running',   -- running | ok | error | stopped_at_cap (category_truth run stopped by its call cap)
     error         TEXT,
     experiment    TEXT NOT NULL DEFAULT 'base'  -- which model produced this run's inferences
                                                  -- ("base" for the pinned production model, or
