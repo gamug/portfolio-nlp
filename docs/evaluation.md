@@ -2779,6 +2779,25 @@ classifier reads, so it is the best label for that text, not for the whole artic
   A reused verdict is the latest *valid* one (a newer `parse_failed` never hides it).
   `model.calibration_agent_factory(settings)` builds the `agent_factory`.
 
+**Recipe (what T-121(b) calls, in this order)**
+
+```python
+population = load_confirmed(conn)                      # match_class = 'accept'
+drawn = draw_sample(population, seed=SEED)             # cells, halves, weights
+pairs, sample = sample_items(conn, drawn)              # drops articles without text
+run_id = start_calibration_run(conn, sample, judge_model=..., judge_url=..., code_version=...)
+judge_and_record(conn, run_id, [i for _, i in pairs],
+                 agent_factory=calibration_agent_factory(settings),
+                 max_calls=remaining_calls(conn))      # resume = call it again on run_id
+truths = load_truths(conn, run_id)                     # usable labels + weights
+```
+
+Two traps: pass `start_calibration_run` the **effective** sample `sample_items` returns, not
+`drawn` (it refuses a sample that still draws a dropped article), and pass `remaining_calls(conn)`,
+not the full 3,800, so the D10 cap holds across runs. The label and scores to analyse against are
+read from `article_category` by article id. Check `truths.parse_failed_rate`, `truths.unjudged`
+and `truths.design_effect(half)` before trusting an estimate.
+
 ## Experiments: JSON-driven, single-command runs
 
 (2026-09-18, `PLAN.md` Work item 11, `SPEC.md` FR-017, `TASKS.md`
