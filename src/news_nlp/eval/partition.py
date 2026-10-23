@@ -197,8 +197,10 @@ def bootstrap_interval(
     :func:`metrics_by_partition`. With ``minus=(a, b)`` the statistic is
     ``metric(a) - metric(b)`` instead (*partition* is ignored). A replicate is skipped when
     the statistic is not finite or when a ``precision_``/``recall_`` metric has an empty
-    denominator in a partition it uses; ``Interval.used`` says how many remained. Free: no
-    judge call."""
+    denominator in a partition it uses; ``Interval.used`` says how many remained. The bounds
+    are nearest-rank percentiles of the usable replicates (500 by default), so they are
+    approximate to about a hundredth, not exact. Not re-exported by ``news_nlp.eval``, like
+    ``metrics``/``sampling``: import it from this module. Free: no judge call."""
     names = minus if minus else (partition,)
 
     def stat(sample: Sequence[Pair]) -> float:

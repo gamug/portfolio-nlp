@@ -1706,8 +1706,8 @@ planning estimate, not an accuracy claim — constitution AI behavior #5):
   is comparable until recomputed on surviving articles. It does **not**
   explain the four weak slugs (0.14–0.33 accuracy, `docs/evaluation.md`): that is
   the zero-shot model. Sentiment is different, it does use the company and ticker
-  (`_text_mentions_subject`), so it is affected directly (T-127). T-133 measures
-  the category effect from stored verdicts, with no new judge calls.
+  (`_text_mentions_subject`), so it is affected directly (T-127). T-133 measured
+  the category effect from stored verdicts, with no new judge calls (done 2026-10-22).
   **First measurement (2026-10-22, read-only, eval_run 43, the only category run whose
   judgements are stored):** in its unskewed `representative` bucket `other` was judged
   correct on 36.8% of articles still confirmed upstream against 67.4% of rejected
@@ -1860,8 +1860,8 @@ changing the RESULTS contract):
    parameters by per-slug precision (the metric constitution/docs say matters
    here), on the confirmed (`accept`/`ok`) articles' stored scores, or on the
    relevance-gated population if step 3 builds a gate. It needs no relevance
-   measurement and no inference, so it can start as soon as T-133 has partitioned the
-   stored verdicts (it does not wait for T-117). **Input: a fresh judged sample, not
+   measurement and no inference, so it could start once T-133 had partitioned the
+   stored verdicts (done; it does not wait for T-117). **Input: a fresh judged sample, not
    the stored verdicts alone** (eval_run 43 holds only 20 to 63 confirmed judged items per
    predicted slug, and below 0.6 it graded `other`, not the argmax slug). Part (a) is free:
    re-simulate on the stored verdicts where label = argmax. Part (b) is paid (its own spend

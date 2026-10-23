@@ -911,7 +911,8 @@ treating a related FR/NR as done:
     the 42.7% (stratified by source and period, in `docs/evaluation.md`); calibration
     is the main remaining lever (first measurement 2026-10-22 in
     `docs/evaluation.md`: `other` was judged correct far more often on rejected than on
-    confirmed articles; T-133 owes the complete metric set); sentiment
+    confirmed articles; the complete metric set per upstream class, T-133 done, is in
+    `docs/evaluation.md`); sentiment
     does use the company and is affected directly (T-127). The quarantined `review`
     pairs get the verdicts `about` / `mention` / `other` / `unclear` (D5), never acted
     on in doubt, in either direction. Owner decisions D5–D9 were settled at their defaults on 2026-10-22 (T-139).

@@ -326,7 +326,10 @@ sentiment/category; the legacy `eval_judgement` table is superseded,
 subclass directly (see "FTI architecture" above) rather than loading
 models independently, and can score a candidate model/checkpoint live
 (`--candidate-model`/`--candidate-revision`) without a production run
-first. `sector_summary`'s
+first. A stored category run can also be re-read per subset of the
+corpus (for example per upstream `match_class`) with no judge call, reweighted as a
+domain estimate and with bootstrap intervals (`news_nlp.eval.partition`; see
+`docs/evaluation.md`'s 2026-10-22 follow-up). `sector_summary`'s
 `intro_text` had its own dedicated eval path added 2026-09-14 — its
 population is small enough (thousands of rows) to judge in full every run
 instead of sampling, checked for faithfulness against its own `facts_json`
