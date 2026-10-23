@@ -2740,6 +2740,11 @@ classifier reads, so it is the best label for that text, not for the whole artic
   started under another hash is refused. A change to the wording or to the label set
   invalidates every stored `category_truth` verdict and costs a re-judge, to be budgeted
   separately from D10.
+  The reuse key also carries the item's `prediction`, which for a calibration item is only
+  `{"text_sha256"}` (the hash of the title and capped text the judge read): the judge never sees
+  the classifier's output, so T-122's new rule or T-124's re-label never forces a re-buy, and a
+  change of the text always does. The label and scores to analyse against come from
+  `article_category` by article id. `judge_and_record` refuses items outside the run's sample.
 * **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
   calls an article may need (the reply and one repair), counts the calls it really makes,
   records and commits each verdict as it arrives and stops at `max_calls` rather than start an

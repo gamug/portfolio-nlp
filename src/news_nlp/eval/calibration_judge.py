@@ -135,7 +135,8 @@ def find_truth_verdict(
     conn: NewsNlpDatabase, item: EvalItem, *, experiment: str
 ) -> TruthVerdict | None:
     """The latest *valid* verdict already stored under :data:`TASK` for this article,
-    experiment and prediction, or ``None``. A ``parse_failed`` fallback is skipped, not
+    experiment and ``prediction`` (for a calibration item the hash of the text read, see
+    ``calibration_sample.sample_items``), or ``None``. A ``parse_failed`` fallback is skipped, not
     reused: a newer failure never hides an older valid verdict (no second payment), and an
     article with only failures is judged again."""
     rows = conn.execute(
@@ -458,12 +459,22 @@ def judge_and_record(
     article already judged in the run is not recorded twice, a ``parse_failed`` one is judged
     again). ``max_calls`` bounds the judge calls of this invocation (pass
     ``remaining_calls(conn)``); it never starts an article it might not finish. The run's stored
-    prompt hash must match the frozen prompt. Duplicate articles raise ``ValueError``; so do
+    prompt hash must match the frozen prompt. Duplicate articles and articles outside the run's
+    sample raise ``ValueError`` before any call; so do
     :data:`MAX_CONSECUTIVE_ERRORS` transport errors in a row (:class:`JudgeOutage`)."""
     ids = [it.article_id for it in items]
     if len(set(ids)) != len(ids):
         raise ValueError("duplicate article ids in the items to judge")
     judging = _Judging(conn, run_id, agent_factory, max_calls)
+    sampled = {
+        int(a)
+        for by_half in judging.config.get("halves", {}).values()
+        for half_ids in by_half.values()
+        for a in half_ids
+    }
+    foreign = sorted(set(ids) - sampled)
+    if foreign:
+        raise ValueError(f"articles {foreign[:10]} are not in eval_run {run_id}'s sample")
     judging.execute(judging.reuse(items), max_workers)
     done = [
         (it, judging.results[it.article_id]) for it in items if it.article_id in judging.results

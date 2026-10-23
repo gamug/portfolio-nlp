@@ -19,6 +19,7 @@ random within their cell and half, which the recorded list lets a reader check.
 
 from __future__ import annotations
 
+import hashlib
 import random
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -34,6 +35,12 @@ from news_nlp.eval.calibration import (
 )
 from news_nlp.eval.sampling import EvalItem, _prediction, _require_source, _text
 from news_nlp.taxonomy import CATEGORY_SLUGS
+
+
+def text_fingerprint(title: str, body: str) -> str:
+    """SHA-256 of the text the judge reads."""
+    return hashlib.sha256(f"{title}\n{body}".encode()).hexdigest()
+
 
 Half = Literal["fit", "report"]
 HALVES: tuple[Half, ...] = ("fit", "report")
@@ -176,13 +183,18 @@ def sample_items(
     """The judgeable item of every drawn article, in draw order, and the sample the items
     belong to: an article whose text or stored row is missing is dropped and the returned
     sample's weights are recomputed without it (:func:`restrict`; the drops are in its
-    ``dropped``). ``bucket`` is the cell and ``stratum_population`` its population."""
+    ``dropped``). ``bucket`` is the cell and ``stratum_population`` its population.
+
+    An item's ``prediction`` is only ``{"text_sha256": ...}``: the truth judge never sees the
+    classifier's output, so its verdict is keyed (``calibration_judge.find_truth_verdict``) on the
+    text it read, and a classifier change, a new rule or T-124's re-label never invalidates a
+    verdict already paid for. The label and scores T-121(b) analyses against come from
+    ``article_category`` by article id; do not put them back into the item."""
     schema = _require_source(conn)
     built: dict[int, EvalItem] = {}
     for drawn in sample.drawn:
         text = _text(conn, schema, drawn.article_id, "category")
-        prediction = _prediction(conn, "category", drawn.article_id)
-        if text is None or prediction is None:
+        if text is None or _prediction(conn, "category", drawn.article_id) is None:
             continue
         title, body = text
         built[drawn.article_id] = EvalItem(
@@ -191,7 +203,7 @@ def sample_items(
             stratum_population=drawn.population,
             title=title,
             body_text=body,
-            prediction=prediction,
+            prediction={"text_sha256": text_fingerprint(title, body)},
         )
     effective = restrict(sample, set(built))
     return [(a, built[a.article_id]) for a in effective.drawn], effective

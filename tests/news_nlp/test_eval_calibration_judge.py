@@ -630,6 +630,51 @@ def test_the_wiring_from_the_confirmed_population_to_the_weighted_truths(
                 assert sum(t.weight for t in part) == pytest.approx(effective.populations[cell])
 
 
+def test_a_verdict_survives_a_relabel_of_the_stored_classification(
+    eval_conn: db_module.NewsNlpDatabase,
+) -> None:
+    """The truth verdict depends on the text, not on the classifier's output (T-122/T-124)."""
+    first = int(eval_conn.execute("SELECT MIN(article_id) FROM article_category").fetchone()[0])
+    sample = cs.CalibrationSample(1, (cs.SampledArticle(first, "c|2", "fit", 10, 1),), {"c|2": 10})
+    pairs, effective = cs.sample_items(eval_conn, sample)
+    run = _start_sample(eval_conn, effective)
+    cj.judge_and_record(
+        eval_conn,
+        run,
+        [i for _, i in pairs],
+        agent_factory=_always("legal_regulatory"),
+        max_calls=10,
+    )
+    eval_conn.execute(
+        "UPDATE article_category SET label = 'other', score = 0.123 WHERE article_id = ?", (first,)
+    )
+    eval_conn.commit()
+    ((_, again),) = cs.sample_items(eval_conn, sample)[0]
+    found = cj.find_truth_verdict(eval_conn, again, experiment=cj.truth_experiment("m"))
+    assert found is not None
+    assert found.truth_slug == "legal_regulatory"
+    assert cs.text_fingerprint("T", "body a") != cs.text_fingerprint("T", "body b")
+    assert cs.text_fingerprint("T", "x") == cs.text_fingerprint("T", "x")
+
+
+def test_items_outside_the_runs_sample_are_refused_before_any_call(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    sample, items = _sample_cells(["c|2"], 2)
+    run = _start_sample(conn, sample)
+    stray = _numbered(999)
+    calls: list[str] = []
+
+    def factory(prompt: str) -> JudgeAgent:
+        calls.append(prompt)
+        return FakeAgent(['{"truth_slug": "other"}'])
+
+    with pytest.raises(ValueError, match="999"):
+        cj.judge_and_record(conn, run, [*items, stray], agent_factory=factory, max_calls=100)
+    assert calls == []
+    assert conn.execute("SELECT COUNT(*) FROM eval_verdict").fetchone()[0] == 0
+
+
 def test_judge_truth_raises_on_a_failed_call_but_falls_back_on_a_bad_reply() -> None:
     class Down:
         def __call__(self, prompt: str) -> str:
@@ -851,7 +896,7 @@ def test_sample_items_reads_text_and_the_stored_prediction(
     assert item.bucket == "cell"
     assert item.stratum_population == 10
     assert item.body_text.strip()
-    assert item.prediction["score"] == rows[0][1]
+    assert item.prediction == {"text_sha256": cs.text_fingerprint(item.title, item.body_text)}
     assert effective.drawn[0].n_half == 1  # recomputed: 1 remains, not the 5 drawn
 
 
