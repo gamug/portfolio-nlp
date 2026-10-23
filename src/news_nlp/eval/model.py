@@ -9,6 +9,8 @@ repo uses. ``temperature=0.0`` for run-to-run stability.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
@@ -27,3 +29,10 @@ def build_model(settings: EvalSettings) -> OpenAIModel:
 def build_judge_agent(model: OpenAIModel, system_prompt: str) -> Agent:
     """A stateless judge agent: one system prompt, no tools, no stdout streaming."""
     return Agent(model=model, system_prompt=system_prompt, callback_handler=None)
+
+
+def calibration_agent_factory(settings: EvalSettings) -> Callable[[str], Agent]:
+    """The ``agent_factory`` of ``calibration_judge.judge_and_record``: one shared model, a
+    fresh stateless agent per call (the judge module itself stays free of ``strands``)."""
+    model = build_model(settings)
+    return lambda prompt: build_judge_agent(model, prompt)

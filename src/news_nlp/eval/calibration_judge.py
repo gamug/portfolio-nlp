@@ -57,7 +57,6 @@ from news_nlp.eval.judges import (
 from news_nlp.eval.sampling import EvalItem
 from news_nlp.eval.store import (
     create_eval_run,
-    find_verdict_json,
     finish_eval_run,
     record_inference,
     record_verdict,
@@ -135,19 +134,21 @@ def judge_truth(agent: JudgeAgent, item: EvalItem) -> TruthVerdict:
 def find_truth_verdict(
     conn: NewsNlpDatabase, item: EvalItem, *, experiment: str
 ) -> TruthVerdict | None:
-    """A verdict already stored under :data:`TASK` for this article, experiment and
-    prediction, or ``None``. A ``parse_failed`` fallback is never reused (it is re-judged)."""
-    stored = find_verdict_json(
-        conn,
-        article_id=item.article_id,
-        task=TASK,
-        experiment=experiment,
-        prediction_json=json.dumps(item.prediction, default=str),
-    )
-    if stored is None:
-        return None
-    verdict = TruthVerdict.model_validate_json(stored)
-    return None if verdict.parse_failed else verdict
+    """The latest *valid* verdict already stored under :data:`TASK` for this article,
+    experiment and prediction, or ``None``. A ``parse_failed`` fallback is skipped, not
+    reused: a newer failure never hides an older valid verdict (no second payment), and an
+    article with only failures is judged again."""
+    rows = conn.execute(
+        "SELECT v.verdict_json FROM eval_verdict v JOIN eval_inference i ON i.id = v.inference_id "
+        "WHERE v.article_id = ? AND v.task = ? AND v.experiment = ? AND i.prediction_json = ? "
+        "ORDER BY v.judged_at DESC, v.id DESC",
+        (item.article_id, TASK, experiment, json.dumps(item.prediction, default=str)),
+    ).fetchall()
+    for (stored,) in rows:
+        verdict = TruthVerdict.model_validate_json(stored)
+        if not verdict.parse_failed:
+            return verdict
+    return None
 
 
 class JudgeUsage(BaseModel):
@@ -157,6 +158,7 @@ class JudgeUsage(BaseModel):
     calls: int = 0  # judge calls really made, repairs included
     not_judged: int = 0  # items left unjudged because the next one could not fit under the cap
     errors: int = 0  # transport errors (the call failed; nothing recorded)
+    unjudged: int = 0  # items without a verdict when the invocation ended (cap, errors, outage)
 
     def metrics(self) -> dict[str, float]:
         return {k: float(v) for k, v in self.model_dump().items()}
@@ -322,7 +324,7 @@ class _Judging:
         self.max_calls = max_calls
         self.streak = 0
         self.processed: set[object] = set()
-        self.usage.reused = self.usage.not_judged = 0  # per invocation; the rest carries over
+        self.usage.reused = self.usage.not_judged = self.usage.unjudged = 0  # per invocation
 
     def reuse(self, items: list[EvalItem]) -> list[EvalItem]:
         """Take the verdicts already stored; return the items that still need a judge call."""
@@ -426,6 +428,13 @@ class _Judging:
         )
 
 
+def _final_status(usage: JudgeUsage) -> str:
+    """``ok`` only when every item has a verdict."""
+    if usage.not_judged:
+        return "stopped_at_cap"
+    return "incomplete" if usage.unjudged else "ok"
+
+
 def judge_and_record(
     conn: NewsNlpDatabase,
     run_id: int,
@@ -451,11 +460,13 @@ def judge_and_record(
         raise ValueError("duplicate article ids in the items to judge")
     judging = _Judging(conn, run_id, agent_factory, max_calls)
     judging.execute(judging.reuse(items), max_workers)
-    judging.finish("stopped_at_cap" if judging.usage.not_judged else "ok")
-    conn.commit()
     done = [
         (it, judging.results[it.article_id]) for it in items if it.article_id in judging.results
     ]
+    usage = judging.usage
+    usage.unjudged = len(items) - len(done)
+    judging.finish(_final_status(usage))
+    conn.commit()
     return done, judging.usage
 
 

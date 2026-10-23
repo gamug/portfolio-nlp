@@ -485,6 +485,70 @@ def test_one_transient_error_does_not_stop_the_run(conn: db_module.NewsNlpDataba
         3,
     )  # the failed one is retried next run
     assert cj.load_truths(conn, run).unjudged == 1
+    assert usage.unjudged == 1
+    status = conn.execute("SELECT status FROM eval_run WHERE id = ?", (run,)).fetchone()[0]
+    assert status == "incomplete"  # ok only when every item has a verdict
+    again, usage2 = cj.judge_and_record(
+        conn, run, items, agent_factory=_always(), max_calls=100, max_workers=1
+    )
+    assert (len(again), usage2.unjudged) == (4, 0)
+    assert conn.execute("SELECT status FROM eval_run WHERE id = ?", (run,)).fetchone()[0] == "ok"
+
+
+def test_a_newer_parse_failure_does_not_hide_an_older_valid_verdict(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    item = _item()
+    key = cj.truth_experiment("m")
+    _stored(conn, item, task=cj.TASK, verdict={"truth_slug": "legal_regulatory"}, experiment=key)
+    _stored(
+        conn,
+        item,
+        task=cj.TASK,
+        verdict={"truth_slug": "other", "parse_failed": True},
+        experiment=key,
+    )
+    found = cj.find_truth_verdict(conn, item, experiment=key)
+    assert found is not None
+    assert found.truth_slug == "legal_regulatory"
+
+
+def test_run_config_carries_each_halfs_size_and_design_effect() -> None:
+    sample = cs.draw_sample(_population(), seed=4)
+    cfg = cs.run_config(
+        sample,
+        judge_model="m",
+        temperature=0.0,
+        judge_seed=None,
+        prompt_hash="h",
+        date="2026-10-23",
+    )
+    for half in cs.HALVES:
+        assert cfg["sampling"][half]["n"] == len(sample.half(half))
+        assert cfg["sampling"][half]["design_effect"] == cs.design_effect(sample, half)
+        assert cfg["sampling"][half]["design_effect"] > 1.0
+
+
+def test_calibration_agent_factory_builds_a_fresh_agent_per_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("strands")
+    from news_nlp.eval import model as model_module  # noqa: PLC0415 -- needs the eval group
+    from news_nlp.eval.config import EvalSettings  # noqa: PLC0415
+
+    built: list[str] = []
+    monkeypatch.setattr(model_module, "build_model", lambda _s: "shared-model")
+
+    def fake_agent(m: object, prompt: str) -> object:
+        built.append(f"{m}|{prompt}")
+        return m
+
+    monkeypatch.setattr(model_module, "build_judge_agent", fake_agent)
+    settings = EvalSettings(llm_api_key="k", llm_model="m", llm_url="u")
+    factory = model_module.calibration_agent_factory(settings)
+    factory("p1")
+    factory("p2")
+    assert built == ["shared-model|p1", "shared-model|p2"]
 
 
 def test_judge_truth_raises_on_a_failed_call_but_falls_back_on_a_bad_reply() -> None:

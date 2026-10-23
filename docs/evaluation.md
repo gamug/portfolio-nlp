@@ -2742,7 +2742,8 @@ classifier reads, so it is the best label for that text, not for the whole artic
 * **Spend.** The D10 cap (3,800) is on judge *calls*. `judge_and_record` reserves the two
   calls an article may need (the reply and one repair), counts the calls it really makes,
   records and commits each verdict as it arrives and stops at `max_calls` rather than start an
-  article it might not finish (status `stopped_at_cap`). The calls used are kept in the run's
+  article it might not finish (status `stopped_at_cap`; `incomplete` when articles lack a verdict for another reason, such as
+  transport errors below the outage threshold, `ok` only when every item has one). The calls used are kept in the run's
   `metrics_json` as it goes; pass `remaining_calls(conn)` as the cap so it holds across runs.
   The base sample is 3,300 calls at one call per article (a test pins it), leaving 500 under
   the cap; if every reply needed a repair it would cost 6,600, so the run logs a warning
@@ -2766,7 +2767,9 @@ classifier reads, so it is the best label for that text, not for the whole artic
   population over the cell's articles in that half; `sample_items` drops an article whose
   text or stored row is missing, lists it in the sample and recomputes the weights
   (`restrict`). `design_effect` gives the Kish factor of a half's weights, which the sizing in
-  `calibration.items_to_decide` needs.
+  `calibration.items_to_decide` needs; `run_config` stores each half's size and design effect.
+  A reused verdict is the latest *valid* one (a newer `parse_failed` never hides it).
+  `model.calibration_agent_factory(settings)` builds the `agent_factory`.
 
 ## Experiments: JSON-driven, single-command runs
 

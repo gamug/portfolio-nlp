@@ -145,7 +145,8 @@ def run_config(
 ) -> dict[str, Any]:
     """What the run must store to be reproducible and re-weightable: the seed, band edges,
     cell populations and half assignment, plus the judge's identity (model id, temperature,
-    seed, prompt hash) and the date."""
+    seed, prompt hash) and the date, and the size and Kish design effect of each half (the factor
+    ``calibration.items_to_decide`` multiplies its sample size by)."""
     assignment: dict[str, dict[str, list[int]]] = {
         cell: {half: [] for half in HALVES} for cell in sample.populations
     }
@@ -162,6 +163,10 @@ def run_config(
         "prompt_hash": prompt_hash,
         "date": date,
         "dropped": list(sample.dropped),
+        "sampling": {
+            half: {"n": len(sample.half(half)), "design_effect": design_effect(sample, half)}
+            for half in HALVES
+        },
     }
 
 
