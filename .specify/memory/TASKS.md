@@ -650,6 +650,18 @@ Dependencies at a glance:
       cap at 3,800 calls (base 3,300 plus the top-up allowance of 500); the actual
       spend is logged against the cap in `docs/evaluation.md`; the run stops at the cap. Blocks T-121(b). The rest of the T-117
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
+      **(b) stage 1 executed (2026-10-23, eval_run 45, 720 of the 3,800 calls of D10;
+      `docs/evaluation.md`'s "the judged calibration sample, stage 1"):** the blind truth-label
+      judge on the sub-cells inside the candidate removed sets. **All three candidates fail
+      T-123's cap**: truly-`other` rate 0.287 (`t0.50+m0.20`, cap 0.035), 0.285 (`t0.55+m0.00`,
+      cap 0.043), 0.335 (`t0.55+m0.20`, cap 0.055), one-sided 98.75% lower bounds 0.21-0.25; and the
+      maximum score (AUC 0.42), the margin (0.40) and the group score (0.63) do not separate
+      truly-`other` from truly-slug articles. No uniform threshold-and-margin loosening rule can
+      pass; T-122 has no rule to ship from this family. **Open, owner's call:** stage 2 (the
+      other 2,580 strata, 2,580 calls, inside the cap) would re-measure the T-123 baseline with
+      the blind judge and cover per-slug thresholds and the short-circuit floor; an anchored-vs-blind
+      check (about 100 calls) would say how much of the gap to the stored 8-17% is the judge. Not
+      started.
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. **Also extract the decision into one pure

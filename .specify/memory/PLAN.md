@@ -1903,6 +1903,16 @@ changing the RESULTS contract):
    T-121(b) deliverable); per-slug thresholds are tested on that data. The sample for the margin
    rules is staged (350 judged articles inside each `m0.20` removed set, stop rule and budget in TASKS
    T-121(b), sized with `items_to_decide` and the sampler's design effect).
+   **Part (b), stage 1 executed (2026-10-23, 720 of 3,800 calls):** with a blind truth-label
+   judge, the articles each open loosening rule would take out of `other` are truly `other` in
+   28.7% (`t0.50+m0.20`), 28.5% (`t0.55+m0.00`) and 33.5% (`t0.55+m0.20`), against caps of 3.5%,
+   4.3% and 5.5%: all three fail, early. The leaf scores do not separate the subsets (AUC 0.42
+   for the maximum score, 0.40 for the margin, 0.63 for the group score), so no uniform
+   threshold-and-margin rule can pass; a large share of what the classifier calls `other` in
+   0.5-0.6 is genuinely `other` content in the blind judge's view (round-ups, generic
+   commentary), so the bucket's size is not only a threshold artefact. Whether to run stage 2 is
+   the owner's decision (TASKS T-121).
+
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
    overall accuracy and macro F1), baseline and candidate in one side-by-side
