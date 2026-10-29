@@ -966,15 +966,17 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
       logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
       task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
-      prompt must agree with the owner's scope on **>= 90%** of the 720 before silver (about 5,000
-      bodies) is bought; the owner tags about 300 representative gold bodies. **D19** full backfill of the
+      owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
+      iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
+      agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
+      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope. **D19** full backfill of the
       **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
       as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
       are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
       owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
       **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
-      item carries its sampling weight), **and recall >= 80% for each of the six scopes** (with
-      its interval reported), so a rare scope cannot be ignored. **D21** each
+      item carries its sampling weight), **and recall >= 80% for each of the six scopes**, both on the point
+      estimate with the 95% interval reported, so a rare scope cannot be ignored. **D21** each
       training round exports a stratified sample of about 300 low-confidence bodies for the
       owner's tagging (active learning). **D22** the scope list has six scopes: single company,
       several companies, sector, market / economy, **`investing_general`** (investing or
@@ -993,23 +995,31 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       scope candidates (single, multi, no company: sector / market / economy / unknown) and a
       GICS sub-industry guess; `docs/evaluation.md` follow-up. Absorbs T-137's sizing. → P1.
 - [x] **T-145** **Cancelled 2026-10-29 by the owner after the gold check** *(P1, same PR)* Laya
-      yes/no check of steps (a)–(g). On the 720 gold articles (English checkpoint, revision
+      yes/no check of steps (a)–(g). On the 720 articles tagged v1 (English checkpoint, revision
       `55cf4c4e`, zero-shot) Laya answered "yes" to almost every question: at the 0.5 cut its
       combined scope matched the owner's on 39 of 720 (5.4%), against 70% for the rules (six scopes); as a
       ranking it carried some signal for "several companies" / "one company" (AUC 0.82) and none
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
-- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap)* Labelling spec v2 (scope, companies,
-      sector, D15 labels); revised LLM labelling prompt re-checked on the 720 gold articles until
-      its scope agrees with the owner's on >= 90% (owner answers 2026-10-29, PLAN WI18 Q1-Q5: gate on a fixed 240; per-scope recall on the point estimate with interval; the 720 re-tagged by the owner under the new taxonomy first, old tags shown, giving gold v2 before the gate runs); then silver bodies (about 5,000, oversampling
-      the rules' candidates for the rare scopes: sector, market / economy, unrelated); export of
-      about 300 representative bodies for the owner's held-out gold, drawn to include the rare
-      scopes. → P2.
+- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; open Q6, Q7)* Split:
+      - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
+        for the owner (a guide like `category_labels_guide.csv`).
+      - [ ] **T-146b** Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
+        for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
+        file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
+        columns).
+      - [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of
+        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90%.
+      - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
+        the candidates for the rare scopes.
+      - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
+        any training from the sampling frame the owner picks (Q6); about 50 tagged twice (Q4).
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
       scope from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
       confidence; **accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and
-      recall >= 80% for each of the six scopes (D20)**, the
+      recall >= 80% for each of the six scopes (point estimates with intervals, >= 40 gold bodies per
+      scope; D20)**, the
       complete metric set per scope (AI #12). Each round exports a stratified sample of about 300
       low-confidence bodies for the owner's tagging, fed back into training (D21), until the
       target holds; `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own
@@ -1035,7 +1045,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 **Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (T-143 records D11–D24).
 T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded in place, and
 T-127, T-131, T-132, T-137 and T-138 continue under Work item 18. T-144 (sizing and the rules' check on the
-720 gold articles) is the first PR; T-145 (Laya) was tried and cancelled.
+720 articles tagged v1) is the first PR; T-145 (Laya) was tried and cancelled.
 
 Closed Work items 1, 5, 6 and 8–14 are in `CHANGELOG.md` (Work item 5 closed 2026-10-14; its
 only open task, T-041, was superseded by Work item 15).

@@ -2205,13 +2205,16 @@ labels; settled 2026-10-29: the investing news about no company that D15 first n
 category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
 flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
 company; D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
-task, the run stops at it), the revised prompt must agree with the owner's scope
-on >= 90% of the 720 before about 5,000 silver bodies are bought, and the owner tags about 300 gold
-bodies drawn across the corpus; D19 full backfill of the **81,961 unique `ok` bodies** (not the
+task, the run stops at it), the owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is "tags v1", a development
+set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
+with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
+1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
+owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope; D19 full backfill of the **81,961 unique `ok` bodies** (not the
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
 the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
-recall >= 80% for each of the six scopes; D21 each
+recall >= 80% for each of the six scopes, both judged on the point estimate with the 95% interval reported
+(at 40 bodies the per-scope interval is about +/-13 points); D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
 (active learning); D22 six scopes: single company, several companies, sector, market / economy,
 `investing_general` (investing or market-advice content about no company and no sector, the owner's
@@ -2224,30 +2227,25 @@ Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
 
-**Owner answers for P2/P3 (2026-10-29; each a question put to the owner, Q1-Q5).**
-- *Q1 Gate on the labelling prompt: fixed subsample or full 720 each time?* **Fixed 240.** Iterate
-  on a fixed stratified 240 of the 720 (about 240 calls per iteration, at most 5 = 1,200); the other
-  480 stay unseen until the final prompt is judged on the full 720 (480 new calls, 240 reused).
-  Silver (about 5,000 in D18) is bought only after that full pass is >= 90%, and is then at most
-  6,000 - 1,200 - 480 = 4,320 bodies. A 6th iteration is never spent without asking the owner.
-- *Q2 How is "recall >= 80% per scope" judged on the held-out gold?* **Point estimate, with the 95%
-  Wilson interval reported** (like the overall 90%); at least 40 gold bodies per scope (about 240 of
-  the ~300, the rest corpus-weighted, weights = inverse sampling fractions; the overall figure is
-  reported with its weighted interval). At 40 bodies the interval is about +/-13 points. This
-  replaces "with its interval reported" being left open in D20: D20 is read as the point estimate.
-- *Q3 Is the held-out gold strictly held out?* **Yes.** Drawn once, before any training, excluded
-  from every active-learning round (their tags are training data only). The 720 are a development
-  set (drawn by slug x score band, not corpus-weighted): the D18 gate on them is an unweighted
-  figure, reported as such.
-- *Q4 Label-ceiling re-tag.* **Changed by the owner: all 720 are re-tagged under the new taxonomy**
-  (the six scopes and the D15 labels), the first tagging being shown as guidance. So the re-tag is
-  not an independent consistency measure (the old tags are visible, the taxonomy changed): the 720
-  become gold v2, and the label ceiling is measured from the held-out gold instead (T-146: about 50
-  of the ~300 held-out bodies tagged twice, a week apart, if the owner agrees when they are
-  drawn). Order: labelling spec v2 first, then the re-tag file (review + old tags + guide), then
-  the Q1 gate runs on gold v2, not on the first tagging.
-- *Q5 If the classifier stalls below the target?* **Stop and ask the owner** (more gold, a looser
-  target, or fewer scopes); no LLM is added to the pipeline (D12).
+**Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above; open questions after them.**
+- *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
+  the held-out gold is drawn once before any training and excluded from every active-learning round
+  (its tags are training data never); the one exception is Q4's second pass on about 50 of its
+  bodies, which measures the label ceiling and is not used for training; *Q4* the owner re-tags all
+  720 under the new taxonomy with the tags v1 shown as guidance: gold v2, not an independent
+  consistency measure, so the ceiling is measured on the ~50 held-out bodies tagged twice a week
+  apart (the owner agrees when they are drawn); order: labelling spec v2, re-tag file, then the
+  gate on gold v2; the rules' 0.70 is re-measured on gold v2; *Q5* if the classifier stalls below
+  its target the work stops and the owner decides; no LLM is added to the pipeline (D12).
+- **Open, for the owner (not decided):** *Q6 sampling frame.* The rules found none of the owner's 18
+  sector / market / economy bodies, so they cannot supply 40 gold bodies per rare scope. Candidate
+  frames: the LLM scope labels of the silver pass, a GICS-name / title-keyword filter, or a plain
+  random draw large enough to contain them (about 0.5-1% of bodies are market/economy, so ~40
+  would need ~5,000 random bodies read). Weights are inverse sampling fractions only if strata are
+  defined before the draw and cover the corpus; a detector-defined stratum needs its own recall
+  check. *Q7 owner effort and rounds.* Re-tag 720 + ~300 held-out + ~50 twice + ~300 per
+  active-learning round: about 1,070 bodies before round 1, then 300 per round. Cap on rounds
+  before the owner is asked again?
 
 **Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
 
@@ -2272,7 +2270,8 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
    knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
 
 **Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
-bodies (corpus-weighted) and reaches recall >= 80% in each of the six scopes (D20), measured with the
+bodies (corpus-weighted point estimate, interval reported) and reaches recall >= 80% in each of the six
+scopes (point estimate, interval reported, at least 40 gold bodies per scope; D20), measured with the
 complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
 with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
 per-company sentiment and category exist for every company a body is about; `sector_summary`

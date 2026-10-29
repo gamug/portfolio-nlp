@@ -2499,9 +2499,9 @@ and 48% equal the argmax slug (unweighted).
 It would re-measure the baseline `other` precision and recall with the blind judge, the AUCs on
 all cells, per-slug thresholds and the floor decision.
 
-### Follow-up (2026-10-29): the owner's gold labels, and sizing the triage-first pipeline (Work item 18, T-144/T-145)
+### Follow-up (2026-10-29): the owner's tags v1, and sizing the triage-first pipeline (Work item 18, T-144/T-145)
 
-**The owner's 720 tags (silver -> gold).** The owner hand-tagged the 720 articles of eval_run 45
+**The owner's 720 tags (tags v1, a development set; gold v2 will be the re-tag under the new taxonomy, so every agreement figure below is against tags v1 and is re-measured on gold v2).** The owner hand-tagged the 720 articles of eval_run 45
 (`data/category_gold_review.csv`, git-ignored; `scripts/export_gold_review_2026_10_26.py`). The
 LLM's labels agree with the owner on 46.3% of them (57.9% with `other`, the owner's new
 `miscellany` and `unrelated` merged). The owner's tags: `market_analyst_sentiment` 141,
@@ -2582,7 +2582,7 @@ one category per pair cannot represent; another 22.9% of bodies name a second co
 about it. More than half of the multi-company bodies (20,643 of 36,671, 56%) share a GICS sub-industry
 (top: hardware 2,929, semiconductors 1,525, broadline retail 1,116, diversified banks 1,055), a start
 for sector detection. **The sector / market / economy rows (2,224 bodies, 2.7%) are a lower bound from
-a detector with no measured recall**: it finds only bodies that name no company, and on the owner's gold
+a detector with no measured recall**: it finds only bodies that name no company, and on the owner's tags v1
 it finds none of the 9 sector and 9 market / economy articles, because they name companies. They size
 the detector, not the news; P5 must not be sized from them. The figures carry the alias gap (a company
 known by another name is missed unless the NER span or a ticker form catches it), which undercounts
