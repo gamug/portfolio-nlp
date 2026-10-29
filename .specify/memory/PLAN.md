@@ -1597,6 +1597,9 @@ amendment first, per AI-behavior #1).
 
 ## Work item 15 — Category: fix the `other` bucket (calibrate it, and clean up what the tagging fix removes)
 
+**Re-scoped 2026-10-28 into Work item 18.** What stays useful here (body-hash grouping,
+name/ticker resolution, sentence attribution, the cleanup of removed rows) continues there.
+
 **Why**: `article_category.label = 'other'` covers 195,993 of 459,112
 articles (**42.7%**; the next label, `market_analyst_sentiment`, is 25.3%).
 Investigated read-only against the RESULTS store on 2026-10-14 (distribution
@@ -1906,12 +1909,19 @@ changing the RESULTS contract):
    **Part (b), stage 1 executed (2026-10-23, 720 of 3,800 calls):** with a blind truth-label
    judge, the articles each open loosening rule would take out of `other` are truly `other` in
    28.7% (`t0.50+m0.20`), 28.5% (`t0.55+m0.00`) and 33.5% (`t0.55+m0.20`), against caps of 3.5%,
-   4.3% and 5.5%: all three fail, early. The leaf scores do not separate the subsets (AUC 0.42
-   for the maximum score, 0.40 for the margin, 0.63 for the group score), so no uniform
-   threshold-and-margin rule can pass; a large share of what the classifier calls `other` in
-   0.5-0.6 is genuinely `other` content in the blind judge's view (round-ups, generic
-   commentary), so the bucket's size is not only a threshold artefact. Whether to run stage 2 is
-   the owner's decision (TASKS T-121).
+   4.3% and 5.5% (99.17% lower bounds 21.8%, 20.8% and 24.0%): all three fail, early.
+   `t0.50+m0.20` fails whatever the baseline (about 2,121 truly-`other` articles removed, more than
+   the 1,866 the recall tolerance allows even if every confirmed article were truly `other`); the
+   other two fail on the anchored baseline unless the truly-`other` total were at least 80-89% of
+   the population; it is at most about 42,000 (55,000 at three times the anchored rates), so they
+   would flip only if the slug-labelled articles were about two thirds truly `other` (the blind
+   baseline is not measured). Inside the candidate sets the leaf scores do not
+   separate truly-`other` from truly-slug articles (AUC 0.42 for the maximum score, 0.40 for the
+   margin, 0.63 for the group score), a restricted range (only sub-cells A, U and V of the 0.5-0.6
+   band were judged), so no uniform threshold-and-margin rule can pass; a large share of what the
+   classifier calls `other` in 0.5-0.6 is genuinely `other` content in the blind judge's view
+   (round-ups, generic commentary), so the bucket's size is not only a threshold artefact. Stage 2
+   was not run.
 
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;
@@ -2121,6 +2131,9 @@ the cache tables are not contract. **Closed 2026-10-22 (#109):** built as specif
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
+**Re-scoped 2026-10-28 into Work item 18.** What stays useful here (body-hash grouping,
+name/ticker resolution, sentence attribution, the cleanup of removed rows) continues there.
+
 **Why** (hand-off note 2026-10-21, reported, not reproduced): the data is per pair, one
 `articles` row per `(url, ticker)` with the same body stored once per pair. Measured
 upstream on `accept`/`review` pairs: 22,048 of 132,078 URLs (16.7%) have pairs for more
@@ -2162,7 +2175,121 @@ follow-up in `docs/evaluation.md` (T-137); the 20-per-type hand sample is a smok
 not a measurement, unless the owner sets a larger N. Close-out: T-138b (SPEC item 21, both
 artifacts, `CHANGELOG.md`); it closes after T-137's report if the owner stops there.
 
+## Work item 18 — Triage-first pipeline: unique bodies, subject scope, per-company and sector news (re-scoped 2026-10-28)
+
+**Why.** Work item 15 tried to shrink the `other` bucket with a better threshold. T-121(b) stage 1
+(eval_run 45, 720 calls) showed that no threshold-and-margin rule can: the articles each candidate
+would move out of `other` are 29–33% truly `other`, and the scores do not separate them. The owner
+then hand-tagged the same 720 articles (`data/category_gold_review.csv`, git-ignored):
+
+- the LLM labels agree with the owner on 46% of them (58% with `other`, multi-company round-ups and
+  non-financial articles merged), so they are silver, not gold;
+- 94 are multi-company round-ups ("market weekly update"), the content the owner values most; the
+  taxonomy can only call them `other`;
+- the notes ask for reputational harm, competitive actions, sector news, whole-market and economy
+  news, comparisons and investor-group moves; 31 are not about the economy at all.
+
+The unit is the cause: an `articles` row is a (URL, ticker) pair, the same body is stored once per
+tagged ticker (35.9% of `ok` articles share a body), and every stage scores the pair as if the
+article were about that ticker. Round-ups, sector and macro news have no correct label in that model.
+
+**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24):
+D11 the unit is the unique article body (body hash), its subjects found in the content; D12 LLMs
+only label and evaluate, the pipeline keeps local pinned models (constitution AI #1/#2); D13 GICS
+sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
+weekly `sector_summary`, market and economy news become `MARKET` / `ECONOMY` rows there; D15 the
+per-(body, company) taxonomy is the 9 labels + `reputational_harm`, `competitive_actions`,
+`investor_activity`, `peer_comparison`, with `other` (company content that fits none of the 13
+labels; settled 2026-10-29: the investing news about no company that D15 first named is the scope
+`investing_general`, D22, and carries no category), `uncertain` (no confident category: a
+category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
+flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
+company; D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
+task, the run stops at it), the owner re-tags the 720 under the new taxonomy (v1 was tagged blind to the LLM label: the review file had no LLM column; the v2 file keeps it hidden and shows only the owner's v1 tag) (gold v2; the first tagging is "tags v1", a development
+set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
+with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
+1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
+owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope; D19 full backfill of the **81,961 unique `ok` bodies** (not the
+459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
+the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
+only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
+recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
+(at 40 bodies the per-scope interval is about +/-13 points); D21 each
+training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
+(active learning); D22 six scopes: single company, several companies, sector, market / economy,
+`investing_general` (investing or market-advice content about no company and no sector, the owner's
+`other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`; D23 a
+body where one company holds more than half of the subject mentions is *single + mentions*: scope
+single on the dominant company, the others stored as mentions only; D24 P4 (per-company category) and
+P5 (sector sub-industry) are each accepted at >= 80% agreement with the owner's held-out gold (the
+owner confirmed on 2026-10-29).
+Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
+yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
+everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
+
+**Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
+- *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
+  the held-out gold is drawn once before any training and excluded from every active-learning round
+  (its tags are training data never); the one exception is Q4's second pass on about 50 of its
+  bodies, which measures the label ceiling and is not used for training; *Q4* the owner re-tags all
+  720 under the new taxonomy with the tags v1 shown as guidance: gold v2, not an independent
+  consistency measure, so the ceiling is measured on the ~50 held-out bodies tagged twice a week
+  apart (the owner agrees when they are drawn); order: labelling spec v2, re-tag file, then the
+  gate on gold v2; the rules' 0.70 is re-measured on gold v2; *Q5* if the classifier stalls below
+  its target the work stops and the owner decides; no LLM is added to the pipeline (D12).
+- **Answered 2026-10-29.** *Q6 sampling frame:* custom rules prefilter the candidates for each rare
+  scope (sector, market / economy, unrelated, `investing_general`), and the owner verifies a sample of
+  **50 prefiltered articles** by hand before the held-out gold is drawn from them. Caveat recorded:
+  the 50 check the filter's precision; its recall (rare-scope bodies the filter misses) stays
+  unmeasured unless a random check sample is also read, and the inverse-sampling-fraction weights are
+  valid only for strata defined before the draw, so rare-scope recall figures from this gold are
+  conditional on the filter. *Q7 rounds:* **2 active-learning rounds** (about 300 bodies each) before
+  the owner is asked again; owner effort about 1,070 bodies before round 1 plus about 600. *Q8 silver
+  beyond scope:* per-company category and sub-industry silver labels are bought only at **>= 80%
+  agreement with gold v2 on the 240** (the D24 bar); below it silver stays scope-only. *Q9 filter
+  misses:* the held-out gold adds **~60 bodies drawn at random from outside the prefilter**, weighted
+  by inverse sampling fraction, so per-scope recall (D20) includes what the filter misses; these
+  are a third set of bodies, separate from the 50-article filter check and the 50 double-tagged.
+  *Q10 calls per body:* **one call per body**; the reply lists every company with its D15 label, so
+  the 240-call iteration and the 4,320 ceiling hold. Owner tagging tally: 720 re-tag + ~300
+  held-out + ~60 misses + 50 filter check + 50 double-tag = about 1,180 bodies before round 1
+  (the heavier tagging: scope, companies, D15 label per company, sub-industry), then 2 x ~300.
+
+**Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
+
+1. **P1 — foundations and sizing (T-144, T-145).** A read-only script counts unique bodies and
+   resolves the companies each one names (name and explicit ticker forms, NER `ORG` spans matched
+   to universe names; the upstream alias table of T-132 when it arrives), then gives rule-based scope
+   candidates and a GICS guess, and scores the rules against the owner's 720 tagged articles. No
+   spend, no schema change.
+2. **P2 — labels (T-146).** Labelling spec v2, the revised prompt, the D18 silver labels and the
+   owner's ~300 gold bodies.
+3. **P3 — triage stage (T-147).** On unique bodies: NER first, then the scope (single company,
+   several companies, sector, market / economy, `investing_general`, `unrelated`) from a local classifier (a fine-tuned
+   small encoder over the text, the P1 rule features as inputs) trained on silver and gold, with
+   active-learning rounds on its low-confidence bodies (D21) until it reaches >= 90% on the
+   held-out gold (D20). Sketch of the tables: a body table keyed by body hash with its member pairs, and a
+   per-body triage row (scope, companies, confidence).
+4. **P4 — per-company analysis (T-148).** Sentence attribution per company (Work item 17's design),
+   then sentiment and the D15 category per (body, company).
+5. **P5 — sector, market and economy news (T-149).** GICS sector / sub-industry detection, and
+   summaries of those bodies into `sector_summary` with `MARKET` / `ECONOMY` rows.
+6. **P6 — backfill and close-out (T-150).** Re-process the stored corpus, update the
+   knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
+
+**Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
+bodies (corpus-weighted point estimate, interval reported) and reaches recall >= 80% in each of the six
+scopes (point estimate, interval reported, at least 40 gold bodies per scope; D20), measured with the
+complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
+with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
+per-company sentiment and category exist for every company a body is about; `sector_summary`
+carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
+documented; SPEC gains one FR per behaviour shipped.
+
 ## Sequencing
+
+**Work item 18 (2026-10-28) supersedes the open parts of Work items 15 and 17** and is the
+current focus: P1 (sizing and the rules' check) first, then P2–P6 in order.
 
 Work items 1 and 2 are independent of each other — no ordering
 dependency. Work item 1 (pin checkpoints) is a small, self-contained code

@@ -302,6 +302,19 @@ The pre-existing results were backfilled once out of `urls.db` (see
 script that did it has since been removed now that the pipeline populates the
 lean `articles` rows itself.
 
+## Triage rules (Work item 18, development only)
+
+- `news_nlp/triage.py` — rule-based scope triage over unique article bodies: `body_hash`,
+  `CompanyResolver` (names, aliases, explicit ticker forms, NER `ORG` spans; each mention counted
+  once), boilerplate stripping, `subjects`, `is_roundup`, `scope_candidate`, `gold_scope` (the
+  owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
+  and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
+  development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
+- `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
+  file that already holds a `human_label`.
+- Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
+  `scripts/export_gold_review_2026_10_26.py`.
+
 ## Testing
 
 ```bash

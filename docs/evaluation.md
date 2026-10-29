@@ -2418,19 +2418,33 @@ reuse, confusion matrix, and ROC/AUC" above for the formula.
 
 Run with `scripts/calibrate_category_2026_10_23.py` (`plan` / `run --stage 1` / `report`), seed
 20261023, eval_run 45 in the real RESULTS store, blind truth-label judge (`category_truth`, the
-article only, the classifier's label not shown; DeepSeek endpoint of `LLM_*`). **Spend: 720 of
+article only, the classifier's label not shown; judge model `deepseek-chat` at `https://api.deepseek.com`, from `LLM_*`). **Spend: 720 of
 the 3,800 calls of D10** (10 smoke-test articles, then the other 710 of stage 1; 0 parse failures,
 0 transport errors). The 3,300-article sample is drawn (46 + 27 strata over the 93,330 confirmed
-articles); the 0.5-0.6 band is split by the candidate rules into sub-cells A (removed by
-`t0.55+m0.20`, hence by `t0.50+m0.20` and `t0.55+m0.00`), U (removed by `t0.50+m0.20` only), V
-(removed by `t0.55+m0.00` only) and W (none); stage 1 judged every article drawn in A, U and V
-(40 + 24 + 16 per slug, 720 in all) and none of the other strata.
+articles).
 
-| rule | removed (of 35,368 `other`) | judged inside | truly `other` | weighted rate | 95% | one-sided 98.75% lower | cap (T-123) | design effect | result |
+**Deviation from the staged design of TASKS T-121(b), and why.** The design said "judge 350
+articles inside each `m0.20` removed set". The 0.5-0.6 band cells were instead split by the
+candidate rules into sub-cells A (removed by `t0.55+m0.20`, hence by `t0.50+m0.20` and
+`t0.55+m0.00`), U (removed by `t0.50+m0.20` only), V (removed by `t0.55+m0.00` only) and W (none),
+sampled 40 / 24 / 16 / 10 per slug (the cell's 90 draws are unchanged, so the base sample is still
+3,300 calls). Every removed set is then a union of whole sub-cells, so each rule's rate is a plain
+stratified estimate, with no two-phase top-up; stage 1 judged every article drawn in A, U and V (720
+in all) and none of the other strata. The third rule, `t0.55+m0.00`, was not in the original staged
+design (it was judged inside the base sample); its sub-cell V sits in stage 1, so it is a third
+rule and the stop level below is set for three.
+
+**Stop level.** Three rules, each looked at twice (stage 1 and the pooled sample): six looks, so
+the early stop uses a one-sided bound at 1 - 0.05 / 6 = **99.17%** (the design first said 98.75%
+for two rules). The intervals are stratified bootstraps of **5,000** repetitions (the stop bound is
+the 42nd value from the end; 1,000 repetitions would put it on the 8th and leave its third digit
+noisy).
+
+| rule | removed (of 35,368 `other`) | judged inside | truly `other` | weighted rate | 95% | one-sided 99.17% lower | cap (T-123) | design effect | result |
 |---|---|---|---|---|---|---|---|---|---|
-| `t0.50+m0.20` | 9,728 | 576 | 139 | 0.287 | 0.231-0.349 | 0.226 | 0.035 | 2.63 | **fails** |
-| `t0.55+m0.00` | 7,957 | 504 | 101 | 0.285 | 0.222-0.356 | 0.214 | 0.043 | 2.82 | **fails** |
-| `t0.55+m0.20` | 6,198 | 360 | 87 | 0.335 | 0.257-0.422 | 0.246 | 0.055 | 2.72 | **fails** |
+| `t0.50+m0.20` | 9,728 | 576 | 139 | 0.287 | 0.230-0.348 | 0.218 | 0.035 | 2.63 | **fails** |
+| `t0.55+m0.00` | 7,957 | 504 | 101 | 0.285 | 0.220-0.354 | 0.208 | 0.043 | 2.82 | **fails** |
+| `t0.55+m0.20` | 6,198 | 360 | 87 | 0.335 | 0.257-0.418 | 0.240 | 0.055 | 2.72 | **fails** |
 
 By sub-cell, the weighted share truly `other` is **A 0.335** (360 judged, 6,198 articles),
 **U 0.204** (216, 3,530) and **V 0.111** (144, 1,759). Overall 153 of the 720 verdicts are `other`
@@ -2438,36 +2452,143 @@ and 48% equal the argmax slug (unweighted).
 
 **Reading.**
 
-* **Every candidate loosening rule fails the T-123 co-requirement, early (the stage-1 stop rule
-  of the staged design):** the one-sided 98.75% lower bound of the truly-`other` rate of the
-  removed set is 5 to 7 times its cap. The conclusion does not depend on the baseline: the caps
-  use `other` precision 0.319 and recall 0.661 measured with the *anchored* judge of eval_run
-  43; even if the total of truly-`other` articles T were all 93,330, the recall tolerance
-  (-0.02) would allow 1,866 truly-`other` articles to leave `other`, and `t0.55+m0.20` alone
-  would remove about 2,076 (6,198 x 0.335).
-* **No score separates the subsets.** Among the 720 judged stored-`other` articles of the
-  0.4-0.6 bands, P(truly-slug article has a higher value than a truly-`other` one) is **0.42
-  (0.34-0.50) for the maximum score, 0.40 (0.33-0.47) for the margin over the runner-up and 0.63
-  (0.56-0.70) for the group score**. A higher score or a larger margin does not make an article
-  more likely to have a real category; the sub-cell with the clearest margin and score (A) is the
-  dirtiest. The group score separates a little. So a threshold or margin on the leaf scores
-  cannot isolate a clean subset, which was the open question left by T-121(a).
+* **Every candidate fails the cap that the anchored baseline gives, early.** The caps use `other`
+  precision 0.319 and recall 0.661 measured on eval_run 43 with a judge that saw the model's label.
+  The one-sided lower bound of the truly-`other` rate of the removed set is 4 to 6 times the cap.
+* **Which verdicts need that baseline.** The recall tolerance (-0.02) lets at most 0.02 x T
+  truly-`other` articles leave `other`, T being the truly-`other` total of the population (at most
+  the 93,330 confirmed articles, so at most 1,866). At the 99.17% lower bounds the removed sets
+  hold: `t0.50+m0.20` 9,728 x 0.218 = **2,121** truly-`other` articles, more than 1,866 even if
+  every confirmed article were truly `other`: **it fails whatever the baseline**.
+  `t0.55+m0.00` holds 7,957 x 0.208 = **1,655** and `t0.55+m0.20` 6,198 x 0.240 = **1,488**: they
+  fail unless T is at least 82,750 and 74,400 (89% and 80% of all confirmed articles). **How far
+  that is from the data, under a stated assumption:** T is at most the 35,368 stored-`other`
+  articles (all of them taken as truly `other`) plus the truly-`other` slug-labelled ones. With the
+  stored verdicts' rates for those (15.4% in 0.6-0.8, 28,916 articles; 7.5% from 0.8, 29,046
+  articles) that is **at most 42,000**, and 46,084 at the upper ends of their intervals (24% and
+  13%). Those rates come from the *anchored* judge: under the blind judge they are probably higher
+  (it found 2 to 4 times more truly-`other` in the removed sets), but even at three times the
+  anchored rates T is about 55,000, below 74,400. So the two verdicts that depend on the baseline
+  would need the slug-labelled articles to be about two thirds truly `other` (39,008 of 57,962) to
+  flip; the baseline itself is **not measured under the blind judge** (stage 2 would).
+* **Within the removed sets no score separates the truly-`other` from the truly-slug articles.**
+  The AUCs below are measured **only on the 720 articles of sub-cells A, U and V** (0.5-0.6 band,
+  every article already with a score of 0.5 or more and a margin of 0.2 or more, or a score of
+  0.55 or more): a restricted range by construction. P(a truly-slug article has a higher value
+  than a truly-`other` one) is **0.42 (0.35-0.50) for the maximum score, 0.40 (0.32-0.47) for the
+  margin over the runner-up and 0.63 (0.55-0.70) for the group score**; the sub-cell with the
+  clearest margin and score (A) is the dirtiest. So a threshold or margin on the leaf scores does
+  not isolate a clean subset *inside the candidate sets*, which is what the rules need. Whether
+  scores separate the classes across the whole 0.4-0.6 range (the 0.4-0.5 band and W were not
+  judged) is **not measured**: stage 2 would.
 * **These rates are 2 to 4 times the ones the stored verdicts gave** (A-like subsets 8-17%, the
   0.5-0.6 band 19%). The stored verdicts came from a judge that saw the model's label; this one
   does not. Only 5 articles are common to both runs, so the gap between an anchored and a blind
   judge is not measured here. What stage 1 does show is that, against a label chosen from the
   article alone, a large share of what the classifier calls `other` in 0.5-0.6 is
   genuinely `other` (multi-company round-ups, generic market commentary).
+* **The measured design effect (2.6-2.8) is about 1.7 times the 1.5-1.6 the sizing above assumed**
+  (the sub-cells are sampled at very different rates), so the "judged articles needed" of the
+  sizing table scale by about 1.7: do not reuse those sizes as they stand.
 * **Limits.** Stage 1 covers only the sub-cells A, U and V, so it says nothing yet about the
   other cells: the T-123 baseline under the blind judge, the short-circuit stratum
   (`CATEGORY_GROUP_FLOOR`), per-slug thresholds in the other bands, and the loosening of
-  `t0.50`/`m0.10` (already excluded by T-121(a)). The design effect (2.6-2.8) is large because the
-  sub-cells are sampled at very different rates; the intervals above include it.
+  `t0.50`/`m0.10` (already excluded by T-121(a)).
 
 **Not run (2,580 calls left in the sample, 3,080 in the cap):** stage 2 (the other 2,580 strata).
 It would re-measure the baseline `other` precision and recall with the blind judge, the AUCs on
-all cells, per-slug thresholds and the floor decision. See TASKS T-121(b) for the owner's
-decision on it.
+all cells, per-slug thresholds and the floor decision.
+
+### Follow-up (2026-10-29): the owner's tags v1, and sizing the triage-first pipeline (Work item 18, T-144/T-145)
+
+**The owner's 720 tags (tags v1, a development set; gold v2 will be the re-tag under the new taxonomy, so every agreement figure below is against tags v1 and is re-measured on gold v2).** The owner hand-tagged the 720 articles of eval_run 45
+(`data/category_gold_review.csv`, git-ignored; `scripts/export_gold_review_2026_10_26.py`). The
+LLM's labels agree with the owner on 46.3% of them (57.9% with `other`, the owner's new
+`miscellany` and `unrelated` merged). The owner's tags: `market_analyst_sentiment` 141,
+`miscellany` 94 (multi-company round-ups), `product_innovation` 82, `other` 80,
+`labor_human_capital` 77, `mergers_acquisitions` 64, `partnerships_business_dev` 45,
+`legal_regulatory` 42, `leadership_governance` 42, `unrelated` 31 (not about the economy),
+`earnings_performance` 20, `capital_shareholder_returns` 2. The notes ask for reputational harm (10),
+competitive actions (about 11), sector news, whole-market / economy news and investor moves. This
+re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D24, `TASKS.md` T-143).
+
+**Scope implied by the tags** (`news_nlp.triage.gold_scope`; six scopes, D22): single company 458,
+several companies 135, **`investing_general` 78** (the owner's `other` tag: investing or
+market-advice content about neither a company nor a sector), unrelated 31, sector 9, market /
+economy 9. Sector and market / economy are too rare in this set to be measured; the ~300 gold
+bodies of P2 must be drawn to include them.
+
+**Laya, zero-shot (T-145, cancelled).** Yes/no questions to `convaiinnovations/laya` (English
+checkpoint, revision `55cf4c4e`; title + text, of which it reads about the first 480 tokens): it
+answered "yes" to almost every question (sector 604 of 720, market / economy 496, unrelated 467), so
+its combined scope matched the owner's on 39 of 720 (5.4%, 95% 4.0-7.3%). As a ranking it carried
+signal for "several companies" and "one company" (AUC 0.82) but not for "unrelated" (0.24, inverted).
+The owner dropped the approach.
+
+**Rules against the 720 tags** (`scripts/size_triage_2026_10_28.py gold`; `news_nlp.triage`): the
+companies a body names are resolved from names, short aliases (the first word of a name: "Meta"),
+explicit ticker forms and the stored NER `ORG` spans; **each mention counts once** (the larger of the
+text matches and the NER spans of one pair of the body, not their sum, and not once per pair); a
+company only ever named as an opinion's source ("Goldman Sachs analysts") is left out; a body is
+multi-company unless one company holds a strict majority of the subject mentions (*single +
+mentions*, D23). Each step, cumulative, against the six scopes:
+
+| step | agreement with the owner's scope | 95% | multi recall | multi precision |
+|---|---|---|---|---|
+| every named company | 0.689 | 0.654-0.722 | 109/135 | 109/206 |
+| + subjects (named twice or in the title) | 0.696 | 0.661-0.728 | 95/135 | 95/147 |
+| + boilerplate removed, analysts' banks not counted | 0.694 | 0.660-0.727 | 95/135 | 95/147 |
+| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.697 | 0.663-0.730 | 102/135 | 102/162 |
+
+**The figures read the title and the first 6,000 characters of each body, what the owner read (review 7 of #115; before, the whole body: 0.699, 101/135, 101/158); the dominance sweep below was run on the whole body and is not repeated, the 0.5 cut gives 0.697.**
+
+**Two corrections to the first version of this table.** (1) It reported 0.79: that scored the
+owner's `other` tag as "single" (five scopes); with `investing_general` as a scope (D22) the rules
+miss 77 of those 78 articles (they name a company). (2) The first counts added the NER spans to the
+text matches, so one passing mention counted twice and the "subjects" step did nothing
+(0.703 -> 0.700); counted once, the step prunes false multi-company calls (multi precision 108/203 ->
+94/143) and the final figures are the ones above. Outside `investing_general` the rules agree on 503
+of 642 (0.78).
+
+**The dominance cut, re-swept after the correction** (final step; subjects named at least twice /
+three times): 0.4 -> 0.714 / 0.703, **0.5 -> 0.699 / 0.697**, 0.6 -> 0.678 / 0.667, 0.7 -> 0.642 /
+0.643; multi recall 93, **101**, 110, 114 of 135 at 2 mentions. The cut stays at 0.5, the strict
+majority of D23: the differences are inside the interval (about +-3.3 points) and the 720 are the
+development set, so it is not re-tuned on them; a lower cut buys precision (fewer false multi) at the
+price of recall (the bodies that go to the per-company deep dive). These 720 are a **development
+set**: every figure is optimistic; the held-out test is P2's gold. The remaining errors are the
+`investing_general` articles, borderline articles (a company and its rivals, "tariffs hit Ford and
+GM"), 23 `unrelated` articles the rules call single-company, and the sector / market cases (none of
+the 9 + 9 found). Rules that read names and counts cannot find these; that is what the trained
+triage (P3) is for.
+
+**Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 47 minutes; mentions
+counted once, the corrected rules above): 98,462 `ok` (URL, ticker) pairs hold **81,961 unique
+bodies**; 85.5% of bodies sit under one pair, 10.7% under two, 3.7% under three or more; 1,904 pairs
+are share-class twins. Subject companies per body (named twice or in the title): none 4.4%, one 52.4%,
+two 21.5%, three to five 15.6%, six to ten 4.7%, more than ten 1.5%.
+
+| rule scope | bodies | share | pairs | tagged ticker among the subjects |
+|---|---|---|---|---|
+| single company | 41,773 | 51.0% | 42,970 | 94.9% |
+| several, one dominant (*single + mentions*, D23) | 18,796 | 22.9% | 21,958 | 96.7% |
+| round-up | 9,988 | 12.2% | 19,442 | 95.3% |
+| several companies | 7,887 | 9.6% | 10,243 | 93.7% |
+| names no company, sector keywords | 1,295 | 1.6% | 1,496 | - |
+| names no company, no keyword | 1,293 | 1.6% | 1,386 | - |
+| names no company, market keywords | 515 | 0.6% | 541 | - |
+| names no company, economy keywords | 414 | 0.5% | 426 | - |
+
+Round-ups plus several companies are 17,875 bodies (21.8%) and hold 29,685 pairs (30.1%): the content
+one category per pair cannot represent; another 22.9% of bodies name a second company without being
+about it. More than half of the multi-company bodies (20,643 of 36,671, 56%) share a GICS sub-industry
+(top: hardware 2,929, semiconductors 1,525, broadline retail 1,116, diversified banks 1,055), a start
+for sector detection. **The sector / market / economy rows (2,224 bodies, 2.7%) are a lower bound from
+a detector with no measured recall**: it finds only bodies that name no company, and on the owner's tags v1
+it finds none of the 9 sector and 9 market / economy articles, because they name companies. They size
+the detector, not the news; P5 must not be sized from them. The figures carry the alias gap (a company
+known by another name is missed unless the NER span or a ticker form catches it), which undercounts
+companies and so pushes bodies toward "single" and "names no company".
 
 ## Sampling: low-confidence + targeted + representative strata
 
@@ -2823,7 +2944,9 @@ classifier reads, so it is the best label for that text, not for the whole artic
   (`config.JUDGE_TEMPERATURE`, the one `build_model` uses), judge seed, prompt hash, date.
 * The sampler (`calibration_sample.draw_sample`) stratifies the confirmed articles
   (`load_confirmed`: `match_class = 'accept'`) by (argmax slug x score band) plus the
-  short-circuit stratum, draws `2 x report_half_size` per cell (all of a smaller cell), and
+  short-circuit stratum (`stratum_of`; the 0.5-0.6 band cells are split into the sub-cells A, U, V,
+  W of the candidate rules, 40 / 24 / 16 / 10 draws per slug), draws `2 x cell_half_size` per
+  stratum (all of a smaller one; 90 per cell in the 0.4-0.6 bands, 60 elsewhere), and
   splits each cell at random into a fit and a report half. Each cell has its own generator
   seeded from the run seed and the cell name, so the same inputs and seed give the same draw
   and one cell's population never moves another's. An article's weight in a half is the cell

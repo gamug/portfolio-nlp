@@ -240,14 +240,16 @@ def _require_frozen(run_id: int, config: dict[str, Any]) -> None:
         )
 
 
-def calls_spent(conn: NewsNlpDatabase) -> int:
-    """Judge calls used by every :data:`TASK` run so far (from each run's ``metrics_json``)."""
-    rows = conn.execute("SELECT metrics_json FROM eval_run WHERE stage = ?", (TASK,)).fetchall()
+def calls_spent(conn: NewsNlpDatabase, task: str = TASK) -> int:
+    """Judge calls used by every run of *task* (an ``eval_run.stage``; default :data:`TASK`) so
+    far, from each run's ``metrics_json``. Each spend decision counts its own task, so budgets
+    are not mixed (D10 here, the labelling budget D18 under its own task)."""
+    rows = conn.execute("SELECT metrics_json FROM eval_run WHERE stage = ?", (task,)).fetchall()
     return sum(int(json.loads(r[0] or "{}").get("calls", 0)) for r in rows)
 
 
-def remaining_calls(conn: NewsNlpDatabase, cap: int = D10_CAP) -> int:
-    return max(cap - calls_spent(conn), 0)
+def remaining_calls(conn: NewsNlpDatabase, cap: int = D10_CAP, task: str = TASK) -> int:
+    return max(cap - calls_spent(conn, task), 0)
 
 
 class _Budget:

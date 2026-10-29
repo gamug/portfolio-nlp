@@ -214,6 +214,8 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 
 ## Work item 15 — Category: fix the `other` bucket (filed 2026-10-14; D1/D2/D3 decided same day; gate conditional on T-117; D4, D5–D9, D10, D2b and the T-117 thresholds decided, see T-139)
 
+**Re-scoped 2026-10-28 into Work item 18** (T-143): see the per-task markers below.
+
 `other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
 figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
 suspected it mixes "not about the ticker's company" (ticker symbols that are English
@@ -266,13 +268,13 @@ Dependencies at a glance:
 | T-127 sentiment impact | none (separate PR) | none | yes |
 | T-129 close-out | all of the above | none | no |
 
-- [ ] **T-116** Commit a rerunnable audit script under `scripts/` that
+- [x] **T-116** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). Commit a rerunnable audit script under `scripts/` that
       reproduces the 2026-10-14 figures from the RESULTS store (label
       distribution; level-1-floor vs level-2-threshold split; best-leaf-score
       bands; `other` rate by source and by ticker; share held by
       English-word tickers, including `ALL`). Read-only; no pipeline or schema change.
       → `PLAN.md` Work item 15, step 1.
-- [ ] **T-130** *(new; no crawler dependency)* Build the relevance judge
+- [x] **T-130** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(new; no crawler dependency)* Build the relevance judge
       T-117 depends on: a new `relevance` task in `news_nlp/eval/` ("is this
       article about `{company}`?" — prompt under `eval/prompts/`, verdict
       model, entry in the judge registry beside `judge_sentiment`/
@@ -386,7 +388,7 @@ Dependencies at a glance:
       GPU projection use the full corrected corpus, and a sentiment run reads about two
       thirds of its input from outside 2022+. **Blocks (now unblocked):** T-117's
       sampling, T-124's size.
-- [ ] **T-132** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
+- [ ] **T-132** **→ Work item 18 P1 and P3 (2026-10-28). Body-hash grouping and name/ticker resolution shipped in P1 (`news_nlp.triage`, T-144); what stays open here is the upstream alias table and the decision on the quarantined `review` pairs.** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
       reshaped 2026-10-22 to the 2026-10-21 hand-off)* Decide the quarantined
       `review` pairs. Never act on doubt, in either direction.
       - **Goal:** answer "is the company a subject of this article?" for the pairs
@@ -442,7 +444,7 @@ Dependencies at a glance:
         schema guard exists; this task adds its columns to the guard's list,
         `articles.prev_fetch_status` and `discovered_urls`, in `SOURCE_REQUIRED_COLUMNS`). **Blocks:** T-117 (its R and
         N are measured after these pairs are decided). → step 2b.
-- [ ] **T-117** *(run on the corrected corpus, after T-128 and T-130; **thresholds confirmed by the owner 2026-10-22, recorded in T-139**; what stays for T-117's sign-off is the measured R and N, not the rule)*
+- [x] **T-117** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(run on the corrected corpus, after T-128 and T-130; **thresholds confirmed by the owner 2026-10-22, recorded in T-139**; what stays for T-117's sign-off is the measured R and N, not the rule)*
       Prototype the relevance test as string matching over SOURCE `body_text`
       + title (company name with aliases; uppercase/explicit-form ticker only
       — see the plan's design constraints) and **measure it**: share of the
@@ -500,11 +502,11 @@ Dependencies at a glance:
       is still worth building; D2 re-runs everything once so old and new
       results are never mixed; D3 fixes the cause (wrong tagging) before
       treating the symptom. → step 2.
-- [ ] **T-119** *(conditional on T-117's sign-off; cancel in place if the gate is dropped)* Implement the relevance gate in the category stage's feature
+- [x] **T-119** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(conditional on T-117's sign-off; cancel in place if the gate is dropped)* Implement the relevance gate in the category stage's feature
       step (CPU-only, before any model call), with hermetic tests covering the
       ambiguous-ticker cases (`ON`, `A`, `IT`, `ARE`) and alias cases (Meta,
       Berkshire, Bank of America). Depends on T-117, T-128. → step 3.
-- [ ] **T-120** *(conditional on T-117's sign-off, same as T-119)* Add the `not_relevant` label (D1 = a): `news_nlp/taxonomy.py`
+- [x] **T-120** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(conditional on T-117's sign-off, same as T-119)* Add the `not_relevant` label (D1 = a): `news_nlp/taxonomy.py`
       and the `docs/category-taxonomy.md` table (10 → 11 labels), the API
       response models, and the category judge's prompt/taxonomy in
       `news_nlp/eval/` so it can answer "not about the company". No table
@@ -512,7 +514,7 @@ Dependencies at a glance:
       enumerates the label list (e.g. `sector_summary`, queries filtering on
       `label != 'other'`). Tell the knowledge-graph owner the vocabulary
       grew. → steps 2, 5.
-- [ ] **T-121** Offline calibration: simulate per-slug thresholds and a
+- [x] **T-121** **Closed 2026-10-28, negative; the rest superseded → Work item 18.** (a) done; (b) stage 1 (720 calls) showed no threshold-and-margin rule passes; stage 2 not run (D10's other 3,080 calls unspent). The owner's tagging of the 720 judged articles then re-scoped the work (Work item 18). Offline calibration: simulate per-slug thresholds and a
       margin-over-runner-up rule against the stored leaf scores and existing
       `eval_verdict` rows (no model re-inference), on the confirmed (`accept`/`ok`)
       articles, or on the gated-in population if T-119 is built; pick parameters by
@@ -652,17 +654,32 @@ Dependencies at a glance:
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
       **(b) stage 1 executed (2026-10-23, eval_run 45, 720 of the 3,800 calls of D10;
       `docs/evaluation.md`'s "the judged calibration sample, stage 1"):** the blind truth-label
-      judge on the sub-cells inside the candidate removed sets. **All three candidates fail
-      T-123's cap**: truly-`other` rate 0.287 (`t0.50+m0.20`, cap 0.035), 0.285 (`t0.55+m0.00`,
-      cap 0.043), 0.335 (`t0.55+m0.20`, cap 0.055), one-sided 98.75% lower bounds 0.21-0.25; and the
-      maximum score (AUC 0.42), the margin (0.40) and the group score (0.63) do not separate
-      truly-`other` from truly-slug articles. No uniform threshold-and-margin loosening rule can
-      pass; T-122 has no rule to ship from this family. **Open, owner's call:** stage 2 (the
-      other 2,580 strata, 2,580 calls, inside the cap) would re-measure the T-123 baseline with
-      the blind judge and cover per-slug thresholds and the short-circuit floor; an anchored-vs-blind
-      check (about 100 calls) would say how much of the gap to the stored 8-17% is the judge. Not
-      started.
-- [ ] **T-122** Ship T-121's chosen rule as constants beside
+      judge on the sub-cells inside the candidate removed sets. **Deviation from the staged
+      design above, recorded:** the 0.5-0.6 band cells were split into sub-cells A, U, V, W by the
+      candidate rules (40 / 24 / 16 / 10 draws per slug, the cell's 90 unchanged) and every drawn A,
+      U and V article was judged (720), instead of 350 inside each `m0.20` set, so that a removed set
+      is a union of whole sub-cells and each rate is a plain stratified estimate; the third rule
+      `t0.55+m0.00` was not in the staged design and sits in the same sub-cells, so the stop level
+      is one-sided **99.17%** (three rules, two looks) rather than 98.75%. **All three candidates
+      fail T-123's cap**: truly-`other` rate 0.287 (`t0.50+m0.20`, cap 0.035), 0.285
+      (`t0.55+m0.00`, cap 0.043), 0.335 (`t0.55+m0.20`, cap 0.055), 99.17% lower bounds 0.218,
+      0.208, 0.240 (5,000-repetition bootstrap; 1,000 would put the stop bound on the 8th draw). **Which verdicts need the anchored baseline (precision 0.319, recall 0.661):**
+      `t0.50+m0.20` removes about 2,121 truly-`other` articles at its lower bound, more than the 1,866
+      the recall tolerance allows even if T were all 93,330 confirmed articles, so it fails whatever
+      the baseline; `t0.55+m0.00` (about 1,655) and `t0.55+m0.20` (about 1,488) fail unless T is at
+      least 82,750 and 74,400 (89% and 80% of the population); T is at most about 42,000 (the 35,368
+      stored-`other` articles plus the slug-labelled ones at the anchored judge's 15.4% / 7.5%), and
+      about 55,000 at three times those rates, so they would flip only if the slug-labelled
+      articles were about two thirds truly `other`; the baseline is not measured under the blind
+      judge. **Measured design effect 2.6-2.8, about 1.7 times the 1.5-1.6 the sizing above
+      assumed:** scale its "judged articles needed" by about 1.7. **The AUCs (maximum score 0.42,
+      margin 0.40, group score 0.63) are measured only on sub-cells A, U and V**, a restricted range
+      (every article scores 0.5 or more with a margin of 0.2 or more, or scores 0.55 or more): they
+      say no score isolates a clean subset inside the candidate sets, not that no score separates
+      the classes across 0.4-0.6 (the 0.4-0.5 band and W were not judged). No uniform
+      threshold-and-margin loosening rule can pass; T-122 has no rule to ship from this family.
+      **Stage 2 (2,580 calls, 3,080 of D10 unspent) was not run.**
+- [x] **T-122** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. **Also extract the decision into one pure
       function** (`group_score`, nine leaf scores -> label, winning score) in
@@ -683,7 +700,7 @@ Dependencies at a glance:
       no stored label depends on the tie-break; it matters only for a candidate rule whose
       threshold is at or below 0.5 and for which slug a tied article is assigned to in
       T-121's argmax cells. A test covers it. → step 4.
-- [ ] **T-123** Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
+- [x] **T-123** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). Re-run `--stage category` eval; baseline = eval_run 43 (mlflow
       `549ddbdf`; the only category run whose judgements are stored, eval_run 21's are
       not) recomputed from stored judgements (restricted to articles still in
       the corrected corpus). **The baseline comes from T-121(b)'s
@@ -714,7 +731,7 @@ Dependencies at a glance:
       top-up, T-124 stays blocked: T-123 reports the point estimates and intervals, and the
       owner decides between accepting a rule on its estimate or opening a larger D10; the
       default is to stay blocked (no full re-run on an unproven rule).
-- [ ] **T-124** *(D2 = yes, decided 2026-10-14; mechanism per T-140)* Re-classify the
+- [x] **T-124** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(D2 = yes, decided 2026-10-14; mechanism per T-140)* Re-classify the
       **entire** category classification over the corrected corpus (every row remaining
       after the crawler re-tag; record the count at launch, it will no longer
       be 459,112), by a re-label of the stored scores unless the verification below
@@ -765,14 +782,14 @@ Dependencies at a glance:
       projected GPU duration for the articles that need inference; if the projection
       exceeds 72 hours on the available GPU, stop and bring it to the owner before
       launching (provisional threshold, not among the thresholds the owner confirmed on 2026-10-22; it applies only to the GPU path, which D2b makes the exception).
-- [ ] **T-125** *(contingent)* Option E: cluster the residual relevant-but-
+- [x] **T-125** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(contingent)* Option E: cluster the residual relevant-but-
       `other` rows and propose taxonomy additions. Only if `other` is still
       large after T-123 and the clusters are coherent; amends the taxonomy
       contract with the knowledge-graph module. → step 7.
-- [ ] **T-126** *(contingent)* Option H: classify on more than title + lead
+- [x] **T-126** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(contingent)* Option H: classify on more than title + lead
       chunk. Only if T-123 shows misses concentrated in weak-lead articles.
       → step 7.
-- [ ] **T-127** *(separate PR)* Measure the sentiment-side impact of the same
+- [ ] **T-127** **→ Work item 18 P4: per-company sentiment (2026-10-28).** *(separate PR)* Measure the sentiment-side impact of the same
       weakness: `_text_mentions_subject` matches a lowercased ticker as a bare
       word (`\bon\b`, `\ba\b`, …), so subject weighting is likely
       non-discriminating for the eight English-word tickers, and off-topic
@@ -807,7 +824,7 @@ Dependencies at a glance:
         Upstream's one open criterion ("this repo confirms that wrong-company rows
         no longer reach its pending queries") is answered by the first point; tell
         that repo, with the caveat. → step 2.
-- [ ] **T-131** *(new; owner decision D4, decided 2026-10-22 at the recommended defaults, see T-139)* Plan and execute
+- [ ] **T-131** **→ Work item 18 P6: backfill (2026-10-28).** *(new; owner decision D4, decided 2026-10-22 at the recommended defaults, see T-139)* Plan and execute
       the cleanup of existing results for articles the crawler fix removes:
       (a) **derive the removed ids at run time with a read-only join** of
       RESULTS article ids to SOURCE (`match_class = 'reject'`, quarantined; about
@@ -855,7 +872,7 @@ Dependencies at a glance:
       T-131's execution may
       ship as its own PR; it stays in this work item because T-124 depends on
       its removed-id list and ordering.
-- [ ] **T-129** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
+- [ ] **T-129** **Re-pointed 2026-10-28: closes with Work item 18's close-out (T-150).** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
       one FR per behavior that ships (gate if built, calibrated rule, the
       opt-in relevance judge T-130, results cleanup T-131) in the PR that
       ships it (SPEC's own rule), update
@@ -867,11 +884,13 @@ Dependencies at a glance:
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
+**Re-scoped 2026-10-28 into Work item 18** (T-143): see the per-task markers below.
+
 35.9% of the `ok` articles belong to a URL that has pairs for more than one ticker
 (a floor); every stage keys on the pair. Size it before building anything. →
 `PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so, then T-138b (close-out).
 
-- [ ] **T-137** Sizing run, no build. Stages 0–2 of upstream's suggested pipeline (hand-off
+- [x] **T-137** **Superseded 2026-10-29 → Work item 18** (re-scope D11–D24): T-144 sized the corpus by rules (unique bodies, companies named, scope candidates; no alias table, no group typing); the typing of groups (single-subject, multi-subject, comparison, transaction, incidental) and the hand-sampled validation are replaced by the owner's gold labels (P2) and the trained triage (P3); the alias table stays with T-132. Original text follows.
       2026-10-21, 9.2 and 9.4: 0 group, 1 mention detection, 2 type) on a
       stratified sample of about 2,000 groups.
       - **Inputs:** the groups (body hash, tickers, classes, reasons; computed here from
@@ -907,7 +926,7 @@ Dependencies at a glance:
         upstream's 42 News Corp multi-company URLs) reports role agreement per type with
         its interval, never one average. Report; do not ship.
       - **Depends on:** T-132's grouping and ORG-to-ticker resolution; D9 (decided, T-139).
-- [ ] **T-138** *(conditional on T-137's result; D9 decided)* Build the stages the sizing justifies:
+- [ ] **T-138** **→ Work item 18 P4: per-company analysis (2026-10-28).** *(conditional on T-137's result; D9 decided)* Build the stages the sizing justifies:
       roles, sentence attribution with offsets (a sentence naming two companies is
       flagged shared and keeps both), facts per `(article, company)` from attributed
       spans only, and the `multi` flag on every article-level score of a multi-subject
@@ -920,13 +939,128 @@ Dependencies at a glance:
       by `article_id`) are asked of the owner in that PR, not assumed from D9. Until it
       ships the `multi` rule is not in force; T-137's report is the statement of the
       risk.
-- [ ] **T-138b** Close-out of Work item 17: annotate `SPEC.md` §13 item 21 / §14, reconcile
+- [ ] **T-138b** **Re-pointed 2026-10-28: closes with Work item 18's close-out (T-150).** Close-out of Work item 17: annotate `SPEC.md` §13 item 21 / §14, reconcile
       both architecture artifacts (never rename; AI behavior #11), then move the work item
       to `CHANGELOG.md` (AI behavior #15). It closes after T-137's report if the owner
       stops there (T-138 cancelled in place, with the reason), or after T-138 ships.
       Depends on T-137 (and T-138 if built).
 
+## Work item 18 — Triage-first pipeline: unique bodies, subject scope, per-company and sector news (re-scoped from Work items 15 and 17, 2026-10-28)
+
+Plan: `PLAN.md` Work item 18. Decisions D11–D24 (T-143). Each phase is its own PR; a schema
+change is proposed to the owner in the PR that needs it (constitution AI behavior #10).
+
+- [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
+      after hand-tagging the 720 judged articles; current list D11–D24)*
+      **D11** the unit is the unique article body (body hash), its subjects found in the content.
+      **D12** LLMs only label and evaluate; the pipeline stays on local pinned models.
+      **D13** GICS sector + sub-industry. **D14** the knowledge graph keeps per-(asset, day)
+      signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
+      `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
+      `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
+      `other` (company content that fits none of the 13 labels; settled 2026-10-29: the
+      investing news about no company that D15 first named is the scope `investing_general`, D22,
+      and carries no category), `uncertain` (no confident category; a category-level label only,
+      the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
+      skipped by every later stage. **D17** a multi-company body gets sentiment + category per
+      company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
+      logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
+      task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
+      owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
+      iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
+      agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
+      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope. **D19** full backfill of the
+      **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
+      as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
+      are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
+      owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
+      **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
+      item carries its sampling weight), **and recall >= 80% for each of the six scopes**, both on the point
+      estimate with the 95% interval reported, so a rare scope cannot be ignored. **D21** each
+      training round exports a stratified sample of about 300 low-confidence bodies for the
+      owner's tagging (active learning). **D22** the scope list has six scopes: single company,
+      several companies, sector, market / economy, **`investing_general`** (investing or
+      market-advice content about no company and no sector: the owner's `other` tag; no
+      per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
+      where one company holds more than half of the subject mentions is **single + mentions**:
+      scope single on the dominant company (summary and sentiment for it), the other companies
+      stored as mentions only, with no per-company analysis. **D24** P4 (per-company category) and
+      P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
+      held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
+      held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
+      a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
+- [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720 (0.663-0.730), 0.78 outside `investing_general`: a development figure; mentions counted once)* Read-only sizing script
+      `scripts/size_triage_2026_10_28.py`: unique bodies vs stored pairs, companies per body
+      (name and explicit ticker forms, NER `ORG` spans matched to universe names), rule-based
+      scope candidates (single, multi, no company: sector / market / economy / unknown) and a
+      GICS sub-industry guess; `docs/evaluation.md` follow-up. Absorbs T-137's sizing. → P1.
+- [x] **T-145** **Cancelled 2026-10-29 by the owner after the gold check** *(P1, same PR)* Laya
+      yes/no check of steps (a)–(g). On the 720 articles tagged v1 (English checkpoint, revision
+      `55cf4c4e`, zero-shot) Laya answered "yes" to almost every question: at the 0.5 cut its
+      combined scope matched the owner's on 39 of 720 (5.4%), against 70% for the rules (six scopes); as a
+      ranking it carried some signal for "several companies" / "one company" (AUC 0.82) and none
+      for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
+      script were removed in the same PR, the sample run was not made. → P1.
+- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; Q1-Q10 answered)* Split:
+      - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
+        for the owner (a guide like `category_labels_guide.csv`). Gold v2 and the held-out gold
+        carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
+        sub-industry for sector bodies (D24 tests the last two). Tagging effort per body is
+        therefore larger than scope only (PLAN WI18 Q7).
+      - [ ] **T-146b** Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
+        for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
+        file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
+        columns).
+      - [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of
+        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. The 240 is stratified on gold v2
+        scope; with a few items per rare scope it gates the overall figure only (per-scope recall is
+        judged on the held-out gold). Silver D15 labels and sub-industries are bought in P2 only if
+        a second gate on the 240 (per-company category and sub-industry agreement with gold v2,
+        threshold >= 80%, owner answer Q8) passes; otherwise silver is scope-only and P4/P5 labels
+        come from the owner's gold in later rounds. Budget: silver <= 6,000 - 240k - 480 for k
+        iterations (k = 5 gives 4,320); judge repair re-calls count against the 6,000.
+      - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
+        the candidates for the rare scopes.
+      - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`
+        (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
+      - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
+        `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
+      - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
+        any training from candidates prefiltered by custom rules, 50 of them checked by the owner
+        first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
+        twice (Q4).
+- [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
+      scope from a local classifier (a fine-tuned small encoder reading the text, with the
+      `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
+      confidence; **accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and
+      recall >= 80% for each of the six scopes (point estimates with intervals, >= 40 gold bodies per
+      scope; D20)**, the
+      complete metric set per scope (AI #12). Each round exports a stratified sample of about 300
+      low-confidence bodies for the owner's tagging, fed back into training (D21), until the
+      target holds; `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own
+      FR. **Model governance (constitution AI #1, #12, Work item 8):** the encoder is a new pinned
+      checkpoint in `config/pipeline_models.json` with its revision, its selection is justified
+      against alternatives like every other model, the `ExperimentSpec` stage list is extended
+      deliberately (a snapshot test), and the complete metric set is reported per scope. → P3.
+- [ ] **T-148** *(P4)* Per-(body, company) analysis: sentence attribution (T-138's design),
+      sentiment (T-127) and D15 category per company; single-company bodies use the whole text,
+      a dominated body (D23) is single + mentions; **accepted at >= 80% agreement with the owner's
+      held-out gold for the per-company category (D24, confirmed)**; its own FR. → P4.
+- [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
+      summaries of sector, market, economy and `investing_general` bodies feeding `sector_summary`,
+      with `MARKET` / `ECONOMY` rows; **sector sub-industry detection accepted at >= 80% agreement
+      with the owner's held-out gold (D24)**; its own FR. → P5.
+- [ ] **T-150** *(P6, close-out)* Full backfill (old tables to v1, T-131), knowledge-graph export
+      contract update (`portfolio_common.news_export`), `SPEC.md` §13 items 19 and 21, both
+      architecture artifacts (AI #11), then Work items 15, 17 and 18 to `CHANGELOG.md` (AI #15,
+      closing T-129 and T-138b). → acceptance.
+
 ## Status
+
+**Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (T-143 records D11–D24).
+T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded in place, and
+T-127, T-131, T-132, T-137 and T-138 continue under Work item 18. T-144 (sizing and the rules' check on the
+720 articles tagged v1) is the first PR; T-145 (Laya) was tried and cancelled.
 
 Closed Work items 1, 5, 6 and 8–14 are in `CHANGELOG.md` (Work item 5 closed 2026-10-14; its
 only open task, T-041, was superseded by Work item 15).
