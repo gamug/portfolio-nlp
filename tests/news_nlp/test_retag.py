@@ -125,6 +125,7 @@ def test_share_classes_are_canonicalised() -> None:
         ({"scope": "unrelated", "companies": "AAPL"}, "analyses no company"),
         ({"scope": "sector"}, "needs a sub_industry"),
         ({"scope": "sector", "sub_industry": "Made Up"}, "not a GICS sub-industry"),
+        ({"scope": "sector", "sub_industry": "Information Technology"}, "not a GICS sub-industry"),
         ({"scope": "multi", "companies": "AAPL", "company_labels": "AAPL:other"}, "2 or more"),
         (
             {"scope": "multi", "companies": "AAPL; MSFT", "company_labels": "AAPL:other"},

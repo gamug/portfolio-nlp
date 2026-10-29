@@ -5,8 +5,9 @@ The first tagging ("tags v1") has a label and a note per article. Gold v2 has, p
 multi: two or more, every one with a D15 **label**), the **mentions** (companies named but not
 analysed, D23) and, for a sector body, the GICS **sub-industry**. :func:`retag_rows` builds
 the file the owner fills in (the v1 tag shown as guidance, never the LLM's label), and
-:func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The label list is D15's;
-labelling spec v2 (T-146a) may amend it, in which place only :data:`D15_LABELS` changes.
+:func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The rules follow
+``docs/labelling-spec-v2.md`` (T-146a): D15's labels in :data:`D15_LABELS`, the per-scope shape in
+:func:`_scope_errors`; a test keeps the spec and this module in step.
 """
 
 from __future__ import annotations
