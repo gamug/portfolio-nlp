@@ -1597,6 +1597,9 @@ amendment first, per AI-behavior #1).
 
 ## Work item 15 — Category: fix the `other` bucket (calibrate it, and clean up what the tagging fix removes)
 
+**Re-scoped 2026-10-28 into Work item 18.** What stays useful here (body-hash grouping,
+name/ticker resolution, sentence attribution, the cleanup of removed rows) continues there.
+
 **Why**: `article_category.label = 'other'` covers 195,993 of 459,112
 articles (**42.7%**; the next label, `market_analyst_sentiment`, is 25.3%).
 Investigated read-only against the RESULTS store on 2026-10-14 (distribution
@@ -2128,6 +2131,9 @@ the cache tables are not contract. **Closed 2026-10-22 (#109):** built as specif
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
 
+**Re-scoped 2026-10-28 into Work item 18.** What stays useful here (body-hash grouping,
+name/ticker resolution, sentence attribution, the cleanup of removed rows) continues there.
+
 **Why** (hand-off note 2026-10-21, reported, not reproduced): the data is per pair, one
 `articles` row per `(url, ticker)` with the same body stored once per pair. Measured
 upstream on `accept`/`review` pairs: 22,048 of 132,078 URLs (16.7%) have pairs for more
@@ -2169,7 +2175,70 @@ follow-up in `docs/evaluation.md` (T-137); the 20-per-type hand sample is a smok
 not a measurement, unless the owner sets a larger N. Close-out: T-138b (SPEC item 21, both
 artifacts, `CHANGELOG.md`); it closes after T-137's report if the owner stops there.
 
+## Work item 18 — Triage-first pipeline: unique bodies, subject scope, per-company and sector news (re-scoped 2026-10-28)
+
+**Why.** Work item 15 tried to shrink the `other` bucket with a better threshold. T-121(b) stage 1
+(eval_run 45, 720 calls) showed that no threshold-and-margin rule can: the articles each candidate
+would move out of `other` are 29–33% truly `other`, and the scores do not separate them. The owner
+then hand-tagged the same 720 articles (`data/category_gold_review.csv`, git-ignored):
+
+- the LLM labels agree with the owner on 46% of them (58% with `other`, multi-company round-ups and
+  non-financial articles merged), so they are silver, not gold;
+- 94 are multi-company round-ups ("market weekly update"), the content the owner values most; the
+  taxonomy can only call them `other`;
+- the notes ask for reputational harm, competitive actions, sector news, whole-market and economy
+  news, comparisons and investor-group moves; 31 are not about the economy at all.
+
+The unit is the cause: an `articles` row is a (URL, ticker) pair, the same body is stored once per
+tagged ticker (35.9% of `ok` articles share a body), and every stage scores the pair as if the
+article were about that ticker. Round-ups, sector and macro news have no correct label in that model.
+
+**Decisions** (T-143, 2026-10-28, with the owner): D11 the unit is the unique article body (body
+hash), its subjects found in the content; D12 LLMs only label and evaluate, the pipeline keeps local
+pinned models (constitution AI #1/#2); D13 GICS sector + sub-industry; D14 the knowledge graph keeps
+per-(asset, day) signals, sector news feeds the weekly `sector_summary`, market and economy news
+become `MARKET` / `ECONOMY` rows there; D15 the per-(body, company) taxonomy is the 9 labels +
+`reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with `other`
+(investing news about neither a company nor a sector, e.g. CEO interviews), `uncertain` (no
+confident label) and `unrelated` (not about the economy); D16 `unrelated` bodies are flagged and
+skipped by every later stage; D17 a multi-company body gets sentiment + category per company; D18
+about 3,000 LLM labelling calls (a revised prompt must reach >= 80% agreement with the 720 gold
+articles before about 2,000 silver bodies are bought; the owner tags about 300 gold bodies drawn
+across the corpus); D19 full backfill, the old tables kept as v1 until the new ones are validated.
+Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
+yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
+everything (5.4% scope agreement with the owner, against 79% for the rules; T-145).
+
+**Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
+
+1. **P1 — foundations and sizing (T-144, T-145).** A read-only script counts unique bodies and
+   resolves the companies each one names (name and explicit ticker forms, NER `ORG` spans matched
+   to universe names; the upstream alias table of T-132 when it arrives), then gives rule-based scope
+   candidates and a GICS guess, and scores the rules against the owner's 720 tagged articles. No
+   spend, no schema change.
+2. **P2 — labels (T-146).** Labelling spec v2, the revised prompt, the D18 silver labels and the
+   owner's ~300 gold bodies.
+3. **P3 — triage stage (T-147).** On unique bodies: NER first, then the scope (single company,
+   several companies, sector, market, economy, `unrelated`) from rules and a local model checked on
+   the gold set. Sketch of the tables: a body table keyed by body hash with its member pairs, and a
+   per-body triage row (scope, companies, confidence).
+4. **P4 — per-company analysis (T-148).** Sentence attribution per company (Work item 17's design),
+   then sentiment and the D15 category per (body, company).
+5. **P5 — sector, market and economy news (T-149).** GICS sector / sub-industry detection, and
+   summaries of those bodies into `sector_summary` with `MARKET` / `ECONOMY` rows.
+6. **P6 — backfill and close-out (T-150).** Re-process the stored corpus, update the
+   knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
+
+**Acceptance.** Every body has a scope, and the scope is measured against the gold set with the
+complete metric set (AI #12); no multi-company, sector, market or economy body is labelled `other`;
+per-company sentiment and category exist for every company a body is about; `sector_summary`
+carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
+documented; SPEC gains one FR per behaviour shipped.
+
 ## Sequencing
+
+**Work item 18 (2026-10-28) supersedes the open parts of Work items 15 and 17** and is the
+current focus: P1 (sizing and the rules' check) first, then P2–P6 in order.
 
 Work items 1 and 2 are independent of each other — no ordering
 dependency. Work item 1 (pin checkpoints) is a small, self-contained code

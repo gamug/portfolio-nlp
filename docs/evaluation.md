@@ -2499,6 +2499,70 @@ and 48% equal the argmax slug (unweighted).
 It would re-measure the baseline `other` precision and recall with the blind judge, the AUCs on
 all cells, per-slug thresholds and the floor decision.
 
+### Follow-up (2026-10-29): the owner's gold labels, and sizing the triage-first pipeline (Work item 18, T-144/T-145)
+
+**The owner's 720 tags (silver -> gold).** The owner hand-tagged the 720 articles of eval_run 45
+(`data/category_gold_review.csv`, git-ignored; `scripts/export_gold_review_2026_10_26.py`). The
+LLM's labels agree with the owner on 46.3% of them (57.9% with `other`, the owner's new
+`miscellany` and `unrelated` merged). The owner's tags: `market_analyst_sentiment` 141,
+`miscellany` 94 (multi-company round-ups), `product_innovation` 82, `other` 80,
+`labor_human_capital` 77, `mergers_acquisitions` 64, `partnerships_business_dev` 45,
+`legal_regulatory` 42, `leadership_governance` 42, `unrelated` 31 (not about the economy),
+`earnings_performance` 20, `capital_shareholder_returns` 2. The notes ask for reputational harm (10),
+competitive actions (about 11), sector news, whole-market / economy news and investor moves. This
+re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D19, `TASKS.md` T-143).
+
+**Scope implied by the tags** (`news_nlp.triage.gold_scope`): single company 536, several companies
+135, sector 9, market / economy 9, unrelated 31. Sector and market / economy are too rare in this
+set to be measured; the ~300 gold bodies of P2 must be drawn to include them.
+
+**Laya, zero-shot (T-145, cancelled).** Yes/no questions to `convaiinnovations/laya` (English
+checkpoint, revision `55cf4c4e`; title + text, of which it reads about the first 480 tokens): it
+answered "yes" to almost every question (sector 604 of 720, market / economy 496, unrelated 467), so
+its combined scope matched the owner's on 39 of 720 (5.4%, 95% 4.0-7.3%). As a ranking it carried
+signal for "several companies" and "one company" (AUC 0.82) but not for "unrelated" (0.24, inverted).
+The owner dropped the approach.
+
+**Rules against the 720 tags** (`scripts/size_triage_2026_10_28.py gold`; `news_nlp.triage`): the
+companies a body names are resolved from names, explicit ticker forms and the stored NER `ORG`
+spans; a body is multi-company unless one company holds a strict majority of the subject mentions.
+Each step, cumulative, with the dominance cut at 0.5:
+
+| step | agreement with the owner's scope | 95% | multi recall | multi precision |
+|---|---|---|---|---|
+| every named company | 0.792 | 0.760-0.820 | 103/135 | 103/175 |
+| + subjects (named twice or in the title) | 0.789 | 0.758-0.817 | 103/135 | 103/171 |
+| + boilerplate removed, analysts' banks not counted | 0.789 | 0.758-0.817 | 103/135 | 103/170 |
+| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.789 | 0.758-0.817 | 109/135 | 109/182 |
+
+The dominance cut is what matters: at 0.7 the same rules agree on 0.71, at 0.6 on 0.75. The steps
+after it change little on this set (the round-up step trades 6 precision for 6 recall). These 720 are a
+**development set**: the cut was chosen on them, so 0.79 is optimistic; the held-out test is P2's
+gold. The remaining errors are mostly borderline articles (a company and its rivals, "tariffs hit Ford
+and GM"), 24 `unrelated` articles the rules call single-company, and the sector / market cases.
+
+**Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 50 minutes):
+98,462 `ok` (URL, ticker) pairs hold **81,961 unique bodies**; 85.5% of bodies sit under one pair,
+10.7% under two, 3.7% under three or more; 1,904 pairs are share-class twins.
+
+| rule scope | bodies | share | pairs | tagged ticker among the subjects |
+|---|---|---|---|---|
+| single company | 34,653 | 42.3% | 35,495 | 96.0% |
+| several, one dominant (counted single) | 24,901 | 30.4% | 28,241 | 98.0% |
+| several companies | 10,498 | 12.8% | 13,406 | 94.5% |
+| round-up | 9,458 | 11.5% | 18,526 | 96.9% |
+| sector (keywords, no company) | 981 | 1.2% | 1,205 | - |
+| no company, unknown | 789 | 1.0% | 887 | - |
+| market (keywords) | 382 | 0.5% | 392 | - |
+| economy (keywords) | 299 | 0.4% | 310 | - |
+
+About a quarter of the bodies (round-ups plus several companies, 24.3%) carry a third of the pairs
+(32.4%): the content one category per pair cannot represent. Half the multi-company bodies (22,537 of
+44,857) share a GICS sub-industry (top: hardware, diversified banks, semiconductors, broadline
+retail), a start for sector detection. Sector, market and economy without any company are rare by
+rule (2.0%, 1,662 bodies), because almost every article names a company twice; the owner's sector and market notes
+fall on articles that name companies, which is why the rules cannot find them and P2's labels must.
+
 ## Sampling: low-confidence + targeted + representative strata
 
 Each run draws `--sample-size` rows per stage as a **disjoint,
