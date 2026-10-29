@@ -241,19 +241,19 @@ def load_gold_v2(
 #: One line per scope for the owner's guide file (`docs/labelling-spec-v2.md` has the rules).
 SCOPE_GUIDE = {
     "unrelated": "Not about business, finance or the economy; a company only as the setting.",
-    "market_economy": "The market as a whole or the economy; a company event takes the scope of its headline event.",
-    "sector": "One industry; holds with another company of the same industry. Needs sub_industry.",
+    "market_economy": "The market as a whole or the economy; a company event that moves the market follows its headline event.",
+    "sector": "One industry is the point (swap the company and it still holds). Needs sub_industry. A company story framed by its industry is single.",
     "investing_general": "Investing or market advice about no company and no sector.",
-    "multi": "Two or more companies each with a sentence of their own; label every analysed one.",
-    "single": "One company is the subject; companies named for context go in mentions.",
+    "multi": "Two or more companies each with a sentence of their own, also from one industry; a named peer with a sentence makes a comparison multi. Label every analysed one.",
+    "single": "One company is the subject, even if framed by its industry or moving the market; a comparison with its sector or peers is single + peer_comparison. Context companies go in mentions.",
 }
 NEW_LABEL_GUIDE = {
     "reputational_harm": "Damages or repairs public standing: apologies, outrages, boycotts, pledges after criticism.",
-    "competitive_actions": "Moves or statements against a competitor: share fights, rival facilities, pricing pressure.",
-    "investor_activity": "A stake moves: fund or famous investor buys or sells, activist position, 13F.",
-    "peer_comparison": "The point is a comparison between companies; every compared company gets it.",
-    "other": "About the company but fits none of the 13 labels.",
-    "uncertain": "Two labels fit equally, or the event is not in the first 6,000 characters.",
+    "competitive_actions": "A company's own move or statement against a competitor: share fights, rival facilities, pricing pressure.",
+    "investor_activity": "A stake moves: fund or famous investor buys or sells, activist position, 13F. A view alone is market_analyst_sentiment.",
+    "peer_comparison": "A writer or analyst weighs companies against each other; every compared company gets it (a single company against its sector too).",
+    "other": "The event is clear, about the company, but fits none of the 13 labels.",
+    "uncertain": "Two labels fit equally and the headline event does not decide, or the event is not in the first 6,000 characters.",
 }
 
 
