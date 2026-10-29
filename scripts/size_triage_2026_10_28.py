@@ -3,7 +3,8 @@
     uv run scripts/size_triage_2026_10_28.py [size] [--sample 1000] [--out data]
     uv run scripts/size_triage_2026_10_28.py gold     # the rules against the owner's 720 tags
 
-Read-only and free (no model, no LLM). Over the SOURCE articles with ``fetch_status = 'ok'`` it
+Read-only and free (no model, no LLM). The full run takes about 50 minutes (``size``) or a few
+minutes (``gold``); ``--limit N`` sizes only the first N pairs, for a smoke run. Over the SOURCE articles with ``fetch_status = 'ok'`` it
 
 * groups the (URL, ticker) pairs into unique bodies (``news_nlp.triage.body_hash``, D11);
 * resolves the universe companies each body names (name, explicit ticker forms, the stored NER
@@ -39,6 +40,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from portfolio_common.db import in_clause
 
 import news_nlp as db
 from news_nlp import triage
@@ -91,6 +94,7 @@ STEPS: tuple[tuple[str, dict[str, bool]], ...] = (
 )
 FULL = STEPS[-1][1]
 #: Rule scope -> the scopes the owner's tags can be mapped to (``news_nlp.triage.GOLD_SCOPES``).
+# a body the rules call single-company dominated by one company is *single + mentions* (D23)
 TO_GOLD = {
     "single": "single",
     "multi_dominated": "single",
@@ -141,6 +145,12 @@ def pct(n: int, total: int) -> str:
     return f"{n:>8,} ({100 * n / total:5.1f}%)" if total else f"{n:>8,}"
 
 
+def select_in(conn: db.NewsNlpDatabase, sql: str, ids: list[int]) -> list[tuple]:
+    """*sql* (ending with the column) ``IN (?, ?, ...)``: only the placeholders from
+    ``portfolio_common.db.in_clause`` are formatted into the text, the ids are bound."""
+    return conn.execute(f"{sql} IN {in_clause(ids)}", ids).fetchall()
+
+
 def cmd_gold(args: argparse.Namespace) -> None:
     """Each rule step against the scope the owner's tags and notes imply on the 720 articles."""
     with (args.out / "category_gold_review.csv").open(encoding="utf-8-sig") as fh:
@@ -150,18 +160,19 @@ def cmd_gold(args: argparse.Namespace) -> None:
     resolver = CompanyResolver(universe)
     terms = list(sector_terms(universe))
     ids = [int(r["article_id"]) for r in review]
-    marks = ",".join("?" for _ in ids)
     full = {
         int(i): (t or "", b or "", slug_of(u))
-        for i, t, b, u in conn.execute(
-            "SELECT a.id, a.title, a.body_text, d.url FROM source.articles a "  # noqa: S608
-            f"LEFT JOIN source.discovered_urls d ON d.id = a.id WHERE a.id IN ({marks})",
+        for i, t, b, u in select_in(
+            conn,
+            "SELECT a.id, a.title, a.body_text, d.url FROM source.articles a "
+            "LEFT JOIN source.discovered_urls d ON d.id = a.id WHERE a.id",
             ids,
         )
     }
     spans: dict[int, list[str]] = defaultdict(list)
-    for i, text in conn.execute(
-        f"SELECT article_id, text FROM article_entities WHERE entity_type = 'ORG' AND article_id IN ({marks})",  # noqa: S608
+    for i, text in select_in(
+        conn,
+        "SELECT article_id, text FROM article_entities WHERE entity_type = 'ORG' AND article_id",
         ids,
     ):
         spans[int(i)].append(text)
@@ -194,12 +205,13 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
 
     members: dict[str, list[tuple[int, str]]] = defaultdict(list)
     first: dict[str, tuple[str, str, str]] = {}
-    for article_id, ticker, title, body, url in conn.execute(
+    pairs_sql = (
         "SELECT a.id, a.ticker, a.title, a.body_text, d.url FROM source.articles a "
         "LEFT JOIN source.discovered_urls d ON d.id = a.id "
         "WHERE a.fetch_status = 'ok' AND a.body_text IS NOT NULL AND a.body_text != '' "
-        "ORDER BY a.id"
-    ):
+        "ORDER BY a.id LIMIT ?"
+    )
+    for article_id, ticker, title, body, url in conn.execute(pairs_sql, (args.limit or -1,)):
         key = triage.body_hash(body)
         members[key].append((int(article_id), ticker))
         first.setdefault(key, (title or "", body, slug_of(url)))
@@ -285,6 +297,7 @@ def main() -> None:
     )
     parser.add_argument("mode", nargs="?", choices=("size", "gold"), default="size")
     parser.add_argument("--sample", type=int, default=1000)
+    parser.add_argument("--limit", type=int, default=0, help="size only the first N pairs (smoke)")
     parser.add_argument("--out", type=Path, default=Path("data"))
     args = parser.parse_args()
     {"size": cmd_size, "gold": cmd_gold}[args.mode](args)

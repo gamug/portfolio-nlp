@@ -83,10 +83,17 @@ def test_gold_scope_reads_the_owners_tags_and_notes() -> None:
     assert triage.gold_scope("other", "This is about the economy performance") == "market_economy"
     assert triage.gold_scope("other", "Is about semiconductor sector") == "sector"
     assert triage.gold_scope("miscellany", "") == "multi"
+    # the owner's `other` tag is investing news about neither a company nor a sector (D22), unless
+    # a note says it is about a sector, the market or several companies
+    assert triage.gold_scope("other", "") == "investing_general"
+    assert triage.gold_scope("other", "This is more like investing advice") == "investing_general"
+    assert triage.gold_scope("other", "Speaks about an entire sector") == "sector"
+    assert triage.gold_scope("other", "Speak about multiple companies") == "multi"
     assert triage.gold_scope("product_innovation", "Speak about multiple companies") == "multi"
     assert triage.gold_scope("legal_regulatory", "This is like reputationa_harm") == "single"
     assert set(triage.GOLD_SCOPES) >= {
-        triage.gold_scope(*args) for args in [("unrelated", ""), ("other", "economy"), ("x", "")]
+        triage.gold_scope(*args)
+        for args in [("unrelated", ""), ("other", "economy"), ("other", ""), ("x", "")]
     }
 
 
@@ -94,6 +101,14 @@ def test_an_opinion_source_is_not_a_subject() -> None:
     resolver = CompanyResolver(UNIVERSE)
     text = "Microsoft analysts expect Apple to grow. Analysts at Oracle agree. Apple rose."
     assert resolver.resolve(text) == Counter({"AAPL": 2})
+
+
+def test_a_boilerplate_sentence_without_a_final_period_is_removed() -> None:
+    text = "Oracle fell 2%.\nSign up for our newsletter\nApple rose."
+    cleaned = triage.strip_boilerplate(text)
+    assert "newsletter" not in cleaned
+    assert "Oracle fell" in cleaned
+    assert "Apple rose" in cleaned
 
 
 def test_boilerplate_sentences_are_removed() -> None:

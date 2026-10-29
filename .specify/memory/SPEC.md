@@ -917,7 +917,7 @@ treating a related FR/NR as done:
     pairs get the verdicts `about` / `mention` / `other` / `unclear` (D5), never acted
     on in doubt, in either direction. Owner decisions D5–D9 were settled at their defaults on 2026-10-22 (T-139).
     **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions
-    D11–D19 in `TASKS.md` T-143). No FR is added until a behaviour ships.
+    D11–D24 in `TASKS.md` T-143). No FR is added until a behaviour ships.
 20. **The data-mining database is read on trust, and the next step reads more of it.**
     `urls.db` carries `PRAGMA user_version` (5 today, additive, not monotonic: a
     documented rollback sets 5 back to 3). Only `require_source_text` checks anything
@@ -943,7 +943,7 @@ treating a related FR/NR as done:
     PR (D9 did not). `PLAN.md` Work item 17,
     `TASKS.md` T-137–T-138.
     **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions
-    D11–D19 in `TASKS.md` T-143). No FR is added until a behaviour ships.
+    D11–D24 in `TASKS.md` T-143). No FR is added until a behaviour ships.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

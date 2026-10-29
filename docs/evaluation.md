@@ -2510,11 +2510,13 @@ LLM's labels agree with the owner on 46.3% of them (57.9% with `other`, the owne
 `legal_regulatory` 42, `leadership_governance` 42, `unrelated` 31 (not about the economy),
 `earnings_performance` 20, `capital_shareholder_returns` 2. The notes ask for reputational harm (10),
 competitive actions (about 11), sector news, whole-market / economy news and investor moves. This
-re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D19, `TASKS.md` T-143).
+re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D24, `TASKS.md` T-143).
 
-**Scope implied by the tags** (`news_nlp.triage.gold_scope`): single company 536, several companies
-135, sector 9, market / economy 9, unrelated 31. Sector and market / economy are too rare in this
-set to be measured; the ~300 gold bodies of P2 must be drawn to include them.
+**Scope implied by the tags** (`news_nlp.triage.gold_scope`; six scopes, D22): single company 458,
+several companies 135, **`investing_general` 78** (the owner's `other` tag: investing or
+market-advice content about neither a company nor a sector), unrelated 31, sector 9, market /
+economy 9. Sector and market / economy are too rare in this set to be measured; the ~300 gold
+bodies of P2 must be drawn to include them.
 
 **Laya, zero-shot (T-145, cancelled).** Yes/no questions to `convaiinnovations/laya` (English
 checkpoint, revision `55cf4c4e`; title + text, of which it reads about the first 480 tokens): it
@@ -2525,21 +2527,28 @@ The owner dropped the approach.
 
 **Rules against the 720 tags** (`scripts/size_triage_2026_10_28.py gold`; `news_nlp.triage`): the
 companies a body names are resolved from names, explicit ticker forms and the stored NER `ORG`
-spans; a body is multi-company unless one company holds a strict majority of the subject mentions.
-Each step, cumulative, with the dominance cut at 0.5:
+spans; a body is multi-company unless one company holds a strict majority of the subject mentions
+(*single + mentions*, D23). Each step, cumulative, with the dominance cut at 0.5, against the six
+scopes:
 
 | step | agreement with the owner's scope | 95% | multi recall | multi precision |
 |---|---|---|---|---|
-| every named company | 0.792 | 0.760-0.820 | 103/135 | 103/175 |
-| + subjects (named twice or in the title) | 0.789 | 0.758-0.817 | 103/135 | 103/171 |
-| + boilerplate removed, analysts' banks not counted | 0.789 | 0.758-0.817 | 103/135 | 103/170 |
-| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.789 | 0.758-0.817 | 109/135 | 109/182 |
+| every named company | 0.703 | 0.668-0.735 | 103/135 | 103/175 |
+| + subjects (named twice or in the title) | 0.700 | 0.666-0.732 | 103/135 | 103/171 |
+| + boilerplate removed, analysts' banks not counted | 0.700 | 0.666-0.732 | 103/135 | 103/170 |
+| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.703 | 0.668-0.735 | 109/135 | 109/182 |
 
-The dominance cut is what matters: at 0.7 the same rules agree on 0.71, at 0.6 on 0.75. The steps
-after it change little on this set (the round-up step trades 6 precision for 6 recall). These 720 are a
-**development set**: the cut was chosen on them, so 0.79 is optimistic; the held-out test is P2's
-gold. The remaining errors are mostly borderline articles (a company and its rivals, "tariffs hit Ford
-and GM"), 24 `unrelated` articles the rules call single-company, and the sector / market cases.
+**This replaces an earlier 0.79.** With the owner's `other` tag folded into "single" (five scopes)
+the same rules scored 0.789: the rules cannot say "no company" for those articles (they name a
+company), so scoring them as single hid 77 misses (`investing_general` -> single 62, multi 15).
+Outside `investing_general` the rules agree on 506 of 642 (0.788). The dominance cut still matters
+(against the five scopes of the sweep: 0.71 at a cut of 0.7, 0.75 at 0.6, 0.81 at 0.5; not re-run against six), and the steps
+after it change little (the round-up step trades 6 precision for 6 recall). These 720 are a
+**development set**: the cut was chosen on them, so the figures are optimistic; the held-out test is
+P2's gold. The remaining errors are the `investing_general` articles (77 of 78 missed), borderline
+articles (a company and its rivals, "tariffs hit Ford and GM"), 24 `unrelated` articles the rules
+call single-company, and the sector / market cases. Rules that read only names and counts cannot find
+these; that is what the trained triage (P3) is for.
 
 **Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 50 minutes):
 98,462 `ok` (URL, ticker) pairs hold **81,961 unique bodies**; 85.5% of bodies sit under one pair,

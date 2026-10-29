@@ -401,7 +401,7 @@ def gics_guess(mentions: Counter[str], universe: dict[str, Company]) -> tuple[st
 # --- checking the rules against human labels (T-144) ---------------------------------------------
 
 #: Scopes the owner's 720 gold articles can be mapped to.
-GOLD_SCOPES = ("single", "multi", "sector", "market_economy", "unrelated")
+GOLD_SCOPES = ("single", "multi", "sector", "market_economy", "investing_general", "unrelated")
 _UNRELATED_LABELS = frozenset({"unrelated", "non-related", "not-related"})
 _MULTI_NOTE = re.compile(
     r"multiple companies|many companies|other company|two companies|two stocks|comparison",
@@ -414,8 +414,10 @@ _MARKET_NOTE = re.compile(
 
 
 def gold_scope(label: str, note: str) -> str:
-    """The scope an owner's tag and note imply: ``unrelated`` tags, then economy / whole-market
-    notes, then sector notes, then multi-company tags (``miscellany``) or notes, else single."""
+    """The scope an owner's tag and note imply, in this order: ``unrelated`` tags; economy /
+    whole-market notes; sector notes; multi-company tags (``miscellany``) or notes; the owner's
+    ``other`` tag (investing news about neither a company nor a sector: ``investing_general``,
+    D22); else single."""
     label = label.strip().lower()
     if label in _UNRELATED_LABELS:
         return "unrelated"
@@ -425,6 +427,8 @@ def gold_scope(label: str, note: str) -> str:
         return "sector"
     if label == "miscellany" or _MULTI_NOTE.search(note):
         return "multi"
+    if label == "other":
+        return "investing_general"
     return "single"
 
 
