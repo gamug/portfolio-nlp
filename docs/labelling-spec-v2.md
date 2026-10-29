@@ -1,8 +1,11 @@
 # Labelling specification v2 (Work item 18, T-146a)
 
-**Status: settled with the owner on 2026-10-29** (the owner calls at the end are answered). Example ids are `articles.id` values of the SOURCE store. It is the guide for the re-tag of the 720 articles
-(gold v2, T-146b), for the revised LLM labelling prompt (T-146c) and for the held-out gold
-(T-146e). Rules marked **[owner call]** were decided by the owner. Decisions it builds on: D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
+**Status: settled with the owner on 2026-10-29.** Example ids are `articles.id` values of the
+SOURCE store (each checked to exist there on 2026-10-29).
+
+It is the guide for the re-tag of the 720 articles (gold v2, T-146b), for the revised LLM
+labelling prompt (T-146c) and for the held-out gold (T-146e). Rules marked **[owner call]** were
+decided by the owner. It builds on D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
 their close calls are in `docs/category-taxonomy.md`.
 
 ## What is tagged
@@ -25,7 +28,10 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 
 ## The six scopes
 
-Decide in this order; the first scope whose test is met wins.
+Decide the **headline event** first (what the article is about), then take the first scope in
+this order whose test the headline event meets. A market or industry framing does not pull an
+article away from `single` unless the market or the industry is the point (see scopes 2, 3 and
+6).
 
 1. **`unrelated`**: not about business, finance or the economy (health news without a company
    angle, politics, lifestyle, career tips). *Examples:* 414317 (Israeli Covid study),
@@ -37,7 +43,8 @@ Decide in this order; the first scope whose test is met wins.
    2026-10-29]**): 164613, "Caterpillar downgrade pressures the overall stock market", is `single`
    with `market_analyst_sentiment` when the downgrade is the story, `market_economy` when the
    market move is. *Examples:*
-   130093 (economic recovery), 480248 (a double-digit rally), 296504 (S&P 500 at records). It is
+   130093 (economic recovery), 480248 (a strategist's call for a double-digit rally), 296504
+   (stocks rally; a strategist says to buy the dips). It is
    summarised in the `MARKET` / `ECONOMY` rows of `sector_summary` (D14).
 3. **`sector`**: about one industry or sub-industry rather than a company: sector trends, an
    industry-wide event, a sector's outlook; companies appear as examples. Needs a `sub_industry`.
@@ -57,13 +64,15 @@ Decide in this order; the first scope whose test is met wins.
    `v1_scope_derived` is `investing_general` are a mix (263795 is `investing_general`; 95691,
    Cramer on how Salesforce can rival Amazon, is `single` with `competitive_actions`; 88609, a
    spinoff raising money, is `single`), so re-scope every one on its content.
-5. **`multi`**: two or more companies are each discussed with their own events or opinions:
-   round-ups ("Midday Movers: GILD, BSX, AES & More", 2214), comparisons ("LH or ALGN: which is
+5. **`multi`**: two or more companies are each discussed with their own events or opinions
+   (**[owner call, 2026-10-29]** also when they all belong to one industry: "three chip stocks to
+   watch" is `multi`; it is `sector` only when the industry itself is the point and the
+   companies are examples): round-ups ("Midday Movers: GILD, BSX, AES & More", 2214), comparisons ("LH or ALGN: which is
    the better value stock", 303163), stories about several firms. Every analysed company gets a
    label.
 6. **`single`**: one company is the subject. If other companies are named for context only they go
-   in `mentions` (D23: a company holding more than half of the subject mentions makes the body
-   *single + mentions*).
+   in `mentions`. (The automatic rules approximate this with D23's "more than half of the subject
+   mentions"; that count is not the gold definition, see below.)
 
 **Analysed or mention?** (The content rule governs the gold, **[owner call, 2026-10-29]**; D23's
 "more than half of the subject mentions" is only a feature of the automatic rules, not the gold
@@ -88,8 +97,8 @@ Four new labels, from the owner's v1 notes:
   cancellations), 171583 (Coinbase customers demand refunds after a stablecoin glitch), 296753
   (JPMorgan's pledge to anti-hate groups). *Not:* a lawsuit or fine (`legal_regulatory`), layoffs
   (`labor_human_capital`).
-- **`competitive_actions`**: moves and statements against or about a competitor, market-share
-  fights, rival facilities, pricing pressure. *Examples:* 117163 (Apple rejects an app that
+- **`competitive_actions`**: a company's own move or statement against or about a competitor,
+  market-share fights, rival facilities, pricing pressure. *Examples:* 117163 (Apple rejects an app that
   criticises its 30% cut), 411216 (a CEO says his company is "crushing" a rival), 319695 (a new
   facility in a rival's backyard). *Not:* a joint effort (`partnerships_business_dev`), a rating
   (`market_analyst_sentiment`).
@@ -102,7 +111,12 @@ Four new labels, from the owner's v1 notes:
 - **`peer_comparison`**: the article's point is a comparison between companies (which is the
   better stock, who is ahead). In a `multi` comparison, every compared company is labelled
   `peer_comparison`, not `market_analyst_sentiment` (v1 used the latter for comparisons; a
-  rating or price target on one company stays `market_analyst_sentiment`). *Examples:* 96481
+  rating or price target on one company stays `market_analyst_sentiment`). **[owner call,
+  2026-10-29]** A single-company body whose point is a comparison with its sector or an unnamed
+  peer group ("is Nvidia cheap against chips?") is `single` with `peer_comparison`; the peers go
+  in `mentions`. Versus `competitive_actions`: `peer_comparison` is a writer or analyst weighing
+  companies against each other; `competitive_actions` is something a company does or says
+  (411216, a CEO saying his firm is "crushing" a rival). *Examples:* 96481
   (Google vs Amazon), 303163 (LH or ALGN).
 
 Three more:
@@ -131,9 +145,13 @@ tests sub-industry, D24); there is no sector-level value.
 
 ## Owner calls (answered 2026-10-29)
 
-0. A company-framed-by-industry story is `single` unless the industry is the point; a company
-   event that moves the market takes the scope of its headline event; the content rule decides
-   analysed vs mention in the gold (D23's count rule is the rules' feature only).
+0. Earlier calls: a company-framed-by-industry story is `single` unless the industry is the
+   point; a company event that moves the market takes the scope of its headline event; the
+   content rule decides analysed vs mention in the gold (D23's count rule is the rules' feature
+   only).
+
+Calls 1–4, plus two added in this PR's review (a one-industry round-up is `multi`; a one-company
+comparison is `peer_comparison`):
 
 1. Human-interest stories that only use a company as setting: `unrelated`.
 2. Round-ups: only companies with a sentence of their own are analysed; the rest are mentions.
