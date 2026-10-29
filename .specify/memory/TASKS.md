@@ -1002,7 +1002,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
 - [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; Q1-Q10 answered)* Split:
-      - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
+      - [ ] **T-146a** *(draft written 2026-10-29: `docs/labelling-spec-v2.md`, awaiting the owner's four calls listed at its end; done when they are answered)* Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
         for the owner (a guide like `category_labels_guide.csv`). Gold v2 and the held-out gold
         carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
         sub-industry for sector bodies (D24 tests the last two). Tagging effort per body is
