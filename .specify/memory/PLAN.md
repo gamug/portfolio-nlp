@@ -2193,14 +2193,14 @@ The unit is the cause: an `articles` row is a (URL, ticker) pair, the same body 
 tagged ticker (35.9% of `ok` articles share a body), and every stage scores the pair as if the
 article were about that ticker. Round-ups, sector and macro news have no correct label in that model.
 
-**Decisions** (T-143, 2026-10-28, amended 2026-10-29 and 2026-10-30, with the owner; D11–D24):
+**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24):
 D11 the unit is the unique article body (body hash), its subjects found in the content; D12 LLMs
 only label and evaluate, the pipeline keeps local pinned models (constitution AI #1/#2); D13 GICS
 sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
 weekly `sector_summary`, market and economy news become `MARKET` / `ECONOMY` rows there; D15 the
 per-(body, company) taxonomy is the 9 labels + `reputational_harm`, `competitive_actions`,
 `investor_activity`, `peer_comparison`, with `other` (company content that fits none of the 13
-labels; settled 2026-10-30: the investing news about no company that D15 first named is the scope
+labels; settled 2026-10-29: the investing news about no company that D15 first named is the scope
 `investing_general`, D22, and carries no category), `uncertain` (no confident category: a
 category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
 flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
@@ -2219,10 +2219,29 @@ training round sends a stratified sample of about 300 low-confidence bodies to t
 body where one company holds more than half of the subject mentions is *single + mentions*: scope
 single on the dominant company, the others stored as mentions only; D24 P4 (per-company category) and
 P5 (sector sub-industry) are each accepted at >= 80% agreement with the owner's held-out gold (the
-owner confirmed on 2026-10-30).
+owner confirmed on 2026-10-29).
 Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
+
+**Open points settled for P2/P3 (review 3, 2026-10-29).**
+- *Gate cost.* A prompt revision changes the prompt hash, so a full re-check of the 720 costs 720
+  calls. The gate is checked on a fixed stratified subsample of 240 of the 720 (about 240 calls per
+  iteration); the full 720 is judged once, on the final prompt. Silver size is what is left of the
+  6,000 cap after the iterations (at most 5 iterations, 1,200 calls, leaving about 4,000 silver
+  bodies if all are used); the owner is told at each step.
+- *Decision rule (D20).* Acceptance is on the lower bound of the 95% Wilson interval for the per-scope
+  recall (>= 80%) and on the point estimate with its interval reported for the overall >= 90%.
+  The held-out gold has at least 40 bodies per rare scope (sector, market / economy, unrelated,
+  `investing_general`) and the rest drawn by corpus weight, so the ~300 is a floor and may grow;
+  if 40 per scope cannot be found the owner is asked before the gold is tagged.
+- *Held-out gold.* It is drawn once, before any training, and excluded from every active-learning
+  round (D21 tags are training data only). The 720 are a development set (drawn by slug x score
+  band, not corpus-weighted): the D18 gate on them is an unweighted figure, reported as such.
+- *Plateau.* Before P3, about 50 held-out bodies are tagged twice by the owner (two passes, a week
+  apart) to measure the label ceiling. If the classifier plateaus below 90% the work stops and the
+  owner decides (more gold, a looser target, or a narrower scope list); no LLM is added to the
+  pipeline (D12).
 
 **Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
 

@@ -388,7 +388,7 @@ Dependencies at a glance:
       GPU projection use the full corrected corpus, and a sentiment run reads about two
       thirds of its input from outside 2022+. **Blocks (now unblocked):** T-117's
       sampling, T-124's size.
-- [ ] **T-132** **→ Work item 18 P1 and P3: body-hash grouping and name/ticker resolution (2026-10-28).** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
+- [ ] **T-132** **→ Work item 18 P1 and P3 (2026-10-28). Body-hash grouping and name/ticker resolution shipped in P1 (`news_nlp.triage`, T-144); what stays open here is the upstream alias table and the decision on the quarantined `review` pairs.** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
       reshaped 2026-10-22 to the 2026-10-21 hand-off)* Decide the quarantined
       `review` pairs. Never act on doubt, in either direction.
       - **Goal:** answer "is the company a subject of this article?" for the pairs
@@ -890,7 +890,7 @@ Dependencies at a glance:
 (a floor); every stage keys on the pair. Size it before building anything. →
 `PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so, then T-138b (close-out).
 
-- [x] **T-137** **Superseded 2026-10-30 → Work item 18** (re-scope D11–D24): T-144 sized the corpus by rules (unique bodies, companies named, scope candidates; no alias table, no group typing); the typing of groups (single-subject, multi-subject, comparison, transaction, incidental) and the hand-sampled validation are replaced by the owner's gold labels (P2) and the trained triage (P3); the alias table stays with T-132. Original text follows.
+- [x] **T-137** **Superseded 2026-10-29 → Work item 18** (re-scope D11–D24): T-144 sized the corpus by rules (unique bodies, companies named, scope candidates; no alias table, no group typing); the typing of groups (single-subject, multi-subject, comparison, transaction, incidental) and the hand-sampled validation are replaced by the owner's gold labels (P2) and the trained triage (P3); the alias table stays with T-132. Original text follows.
       2026-10-21, 9.2 and 9.4: 0 group, 1 mention detection, 2 type) on a
       stratified sample of about 2,000 groups.
       - **Inputs:** the groups (body hash, tickers, classes, reasons; computed here from
@@ -950,7 +950,7 @@ Dependencies at a glance:
 Plan: `PLAN.md` Work item 18. Decisions D11–D24 (T-143). Each phase is its own PR; a schema
 change is proposed to the owner in the PR that needs it (constitution AI behavior #10).
 
-- [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 and 2026-10-30 with the owner,
+- [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
       after hand-tagging the 720 judged articles; current list D11–D24)*
       **D11** the unit is the unique article body (body hash), its subjects found in the content.
       **D12** LLMs only label and evaluate; the pipeline stays on local pinned models.
@@ -958,7 +958,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
       `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
       `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
-      `other` (company content that fits none of the 13 labels; settled 2026-10-30: the
+      `other` (company content that fits none of the 13 labels; settled 2026-10-29: the
       investing news about no company that D15 first named is the scope `investing_general`, D22,
       and carries no category), `uncertain` (no confident category; a category-level label only,
       the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
@@ -984,7 +984,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       scope single on the dominant company (summary and sentiment for it), the other companies
       stored as mentions only, with no per-company analysis. **D24** P4 (per-company category) and
       P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
-      held-out gold** (the owner confirmed on 2026-10-30: at least 80% agreement with the
+      held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
       held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
       a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
 - [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720 (0.664-0.731), 0.78 outside `investing_general`: a development figure; mentions counted once)* Read-only sizing script

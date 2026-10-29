@@ -168,6 +168,10 @@ def cmd_gold(args: argparse.Namespace) -> None:
             spans[i].append(text)
     gold = [triage.gold_scope(r["human_label"], r["human_notes"]) for r in review]
     print(f"gold scopes on {len(review)} articles: {dict(Counter(gold))}")
+    print(
+        "note: the rules never predict investing_general (recall 0 by construction), so read the "
+        "agreement with and without that scope; this is a development set, not the held-out gold"
+    )
     for name, switches in STEPS:
         pred = [
             TO_GOLD[classify(resolver, *full[i], spans[i], terms, **switches)[0].scope] for i in ids
