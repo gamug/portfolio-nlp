@@ -958,30 +958,36 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
       `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
       `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
-      `other` (investing news about neither a company nor a sector, e.g. CEO interviews),
-      `uncertain` (no confident category; a category-level label only, the scope never abstains,
-      D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
+      `other` (company content that fits none of the 13 labels; settled 2026-10-30: the
+      investing news about no company that D15 first named is the scope `investing_general`, D22,
+      and carries no category), `uncertain` (no confident category; a category-level label only,
+      the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
       skipped by every later stage. **D17** a multi-company body gets sentiment + category per
-      company. **D18** labelling budget about **6,000** LLM calls; the revised prompt must agree
-      with the owner's scope on **>= 90%** of the 720 before silver (about 5,000 bodies) is bought;
-      the owner tags about 300 representative gold bodies. **D19** full backfill of the
+      company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
+      logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
+      task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
+      prompt must agree with the owner's scope on **>= 90%** of the 720 before silver (about 5,000
+      bodies) is bought; the owner tags about 300 representative gold bodies. **D19** full backfill of the
       **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
       as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
       are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
-      owner's held-out gold on all bodies** (every body gets a scope, no abstention). **D21** each
+      owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
+      **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
+      item carries its sampling weight), **and recall >= 80% for each of the six scopes** (with
+      its interval reported), so a rare scope cannot be ignored. **D21** each
       training round exports a stratified sample of about 300 low-confidence bodies for the
       owner's tagging (active learning). **D22** the scope list has six scopes: single company,
       several companies, sector, market / economy, **`investing_general`** (investing or
       market-advice content about no company and no sector: the owner's `other` tag; no
-      per-company analysis, summarised like market / economy news) and `unrelated`. **D23** a body
+      per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
       where one company holds more than half of the subject mentions is **single + mentions**:
       scope single on the dominant company (summary and sentiment for it), the other companies
       stored as mentions only, with no per-company analysis. **D24** P4 (per-company category) and
       P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
-      held-out gold** (the owner's answer was "80%"; read as agreement with the gold of the ~300
-      bodies, to be confirmed). Laya (`convaiinnovations/laya`) was to join the main dependencies as
+      held-out gold** (the owner confirmed on 2026-10-30: at least 80% agreement with the
+      held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
       a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
-- [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720, 0.79 outside `investing_general`: a development figure)* Read-only sizing script
+- [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720 (0.664-0.731), 0.78 outside `investing_general`: a development figure; mentions counted once)* Read-only sizing script
       `scripts/size_triage_2026_10_28.py`: unique bodies vs stored pairs, companies per body
       (name and explicit ticker forms, NER `ORG` spans matched to universe names), rule-based
       scope candidates (single, multi, no company: sector / market / economy / unknown) and a
@@ -993,7 +999,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       ranking it carried some signal for "several companies" / "one company" (AUC 0.82) and none
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
-- [ ] **T-146** *(P2; spend D18, about 6,000 calls)* Labelling spec v2 (scope, companies,
+- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap)* Labelling spec v2 (scope, companies,
       sector, D15 labels); revised LLM labelling prompt re-checked on the 720 gold articles until
       its scope agrees with the owner's on >= 90%; then silver bodies (about 5,000, oversampling
       the rules' candidates for the rare scopes: sector, market / economy, unrelated); export of
@@ -1002,7 +1008,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
       scope from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
-      confidence; **accepted at >= 90% agreement with the held-out gold on all bodies (D20)**, the
+      confidence; **accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and
+      recall >= 80% for each of the six scopes (D20)**, the
       complete metric set per scope (AI #12). Each round exports a stratified sample of about 300
       low-confidence bodies for the owner's tagging, fed back into training (D21), until the
       target holds; `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own
@@ -1013,7 +1020,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 - [ ] **T-148** *(P4)* Per-(body, company) analysis: sentence attribution (T-138's design),
       sentiment (T-127) and D15 category per company; single-company bodies use the whole text,
       a dominated body (D23) is single + mentions; **accepted at >= 80% agreement with the owner's
-      held-out gold for the per-company category (D24)**; its own FR. → P4.
+      held-out gold for the per-company category (D24, confirmed)**; its own FR. → P4.
 - [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
       summaries of sector, market, economy and `investing_general` bodies feeding `sector_summary`,
       with `MARKET` / `ECONOMY` rows; **sector sub-industry detection accepted at >= 80% agreement

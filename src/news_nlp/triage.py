@@ -53,66 +53,29 @@ _LEGAL_WORDS = frozenset(
         "class",
     ]
 )
-#: Tickers that are also English words or common abbreviations: never matched bare.
+#: Tickers of three letters or more that are also English words: never matched bare (shorter
+#: ones are never matched bare at all). Tickers that are not words (``META``, ``ZTS``) are.
 _WORD_TICKERS = frozenset(
     [
-        "A",
         "ALL",
         "ARE",
         "BALL",
         "BEN",
-        "BRO",
         "CAT",
         "COST",
-        "CPU",
         "DAY",
-        "DD",
-        "DOW",
-        "ED",
-        "EL",
         "FAST",
-        "GD",
-        "GE",
-        "GL",
         "HAS",
-        "HD",
-        "HOLX",
-        "HUM",
-        "IT",
-        "J",
-        "K",
         "KEY",
-        "KIM",
-        "L",
-        "LIN",
         "LOW",
-        "MA",
         "MAR",
-        "META",
-        "MO",
-        "MS",
         "NOW",
-        "O",
-        "ON",
         "PEAK",
-        "PH",
-        "PM",
-        "PSA",
-        "RL",
-        "SO",
-        "SPG",
-        "T",
         "TECH",
-        "TEL",
-        "V",
         "WELL",
-        "WM",
-        "ZTS",
-        "ALLE",
-        "CARR",
+        "DOW",
         "FOX",
         "FOXA",
-        "NI",
     ]
 )
 #: Companies whose name mostly appears as something else (an exchange or index, a data credit, a
@@ -132,6 +95,43 @@ _WORD_NAMES = frozenset(
         "waters",
         "pool",
         "mosaic",
+    ]
+)
+#: First words of company names that name nothing by themselves (several companies share them or
+#: they are everyday words): never used as a short alias ("General", "American", "First").
+_ALIAS_STOP = frozenset(
+    [
+        "general",
+        "american",
+        "united",
+        "first",
+        "national",
+        "international",
+        "global",
+        "western",
+        "southern",
+        "northern",
+        "eastern",
+        "new",
+        "bank",
+        "banks",
+        "financial",
+        "capital",
+        "the",
+        "one",
+        "best",
+        "royal",
+        "public",
+        "great",
+        "pacific",
+        "atlantic",
+        "interactive",
+        "digital",
+        "advanced",
+        "applied",
+        "western",
+        "charles",
+        "western",
     ]
 )
 _EXCHANGES = r"(?:NYSE|NASDAQ|Nasdaq|NYSEARCA|NYSE American|AMEX|BATS|Cboe)"
@@ -175,12 +175,15 @@ ECONOMY_TERMS = (
 #: How many keyword hits make a no-company body a market / economy / sector candidate.
 MIN_KEYWORD_HITS = 2
 #: Share of the subject mentions above which one company dominates a multi-company body (a strict
-#: majority). Chosen on the owner's 720 tagged articles (a development set): 0.5 agrees with the
-#: owner's scope on 0.81 of them, 0.6 on 0.75, 0.7 on 0.71 (2026-10-29).
+#: majority: D23, "single + mentions"). On the owner's 720 tagged articles (a development set) the
+#: agreement with the owner's scope is 0.714 at 0.4, 0.699 at 0.5, 0.678 at 0.6, 0.642 at 0.7
+#: (2026-10-30, mentions counted once); 0.5 is kept as the definition, not tuned.
 DOMINANT_SHARE = 0.5
 #: Share of a body's companies that must share a sub-industry for it to be guessed.
 GICS_MAJORITY = 0.5
 MIN_COMPANIES_FOR_GICS = 2
+#: Shortest first word of a company name used as an alias.
+MIN_ALIAS_LENGTH = 4
 
 
 def body_hash(text: str) -> str:
@@ -256,6 +259,8 @@ class CompanyResolver:
     _by_ticker: dict[str, str] = field(init=False)
     _names: re.Pattern[str] = field(init=False)
     _word_names: re.Pattern[str] = field(init=False)
+    _aliases: re.Pattern[str] = field(init=False)
+    _alias_to: dict[str, str] = field(init=False)
     _tickers: re.Pattern[str] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -275,6 +280,26 @@ class CompanyResolver:
             + "|".join([re.escape(c) for c in capitalised] or ["(?!)"])
             + r")(?![\w&])"
         )
+        # a company is also known by the first word of its name when that word is unique, not a
+        # generic word and not an everyday word: "Meta", "Alphabet" (matched capitalised only)
+        firsts = Counter(k.split()[0] for k in self._by_name if len(k.split()) > 1)
+        self._alias_to = {
+            key.split()[0].capitalize(): canonical
+            for key, canonical in self._by_name.items()
+            if len(key.split()) > 1
+            and firsts[key.split()[0]] == 1
+            and len(key.split()[0]) >= MIN_ALIAS_LENGTH
+            and key.split()[0] not in _ALIAS_STOP
+            and key.split()[0] not in _WORD_NAMES
+            and key.split()[0] not in self._by_name
+        }
+        self._aliases = re.compile(
+            r"(?<![\w&])(?:"
+            + "|".join(
+                [re.escape(c) for c in sorted(self._alias_to, key=len, reverse=True)] or ["(?!)"]
+            )
+            + r")(?![\w&])"
+        )
         tickers = sorted(self._by_ticker, key=len, reverse=True)
         explicit = "|".join(re.escape(t) for t in tickers)
         bare = "|".join(re.escape(t) for t in tickers if len(t) >= 3 and t not in _WORD_TICKERS)  # noqa: PLR2004
@@ -290,25 +315,52 @@ class CompanyResolver:
         """How many explicit ticker forms (``$X``, ``(NYSE: X)``) *text* carries."""
         return sum(1 for m in self._tickers.finditer(text) if m.group(1) or m.group(2))
 
+    def _text_mentions(
+        self, text: str, skip_attribution: bool
+    ) -> tuple[Counter[str], Counter[str]]:
+        """``(plain, quoted)`` mentions per ticker found in *text*: names, short aliases (not the
+        first word of a full name already found) and explicit or bare ticker forms; *quoted* are
+        the ones named as the source of an opinion when *skip_attribution*."""
+        plain: Counter[str] = Counter()
+        quoted: Counter[str] = Counter()
+
+        def add(ticker: str, match: re.Match[str]) -> None:
+            is_quoted = skip_attribution and _attributed(text, match)
+            (quoted if is_quoted else plain)[ticker] += 1
+
+        spans = []
+        for pattern in (self._names, self._word_names):
+            for match in pattern.finditer(text):
+                spans.append(match.span())
+                add(self._by_name[normalize_name(match.group(0))], match)
+        for match in self._aliases.finditer(text):
+            if not any(start <= match.start() and match.end() <= end for start, end in spans):
+                add(self._alias_to[match.group(0)], match)
+        for match in self._tickers.finditer(text):
+            add(self._by_ticker[next(g for g in match.groups() if g).upper()], match)
+        return plain, quoted
+
     def resolve(
         self, text: str, org_spans: Iterable[str] = (), *, skip_attribution: bool = True
     ) -> Counter[str]:
-        """Mentions per canonical ticker in *text* and in the stored NER ``ORG`` spans of the body
-        (a span counts once if it is a universe name). A name used as an opinion's source
-        ("Goldman Sachs analysts") is not counted."""
-        found: Counter[str] = Counter()
-        for pattern in (self._names, self._word_names):
-            for match in pattern.finditer(text):
-                if not (skip_attribution and _attributed(text, match)):
-                    found[self._by_name[normalize_name(match.group(0))]] += 1
-        for match in self._tickers.finditer(text):
-            ticker = next(g for g in match.groups() if g)
-            found[self._by_ticker[ticker.upper()]] += 1
-        for span in org_spans:
-            key = normalize_name(span)
-            if key in self._by_name:
-                found[self._by_name[key]] += 1
-        return found
+        """Mentions per canonical ticker: the larger of the mentions found in *text* and the
+        stored NER ``ORG`` spans of the body that are universe names. The two measure the same
+        mentions, so they are not added; the spans of one body (not one per pair) must be passed.
+        A company only ever named as the source of an opinion ("Goldman Sachs analysts",
+        "analysts at Morgan Stanley") is left out when *skip_attribution*."""
+        plain, quoted = self._text_mentions(text, skip_attribution)
+        ner = Counter(
+            self._by_name[key]
+            for key in (normalize_name(span) for span in org_spans)
+            if key in self._by_name
+        )
+        return Counter(
+            {
+                ticker: max(plain[ticker], ner[ticker])
+                for ticker in set(plain) | set(ner)
+                if plain[ticker] or not quoted[ticker]
+            }
+        )
 
 
 def _attributed(text: str, match: re.Match[str]) -> bool:

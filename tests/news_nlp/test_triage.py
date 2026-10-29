@@ -36,7 +36,8 @@ def test_resolver_finds_names_ticker_forms_and_org_spans() -> None:
     resolver = CompanyResolver(UNIVERSE)
     text = "Apple and Microsoft rallied; $ORCL fell. Shares of (NASDAQ: AAPL) rose. MSFT gained."
     found = resolver.resolve(text, org_spans=["Oracle Corp", "Some Private Firm"])
-    assert found == Counter({"AAPL": 2, "MSFT": 2, "ORCL": 2})
+    # the NER span of Oracle is the mention the $ORCL form already found: one mention, not two
+    assert found == Counter({"AAPL": 2, "MSFT": 2, "ORCL": 1})
 
 
 def test_share_classes_resolve_to_one_company() -> None:
@@ -95,6 +96,43 @@ def test_gold_scope_reads_the_owners_tags_and_notes() -> None:
         triage.gold_scope(*args)
         for args in [("unrelated", ""), ("other", "economy"), ("other", ""), ("x", "")]
     }
+
+
+def test_a_mention_and_its_ner_span_count_once() -> None:
+    resolver = CompanyResolver(UNIVERSE)
+    once = resolver.resolve("Shares of Apple were mentioned once.", ["Apple"])
+    assert once == Counter({"AAPL": 1})
+    assert triage.subjects(once) == Counter()  # one passing mention is not a subject
+    # the spans of the NER can exceed the text matches (a form the matcher misses): the larger wins
+    assert resolver.resolve("Apple rose.", ["Apple", "Apple", "Apple"]) == Counter({"AAPL": 3})
+
+
+def test_an_opinion_source_is_not_counted_by_any_evidence() -> None:
+    universe = [*UNIVERSE, Company("GS", "Goldman Sachs Group, Inc.", "Financials", "IB")]
+    resolver = CompanyResolver(universe)
+    text = "Goldman Sachs analysts upgraded Apple. Analysts at (NYSE: GS) agree."
+    assert resolver.resolve(text, ["Goldman Sachs"]) == Counter({"AAPL": 1})
+    # named as a subject once as well, the company is counted (its plain mentions)
+    assert resolver.resolve("Goldman Sachs analysts said. Goldman Sachs rose 3%.") == Counter(
+        {"GS": 1}
+    )
+
+
+def test_short_aliases_and_non_word_tickers_are_matched() -> None:
+    universe = [
+        *UNIVERSE,
+        Company("META", "Meta Platforms, Inc.", "Communication Services", "Interactive Media"),
+        Company("ZTS", "Zoetis Inc.", "Health Care", "Pharmaceuticals"),
+        Company("GM", "General Motors Company", "Consumer Discretionary", "Automobiles"),
+        Company("GE", "General Electric Company", "Industrials", "Conglomerates"),
+    ]
+    resolver = CompanyResolver(universe)
+    assert resolver.resolve("Meta announced glasses. Meta stock rose.") == Counter({"META": 2})
+    assert resolver.resolve("META and ZTS rose.") == Counter({"META": 1, "ZTS": 1})
+    # a first word shared by several companies, or a generic one, is not an alias
+    assert resolver.resolve("General stores and a general rule.") == Counter()
+    # an everyday-word ticker is still not matched bare
+    assert resolver.resolve("ALL of it was NOW.") == Counter()
 
 
 def test_an_opinion_source_is_not_a_subject() -> None:

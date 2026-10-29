@@ -2199,24 +2199,27 @@ only label and evaluate, the pipeline keeps local pinned models (constitution AI
 sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
 weekly `sector_summary`, market and economy news become `MARKET` / `ECONOMY` rows there; D15 the
 per-(body, company) taxonomy is the 9 labels + `reputational_harm`, `competitive_actions`,
-`investor_activity`, `peer_comparison`, with `other` (investing news about neither a company nor a
-sector, e.g. CEO interviews), `uncertain` (no confident category: a category-level label only, the
-scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
+`investor_activity`, `peer_comparison`, with `other` (company content that fits none of the 13
+labels; settled 2026-10-30: the investing news about no company that D15 first named is the scope
+`investing_general`, D22, and carries no category), `uncertain` (no confident category: a
+category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
 flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
-company; D18 about 6,000 LLM labelling calls, the revised prompt must agree with the owner's scope
+company; D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
+task, the run stops at it), the revised prompt must agree with the owner's scope
 on >= 90% of the 720 before about 5,000 silver bodies are bought, and the owner tags about 300 gold
 bodies drawn across the corpus; D19 full backfill of the **81,961 unique `ok` bodies** (not the
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
 the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
-only at >= 90% agreement with the owner's held-out gold on all bodies (no abstention); D21 each
+only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
+recall >= 80% for each of the six scopes; D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
 (active learning); D22 six scopes: single company, several companies, sector, market / economy,
 `investing_general` (investing or market-advice content about no company and no sector, the owner's
-`other` tag: no per-company analysis, summarised like market / economy news) and `unrelated`; D23 a
+`other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`; D23 a
 body where one company holds more than half of the subject mentions is *single + mentions*: scope
 single on the dominant company, the others stored as mentions only; D24 P4 (per-company category) and
 P5 (sector sub-industry) are each accepted at >= 80% agreement with the owner's held-out gold (the
-owner's answer was "80%", read as agreement with the gold of the ~300 bodies, to be confirmed).
+owner confirmed on 2026-10-30).
 Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
@@ -2244,8 +2247,9 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
    knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
 
 **Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
-bodies (D20), measured with the complete metric set (AI #12); the per-company category (P4) and the
-sector sub-industry (P5) each agree with the held-out gold on >= 80% (D24); no multi-company, sector, market or economy body is labelled `other`;
+bodies (corpus-weighted) and reaches recall >= 80% in each of the six scopes (D20), measured with the
+complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
+with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
 per-company sentiment and category exist for every company a body is about; `sector_summary`
 carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
 documented; SPEC gains one FR per behaviour shipped.

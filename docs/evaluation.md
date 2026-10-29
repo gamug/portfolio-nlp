@@ -2526,51 +2526,67 @@ signal for "several companies" and "one company" (AUC 0.82) but not for "unrelat
 The owner dropped the approach.
 
 **Rules against the 720 tags** (`scripts/size_triage_2026_10_28.py gold`; `news_nlp.triage`): the
-companies a body names are resolved from names, explicit ticker forms and the stored NER `ORG`
-spans; a body is multi-company unless one company holds a strict majority of the subject mentions
-(*single + mentions*, D23). Each step, cumulative, with the dominance cut at 0.5, against the six
-scopes:
+companies a body names are resolved from names, short aliases (the first word of a name: "Meta"),
+explicit ticker forms and the stored NER `ORG` spans; **each mention counts once** (the larger of the
+text matches and the NER spans of one pair of the body, not their sum, and not once per pair); a
+company only ever named as an opinion's source ("Goldman Sachs analysts") is left out; a body is
+multi-company unless one company holds a strict majority of the subject mentions (*single +
+mentions*, D23). Each step, cumulative, against the six scopes:
 
 | step | agreement with the owner's scope | 95% | multi recall | multi precision |
 |---|---|---|---|---|
-| every named company | 0.703 | 0.668-0.735 | 103/135 | 103/175 |
-| + subjects (named twice or in the title) | 0.700 | 0.666-0.732 | 103/135 | 103/171 |
-| + boilerplate removed, analysts' banks not counted | 0.700 | 0.666-0.732 | 103/135 | 103/170 |
-| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.703 | 0.668-0.735 | 109/135 | 109/182 |
+| every named company | 0.690 | 0.656-0.723 | 108/135 | 108/203 |
+| + subjects (named twice or in the title) | 0.697 | 0.663-0.730 | 94/135 | 94/143 |
+| + boilerplate removed, analysts' banks not counted | 0.696 | 0.661-0.728 | 94/135 | 94/143 |
+| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.699 | 0.664-0.731 | 101/135 | 101/158 |
 
-**This replaces an earlier 0.79.** With the owner's `other` tag folded into "single" (five scopes)
-the same rules scored 0.789: the rules cannot say "no company" for those articles (they name a
-company), so scoring them as single hid 77 misses (`investing_general` -> single 62, multi 15).
-Outside `investing_general` the rules agree on 506 of 642 (0.788). The dominance cut still matters
-(against the five scopes of the sweep: 0.71 at a cut of 0.7, 0.75 at 0.6, 0.81 at 0.5; not re-run against six), and the steps
-after it change little (the round-up step trades 6 precision for 6 recall). These 720 are a
-**development set**: the cut was chosen on them, so the figures are optimistic; the held-out test is
-P2's gold. The remaining errors are the `investing_general` articles (77 of 78 missed), borderline
-articles (a company and its rivals, "tariffs hit Ford and GM"), 24 `unrelated` articles the rules
-call single-company, and the sector / market cases. Rules that read only names and counts cannot find
-these; that is what the trained triage (P3) is for.
+**Two corrections to the first version of this table.** (1) It reported 0.79: that scored the
+owner's `other` tag as "single" (five scopes); with `investing_general` as a scope (D22) the rules
+miss 77 of those 78 articles (they name a company). (2) The first counts added the NER spans to the
+text matches, so one passing mention counted twice and the "subjects" step did nothing
+(0.703 -> 0.700); counted once, the step prunes false multi-company calls (multi precision 108/203 ->
+94/143) and the final figures are the ones above. Outside `investing_general` the rules agree on 503
+of 642 (0.78).
 
-**Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 50 minutes):
-98,462 `ok` (URL, ticker) pairs hold **81,961 unique bodies**; 85.5% of bodies sit under one pair,
-10.7% under two, 3.7% under three or more; 1,904 pairs are share-class twins.
+**The dominance cut, re-swept after the correction** (final step; subjects named at least twice /
+three times): 0.4 -> 0.714 / 0.703, **0.5 -> 0.699 / 0.697**, 0.6 -> 0.678 / 0.667, 0.7 -> 0.642 /
+0.643; multi recall 93, **101**, 110, 114 of 135 at 2 mentions. The cut stays at 0.5, the strict
+majority of D23: the differences are inside the interval (about +-3.3 points) and the 720 are the
+development set, so it is not re-tuned on them; a lower cut buys precision (fewer false multi) at the
+price of recall (the bodies that go to the per-company deep dive). These 720 are a **development
+set**: every figure is optimistic; the held-out test is P2's gold. The remaining errors are the
+`investing_general` articles, borderline articles (a company and its rivals, "tariffs hit Ford and
+GM"), 23 `unrelated` articles the rules call single-company, and the sector / market cases (none of
+the 9 + 9 found). Rules that read names and counts cannot find these; that is what the trained
+triage (P3) is for.
+
+**Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 47 minutes; mentions
+counted once, the corrected rules above): 98,462 `ok` (URL, ticker) pairs hold **81,961 unique
+bodies**; 85.5% of bodies sit under one pair, 10.7% under two, 3.7% under three or more; 1,904 pairs
+are share-class twins. Subject companies per body (named twice or in the title): none 4.4%, one 52.4%,
+two 21.5%, three to five 15.6%, six to ten 4.7%, more than ten 1.5%.
 
 | rule scope | bodies | share | pairs | tagged ticker among the subjects |
 |---|---|---|---|---|
-| single company | 34,653 | 42.3% | 35,495 | 96.0% |
-| several, one dominant (counted single) | 24,901 | 30.4% | 28,241 | 98.0% |
-| several companies | 10,498 | 12.8% | 13,406 | 94.5% |
-| round-up | 9,458 | 11.5% | 18,526 | 96.9% |
-| sector (keywords, no company) | 981 | 1.2% | 1,205 | - |
-| no company, unknown | 789 | 1.0% | 887 | - |
-| market (keywords) | 382 | 0.5% | 392 | - |
-| economy (keywords) | 299 | 0.4% | 310 | - |
+| single company | 41,773 | 51.0% | 42,970 | 94.9% |
+| several, one dominant (*single + mentions*, D23) | 18,796 | 22.9% | 21,958 | 96.7% |
+| round-up | 9,988 | 12.2% | 19,442 | 95.3% |
+| several companies | 7,887 | 9.6% | 10,243 | 93.7% |
+| names no company, sector keywords | 1,295 | 1.6% | 1,496 | - |
+| names no company, no keyword | 1,293 | 1.6% | 1,386 | - |
+| names no company, market keywords | 515 | 0.6% | 541 | - |
+| names no company, economy keywords | 414 | 0.5% | 426 | - |
 
-About a quarter of the bodies (round-ups plus several companies, 24.3%) carry a third of the pairs
-(32.4%): the content one category per pair cannot represent. Half the multi-company bodies (22,537 of
-44,857) share a GICS sub-industry (top: hardware, diversified banks, semiconductors, broadline
-retail), a start for sector detection. Sector, market and economy without any company are rare by
-rule (2.0%, 1,662 bodies), because almost every article names a company twice; the owner's sector and market notes
-fall on articles that name companies, which is why the rules cannot find them and P2's labels must.
+Round-ups plus several companies are 17,875 bodies (21.8%) and hold 29,685 pairs (30.1%): the content
+one category per pair cannot represent; another 22.9% of bodies name a second company without being
+about it. More than half of the multi-company bodies (20,643 of 36,671, 56%) share a GICS sub-industry
+(top: hardware 2,929, semiconductors 1,525, broadline retail 1,116, diversified banks 1,055), a start
+for sector detection. **The sector / market / economy rows (2,224 bodies, 2.7%) are a lower bound from
+a detector with no measured recall**: it finds only bodies that name no company, and on the owner's gold
+it finds none of the 9 sector and 9 market / economy articles, because they name companies. They size
+the detector, not the news; P5 must not be sized from them. The figures carry the alias gap (a company
+known by another name is missed unless the NER span or a ticker form catches it), which undercounts
+companies and so pushes bodies toward "single" and "names no company".
 
 ## Sampling: low-confidence + targeted + representative strata
 

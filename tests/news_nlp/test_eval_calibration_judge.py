@@ -1017,3 +1017,19 @@ def test_load_confirmed_reads_only_accepted_articles() -> None:
     assert len(articles[0].leaf_scores) == len(CATEGORY_SLUGS)
     with pytest.raises(ValueError, match="schema names"):
         cs.load_confirmed(db, results_schema="r; DROP TABLE x")
+
+
+def test_spend_is_counted_per_task_so_budgets_are_not_mixed(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    from news_nlp.eval.store import finish_eval_run  # noqa: PLC0415
+
+    run_a = _new_run(conn, cj.TASK)
+    finish_eval_run(conn, run_a, metrics={"calls": 120.0}, mlflow_run_id=None, status="ok")
+    run_b = _new_run(conn, "silver_labelling")  # a later work item's own budget (D18)
+    finish_eval_run(conn, run_b, metrics={"calls": 400.0}, mlflow_run_id=None, status="ok")
+    conn.commit()
+    assert cj.calls_spent(conn) == 120
+    assert cj.calls_spent(conn, "silver_labelling") == 400
+    assert cj.remaining_calls(conn) == cj.D10_CAP - 120
+    assert cj.remaining_calls(conn, 6000, "silver_labelling") == 5600

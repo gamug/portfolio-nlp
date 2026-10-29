@@ -2,7 +2,10 @@
 
     uv run scripts/export_gold_review_2026_10_26.py [--run-id 45] [--out data]
 
-Writes three CSVs (``data/`` is git-ignored; the article text is not to be committed):
+Writes three CSVs (``data/`` is git-ignored; the article text is not to be committed). It
+**refuses to overwrite a review file that already holds human labels**, and writes the review and
+key files together or not at all (``news_nlp.gold_review``). The run is the latest one that is not
+still running or in error.
 
 * ``category_gold_review.csv``: what the human sees, in a random order (any prefix is a random
   subset): the article and EMPTY ``human_label`` / ``human_notes`` columns. It carries neither
@@ -32,6 +35,7 @@ from news_nlp.eval.calibration_analysis import judged_articles
 from news_nlp.eval.calibration_judge import PROMPT_NAME, TASK, load_truths
 from news_nlp.eval.calibration_sample import load_confirmed
 from news_nlp.eval.judges import load_prompt
+from news_nlp.gold_review import TaggedFileError, write_review_files
 
 SEED = 20261026
 
@@ -53,7 +57,10 @@ def main() -> None:
     conn = db.connect_pipeline()
     run_id = (
         args.run_id
-        or conn.execute("SELECT MAX(id) FROM eval_run WHERE stage = ?", (TASK,)).fetchone()[0]
+        or conn.execute(
+            "SELECT MAX(id) FROM eval_run WHERE stage = ? AND status IN ('ok', 'stopped_at_cap', 'incomplete')",
+            (TASK,),
+        ).fetchone()[0]
     )
     articles = load_confirmed(conn, results_schema="main", urls_schema="source")
     truths = load_truths(conn, run_id)
@@ -109,11 +116,10 @@ def main() -> None:
                 "llm_rationale": verdict.get("rationale", ""),
             }
         )
-    for name, rows in (("category_gold_review.csv", review), ("category_gold_review_key.csv", key)):
-        with (args.out / name).open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
+    try:
+        write_review_files(args.out, review, key)
+    except TaggedFileError as exc:
+        sys.exit(f"{exc}. Copy it elsewhere or pass another --out directory.")
     with (args.out / "category_labels_guide.csv").open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
         writer.writerow(["label", "scope"])

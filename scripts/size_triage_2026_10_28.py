@@ -25,7 +25,7 @@ tuned while looking at it; the ~300 gold bodies of Work item 18 P2 are the held-
 
 Prints the tables for ``docs/evaluation.md`` and writes ``<out>/triage_sample_bodies.csv``: a
 seeded random sample of unique bodies (title, the first 6,000 characters, the rule scope and the
-companies) that ``scripts/laya_check_2026_10_28.py sample`` reads. ``data/`` is git-ignored.
+companies), for spot checks and later labelling work. ``data/`` is git-ignored.
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from portfolio_common.db import in_clause
 
 import news_nlp as db
 from news_nlp import triage
@@ -145,12 +144,6 @@ def pct(n: int, total: int) -> str:
     return f"{n:>8,} ({100 * n / total:5.1f}%)" if total else f"{n:>8,}"
 
 
-def select_in(conn: db.NewsNlpDatabase, sql: str, ids: list[int]) -> list[tuple]:
-    """*sql* (ending with the column) ``IN (?, ?, ...)``: only the placeholders from
-    ``portfolio_common.db.in_clause`` are formatted into the text, the ids are bound."""
-    return conn.execute(f"{sql} IN {in_clause(ids)}", ids).fetchall()
-
-
 def cmd_gold(args: argparse.Namespace) -> None:
     """Each rule step against the scope the owner's tags and notes imply on the 720 articles."""
     with (args.out / "category_gold_review.csv").open(encoding="utf-8-sig") as fh:
@@ -160,22 +153,19 @@ def cmd_gold(args: argparse.Namespace) -> None:
     resolver = CompanyResolver(universe)
     terms = list(sector_terms(universe))
     ids = [int(r["article_id"]) for r in review]
-    full = {
-        int(i): (t or "", b or "", slug_of(u))
-        for i, t, b, u in select_in(
-            conn,
-            "SELECT a.id, a.title, a.body_text, d.url FROM source.articles a "
-            "LEFT JOIN source.discovered_urls d ON d.id = a.id WHERE a.id",
-            ids,
-        )
-    }
+    full: dict[int, tuple[str, str, str]] = {}
     spans: dict[int, list[str]] = defaultdict(list)
-    for i, text in select_in(
-        conn,
-        "SELECT article_id, text FROM article_entities WHERE entity_type = 'ORG' AND article_id",
-        ids,
-    ):
-        spans[int(i)].append(text)
+    for i in ids:  # a fixed, bound query per article: no SQL text is built from the ids
+        row = conn.execute(
+            "SELECT a.title, a.body_text, d.url FROM source.articles a "
+            "LEFT JOIN source.discovered_urls d ON d.id = a.id WHERE a.id = ?",
+            (i,),
+        ).fetchone()
+        full[i] = (row[0] or "", row[1] or "", slug_of(row[2]))
+        for (text,) in conn.execute(
+            "SELECT text FROM article_entities WHERE entity_type = 'ORG' AND article_id = ?", (i,)
+        ):
+            spans[i].append(text)
     gold = [triage.gold_scope(r["human_label"], r["human_notes"]) for r in review]
     print(f"gold scopes on {len(review)} articles: {dict(Counter(gold))}")
     for name, switches in STEPS:
@@ -231,7 +221,9 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
     rows: list[dict[str, object]] = []
     for key, pair_list in members.items():
         title, body, slug = first[key]
-        spans = [s for article_id, _ in pair_list for s in org.get(article_id, ())]
+        # the NER spans of ONE pair of the body: its pairs share the text, so each carries the same
+        # spans, and merging them would count every mention once per pair
+        spans = next((org[a] for a, _ in pair_list if a in org), [])
         scope, mentions = classify(resolver, title, body, slug, spans, terms_list, **FULL)
         scope_bodies[scope.scope] += 1
         scope_pairs[scope.scope] += len(pair_list)
