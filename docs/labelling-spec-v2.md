@@ -1,9 +1,8 @@
 # Labelling specification v2 (Work item 18, T-146a)
 
-**Status: draft for the owner's review.** It is the guide for the re-tag of the 720 articles
+**Status: settled with the owner on 2026-10-29** (the four calls below are answered). It is the guide for the re-tag of the 720 articles
 (gold v2, T-146b), for the revised LLM labelling prompt (T-146c) and for the held-out gold
-(T-146e). Where a rule below is marked **[owner call]**, the PLAN did not fix it and the owner
-decides. Decisions it builds on: D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
+(T-146e). Rules marked **[owner call]** were decided by the owner. Decisions it builds on: D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
 their close calls are in `docs/category-taxonomy.md`.
 
 ## What is tagged
@@ -43,10 +42,10 @@ Decide in this order; the first scope whose test is met wins.
 4. **`investing_general`**: investing or market-advice content about no company and no sector:
    investing philosophy, strategy pieces, personal-finance and "how to invest" pieces. *Example:*
    263795 (a bank's call for a new investing approach). No per-company analysis; summarised in
-   the `MARKET` row (D22). **[owner call]** Articles where a company is the setting of a
-   non-financial human-interest story (e.g. 61309, squatters in an Airbnb condo) were tagged
-   `other` in v1 and derive to this scope; decide whether they are `investing_general`,
-   `unrelated`, or `single` with `reputational_harm`.
+   the `MARKET` row (D22). **[owner call, 2026-10-29]** A human-interest story that only
+   uses a company as its setting (e.g. 61309, squatters in an Airbnb condo; tagged `other` in v1) is
+   **`unrelated`**, not `investing_general`; so are the v1 `other` articles of that kind that
+   `v1_scope_derived` shows as `investing_general`.
 5. **`multi`**: two or more companies are each discussed with their own events or opinions:
    round-ups ("Midday Movers: GILD, BSX, AES & More", 2214), comparisons ("LH or ALGN: which is
    the better value stock", 303163), stories about several firms. Every analysed company gets a
@@ -57,10 +56,9 @@ Decide in this order; the first scope whose test is met wins.
 
 **Analysed or mention?** A company is *analysed* when the article reports an event, result or
 opinion about it of at least a sentence; it is a *mention* when it is named as context, a
-competitor, a source ("Goldman analysts say"), or an index member. **[owner call]** For a
-round-up of many companies, whether every company of a list of ten is analysed (the rule
-agreed on 2026-10-29: every analysed company is labelled) or only those with a sentence of
-their own; the second reading keeps the labelling effort bounded.
+competitor, a source ("Goldman analysts say"), or an index member. **[owner call, 2026-10-29]** In a
+round-up of many companies, only a company with a sentence of its own is analysed (and so
+labelled); names in a bare list are mentions. Every analysed company is labelled.
 
 ## The labels (per analysed company)
 
@@ -85,8 +83,9 @@ Four new labels, from the owner's v1 notes:
 - **`investor_activity`**: what investors do with the company's stock: a fund or famous investor
   buying or selling a stake, activist campaigns, 13F filings, large block trades. *Not:* the
   company's own buyback or dividend (`capital_shareholder_returns`), an executive's insider trade
-  (`leadership_governance`), an analyst rating (`market_analyst_sentiment`). **[owner call]** the
-  boundary with `market_analyst_sentiment` for "investor X is bullish on the company".
+  (`leadership_governance`), an analyst rating (`market_analyst_sentiment`). **[owner call, 2026-10-29]**
+  `investor_activity` only when a stake moves (buy, sell, hold, activist position); an investor's
+  bullish or bearish view alone is `market_analyst_sentiment`.
 - **`peer_comparison`**: the article's point is a comparison between companies (which is the
   better stock, who is ahead). In a `multi` comparison, every compared company is labelled
   `peer_comparison`. *Examples:* 96481 (Google vs Amazon), 303163 (LH or ALGN).
@@ -105,16 +104,15 @@ the reaction is the story).
 ## Sector bodies
 
 Pick the GICS **sub-industry** the article is about, as spelled in the source `articles` table
-(`gics_sub_industry`). The check rejects names the source does not have. **[owner call]** For a
-broad sector story that spans several sub-industries, whether to choose the most central one or
-use a sector-level value (the source has a sector column; the plan tests sub-industry only, D24).
+(`gics_sub_industry`). The check rejects names the source does not have. **[owner call, 2026-10-29]** For a
+broad sector story that spans several sub-industries, enter the most central sub-industry (the plan
+tests sub-industry, D24); there is no sector-level value.
 
-## Open owner calls (summary)
+## Owner calls (answered 2026-10-29)
 
-1. The non-financial human-interest articles (`investing_general`, `unrelated` or `single`).
-2. Round-ups: every listed company analysed, or only those with a sentence of their own.
-3. `investor_activity` vs `market_analyst_sentiment` for an investor's bullish call.
-4. Broad sector stories: central sub-industry or a sector-level value.
+1. Human-interest stories that only use a company as setting: `unrelated`.
+2. Round-ups: only companies with a sentence of their own are analysed; the rest are mentions.
+3. `investor_activity` only when a stake moves; an investor's view alone is `market_analyst_sentiment`.
+4. Broad sector stories: the most central sub-industry.
 
-The checker (`news_nlp/retag.py`) enforces the shape above; once these four are answered the
-rules are aligned to them and PR #117 merges.
+The checker (`news_nlp/retag.py`, PR #117) enforces the shape above.
