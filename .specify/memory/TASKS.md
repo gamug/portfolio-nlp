@@ -1001,7 +1001,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       ranking it carried some signal for "several companies" / "one company" (AUC 0.82) and none
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
-- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; open Q6, Q7)* Split:
+- [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; Q1-Q10 answered)* Split:
       - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
         for the owner (a guide like `category_labels_guide.csv`). Gold v2 and the held-out gold
         carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
@@ -1021,9 +1021,14 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         iterations (k = 5 gives 4,320); judge repair re-calls count against the 6,000.
       - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
         the candidates for the rare scopes.
+      - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`
+        (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
+      - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
+        `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
       - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
         any training from candidates prefiltered by custom rules, 50 of them checked by the owner
-        first (Q6); about 50 tagged twice (Q4).
+        first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
+        twice (Q4).
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
       scope from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated

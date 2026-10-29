@@ -2213,7 +2213,7 @@ owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 p
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
 the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
-recall >= 80% for each of the six scopes, both judged on the point estimate with the 95% interval reported
+recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
 (at 40 bodies the per-scope interval is about +/-13 points); D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
 (active learning); D22 six scopes: single company, several companies, sector, market / economy,
@@ -2227,7 +2227,7 @@ Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
 
-**Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above; open questions after them.**
+**Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
   the held-out gold is drawn once before any training and excluded from every active-learning round
   (its tags are training data never); the one exception is Q4's second pass on about 50 of its
@@ -2246,7 +2246,14 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
   conditional on the filter. *Q7 rounds:* **2 active-learning rounds** (about 300 bodies each) before
   the owner is asked again; owner effort about 1,070 bodies before round 1 plus about 600. *Q8 silver
   beyond scope:* per-company category and sub-industry silver labels are bought only at **>= 80%
-  agreement with gold v2 on the 240** (the D24 bar); below it silver stays scope-only.
+  agreement with gold v2 on the 240** (the D24 bar); below it silver stays scope-only. *Q9 filter
+  misses:* the held-out gold adds **~60 bodies drawn at random from outside the prefilter**, weighted
+  by inverse sampling fraction, so per-scope recall (D20) includes what the filter misses; these
+  are a third set of bodies, separate from the 50-article filter check and the 50 double-tagged.
+  *Q10 calls per body:* **one call per body**; the reply lists every company with its D15 label, so
+  the 240-call iteration and the 4,320 ceiling hold. Owner tagging tally: 720 re-tag + ~300
+  held-out + ~60 misses + 50 filter check + 50 double-tag = about 1,180 bodies before round 1
+  (the heavier tagging: scope, companies, D15 label per company, sub-industry), then 2 x ~300.
 
 **Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
 
