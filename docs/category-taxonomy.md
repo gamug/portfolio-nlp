@@ -1,5 +1,8 @@
 # News article category taxonomy
 
+> **Superseded for the Work item 18 re-tag by `docs/labelling-spec-v2.md`**: six scopes, 13 labels
+> plus `other` / `uncertain`, per analysed company. This file remains the definition of the 9 original labels.
+
 ## Purpose
 
 `news_nlp`'s category stage classifies every article into one of 10 fixed

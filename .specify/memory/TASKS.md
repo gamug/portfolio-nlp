@@ -984,7 +984,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
       where one company holds more than half of the subject mentions is **single + mentions**:
       scope single on the dominant company (summary and sentiment for it), the other companies
-      stored as mentions only, with no per-company analysis. **D24** P4 (per-company category) and
+      stored as mentions only, with no per-company analysis. (gold v2 defines analysed vs mention by content, `docs/labelling-spec-v2.md`; the >50% count is the rules' feature only). **D24** P4 (per-company category) and
       P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
       held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
       held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
@@ -1002,12 +1002,12 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
 - [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; Q1-Q10 answered)* Split:
-      - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
+      - [x] **T-146a** *(done 2026-10-29: `docs/labelling-spec-v2.md`, the owner's calls answered; PR #118, merge #117 first because the spec cites its script and CSVs; #118 then has nothing left to merge and is closed as merged through #117)* Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
         for the owner (a guide like `category_labels_guide.csv`). Gold v2 and the held-out gold
         carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
         sub-industry for sector bodies (D24 tests the last two). Tagging effort per body is
         therefore larger than scope only (PLAN WI18 Q7).
-      - [ ] **T-146b** Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
+      - [ ] **T-146b** *(export/check built 2026-10-29 in PR #117, aligned with `docs/labelling-spec-v2.md` (T-146a, PR #118) on 2026-10-29: round-up mentions, no sector-level `sub_industry`, `unrelated` only as a scope; a test checks that the spec names every scope, label and column; `news_nlp.retag`, `scripts/retag_gold_2026_10_29.py export|check`, file `data/category_gold_v2_review.csv`, 720 rows with v1 label/note/`v1_scope_derived` and empty `scope`/`companies`/`company_labels`/`mentions`/`sub_industry`/`notes`; single = exactly one analysed company (others are mentions, D23); multi = every company labelled (owner, 2026-10-29); tickers and sub-industries are checked against SOURCE; `check` verifies all 720 ids present once; the LLM label stays in the key. Open: the owner should tag only after T-146a gives the guide; the re-measure of the rules on gold v2 runs once the file is tagged.)* Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
         for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
         file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
         columns).
