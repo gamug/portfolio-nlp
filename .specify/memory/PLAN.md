@@ -1906,12 +1906,19 @@ changing the RESULTS contract):
    **Part (b), stage 1 executed (2026-10-23, 720 of 3,800 calls):** with a blind truth-label
    judge, the articles each open loosening rule would take out of `other` are truly `other` in
    28.7% (`t0.50+m0.20`), 28.5% (`t0.55+m0.00`) and 33.5% (`t0.55+m0.20`), against caps of 3.5%,
-   4.3% and 5.5%: all three fail, early. The leaf scores do not separate the subsets (AUC 0.42
-   for the maximum score, 0.40 for the margin, 0.63 for the group score), so no uniform
-   threshold-and-margin rule can pass; a large share of what the classifier calls `other` in
-   0.5-0.6 is genuinely `other` content in the blind judge's view (round-ups, generic
-   commentary), so the bucket's size is not only a threshold artefact. Whether to run stage 2 is
-   the owner's decision (TASKS T-121).
+   4.3% and 5.5% (99.17% lower bounds 21.8%, 20.8% and 24.0%): all three fail, early.
+   `t0.50+m0.20` fails whatever the baseline (about 2,121 truly-`other` articles removed, more than
+   the 1,866 the recall tolerance allows even if every confirmed article were truly `other`); the
+   other two fail on the anchored baseline unless the truly-`other` total were at least 80-89% of
+   the population; it is at most about 42,000 (55,000 at three times the anchored rates), so they
+   would flip only if the slug-labelled articles were about two thirds truly `other` (the blind
+   baseline is not measured). Inside the candidate sets the leaf scores do not
+   separate truly-`other` from truly-slug articles (AUC 0.42 for the maximum score, 0.40 for the
+   margin, 0.63 for the group score), a restricted range (only sub-cells A, U and V of the 0.5-0.6
+   band were judged), so no uniform threshold-and-margin rule can pass; a large share of what the
+   classifier calls `other` in 0.5-0.6 is genuinely `other` content in the blind judge's view
+   (round-ups, generic commentary), so the bucket's size is not only a threshold artefact. Stage 2
+   was not run.
 
 5. **Re-evaluate** with `news_nlp.eval --stage category`: the complete metric
    set of constitution #12 (per class precision/recall/F1/`accuracy_ovr`;

@@ -6,7 +6,7 @@ stored scores of the confirmed articles and returns
 * per candidate loosening rule, the share of the articles it would take out of `other` whose
   truth is `other` (Horvitz-Thompson weights, stratified bootstrap), next to the cap T-123 puts
   on it (:func:`news_nlp.eval.calibration.loosening_bound`), with the two-sided 95% interval and
-  the one-sided 98.75% bounds the staged design stops on (:func:`report_rule`);
+  the one-sided 99.17% bounds the staged design stops on (:func:`report_rule`);
 * how well the maximum score, the margin over the runner-up and the group score separate
   truly-`other` from truly-slug articles (a weighted AUC with a bootstrap interval,
   :func:`separation`).
@@ -45,9 +45,14 @@ from news_nlp.taxonomy import OTHER_LABEL
 #: the shipped rule that T-123's co-requirement is expressed against.
 BASELINE_OTHER_PRECISION = 0.319
 BASELINE_OTHER_RECALL = 0.661
-#: Two-sided level whose tails are the one-sided 98.75% bounds the staged design stops on (the
-#: stricter level pays for two looks at two rules); the final decision uses 95%.
-STOP_LEVEL = 0.975
+#: Two-sided level whose tails are the one-sided stop bounds of the staged design: three candidate
+#: rules looked at twice (stage 1, then stage 2) make 6 looks, so each bound is one-sided at
+#: 1 - 0.05 / 6 = 99.17% (the design first fixed 98.75% for two rules; a third, `t0.55+m0.00`,
+#: sits in the same stage-1 sub-cells). The final decision uses 95%.
+STOP_LEVEL = 1 - 0.10 / 6
+#: Bootstrap repetitions. The stop bound sits 0.83% from the end of the sorted draws, so 1,000
+#: repetitions would put it on the 8th value: noisy in the third digit. 5,000 puts it on the 42nd.
+BOOTSTRAP_REPS = 5000
 FINAL_LEVEL = 0.95
 #: Score bands where a threshold or a margin moves labels (0.4-0.5 and 0.5-0.6).
 THRESHOLD_BANDS = (1, 2)
@@ -94,8 +99,8 @@ class RuleReport(NamedTuple):
     rate: float  # weighted share truly `other`
     low: float  # two-sided 95% interval
     high: float
-    stop_low: float  # one-sided 98.75% lower bound
-    stop_high: float  # one-sided 98.75% upper bound
+    stop_low: float  # one-sided 99.17% lower bound
+    stop_high: float  # one-sided 99.17% upper bound
     cap: float  # the most T-123 allows to be truly `other` (point-estimate condition)
     design_effect: float | None
     verdict: str
@@ -115,12 +120,12 @@ def report_rule(
     precision: float = BASELINE_OTHER_PRECISION,
     recall: float = BASELINE_OTHER_RECALL,
     final: bool = False,
-    reps: int = 1000,
+    reps: int = BOOTSTRAP_REPS,
     seed: int = 0,
 ) -> RuleReport | None:
     """The truly-`other` rate of the set *rule* removes from `other`, against its cap.
 
-    Verdicts: ``fails`` if the lower bound is above the cap (one-sided 98.75% while staged, the
+    Verdicts: ``fails`` if the lower bound is above the cap (one-sided 99.17% while staged, the
     95% interval when *final*); ``below the cap`` if the upper bound is below it (a screen, not
     a pass: T-123 also needs the lower bound of the recall change within tolerance);
     ``undecided`` otherwise; ``not covered`` if some cell holding part of the removed set has no
@@ -220,7 +225,7 @@ def separation(
     judged: Sequence[Judged],
     *,
     bands: Sequence[int] = THRESHOLD_BANDS,
-    reps: int = 300,
+    reps: int = 1000,
     seed: int = 0,
 ) -> list[Separation]:
     """Among the judged articles the shipped rule labels `other` in the given score *bands*, how

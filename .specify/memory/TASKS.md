@@ -652,16 +652,31 @@ Dependencies at a glance:
       budget (R, N, T-130 validation, T-132, T-131's check, about 1,900) stays with T-117.
       **(b) stage 1 executed (2026-10-23, eval_run 45, 720 of the 3,800 calls of D10;
       `docs/evaluation.md`'s "the judged calibration sample, stage 1"):** the blind truth-label
-      judge on the sub-cells inside the candidate removed sets. **All three candidates fail
-      T-123's cap**: truly-`other` rate 0.287 (`t0.50+m0.20`, cap 0.035), 0.285 (`t0.55+m0.00`,
-      cap 0.043), 0.335 (`t0.55+m0.20`, cap 0.055), one-sided 98.75% lower bounds 0.21-0.25; and the
-      maximum score (AUC 0.42), the margin (0.40) and the group score (0.63) do not separate
-      truly-`other` from truly-slug articles. No uniform threshold-and-margin loosening rule can
-      pass; T-122 has no rule to ship from this family. **Open, owner's call:** stage 2 (the
-      other 2,580 strata, 2,580 calls, inside the cap) would re-measure the T-123 baseline with
-      the blind judge and cover per-slug thresholds and the short-circuit floor; an anchored-vs-blind
-      check (about 100 calls) would say how much of the gap to the stored 8-17% is the judge. Not
-      started.
+      judge on the sub-cells inside the candidate removed sets. **Deviation from the staged
+      design above, recorded:** the 0.5-0.6 band cells were split into sub-cells A, U, V, W by the
+      candidate rules (40 / 24 / 16 / 10 draws per slug, the cell's 90 unchanged) and every drawn A,
+      U and V article was judged (720), instead of 350 inside each `m0.20` set, so that a removed set
+      is a union of whole sub-cells and each rate is a plain stratified estimate; the third rule
+      `t0.55+m0.00` was not in the staged design and sits in the same sub-cells, so the stop level
+      is one-sided **99.17%** (three rules, two looks) rather than 98.75%. **All three candidates
+      fail T-123's cap**: truly-`other` rate 0.287 (`t0.50+m0.20`, cap 0.035), 0.285
+      (`t0.55+m0.00`, cap 0.043), 0.335 (`t0.55+m0.20`, cap 0.055), 99.17% lower bounds 0.218,
+      0.208, 0.240 (5,000-repetition bootstrap; 1,000 would put the stop bound on the 8th draw). **Which verdicts need the anchored baseline (precision 0.319, recall 0.661):**
+      `t0.50+m0.20` removes about 2,121 truly-`other` articles at its lower bound, more than the 1,866
+      the recall tolerance allows even if T were all 93,330 confirmed articles, so it fails whatever
+      the baseline; `t0.55+m0.00` (about 1,655) and `t0.55+m0.20` (about 1,488) fail unless T is at
+      least 82,750 and 74,400 (89% and 80% of the population); T is at most about 42,000 (the 35,368
+      stored-`other` articles plus the slug-labelled ones at the anchored judge's 15.4% / 7.5%), and
+      about 55,000 at three times those rates, so they would flip only if the slug-labelled
+      articles were about two thirds truly `other`; the baseline is not measured under the blind
+      judge. **Measured design effect 2.6-2.8, about 1.7 times the 1.5-1.6 the sizing above
+      assumed:** scale its "judged articles needed" by about 1.7. **The AUCs (maximum score 0.42,
+      margin 0.40, group score 0.63) are measured only on sub-cells A, U and V**, a restricted range
+      (every article scores 0.5 or more with a margin of 0.2 or more, or scores 0.55 or more): they
+      say no score isolates a clean subset inside the candidate sets, not that no score separates
+      the classes across 0.4-0.6 (the 0.4-0.5 band and W were not judged). No uniform
+      threshold-and-margin loosening rule can pass; T-122 has no rule to ship from this family.
+      **Stage 2 (2,580 calls, 3,080 of D10 unspent) was not run.**
 - [ ] **T-122** Ship T-121's chosen rule as constants beside
       `CATEGORY_CONFIDENCE_THRESHOLD` in `news_nlp/taxonomy.py` and apply it
       in the category stage, with tests. **Also extract the decision into one pure

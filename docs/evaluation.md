@@ -2418,19 +2418,33 @@ reuse, confusion matrix, and ROC/AUC" above for the formula.
 
 Run with `scripts/calibrate_category_2026_10_23.py` (`plan` / `run --stage 1` / `report`), seed
 20261023, eval_run 45 in the real RESULTS store, blind truth-label judge (`category_truth`, the
-article only, the classifier's label not shown; DeepSeek endpoint of `LLM_*`). **Spend: 720 of
+article only, the classifier's label not shown; judge model `deepseek-chat` at `https://api.deepseek.com`, from `LLM_*`). **Spend: 720 of
 the 3,800 calls of D10** (10 smoke-test articles, then the other 710 of stage 1; 0 parse failures,
 0 transport errors). The 3,300-article sample is drawn (46 + 27 strata over the 93,330 confirmed
-articles); the 0.5-0.6 band is split by the candidate rules into sub-cells A (removed by
-`t0.55+m0.20`, hence by `t0.50+m0.20` and `t0.55+m0.00`), U (removed by `t0.50+m0.20` only), V
-(removed by `t0.55+m0.00` only) and W (none); stage 1 judged every article drawn in A, U and V
-(40 + 24 + 16 per slug, 720 in all) and none of the other strata.
+articles).
 
-| rule | removed (of 35,368 `other`) | judged inside | truly `other` | weighted rate | 95% | one-sided 98.75% lower | cap (T-123) | design effect | result |
+**Deviation from the staged design of TASKS T-121(b), and why.** The design said "judge 350
+articles inside each `m0.20` removed set". The 0.5-0.6 band cells were instead split by the
+candidate rules into sub-cells A (removed by `t0.55+m0.20`, hence by `t0.50+m0.20` and
+`t0.55+m0.00`), U (removed by `t0.50+m0.20` only), V (removed by `t0.55+m0.00` only) and W (none),
+sampled 40 / 24 / 16 / 10 per slug (the cell's 90 draws are unchanged, so the base sample is still
+3,300 calls). Every removed set is then a union of whole sub-cells, so each rule's rate is a plain
+stratified estimate, with no two-phase top-up; stage 1 judged every article drawn in A, U and V (720
+in all) and none of the other strata. The third rule, `t0.55+m0.00`, was not in the original staged
+design (it was judged inside the base sample); its sub-cell V sits in stage 1, so it is a third
+rule and the stop level below is set for three.
+
+**Stop level.** Three rules, each looked at twice (stage 1 and the pooled sample): six looks, so
+the early stop uses a one-sided bound at 1 - 0.05 / 6 = **99.17%** (the design first said 98.75%
+for two rules). The intervals are stratified bootstraps of **5,000** repetitions (the stop bound is
+the 42nd value from the end; 1,000 repetitions would put it on the 8th and leave its third digit
+noisy).
+
+| rule | removed (of 35,368 `other`) | judged inside | truly `other` | weighted rate | 95% | one-sided 99.17% lower | cap (T-123) | design effect | result |
 |---|---|---|---|---|---|---|---|---|---|
-| `t0.50+m0.20` | 9,728 | 576 | 139 | 0.287 | 0.231-0.349 | 0.226 | 0.035 | 2.63 | **fails** |
-| `t0.55+m0.00` | 7,957 | 504 | 101 | 0.285 | 0.222-0.356 | 0.214 | 0.043 | 2.82 | **fails** |
-| `t0.55+m0.20` | 6,198 | 360 | 87 | 0.335 | 0.257-0.422 | 0.246 | 0.055 | 2.72 | **fails** |
+| `t0.50+m0.20` | 9,728 | 576 | 139 | 0.287 | 0.230-0.348 | 0.218 | 0.035 | 2.63 | **fails** |
+| `t0.55+m0.00` | 7,957 | 504 | 101 | 0.285 | 0.220-0.354 | 0.208 | 0.043 | 2.82 | **fails** |
+| `t0.55+m0.20` | 6,198 | 360 | 87 | 0.335 | 0.257-0.418 | 0.240 | 0.055 | 2.72 | **fails** |
 
 By sub-cell, the weighted share truly `other` is **A 0.335** (360 judged, 6,198 articles),
 **U 0.204** (216, 3,530) and **V 0.111** (144, 1,759). Overall 153 of the 720 verdicts are `other`
@@ -2438,36 +2452,52 @@ and 48% equal the argmax slug (unweighted).
 
 **Reading.**
 
-* **Every candidate loosening rule fails the T-123 co-requirement, early (the stage-1 stop rule
-  of the staged design):** the one-sided 98.75% lower bound of the truly-`other` rate of the
-  removed set is 5 to 7 times its cap. The conclusion does not depend on the baseline: the caps
-  use `other` precision 0.319 and recall 0.661 measured with the *anchored* judge of eval_run
-  43; even if the total of truly-`other` articles T were all 93,330, the recall tolerance
-  (-0.02) would allow 1,866 truly-`other` articles to leave `other`, and `t0.55+m0.20` alone
-  would remove about 2,076 (6,198 x 0.335).
-* **No score separates the subsets.** Among the 720 judged stored-`other` articles of the
-  0.4-0.6 bands, P(truly-slug article has a higher value than a truly-`other` one) is **0.42
-  (0.34-0.50) for the maximum score, 0.40 (0.33-0.47) for the margin over the runner-up and 0.63
-  (0.56-0.70) for the group score**. A higher score or a larger margin does not make an article
-  more likely to have a real category; the sub-cell with the clearest margin and score (A) is the
-  dirtiest. The group score separates a little. So a threshold or margin on the leaf scores
-  cannot isolate a clean subset, which was the open question left by T-121(a).
+* **Every candidate fails the cap that the anchored baseline gives, early.** The caps use `other`
+  precision 0.319 and recall 0.661 measured on eval_run 43 with a judge that saw the model's label.
+  The one-sided lower bound of the truly-`other` rate of the removed set is 4 to 6 times the cap.
+* **Which verdicts need that baseline.** The recall tolerance (-0.02) lets at most 0.02 x T
+  truly-`other` articles leave `other`, T being the truly-`other` total of the population (at most
+  the 93,330 confirmed articles, so at most 1,866). At the 99.17% lower bounds the removed sets
+  hold: `t0.50+m0.20` 9,728 x 0.218 = **2,121** truly-`other` articles, more than 1,866 even if
+  every confirmed article were truly `other`: **it fails whatever the baseline**.
+  `t0.55+m0.00` holds 7,957 x 0.208 = **1,655** and `t0.55+m0.20` 6,198 x 0.240 = **1,488**: they
+  fail unless T is at least 82,750 and 74,400 (89% and 80% of all confirmed articles). **How far
+  that is from the data, under a stated assumption:** T is at most the 35,368 stored-`other`
+  articles (all of them taken as truly `other`) plus the truly-`other` slug-labelled ones. With the
+  stored verdicts' rates for those (15.4% in 0.6-0.8, 28,916 articles; 7.5% from 0.8, 29,046
+  articles) that is **at most 42,000**, and 46,084 at the upper ends of their intervals (24% and
+  13%). Those rates come from the *anchored* judge: under the blind judge they are probably higher
+  (it found 2 to 4 times more truly-`other` in the removed sets), but even at three times the
+  anchored rates T is about 55,000, below 74,400. So the two verdicts that depend on the baseline
+  would need the slug-labelled articles to be about two thirds truly `other` (39,008 of 57,962) to
+  flip; the baseline itself is **not measured under the blind judge** (stage 2 would).
+* **Within the removed sets no score separates the truly-`other` from the truly-slug articles.**
+  The AUCs below are measured **only on the 720 articles of sub-cells A, U and V** (0.5-0.6 band,
+  every article already with a score of 0.5 or more and a margin of 0.2 or more, or a score of
+  0.55 or more): a restricted range by construction. P(a truly-slug article has a higher value
+  than a truly-`other` one) is **0.42 (0.35-0.50) for the maximum score, 0.40 (0.32-0.47) for the
+  margin over the runner-up and 0.63 (0.55-0.70) for the group score**; the sub-cell with the
+  clearest margin and score (A) is the dirtiest. So a threshold or margin on the leaf scores does
+  not isolate a clean subset *inside the candidate sets*, which is what the rules need. Whether
+  scores separate the classes across the whole 0.4-0.6 range (the 0.4-0.5 band and W were not
+  judged) is **not measured**: stage 2 would.
 * **These rates are 2 to 4 times the ones the stored verdicts gave** (A-like subsets 8-17%, the
   0.5-0.6 band 19%). The stored verdicts came from a judge that saw the model's label; this one
   does not. Only 5 articles are common to both runs, so the gap between an anchored and a blind
   judge is not measured here. What stage 1 does show is that, against a label chosen from the
   article alone, a large share of what the classifier calls `other` in 0.5-0.6 is
   genuinely `other` (multi-company round-ups, generic market commentary).
+* **The measured design effect (2.6-2.8) is about 1.7 times the 1.5-1.6 the sizing above assumed**
+  (the sub-cells are sampled at very different rates), so the "judged articles needed" of the
+  sizing table scale by about 1.7: do not reuse those sizes as they stand.
 * **Limits.** Stage 1 covers only the sub-cells A, U and V, so it says nothing yet about the
   other cells: the T-123 baseline under the blind judge, the short-circuit stratum
   (`CATEGORY_GROUP_FLOOR`), per-slug thresholds in the other bands, and the loosening of
-  `t0.50`/`m0.10` (already excluded by T-121(a)). The design effect (2.6-2.8) is large because the
-  sub-cells are sampled at very different rates; the intervals above include it.
+  `t0.50`/`m0.10` (already excluded by T-121(a)).
 
 **Not run (2,580 calls left in the sample, 3,080 in the cap):** stage 2 (the other 2,580 strata).
 It would re-measure the baseline `other` precision and recall with the blind judge, the AUCs on
-all cells, per-slug thresholds and the floor decision. See TASKS T-121(b) for the owner's
-decision on it.
+all cells, per-slug thresholds and the floor decision.
 
 ## Sampling: low-confidence + targeted + representative strata
 
@@ -2823,7 +2853,9 @@ classifier reads, so it is the best label for that text, not for the whole artic
   (`config.JUDGE_TEMPERATURE`, the one `build_model` uses), judge seed, prompt hash, date.
 * The sampler (`calibration_sample.draw_sample`) stratifies the confirmed articles
   (`load_confirmed`: `match_class = 'accept'`) by (argmax slug x score band) plus the
-  short-circuit stratum, draws `2 x report_half_size` per cell (all of a smaller cell), and
+  short-circuit stratum (`stratum_of`; the 0.5-0.6 band cells are split into the sub-cells A, U, V,
+  W of the candidate rules, 40 / 24 / 16 / 10 draws per slug), draws `2 x cell_half_size` per
+  stratum (all of a smaller one; 90 per cell in the 0.4-0.6 bands, 60 elsewhere), and
   splits each cell at random into a fit and a report half. Each cell has its own generator
   seeded from the run seed and the cell name, so the same inputs and seed give the same draw
   and one cell's population never moves another's. An article's weight in a half is the cell

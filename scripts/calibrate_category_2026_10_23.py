@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import news_nlp as db
-from news_nlp.eval.calibration import Rule
+from news_nlp.eval.calibration import ConfirmedArticle, Rule
 from news_nlp.eval.calibration_analysis import (
     judged_articles,
     report_rule,
@@ -41,6 +41,7 @@ from news_nlp.eval.calibration_judge import (
     truth_experiment,
 )
 from news_nlp.eval.calibration_sample import (
+    HALVES,
     draw_sample,
     load_confirmed,
     sample_items,
@@ -52,13 +53,15 @@ SEED = 20261023
 RULES = (Rule(0.50, 0.20), Rule(0.55, 0.00), Rule(0.55, 0.20))
 
 
-def open_store() -> db.NewsNlpDatabase:
+def open_store(*, write: bool = False) -> db.NewsNlpDatabase:
+    """The two-tier store; only ``run`` (which writes eval rows) makes sure the tables exist."""
     conn = db.connect_pipeline()
-    db.init_schema(conn)  # idempotent; the eval tables exist already in the real store
+    if write:
+        db.init_schema(conn)  # idempotent; the eval tables exist already in the real store
     return conn
 
 
-def population(conn: db.NewsNlpDatabase):  # type: ignore[no-untyped-def]
+def population(conn: db.NewsNlpDatabase) -> list[ConfirmedArticle]:
     return load_confirmed(conn, results_schema="main", urls_schema="source")
 
 
@@ -70,8 +73,8 @@ def cmd_plan(args: argparse.Namespace) -> None:
     print(f"confirmed articles: {len(articles)}; cells: {len(sample.populations)}")
     print(f"drawn: {len(sample.drawn)} (stage 1: {per_stage[1]}, stage 2: {per_stage[2]})")
     print(f"D10 cap {D10_CAP}; calls left across runs: {remaining_calls(conn)}")
-    for half in ("fit", "report"):
-        print(f"  {half}: {len(sample.half(half))} drawn")  # type: ignore[arg-type]
+    for half in HALVES:
+        print(f"  {half}: {len(sample.half(half))} drawn")
 
 
 def find_run(conn: db.NewsNlpDatabase, model: str, seed: int) -> int | None:
@@ -88,7 +91,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     from news_nlp.eval.model import calibration_agent_factory  # noqa: PLC0415 -- eval group
 
     settings = EvalSettings.load()
-    conn = open_store()
+    conn = open_store(write=True)
     articles = population(conn)
     pairs, sample = sample_items(conn, draw_sample(articles, seed=args.seed))
     run_id = find_run(conn, settings.llm_model, args.seed)
@@ -137,7 +140,7 @@ def cmd_report(args: argparse.Namespace) -> None:
     print(f"calls spent {D10_CAP - remaining_calls(conn)} of {D10_CAP}")
     print(
         f"\n{'rule':<14}{'removed':>8}{'judged':>8}{'truly other':>13}{'rate':>7}"
-        f"{'95%':>14}{'98.75% lo/hi':>16}{'cap':>7}{'deff':>6}  verdict"
+        f"{'95%':>14}{'99.17% lo/hi':>16}{'cap':>7}{'deff':>6}  verdict"
     )
     for rule in RULES:
         r = report_rule(judged, articles, rule, final=args.final)
@@ -149,7 +152,11 @@ def cmd_report(args: argparse.Namespace) -> None:
             f"{f'{r.low:.3f}-{r.high:.3f}':>14}{f'{r.stop_low:.3f}/{r.stop_high:.3f}':>16}"
             f"{r.cap:>7.3f}{(r.design_effect or 0):>6.2f}  {r.verdict}"
         )
-    print("\nseparation of truly-slug from truly-`other` among stored-`other` articles in 0.4-0.6")
+    print(
+        "\nseparation of truly-slug from truly-`other` among the judged articles the shipped rule "
+        "labels `other` (stage 1 judged only sub-cells A, U, V of the 0.5-0.6 band: a restricted "
+        "range)"
+    )
     for s in separation(judged):
         print(
             f"  {s.feature:<12} AUC {s.auc:.3f} ({s.low:.3f}-{s.high:.3f}), "

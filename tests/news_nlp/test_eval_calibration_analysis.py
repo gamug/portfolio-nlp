@@ -101,7 +101,7 @@ def test_judged_articles_pool_the_weights_of_both_halves() -> None:
 def test_report_rule_fails_a_rule_whose_removed_set_is_too_often_truly_other() -> None:
     articles, truths = _setup(other_in_a=40, other_in_u=40)
     judged = ca.judged_articles(truths, articles)
-    report = ca.report_rule(judged, articles, Rule(0.50, 0.20))
+    report = ca.report_rule(judged, articles, Rule(0.50, 0.20), reps=300)
     assert report is not None
     assert (report.removed, report.n, report.n_other) == (1000, 200, 80)
     assert report.rate == pytest.approx(0.4)
@@ -112,12 +112,14 @@ def test_report_rule_fails_a_rule_whose_removed_set_is_too_often_truly_other() -
 
 def test_report_rule_clears_a_rule_far_below_its_cap_and_leaves_the_middle_undecided() -> None:
     articles, truths = _setup(other_in_a=0, other_in_u=0)
-    report = ca.report_rule(ca.judged_articles(truths, articles), articles, Rule(0.55, 0.20))
+    report = ca.report_rule(
+        ca.judged_articles(truths, articles), articles, Rule(0.55, 0.20), reps=300
+    )
     assert report is not None
     assert report.rate == 0.0
     assert report.verdict == "below the cap"
     articles, truths = _setup(other_in_a=2, other_in_u=2)
-    mid = ca.report_rule(ca.judged_articles(truths, articles), articles, Rule(0.55, 0.20))
+    mid = ca.report_rule(ca.judged_articles(truths, articles), articles, Rule(0.55, 0.20), reps=300)
     assert mid is not None
     assert mid.low <= mid.cap <= mid.high or mid.verdict != "undecided"
 
@@ -126,7 +128,7 @@ def test_a_rule_whose_cells_are_not_judged_yet_is_not_covered() -> None:
     articles, truths = _setup(5, 5)
     articles += [_article(5000 + i, 0.57, 0.45) for i in range(50)]  # sub-cell V, unjudged
     judged = ca.judged_articles(truths, articles)
-    report = ca.report_rule(judged, articles, Rule(0.55, 0.00))
+    report = ca.report_rule(judged, articles, Rule(0.55, 0.00), reps=300)
     assert report is not None
     assert report.verdict == "not covered"
     assert report.n == 0
@@ -157,3 +159,11 @@ def test_separation_finds_a_feature_that_orders_the_truths() -> None:
         or True
     )
     assert by_feature["max_score"].n == 400
+
+
+def test_the_default_bootstrap_resolves_the_stop_tail() -> None:
+    """The stop bound sits (1 - STOP_LEVEL) / 2 from the end: it must not be one of the last few
+    draws (1,000 repetitions put it on the 8th)."""
+    tail = (1 - ca.STOP_LEVEL) / 2
+    assert ca.BOOTSTRAP_REPS * tail >= 40
+    assert pytest.approx(1 - 0.05 / 3) == ca.STOP_LEVEL  # three rules, two looks: 6 looks
