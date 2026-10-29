@@ -1001,7 +1001,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       script were removed in the same PR, the sample run was not made. → P1.
 - [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap)* Labelling spec v2 (scope, companies,
       sector, D15 labels); revised LLM labelling prompt re-checked on the 720 gold articles until
-      its scope agrees with the owner's on >= 90%; then silver bodies (about 5,000, oversampling
+      its scope agrees with the owner's on >= 90% (gate cost and the label-ceiling re-tag of ~50 bodies: PLAN WI18 proposals Q1, Q4, pending the owner); then silver bodies (about 5,000, oversampling
       the rules' candidates for the rare scopes: sector, market / economy, unrelated); export of
       about 300 representative bodies for the owner's held-out gold, drawn to include the rare
       scopes. → P2.
