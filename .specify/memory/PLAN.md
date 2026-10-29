@@ -2224,33 +2224,30 @@ Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
 
-**Proposals for P2/P3, pending the owner's confirmation (review 3-4, 2026-10-29).** These are the
-developer's proposals, not decisions: D18 and D20 stand exactly as recorded above until the owner
-confirms or changes each one (nothing is spent before then). Open owner questions:
-- *Q1 Gate cost.* As recorded (D18), every re-check of the 720 costs 720 calls (a new prompt hash
-  defeats the reuse key), so the 1,000 calls left after 5,000 silver allow one re-check. Proposal:
-  iterate on a fixed stratified 240 of the 720 (about 240 calls per iteration, at most 5 = 1,200);
-  the other 480 stay unseen until the final prompt is judged on the full 720 (480 new calls, 240
-  reused). Silver (about 5,000 in D18) is bought only after that full pass is >= 90%, and is then
-  at most 6,000 - 1,200 - 480 = 4,320 bodies. A 6th iteration is not spent: the run stops and the
-  owner is asked.
-- *Q2 Per-scope bar (D20).* D20 says recall >= 80% per scope. With n = 40 gold bodies in a rare
-  scope, a Wilson 95% lower bound >= 80% needs about 37 of 40 right (92.5% observed), so in practice
-  a 92% bar. Options: (a) keep D20 on the point estimate with the interval reported, as for the
-  overall 90%; (b) lower bound >= 80% and gold sized to it (about 100 per rare scope); (c) accept
-  the 92% bar for n = 40. Recommendation: (a), with at least 40 gold bodies per scope (six scopes:
-  about 240 of the ~300, the rest corpus-weighted; the overall 90% is then reported with its
-  weighted interval, which is wide, and the weights are the inverse sampling fractions).
-- *Q3 Held-out gold.* Drawn once, before any training, and excluded from every active-learning round
-  (D21 tags are training data only). The 720 are a development set (drawn by slug x score band, not
-  corpus-weighted): the D18 gate on them is an unweighted figure, reported as such.
-- *Q4 Label ceiling.* The owner double-tags about 50 bodies (two passes, a week apart) to measure
-  how consistent the labels are. It is a task of T-146 (the owner's time: one extra tagging pass of
-  50 bodies) and runs on bodies from the 720 (already tagged once), not on the held-out gold, so the
-  held-out items are tagged once. If the ceiling is below 90%, the D20 target is not binding as
-  written: the owner decides the target before P3 starts.
-- *Q5 Plateau.* If the classifier stalls below its target, the work stops and the owner decides
-  (more gold, a looser target, a narrower scope list); no LLM is added to the pipeline (D12).
+**Owner answers for P2/P3 (2026-10-29; each a question put to the owner, Q1-Q5).**
+- *Q1 Gate on the labelling prompt: fixed subsample or full 720 each time?* **Fixed 240.** Iterate
+  on a fixed stratified 240 of the 720 (about 240 calls per iteration, at most 5 = 1,200); the other
+  480 stay unseen until the final prompt is judged on the full 720 (480 new calls, 240 reused).
+  Silver (about 5,000 in D18) is bought only after that full pass is >= 90%, and is then at most
+  6,000 - 1,200 - 480 = 4,320 bodies. A 6th iteration is never spent without asking the owner.
+- *Q2 How is "recall >= 80% per scope" judged on the held-out gold?* **Point estimate, with the 95%
+  Wilson interval reported** (like the overall 90%); at least 40 gold bodies per scope (about 240 of
+  the ~300, the rest corpus-weighted, weights = inverse sampling fractions; the overall figure is
+  reported with its weighted interval). At 40 bodies the interval is about +/-13 points. This
+  replaces "with its interval reported" being left open in D20: D20 is read as the point estimate.
+- *Q3 Is the held-out gold strictly held out?* **Yes.** Drawn once, before any training, excluded
+  from every active-learning round (their tags are training data only). The 720 are a development
+  set (drawn by slug x score band, not corpus-weighted): the D18 gate on them is an unweighted
+  figure, reported as such.
+- *Q4 Label-ceiling re-tag.* **Changed by the owner: all 720 are re-tagged under the new taxonomy**
+  (the six scopes and the D15 labels), the first tagging being shown as guidance. So the re-tag is
+  not an independent consistency measure (the old tags are visible, the taxonomy changed): the 720
+  become gold v2, and the label ceiling is measured from the held-out gold instead (T-146: about 50
+  of the ~300 held-out bodies tagged twice, a week apart, if the owner agrees when they are
+  drawn). Order: labelling spec v2 first, then the re-tag file (review + old tags + guide), then
+  the Q1 gate runs on gold v2, not on the first tagging.
+- *Q5 If the classifier stalls below the target?* **Stop and ask the owner** (more gold, a looser
+  target, or fewer scopes); no LLM is added to the pipeline (D12).
 
 **Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
 
