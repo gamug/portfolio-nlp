@@ -1016,13 +1016,14 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         scope; with a few items per rare scope it gates the overall figure only (per-scope recall is
         judged on the held-out gold). Silver D15 labels and sub-industries are bought in P2 only if
         a second gate on the 240 (per-company category and sub-industry agreement with gold v2,
-        threshold set by the owner, open Q8) passes; otherwise silver is scope-only and P4/P5 labels
+        threshold >= 80%, owner answer Q8) passes; otherwise silver is scope-only and P4/P5 labels
         come from the owner's gold in later rounds. Budget: silver <= 6,000 - 240k - 480 for k
         iterations (k = 5 gives 4,320); judge repair re-calls count against the 6,000.
       - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
         the candidates for the rare scopes.
       - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
-        any training from the sampling frame the owner picks (Q6); about 50 tagged twice (Q4).
+        any training from candidates prefiltered by custom rules, 50 of them checked by the owner
+        first (Q6); about 50 tagged twice (Q4).
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
       scope from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated

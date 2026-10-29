@@ -2237,18 +2237,16 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
   apart (the owner agrees when they are drawn); order: labelling spec v2, re-tag file, then the
   gate on gold v2; the rules' 0.70 is re-measured on gold v2; *Q5* if the classifier stalls below
   its target the work stops and the owner decides; no LLM is added to the pipeline (D12).
-- **Open, for the owner (not decided):** *Q6 sampling frame.* The rules found none of the owner's 18
-  sector / market / economy bodies, so they cannot supply 40 gold bodies per rare scope. Candidate
-  frames: the LLM scope labels of the silver pass, a GICS-name / title-keyword filter, or a plain
-  random draw large enough to contain them (market/economy is 1.1% of bodies by the rules, a lower bound
-  from a detector with no measured recall, so ~40 need at least ~3,600 random bodies read). Weights are inverse sampling fractions only if strata are
-  defined before the draw and cover the corpus; a detector-defined stratum needs its own recall
-  check. *Q8 silver beyond scope.* What agreement with gold v2 must the per-company category and
-  sub-industry silver labels reach on the 240 before they are bought (the scope gate is 90%)? *Q7
-  owner effort and rounds.* Tagging scope + companies + D15 label per company + sub-industry is
-  more work per body than scope only. Re-tag 720 + ~300 held-out + ~50 twice + ~300 per
-  active-learning round: about 1,070 bodies before round 1, then 300 per round. Cap on rounds
-  before the owner is asked again?
+- **Answered 2026-10-29.** *Q6 sampling frame:* custom rules prefilter the candidates for each rare
+  scope (sector, market / economy, unrelated, `investing_general`), and the owner verifies a sample of
+  **50 prefiltered articles** by hand before the held-out gold is drawn from them. Caveat recorded:
+  the 50 check the filter's precision; its recall (rare-scope bodies the filter misses) stays
+  unmeasured unless a random check sample is also read, and the inverse-sampling-fraction weights are
+  valid only for strata defined before the draw, so rare-scope recall figures from this gold are
+  conditional on the filter. *Q7 rounds:* **2 active-learning rounds** (about 300 bodies each) before
+  the owner is asked again; owner effort about 1,070 bodies before round 1 plus about 600. *Q8 silver
+  beyond scope:* per-company category and sub-industry silver labels are bought only at **>= 80%
+  agreement with gold v2 on the 240** (the D24 bar); below it silver stays scope-only.
 
 **Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
 
