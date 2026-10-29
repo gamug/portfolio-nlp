@@ -65,10 +65,11 @@ article away from `single` unless the market or the industry is the point (see s
    Cramer on how Salesforce can rival Amazon, is `single` with `competitive_actions`; 88609, a
    spinoff raising money, is `single`), so re-scope every one on its content.
 5. **`multi`**: two or more companies are each discussed with their own events or opinions
-   (**[owner call, 2026-10-29]** also when they all belong to one industry: "three chip stocks to
-   watch" is `multi`; it is `sector` only when the industry itself is the point and the
-   companies are examples): round-ups ("Midday Movers: GILD, BSX, AES & More", 2214), comparisons ("LH or ALGN: which is
-   the better value stock", 303163), stories about several firms. Every analysed company gets a
+   (**[owner call 5, 2026-10-29]** also when they all belong to one industry: "three chip stocks
+   to watch" is `multi`; it is `sector` only when the industry itself is the point and the
+   companies are examples): round-ups ("Midday Movers: GILD, BSX, AES & More", 2214),
+   comparisons ("LH or ALGN: which is the better value stock", 303163), stories about several
+   firms. Every analysed company gets a
    label.
 6. **`single`**: one company is the subject. If other companies are named for context only they go
    in `mentions`. (The automatic rules approximate this with D23's "more than half of the subject
@@ -98,8 +99,8 @@ Four new labels, from the owner's v1 notes:
   (JPMorgan's pledge to anti-hate groups). *Not:* a lawsuit or fine (`legal_regulatory`), layoffs
   (`labor_human_capital`).
 - **`competitive_actions`**: a company's own move or statement against or about a competitor,
-  market-share fights, rival facilities, pricing pressure. *Examples:* 117163 (Apple rejects an app that
-  criticises its 30% cut), 411216 (a CEO says his company is "crushing" a rival), 319695 (a new
+  market-share fights, rival facilities, pricing pressure. *Examples:* 117163 (Apple rejects an
+  app that criticises its 30% cut), 411216 (a CEO says his company is "crushing" a rival), 319695 (a new
   facility in a rival's backyard). *Not:* a joint effort (`partnerships_business_dev`), a rating
   (`market_analyst_sentiment`).
 - **`investor_activity`**: what investors do with the company's stock: a fund or famous investor
@@ -111,10 +112,11 @@ Four new labels, from the owner's v1 notes:
 - **`peer_comparison`**: the article's point is a comparison between companies (which is the
   better stock, who is ahead). In a `multi` comparison, every compared company is labelled
   `peer_comparison`, not `market_analyst_sentiment` (v1 used the latter for comparisons; a
-  rating or price target on one company stays `market_analyst_sentiment`). **[owner call,
-  2026-10-29]** A single-company body whose point is a comparison with its sector or an unnamed
-  peer group ("is Nvidia cheap against chips?") is `single` with `peer_comparison`; the peers go
-  in `mentions`. Versus `competitive_actions`: `peer_comparison` is a writer or analyst weighing
+  rating or price target on one company stays `market_analyst_sentiment`). **[owner call 6,
+  2026-10-29]** A single-company body whose point is a comparison with its sector or a peer group
+  (illustrative: "is Nvidia cheap against chips?") is `single` with `peer_comparison`; the peers go
+  in `mentions`. A peer that is named and has a sentence of its own is analysed (content rule), so
+  the body is then `multi` and every such company is labelled `peer_comparison`. Versus `competitive_actions`: `peer_comparison` is a writer or analyst weighing
   companies against each other; `competitive_actions` is something a company does or says
   (411216, a CEO saying his firm is "crushing" a rival). *Examples:* 96481
   (Google vs Amazon), 303163 (LH or ALGN).
@@ -145,17 +147,17 @@ tests sub-industry, D24); there is no sector-level value.
 
 ## Owner calls (answered 2026-10-29)
 
-0. Earlier calls: a company-framed-by-industry story is `single` unless the industry is the
-   point; a company event that moves the market takes the scope of its headline event; the
-   content rule decides analysed vs mention in the gold (D23's count rule is the rules' feature
-   only).
-
-Calls 1–4, plus two added in this PR's review (a one-industry round-up is `multi`; a one-company
-comparison is `peer_comparison`):
-
 1. Human-interest stories that only use a company as setting: `unrelated`.
 2. Round-ups: only companies with a sentence of their own are analysed; the rest are mentions.
 3. `investor_activity` only when a stake moves; an investor's view alone is `market_analyst_sentiment`.
 4. Broad sector stories: the most central sub-industry.
+5. A round-up of firms from one industry is `multi`; `sector` only when the industry is the point.
+6. A one-company comparison against its sector or peers is `single` with `peer_comparison`; a named
+   peer with a sentence of its own makes the body `multi`.
+
+Settled in the same answers and stated in the rules above: a company framed by its industry is
+`single` unless the industry is the point; a company event that moves the market takes the scope of
+its headline event; the content rule decides analysed vs mention in the gold (D23's count is the
+automatic rules' feature only).
 
 The checker (`news_nlp/retag.py`, PR #117) enforces the shape above.
