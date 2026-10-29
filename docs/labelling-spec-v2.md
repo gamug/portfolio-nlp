@@ -19,7 +19,7 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | `scope` | one of the six scopes below (always filled) |
 | `companies` | the **analysed** companies, tickers separated by `;` (single: exactly one; multi: two or more; the other scopes: none) |
 | `company_labels` | one label per analysed company, `TICKER:label; TICKER:label` |
-| `mentions` | companies named but not analysed (D23), tickers separated by `;` |
+| `mentions` | companies named but not analysed (D23), tickers separated by `;`; in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
 | `sub_industry` | a GICS sub-industry of the source (sector bodies only; spelling as in the source) |
 | `notes` | anything that helps (never required) |
 
@@ -122,7 +122,8 @@ Three more:
   them, or the event is not stated in the first 6,000 characters (category-level only; the scope
   is never uncertain, D20). Example: a profile of a company that mixes strategy, products and
   results with no lead event. Contrast `other`: the event is clear but belongs to none of the 13
-  labels (e.g. a CEO's opinion piece on the economy).
+  labels (e.g. a company's anniversary celebration or an office relocation). A CEO's opinion
+  on the economy is not `other`: it is `market_economy`, with no company label.
 - (`unrelated` is a scope, not a company label.)
 
 **Which label when two apply?** Take the dimension the headline event belongs to; an analyst's
@@ -142,9 +143,9 @@ Pick the GICS **sub-industry** the article is about, as spelled in the source `a
 (`gics_sub_industry`). The check rejects names the source does not have; the list of valid names,
 with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
 export` (PR #117) together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
-of this document. **[owner call 4]** For a
-broad sector story that spans several sub-industries, enter the most central sub-industry (the plan
-tests sub-industry, D24); there is no sector-level value.
+of this document. **[owner call 4]** For a broad sector story that spans several sub-industries,
+enter the most central sub-industry (the plan tests sub-industry, D24); there is no sector-level
+value. The companies a sector body names go in `mentions`, not in `companies` (**[owner call 7]**).
 
 ## Owner calls (answered 2026-10-29)
 
@@ -154,6 +155,8 @@ tests sub-industry, D24); there is no sector-level value.
 4. Broad sector stories: the most central sub-industry.
 5. A round-up of firms from one industry is `multi`; `sector` only when the industry is the point.
 6. A one-company comparison against its sector or peers is `single` with `peer_comparison`.
+7. Companies named in `sector`, `market_economy` and `investing_general` bodies are listed in
+   `mentions`; `companies` stays empty there.
 
 Also settled by the owner and stated above: the headline event decides the scope (a company framed
 by its industry or moving the market stays `single` unless the industry or the market is the
