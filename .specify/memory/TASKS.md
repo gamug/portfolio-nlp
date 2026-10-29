@@ -1003,13 +1003,22 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       script were removed in the same PR, the sample run was not made. → P1.
 - [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; open Q6, Q7)* Split:
       - [ ] **T-146a** Labelling spec v2: scope (six), companies, sector, D15 labels, with examples
-        for the owner (a guide like `category_labels_guide.csv`).
+        for the owner (a guide like `category_labels_guide.csv`). Gold v2 and the held-out gold
+        carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
+        sub-industry for sector bodies (D24 tests the last two). Tagging effort per body is
+        therefore larger than scope only (PLAN WI18 Q7).
       - [ ] **T-146b** Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
         for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
         file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
         columns).
       - [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of
-        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90%.
+        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. The 240 is stratified on gold v2
+        scope; with a few items per rare scope it gates the overall figure only (per-scope recall is
+        judged on the held-out gold). Silver D15 labels and sub-industries are bought in P2 only if
+        a second gate on the 240 (per-company category and sub-industry agreement with gold v2,
+        threshold set by the owner, open Q8) passes; otherwise silver is scope-only and P4/P5 labels
+        come from the owner's gold in later rounds. Budget: silver <= 6,000 - 240k - 480 for k
+        iterations (k = 5 gives 4,320); judge repair re-calls count against the 6,000.
       - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
         the candidates for the rare scopes.
       - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before

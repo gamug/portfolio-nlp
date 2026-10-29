@@ -2205,7 +2205,7 @@ labels; settled 2026-10-29: the investing news about no company that D15 first n
 category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
 flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
 company; D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
-task, the run stops at it), the owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is "tags v1", a development
+task, the run stops at it), the owner re-tags the 720 under the new taxonomy (v1 was tagged blind to the LLM label: the review file had no LLM column; the v2 file keeps it hidden and shows only the owner's v1 tag) (gold v2; the first tagging is "tags v1", a development
 set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
 with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
 1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
@@ -2240,10 +2240,13 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
 - **Open, for the owner (not decided):** *Q6 sampling frame.* The rules found none of the owner's 18
   sector / market / economy bodies, so they cannot supply 40 gold bodies per rare scope. Candidate
   frames: the LLM scope labels of the silver pass, a GICS-name / title-keyword filter, or a plain
-  random draw large enough to contain them (about 0.5-1% of bodies are market/economy, so ~40
-  would need ~5,000 random bodies read). Weights are inverse sampling fractions only if strata are
+  random draw large enough to contain them (market/economy is 1.1% of bodies by the rules, a lower bound
+  from a detector with no measured recall, so ~40 need at least ~3,600 random bodies read). Weights are inverse sampling fractions only if strata are
   defined before the draw and cover the corpus; a detector-defined stratum needs its own recall
-  check. *Q7 owner effort and rounds.* Re-tag 720 + ~300 held-out + ~50 twice + ~300 per
+  check. *Q8 silver beyond scope.* What agreement with gold v2 must the per-company category and
+  sub-industry silver labels reach on the 240 before they are bought (the scope gate is 90%)? *Q7
+  owner effort and rounds.* Tagging scope + companies + D15 label per company + sub-industry is
+  more work per body than scope only. Re-tag 720 + ~300 held-out + ~50 twice + ~300 per
   active-learning round: about 1,070 bodies before round 1, then 300 per round. Cap on rounds
   before the owner is asked again?
 
