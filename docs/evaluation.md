@@ -2535,10 +2535,12 @@ mentions*, D23). Each step, cumulative, against the six scopes:
 
 | step | agreement with the owner's scope | 95% | multi recall | multi precision |
 |---|---|---|---|---|
-| every named company | 0.690 | 0.656-0.723 | 108/135 | 108/203 |
-| + subjects (named twice or in the title) | 0.697 | 0.663-0.730 | 94/135 | 94/143 |
-| + boilerplate removed, analysts' banks not counted | 0.696 | 0.661-0.728 | 94/135 | 94/143 |
-| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.699 | 0.664-0.731 | 101/135 | 101/158 |
+| every named company | 0.689 | 0.654-0.722 | 109/135 | 109/206 |
+| + subjects (named twice or in the title) | 0.696 | 0.661-0.728 | 95/135 | 95/147 |
+| + boilerplate removed, analysts' banks not counted | 0.694 | 0.660-0.727 | 95/135 | 95/147 |
+| + round-up structure (headline / URL slug, 3+ companies in the title, 5+ ticker forms) | 0.697 | 0.663-0.730 | 102/135 | 102/162 |
+
+**The figures read the title and the first 6,000 characters of each body, what the owner read (review 7 of #115; before, the whole body: 0.699, 101/135, 101/158); the dominance sweep below was run on the whole body and is not repeated, the 0.5 cut gives 0.697.**
 
 **Two corrections to the first version of this table.** (1) It reported 0.79: that scored the
 owner's `other` tag as "single" (five scopes); with `investing_general` as a scope (D22) the rules

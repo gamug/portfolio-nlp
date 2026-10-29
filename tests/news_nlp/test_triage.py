@@ -189,3 +189,8 @@ def test_subjects_drop_passing_mentions_unless_in_the_title() -> None:
     named = Counter({"AAPL": 5, "MSFT": 1, "ORCL": 1})
     assert triage.subjects(named) == Counter({"AAPL": 5})
     assert triage.subjects(named, ["ORCL"]) == Counter({"AAPL": 5, "ORCL": 1})
+
+
+def test_empty_universe_names_nothing() -> None:
+    resolver = CompanyResolver([])
+    assert not resolver.resolve("Apple and Microsoft rose, $AAPL (NYSE: MSFT)")

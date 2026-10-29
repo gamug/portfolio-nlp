@@ -3,7 +3,8 @@
     uv run scripts/size_triage_2026_10_28.py [size] [--sample 1000] [--out data]
     uv run scripts/size_triage_2026_10_28.py gold     # the rules against the owner's 720 tags
 
-Read-only and free (no model, no LLM). The full run takes about 50 minutes (``size``) or a few
+Read-only and free (no model, no LLM); it reads SOURCE and RESULTS without a snapshot, so run it
+while the crawler and the NER stage are idle. SOURCE must carry the ``gics_*`` columns. The full run takes about 50 minutes (``size``) or a few
 minutes (``gold``); ``--limit N`` sizes only the first N pairs, for a smoke run. Over the SOURCE articles with ``fetch_status = 'ok'`` it
 
 * groups the (URL, ticker) pairs into unique bodies (``news_nlp.triage.body_hash``, D11);
@@ -133,6 +134,12 @@ def classify(
     return triage.scope_candidate(mentions, text, terms, roundup=is_roundup), mentions
 
 
+def roundup_headline(candidates: list[tuple[str, str]]) -> tuple[str, str] | None:
+    """The same body can sit under several headlines: the first (title, slug) that reads as a
+    round-up headline, if any."""
+    return next((c for c in candidates if triage.is_roundup(c[0], c[1], 0, 0)), None)
+
+
 def bucket(n: int) -> str:
     for upper, name in ((0, "0"), (1, "1"), (2, "2"), (5, "3-5"), (10, "6-10")):
         if n <= upper:
@@ -161,7 +168,8 @@ def cmd_gold(args: argparse.Namespace) -> None:
             "LEFT JOIN source.discovered_urls d ON d.id = a.id WHERE a.id = ?",
             (i,),
         ).fetchone()
-        full[i] = (row[0] or "", row[1] or "", slug_of(row[2]))
+        # the rules read what the owner read: the title and the first TEXT_CAP characters
+        full[i] = (row[0] or "", (row[1] or "")[:TEXT_CAP], slug_of(row[2]))
         for (text,) in conn.execute(
             "SELECT text FROM article_entities WHERE entity_type = 'ORG' AND article_id = ?", (i,)
         ):
@@ -177,7 +185,9 @@ def cmd_gold(args: argparse.Namespace) -> None:
             TO_GOLD[classify(resolver, *full[i], spans[i], terms, **switches)[0].scope] for i in ids
         ]
         hits = sum(p == g for p, g in zip(pred, gold, strict=True))
-        low, high = triage.wilson(hits, len(gold))
+        low, high = triage.wilson(
+            hits, len(gold)
+        )  # sampling error on these 720 only, not on the corpus
         multi_tp = sum(p == g == "multi" for p, g in zip(pred, gold, strict=True))
         print(
             f"\n{name:<38} agreement {hits / len(gold):.3f} ({low:.3f}-{high:.3f}); multi recall "
@@ -199,6 +209,7 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
 
     members: dict[str, list[tuple[int, str]]] = defaultdict(list)
     first: dict[str, tuple[str, str, str]] = {}
+    headlines: dict[str, list[tuple[str, str]]] = defaultdict(list)  # every (title, slug) of a body
     pairs_sql = (
         "SELECT a.id, a.ticker, a.title, a.body_text, d.url FROM source.articles a "
         "LEFT JOIN source.discovered_urls d ON d.id = a.id "
@@ -206,9 +217,12 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
         "ORDER BY a.id LIMIT ?"
     )
     for article_id, ticker, title, body, url in conn.execute(pairs_sql, (args.limit or -1,)):
+        if not body.strip():  # whitespace only: no text to triage
+            continue
         key = triage.body_hash(body)
         members[key].append((int(article_id), ticker))
         first.setdefault(key, (title or "", body, slug_of(url)))
+        headlines[key].append((title or "", slug_of(url)))
     pairs = sum(len(m) for m in members.values())
     print(f"ok pairs with text: {pairs:,}; unique bodies: {len(members):,}", flush=True)
 
@@ -225,6 +239,7 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
     rows: list[dict[str, object]] = []
     for key, pair_list in members.items():
         title, body, slug = first[key]
+        title, slug = roundup_headline(headlines[key]) or (title, slug)
         # the NER spans of ONE pair of the body: its pairs share the text, so each carries the same
         # spans, and merging them would count every mention once per pair
         spans = next((org[a] for a, _ in pair_list if a in org), [])
@@ -234,7 +249,10 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
         companies_hist[bucket(scope.companies)] += 1
         pairs_per_body[bucket(len(pair_list))] += 1
         canonical = {resolver.by_ticker.get(t.upper(), t) for _, t in pair_list}
-        twins += len(pair_list) - len(canonical)
+        distinct = {
+            t.upper() for _, t in pair_list
+        }  # a pair row repeated for one ticker is no twin
+        twins += len(distinct) - len(canonical)
         for _, ticker in pair_list:
             tagged_total[scope.scope] += 1
             tagged_found[scope.scope] += resolver.by_ticker.get(ticker.upper(), ticker) in mentions

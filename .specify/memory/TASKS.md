@@ -989,7 +989,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
       held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
       a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
-- [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720 (0.664-0.731), 0.78 outside `investing_general`: a development figure; mentions counted once)* Read-only sizing script
+- [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's six-scope labels on 0.70 of the 720 (0.663-0.730), 0.78 outside `investing_general`: a development figure; mentions counted once)* Read-only sizing script
       `scripts/size_triage_2026_10_28.py`: unique bodies vs stored pairs, companies per body
       (name and explicit ticker forms, NER `ORG` spans matched to universe names), rule-based
       scope candidates (single, multi, no company: sector / market / economy / unknown) and a

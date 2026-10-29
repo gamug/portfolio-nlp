@@ -210,6 +210,10 @@ class Company(NamedTuple):
 
 def _words_pattern(phrases: Iterable[str]) -> re.Pattern[str]:
     alternatives = sorted({re.escape(p) for p in phrases if p}, key=len, reverse=True)
+    if (
+        not alternatives
+    ):  # an empty universe matches nothing (an empty alternation matches everywhere)
+        return re.compile(r"(?!)")
     return re.compile(r"(?<![\w&])(?:" + "|".join(alternatives) + r")(?![\w&])", re.IGNORECASE)
 
 
@@ -301,8 +305,11 @@ class CompanyResolver:
             + r")(?![\w&])"
         )
         tickers = sorted(self._by_ticker, key=len, reverse=True)
-        explicit = "|".join(re.escape(t) for t in tickers)
-        bare = "|".join(re.escape(t) for t in tickers if len(t) >= 3 and t not in _WORD_TICKERS)  # noqa: PLR2004
+        explicit = "|".join(re.escape(t) for t in tickers) or "(?!)"  # none: match nothing
+        bare = (
+            "|".join(re.escape(t) for t in tickers if len(t) >= 3 and t not in _WORD_TICKERS)  # noqa: PLR2004
+            or "(?!)"
+        )
         self._tickers = re.compile(
             rf"\$({explicit})\b|\(\s*{_EXCHANGES}\s*:\s*({explicit})\s*\)|(?<![\w$])({bare})(?![\w])"
         )
