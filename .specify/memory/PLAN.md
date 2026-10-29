@@ -2205,6 +2205,10 @@ skipped by every later stage; D17 a multi-company body gets sentiment + category
 about 3,000 LLM labelling calls (a revised prompt must reach >= 80% agreement with the 720 gold
 articles before about 2,000 silver bodies are bought; the owner tags about 300 gold bodies drawn
 across the corpus); D19 full backfill, the old tables kept as v1 until the new ones are validated.
+**Amended 2026-10-29** (the rules' 79% is not enough): D18 rises to about 6,000 labelling calls with a
+>= 90% scope-agreement gate on the 720; D20 the triage is accepted only at >= 90% agreement with the
+owner's held-out gold on all bodies (no abstention); D21 each training round sends a stratified
+sample of about 300 low-confidence bodies to the owner for tagging (active learning).
 Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 79% for the rules; T-145).
@@ -2219,8 +2223,10 @@ everything (5.4% scope agreement with the owner, against 79% for the rules; T-14
 2. **P2 — labels (T-146).** Labelling spec v2, the revised prompt, the D18 silver labels and the
    owner's ~300 gold bodies.
 3. **P3 — triage stage (T-147).** On unique bodies: NER first, then the scope (single company,
-   several companies, sector, market, economy, `unrelated`) from rules and a local model checked on
-   the gold set. Sketch of the tables: a body table keyed by body hash with its member pairs, and a
+   several companies, sector, market, economy, `unrelated`) from a local classifier (a fine-tuned
+   small encoder over the text, the P1 rule features as inputs) trained on silver and gold, with
+   active-learning rounds on its low-confidence bodies (D21) until it reaches >= 90% on the
+   held-out gold (D20). Sketch of the tables: a body table keyed by body hash with its member pairs, and a
    per-body triage row (scope, companies, confidence).
 4. **P4 — per-company analysis (T-148).** Sentence attribution per company (Work item 17's design),
    then sentiment and the D15 category per (body, company).
@@ -2229,8 +2235,8 @@ everything (5.4% scope agreement with the owner, against 79% for the rules; T-14
 6. **P6 — backfill and close-out (T-150).** Re-process the stored corpus, update the
    knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
 
-**Acceptance.** Every body has a scope, and the scope is measured against the gold set with the
-complete metric set (AI #12); no multi-company, sector, market or economy body is labelled `other`;
+**Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
+bodies (D20), measured with the complete metric set (AI #12); no multi-company, sector, market or economy body is labelled `other`;
 per-company sentiment and category exist for every company a body is about; `sector_summary`
 carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
 documented; SPEC gains one FR per behaviour shipped.

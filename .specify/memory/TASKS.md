@@ -964,7 +964,14 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       articles before about 2,000 silver bodies are bought; the owner tags about 300
       representative gold bodies); D19 full backfill, old tables kept as v1 until the new ones
       are validated. Laya (`convaiinnovations/laya`) was to join the main dependencies as a local
-      yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
+      yes/no checker; tried and dropped on 2026-10-29 (T-145).
+      **Amended 2026-10-29 by the owner** (79% from the rules is not enough): **D18** the labelling
+      budget rises to about **6,000** calls and the revised prompt must agree with the owner's
+      scope on **>= 90%** of the 720 before silver is bought; **D20** the scope triage is accepted
+      only at **>= 90% agreement with the owner's held-out gold on all bodies** (every body gets a
+      scope, no abstention); **D21** the low-confidence bodies of the model are sampled
+      (stratified, about 300) for the owner to tag, and those tags feed the next training round
+      (active learning). → PLAN WI18 "Decisions".
 - [x] **T-144** *(P1, this re-scope's PR; **done 2026-10-29**, `docs/evaluation.md` 2026-10-29 follow-up: 81,961 unique bodies; rules agree with the owner's scope on 0.79 of the 720, a development figure)* Read-only sizing script
       `scripts/size_triage_2026_10_28.py`: unique bodies vs stored pairs, companies per body
       (name and explicit ticker forms, NER `ORG` spans matched to universe names), rule-based
@@ -977,13 +984,20 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       ranking it carried some signal for "several companies" / "one company" (AUC 0.82) and none
       for "unrelated" (0.24). The owner aborted the approach; the dependency and the check
       script were removed in the same PR, the sample run was not made. → P1.
-- [ ] **T-146** *(P2; spend D18)* Labelling spec v2 (scope, companies, sector, D15 labels),
-      revised LLM labelling prompt re-checked on the 720 gold articles until >= 80% agreement,
-      then about 2,000 silver bodies; export of about 300 representative bodies for the owner's
-      gold tagging. → P2.
+- [ ] **T-146** *(P2; spend D18, about 6,000 calls)* Labelling spec v2 (scope, companies,
+      sector, D15 labels); revised LLM labelling prompt re-checked on the 720 gold articles until
+      its scope agrees with the owner's on >= 90%; then silver bodies (about 5,000, oversampling
+      the rules' candidates for the rare scopes: sector, market / economy, unrelated); export of
+      about 300 representative bodies for the owner's held-out gold, drawn to include the rare
+      scopes. → P2.
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
-      scope from rules + a local model checked on the gold set (complete metric set, AI #12),
-      `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own FR. → P3.
+      scope from a local classifier (a fine-tuned small encoder reading the text, with the
+      `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
+      confidence; **accepted at >= 90% agreement with the held-out gold on all bodies (D20)**, the
+      complete metric set per scope (AI #12). Each round exports a stratified sample of about 300
+      low-confidence bodies for the owner's tagging, fed back into training (D21), until the
+      target holds; `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own
+      FR. → P3.
 - [ ] **T-148** *(P4)* Per-(body, company) analysis: sentence attribution (T-138's design),
       sentiment (T-127) and D15 category per company; single-company bodies use the whole text;
       its own FR. → P4.
