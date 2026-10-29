@@ -4,8 +4,8 @@
 SOURCE store (each checked to exist there on 2026-10-29).
 
 It is the guide for the re-tag of the 720 articles (gold v2, T-146b), for the revised LLM
-labelling prompt (T-146c) and for the held-out gold (T-146e). Rules marked **[owner call]** were
-decided by the owner. It builds on D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
+labelling prompt (T-146c) and for the held-out gold (T-146e). Rules marked **[owner call N]** were
+decided by the owner (the numbered list at the end). It builds on D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
 their close calls are in `docs/category-taxonomy.md`.
 
 ## What is tagged
@@ -59,7 +59,7 @@ article away from `single` unless the market or the industry is the point (see s
    263795 (a bank's call for a new investing approach). No per-company analysis; summarised in
    the `MARKET` row (D22).
 5. **`multi`**: two or more companies are each discussed with their own events or opinions
-   (**[owner call 5, 2026-10-29]** also when they all belong to one industry: "three chip stocks
+   (**[owner call 5]** also when they all belong to one industry: "three chip stocks
    to watch" is `multi`; it is `sector` only when the industry itself is the point and the
    companies are examples): round-ups ("Midday Movers: GILD, BSX, AES & More", 2214),
    comparisons ("LH or ALGN: which is the better value stock", 303163), stories about several
@@ -68,11 +68,11 @@ article away from `single` unless the market or the industry is the point (see s
    in `mentions`. (The automatic rules approximate this with D23's "more than half of the subject
    mentions"; that count is not the gold definition, see below.)
 
-**Analysed or mention?** (The content rule governs the gold, **[owner call, 2026-10-29]**; D23's
+**Analysed or mention?** (The content rule governs the gold, as the owner settled (closing paragraph); D23's
 "more than half of the subject mentions" is only a feature of the automatic rules, not the gold
 definition.) A company is *analysed* when the article reports an event, result or
 opinion about it of at least a sentence; it is a *mention* when it is named as context, a
-competitor, a source ("Goldman analysts say"), or an index member. **[owner call, 2026-10-29]** In a
+competitor, a source ("Goldman analysts say"), or an index member. **[owner call 2]** In a
 round-up of many companies, only a company with a sentence of its own is analysed (and so
 labelled); names in a bare list are mentions. Every analysed company is labelled.
 
@@ -94,8 +94,8 @@ Four new labels, from the owner's v1 notes:
 - **`competitive_actions`**: a company's own move or statement against or about a competitor,
   market-share fights, rival facilities, pricing pressure. *Examples:* 117163 (Apple rejects an
   app that criticises its 30% cut), 411216 (a CEO says his company is "crushing" a rival), 319695
-  (a new facility in a rival's backyard). *Not:* a joint effort (`partnerships_business_dev`), a rating
-  (`market_analyst_sentiment`).
+  (a new facility in a rival's backyard). *Not:* a joint effort (`partnerships_business_dev`), a
+  rating (`market_analyst_sentiment`).
 - **`investor_activity`**: what investors do with the company's stock: a fund or famous investor
   buying or selling a stake, activist campaigns, 13F filings, large block trades. *Not:* the
   company's own buyback or dividend (`capital_shareholder_returns`), an executive's insider trade
@@ -142,7 +142,7 @@ Pick the GICS **sub-industry** the article is about, as spelled in the source `a
 (`gics_sub_industry`). The check rejects names the source does not have; the list of valid names,
 with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
 export` (PR #117) together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
-of this document. **[owner call, 2026-10-29]** For a
+of this document. **[owner call 4]** For a
 broad sector story that spans several sub-industries, enter the most central sub-industry (the plan
 tests sub-industry, D24); there is no sector-level value.
 
