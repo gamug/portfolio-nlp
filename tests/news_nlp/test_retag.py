@@ -9,7 +9,7 @@ import pytest
 
 from news_nlp import retag
 from news_nlp.gold_review import TaggedFileError, write_review_files
-from news_nlp.triage import Company
+from news_nlp.triage import GOLD_SCOPES, Company
 
 V1 = {
     "review_order": "1",
@@ -195,6 +195,20 @@ def test_cli_export_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[str
     spec.loader.exec_module(script)
     write(tmp_path / "category_gold_review.csv", [V1])
     write(tmp_path / "category_gold_review_key.csv", [KEY])
-    script.cmd_export(tmp_path)
+    script.cmd_export(
+        tmp_path,
+        universe_companies=[Company("AAPL", "Apple", "Information Technology", "Hardware")],
+    )
+    assert (tmp_path / "gics_sub_industries.csv").exists()
+    assert (tmp_path / "category_gold_v2_guide.csv").exists()
     script.cmd_check(tmp_path, universe=UNIVERSE)
     assert "untagged 1, expected 1" in capsys.readouterr().out
+
+
+def test_guide_and_sub_industry_rows() -> None:
+    names = {r["name"] for r in retag.guide_rows()}
+    assert set(retag.COMPANY_LABELS) <= names and set(GOLD_SCOPES) <= names
+    rows = retag.sub_industry_rows(
+        [Company("A", "A", "Tech", "Software"), Company("B", "B", "Tech", "Software")]
+    )
+    assert rows == [{"gics_sector": "Tech", "gics_sub_industry": "Software"}]

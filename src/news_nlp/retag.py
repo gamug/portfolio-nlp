@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from news_nlp.taxonomy import CATEGORY_SLUGS
+from news_nlp.taxonomy import CATEGORY_LABELS, CATEGORY_SLUGS
 from news_nlp.triage import GOLD_SCOPES, Company, CompanyResolver, gold_scope
 
 #: D15: the 9 current labels, the 4 new ones, and ``other`` / ``uncertain`` / ``unrelated``.
@@ -236,3 +236,38 @@ def load_gold_v2(
     report.duplicated = sorted(i for i, n in seen.items() if n > 1)
     report.missing = sorted(expected - set(seen))
     return report
+
+
+#: One line per scope for the owner's guide file (`docs/labelling-spec-v2.md` has the rules).
+SCOPE_GUIDE = {
+    "unrelated": "Not about business, finance or the economy; a company only as the setting.",
+    "market_economy": "The market as a whole or the economy; a company event takes the scope of its headline event.",
+    "sector": "One industry; holds with another company of the same industry. Needs sub_industry.",
+    "investing_general": "Investing or market advice about no company and no sector.",
+    "multi": "Two or more companies each with a sentence of their own; label every analysed one.",
+    "single": "One company is the subject; companies named for context go in mentions.",
+}
+NEW_LABEL_GUIDE = {
+    "reputational_harm": "Damages or repairs public standing: apologies, outrages, boycotts, pledges after criticism.",
+    "competitive_actions": "Moves or statements against a competitor: share fights, rival facilities, pricing pressure.",
+    "investor_activity": "A stake moves: fund or famous investor buys or sells, activist position, 13F.",
+    "peer_comparison": "The point is a comparison between companies; every compared company gets it.",
+    "other": "About the company but fits none of the 13 labels.",
+    "uncertain": "Two labels fit equally, or the event is not in the first 6,000 characters.",
+}
+
+
+def guide_rows() -> list[dict[str, str]]:
+    """The scopes and company labels of the spec as rows of a CSV guide."""
+    rows = [{"kind": "scope", "name": k, "meaning": v} for k, v in SCOPE_GUIDE.items()]
+    rows += [
+        {"kind": "label", "name": slug, "meaning": display} for slug, display, _ in CATEGORY_LABELS
+    ]
+    rows += [{"kind": "label", "name": k, "meaning": v} for k, v in NEW_LABEL_GUIDE.items()]
+    return rows
+
+
+def sub_industry_rows(companies: Sequence[Company]) -> list[dict[str, str]]:
+    """The distinct (GICS sector, sub-industry) pairs of the universe, for the owner to copy."""
+    pairs = sorted({(c.gics_sector, c.gics_sub_industry) for c in companies if c.gics_sub_industry})
+    return [{"gics_sector": a, "gics_sub_industry": b} for a, b in pairs]

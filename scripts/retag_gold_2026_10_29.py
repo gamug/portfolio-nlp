@@ -33,7 +33,7 @@ def _read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def cmd_export(out: Path) -> None:
+def cmd_export(out: Path, *, universe_companies: list[Company] | None = None) -> None:
     review, key = retag.retag_rows(
         _read(out / "category_gold_review.csv"), _read(out / "category_gold_review_key.csv")
     )
@@ -48,18 +48,35 @@ def cmd_export(out: Path) -> None:
         )
     except TaggedFileError as exc:
         sys.exit(f"{exc}. Copy it elsewhere or pass another --out directory.")
-    print(f"{len(review)} articles -> {out / retag.REVIEW_NAME}")
+    write_csv(out / "category_gold_v2_guide.csv", retag.guide_rows())
+    write_csv(
+        out / "gics_sub_industries.csv", retag.sub_industry_rows(universe_companies or companies())
+    )
+    print(
+        f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
+    )
 
 
-def load_universe() -> retag.Universe:
-    import news_nlp as db  # noqa: PLC0415 -- only `check` needs the SOURCE store
+def companies() -> list[Company]:
+    import news_nlp as db  # noqa: PLC0415 -- only these commands need the SOURCE store
 
     conn = db.connect_pipeline()
     rows = conn.execute(
         "SELECT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
         "WHERE fetch_status = 'ok' GROUP BY ticker ORDER BY ticker"
     ).fetchall()
-    return retag.Universe.of([Company(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows])
+    return [Company(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows]
+
+
+def load_universe() -> retag.Universe:
+    return retag.Universe.of(companies())
+
+
+def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def cmd_check(out: Path, *, universe: retag.Universe | None = None) -> None:
