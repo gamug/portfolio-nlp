@@ -22,12 +22,12 @@ class TaggedFileError(RuntimeError):
     """The review file already holds human labels: it is not overwritten."""
 
 
-def tagged_rows(path: Path) -> int:
-    """How many rows of the CSV at *path* have a non-empty ``human_label`` (0 if it is absent)."""
+def tagged_rows(path: Path, column: str = "human_label") -> int:
+    """How many rows of the CSV at *path* have a non-empty *column* (0 if it is absent)."""
     if not path.exists():
         return 0
     with path.open(encoding="utf-8-sig", newline="") as fh:
-        return sum(bool((row.get("human_label") or "").strip()) for row in csv.DictReader(fh))
+        return sum(bool((row.get(column) or "").strip()) for row in csv.DictReader(fh))
 
 
 def _write(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
@@ -44,11 +44,12 @@ def write_review_files(
     *,
     review_name: str = "category_gold_review.csv",
     key_name: str = "category_gold_review_key.csv",
+    tag_column: str = "human_label",
 ) -> None:
     """Write *review* and *key* into *out_dir*, both or neither. Raises :class:`TaggedFileError`
-    if the review file exists and has labelled rows (move or copy it first)."""
+    if the review file exists and has rows with a non-empty *tag_column* (move or copy it first)."""
     review_path, key_path = out_dir / review_name, out_dir / key_name
-    done = tagged_rows(review_path)
+    done = tagged_rows(review_path, tag_column)
     if done:
         raise TaggedFileError(
             f"{review_path} already holds {done} human labels; refusing to overwrite it"

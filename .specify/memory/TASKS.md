@@ -1007,7 +1007,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         carry, per body: scope; the companies the body is about; a D15 label per company; the GICS
         sub-industry for sector bodies (D24 tests the last two). Tagging effort per body is
         therefore larger than scope only (PLAN WI18 Q7).
-      - [ ] **T-146b** Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
+      - [~] **T-146b** *(export/import built 2026-10-29: `news_nlp.retag`, `scripts/retag_gold_2026_10_29.py export|check`, file `data/category_gold_v2_review.csv`, 720 rows with v1 label/note/scope hint and empty `scope`/`companies`/`company_labels`/`sub_industry`/`notes`; the LLM label stays in the key. Open: the owner should tag only after T-146a gives the guide; the re-measure of the rules on gold v2 runs once the file is tagged.)* Re-tag export of the 720 with the tags v1 shown as guidance, and the importer
         for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
         file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
         columns).
