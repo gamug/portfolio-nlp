@@ -5,7 +5,8 @@
 
 ``export`` reads ``data/category_gold_review.csv`` and its key (tags v1) and writes
 ``category_gold_v2_review.csv`` (the article, the v1 label and note and the scope they imply as
-guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``sub_industry`` / ``notes``) and
+guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``mentions`` / ``sub_industry`` /
+``notes``) and
 ``category_gold_v2_key.csv`` (the v1 key, where the LLM's label stays: the owner is not shown it).
 It **refuses to overwrite a file that already has scopes filled in**. ``check`` lists the
 untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``).
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from news_nlp import retag
 from news_nlp.gold_review import TaggedFileError, write_review_files
+from news_nlp.triage import Company
 
 
 def _read(path: Path) -> list[dict[str, str]]:
@@ -49,11 +51,33 @@ def cmd_export(out: Path) -> None:
     print(f"{len(review)} articles -> {out / retag.REVIEW_NAME}")
 
 
-def cmd_check(out: Path) -> None:
-    good, bad, untagged = retag.load_gold_v2(out / retag.REVIEW_NAME)
-    print(f"tagged and valid {len(good)}, with errors {len(bad)}, untagged {untagged}")
-    print("scopes:", dict(Counter(g.scope for g in good)))
-    for article_id, errors in sorted(bad.items()):
+def load_universe() -> retag.Universe:
+    import news_nlp as db  # noqa: PLC0415 -- only `check` needs the SOURCE store
+
+    conn = db.connect_pipeline()
+    rows = conn.execute(
+        "SELECT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
+        "WHERE fetch_status = 'ok' GROUP BY ticker ORDER BY ticker"
+    ).fetchall()
+    return retag.Universe.of([Company(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows])
+
+
+def cmd_check(out: Path, *, universe: retag.Universe | None = None) -> None:
+    expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
+    report = retag.load_gold_v2(out / retag.REVIEW_NAME, expected, universe or load_universe())
+    print(
+        f"tagged and valid {len(report.good)}, with errors {len(report.bad)}, "
+        f"untagged {report.untagged}, expected {len(expected)}"
+    )
+    print("scopes:", dict(Counter(g.scope for g in report.good)))
+    for label, ids in (
+        ("missing ids", report.missing),
+        ("duplicated ids", report.duplicated),
+        ("unknown ids", report.unknown),
+    ):
+        if ids:
+            print(f"  {label}: {ids}")
+    for article_id, errors in sorted(report.bad.items()):
         print(f"  article {article_id}: {'; '.join(errors)}")
 
 

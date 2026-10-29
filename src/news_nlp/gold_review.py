@@ -2,7 +2,8 @@
 
 The review file is what a human fills in (``human_label``, ``human_notes``) over days; the key
 file joins it back to the LLM's and the classifier's labels. :func:`write_review_files` refuses to
-overwrite a review file that already holds a label, and replaces the review and key files together
+overwrite a review file that already holds a label (``human_label`` by default; ``tag_column`` for
+another file, e.g. ``scope`` in the gold-v2 re-tag), and replaces the review and key files together
 (both written to temporary names first, renamed only when both are complete), so a failure or a
 second run never leaves files of different runs paired.
 """

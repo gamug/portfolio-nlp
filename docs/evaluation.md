@@ -2590,6 +2590,9 @@ the detector, not the news; P5 must not be sized from them. The figures carry th
 known by another name is missed unless the NER span or a ticker form catches it), which undercounts
 companies and so pushes bodies toward "single" and "names no company".
 
+
+**Gold v2 file (T-146b, PR #117, 2026-10-29).** `scripts/retag_gold_2026_10_29.py export` writes `data/category_gold_v2_review.csv` (git-ignored): the 720 articles with the owner's v1 label and note shown, EMPTY scope / companies / D15 label per company / mentions / sub-industry columns, and the LLM's label only in the key file; `check` validates the returned file against the SOURCE universe. The owner tags it after labelling spec v2 (T-146a); the rules' agreement is re-measured on it then. All the figures above are against tags v1.
+
 ## Sampling: low-confidence + targeted + representative strata
 
 Each run draws `--sample-size` rows per stage as a **disjoint,
