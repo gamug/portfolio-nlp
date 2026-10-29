@@ -1,6 +1,6 @@
 # Labelling specification v2 (Work item 18, T-146a)
 
-**Status: settled with the owner on 2026-10-29** (the four calls below are answered). It is the guide for the re-tag of the 720 articles
+**Status: settled with the owner on 2026-10-29** (the owner calls at the end are answered). Example ids are `articles.id` values of the SOURCE store. It is the guide for the re-tag of the 720 articles
 (gold v2, T-146b), for the revised LLM labelling prompt (T-146c) and for the held-out gold
 (T-146e). Rules marked **[owner call]** were decided by the owner. Decisions it builds on: D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
 their close calls are in `docs/category-taxonomy.md`.
@@ -32,20 +32,31 @@ Decide in this order; the first scope whose test is met wins.
    286933 (House Intel Committee), 91934 (a job-interview question). A company named only as the
    setting does not make an article related. Flagged and skipped by every later stage (D16).
 2. **`market_economy`**: about the market as a whole or the economy: indices, S&P 500, rates,
-   inflation, tariffs, strategist calls on the whole market. No company analysis. *Examples:*
+   inflation, tariffs, strategist calls on the whole market. No company analysis. A company event
+   that also moves the market takes the scope of its **headline event** (**[owner call,
+   2026-10-29]**): 164613, "Caterpillar downgrade pressures the overall stock market", is `single`
+   with `market_analyst_sentiment` when the downgrade is the story, `market_economy` when the
+   market move is. *Examples:*
    130093 (economic recovery), 480248 (a double-digit rally), 296504 (S&P 500 at records). It is
    summarised in the `MARKET` / `ECONOMY` rows of `sector_summary` (D14).
 3. **`sector`**: about one industry or sub-industry rather than a company: sector trends, an
    industry-wide event, a sector's outlook; companies appear as examples. Needs a `sub_industry`.
-   *Examples:* 115964 (semiconductors), 323392 (spirits), 137874 (bank sector). Test: if the
-   named company were replaced by another of the same industry, would the article still hold?
+   Test: if the named company were replaced by another of the same industry, would the article
+   still hold? Only then is it `sector`. *Example:* 262959 (what the biggest tech IPO in years
+   signals for investment banks). A story whose headline event is one company's own (115964,
+   TSMC's revenue surge "bucking" the chip slump; 137874, a bankruptcy that might rescue Bank of
+   America; 323392, an upgrade of one spirits stock) is **`single`**, even when it is framed by the
+   industry (**[owner call, 2026-10-29]**: single unless the industry is the point); the other
+   companies go in `mentions`.
 4. **`investing_general`**: investing or market-advice content about no company and no sector:
    investing philosophy, strategy pieces, personal-finance and "how to invest" pieces. *Example:*
    263795 (a bank's call for a new investing approach). No per-company analysis; summarised in
    the `MARKET` row (D22). **[owner call, 2026-10-29]** A human-interest story that only
-   uses a company as its setting (e.g. 61309, squatters in an Airbnb condo; tagged `other` in v1) is
-   **`unrelated`**, not `investing_general`; so are the v1 `other` articles of that kind that
-   `v1_scope_derived` shows as `investing_general`.
+   uses a company as its setting (e.g. 61309, squatters in an Airbnb condo) is **`unrelated`**,
+   not `investing_general`. The v1 tag `other` carries no scope: the 78 articles whose
+   `v1_scope_derived` is `investing_general` are a mix (263795 is `investing_general`; 95691,
+   Cramer on how Salesforce can rival Amazon, is `single` with `competitive_actions`; 88609, a
+   spinoff raising money, is `single`), so re-scope every one on its content.
 5. **`multi`**: two or more companies are each discussed with their own events or opinions:
    round-ups ("Midday Movers: GILD, BSX, AES & More", 2214), comparisons ("LH or ALGN: which is
    the better value stock", 303163), stories about several firms. Every analysed company gets a
@@ -54,7 +65,9 @@ Decide in this order; the first scope whose test is met wins.
    in `mentions` (D23: a company holding more than half of the subject mentions makes the body
    *single + mentions*).
 
-**Analysed or mention?** A company is *analysed* when the article reports an event, result or
+**Analysed or mention?** (The content rule governs the gold, **[owner call, 2026-10-29]**; D23's
+"more than half of the subject mentions" is only a feature of the automatic rules, not the gold
+definition.) A company is *analysed* when the article reports an event, result or
 opinion about it of at least a sentence; it is a *mention* when it is named as context, a
 competitor, a source ("Goldman analysts say"), or an index member. **[owner call, 2026-10-29]** In a
 round-up of many companies, only a company with a sentence of its own is analysed (and so
@@ -88,13 +101,18 @@ Four new labels, from the owner's v1 notes:
   bullish or bearish view alone is `market_analyst_sentiment`.
 - **`peer_comparison`**: the article's point is a comparison between companies (which is the
   better stock, who is ahead). In a `multi` comparison, every compared company is labelled
-  `peer_comparison`. *Examples:* 96481 (Google vs Amazon), 303163 (LH or ALGN).
+  `peer_comparison`, not `market_analyst_sentiment` (v1 used the latter for comparisons; a
+  rating or price target on one company stays `market_analyst_sentiment`). *Examples:* 96481
+  (Google vs Amazon), 303163 (LH or ALGN).
 
 Three more:
 
 - **`other`**: the body concerns the company but fits none of the 13 labels above.
-- **`uncertain`**: a label cannot be chosen with confidence (category-level only; the scope is
-  never uncertain, D20).
+- **`uncertain`**: two or more labels fit equally and the headline event does not decide between
+  them, or the event is not stated in the first 6,000 characters (category-level only; the scope
+  is never uncertain, D20). Example: a profile of a company that mixes strategy, products and
+  results with no lead event. Contrast `other`: the event is clear but belongs to none of the 13
+  labels (e.g. a CEO's opinion piece on the economy).
 - (`unrelated` is a scope, not a company label.)
 
 **Which label when two apply?** Take the dimension the headline event belongs to; an analyst's
@@ -104,11 +122,18 @@ the reaction is the story).
 ## Sector bodies
 
 Pick the GICS **sub-industry** the article is about, as spelled in the source `articles` table
-(`gics_sub_industry`). The check rejects names the source does not have. **[owner call, 2026-10-29]** For a
+(`gics_sub_industry`). The check rejects names the source does not have; the list of valid names,
+with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
+export` (PR #117) together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
+of this document. **[owner call, 2026-10-29]** For a
 broad sector story that spans several sub-industries, enter the most central sub-industry (the plan
 tests sub-industry, D24); there is no sector-level value.
 
 ## Owner calls (answered 2026-10-29)
+
+0. A company-framed-by-industry story is `single` unless the industry is the point; a company
+   event that moves the market takes the scope of its headline event; the content rule decides
+   analysed vs mention in the gold (D23's count rule is the rules' feature only).
 
 1. Human-interest stories that only use a company as setting: `unrelated`.
 2. Round-ups: only companies with a sentence of their own are analysed; the rest are mentions.

@@ -2220,7 +2220,7 @@ training round sends a stratified sample of about 300 low-confidence bodies to t
 `investing_general` (investing or market-advice content about no company and no sector, the owner's
 `other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`; D23 a
 body where one company holds more than half of the subject mentions is *single + mentions*: scope
-single on the dominant company, the others stored as mentions only; D24 P4 (per-company category) and
+single on the dominant company, the others stored as mentions only; (the gold v2 defines analysed vs mention by content, a sentence of its own, `docs/labelling-spec-v2.md`; the >50% count is the automatic rules' feature) D24 P4 (per-company category) and
 P5 (sector sub-industry) are each accepted at >= 80% agreement with the owner's held-out gold (the
 owner confirmed on 2026-10-29).
 Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a

@@ -984,7 +984,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
       where one company holds more than half of the subject mentions is **single + mentions**:
       scope single on the dominant company (summary and sentiment for it), the other companies
-      stored as mentions only, with no per-company analysis. **D24** P4 (per-company category) and
+      stored as mentions only, with no per-company analysis. (gold v2 defines analysed vs mention by content, `docs/labelling-spec-v2.md`; the >50% count is the rules' feature only). **D24** P4 (per-company category) and
       P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
       held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
       held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
