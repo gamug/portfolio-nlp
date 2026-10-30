@@ -31,6 +31,26 @@ def tagged_rows(path: Path, column: str = "human_label") -> int:
         return sum(bool((row.get(column) or "").strip()) for row in csv.DictReader(fh))
 
 
+def _require_readable(path: Path, tag_column: str) -> None:
+    """An existing review file must still parse into its tag column. A file re-saved by a
+    spreadsheet with another delimiter or code page has no such column, reads as 'untagged' and
+    would be overwritten: refuse instead."""
+    if not path.exists():
+        return
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            header = next(csv.reader(fh), [])
+    except UnicodeDecodeError as exc:
+        raise TaggedFileError(
+            f"{path} is not UTF-8 ({exc.reason}); refusing to overwrite it"
+        ) from exc
+    if tag_column not in header:
+        raise TaggedFileError(
+            f"{path} has no {tag_column!r} column (saved with another delimiter or code page?); "
+            "refusing to overwrite it"
+        )
+
+
 def _write(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
@@ -50,6 +70,7 @@ def write_review_files(
     """Write *review* and *key* into *out_dir*, both or neither. Raises :class:`TaggedFileError`
     if the review file exists and has rows with a non-empty *tag_column* (move or copy it first)."""
     review_path, key_path = out_dir / review_name, out_dir / key_name
+    _require_readable(review_path, tag_column)
     done = tagged_rows(review_path, tag_column)
     if done:
         raise TaggedFileError(

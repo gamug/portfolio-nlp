@@ -147,6 +147,19 @@ of this document. **[owner call 4]** For a broad sector story that spans several
 enter the most central sub-industry (the plan tests sub-industry, D24); there is no sector-level
 value. The companies a sector body names go in `mentions`, not in `companies` (**[owner call 7]**).
 
+## Returning the file
+
+1. Close `data/category_gold_v2_review.csv` in Excel before running anything (an open file cannot be
+   rewritten, and a file saved in another format is refused). Save it as **CSV UTF-8, comma
+   delimited**.
+2. `uv run scripts/retag_gold_2026_10_29.py normalise` writes
+   `data/category_gold_v2_review_tickers.csv` with tickers, lists the texts it could not resolve
+   (fix them in the review file, not in the copy) and the matches it inferred (a first word, a
+   brand, a ticker that is also a word): confirm those.
+3. `uv run scripts/retag_gold_2026_10_29.py check --file category_gold_v2_review_tickers.csv`
+   validates the copy.
+4. `guide` rewrites the guide CSVs at any time; `export` refuses to touch a tagged review file.
+
 ## Owner calls (answered 2026-10-29)
 
 1. Human-interest stories that only use a company as setting: `unrelated`.

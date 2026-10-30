@@ -14,6 +14,7 @@ names the owner typed are converted first by :mod:`news_nlp.company_names` (``no
 from __future__ import annotations
 
 import csv
+import io
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -208,6 +209,30 @@ class Report:
     unknown: list[str]  # ids that are not expected (or not integers)
 
 
+class TagFileError(ValueError):
+    """The returned review file does not have the expected shape."""
+
+
+def read_tag_file(path: Path) -> list[dict[str, str]]:
+    """The rows of a returned review file, after checking it parses into the expected columns. A
+    spreadsheet that saved it with another delimiter or code page gives a clear error, not a file
+    that reads as 'untagged'."""
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise TagFileError(
+            f"{path.name} is not UTF-8 ({exc.reason}): save it as CSV UTF-8 (comma delimited)"
+        ) from exc
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    missing = sorted({"article_id", *TAG_COLUMNS} - set(reader.fieldnames or ()))
+    if missing:
+        raise TagFileError(
+            f"{path.name} lacks the columns {missing}: it was probably saved with another "
+            "delimiter or code page; save it as CSV UTF-8 (comma delimited)"
+        )
+    return list(reader)
+
+
 def load_gold_v2(
     path: Path, expected_ids: Sequence[int] | None = None, universe: Universe | None = None
 ) -> Report:
@@ -216,24 +241,23 @@ def load_gold_v2(
     report = Report([], {}, 0, [], [], [])
     seen: Counter[int] = Counter()
     expected = set(expected_ids or ())
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        for row in csv.DictReader(fh):
-            raw_id = (row.get("article_id") or "").strip()
-            if not raw_id.isdigit():
-                report.unknown.append(raw_id or "<blank>")
-                continue
-            article_id = int(raw_id)
-            seen[article_id] += 1
-            if expected_ids is not None and article_id not in expected:
-                report.unknown.append(raw_id)
-            if not (row.get("scope") or "").strip():
-                report.untagged += 1
-                continue
-            gold, errors = check_row(row, universe)
-            if gold:
-                report.good.append(gold)
-            else:
-                report.bad[raw_id] = errors
+    for row in read_tag_file(path):
+        raw_id = (row.get("article_id") or "").strip()
+        if not raw_id.isdigit():
+            report.unknown.append(raw_id or "<blank>")
+            continue
+        article_id = int(raw_id)
+        seen[article_id] += 1
+        if expected_ids is not None and article_id not in expected:
+            report.unknown.append(raw_id)
+        if not (row.get("scope") or "").strip():
+            report.untagged += 1
+            continue
+        gold, errors = check_row(row, universe)
+        if gold:
+            report.good.append(gold)
+        else:
+            report.bad[raw_id] = errors
     report.duplicated = sorted(i for i, n in seen.items() if n > 1)
     report.missing = sorted(expected - set(seen))
     return report

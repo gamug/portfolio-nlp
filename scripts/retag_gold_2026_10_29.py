@@ -124,10 +124,15 @@ def cmd_normalise(
             *failures,
             sep="\n  ",
         )
+        if failures:
+            sys.exit(1)
         return
     book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
     source = out / (file or retag.REVIEW_NAME)
-    rows = _read(source)
+    try:
+        rows = retag.read_tag_file(source)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
     result: list[dict[str, str]] = []
     problems: list[str] = []
     confirm: list[str] = []
@@ -163,9 +168,12 @@ def cmd_check(
     out: Path, *, universe: retag.Universe | None = None, file: str | None = None
 ) -> None:
     expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
-    report = retag.load_gold_v2(
-        out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
-    )
+    try:
+        report = retag.load_gold_v2(
+            out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
+        )
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
     print(
         f"tagged and valid {len(report.good)}, with errors {len(report.bad)}, "
         f"untagged {report.untagged}, expected {len(expected)}"
