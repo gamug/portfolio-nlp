@@ -109,16 +109,30 @@ def _require_adopted(cache: translate.TranslationCache) -> None:
     if cache.untagged():
         sys.exit(
             f"{cache.untagged()} cached translations have no model/prompt tag: run "
-            "'translate --adopt-legacy' once (no cost) to stamp them with the current tag"
+            "'translate --adopt-legacy --yes' once (no cost) if the current model and prompt made them"
         )
 
 
-def cmd_adopt_legacy(out: Path, *, translator: translate.LLMTranslator | None = None) -> None:
+def cmd_adopt_legacy(
+    out: Path, *, translator: translate.LLMTranslator | None = None, yes: bool = False
+) -> None:
     """Stamp the untagged cached translations with the current model and prompt tag. Only for rows
-    known to have been made with them (the 720 of 2026-10-30 were); no API call is made."""
+    known to have been made with them (the 720 of 2026-10-30 were); no API call is made. It says
+    which model, tag and how many first and does nothing without ``yes``."""
     translator = translator or _translator()
-    n = translate.TranslationCache(out / translate.CACHE_NAME).adopt_legacy(translator.tag)
-    print(f"{n} cached translations stamped with tag {translator.tag}")
+    cache = translate.TranslationCache(out / translate.CACHE_NAME)
+    n = cache.untagged()
+    if n == 0:
+        print("no untagged cached translations")
+        return
+    print(
+        f"{n} cached translations will be recorded as made by model "
+        f"{getattr(translator, 'model', '?')!r} with prompt/model tag {translator.tag}"
+    )
+    if not yes:
+        sys.exit("nothing changed: pass --yes if that model and prompt made them")
+    cache.adopt_legacy(translator.tag)
+    print(f"{n} cached translations stamped")
 
 
 def _report(done: translate.Outcome, translator: translate.LLMTranslator) -> None:
@@ -352,7 +366,9 @@ def main() -> None:
         "--max-new", type=int, default=DEFAULT_MAX_NEW, help="export, translate: most new articles"
     )
     parser.add_argument(
-        "--adopt-legacy", action="store_true", help="translate: stamp untagged cache rows (no cost)"
+        "--adopt-legacy",
+        action="store_true",
+        help="translate: stamp untagged cache rows with the current model and prompt (no cost; needs --yes)",
     )
     parser.add_argument(
         "--no-spanish", action="store_true", help="export: no spanish_title / spanish_text columns"
@@ -365,7 +381,7 @@ def main() -> None:
     if args.command == "export":
         cmd_export(args.out, spanish=not args.no_spanish, yes=args.yes, max_new=args.max_new)
     elif args.command == "translate" and args.adopt_legacy:
-        cmd_adopt_legacy(args.out)
+        cmd_adopt_legacy(args.out, yes=args.yes)
     elif args.command == "translate":
         cmd_translate(
             args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new

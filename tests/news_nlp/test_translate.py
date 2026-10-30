@@ -313,7 +313,12 @@ def test_translate_refuses_to_buy_while_the_cache_has_untagged_rows(tmp_path: Pa
     with pytest.raises(SystemExit, match="adopt-legacy"):
         cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
     assert llm.calls == 0
-    cli.cmd_adopt_legacy(tmp_path, translator=llm)  # type: ignore[attr-defined]
+    cache_file = tmp_path / translate.CACHE_NAME
+    before = cache_file.read_bytes()
+    with pytest.raises(SystemExit, match="--yes"):
+        cli.cmd_adopt_legacy(tmp_path, translator=llm)  # type: ignore[attr-defined]
+    assert cache_file.read_bytes() == before  # nothing changed without --yes
+    cli.cmd_adopt_legacy(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
     cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
     assert llm.calls == 1
 
@@ -370,3 +375,20 @@ def test_an_old_cache_without_the_tag_column_is_upgraded_in_place(tmp_path: Path
         ("2", "new", "uy"),
     ]
     assert translate.TranslationCache(old).untagged() == 1  # adopt it before it is served
+
+
+def test_a_failed_rewrite_leaves_the_cache_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "c.csv"
+    cache = translate.TranslationCache(path)
+    cache.put("1", "T", "x", translate.Translation("t", "tx"), tag="")  # an untagged row
+    before = path.read_bytes()
+
+    def broken(self: object, rows: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(csv.DictWriter, "writerows", broken)
+    with pytest.raises(OSError, match="disk full"):
+        cache.adopt_legacy("t1")
+    assert path.read_bytes() == before and not list(tmp_path.glob("*.tmp"))

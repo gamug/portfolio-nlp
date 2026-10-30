@@ -195,10 +195,17 @@ class TranslationCache:
                 self._rewrite()
 
     def _rewrite(self) -> None:
-        with self.path.open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=_CACHE_FIELDS)
-            writer.writeheader()
-            writer.writerows(self._rows.values())
+        """Replace the file by a complete copy: written aside, swapped in only when finished, so a
+        crash or a lock leaves the old cache intact (it is the only copy of paid translations)."""
+        tmp = self.path.with_suffix(".tmp")
+        try:
+            with tmp.open("w", newline="", encoding="utf-8-sig") as fh:
+                writer = csv.DictWriter(fh, fieldnames=_CACHE_FIELDS)
+                writer.writeheader()
+                writer.writerows(self._rows.values())
+            os.replace(tmp, self.path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def untagged(self) -> int:
         """How many cached rows were written before the tag existed."""
