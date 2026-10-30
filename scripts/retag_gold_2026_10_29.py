@@ -1,7 +1,8 @@
 """The owner's re-tag of the 720 judged articles under the new taxonomy (Work item 18, T-146b).
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
-    uv run scripts/retag_gold_2026_10_29.py check  [--out data]   # validates the returned file
+    uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
+    uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
 
 ``export`` reads ``data/category_gold_review.csv`` and its key (tags v1) and writes
 ``category_gold_v2_review.csv`` (the article, the v1 label and note and the scope they imply as
@@ -10,7 +11,11 @@ guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``mentions`` / 
 ``category_gold_v2_key.csv`` (the v1 key, where the LLM's label stays: the owner is not shown it).
 It **refuses to overwrite a file that already has scopes filled in**. ``check`` lists the
 untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``).
-Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_launch; MSFT:other``.
+Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_innovation; MSFT:other``.
+The owner may type names or nicknames instead of tickers (``Apple; Google``, ``Apple:other``):
+``normalise`` writes ``category_gold_v2_review_tickers.csv`` with tickers and lists every text it
+could not resolve or that fits several companies (left as typed, never guessed); the review file
+is not changed. ``check --file category_gold_v2_review_tickers.csv`` then validates that copy.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from news_nlp import retag
+from news_nlp import company_names, retag
 from news_nlp.gold_review import TaggedFileError, write_review_files
 from news_nlp.triage import Company
 
@@ -79,9 +84,35 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def cmd_check(out: Path, *, universe: retag.Universe | None = None) -> None:
+TICKERS_NAME = "category_gold_v2_review_tickers.csv"
+
+
+def cmd_normalise(
+    out: Path, *, universe_companies: list[Company] | None = None, file: str | None = None
+) -> None:
+    """Write the review file with names and nicknames replaced by tickers."""
+    firms = universe_companies or companies()
+    book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
+    rows = _read(out / (file or retag.REVIEW_NAME))
+    result: list[dict[str, str]] = []
+    problems = 0
+    for row in rows:
+        new, found = company_names.normalise_row(book, row)
+        result.append(new)
+        for problem in found:
+            problems += 1
+            print(f"  article {row.get('article_id')}: {problem}")
+    write_csv(out / TICKERS_NAME, result)
+    print(f"{len(result)} rows -> {out / TICKERS_NAME}; {problems} texts left as typed (see above)")
+
+
+def cmd_check(
+    out: Path, *, universe: retag.Universe | None = None, file: str | None = None
+) -> None:
     expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
-    report = retag.load_gold_v2(out / retag.REVIEW_NAME, expected, universe or load_universe())
+    report = retag.load_gold_v2(
+        out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
+    )
     print(
         f"tagged and valid {len(report.good)}, with errors {len(report.bad)}, "
         f"untagged {report.untagged}, expected {len(expected)}"
@@ -102,10 +133,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "check"))
+    parser.add_argument("command", choices=("export", "normalise", "check"))
     parser.add_argument("--out", type=Path, default=Path("data"))
+    parser.add_argument("--file", help="review file name inside --out (check, normalise)")
     args = parser.parse_args()
-    {"export": cmd_export, "check": cmd_check}[args.command](args.out)
+    if args.command == "export":
+        cmd_export(args.out)
+    elif args.command == "normalise":
+        cmd_normalise(args.out, file=args.file)
+    else:
+        cmd_check(args.out, file=args.file)
 
 
 if __name__ == "__main__":
