@@ -1,6 +1,7 @@
 """The owner's re-tag of the 720 judged articles under the new taxonomy (Work item 18, T-146b).
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
+    uv run scripts/retag_gold_2026_10_29.py translate [--limit N]  # spanish_title/text after text
     uv run scripts/retag_gold_2026_10_29.py guide  [--out data]   # rewrites the guide CSVs only
     uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
     uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
@@ -24,14 +25,16 @@ from __future__ import annotations
 
 import argparse
 import csv
+import shutil
 import sys
 from collections import Counter
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from news_nlp import company_names, retag
-from news_nlp.gold_review import TaggedFileError, write_review_files
+from news_nlp import company_names, retag, translate
+from news_nlp.gold_review import TaggedFileError, tagged_rows, write_review_files
 from news_nlp.triage import Company
 
 
@@ -40,10 +43,31 @@ def _read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def cmd_export(out: Path, *, universe_companies: list[Company] | None = None) -> None:
+def _translator() -> translate.LLMTranslator:
+    from dotenv import load_dotenv  # noqa: PLC0415 -- only the translating commands need it
+
+    load_dotenv()
+    return translate.LLMTranslator.from_env()
+
+
+def cmd_export(
+    out: Path,
+    *,
+    universe_companies: list[Company] | None = None,
+    translator: translate.LLMTranslator | None = None,
+    spanish: bool = True,
+) -> None:
+    """Export the file to tag. It carries ``spanish_title`` / ``spanish_text`` after ``text``
+    (translated once per article, cached) unless ``spanish`` is False."""
     review, key = retag.retag_rows(
         _read(out / "category_gold_review.csv"), _read(out / "category_gold_review_key.csv")
     )
+    if spanish:
+        if tagged_rows(out / retag.REVIEW_NAME, "scope"):  # refuse before paying for anything
+            sys.exit(f"{out / retag.REVIEW_NAME} is already tagged; refusing to overwrite it")
+        rows = [{k: str(v) for k, v in r.items()} for r in review]
+        got = add_spanish(out, rows, translator or _translator())
+        review = got
     try:
         write_review_files(
             out,
@@ -59,6 +83,61 @@ def cmd_export(out: Path, *, universe_companies: list[Company] | None = None) ->
     print(
         f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
     )
+
+
+def add_spanish(
+    out: Path,
+    rows: list[dict[str, str]],
+    translator: translate.LLMTranslator,
+    *,
+    limit: int | None = None,
+    workers: int = 8,
+) -> list[dict[str, str]]:
+    """The rows with the Spanish columns after ``text``; translations are cached in ``out`` and
+    the token use of the new ones is printed. A failed article keeps empty Spanish cells."""
+    cache = translate.TranslationCache(out / translate.CACHE_NAME)
+    done = translate.translate_rows(rows, translator.translate, cache, workers=workers, limit=limit)
+    print(
+        f"translated {done.translated} new articles ({done.prompt_tokens} prompt and "
+        f"{done.completion_tokens} completion tokens), {len(rows) - len(done.failures) - done.translated} "
+        f"from cache, {len(done.failures)} failed"
+    )
+    for article_id, why in sorted(done.failures.items()):
+        print(f"  article {article_id}: {why}")
+    return translate.with_spanish(rows, done.translations)
+
+
+def cmd_translate(
+    out: Path,
+    *,
+    translator: translate.LLMTranslator | None = None,
+    file: str | None = None,
+    limit: int | None = None,
+    workers: int = 8,
+) -> None:
+    """Add ``spanish_title`` / ``spanish_text`` after ``text`` to an existing review file. With
+    ``limit`` it is a pilot: the first *limit* articles are translated, printed and cached, and the
+    file is not touched. Otherwise the file is backed up to ``backup/`` first and rewritten with
+    every other cell as it was."""
+    source = out / (file or retag.REVIEW_NAME)
+    try:
+        rows = retag.read_tag_file(source)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    translator = translator or _translator()
+    if limit is not None:
+        cache = translate.TranslationCache(out / translate.CACHE_NAME)
+        done = translate.translate_rows(rows, translator.translate, cache, limit=limit)
+        for article_id, pair in list(done.translations.items())[:limit]:
+            print(f"--- article {article_id}\n{pair.title}\n{pair.text[:700]}")
+        print(f"pilot: {done.translated} new, {done.prompt_tokens}/{done.completion_tokens} tokens")
+        return
+    result = add_spanish(out, rows, translator, workers=workers)
+    backup = out / "backup" / f"{source.stem}_before_translate_{date.today():%Y-%m-%d}.csv"
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, backup)
+    write_csv(source, result)
+    print(f"{len(result)} rows -> {source} (backup: {backup})")
 
 
 def write_guides(out: Path, universe_companies: list[Company] | None = None) -> None:
@@ -194,16 +273,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "guide", "normalise", "check"))
+    parser.add_argument("command", choices=("export", "guide", "normalise", "check", "translate"))
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", help="review file name inside --out (check, normalise)")
+    parser.add_argument("--limit", type=int, help="translate: pilot on the first N, file untouched")
+    parser.add_argument(
+        "--no-spanish", action="store_true", help="export: no spanish_title / spanish_text columns"
+    )
     parser.add_argument("--force", action="store_true", help="normalise: overwrite an edited copy")
     parser.add_argument(
         "--self-check", action="store_true", help="normalise: every universe name -> its ticker"
     )
     args = parser.parse_args()
     if args.command == "export":
-        cmd_export(args.out)
+        cmd_export(args.out, spanish=not args.no_spanish)
+    elif args.command == "translate":
+        cmd_translate(args.out, file=args.file, limit=args.limit)
     elif args.command == "guide":
         cmd_guide(args.out)
     elif args.command == "normalise":
