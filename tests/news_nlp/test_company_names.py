@@ -6,6 +6,7 @@ import csv
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -87,36 +88,44 @@ def test_nicknames_name_only_tickers_that_exist_in_the_universe() -> None:
 
 def test_row_names_become_tickers_and_problems_are_listed() -> None:
     row = {
-        "companies": "Apple; the iPhone maker; Google",
-        "mentions": "Alphabet; Microsoft Corp; Bank",
-        "company_labels": "Apple:product_innovation; Google: other; Tesla:other",
+        "mentions": "Alphabet, Microsoft Corp, Bank, the iPhone maker",
+        "company_labels": "Apple:product_innovation, Google: other, Tesla:other",
     }
     new, problems, _ = normalise_row(BOOK, row)
-    assert new["companies"] == "AAPL; GOOG; the iPhone maker"
-    assert new["mentions"] == "GOOG; MSFT; Bank"  # Alphabet already folds to GOOG
-    assert new["company_labels"] == "AAPL:product_innovation; GOOG:other; Tesla:other"
+    assert new["mentions"] == "GOOG, MSFT, Bank, the iPhone maker"  # Alphabet folds to GOOG
+    assert new["company_labels"] == "AAPL:product_innovation, GOOG:other, Tesla:other"
     assert problems == [
-        "companies: 'the iPhone maker' unknown",
         "mentions: 'Bank' ambiguous: BAC, BK",
+        "mentions: 'the iPhone maker' unknown",
         "company_labels: 'Tesla' unknown",
     ]
 
 
+def test_a_comma_inside_a_company_name_does_not_split_it() -> None:
+    from news_nlp.company_names import split_list  # noqa: PLC0415
+
+    assert split_list("Booking Holdings, Inc., Apple") == ["Booking Holdings, Inc.", "Apple"]
+    assert split_list("Booking Holdings, Inc.:other, Apple:other") == [
+        "Booking Holdings, Inc.:other",
+        "Apple:other",
+    ]
+    assert split_list("A, B,, ,C\nD") == ["A", "B", "C", "D"]
+
+
 def test_row_conflicting_labels_and_missing_label_are_reported() -> None:
     row = {
-        "companies": "",
         "mentions": "",
-        "company_labels": "Google:other; Alphabet:uncertain; Apple",
+        "company_labels": "Google:other, Alphabet:uncertain, Apple",
     }
     new, problems, _ = normalise_row(BOOK, row)
-    assert new["company_labels"] == "GOOG:other; Apple"
+    assert new["company_labels"] == "GOOG:other, Apple"
     assert any("given 'other' and 'uncertain'" in p for p in problems)
     assert any("has no label" in p for p in problems)
 
 
 def test_empty_cells_stay_empty() -> None:
-    new, problems, _ = normalise_row(BOOK, {"companies": "", "mentions": "", "company_labels": ""})
-    assert new == {"companies": "", "mentions": "", "company_labels": ""} and problems == []
+    new, problems, _ = normalise_row(BOOK, {"mentions": "", "company_labels": ""})
+    assert new == {"mentions": "", "company_labels": ""} and problems == []
 
 
 def test_cli_normalise_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -128,9 +137,8 @@ def test_cli_normalise_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[
         **base,
         "article_id": "10",
         "scope": "single",
-        "companies": "Apple",
         "company_labels": "Apple:product_innovation",
-        "mentions": "Facebook; Nobody Inc",
+        "mentions": "Facebook, Nobody Inc",
     }
     with (tmp_path / retag.REVIEW_NAME).open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(base))
@@ -142,8 +150,11 @@ def test_cli_normalise_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[
     shown = capsys.readouterr().out
     assert "article 10: mentions: 'Nobody Inc' unknown" in shown
     out = list(csv.DictReader((tmp_path / cli.TICKERS_NAME).open(encoding="utf-8-sig")))
-    assert out[0]["companies"] == "AAPL" and out[0]["mentions"] == "META; Nobody Inc"
-    assert (tmp_path / retag.REVIEW_NAME).read_text(encoding="utf-8-sig").count("Apple") >= 2
+    assert out[0]["company_labels"] == "AAPL:product_innovation"
+    assert out[0]["mentions"] == "META, Nobody Inc"
+    assert "Apple:product_innovation" in (tmp_path / retag.REVIEW_NAME).read_text(
+        encoding="utf-8-sig"
+    )
     cli.cmd_check(tmp_path, universe=retag.Universe.of(FIRMS), file=cli.TICKERS_NAME)
     assert "untagged 0" in capsys.readouterr().out
 
@@ -191,14 +202,14 @@ def test_inferred_matches_are_flagged_for_confirmation() -> None:
 
 
 def test_row_reports_what_it_inferred() -> None:
-    row = {"companies": "ALL; Instagram; Apple", "mentions": "", "company_labels": "Home:other"}
+    row = {"mentions": "ALL, Instagram, Apple", "company_labels": "Home:other"}
     new, problems, confirm = normalise_row(BOOK, row)
-    assert new["companies"] == "ALL; META; AAPL" and problems == [
+    assert new["mentions"] == "ALL, META, AAPL" and problems == [
         "company_labels: 'Home' unknown"  # no Home Depot in this small universe
     ]
     assert confirm == [
-        "companies: 'ALL' -> ALL (word ticker)",
-        "companies: 'Instagram' -> META (brand)",
+        "mentions: 'ALL' -> ALL (word ticker)",
+        "mentions: 'Instagram' -> META (brand)",
     ]
 
 
@@ -234,12 +245,12 @@ def test_self_check_finds_a_name_hijacked_by_a_nickname(monkeypatch: pytest.Monk
     assert any(f.startswith("AAPL 'Apple Inc.': ambiguous") for f in failures)
 
 
-def _write_review(path: Path, companies: str) -> None:
+def _write_review(path: Path, mentions: str) -> None:
     fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
-        writer.writerow({**dict.fromkeys(fields, ""), "article_id": "10", "companies": companies})
+        writer.writerow({**dict.fromkeys(fields, ""), "article_id": "10", "mentions": mentions})
 
 
 def test_normalise_does_not_overwrite_an_edited_copy(tmp_path: Path) -> None:
@@ -273,7 +284,7 @@ def test_guide_command_rewrites_only_the_guides(tmp_path: Path) -> None:
     before = (tmp_path / retag.REVIEW_NAME).read_bytes()
     cli.cmd_guide(tmp_path, universe_companies=FIRMS)
     assert (tmp_path / retag.REVIEW_NAME).read_bytes() == before
-    assert "column,companies" in (tmp_path / "category_gold_v2_guide.csv").read_text(
+    assert "column,company_labels" in (tmp_path / "category_gold_v2_guide.csv").read_text(
         encoding="utf-8-sig"
     )
 
@@ -290,3 +301,94 @@ def test_a_file_open_in_another_program_gives_a_clear_message(
     monkeypatch.setattr(Path, "open", locked)
     with pytest.raises(SystemExit, match="close it"):
         cli.write_csv(tmp_path / "guide.csv", [{"a": "1"}])
+
+
+class _Clock:
+    """A clock that moves one second per call, so two migrations get two names."""
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def now(self) -> Any:
+        import datetime  # noqa: PLC0415
+
+        self.n += 1
+        return datetime.datetime(2026, 10, 30, 12, 0, self.n)
+
+
+def test_cmd_migrate_never_replaces_an_earlier_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cli = _script_cli()
+    monkeypatch.setattr(cli, "datetime", _Clock())
+    fields = ["article_id", "scope", "companies", "company_labels", "mentions"]
+    path = tmp_path / "work_.csv"
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "article_id": "1",
+                "scope": "multi",
+                "companies": "Amazon; Toyota",
+                "company_labels": "Amazon:other",
+                "mentions": "Boeing; GM",
+            }
+        )
+    before = path.read_bytes()
+    cli.cmd_migrate(tmp_path, file="work_.csv")
+    shown = capsys.readouterr().out
+    assert path.read_bytes() == before
+    first = tmp_path / "work_new_format_2026-10-30_120001.csv"  # no double underscore
+    (row,) = list(csv.DictReader(first.open(encoding="utf-8-sig")))
+    assert "companies" not in row
+    assert row["company_labels"] == "Amazon:other, Toyota" and row["mentions"] == "Boeing, GM"
+    assert "'Toyota' was in companies" in shown
+    assert f"Continue in {first.name} and stop editing work_.csv" in shown
+    first.write_text(first.read_text(encoding="utf-8-sig") + "worked in\n", encoding="utf-8-sig")
+    worked = first.read_bytes()
+    cli.cmd_migrate(tmp_path, file="work_.csv")  # a second run: a new name, the first is intact
+    assert first.read_bytes() == worked
+    assert (tmp_path / "work_new_format_2026-10-30_120002.csv").exists()
+
+
+def test_a_missing_review_file_names_the_similar_ones(tmp_path: Path) -> None:
+    cli = _script_cli()
+    with pytest.raises(SystemExit) as bare:
+        cli.review_path(tmp_path)
+    assert "not found" in str(bare.value) and "similar" not in str(bare.value)
+    (tmp_path / "category_gold_v2_review_.csv").write_text("x", encoding="utf-8")
+    with pytest.raises(SystemExit) as hint:
+        cli.review_path(tmp_path)
+    assert "category_gold_v2_review_.csv" in str(hint.value) and "--file NAME" in str(hint.value)
+    assert cli.review_path(tmp_path, "category_gold_v2_review_.csv").exists()
+
+
+def test_a_name_with_a_comma_survives_normalise_end_to_end(tmp_path: Path) -> None:
+    cli = _script_cli()
+    firms = [*FIRMS, Company("BKNG", "Booking Holdings Inc.", "x", "y")]
+    review = tmp_path / retag.REVIEW_NAME
+    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
+    with review.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(
+            {
+                **dict.fromkeys(fields, ""),
+                "article_id": "10",
+                "scope": "multi",
+                "company_labels": "Booking Holdings, Inc.:other, Apple:uncertain",
+                "mentions": "Microsoft, Corp., Google",
+            }
+        )
+    cli.cmd_normalise(tmp_path, universe_companies=firms)
+    (row,) = list(csv.DictReader((tmp_path / cli.TICKERS_NAME).open(encoding="utf-8-sig")))
+    assert row["company_labels"] == "BKNG:other, AAPL:uncertain"
+    assert row["mentions"] == "MSFT, GOOG"
+
+
+def _script_cli() -> Any:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415
+
+    return cli

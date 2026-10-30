@@ -82,7 +82,6 @@ def test_valid_rows() -> None:
     g, e = retag.check_row(
         row(
             scope="single",
-            companies="AAPL",
             company_labels="AAPL:product_innovation",
             mentions="MSFT",
         ),
@@ -95,18 +94,16 @@ def test_valid_rows() -> None:
     g, e = retag.check_row(
         row(
             scope="multi",
-            companies="AAPL; MSFT",
-            company_labels="AAPL:peer_comparison; MSFT:uncertain",
+            company_labels="AAPL:peer_comparison, MSFT:uncertain",
+            mentions="GOOGL",
         ),
         UNIVERSE,
     )
-    assert not e and g and g.companies == ("AAPL", "MSFT")
+    assert not e and g and g.companies == ("AAPL", "MSFT") and g.mentions == ("GOOG",)
 
 
 def test_share_classes_are_canonicalised() -> None:
-    g, e = retag.check_row(
-        row(scope="single", companies="GOOGL", company_labels="GOOGL:other"), UNIVERSE
-    )
+    g, e = retag.check_row(row(scope="single", company_labels="GOOGL:other"), UNIVERSE)
     assert not e and g and g.companies == ("GOOG",) and g.labels == {"GOOG": "other"}
 
 
@@ -115,46 +112,28 @@ def test_share_classes_are_canonicalised() -> None:
     [
         ({"scope": "everything"}, "is not one of"),
         (
-            {"scope": "single", "companies": "AAPL", "company_labels": "AAPL:made_up"},
+            {"scope": "single", "company_labels": "AAPL:made_up"},
             "not a company label",
         ),
         (
-            {"scope": "single", "companies": "AAPL", "company_labels": "AAPL:unrelated"},
+            {"scope": "single", "company_labels": "AAPL:unrelated"},
             "not a company label",
         ),
-        ({"scope": "unrelated", "companies": "AAPL"}, "analyses no company"),
+        ({"scope": "unrelated", "company_labels": "AAPL:other"}, "analyses no company"),
         ({"scope": "sector"}, "needs a sub_industry"),
         ({"scope": "sector", "sub_industry": "Made Up"}, "not a GICS sub-industry"),
         ({"scope": "sector", "sub_industry": "Information Technology"}, "not a GICS sub-industry"),
-        ({"scope": "multi", "companies": "AAPL", "company_labels": "AAPL:other"}, "2 or more"),
+        ({"scope": "multi", "company_labels": "AAPL:other"}, "2 or more"),
+        ({"scope": "multi", "company_labels": "AAPL:other, MSFT"}, "no label"),
+        ({"scope": "single", "company_labels": "AAPL:other, MSFT:other"}, "exactly 1"),
         (
-            {"scope": "multi", "companies": "AAPL; MSFT", "company_labels": "AAPL:other"},
-            "no label for MSFT",
+            {"scope": "single", "company_labels": "AAPL:other; MSFT:other"},
+            "separate them with commas",
         ),
+        ({"scope": "single", "company_labels": "ZZZZ:other"}, "not a ticker"),
+        ({"scope": "single", "company_labels": "AAPL:other, AAPL:other"}, "listed twice"),
         (
-            {
-                "scope": "single",
-                "companies": "AAPL; MSFT",
-                "company_labels": "AAPL:other; MSFT:other",
-            },
-            "exactly 1",
-        ),
-        (
-            {"scope": "single", "companies": "AAPL", "company_labels": "MSFT:other"},
-            "not in companies",
-        ),
-        ({"scope": "single", "companies": "ZZZZ", "company_labels": "ZZZZ:other"}, "not a ticker"),
-        (
-            {"scope": "single", "companies": "AAPL; AAPL", "company_labels": "AAPL:other"},
-            "listed twice",
-        ),
-        (
-            {
-                "scope": "single",
-                "companies": "AAPL",
-                "company_labels": "AAPL:other",
-                "mentions": "AAPL",
-            },
+            {"scope": "single", "company_labels": "AAPL:other", "mentions": "AAPL"},
             "both analysed and a mention",
         ),
     ],
@@ -212,7 +191,9 @@ def test_guide_and_sub_industry_rows() -> None:
     rows = retag.sub_industry_rows(
         [Company("A", "A", "Tech", "Software"), Company("B", "B", "Tech", "Software")]
     )
-    assert rows == [{"gics_sector": "Tech", "gics_sub_industry": "Software"}]
+    assert rows == [{"gics_sector": "Tech", "gics_sub_industry": "Software", "gics_code": ""}]
+    (known,) = retag.sub_industry_rows([Company("A", "A", "Industrials", "Distributors")])
+    assert known["gics_code"] == "25501010"  # the code of the Wikipedia table
 
 
 def _saved_with_semicolons(path: Path) -> None:
@@ -304,3 +285,124 @@ def test_tagged_rows_itself_refuses_a_file_it_cannot_parse(tmp_path: Path) -> No
     _saved_with_semicolons(tmp_path / "a.csv")
     with pytest.raises(TaggedFileError, match="no 'scope' column"):
         tagged_rows(tmp_path / "a.csv", "scope")
+
+
+def test_a_file_still_in_the_first_format_is_refused_with_the_way_out(tmp_path: Path) -> None:
+    write(
+        tmp_path / "old.csv",
+        [{**row(scope="single", company_labels="AAPL:other"), "companies": "AAPL"}],
+    )
+    with pytest.raises(retag.TagFileError, match="run 'migrate'"):
+        retag.read_tag_file(tmp_path / "old.csv")
+    write(tmp_path / "empty.csv", [{**row(scope="market_economy"), "companies": ""}])
+    assert retag.read_tag_file(tmp_path / "empty.csv")  # an empty old column is ignored
+
+
+def test_migrate_drops_companies_changes_separators_and_keeps_every_company() -> None:
+    old = {
+        **row(
+            scope="multi",
+            company_labels="Amazon:mergers_acquisitions; Macy's; Kohl's",
+            mentions="Twiter, Boeing; General Motors",
+        ),
+        "companies": "Amazon; Toyota; Macy's; Kohl's",
+    }
+    (new,), problems = retag.migrate_rows([old])
+    assert "companies" not in new and list(new) == [k for k in old if k != "companies"]
+    assert new["company_labels"] == "Amazon:mergers_acquisitions, Macy's, Kohl's, Toyota"
+    assert new["mentions"] == "Twiter, Boeing, General Motors"
+    assert any("'Toyota' was in companies" in p for p in problems)
+    assert sum("has no label" in p for p in problems) == 3  # Macy's, Kohl's and Toyota
+
+
+RETAIL = retag.Universe.of(
+    [
+        Company("AMZN", "Amazon", "Consumer Discretionary", "Broadline Retail"),
+        Company("GPC", "Genuine Parts", "Consumer Discretionary", "Distributors"),
+        Company("GOOG", "Alphabet", "Communication Services", "Interactive Media & Services"),
+    ]
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "known"),
+    [
+        ("25501010", "Distributors"),  # a code of the Wikipedia table
+        ("25503030", "Broadline Retail"),
+        (" 25503030 ", "Broadline Retail"),
+        ("broadline retail", "Broadline Retail"),
+        ("Interactive Media and Services", "Interactive Media & Services"),
+        ("interactive media & services", "Interactive Media & Services"),
+    ],
+)
+def test_sub_industry_as_code_or_name(text: str, known: str) -> None:
+    assert RETAIL.resolve_sub_industry(text) == (known, None)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("99999999", "not a GICS sub-industry code"),
+        ("10101010", "no company of the universe has"),  # Oil & Gas Drilling is a real code, unused
+        ("Made Up", "not a GICS sub-industry"),
+        ("2550", "not a GICS sub-industry code"),  # an industry group, not a sub-industry
+    ],
+)
+def test_sub_industry_refusals_say_why(text: str, message: str) -> None:
+    known, why = RETAIL.resolve_sub_industry(text)
+    assert known is None and why and message in why
+
+
+def test_sub_industry_is_optional_on_every_scope_and_checked_when_given() -> None:
+    fields = {"scope": "multi", "company_labels": "AMZN:other, GPC:other", "mentions": "GOOG"}
+    gold, errors = retag.check_row(row(**fields, sub_industry="25503030"), RETAIL)
+    assert not errors and gold and gold.sub_industry == "Broadline Retail"
+    gold, errors = retag.check_row(row(**fields), RETAIL)
+    assert not errors and gold and gold.sub_industry == ""
+    gold, errors = retag.check_row(row(**fields, sub_industry="99999999"), RETAIL)
+    assert gold is None and any("not a GICS sub-industry code" in e for e in errors)
+    sector, errors = retag.check_row(row(scope="sector", sub_industry="25501010"), RETAIL)
+    assert not errors and sector and sector.sub_industry == "Distributors"
+    assert retag.check_row(row(scope="sector"), RETAIL)[0] is None  # still required for a sector
+
+
+def test_a_company_outside_the_universe_is_kept_as_typed_and_reported() -> None:
+    fields = {
+        "scope": "multi",
+        "company_labels": "Amazon:mergers_acquisitions, Macy's:earnings_performance, AMZN:other",
+    }
+    gold, errors = retag.check_row(
+        row(
+            **{**fields, "company_labels": "AMZN:other, Macy's:other, Kohl's:other"},
+            mentions="Toyota, GPC",
+        ),
+        RETAIL,
+    )
+    assert not errors and gold
+    assert gold.companies == ("AMZN", "Macy's", "Kohl's") and gold.mentions == ("Toyota", "GPC")
+    assert gold.outside == ("Macy's", "Kohl's", "Toyota")
+    gold, errors = retag.check_row(
+        row(scope="single", company_labels="Macy's:other, macy's:other"), RETAIL
+    )
+    assert gold is None and any("listed twice" in e for e in errors)
+    gold, errors = retag.check_row(
+        row(scope="single", company_labels="Macys:other", mentions="Macys"), RETAIL
+    )
+    assert gold is None and any("both analysed and a mention" in e for e in errors)
+    # an upper-case short text is a mistyped ticker, not a name
+    assert retag.check_row(row(scope="single", company_labels="AMZNN:other"), RETAIL)[0] is None
+    # with no universe nothing is outside it
+    bare, _ = retag.check_row(row(scope="single", company_labels="Macy's:other"))
+    assert bare is not None and bare.companies == ("MACY'S",)
+
+
+def test_load_reports_the_names_outside_the_universe(tmp_path: Path) -> None:
+    write(
+        tmp_path / "r.csv",
+        [
+            row(scope="single", company_labels="Twitter:other", mentions="Toyota"),
+            row(article_id="11", scope="single", company_labels="Twitter:other"),
+        ],
+    )
+    report = retag.load_gold_v2(tmp_path / "r.csv", [10, 11], RETAIL)
+    assert dict(report.outside) == {"Twitter": 2, "Toyota": 1}

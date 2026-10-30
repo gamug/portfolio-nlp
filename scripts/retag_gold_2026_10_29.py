@@ -2,19 +2,20 @@
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
     uv run scripts/retag_gold_2026_10_29.py translate [--limit N]  # spanish_title/text after text
+    uv run scripts/retag_gold_2026_10_29.py migrate [--file NAME]  # first format -> current, new file
     uv run scripts/retag_gold_2026_10_29.py guide  [--out data]   # rewrites the guide CSVs only
     uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
     uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
 
 ``export`` reads ``data/category_gold_review.csv`` and its key (tags v1) and writes
 ``category_gold_v2_review.csv`` (the article, the v1 label and note and the scope they imply as
-guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``mentions`` / ``sub_industry`` /
-``notes``) and
+guidance, EMPTY ``scope`` / ``company_labels`` / ``mentions`` / ``sub_industry`` / ``notes``) and
 ``category_gold_v2_key.csv`` (the v1 key, where the LLM's label stays: the owner is not shown it).
 It **refuses to overwrite a file that already has scopes filled in**. ``check`` lists the
 untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``).
-Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_innovation; MSFT:other``.
-The owner may type names or nicknames instead of tickers (``Apple; Google``, ``Apple:other``):
+Column format: ``company_labels`` = ``AAPL:product_innovation, MSFT:other`` (the analysed companies are
+exactly the labelled ones; there is no ``companies`` column), ``mentions`` = ``GOOG, AMZN``, separated
+by commas. The owner may type names or nicknames instead of tickers (``Apple:other, Google:other``):
 ``normalise`` writes ``category_gold_v2_review_tickers.csv`` with tickers and lists every text it
 could not resolve or that fits several companies (left as typed, never guessed), and the matches
 it inferred (a first word, a brand, a ticker that is also a word) for the owner to confirm; the
@@ -189,7 +190,7 @@ def cmd_translate(
     ``limit`` it is a pilot: the first *limit* articles are translated, printed and cached, and the
     file is not touched. Otherwise the file is backed up to ``backup/`` (with the time in the name,
     never over an earlier backup) and rewritten with every other cell as it was."""
-    source = out / (file or retag.REVIEW_NAME)
+    source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
     except retag.TagFileError as exc:
@@ -228,6 +229,43 @@ def write_guides(out: Path, universe_companies: list[Company] | None = None) -> 
     write_csv(out / "category_gold_v2_guide.csv", retag.guide_rows())
     write_csv(
         out / "gics_sub_industries.csv", retag.sub_industry_rows(universe_companies or companies())
+    )
+
+
+def review_path(out: Path, file: str | None = None) -> Path:
+    """The review file to work on; if it is missing, say which similar files exist (the owner may
+    have saved it under another name) instead of a bare FileNotFoundError."""
+    path = out / (file or retag.REVIEW_NAME)
+    if not path.exists():
+        similar = sorted(p.name for p in out.glob("category_gold_v2_review*.csv"))
+        hint = (
+            f"; similar files in {out}: {', '.join(similar)} (use --file NAME)" if similar else ""
+        )
+        sys.exit(f"{path} not found{hint}")
+    return path
+
+
+def cmd_migrate(out: Path, *, file: str | None = None) -> None:
+    """Write a copy of a review file of the first format (a ``companies`` column, ``;``) in the
+    current one (no ``companies``, commas), under a new name with the date and time: no earlier
+    file is ever replaced, so a copy already worked in is safe. The file given is not touched.
+    Companies that were in ``companies`` but not in ``company_labels`` are kept in
+    ``company_labels`` without a label and listed."""
+    source = review_path(out, file)
+    rows = _read(source)
+    needed = {"article_id", "scope", "company_labels", "mentions"}
+    if not rows or needed - set(rows[0]):
+        sys.exit(f"{source.name} lacks the columns {sorted(needed - set(rows[0] if rows else ()))}")
+    new_rows, problems = retag.migrate_rows(rows)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    target = out / f"{source.stem.rstrip('_')}_new_format_{stamp}.csv"
+    write_csv(target, new_rows)
+    for problem in problems:
+        print(f"  {problem}")
+    print(
+        f"{len(new_rows)} rows -> {target}; {len(problems)} cells need your attention.\n"
+        f"Continue in {target.name} and stop editing {source.name}: tagging done in {source.name} "
+        "after this point is not in the copy."
     )
 
 
@@ -289,7 +327,7 @@ def cmd_normalise(
             sys.exit(1)
         return
     book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
-    source = out / (file or retag.REVIEW_NAME)
+    source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
     except retag.TagFileError as exc:
@@ -316,7 +354,11 @@ def cmd_normalise(
         )
     write_csv(target, result)
     if problems:
-        print("left as typed (fix them in the review file):", *problems, sep="\n")
+        print(
+            "left as typed (outside the 509 companies, or a typo: fix typos in the review file):",
+            *problems,
+            sep="\n",
+        )
     if confirm:
         print("converted by inference (please confirm):", *confirm, sep="\n")
     print(
@@ -330,9 +372,7 @@ def cmd_check(
 ) -> None:
     expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
     try:
-        report = retag.load_gold_v2(
-            out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
-        )
+        report = retag.load_gold_v2(review_path(out, file), expected, universe or load_universe())
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     print(
@@ -340,6 +380,9 @@ def cmd_check(
         f"untagged {report.untagged}, expected {len(expected)}"
     )
     print("scopes:", dict(Counter(g.scope for g in report.good)))
+    if report.outside:
+        shown = ", ".join(f"{n} ({c})" for n, c in sorted(report.outside.items()))
+        print(f"outside the universe, kept as typed (look for typos): {shown}")
     for label, ids in (
         ("missing ids", report.missing),
         ("duplicated ids", report.duplicated),
@@ -355,7 +398,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "guide", "normalise", "check", "translate"))
+    parser.add_argument(
+        "command", choices=("export", "guide", "normalise", "check", "translate", "migrate")
+    )
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", help="review file name inside --out (check, normalise)")
     parser.add_argument("--limit", type=int, help="translate: pilot on the first N, file untouched")
@@ -386,6 +431,8 @@ def main() -> None:
         cmd_translate(
             args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new
         )
+    elif args.command == "migrate":
+        cmd_migrate(args.out, file=args.file)
     elif args.command == "guide":
         cmd_guide(args.out)
     elif args.command == "normalise":
