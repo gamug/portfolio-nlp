@@ -20,15 +20,37 @@ HUMAN_COLUMNS = ("human_label", "human_notes")
 
 
 class TaggedFileError(RuntimeError):
-    """The review file already holds human labels: it is not overwritten."""
+    """The review file already holds human labels, or cannot be read back (another delimiter or
+    code page): it is not overwritten."""
 
 
 def tagged_rows(path: Path, column: str = "human_label") -> int:
-    """How many rows of the CSV at *path* have a non-empty *column* (0 if it is absent)."""
+    """How many rows of the CSV at *path* have a non-empty *column* (0 if the file is absent).
+    Raises :class:`TaggedFileError` if the file exists but has no such column or is not UTF-8:
+    a file re-saved by a spreadsheet must not read as 'untagged'."""
     if not path.exists():
         return 0
+    _require_readable(path, column)
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return sum(bool((row.get(column) or "").strip()) for row in csv.DictReader(fh))
+
+
+def _require_readable(path: Path, tag_column: str) -> None:
+    """An existing review file must still parse into its tag column. A file re-saved by a
+    spreadsheet with another delimiter or code page has no such column, reads as 'untagged' and
+    would be overwritten: refuse instead."""
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            header = next(csv.reader(fh), [])
+    except UnicodeDecodeError as exc:
+        raise TaggedFileError(
+            f"{path} is not UTF-8 ({exc.reason}); refusing to overwrite it"
+        ) from exc
+    if tag_column not in header:
+        raise TaggedFileError(
+            f"{path} has no {tag_column!r} column (saved with another delimiter or code page?); "
+            "refusing to overwrite it"
+        )
 
 
 def _write(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:

@@ -1,7 +1,9 @@
 """The owner's re-tag of the 720 judged articles under the new taxonomy (Work item 18, T-146b).
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
-    uv run scripts/retag_gold_2026_10_29.py check  [--out data]   # validates the returned file
+    uv run scripts/retag_gold_2026_10_29.py guide  [--out data]   # rewrites the guide CSVs only
+    uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
+    uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
 
 ``export`` reads ``data/category_gold_review.csv`` and its key (tags v1) and writes
 ``category_gold_v2_review.csv`` (the article, the v1 label and note and the scope they imply as
@@ -10,7 +12,12 @@ guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``mentions`` / 
 ``category_gold_v2_key.csv`` (the v1 key, where the LLM's label stays: the owner is not shown it).
 It **refuses to overwrite a file that already has scopes filled in**. ``check`` lists the
 untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``).
-Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_launch; MSFT:other``.
+Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_innovation; MSFT:other``.
+The owner may type names or nicknames instead of tickers (``Apple; Google``, ``Apple:other``):
+``normalise`` writes ``category_gold_v2_review_tickers.csv`` with tickers and lists every text it
+could not resolve or that fits several companies (left as typed, never guessed), and the matches
+it inferred (a first word, a brand, a ticker that is also a word) for the owner to confirm; the
+review file is not changed. ``check --file category_gold_v2_review_tickers.csv`` then validates that copy.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from news_nlp import retag
+from news_nlp import company_names, retag
 from news_nlp.gold_review import TaggedFileError, write_review_files
 from news_nlp.triage import Company
 
@@ -48,13 +55,24 @@ def cmd_export(out: Path, *, universe_companies: list[Company] | None = None) ->
         )
     except TaggedFileError as exc:
         sys.exit(f"{exc}. Copy it elsewhere or pass another --out directory.")
+    write_guides(out, universe_companies)
+    print(
+        f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
+    )
+
+
+def write_guides(out: Path, universe_companies: list[Company] | None = None) -> None:
+    """The labels guide and the GICS sub-industry list: code-generated, safe to rewrite while the
+    review file is being tagged (``cmd_export`` refuses to touch that one)."""
     write_csv(out / "category_gold_v2_guide.csv", retag.guide_rows())
     write_csv(
         out / "gics_sub_industries.csv", retag.sub_industry_rows(universe_companies or companies())
     )
-    print(
-        f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
-    )
+
+
+def cmd_guide(out: Path, *, universe_companies: list[Company] | None = None) -> None:
+    write_guides(out, universe_companies)
+    print(f"{out / 'category_gold_v2_guide.csv'} and {out / 'gics_sub_industries.csv'} rewritten")
 
 
 def companies() -> list[Company]:
@@ -62,8 +80,8 @@ def companies() -> list[Company]:
 
     conn = db.connect_pipeline()
     rows = conn.execute(
-        "SELECT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
-        "WHERE fetch_status = 'ok' GROUP BY ticker ORDER BY ticker"
+        "SELECT DISTINCT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
+        "WHERE fetch_status = 'ok' ORDER BY ticker, company"
     ).fetchall()
     return [Company(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows]
 
@@ -73,15 +91,89 @@ def load_universe() -> retag.Universe:
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
-    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+    try:
+        fh = path.open("w", newline="", encoding="utf-8-sig")
+    except PermissionError:
+        sys.exit(
+            f"cannot write {path}: it is open in another program (Excel?); close it and run again"
+        )
+    with fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
 
 
-def cmd_check(out: Path, *, universe: retag.Universe | None = None) -> None:
+TICKERS_NAME = "category_gold_v2_review_tickers.csv"
+
+
+def cmd_normalise(
+    out: Path,
+    *,
+    universe_companies: list[Company] | None = None,
+    file: str | None = None,
+    force: bool = False,
+    self_check: bool = False,
+) -> None:
+    """Write the review file with names and nicknames replaced by tickers. It refuses to replace
+    a tickers file that was edited after the review file (``force`` overrides)."""
+    firms = universe_companies or companies()
+    if self_check:
+        failures = company_names.self_check(firms, retag.Universe.of(firms).tickers)
+        print(
+            f"self-check: {len(failures)} names do not resolve to their own ticker",
+            *failures,
+            sep="\n  ",
+        )
+        if failures:
+            sys.exit(1)
+        return
+    book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
+    source = out / (file or retag.REVIEW_NAME)
+    try:
+        rows = retag.read_tag_file(source)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    result: list[dict[str, str]] = []
+    problems: list[str] = []
+    confirm: list[str] = []
+    for row in rows:
+        new, found, inferred = company_names.normalise_row(book, row)
+        result.append(new)
+        tag = f"article {row.get('article_id')}"
+        problems += [f"  {tag}: {p}" for p in found]
+        confirm += [f"  {tag}: {c}" for c in inferred]
+    target = out / TICKERS_NAME
+    if (
+        target.exists()
+        and not force
+        and target.stat().st_mtime >= source.stat().st_mtime
+        and _read(target) != [{k: str(v) for k, v in r.items()} for r in result]
+    ):
+        sys.exit(
+            f"{target} was edited after {source.name}: fix the cells in {source.name} and run "
+            "normalise again, or pass --force to overwrite the copy"
+        )
+    write_csv(target, result)
+    if problems:
+        print("left as typed (fix them in the review file):", *problems, sep="\n")
+    if confirm:
+        print("converted by inference (please confirm):", *confirm, sep="\n")
+    print(
+        f"{len(result)} rows -> {out / TICKERS_NAME}; {len(problems)} texts left as typed, "
+        f"{len(confirm)} to confirm"
+    )
+
+
+def cmd_check(
+    out: Path, *, universe: retag.Universe | None = None, file: str | None = None
+) -> None:
     expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
-    report = retag.load_gold_v2(out / retag.REVIEW_NAME, expected, universe or load_universe())
+    try:
+        report = retag.load_gold_v2(
+            out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
+        )
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
     print(
         f"tagged and valid {len(report.good)}, with errors {len(report.bad)}, "
         f"untagged {report.untagged}, expected {len(expected)}"
@@ -102,10 +194,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "check"))
+    parser.add_argument("command", choices=("export", "guide", "normalise", "check"))
     parser.add_argument("--out", type=Path, default=Path("data"))
+    parser.add_argument("--file", help="review file name inside --out (check, normalise)")
+    parser.add_argument("--force", action="store_true", help="normalise: overwrite an edited copy")
+    parser.add_argument(
+        "--self-check", action="store_true", help="normalise: every universe name -> its ticker"
+    )
     args = parser.parse_args()
-    {"export": cmd_export, "check": cmd_check}[args.command](args.out)
+    if args.command == "export":
+        cmd_export(args.out)
+    elif args.command == "guide":
+        cmd_guide(args.out)
+    elif args.command == "normalise":
+        cmd_normalise(args.out, file=args.file, force=args.force, self_check=args.self_check)
+    else:
+        cmd_check(args.out, file=args.file)
 
 
 if __name__ == "__main__":

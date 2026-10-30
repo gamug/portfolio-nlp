@@ -212,3 +212,94 @@ def test_guide_and_sub_industry_rows() -> None:
         [Company("A", "A", "Tech", "Software"), Company("B", "B", "Tech", "Software")]
     )
     assert rows == [{"gics_sector": "Tech", "gics_sub_industry": "Software"}]
+
+
+def _saved_with_semicolons(path: Path) -> None:
+    """What a spreadsheet in a ';' locale makes of a tagged review file."""
+    path.write_text(
+        "review_order;article_id;scope;companies\n1;10;single;AAPL\n", encoding="utf-8-sig"
+    )
+
+
+def test_export_refuses_a_tagged_file_it_can_no_longer_parse(tmp_path: Path) -> None:
+    _saved_with_semicolons(tmp_path / retag.REVIEW_NAME)
+    before = (tmp_path / retag.REVIEW_NAME).read_bytes()
+    review, key = retag.retag_rows([V1], [KEY])
+    with pytest.raises(TaggedFileError, match="no 'scope' column"):
+        write_review_files(
+            tmp_path,
+            review,
+            key,
+            review_name=retag.REVIEW_NAME,
+            key_name=retag.KEY_NAME,
+            tag_column="scope",
+        )
+    assert (tmp_path / retag.REVIEW_NAME).read_bytes() == before
+
+
+def test_export_refuses_a_review_file_in_another_code_page(tmp_path: Path) -> None:
+    (tmp_path / retag.REVIEW_NAME).write_bytes("scope,notes\nsingle,Estée\n".encode("cp1252"))
+    review, key = retag.retag_rows([V1], [KEY])
+    with pytest.raises(TaggedFileError, match="not UTF-8"):
+        write_review_files(
+            tmp_path,
+            review,
+            key,
+            review_name=retag.REVIEW_NAME,
+            key_name=retag.KEY_NAME,
+            tag_column="scope",
+        )
+
+
+def test_read_tag_file_names_the_problem(tmp_path: Path) -> None:
+    _saved_with_semicolons(tmp_path / "a.csv")
+    with pytest.raises(retag.TagFileError, match="CSV UTF-8"):
+        retag.read_tag_file(tmp_path / "a.csv")
+    (tmp_path / "b.csv").write_bytes("article_id,scope\n1,Estée\n".encode("cp1252"))
+    with pytest.raises(retag.TagFileError, match="not UTF-8"):
+        retag.read_tag_file(tmp_path / "b.csv")
+    with pytest.raises(retag.TagFileError):
+        retag.load_gold_v2(tmp_path / "a.csv")
+
+
+def test_cli_check_and_normalise_stop_with_a_message_on_a_misread_file(tmp_path: Path) -> None:
+    import sys  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as script  # noqa: PLC0415
+
+    _saved_with_semicolons(tmp_path / retag.REVIEW_NAME)
+    (tmp_path / retag.KEY_NAME).write_text(
+        "review_order,article_id,llm_label\n1,10,x\n", encoding="utf-8-sig"
+    )
+    with pytest.raises(SystemExit, match="CSV UTF-8"):
+        script.cmd_check(tmp_path, universe=UNIVERSE)
+    with pytest.raises(SystemExit, match="CSV UTF-8"):
+        script.cmd_normalise(tmp_path, universe_companies=[Company("AAPL", "Apple", "x", "y")])
+
+
+def test_self_check_exits_non_zero_on_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as script  # noqa: PLC0415
+
+    from news_nlp import company_names  # noqa: PLC0415
+
+    firms = [Company("AAPL", "Apple Inc.", "x", "y"), Company("ALL", "Allstate", "x", "y")]
+    script.cmd_normalise(tmp_path, universe_companies=firms, self_check=True)  # clean: returns
+    monkeypatch.setitem(company_names.NICKNAMES, "ALL", ("Apple",))
+    with pytest.raises(SystemExit) as exc:
+        script.cmd_normalise(tmp_path, universe_companies=firms, self_check=True)
+    assert exc.value.code == 1
+
+
+def test_tagged_rows_itself_refuses_a_file_it_cannot_parse(tmp_path: Path) -> None:
+    from news_nlp.gold_review import tagged_rows  # noqa: PLC0415
+
+    assert tagged_rows(tmp_path / "missing.csv", "scope") == 0
+    _saved_with_semicolons(tmp_path / "a.csv")
+    with pytest.raises(TaggedFileError, match="no 'scope' column"):
+        tagged_rows(tmp_path / "a.csv", "scope")
