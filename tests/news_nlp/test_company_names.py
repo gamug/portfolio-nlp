@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
 from news_nlp import retag
-from news_nlp.company_names import BRANDS, NICKNAMES, NameBook, normalise_row
+from news_nlp.company_names import (
+    BRANDS,
+    NICKNAMES,
+    NameBook,
+    _key,
+    normalise_row,
+    self_check,
+)
 from news_nlp.triage import Company
 
 FIRMS = [
@@ -199,5 +207,86 @@ def test_a_nickname_or_brand_names_one_ticker() -> None:
     for table in (NICKNAMES, BRANDS):
         for ticker, names in table.items():
             for name in names:
-                key = name.lower()
+                key = _key(name)
                 assert seen.setdefault(key, ticker) == ticker, f"{name!r}: {seen[key]} and {ticker}"
+
+
+def test_two_letter_tickers_are_not_flagged_but_words_and_letters_are() -> None:
+    firms = [
+        *FIRMS,
+        Company("GE", "GE Aerospace", "x", "y"),
+        Company("GM", "General Motors", "x", "y"),
+    ]
+    firms += [
+        Company("F", "Ford Motor Company", "x", "y"),
+        Company("ON", "ON Semiconductor", "x", "y"),
+    ]
+    book = NameBook(firms, retag.Universe.of(firms).tickers)
+    assert book.lookup("GM") == ("GM", None, "") and book.lookup("GE") == ("GE", None, "")
+    assert book.lookup("F").note == "word ticker" and book.lookup("ON").note == "word ticker"
+
+
+def test_self_check_finds_a_name_hijacked_by_a_nickname(monkeypatch: pytest.MonkeyPatch) -> None:
+    canonical = retag.Universe.of(FIRMS).tickers
+    assert self_check(FIRMS, canonical) == []
+    monkeypatch.setitem(NICKNAMES, "ALL", ("Apple",))  # Allstate "is" Apple too: now ambiguous
+    failures = self_check(FIRMS, canonical)
+    assert any(f.startswith("AAPL 'Apple Inc.': ambiguous") for f in failures)
+
+
+def _write_review(path: Path, companies: str) -> None:
+    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow({**dict.fromkeys(fields, ""), "article_id": "10", "companies": companies})
+
+
+def test_normalise_does_not_overwrite_an_edited_copy(tmp_path: Path) -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415 -- the script is not a package
+
+    review = tmp_path / retag.REVIEW_NAME
+    copy = tmp_path / cli.TICKERS_NAME
+    _write_review(review, "Apple")
+    cli.cmd_normalise(tmp_path, universe_companies=FIRMS)
+    cli.cmd_normalise(tmp_path, universe_companies=FIRMS)  # unchanged copy: allowed
+    copy.write_text(
+        copy.read_text(encoding="utf-8-sig").replace("AAPL", "MSFT"), encoding="utf-8-sig"
+    )
+    os.utime(review, (copy.stat().st_mtime - 10,) * 2)  # the copy is newer than the review file
+    with pytest.raises(SystemExit):
+        cli.cmd_normalise(tmp_path, universe_companies=FIRMS)
+    cli.cmd_normalise(tmp_path, universe_companies=FIRMS, force=True)
+    assert "AAPL" in copy.read_text(encoding="utf-8-sig")
+    _write_review(review, "Microsoft")  # the review file was edited after the copy: allowed
+    os.utime(review, (copy.stat().st_mtime + 10,) * 2)
+    cli.cmd_normalise(tmp_path, universe_companies=FIRMS)
+    assert "MSFT" in copy.read_text(encoding="utf-8-sig")
+
+
+def test_guide_command_rewrites_only_the_guides(tmp_path: Path) -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415
+
+    _write_review(tmp_path / retag.REVIEW_NAME, "Apple")
+    before = (tmp_path / retag.REVIEW_NAME).read_bytes()
+    cli.cmd_guide(tmp_path, universe_companies=FIRMS)
+    assert (tmp_path / retag.REVIEW_NAME).read_bytes() == before
+    assert "column,companies" in (tmp_path / "category_gold_v2_guide.csv").read_text(
+        encoding="utf-8-sig"
+    )
+
+
+def test_a_file_open_in_another_program_gives_a_clear_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415
+
+    def locked(*_a: object, **_k: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "open", locked)
+    with pytest.raises(SystemExit, match="close it"):
+        cli.write_csv(tmp_path / "guide.csv", [{"a": "1"}])

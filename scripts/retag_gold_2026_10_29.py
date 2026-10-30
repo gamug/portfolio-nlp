@@ -1,6 +1,7 @@
 """The owner's re-tag of the 720 judged articles under the new taxonomy (Work item 18, T-146b).
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
+    uv run scripts/retag_gold_2026_10_29.py guide  [--out data]   # rewrites the guide CSVs only
     uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
     uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
 
@@ -54,13 +55,24 @@ def cmd_export(out: Path, *, universe_companies: list[Company] | None = None) ->
         )
     except TaggedFileError as exc:
         sys.exit(f"{exc}. Copy it elsewhere or pass another --out directory.")
+    write_guides(out, universe_companies)
+    print(
+        f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
+    )
+
+
+def write_guides(out: Path, universe_companies: list[Company] | None = None) -> None:
+    """The labels guide and the GICS sub-industry list: code-generated, safe to rewrite while the
+    review file is being tagged (``cmd_export`` refuses to touch that one)."""
     write_csv(out / "category_gold_v2_guide.csv", retag.guide_rows())
     write_csv(
         out / "gics_sub_industries.csv", retag.sub_industry_rows(universe_companies or companies())
     )
-    print(
-        f"{len(review)} articles -> {out / retag.REVIEW_NAME}; guide and sub-industry list written"
-    )
+
+
+def cmd_guide(out: Path, *, universe_companies: list[Company] | None = None) -> None:
+    write_guides(out, universe_companies)
+    print(f"{out / 'category_gold_v2_guide.csv'} and {out / 'gics_sub_industries.csv'} rewritten")
 
 
 def companies() -> list[Company]:
@@ -79,7 +91,13 @@ def load_universe() -> retag.Universe:
 
 
 def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
-    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+    try:
+        fh = path.open("w", newline="", encoding="utf-8-sig")
+    except PermissionError:
+        sys.exit(
+            f"cannot write {path}: it is open in another program (Excel?); close it and run again"
+        )
+    with fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
@@ -89,12 +107,27 @@ TICKERS_NAME = "category_gold_v2_review_tickers.csv"
 
 
 def cmd_normalise(
-    out: Path, *, universe_companies: list[Company] | None = None, file: str | None = None
+    out: Path,
+    *,
+    universe_companies: list[Company] | None = None,
+    file: str | None = None,
+    force: bool = False,
+    self_check: bool = False,
 ) -> None:
-    """Write the review file with names and nicknames replaced by tickers."""
+    """Write the review file with names and nicknames replaced by tickers. It refuses to replace
+    a tickers file that was edited after the review file (``force`` overrides)."""
     firms = universe_companies or companies()
+    if self_check:
+        failures = company_names.self_check(firms, retag.Universe.of(firms).tickers)
+        print(
+            f"self-check: {len(failures)} names do not resolve to their own ticker",
+            *failures,
+            sep="\n  ",
+        )
+        return
     book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
-    rows = _read(out / (file or retag.REVIEW_NAME))
+    source = out / (file or retag.REVIEW_NAME)
+    rows = _read(source)
     result: list[dict[str, str]] = []
     problems: list[str] = []
     confirm: list[str] = []
@@ -104,7 +137,18 @@ def cmd_normalise(
         tag = f"article {row.get('article_id')}"
         problems += [f"  {tag}: {p}" for p in found]
         confirm += [f"  {tag}: {c}" for c in inferred]
-    write_csv(out / TICKERS_NAME, result)
+    target = out / TICKERS_NAME
+    if (
+        target.exists()
+        and not force
+        and target.stat().st_mtime >= source.stat().st_mtime
+        and _read(target) != [{k: str(v) for k, v in r.items()} for r in result]
+    ):
+        sys.exit(
+            f"{target} was edited after {source.name}: fix the cells in {source.name} and run "
+            "normalise again, or pass --force to overwrite the copy"
+        )
+    write_csv(target, result)
     if problems:
         print("left as typed (fix them in the review file):", *problems, sep="\n")
     if confirm:
@@ -142,14 +186,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "normalise", "check"))
+    parser.add_argument("command", choices=("export", "guide", "normalise", "check"))
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", help="review file name inside --out (check, normalise)")
+    parser.add_argument("--force", action="store_true", help="normalise: overwrite an edited copy")
+    parser.add_argument(
+        "--self-check", action="store_true", help="normalise: every universe name -> its ticker"
+    )
     args = parser.parse_args()
     if args.command == "export":
         cmd_export(args.out)
+    elif args.command == "guide":
+        cmd_guide(args.out)
     elif args.command == "normalise":
-        cmd_normalise(args.out, file=args.file)
+        cmd_normalise(args.out, file=args.file, force=args.force, self_check=args.self_check)
     else:
         cmd_check(args.out, file=args.file)
 

@@ -157,7 +157,10 @@ BRANDS: dict[str, tuple[str, ...]] = {
 #: explicit ticker for itself.
 CLASS_A = {"FOX": "FOXA", "NWS": "NWSA"}
 _MIN_FIRST_WORD = 3
-_SHORT_TICKER = 2  # one- and two-letter tickers (A, C, F, T, V, IT, ON) are also everyday letters
+#: Tickers that are also everyday words or letters: every one-letter ticker (A, C, F, T, V) and
+#: the words below, besides triage's ``_WORD_TICKERS``. Two-letter tickers such as GE or GM are not
+#: flagged: the owner types them all the time and the list would stop being read.
+_ENGLISH_TICKERS = _WORD_TICKERS | {"IT", "ON", "BE", "ES", "EG", "ED", "PM"}
 _FOLD = str.maketrans({"\u2019": "'", "\u00e9": "e", "\u2013": "-"})
 
 
@@ -178,7 +181,7 @@ class Match(NamedTuple):
 
 
 def _is_word_ticker(ticker: str) -> bool:
-    return len(ticker) <= _SHORT_TICKER or ticker in _WORD_TICKERS
+    return len(ticker) == 1 or ticker in _ENGLISH_TICKERS
 
 
 @dataclass
@@ -189,7 +192,7 @@ class NameBook:
     word of one name, (3) a ticker in any case. Share classes of one company resolve to one
     ticker (the universe's ``by_ticker`` map). Matches that are inferred, not exact, carry a
     ``note`` for the owner to confirm: a first word (``Home``), a brand (``Instagram``), a ticker
-    that is also a word or has one or two letters (``ALL``, ``IT``), a ticker typed in lower case."""
+    that is also a word or a single letter (``ALL``, ``IT``, ``F``), a ticker typed in lower case."""
 
     companies: Sequence[Company]
     canonical: dict[str, str]  # ticker -> canonical ticker of its share-class family
@@ -310,3 +313,17 @@ def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems:
         else:
             labels[ticker] = label
     return "; ".join([*(f"{t}:{lb}" for t, lb in labels.items()), *kept])
+
+
+def self_check(companies: Sequence[Company], canonical: dict[str, str]) -> list[str]:
+    """Every company name must resolve to its own ticker: a nickname or brand that hijacks another
+    company's legal name makes that name ambiguous or wrong. Run it after adding a nickname
+    (``retag_gold_2026_10_29.py normalise --self-check`` does, on the real universe)."""
+    book = NameBook(companies, canonical)
+    failures: list[str] = []
+    for company in companies:
+        want = book._name_ticker(company.ticker)
+        got = book.lookup(company.name)
+        if got.ticker != want:
+            failures.append(f"{company.ticker} {company.name!r}: {got.ticker or got.why}")
+    return failures

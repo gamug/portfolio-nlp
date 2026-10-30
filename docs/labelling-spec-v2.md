@@ -17,7 +17,7 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | column | content |
 |---|---|
 | `scope` | one of the six scopes below (always filled) |
-| `companies` | the **analysed** companies, separated by `;` (single: exactly one; multi: two or more; the other scopes: none). Tickers, or names and nicknames as the article writes them: `normalise` (PR #119) converts them to tickers before `check` |
+| `companies` | the **analysed** companies, separated by `;` (single: exactly one; multi: two or more; the other scopes: none). Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` |
 | `company_labels` | one label per analysed company, `TICKER:label; TICKER:label` (a name works in place of the ticker) |
 | `mentions` | companies named but not analysed (D23), tickers separated by `;`; in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
 | `sub_industry` | a GICS sub-industry of the source (sector bodies only; spelling as in the source) |
