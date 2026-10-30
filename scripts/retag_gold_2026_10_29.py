@@ -28,7 +28,7 @@ import csv
 import shutil
 import sys
 from collections import Counter
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -36,6 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from news_nlp import company_names, retag, translate
 from news_nlp.gold_review import TaggedFileError, tagged_rows, write_review_files
 from news_nlp.triage import Company
+
+DEFAULT_MAX_NEW = 800  # the most new translations one run may buy without raising --max-new
 
 
 def _read(path: Path) -> list[dict[str, str]]:
@@ -56,6 +58,8 @@ def cmd_export(
     universe_companies: list[Company] | None = None,
     translator: translate.LLMTranslator | None = None,
     spanish: bool = True,
+    yes: bool = False,
+    max_new: int = DEFAULT_MAX_NEW,
 ) -> None:
     """Export the file to tag. It carries ``spanish_title`` / ``spanish_text`` after ``text``
     (translated once per article, cached) unless ``spanish`` is False."""
@@ -66,7 +70,7 @@ def cmd_export(
         if tagged_rows(out / retag.REVIEW_NAME, "scope"):  # refuse before paying for anything
             sys.exit(f"{out / retag.REVIEW_NAME} is already tagged; refusing to overwrite it")
         rows = [{k: str(v) for k, v in r.items()} for r in review]
-        got = add_spanish(out, rows, translator or _translator())
+        got = add_spanish(out, rows, translator or _translator(), yes=yes, max_new=max_new)
         review = got
     try:
         write_review_files(
@@ -85,6 +89,32 @@ def cmd_export(
     )
 
 
+def confirm_spend(new: int, *, yes: bool, max_new: int) -> None:
+    """Paid LLM calls need an explicit go: print what is about to be bought and stop unless the
+    owner passed ``--yes``; refuse a run above ``--max-new`` unless it was raised on purpose."""
+    if new == 0:
+        return
+    prompt, completion = translate.estimate(new)
+    print(
+        f"{new} articles to translate: paid LLM calls, about {prompt:,} prompt and "
+        f"{completion:,} completion tokens"
+    )
+    if new > max_new:
+        sys.exit(f"{new} is above --max-new {max_new}: raise it on purpose to go on")
+    if not yes:
+        sys.exit("nothing was bought: pass --yes to pay for them")
+
+
+def _report(done: translate.Outcome, rows_total: int) -> None:
+    print(
+        f"translated {done.translated} new articles ({done.prompt_tokens} prompt and "
+        f"{done.completion_tokens} completion tokens), {len(done.failures)} failed"
+        + (f"; STOPPED: {done.aborted}" if done.aborted else "")
+    )
+    for article_id, why in sorted(done.failures.items()):
+        print(f"  article {article_id}: {why}")
+
+
 def add_spanish(
     out: Path,
     rows: list[dict[str, str]],
@@ -92,18 +122,24 @@ def add_spanish(
     *,
     limit: int | None = None,
     workers: int = 8,
+    yes: bool = False,
+    max_new: int = DEFAULT_MAX_NEW,
 ) -> list[dict[str, str]]:
     """The rows with the Spanish columns after ``text``; translations are cached in ``out`` and
-    the token use of the new ones is printed. A failed article keeps empty Spanish cells."""
+    the token use of the new ones is printed. Nothing is bought without ``yes``. If any article
+    failed or the run stopped, it exits non-zero before anything is written; the cache keeps the
+    rest, so a re-run pays only for the missing ones."""
     cache = translate.TranslationCache(out / translate.CACHE_NAME)
-    done = translate.translate_rows(rows, translator.translate, cache, workers=workers, limit=limit)
-    print(
-        f"translated {done.translated} new articles ({done.prompt_tokens} prompt and "
-        f"{done.completion_tokens} completion tokens), {len(rows) - len(done.failures) - done.translated} "
-        f"from cache, {len(done.failures)} failed"
+    todo = translate.pending(rows, cache, translator.tag)
+    confirm_spend(
+        min(len(todo), limit) if limit is not None else len(todo), yes=yes, max_new=max_new
     )
-    for article_id, why in sorted(done.failures.items()):
-        print(f"  article {article_id}: {why}")
+    done = translate.translate_rows(
+        rows, translator.translate, cache, workers=workers, limit=limit, tag=translator.tag
+    )
+    _report(done, len(rows))
+    if done.failures or done.aborted:
+        sys.exit("not written: run it again (only the missing articles are paid for)")
     return translate.with_spanish(rows, done.translations)
 
 
@@ -114,11 +150,13 @@ def cmd_translate(
     file: str | None = None,
     limit: int | None = None,
     workers: int = 8,
+    yes: bool = False,
+    max_new: int = DEFAULT_MAX_NEW,
 ) -> None:
     """Add ``spanish_title`` / ``spanish_text`` after ``text`` to an existing review file. With
     ``limit`` it is a pilot: the first *limit* articles are translated, printed and cached, and the
-    file is not touched. Otherwise the file is backed up to ``backup/`` first and rewritten with
-    every other cell as it was."""
+    file is not touched. Otherwise the file is backed up to ``backup/`` (with the time in the name,
+    never over an earlier backup) and rewritten with every other cell as it was."""
     source = out / (file or retag.REVIEW_NAME)
     try:
         rows = retag.read_tag_file(source)
@@ -127,14 +165,25 @@ def cmd_translate(
     translator = translator or _translator()
     if limit is not None:
         cache = translate.TranslationCache(out / translate.CACHE_NAME)
-        done = translate.translate_rows(rows, translator.translate, cache, limit=limit)
+        todo = translate.pending(rows, cache, translator.tag)
+        confirm_spend(min(len(todo), limit), yes=yes, max_new=max_new)
+        done = translate.translate_rows(
+            rows, translator.translate, cache, limit=limit, tag=translator.tag
+        )
         for article_id, pair in list(done.translations.items())[:limit]:
             print(f"--- article {article_id}\n{pair.title}\n{pair.text[:700]}")
-        print(f"pilot: {done.translated} new, {done.prompt_tokens}/{done.completion_tokens} tokens")
+        _report(done, len(rows))
+        if done.failures or done.aborted:
+            sys.exit("pilot failed")
         return
-    result = add_spanish(out, rows, translator, workers=workers)
-    backup = out / "backup" / f"{source.stem}_before_translate_{date.today():%Y-%m-%d}.csv"
+    result = add_spanish(out, rows, translator, workers=workers, yes=yes, max_new=max_new)
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup = out / "backup" / f"{source.stem}_before_translate_{stamp}.csv"
     backup.parent.mkdir(parents=True, exist_ok=True)
+    for n in range(2, 100):  # never over an earlier backup, even within the same second
+        if not backup.exists():
+            break
+        backup = backup.with_name(f"{source.stem}_before_translate_{stamp}_{n}.csv")
     shutil.copy2(source, backup)
     write_csv(source, result)
     print(f"{len(result)} rows -> {source} (backup: {backup})")
@@ -278,6 +327,12 @@ def main() -> None:
     parser.add_argument("--file", help="review file name inside --out (check, normalise)")
     parser.add_argument("--limit", type=int, help="translate: pilot on the first N, file untouched")
     parser.add_argument(
+        "--yes", action="store_true", help="export, translate: pay for new translations"
+    )
+    parser.add_argument(
+        "--max-new", type=int, default=DEFAULT_MAX_NEW, help="export, translate: most new articles"
+    )
+    parser.add_argument(
         "--no-spanish", action="store_true", help="export: no spanish_title / spanish_text columns"
     )
     parser.add_argument("--force", action="store_true", help="normalise: overwrite an edited copy")
@@ -286,9 +341,11 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.command == "export":
-        cmd_export(args.out, spanish=not args.no_spanish)
+        cmd_export(args.out, spanish=not args.no_spanish, yes=args.yes, max_new=args.max_new)
     elif args.command == "translate":
-        cmd_translate(args.out, file=args.file, limit=args.limit)
+        cmd_translate(
+            args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new
+        )
     elif args.command == "guide":
         cmd_guide(args.out)
     elif args.command == "normalise":

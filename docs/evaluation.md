@@ -3073,3 +3073,16 @@ names:
    only in whether a data file happens to exist on disk at train time,
    which `ExperimentSpec` has no field for. Running either spec **today**
    reproduces v3's behavior, not v2's original pre-rebalance pool.
+
+### Follow-up (2026-10-30): Spanish reading aid for the gold v2 file (Work item 18, T-146b)
+
+Not a labelling run: `deepseek-chat` (`LLM_*`) translated the title and text of the 720 bodies of
+`data/category_gold_v2_review.csv` into Spanish for the owner, who finds the English finance jargon
+hard to read (`news_nlp.translate`, `scripts/retag_gold_2026_10_29.py translate`). It asks for no
+label and is outside the D18 labelling budget, but it is paid, so it is logged here. **Spend:
+720 articles = 3 pilot calls + 717 calls, 0 failures; 558,469 prompt + 641,963 completion tokens
+for the 717 plus 2,142 + 2,378 for the pilot; about 1 USD at list prices (estimate).** Spanish
+text was 1.05-1.19 times the English length (nothing cut), every original column identical to the
+backup, the key file untouched. A later export of another tagging file (the held-out gold T-146e,
+about 300 bodies) is estimated at 0.8k prompt + 0.9k completion tokens per article and needs
+`--yes`; one run may buy at most `--max-new` (800) articles.

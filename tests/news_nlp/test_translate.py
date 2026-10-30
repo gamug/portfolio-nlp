@@ -114,6 +114,8 @@ def test_with_spanish_goes_right_after_text_and_keeps_the_rest() -> None:
 
 
 class FakeLLM:
+    tag = "t1"
+
     def __init__(self) -> None:
         self.calls = 0
 
@@ -153,9 +155,9 @@ def test_cmd_translate_pilot_leaves_the_file_then_full_run_backs_it_up(
     _review(review)
     before = review.read_bytes()
     llm = FakeLLM()
-    cli.cmd_translate(tmp_path, translator=llm, limit=1)  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=llm, limit=1, yes=True)  # type: ignore[attr-defined]
     assert review.read_bytes() == before and "ES Hi" in capsys.readouterr().out
-    cli.cmd_translate(tmp_path, translator=llm)  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
     assert llm.calls == 1  # the pilot's translation came from the cache
     (row,) = list(csv.DictReader(review.open(encoding="utf-8-sig")))
     assert list(row)[:8] == [
@@ -177,7 +179,7 @@ def test_cmd_translate_keeps_every_tag_already_made(tmp_path: Path) -> None:
     cli = _script()
     review = tmp_path / retag.REVIEW_NAME
     _review(review, scope="single")
-    cli.cmd_translate(tmp_path, translator=FakeLLM())  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=FakeLLM(), yes=True)  # type: ignore[attr-defined]
     (row,) = list(csv.DictReader(review.open(encoding="utf-8-sig")))
     assert row["scope"] == "single" and row["spanish_text"] == "ES Body"
 
@@ -209,12 +211,121 @@ def test_export_adds_the_spanish_columns_and_never_pays_for_a_tagged_file(tmp_pa
             writer.writerow(row)
     firms = [Company("AAPL", "Apple", "x", "y")]
     llm = FakeLLM()
-    cli.cmd_export(tmp_path, universe_companies=firms, translator=llm)  # type: ignore[attr-defined]
+    cli.cmd_export(tmp_path, universe_companies=firms, translator=llm, yes=True)  # type: ignore[attr-defined]
     (row,) = list(csv.DictReader((tmp_path / retag.REVIEW_NAME).open(encoding="utf-8-sig")))
     assert list(row)[6:10] == ["title", "text", "spanish_title", "spanish_text"]
     assert "ES" not in (tmp_path / retag.KEY_NAME).read_text(encoding="utf-8-sig")
     _review(tmp_path / retag.REVIEW_NAME, scope="single")  # now tagged: refuse before translating
     other = FakeLLM()
     with pytest.raises(SystemExit):
-        cli.cmd_export(tmp_path, universe_companies=firms, translator=other)  # type: ignore[attr-defined]
+        cli.cmd_export(tmp_path, universe_companies=firms, translator=other, yes=True)  # type: ignore[attr-defined]
     assert other.calls == 0
+
+
+def test_nothing_is_bought_without_yes_or_above_max_new(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _script()
+    _review(tmp_path / retag.REVIEW_NAME)
+    llm = FakeLLM()
+    with pytest.raises(SystemExit, match="--yes"):
+        cli.cmd_translate(tmp_path, translator=llm)  # type: ignore[attr-defined]
+    assert "1 articles to translate" in capsys.readouterr().out and llm.calls == 0
+    with pytest.raises(SystemExit, match="--max-new 0"):
+        cli.cmd_translate(tmp_path, translator=llm, yes=True, max_new=0)  # type: ignore[attr-defined]
+    assert llm.calls == 0
+
+
+def test_a_fatal_status_stops_the_run_and_failures_in_a_row_too(tmp_path: Path) -> None:
+    seen = {"n": 0}
+
+    def refused(request: httpx.Request) -> httpx.Response:
+        seen["n"] += 1
+        return httpx.Response(402, text="Insufficient Balance")
+
+    rows = [{"article_id": str(i), "title": "t", "text": "x"} for i in range(20)]
+    cache = translate.TranslationCache(tmp_path / "c.csv")
+    done = translate.translate_rows(
+        rows, _translator(refused, retries=3).translate, cache, workers=1
+    )
+    assert "402" in done.aborted and seen["n"] == 1 and not done.failures  # one call, no retries
+
+    def garbage(request: httpx.Request) -> httpx.Response:
+        return _ok("no tags")(request)  # type: ignore[operator, no-any-return]
+
+    done = translate.translate_rows(
+        rows, _translator(garbage, retries=1).translate, cache, workers=1
+    )
+    assert done.aborted == "5 failures in a row" and len(done.failures) == 5
+
+
+def test_a_cut_or_implausible_reply_is_a_failure() -> None:
+    def cut(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"finish_reason": "length", "message": {"content": REPLY}}]},
+        )
+
+    with pytest.raises(translate.TranslationError, match="max_tokens"):
+        _translator(cut, retries=1).translate("t", "x")
+    long_source = "word " * 100  # 500 characters: the reply of 28 is far too short
+    with pytest.raises(translate.TranslationError, match="times the English"):
+        _translator(_ok(), retries=1).translate("t", long_source)
+
+
+def test_cache_key_has_the_model_and_prompt_tag_and_legacy_rows_match_any(tmp_path: Path) -> None:
+    cache = translate.TranslationCache(tmp_path / "c.csv")
+    cache.put("1", "T", "x", translate.Translation("t", "tx"), tag="old")
+    assert cache.get("1", "T", "x", "old") is not None
+    assert cache.get("1", "T", "x", "new") is None  # another model or prompt: a miss
+    legacy = tmp_path / "legacy.csv"
+    legacy.write_text(
+        f"article_id,source_hash,spanish_title,spanish_text\n1,{translate.source_hash('T', 'x')},t,tx\n",
+        encoding="utf-8-sig",
+    )
+    assert translate.TranslationCache(legacy).get("1", "T", "x", "anything") is not None
+    assert _translator(_ok()).tag != translate.LLMTranslator("k", "m2", "u").tag
+
+
+def test_a_failed_article_means_nothing_is_written_and_the_backup_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cli = _script()
+    review = tmp_path / retag.REVIEW_NAME
+    _review(review)
+    before = review.read_bytes()
+
+    class Failing(FakeLLM):
+        def translate(self, title: str, text: str) -> translate.Translation:
+            raise translate.TranslationError("bad reply")
+
+    with pytest.raises(SystemExit, match="not written"):
+        cli.cmd_translate(tmp_path, translator=Failing(), yes=True)  # type: ignore[attr-defined]
+    assert review.read_bytes() == before and not (tmp_path / "backup").exists()
+
+    class Fixed:
+        def now(self) -> object:
+            import datetime  # noqa: PLC0415
+
+            return datetime.datetime(2026, 10, 30, 12, 0, 0)
+
+    monkeypatch.setattr(cli, "datetime", Fixed())  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=FakeLLM(), yes=True)  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=FakeLLM(), yes=True)  # type: ignore[attr-defined]
+    assert len(list((tmp_path / "backup").glob("*_before_translate_*.csv"))) == 2
+
+
+def test_an_old_cache_without_the_tag_column_is_upgraded_in_place(tmp_path: Path) -> None:
+    old = tmp_path / "old.csv"
+    old.write_text(
+        f"article_id,source_hash,spanish_title,spanish_text\n1,{translate.source_hash('T', 'x')},t,tx\n",
+        encoding="utf-8-sig",
+    )
+    cache = translate.TranslationCache(old)
+    cache.put("2", "U", "y", translate.Translation("u", "uy"), tag="new")
+    rows = list(csv.DictReader(old.open(encoding="utf-8-sig")))
+    assert [(r["article_id"], r["tag"], r["spanish_text"]) for r in rows] == [
+        ("1", "", "tx"),
+        ("2", "new", "uy"),
+    ]
+    assert translate.TranslationCache(old).get("1", "T", "x", "new") is not None

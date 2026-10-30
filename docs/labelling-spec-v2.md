@@ -23,7 +23,7 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | `sub_industry` | a GICS sub-industry of the source (sector bodies only; spelling as in the source) |
 | `notes` | anything that helps (never required) |
 
-`spanish_title` and `spanish_text` follow `text`: a Spanish reading aid (finance jargon translated, the English term in parentheses the first time), made by the LLM from the same 6,000 characters. It is never an input of a model and never in the key file. **Every file the owner has to tag carries them.** The tagging rule is always the English article.
+`spanish_title` and `spanish_text` follow `text`: a Spanish reading aid (finance jargon translated, the English term in parentheses the first time), made by the LLM from the same 6,000 characters (the Spanish text therefore stops where the English one is cut). It is never an input of a model and never in the key file. **Every file the owner has to tag carries them.** The tagging rule is always the English article.
 
 `v1_label`, `v1_notes` and `v1_scope_derived` show the first tagging as guidance.
 `v1_scope_derived` is a regex reading of the v1 notes, not the owner's decision: overrule it freely.
