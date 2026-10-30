@@ -303,10 +303,24 @@ def test_a_file_open_in_another_program_gives_a_clear_message(
         cli.write_csv(tmp_path / "guide.csv", [{"a": "1"}])
 
 
-def test_cmd_migrate_writes_a_new_file_and_leaves_the_old_one(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+class _Clock:
+    """A clock that moves one second per call, so two migrations get two names."""
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def now(self) -> Any:
+        import datetime  # noqa: PLC0415
+
+        self.n += 1
+        return datetime.datetime(2026, 10, 30, 12, 0, self.n)
+
+
+def test_cmd_migrate_never_replaces_an_earlier_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cli = _script_cli()
+    monkeypatch.setattr(cli, "datetime", _Clock())
     fields = ["article_id", "scope", "companies", "company_labels", "mentions"]
     path = tmp_path / "work_.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
@@ -323,13 +337,54 @@ def test_cmd_migrate_writes_a_new_file_and_leaves_the_old_one(
         )
     before = path.read_bytes()
     cli.cmd_migrate(tmp_path, file="work_.csv")
+    shown = capsys.readouterr().out
     assert path.read_bytes() == before
-    (row,) = list(csv.DictReader((tmp_path / "work__new_format.csv").open(encoding="utf-8-sig")))
+    first = tmp_path / "work_new_format_2026-10-30_120001.csv"  # no double underscore
+    (row,) = list(csv.DictReader(first.open(encoding="utf-8-sig")))
     assert "companies" not in row
     assert row["company_labels"] == "Amazon:other, Toyota" and row["mentions"] == "Boeing, GM"
-    assert "'Toyota' was in companies" in capsys.readouterr().out
-    with pytest.raises(SystemExit, match="exists"):
-        cli.cmd_migrate(tmp_path, file="work_.csv")
+    assert "'Toyota' was in companies" in shown
+    assert f"Continue in {first.name} and stop editing work_.csv" in shown
+    first.write_text(first.read_text(encoding="utf-8-sig") + "worked in\n", encoding="utf-8-sig")
+    worked = first.read_bytes()
+    cli.cmd_migrate(tmp_path, file="work_.csv")  # a second run: a new name, the first is intact
+    assert first.read_bytes() == worked
+    assert (tmp_path / "work_new_format_2026-10-30_120002.csv").exists()
+
+
+def test_a_missing_review_file_names_the_similar_ones(tmp_path: Path) -> None:
+    cli = _script_cli()
+    with pytest.raises(SystemExit) as bare:
+        cli.review_path(tmp_path)
+    assert "not found" in str(bare.value) and "similar" not in str(bare.value)
+    (tmp_path / "category_gold_v2_review_.csv").write_text("x", encoding="utf-8")
+    with pytest.raises(SystemExit) as hint:
+        cli.review_path(tmp_path)
+    assert "category_gold_v2_review_.csv" in str(hint.value) and "--file NAME" in str(hint.value)
+    assert cli.review_path(tmp_path, "category_gold_v2_review_.csv").exists()
+
+
+def test_a_name_with_a_comma_survives_normalise_end_to_end(tmp_path: Path) -> None:
+    cli = _script_cli()
+    firms = [*FIRMS, Company("BKNG", "Booking Holdings Inc.", "x", "y")]
+    review = tmp_path / retag.REVIEW_NAME
+    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
+    with review.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow(
+            {
+                **dict.fromkeys(fields, ""),
+                "article_id": "10",
+                "scope": "multi",
+                "company_labels": "Booking Holdings, Inc.:other, Apple:uncertain",
+                "mentions": "Microsoft, Corp., Google",
+            }
+        )
+    cli.cmd_normalise(tmp_path, universe_companies=firms)
+    (row,) = list(csv.DictReader((tmp_path / cli.TICKERS_NAME).open(encoding="utf-8-sig")))
+    assert row["company_labels"] == "BKNG:other, AAPL:uncertain"
+    assert row["mentions"] == "MSFT, GOOG"
 
 
 def _script_cli() -> Any:

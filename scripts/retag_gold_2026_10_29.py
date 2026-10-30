@@ -190,7 +190,7 @@ def cmd_translate(
     ``limit`` it is a pilot: the first *limit* articles are translated, printed and cached, and the
     file is not touched. Otherwise the file is backed up to ``backup/`` (with the time in the name,
     never over an earlier backup) and rewritten with every other cell as it was."""
-    source = out / (file or retag.REVIEW_NAME)
+    source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
     except retag.TagFileError as exc:
@@ -232,26 +232,41 @@ def write_guides(out: Path, universe_companies: list[Company] | None = None) -> 
     )
 
 
-def cmd_migrate(out: Path, *, file: str | None = None, force: bool = False) -> None:
+def review_path(out: Path, file: str | None = None) -> Path:
+    """The review file to work on; if it is missing, say which similar files exist (the owner may
+    have saved it under another name) instead of a bare FileNotFoundError."""
+    path = out / (file or retag.REVIEW_NAME)
+    if not path.exists():
+        similar = sorted(p.name for p in out.glob("category_gold_v2_review*.csv"))
+        hint = (
+            f"; similar files in {out}: {', '.join(similar)} (use --file NAME)" if similar else ""
+        )
+        sys.exit(f"{path} not found{hint}")
+    return path
+
+
+def cmd_migrate(out: Path, *, file: str | None = None) -> None:
     """Write a copy of a review file of the first format (a ``companies`` column, ``;``) in the
-    current one (no ``companies``, commas). The file given is not touched; the copy never replaces
-    an existing file unless ``force``. Companies that were in ``companies`` but not in
-    ``company_labels`` are kept in ``company_labels`` without a label and listed."""
-    source = out / (file or retag.REVIEW_NAME)
+    current one (no ``companies``, commas), under a new name with the date and time: no earlier
+    file is ever replaced, so a copy already worked in is safe. The file given is not touched.
+    Companies that were in ``companies`` but not in ``company_labels`` are kept in
+    ``company_labels`` without a label and listed."""
+    source = review_path(out, file)
     rows = _read(source)
     needed = {"article_id", "scope", "company_labels", "mentions"}
     if not rows or needed - set(rows[0]):
-        sys.exit(
-            f"{source.name} lacks the columns {sorted(needed - set(rows[0]) if rows else needed)}"
-        )
+        sys.exit(f"{source.name} lacks the columns {sorted(needed - set(rows[0] if rows else ()))}")
     new_rows, problems = retag.migrate_rows(rows)
-    target = out / f"{source.stem}_new_format.csv"
-    if target.exists() and not force:
-        sys.exit(f"{target} exists: move it or pass --force")
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    target = out / f"{source.stem.rstrip('_')}_new_format_{stamp}.csv"
     write_csv(target, new_rows)
     for problem in problems:
         print(f"  {problem}")
-    print(f"{len(new_rows)} rows -> {target}; {len(problems)} cells need your attention")
+    print(
+        f"{len(new_rows)} rows -> {target}; {len(problems)} cells need your attention.\n"
+        f"Continue in {target.name} and stop editing {source.name}: tagging done in {source.name} "
+        "after this point is not in the copy."
+    )
 
 
 def cmd_guide(out: Path, *, universe_companies: list[Company] | None = None) -> None:
@@ -312,7 +327,7 @@ def cmd_normalise(
             sys.exit(1)
         return
     book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
-    source = out / (file or retag.REVIEW_NAME)
+    source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
     except retag.TagFileError as exc:
@@ -339,7 +354,11 @@ def cmd_normalise(
         )
     write_csv(target, result)
     if problems:
-        print("left as typed (fix them in the review file):", *problems, sep="\n")
+        print(
+            "left as typed (outside the 509 companies, or a typo: fix typos in the review file):",
+            *problems,
+            sep="\n",
+        )
     if confirm:
         print("converted by inference (please confirm):", *confirm, sep="\n")
     print(
@@ -353,9 +372,7 @@ def cmd_check(
 ) -> None:
     expected = [int(r["article_id"]) for r in _read(out / retag.KEY_NAME)]
     try:
-        report = retag.load_gold_v2(
-            out / (file or retag.REVIEW_NAME), expected, universe or load_universe()
-        )
+        report = retag.load_gold_v2(review_path(out, file), expected, universe or load_universe())
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     print(
@@ -363,6 +380,9 @@ def cmd_check(
         f"untagged {report.untagged}, expected {len(expected)}"
     )
     print("scopes:", dict(Counter(g.scope for g in report.good)))
+    if report.outside:
+        shown = ", ".join(f"{n} ({c})" for n, c in sorted(report.outside.items()))
+        print(f"outside the universe, kept as typed (look for typos): {shown}")
     for label, ids in (
         ("missing ids", report.missing),
         ("duplicated ids", report.duplicated),
@@ -412,7 +432,7 @@ def main() -> None:
             args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new
         )
     elif args.command == "migrate":
-        cmd_migrate(args.out, file=args.file, force=args.force)
+        cmd_migrate(args.out, file=args.file)
     elif args.command == "guide":
         cmd_guide(args.out)
     elif args.command == "normalise":
