@@ -198,6 +198,7 @@ def test_cli_export_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[str
     script.cmd_export(
         tmp_path,
         universe_companies=[Company("AAPL", "Apple", "Information Technology", "Hardware")],
+        spanish=False,
     )
     assert (tmp_path / "gics_sub_industries.csv").exists()
     assert (tmp_path / "category_gold_v2_guide.csv").exists()
