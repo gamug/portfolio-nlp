@@ -20,13 +20,17 @@ HUMAN_COLUMNS = ("human_label", "human_notes")
 
 
 class TaggedFileError(RuntimeError):
-    """The review file already holds human labels: it is not overwritten."""
+    """The review file already holds human labels, or cannot be read back (another delimiter or
+    code page): it is not overwritten."""
 
 
 def tagged_rows(path: Path, column: str = "human_label") -> int:
-    """How many rows of the CSV at *path* have a non-empty *column* (0 if it is absent)."""
+    """How many rows of the CSV at *path* have a non-empty *column* (0 if the file is absent).
+    Raises :class:`TaggedFileError` if the file exists but has no such column or is not UTF-8:
+    a file re-saved by a spreadsheet must not read as 'untagged'."""
     if not path.exists():
         return 0
+    _require_readable(path, column)
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return sum(bool((row.get(column) or "").strip()) for row in csv.DictReader(fh))
 
@@ -35,8 +39,6 @@ def _require_readable(path: Path, tag_column: str) -> None:
     """An existing review file must still parse into its tag column. A file re-saved by a
     spreadsheet with another delimiter or code page has no such column, reads as 'untagged' and
     would be overwritten: refuse instead."""
-    if not path.exists():
-        return
     try:
         with path.open(encoding="utf-8-sig", newline="") as fh:
             header = next(csv.reader(fh), [])
@@ -70,7 +72,6 @@ def write_review_files(
     """Write *review* and *key* into *out_dir*, both or neither. Raises :class:`TaggedFileError`
     if the review file exists and has rows with a non-empty *tag_column* (move or copy it first)."""
     review_path, key_path = out_dir / review_name, out_dir / key_name
-    _require_readable(review_path, tag_column)
     done = tagged_rows(review_path, tag_column)
     if done:
         raise TaggedFileError(

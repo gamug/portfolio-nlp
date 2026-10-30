@@ -294,3 +294,12 @@ def test_self_check_exits_non_zero_on_a_failure(
     with pytest.raises(SystemExit) as exc:
         script.cmd_normalise(tmp_path, universe_companies=firms, self_check=True)
     assert exc.value.code == 1
+
+
+def test_tagged_rows_itself_refuses_a_file_it_cannot_parse(tmp_path: Path) -> None:
+    from news_nlp.gold_review import tagged_rows  # noqa: PLC0415
+
+    assert tagged_rows(tmp_path / "missing.csv", "scope") == 0
+    _saved_with_semicolons(tmp_path / "a.csv")
+    with pytest.raises(TaggedFileError, match="no 'scope' column"):
+        tagged_rows(tmp_path / "a.csv", "scope")

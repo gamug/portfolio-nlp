@@ -158,7 +158,10 @@ value. The companies a sector body names go in `mentions`, not in `companies` (*
    brand, a ticker that is also a word): confirm those.
 3. `uv run scripts/retag_gold_2026_10_29.py check --file category_gold_v2_review_tickers.csv`
    validates the copy.
-4. `guide` rewrites the guide CSVs at any time; `export` refuses to touch a tagged review file.
+4. At the end of each tagging session copy `data/category_gold_v2_review.csv` into `data/backup/`
+   with the date in its name: no checker can detect a mis-save such as a sort that detaches the
+   rows from their ids.
+5. `guide` rewrites the guide CSVs at any time; `export` refuses to touch a tagged review file.
 
 ## Owner calls (answered 2026-10-29)
 
