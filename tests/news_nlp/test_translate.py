@@ -70,17 +70,17 @@ def test_from_env_names_the_missing_variables(monkeypatch: pytest.MonkeyPatch) -
 
 def test_cache_is_keyed_by_the_english_source(tmp_path: Path) -> None:
     cache = translate.TranslationCache(tmp_path / "c.csv")
-    cache.put("1", "T", "text", translate.Translation("t", "texto"))
-    assert cache.get("1", "T", "text") == ("t", "texto", 0, 0)
-    assert cache.get("1", "T", "changed") is None  # the source changed: not reused
+    cache.put("1", "T", "text", translate.Translation("t", "texto"), "a")
+    assert cache.get("1", "T", "text", "a") == ("t", "texto", 0, 0)
+    assert cache.get("1", "T", "changed", "a") is None  # the source changed: not reused
     again = translate.TranslationCache(tmp_path / "c.csv")  # survives a restart
-    assert again.get("1", "T", "text") is not None
+    assert again.get("1", "T", "text", "a") is not None
 
 
 def test_translate_rows_uses_the_cache_limit_and_failures(tmp_path: Path) -> None:
     rows = [{"article_id": str(i), "title": f"T{i}", "text": f"x{i}"} for i in range(1, 5)]
     cache = translate.TranslationCache(tmp_path / "c.csv")
-    cache.put("1", "T1", "x1", translate.Translation("t1", "x1es"))
+    cache.put("1", "T1", "x1", translate.Translation("t1", "x1es"), "a")
     seen: list[str] = []
 
     def fake(title: str, text: str) -> translate.Translation:
@@ -89,11 +89,11 @@ def test_translate_rows_uses_the_cache_limit_and_failures(tmp_path: Path) -> Non
             raise translate.TranslationError("bad reply")
         return translate.Translation(title + "es", text + "es", 5, 7)
 
-    got = translate.translate_rows(rows, fake, cache, workers=1, limit=2)
+    got = translate.translate_rows(rows, fake, cache, workers=1, limit=2, tag="a")
     assert sorted(seen) == ["T2", "T3"]  # article 1 came from the cache, 4 is beyond the limit
     assert set(got.translations) == {"1", "2"} and got.failures == {"3": "bad reply"}
     assert (got.translated, got.prompt_tokens, got.completion_tokens) == (1, 5, 7)
-    assert translate.TranslationCache(tmp_path / "c.csv").get("3", "T3", "x3") is None
+    assert translate.TranslationCache(tmp_path / "c.csv").get("3", "T3", "x3", "a") is None
 
 
 def test_with_spanish_goes_right_after_text_and_keeps_the_rest() -> None:
@@ -118,9 +118,13 @@ class FakeLLM:
 
     def __init__(self) -> None:
         self.calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
 
     def translate(self, title: str, text: str) -> translate.Translation:
         self.calls += 1
+        self.prompt_tokens += 3
+        self.completion_tokens += 4
         return translate.Translation(f"ES {title}", f"ES {text}", 3, 4)
 
 
@@ -246,7 +250,7 @@ def test_a_fatal_status_stops_the_run_and_failures_in_a_row_too(tmp_path: Path) 
     rows = [{"article_id": str(i), "title": "t", "text": "x"} for i in range(20)]
     cache = translate.TranslationCache(tmp_path / "c.csv")
     done = translate.translate_rows(
-        rows, _translator(refused, retries=3).translate, cache, workers=1
+        rows, _translator(refused, retries=3).translate, cache, workers=1, tag="a"
     )
     assert "402" in done.aborted and seen["n"] == 1 and not done.failures  # one call, no retries
 
@@ -254,7 +258,7 @@ def test_a_fatal_status_stops_the_run_and_failures_in_a_row_too(tmp_path: Path) 
         return _ok("no tags")(request)  # type: ignore[operator, no-any-return]
 
     done = translate.translate_rows(
-        rows, _translator(garbage, retries=1).translate, cache, workers=1
+        rows, _translator(garbage, retries=1).translate, cache, workers=1, tag="a"
     )
     assert done.aborted == "5 failures in a row" and len(done.failures) == 5
 
@@ -273,18 +277,55 @@ def test_a_cut_or_implausible_reply_is_a_failure() -> None:
         _translator(_ok(), retries=1).translate("t", long_source)
 
 
-def test_cache_key_has_the_model_and_prompt_tag_and_legacy_rows_match_any(tmp_path: Path) -> None:
+def test_cache_key_has_the_model_and_prompt_tag(tmp_path: Path) -> None:
     cache = translate.TranslationCache(tmp_path / "c.csv")
     cache.put("1", "T", "x", translate.Translation("t", "tx"), tag="old")
     assert cache.get("1", "T", "x", "old") is not None
     assert cache.get("1", "T", "x", "new") is None  # another model or prompt: a miss
+    assert _translator(_ok()).tag != translate.LLMTranslator("k", "m2", "u").tag
+
+
+def test_legacy_rows_match_no_tag_until_adopted_and_then_a_new_prompt_misses(
+    tmp_path: Path,
+) -> None:
     legacy = tmp_path / "legacy.csv"
     legacy.write_text(
         f"article_id,source_hash,spanish_title,spanish_text\n1,{translate.source_hash('T', 'x')},t,tx\n",
         encoding="utf-8-sig",
     )
-    assert translate.TranslationCache(legacy).get("1", "T", "x", "anything") is not None
-    assert _translator(_ok()).tag != translate.LLMTranslator("k", "m2", "u").tag
+    cache = translate.TranslationCache(legacy)
+    assert cache.untagged() == 1 and cache.get("1", "T", "x", "t1") is None
+    assert cache.adopt_legacy("t1") == 1 and cache.adopt_legacy("t1") == 0
+    again = translate.TranslationCache(legacy)  # persisted
+    assert again.untagged() == 0 and again.get("1", "T", "x", "t1") is not None
+    assert (
+        again.get("1", "T", "x", "t2") is None
+    )  # the prompt changed: the legacy row is not served
+
+
+def test_translate_refuses_to_buy_while_the_cache_has_untagged_rows(tmp_path: Path) -> None:
+    cli = _script()
+    _review(tmp_path / retag.REVIEW_NAME)
+    (tmp_path / translate.CACHE_NAME).write_text(
+        "article_id,source_hash,tag,spanish_title,spanish_text\n9,h,,t,tx\n", encoding="utf-8-sig"
+    )
+    llm = FakeLLM()
+    with pytest.raises(SystemExit, match="adopt-legacy"):
+        cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
+    assert llm.calls == 0
+    cli.cmd_adopt_legacy(tmp_path, translator=llm)  # type: ignore[attr-defined]
+    cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
+    assert llm.calls == 1
+
+
+def test_every_paid_call_is_counted_retries_and_rejected_replies_included() -> None:
+    rejected = _translator(_ok("no tags", usage=(11, 22)), retries=3)
+    with pytest.raises(translate.TranslationError):
+        rejected.translate("t", "x")
+    assert (rejected.calls, rejected.prompt_tokens, rejected.completion_tokens) == (3, 33, 66)
+    good = _translator(_ok(usage=(5, 6)))
+    good.translate("t", "x")
+    assert (good.calls, good.prompt_tokens, good.completion_tokens) == (1, 5, 6)
 
 
 def test_a_failed_article_means_nothing_is_written_and_the_backup_is_kept(
@@ -328,4 +369,4 @@ def test_an_old_cache_without_the_tag_column_is_upgraded_in_place(tmp_path: Path
         ("1", "", "tx"),
         ("2", "new", "uy"),
     ]
-    assert translate.TranslationCache(old).get("1", "T", "x", "new") is not None
+    assert translate.TranslationCache(old).untagged() == 1  # adopt it before it is served

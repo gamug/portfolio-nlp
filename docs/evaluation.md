@@ -3081,7 +3081,7 @@ Not a labelling run: `deepseek-chat` (`LLM_*`) translated the title and text of 
 hard to read (`news_nlp.translate`, `scripts/retag_gold_2026_10_29.py translate`). It asks for no
 label and is outside the D18 labelling budget, but it is paid, so it is logged here. **Spend:
 720 articles = 3 pilot calls + 717 calls, 0 failures; 558,469 prompt + 641,963 completion tokens
-for the 717 plus 2,142 + 2,378 for the pilot; about 1 USD at list prices (estimate).** Spanish
+for the 717 plus 2,142 + 2,378 for the pilot; about 1 USD at list prices (estimate).** These count the successful replies only: the run kept no count of retried calls (later runs count every paid call, retries and rejected replies included), so they are a lower bound. Spanish
 text was 1.05-1.19 times the English length (nothing cut), every original column identical to the
 backup, the key file untouched. A later export of another tagging file (the held-out gold T-146e,
 about 300 bodies) is estimated at 0.8k prompt + 0.9k completion tokens per article and needs

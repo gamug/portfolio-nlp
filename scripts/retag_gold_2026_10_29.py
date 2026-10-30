@@ -105,11 +105,28 @@ def confirm_spend(new: int, *, yes: bool, max_new: int) -> None:
         sys.exit("nothing was bought: pass --yes to pay for them")
 
 
-def _report(done: translate.Outcome, rows_total: int) -> None:
+def _require_adopted(cache: translate.TranslationCache) -> None:
+    if cache.untagged():
+        sys.exit(
+            f"{cache.untagged()} cached translations have no model/prompt tag: run "
+            "'translate --adopt-legacy' once (no cost) to stamp them with the current tag"
+        )
+
+
+def cmd_adopt_legacy(out: Path, *, translator: translate.LLMTranslator | None = None) -> None:
+    """Stamp the untagged cached translations with the current model and prompt tag. Only for rows
+    known to have been made with them (the 720 of 2026-10-30 were); no API call is made."""
+    translator = translator or _translator()
+    n = translate.TranslationCache(out / translate.CACHE_NAME).adopt_legacy(translator.tag)
+    print(f"{n} cached translations stamped with tag {translator.tag}")
+
+
+def _report(done: translate.Outcome, translator: translate.LLMTranslator) -> None:
+    stopped = f"; STOPPED: {done.aborted}" if done.aborted else ""
     print(
-        f"translated {done.translated} new articles ({done.prompt_tokens} prompt and "
-        f"{done.completion_tokens} completion tokens), {len(done.failures)} failed"
-        + (f"; STOPPED: {done.aborted}" if done.aborted else "")
+        f"translated {done.translated} new articles, {len(done.failures)} failed{stopped}. "
+        f"Paid calls this run: {translator.calls} ({translator.prompt_tokens} prompt and "
+        f"{translator.completion_tokens} completion tokens, retries and rejected replies included)"
     )
     for article_id, why in sorted(done.failures.items()):
         print(f"  article {article_id}: {why}")
@@ -130,6 +147,7 @@ def add_spanish(
     failed or the run stopped, it exits non-zero before anything is written; the cache keeps the
     rest, so a re-run pays only for the missing ones."""
     cache = translate.TranslationCache(out / translate.CACHE_NAME)
+    _require_adopted(cache)
     todo = translate.pending(rows, cache, translator.tag)
     confirm_spend(
         min(len(todo), limit) if limit is not None else len(todo), yes=yes, max_new=max_new
@@ -137,7 +155,7 @@ def add_spanish(
     done = translate.translate_rows(
         rows, translator.translate, cache, workers=workers, limit=limit, tag=translator.tag
     )
-    _report(done, len(rows))
+    _report(done, translator)
     if done.failures or done.aborted:
         sys.exit("not written: run it again (only the missing articles are paid for)")
     return translate.with_spanish(rows, done.translations)
@@ -165,6 +183,7 @@ def cmd_translate(
     translator = translator or _translator()
     if limit is not None:
         cache = translate.TranslationCache(out / translate.CACHE_NAME)
+        _require_adopted(cache)
         todo = translate.pending(rows, cache, translator.tag)
         confirm_spend(min(len(todo), limit), yes=yes, max_new=max_new)
         done = translate.translate_rows(
@@ -172,7 +191,7 @@ def cmd_translate(
         )
         for article_id, pair in list(done.translations.items())[:limit]:
             print(f"--- article {article_id}\n{pair.title}\n{pair.text[:700]}")
-        _report(done, len(rows))
+        _report(done, translator)
         if done.failures or done.aborted:
             sys.exit("pilot failed")
         return
@@ -333,6 +352,9 @@ def main() -> None:
         "--max-new", type=int, default=DEFAULT_MAX_NEW, help="export, translate: most new articles"
     )
     parser.add_argument(
+        "--adopt-legacy", action="store_true", help="translate: stamp untagged cache rows (no cost)"
+    )
+    parser.add_argument(
         "--no-spanish", action="store_true", help="export: no spanish_title / spanish_text columns"
     )
     parser.add_argument("--force", action="store_true", help="normalise: overwrite an edited copy")
@@ -342,6 +364,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "export":
         cmd_export(args.out, spanish=not args.no_spanish, yes=args.yes, max_new=args.max_new)
+    elif args.command == "translate" and args.adopt_legacy:
+        cmd_adopt_legacy(args.out)
     elif args.command == "translate":
         cmd_translate(
             args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new

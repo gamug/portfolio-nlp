@@ -23,7 +23,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -81,6 +81,11 @@ class LLMTranslator:
     client: httpx.Client | None = None
     retries: int = 3
     pause: float = 2.0
+    #: Every paid call, retried or rejected replies included (a rejected reply is paid too).
+    calls: int = field(default=0, init=False)
+    prompt_tokens: int = field(default=0, init=False)
+    completion_tokens: int = field(default=0, init=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     @property
     def tag(self) -> str:
@@ -124,9 +129,18 @@ class LLMTranslator:
         )
         _fail_if_fatal(response)
         response.raise_for_status()
-        done = self._parse(response.json())
+        data = response.json()
+        self._count(data)
+        done = self._parse(data)
         _check_length(text, done)
         return done
+
+    def _count(self, data: Mapping[str, Any]) -> None:
+        usage = data.get("usage") or {}
+        with self._lock:
+            self.calls += 1
+            self.prompt_tokens += int(usage.get("prompt_tokens", 0))
+            self.completion_tokens += int(usage.get("completion_tokens", 0))
 
     @staticmethod
     def _parse(data: Mapping[str, Any]) -> Translation:
@@ -162,8 +176,9 @@ def _check_length(source: str, done: Translation) -> None:
 
 class TranslationCache:
     """``article_id`` -> translation, valid while the English source, the model and the prompt
-    (``tag``) are unchanged. Rows written before the tag existed (empty tag) match any tag. Appended
-    to disk at every put, so an interrupted run loses nothing."""
+    (``tag``) are unchanged. Rows written before the tag existed have an empty tag and match no tag
+    until :meth:`adopt_legacy` stamps them. Appended to disk at every put, so an interrupted run
+    loses nothing."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -185,18 +200,30 @@ class TranslationCache:
             writer.writeheader()
             writer.writerows(self._rows.values())
 
-    def get(self, article_id: str, title: str, text: str, tag: str = "") -> Translation | None:
+    def untagged(self) -> int:
+        """How many cached rows were written before the tag existed."""
+        return sum(1 for row in self._rows.values() if not row["tag"])
+
+    def adopt_legacy(self, tag: str) -> int:
+        """Stamp the untagged rows with *tag* (the model and prompt known to have made them) and
+        return how many there were. A deliberate one-off: afterwards every row is checked."""
+        with self._lock:
+            n = 0
+            for row in self._rows.values():
+                if not row["tag"]:
+                    row["tag"] = tag
+                    n += 1
+            if n:
+                self._rewrite()
+            return n
+
+    def get(self, article_id: str, title: str, text: str, tag: str) -> Translation | None:
         row = self._rows.get(article_id)
-        row_tag = (row or {}).get("tag") or ""
-        if (
-            row
-            and row["source_hash"] == source_hash(title, text)
-            and (not row_tag or row_tag == tag or not tag)
-        ):
+        if row and row["source_hash"] == source_hash(title, text) and row["tag"] == tag:
             return Translation(row["spanish_title"], row["spanish_text"])
         return None
 
-    def put(self, article_id: str, title: str, text: str, done: Translation, tag: str = "") -> None:
+    def put(self, article_id: str, title: str, text: str, done: Translation, tag: str) -> None:
         row = {
             "article_id": article_id,
             "source_hash": source_hash(title, text),
@@ -225,14 +252,15 @@ class Outcome(NamedTuple):
 
 
 def pending(
-    rows: Sequence[Mapping[str, str]], cache: TranslationCache, tag: str = ""
+    rows: Sequence[Mapping[str, str]], cache: TranslationCache, tag: str
 ) -> list[Mapping[str, str]]:
     """The rows with no valid cached translation: what a run would pay for."""
     return [r for r in rows if not cache.get(r["article_id"], r["title"], r["text"], tag)]
 
 
 def estimate(articles: int) -> tuple[int, int]:
-    """(prompt, completion) tokens of *articles* new translations, from the 720 run."""
+    """(prompt, completion) tokens of *articles* new translations, from the 720 run. They scale
+    with the length of the articles (those averaged about 2,900 characters): longer texts cost more."""
     return articles * PROMPT_TOKENS_PER_ARTICLE, articles * COMPLETION_TOKENS_PER_ARTICLE
 
 
@@ -243,7 +271,7 @@ def translate_rows(
     *,
     workers: int = 8,
     limit: int | None = None,
-    tag: str = "",
+    tag: str,
 ) -> Outcome:
     """Translations for the rows (by ``article_id``), from the cache where the source is unchanged
     and from *translator* otherwise; at most *limit* new translations. A failed article is listed in
