@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from news_nlp import retag
-from news_nlp.company_names import NICKNAMES, NameBook, normalise_row
+from news_nlp.company_names import BRANDS, NICKNAMES, NameBook, normalise_row
 from news_nlp.triage import Company
 
 FIRMS = [
@@ -83,7 +83,7 @@ def test_row_names_become_tickers_and_problems_are_listed() -> None:
         "mentions": "Alphabet; Microsoft Corp; Bank",
         "company_labels": "Apple:product_innovation; Google: other; Tesla:other",
     }
-    new, problems = normalise_row(BOOK, row)
+    new, problems, _ = normalise_row(BOOK, row)
     assert new["companies"] == "AAPL; GOOG; the iPhone maker"
     assert new["mentions"] == "GOOG; MSFT; Bank"  # Alphabet already folds to GOOG
     assert new["company_labels"] == "AAPL:product_innovation; GOOG:other; Tesla:other"
@@ -100,14 +100,14 @@ def test_row_conflicting_labels_and_missing_label_are_reported() -> None:
         "mentions": "",
         "company_labels": "Google:other; Alphabet:uncertain; Apple",
     }
-    new, problems = normalise_row(BOOK, row)
+    new, problems, _ = normalise_row(BOOK, row)
     assert new["company_labels"] == "GOOG:other; Apple"
     assert any("given 'other' and 'uncertain'" in p for p in problems)
     assert any("has no label" in p for p in problems)
 
 
 def test_empty_cells_stay_empty() -> None:
-    new, problems = normalise_row(BOOK, {"companies": "", "mentions": "", "company_labels": ""})
+    new, problems, _ = normalise_row(BOOK, {"companies": "", "mentions": "", "company_labels": ""})
     assert new == {"companies": "", "mentions": "", "company_labels": ""} and problems == []
 
 
@@ -162,3 +162,42 @@ def test_full_name_beats_first_word_and_news_corp_classes_fold_to_class_a() -> N
     assert book.resolve("FedEx") == ("FDX", None)
     assert book.resolve("News Corp") == ("NWSA", None)
     assert book.resolve("NWS") == ("NWS", None)
+
+
+def test_inferred_matches_are_flagged_for_confirmation() -> None:
+    firms = [
+        *FIRMS,
+        Company("HD", "Home Depot (The)", "x", "y"),
+        Company("IT", "Gartner", "x", "y"),
+        Company("CVS", "CVS Health", "x", "y"),
+    ]
+    book = NameBook(firms, retag.Universe.of(firms).tickers)
+    assert book.lookup("Home") == ("HD", None, "first word")
+    assert book.lookup("ALL") == ("ALL", None, "word ticker")
+    assert book.lookup("IT") == ("IT", None, "word ticker")
+    assert book.lookup("aapl") == ("AAPL", None, "ticker, other case")
+    assert book.lookup("Instagram") == ("META", None, "brand")
+    assert book.lookup("Aetna") == ("CVS", None, "brand")
+    for exact in ("Apple", "Google", "AAPL", "J&J", "Facebook", "Microsoft Corp"):
+        assert book.lookup(exact).note == "", exact
+
+
+def test_row_reports_what_it_inferred() -> None:
+    row = {"companies": "ALL; Instagram; Apple", "mentions": "", "company_labels": "Home:other"}
+    new, problems, confirm = normalise_row(BOOK, row)
+    assert new["companies"] == "ALL; META; AAPL" and problems == [
+        "company_labels: 'Home' unknown"  # no Home Depot in this small universe
+    ]
+    assert confirm == [
+        "companies: 'ALL' -> ALL (word ticker)",
+        "companies: 'Instagram' -> META (brand)",
+    ]
+
+
+def test_a_nickname_or_brand_names_one_ticker() -> None:
+    seen: dict[str, str] = {}
+    for table in (NICKNAMES, BRANDS):
+        for ticker, names in table.items():
+            for name in names:
+                key = name.lower()
+                assert seen.setdefault(key, ticker) == ticker, f"{name!r}: {seen[key]} and {ticker}"

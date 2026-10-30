@@ -7,7 +7,8 @@ analysed, D23) and, for a sector body, the GICS **sub-industry**. :func:`retag_r
 the file the owner fills in (the v1 tag shown as guidance, never the LLM's label), and
 :func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The rules follow
 ``docs/labelling-spec-v2.md`` (T-146a): D15's labels in :data:`D15_LABELS`, the per-scope shape in
-:func:`_scope_errors`; a test keeps the spec and this module in step.
+:func:`_scope_errors`; a test keeps the spec and this module in step. The checker expects tickers;
+names the owner typed are converted first by :mod:`news_nlp.company_names` (``normalise``).
 """
 
 from __future__ import annotations
@@ -257,6 +258,13 @@ NEW_LABEL_GUIDE = {
 }
 
 
+COLUMN_GUIDE = {
+    "companies": "The analysed companies, separated by ';'. Tickers, or names and nicknames as the article writes them: 'normalise' converts them to tickers (and lists what it could not or inferred).",
+    "mentions": "Companies named but not analysed, in every scope; same format as companies.",
+    "company_labels": "One label per analysed company: 'Apple: product_innovation; Google: other' (names or tickers).",
+}
+
+
 def guide_rows() -> list[dict[str, str]]:
     """The scopes and company labels of the spec as rows of a CSV guide."""
     rows = [{"kind": "scope", "name": k, "meaning": v} for k, v in SCOPE_GUIDE.items()]
@@ -264,6 +272,7 @@ def guide_rows() -> list[dict[str, str]]:
         {"kind": "label", "name": slug, "meaning": display} for slug, display, _ in CATEGORY_LABELS
     ]
     rows += [{"kind": "label", "name": k, "meaning": v} for k, v in NEW_LABEL_GUIDE.items()]
+    rows += [{"kind": "column", "name": k, "meaning": v} for k, v in COLUMN_GUIDE.items()]
     return rows
 
 

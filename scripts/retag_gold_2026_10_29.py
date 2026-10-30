@@ -14,8 +14,9 @@ untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``)
 Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_innovation; MSFT:other``.
 The owner may type names or nicknames instead of tickers (``Apple; Google``, ``Apple:other``):
 ``normalise`` writes ``category_gold_v2_review_tickers.csv`` with tickers and lists every text it
-could not resolve or that fits several companies (left as typed, never guessed); the review file
-is not changed. ``check --file category_gold_v2_review_tickers.csv`` then validates that copy.
+could not resolve or that fits several companies (left as typed, never guessed), and the matches
+it inferred (a first word, a brand, a ticker that is also a word) for the owner to confirm; the
+review file is not changed. ``check --file category_gold_v2_review_tickers.csv`` then validates that copy.
 """
 
 from __future__ import annotations
@@ -67,8 +68,8 @@ def companies() -> list[Company]:
 
     conn = db.connect_pipeline()
     rows = conn.execute(
-        "SELECT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
-        "WHERE fetch_status = 'ok' GROUP BY ticker ORDER BY ticker"
+        "SELECT DISTINCT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
+        "WHERE fetch_status = 'ok' ORDER BY ticker, company"
     ).fetchall()
     return [Company(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows]
 
@@ -95,15 +96,23 @@ def cmd_normalise(
     book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
     rows = _read(out / (file or retag.REVIEW_NAME))
     result: list[dict[str, str]] = []
-    problems = 0
+    problems: list[str] = []
+    confirm: list[str] = []
     for row in rows:
-        new, found = company_names.normalise_row(book, row)
+        new, found, inferred = company_names.normalise_row(book, row)
         result.append(new)
-        for problem in found:
-            problems += 1
-            print(f"  article {row.get('article_id')}: {problem}")
+        tag = f"article {row.get('article_id')}"
+        problems += [f"  {tag}: {p}" for p in found]
+        confirm += [f"  {tag}: {c}" for c in inferred]
     write_csv(out / TICKERS_NAME, result)
-    print(f"{len(result)} rows -> {out / TICKERS_NAME}; {problems} texts left as typed (see above)")
+    if problems:
+        print("left as typed (fix them in the review file):", *problems, sep="\n")
+    if confirm:
+        print("converted by inference (please confirm):", *confirm, sep="\n")
+    print(
+        f"{len(result)} rows -> {out / TICKERS_NAME}; {len(problems)} texts left as typed, "
+        f"{len(confirm)} to confirm"
+    )
 
 
 def cmd_check(
