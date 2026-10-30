@@ -1,8 +1,9 @@
 """The owner's re-tag of the 720 articles under the new taxonomy: gold v2 (Work item 18, T-146b).
 
 The first tagging ("tags v1") has a label and a note per article. Gold v2 has, per body: the
-**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **companies** analysed (single: one;
-multi: two or more, every one with a D15 **label**), the **mentions** (companies named but not
+**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **company_labels** (one ``TICKER:label``
+per analysed company, separated by commas: single: one; multi: two or more; the analysed companies
+are exactly the labelled ones, so there is no separate companies column), the **mentions** (companies named but not
 analysed, D23) and, for a sector body, the GICS **sub-industry**. :func:`retag_rows` builds
 the file the owner fills in (the v1 tag shown as guidance, never the LLM's label), and
 :func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The rules follow
@@ -20,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from news_nlp.company_names import split_list
 from news_nlp.taxonomy import CATEGORY_LABELS, CATEGORY_SLUGS
 from news_nlp.triage import GOLD_SCOPES, Company, CompanyResolver, gold_scope
 
@@ -34,11 +36,12 @@ D15_LABELS = (
     "uncertain",
     "unrelated",
 )
-TAG_COLUMNS = ("scope", "companies", "company_labels", "mentions", "sub_industry", "notes")
+TAG_COLUMNS = ("scope", "company_labels", "mentions", "sub_industry", "notes")
 #: Scopes that analyse no company: no company or label is expected.
 NO_COMPANY_SCOPES = ("market_economy", "investing_general", "unrelated", "sector")
 #: ``unrelated`` is a body-level scope, not a label of one company; ``uncertain`` is allowed.
 COMPANY_LABELS = tuple(label for label in D15_LABELS if label != "unrelated")
+LEGACY_COLUMN = "companies"  # the first format; its content is now company_labels
 REVIEW_NAME = "category_gold_v2_review.csv"
 KEY_NAME = "category_gold_v2_key.csv"
 CARRIED = (
@@ -97,8 +100,7 @@ def retag_rows(
     return review, [dict(k) for k in v1_key]
 
 
-def _split(value: str) -> list[str]:
-    return [part.strip() for part in value.replace("\n", ";").split(";") if part.strip()]
+_split = split_list
 
 
 @dataclass(frozen=True)
@@ -128,19 +130,25 @@ def _tickers(value: str, universe: Universe | None, errors: list[str]) -> tuple[
     return tuple(out)
 
 
-def _parse_labels(
-    value: str, companies: tuple[str, ...], universe: Universe | None, errors: list[str]
-) -> dict[str, str]:
+def _parse_labels(value: str, universe: Universe | None, errors: list[str]) -> dict[str, str]:
+    """``AAPL:product_innovation, MSFT:other`` -> {ticker: label}; the keys are the analysed
+    companies."""
     labels: dict[str, str] = {}
     for item in _split(value):
-        company, _, label = item.partition(":")
+        company, sep, label = item.rpartition(":")
         company, label = company.strip().upper(), label.strip().lower()
+        if not sep:
+            errors.append(f"{item!r}: no label (write TICKER:label)")
+            continue
         if universe is not None:
-            company = universe.tickers.get(company, company)
+            if company not in universe.tickers:
+                errors.append(f"{company}: not a ticker of the universe")
+                continue
+            company = universe.tickers[company]
+        if company in labels:
+            errors.append(f"{company}: listed twice")
         if label not in COMPANY_LABELS:
             errors.append(f"{company}: label {label!r} is not a company label (D15)")
-        elif company not in companies:
-            errors.append(f"{company}: labelled but not in companies")
         labels[company] = label
     return labels
 
@@ -157,13 +165,10 @@ def _scope_errors(
     errors = []
     if len(companies) < needed or (scope == "single" and len(companies) != 1):
         errors.append(
-            "scope single needs exactly 1 analysed company (the others are mentions)"
+            "scope single needs exactly 1 labelled company (the others are mentions)"
             if scope == "single"
-            else "scope multi needs 2 or more analysed companies"
+            else "scope multi needs 2 or more labelled companies"
         )
-    missing = [c for c in companies if c not in labels]
-    if missing:
-        errors.append(f"no label for {', '.join(missing)}")
     return errors
 
 
@@ -177,11 +182,11 @@ def check_row(
     if scope not in GOLD_SCOPES:
         return None, [f"scope {scope!r} is not one of {', '.join(GOLD_SCOPES)}"]
     errors: list[str] = []
-    companies = _tickers(row.get("companies") or "", universe, errors)
+    labels = _parse_labels(row.get("company_labels") or "", universe, errors)
+    companies = tuple(labels)
     mentions = _tickers(row.get("mentions") or "", universe, errors)
     if set(companies) & set(mentions):
         errors.append("a company is both analysed and a mention")
-    labels = _parse_labels(row.get("company_labels") or "", companies, universe, errors)
     sub_industry = (row.get("sub_industry") or "").strip()
     if universe is not None and sub_industry:
         known = universe.sub_industries.get(sub_industry.lower())
@@ -230,7 +235,40 @@ def read_tag_file(path: Path) -> list[dict[str, str]]:
             f"{path.name} lacks the columns {missing}: it was probably saved with another "
             "delimiter or code page; save it as CSV UTF-8 (comma delimited)"
         )
-    return list(reader)
+    rows = list(reader)
+    if any((row.get(LEGACY_COLUMN) or "").strip() for row in rows):
+        raise TagFileError(
+            f"{path.name} still has the old {LEGACY_COLUMN!r} column with content: run 'migrate' "
+            "(the analysed companies are now the ones in company_labels, separated by commas)"
+        )
+    return rows
+
+
+def migrate_rows(rows: Sequence[Mapping[str, str]]) -> tuple[list[dict[str, str]], list[str]]:
+    """The rows of the first format (a ``companies`` column, ``;`` separators) in the current one:
+    no ``companies`` column, ``company_labels`` and ``mentions`` separated by commas. Every
+    company of the old column that has no entry in ``company_labels`` is added to it, as typed and
+    without a label, and listed in the problems: nothing the owner wrote is dropped or guessed."""
+    out: list[dict[str, str]] = []
+    problems: list[str] = []
+    for row in rows:
+        new = {k: v for k, v in row.items() if k != LEGACY_COLUMN}
+        tag = f"article {row.get('article_id', '?')}"
+        items = split_list((row.get("company_labels") or "").replace(";", ","))
+        named = {item.rpartition(":")[0].strip().casefold() or item.casefold() for item in items}
+        for company in split_list((row.get(LEGACY_COLUMN) or "").replace(";", ",")):
+            if company.casefold() not in named:
+                items.append(company)
+                problems.append(
+                    f"{tag}: {company!r} was in companies but had no entry in company_labels"
+                )
+        problems += [
+            f"{tag}: {item!r} has no label (write name:label)" for item in items if ":" not in item
+        ]
+        new["company_labels"] = ", ".join(items)
+        new["mentions"] = ", ".join(split_list((row.get("mentions") or "").replace(";", ",")))
+        out.append(new)
+    return out, problems
 
 
 def load_gold_v2(
@@ -283,9 +321,8 @@ NEW_LABEL_GUIDE = {
 
 
 COLUMN_GUIDE = {
-    "companies": "The analysed companies, separated by ';'. Tickers, or names and nicknames as the article writes them: 'normalise' converts them to tickers (and lists what it could not or inferred).",
-    "mentions": "Companies named but not analysed, in every scope; same format as companies.",
-    "company_labels": "One label per analysed company: 'Apple: product_innovation; Google: other' (names or tickers).",
+    "company_labels": "The analysed companies, each with its label, separated by commas: 'Apple:product_innovation, Google:other'. Tickers, or names and nicknames as the article writes them: 'normalise' converts them to tickers (and lists what it could not or inferred). Single: one entry; multi: two or more; the other scopes: none.",
+    "mentions": "Companies named but not analysed, separated by commas, in every scope (names or tickers).",
 }
 
 

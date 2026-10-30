@@ -17,9 +17,8 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | column | content |
 |---|---|
 | `scope` | one of the six scopes below (always filled) |
-| `companies` | the **analysed** companies, separated by `;` (single: exactly one; multi: two or more; the other scopes: none). Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` |
-| `company_labels` | one label per analysed company, `TICKER:label; TICKER:label` (a name works in place of the ticker) |
-| `mentions` | companies named but not analysed (D23), tickers separated by `;`; in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
+| `company_labels` | the **analysed** companies, each with its D15 label, separated by commas: `AAPL:product_innovation, MSFT:other` (single: exactly one entry; multi: two or more; the other scopes: none). There is no separate companies column: the analysed companies are the labelled ones. Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` (a comma inside a name such as `Booking Holdings, Inc.` is kept) |
+| `mentions` | companies named but not analysed (D23), separated by commas (names or tickers); in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
 | `sub_industry` | a GICS sub-industry of the source (sector bodies only; spelling as in the source) |
 | `notes` | anything that helps (never required) |
 
@@ -144,10 +143,10 @@ rival Amazon, is `single` with `competitive_actions`; 88609, a spinoff raising m
 Pick the GICS **sub-industry** the article is about, as spelled in the source `articles` table
 (`gics_sub_industry`). The check rejects names the source does not have; the list of valid names,
 with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
-export` (PR #117) together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
+export` together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
 of this document. **[owner call 4]** For a broad sector story that spans several sub-industries,
 enter the most central sub-industry (the plan tests sub-industry, D24); there is no sector-level
-value. The companies a sector body names go in `mentions`, not in `companies` (**[owner call 7]**).
+value. The companies a sector body names go in `mentions`, not in `company_labels` (**[owner call 7]**).
 
 ## Returning the file
 
@@ -164,6 +163,11 @@ value. The companies a sector body names go in `mentions`, not in `companies` (*
    with the date in its name: no checker can detect a mis-save such as a sort that detaches the
    rows from their ids.
 5. `guide` rewrites the guide CSVs at any time; `export` refuses to touch a tagged review file.
+6. A file saved under another name needs `--file NAME` (`check`, `normalise`, `translate`). A file
+   still in the first format (a `companies` column, `;` separators) is refused with the way out:
+   `migrate --file NAME` writes a copy without `companies` and with commas, keeps every company
+   of the old column in `company_labels` (without a label, listed for you) and never touches the
+   original.
 
 ## Owner calls (answered 2026-10-29)
 
@@ -174,7 +178,7 @@ value. The companies a sector body names go in `mentions`, not in `companies` (*
 5. A round-up of firms from one industry is `multi`; `sector` only when the industry is the point.
 6. A one-company comparison against its sector or peers is `single` with `peer_comparison`.
 7. Companies named in `sector`, `market_economy` and `investing_general` bodies are listed in
-   `mentions`; `companies` stays empty there.
+   `mentions`; `company_labels` stays empty there.
 
 Also settled by the owner and stated above: the headline event decides the scope (a company framed
 by its industry or moving the market stays `single` unless the industry or the market is the

@@ -2,19 +2,20 @@
 
     uv run scripts/retag_gold_2026_10_29.py export [--out data]   # writes the file to tag
     uv run scripts/retag_gold_2026_10_29.py translate [--limit N]  # spanish_title/text after text
+    uv run scripts/retag_gold_2026_10_29.py migrate [--file NAME]  # first format -> current, new file
     uv run scripts/retag_gold_2026_10_29.py guide  [--out data]   # rewrites the guide CSVs only
     uv run scripts/retag_gold_2026_10_29.py normalise [--out data]  # names -> tickers, new file
     uv run scripts/retag_gold_2026_10_29.py check  [--out data] [--file NAME]  # validates a file
 
 ``export`` reads ``data/category_gold_review.csv`` and its key (tags v1) and writes
 ``category_gold_v2_review.csv`` (the article, the v1 label and note and the scope they imply as
-guidance, EMPTY ``scope`` / ``companies`` / ``company_labels`` / ``mentions`` / ``sub_industry`` /
-``notes``) and
+guidance, EMPTY ``scope`` / ``company_labels`` / ``mentions`` / ``sub_industry`` / ``notes``) and
 ``category_gold_v2_key.csv`` (the v1 key, where the LLM's label stays: the owner is not shown it).
 It **refuses to overwrite a file that already has scopes filled in**. ``check`` lists the
 untagged rows and every row that breaks the rules (``news_nlp.retag.check_row``).
-Column format: ``companies`` = ``AAPL; MSFT``; ``company_labels`` = ``AAPL:product_innovation; MSFT:other``.
-The owner may type names or nicknames instead of tickers (``Apple; Google``, ``Apple:other``):
+Column format: ``company_labels`` = ``AAPL:product_innovation, MSFT:other`` (the analysed companies are
+exactly the labelled ones; there is no ``companies`` column), ``mentions`` = ``GOOG, AMZN``, separated
+by commas. The owner may type names or nicknames instead of tickers (``Apple:other, Google:other``):
 ``normalise`` writes ``category_gold_v2_review_tickers.csv`` with tickers and lists every text it
 could not resolve or that fits several companies (left as typed, never guessed), and the matches
 it inferred (a first word, a brand, a ticker that is also a word) for the owner to confirm; the
@@ -231,6 +232,28 @@ def write_guides(out: Path, universe_companies: list[Company] | None = None) -> 
     )
 
 
+def cmd_migrate(out: Path, *, file: str | None = None, force: bool = False) -> None:
+    """Write a copy of a review file of the first format (a ``companies`` column, ``;``) in the
+    current one (no ``companies``, commas). The file given is not touched; the copy never replaces
+    an existing file unless ``force``. Companies that were in ``companies`` but not in
+    ``company_labels`` are kept in ``company_labels`` without a label and listed."""
+    source = out / (file or retag.REVIEW_NAME)
+    rows = _read(source)
+    needed = {"article_id", "scope", "company_labels", "mentions"}
+    if not rows or needed - set(rows[0]):
+        sys.exit(
+            f"{source.name} lacks the columns {sorted(needed - set(rows[0]) if rows else needed)}"
+        )
+    new_rows, problems = retag.migrate_rows(rows)
+    target = out / f"{source.stem}_new_format.csv"
+    if target.exists() and not force:
+        sys.exit(f"{target} exists: move it or pass --force")
+    write_csv(target, new_rows)
+    for problem in problems:
+        print(f"  {problem}")
+    print(f"{len(new_rows)} rows -> {target}; {len(problems)} cells need your attention")
+
+
 def cmd_guide(out: Path, *, universe_companies: list[Company] | None = None) -> None:
     write_guides(out, universe_companies)
     print(f"{out / 'category_gold_v2_guide.csv'} and {out / 'gics_sub_industries.csv'} rewritten")
@@ -355,7 +378,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("command", choices=("export", "guide", "normalise", "check", "translate"))
+    parser.add_argument(
+        "command", choices=("export", "guide", "normalise", "check", "translate", "migrate")
+    )
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", help="review file name inside --out (check, normalise)")
     parser.add_argument("--limit", type=int, help="translate: pilot on the first N, file untouched")
@@ -386,6 +411,8 @@ def main() -> None:
         cmd_translate(
             args.out, file=args.file, limit=args.limit, yes=args.yes, max_new=args.max_new
         )
+    elif args.command == "migrate":
+        cmd_migrate(args.out, file=args.file, force=args.force)
     elif args.command == "guide":
         cmd_guide(args.out)
     elif args.command == "normalise":
