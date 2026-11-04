@@ -424,41 +424,43 @@ GATE_QUOTAS = {
 }
 
 
-GATE_LIST_COLUMNS = (
-    "review_order",
-    "article_id",
-    "stratum",
-    "title",
-    "text",
-    "spanish_title",
-    "spanish_text",
-)
-
-
-def gate_to_tag(
+def gate_rows(
     ids: Sequence[Mapping[str, str]], rows: Sequence[Mapping[str, str]]
 ) -> list[dict[str, str]]:
-    """The gate bodies the owner has not tagged yet, in file order, as a reading list: the locator
-    columns, then ``title``, ``text`` and the Spanish reading aid right after ``text`` (every file
-    to tag carries it), all taken from the review file. Rerun after tagging: it shrinks."""
-    by_id = {r["article_id"]: r for r in rows}
-    out: list[dict[str, str]] = []
-    for item in sorted(ids, key=lambda r: int(r["review_order"])):
-        row = by_id.get(item["article_id"])
-        if row is None or (row.get("scope") or "").strip():
-            continue
-        out.append(
-            {
-                "review_order": item["review_order"],
-                "article_id": item["article_id"],
-                "stratum": item["stratum"],
-                "title": row["title"],
-                "text": row["text"],
-                "spanish_title": row.get("spanish_title") or "",
-                "spanish_text": row.get("spanish_text") or "",
-            }
-        )
-    return out
+    """The review rows of the gate bodies, in file order and unchanged: the same columns as the
+    review file (the Spanish aid after ``text``, the v1 columns, the columns to tag) and the tags
+    the owner has already made. It is a tagging file of its own, 240 rows."""
+    wanted = {i["article_id"] for i in ids}
+    return [
+        dict(r)
+        for r in sorted(rows, key=lambda r: int(r["review_order"]))
+        if r["article_id"] in wanted
+    ]
+
+
+def merge_tags(
+    target: Sequence[Mapping[str, str]], source: Sequence[Mapping[str, str]]
+) -> tuple[list[dict[str, str]], int, list[str]]:
+    """*target* with the tags of the tagged rows of *source* copied in (same ``article_id``):
+    ``(rows, copied, conflicts)``. A target row that already holds different tags is left as it is
+    and its id listed: nothing the owner typed is overwritten."""
+    by_id = {r["article_id"]: r for r in source if (r.get("scope") or "").strip()}
+    merged: list[dict[str, str]] = []
+    copied = 0
+    conflicts: list[str] = []
+    for row in target:
+        new = dict(row)
+        other = by_id.get(row["article_id"])
+        if other is not None:
+            mine = {c: (row.get(c) or "").strip() for c in TAG_COLUMNS}
+            theirs = {c: (other.get(c) or "").strip() for c in TAG_COLUMNS}
+            if not any(mine.values()):
+                new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
+                copied += 1
+            elif mine != theirs:
+                conflicts.append(row["article_id"])
+        merged.append(new)
+    return merged, copied, conflicts
 
 
 def draw_gate(

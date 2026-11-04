@@ -437,21 +437,38 @@ def test_draw_gate_keeps_the_tagged_rows_first_and_takes_small_strata_whole() ->
     assert sum(retag.GATE_QUOTAS.values()) == 240
 
 
-def test_gate_reading_list_has_the_spanish_columns_after_text_and_shrinks_with_tagging() -> None:
-    rows = [
+def _full_rows() -> list[dict[str, str]]:
+    return [
         {
-            **r,
-            "text": f"body {r['review_order']}",
-            "spanish_title": f"es t{r['review_order']}",
-            "spanish_text": f"es body {r['review_order']}",
+            **{k: v for k, v in r.items() if k != "scope"},
+            "text": "b",
+            "spanish_title": "es",
+            "spanish_text": "es b",
+            **{c: "" for c in retag.TAG_COLUMNS},
+            "scope": r["scope"],
         }
         for r in _gate_rows()
     ]
+
+
+def test_gate_file_is_the_review_rows_with_the_tags() -> None:
+    rows = _full_rows()
     ids = retag.draw_gate(rows, {"sector": 9, "multi": 3, "single": 5}, seed=1)
-    todo = retag.gate_to_tag(ids, rows)
-    assert list(todo[0]) == list(retag.GATE_LIST_COLUMNS)
-    assert list(todo[0])[list(todo[0]).index("text") + 1 :] == ["spanish_title", "spanish_text"]
-    assert all(r["spanish_text"] == "es " + r["text"] for r in todo)
-    assert not {r["article_id"] for r in todo} & {"102", "104", "121"}  # tagged: not listed
-    rows[int(todo[0]["review_order"]) - 1]["scope"] = "single"
-    assert len(retag.gate_to_tag(ids, rows)) == len(todo) - 1
+    gate = retag.gate_rows(ids, rows)
+    assert len(gate) == len(ids) == 13
+    assert all(list(g) == list(rows[0]) for g in gate)  # the same columns, Spanish after text
+    assert {"102", "104", "121"} <= {g["article_id"] for g in gate}  # the tagged ones are in it
+    assert next(g for g in gate if g["article_id"] == "102")["scope"] == "single"
+
+
+def test_merge_copies_new_tags_and_never_overwrites_different_ones() -> None:
+    rows = _full_rows()
+    gate = [dict(r) for r in rows[:3]]
+    gate[0]["scope"], gate[0]["company_labels"] = "single", "AAPL:other"  # 101: untagged in review
+    gate[1]["notes"] = "x"  # 102 is tagged "single" in the review file; same scope, other notes
+    merged, copied, conflicts = retag.merge_tags(rows, gate)
+    assert copied == 1 and conflicts == ["102"]
+    first = next(m for m in merged if m["article_id"] == "101")
+    assert first["scope"] == "single" and first["company_labels"] == "AAPL:other"
+    assert next(m for m in merged if m["article_id"] == "102")["notes"] == ""  # kept as it was
+    assert rows[0]["scope"] == ""  # the input is not modified
