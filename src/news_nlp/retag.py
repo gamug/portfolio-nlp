@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import io
+import random
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -408,3 +409,47 @@ def sub_industry_rows(companies: Sequence[Company]) -> list[dict[str, str]]:
         {"gics_sector": a, "gics_sub_industry": b, "gics_code": code_of.get(_sub_key(b), "")}
         for a, b in pairs
     ]
+
+
+#: The fixed 240-body set of the prompt gate (T-146c), by the scope the v1 notes imply. Gold v2
+#: scopes are not known before the owner has tagged, so the stratification uses ``v1_scope_derived``;
+#: the rare scopes are taken whole, which is what the gate is least sure about.
+GATE_QUOTAS = {
+    "sector": 9,
+    "market_economy": 9,
+    "unrelated": 31,
+    "investing_general": 40,
+    "multi": 60,
+    "single": 91,
+}
+
+
+def draw_gate(
+    rows: Sequence[Mapping[str, str]],
+    quotas: Mapping[str, int] = GATE_QUOTAS,
+    *,
+    seed: int,
+) -> list[dict[str, str]]:
+    """The gate set: per ``v1_scope_derived`` stratum, the rows the owner has already tagged first
+    (in file order), then a seeded random draw of untagged rows up to the quota (the whole stratum
+    if it is smaller). Each result row has ``stratum`` and ``already_tagged``; the list is in
+    file order."""
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible sample, not security
+    chosen: list[dict[str, str]] = []
+    for stratum, quota in quotas.items():
+        members = [r for r in rows if r.get("v1_scope_derived") == stratum]
+        done = [r for r in members if (r.get("scope") or "").strip()]
+        todo = [r for r in members if not (r.get("scope") or "").strip()]
+        rng.shuffle(todo)
+        picked = done[:quota] + todo[: max(0, quota - len(done))]
+        chosen += [
+            {
+                "review_order": r["review_order"],
+                "article_id": r["article_id"],
+                "stratum": stratum,
+                "already_tagged": "yes" if (r.get("scope") or "").strip() else "no",
+                "title": r["title"],
+            }
+            for r in picked
+        ]
+    return sorted(chosen, key=lambda r: int(r["review_order"]))

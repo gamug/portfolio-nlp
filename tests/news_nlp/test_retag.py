@@ -406,3 +406,32 @@ def test_load_reports_the_names_outside_the_universe(tmp_path: Path) -> None:
     )
     report = retag.load_gold_v2(tmp_path / "r.csv", [10, 11], RETAIL)
     assert dict(report.outside) == {"Twitter": 2, "Toyota": 1}
+
+
+def _gate_rows() -> list[dict[str, str]]:
+    rows = []
+    for i in range(1, 31):
+        stratum = "single" if i <= 20 else "multi" if i <= 25 else "sector"
+        rows.append(
+            {
+                "review_order": str(i),
+                "article_id": str(100 + i),
+                "title": f"t{i}",
+                "v1_scope_derived": stratum,
+                "scope": "single" if i in (2, 4, 21) else "",
+            }
+        )
+    return rows
+
+
+def test_draw_gate_keeps_the_tagged_rows_first_and_takes_small_strata_whole() -> None:
+    quotas = {"sector": 9, "multi": 3, "single": 5}
+    got = retag.draw_gate(_gate_rows(), quotas, seed=1)
+    by = {s: [r for r in got if r["stratum"] == s] for s in quotas}
+    assert [len(by[s]) for s in quotas] == [5, 3, 5]  # sector has only 5 members: all taken
+    assert {"2", "4"} <= {r["review_order"] for r in by["single"]}  # the tagged ones come first
+    assert [r["already_tagged"] for r in by["multi"]].count("yes") == 1
+    assert [int(r["review_order"]) for r in got] == sorted(int(r["review_order"]) for r in got)
+    assert got == retag.draw_gate(_gate_rows(), quotas, seed=1)  # reproducible
+    assert got != retag.draw_gate(_gate_rows(), quotas, seed=2)  # and seeded
+    assert sum(retag.GATE_QUOTAS.values()) == 240
