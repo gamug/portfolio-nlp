@@ -435,3 +435,23 @@ def test_draw_gate_keeps_the_tagged_rows_first_and_takes_small_strata_whole() ->
     assert got == retag.draw_gate(_gate_rows(), quotas, seed=1)  # reproducible
     assert got != retag.draw_gate(_gate_rows(), quotas, seed=2)  # and seeded
     assert sum(retag.GATE_QUOTAS.values()) == 240
+
+
+def test_gate_reading_list_has_the_spanish_columns_after_text_and_shrinks_with_tagging() -> None:
+    rows = [
+        {
+            **r,
+            "text": f"body {r['review_order']}",
+            "spanish_title": f"es t{r['review_order']}",
+            "spanish_text": f"es body {r['review_order']}",
+        }
+        for r in _gate_rows()
+    ]
+    ids = retag.draw_gate(rows, {"sector": 9, "multi": 3, "single": 5}, seed=1)
+    todo = retag.gate_to_tag(ids, rows)
+    assert list(todo[0]) == list(retag.GATE_LIST_COLUMNS)
+    assert list(todo[0])[list(todo[0]).index("text") + 1 :] == ["spanish_title", "spanish_text"]
+    assert all(r["spanish_text"] == "es " + r["text"] for r in todo)
+    assert not {r["article_id"] for r in todo} & {"102", "104", "121"}  # tagged: not listed
+    rows[int(todo[0]["review_order"]) - 1]["scope"] = "single"
+    assert len(retag.gate_to_tag(ids, rows)) == len(todo) - 1

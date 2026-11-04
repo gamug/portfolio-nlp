@@ -424,6 +424,43 @@ GATE_QUOTAS = {
 }
 
 
+GATE_LIST_COLUMNS = (
+    "review_order",
+    "article_id",
+    "stratum",
+    "title",
+    "text",
+    "spanish_title",
+    "spanish_text",
+)
+
+
+def gate_to_tag(
+    ids: Sequence[Mapping[str, str]], rows: Sequence[Mapping[str, str]]
+) -> list[dict[str, str]]:
+    """The gate bodies the owner has not tagged yet, in file order, as a reading list: the locator
+    columns, then ``title``, ``text`` and the Spanish reading aid right after ``text`` (every file
+    to tag carries it), all taken from the review file. Rerun after tagging: it shrinks."""
+    by_id = {r["article_id"]: r for r in rows}
+    out: list[dict[str, str]] = []
+    for item in sorted(ids, key=lambda r: int(r["review_order"])):
+        row = by_id.get(item["article_id"])
+        if row is None or (row.get("scope") or "").strip():
+            continue
+        out.append(
+            {
+                "review_order": item["review_order"],
+                "article_id": item["article_id"],
+                "stratum": item["stratum"],
+                "title": row["title"],
+                "text": row["text"],
+                "spanish_title": row.get("spanish_title") or "",
+                "spanish_text": row.get("spanish_text") or "",
+            }
+        )
+    return out
+
+
 def draw_gate(
     rows: Sequence[Mapping[str, str]],
     quotas: Mapping[str, int] = GATE_QUOTAS,
