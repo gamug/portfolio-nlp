@@ -1,7 +1,7 @@
 """Draw the fixed 240-body set of the prompt gate (Work item 18, T-146c) from the review file.
 
     uv run scripts/draw_gate240_2026_11_04.py [draw] [--out data] [--file NAME] [--seed 20261104]
-    uv run scripts/draw_gate240_2026_11_04.py merge [--out data] [--file NAME]
+    uv run scripts/draw_gate240_2026_11_04.py merge [--out data] [--file NAME] [--gate-wins]
 
 ``draw`` writes ``data/gate240_ids.csv`` (the 240 with their stratum; **drawn once**, a second run
 does not draw again) and ``data/gate240_to_tag.csv``: a tagging file of its own with the 240 rows
@@ -9,7 +9,8 @@ in the same columns as the review file (title, text, the Spanish ``spanish_title
 ``spanish_text`` after ``text``, the v1 columns and the columns to tag), the tags the owner has
 already made included. That file is never overwritten once it exists. ``merge`` copies the tags
 made in it into the review file as a new dated file (nothing is replaced, a row with different
-tags in both is listed). The review file is only read.
+tags in both is listed; ``--gate-wins`` lets the gate file's tags replace the different ones, which
+are then listed). The review file is only read.
 """
 
 from __future__ import annotations
@@ -68,16 +69,18 @@ def cmd_draw(out: Path, file: str, seed: int) -> None:
     print("by stratum:", dict(Counter(r["stratum"] for r in chosen)))
 
 
-def cmd_merge(out: Path, file: str) -> None:
+def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
     """Copy the tags made in the gate file into the review file, as a NEW file (dated name): neither
     input is touched, a review row that already holds different tags is not overwritten."""
     review = retag.read_tag_file(out / file)
     gate = retag.read_tag_file(out / TO_TAG_NAME)
-    merged, copied, conflicts = retag.merge_tags(review, gate)
+    merged, copied, conflicts, replaced = retag.merge_tags(review, gate, source_wins=gate_wins)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     target = out / f"{Path(file).stem}_merged_{stamp}.csv"
     _write(target, merged)
     print(f"{len(merged)} rows -> {target}: {copied} tagged rows copied from {TO_TAG_NAME}")
+    if replaced:
+        print(f"  replaced by the gate file's tags (--gate-wins): {', '.join(replaced)}")
     if conflicts:
         print(f"  not overwritten (different tags in both files): {', '.join(conflicts)}")
 
@@ -88,9 +91,14 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", default=retag.REVIEW_NAME)
     parser.add_argument("--seed", type=int, default=20261104)
+    parser.add_argument(
+        "--gate-wins",
+        action="store_true",
+        help="merge: the gate file's tags replace different ones",
+    )
     args = parser.parse_args()
     if args.command == "merge":
-        cmd_merge(args.out, args.file)
+        cmd_merge(args.out, args.file, gate_wins=args.gate_wins)
     else:
         cmd_draw(args.out, args.file, args.seed)
 

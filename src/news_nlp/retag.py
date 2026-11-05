@@ -486,15 +486,21 @@ def gate_rows(
 
 
 def merge_tags(
-    target: Sequence[Mapping[str, str]], source: Sequence[Mapping[str, str]]
-) -> tuple[list[dict[str, str]], int, list[str]]:
+    target: Sequence[Mapping[str, str]],
+    source: Sequence[Mapping[str, str]],
+    *,
+    source_wins: bool = False,
+) -> tuple[list[dict[str, str]], int, list[str], list[str]]:
     """*target* with the tags of the tagged rows of *source* copied in (same ``article_id``):
-    ``(rows, copied, conflicts)``. A target row that already holds different tags is left as it is
-    and its id listed: nothing the owner typed is overwritten."""
+    ``(rows, copied, conflicts, replaced)``. A target row that already holds different tags is left
+    as it is and its id listed in *conflicts*: nothing the owner typed is overwritten. With
+    *source_wins* (the owner tags in *source* only, so its tags are the later ones) those rows take
+    the source tags instead and are listed in *replaced*."""
     by_id = {r["article_id"]: r for r in source if (r.get("scope") or "").strip()}
     merged: list[dict[str, str]] = []
     copied = 0
     conflicts: list[str] = []
+    replaced: list[str] = []
     for row in target:
         new = dict(row)
         other = by_id.get(row["article_id"])
@@ -505,9 +511,13 @@ def merge_tags(
                 new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
                 copied += 1
             elif mine != theirs:
-                conflicts.append(row["article_id"])
+                if source_wins:
+                    new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
+                    replaced.append(row["article_id"])
+                else:
+                    conflicts.append(row["article_id"])
         merged.append(new)
-    return merged, copied, conflicts
+    return merged, copied, conflicts, replaced
 
 
 def draw_gate(

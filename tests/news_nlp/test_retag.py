@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -478,12 +480,16 @@ def test_merge_copies_new_tags_and_never_overwrites_different_ones() -> None:
     gate = [dict(r) for r in rows[:3]]
     gate[0]["scope"], gate[0]["company_labels"] = "single", "AAPL:other"  # 101: untagged in review
     gate[1]["notes"] = "x"  # 102 is tagged "single" in the review file; same scope, other notes
-    merged, copied, conflicts = retag.merge_tags(rows, gate)
-    assert copied == 1 and conflicts == ["102"]
+    merged, copied, conflicts, replaced = retag.merge_tags(rows, gate)
+    assert copied == 1 and conflicts == ["102"] and replaced == []
     first = next(m for m in merged if m["article_id"] == "101")
     assert first["scope"] == "single" and first["company_labels"] == "AAPL:other"
     assert next(m for m in merged if m["article_id"] == "102")["notes"] == ""  # kept as it was
     assert rows[0]["scope"] == ""  # the input is not modified
+    # the gate file is where the owner tags: with source_wins its different tags replace the others
+    wins, copied, conflicts, replaced = retag.merge_tags(rows, gate, source_wins=True)
+    assert copied == 1 and conflicts == [] and replaced == ["102"]
+    assert next(m for m in wins if m["article_id"] == "102")["notes"] == "x"
 
 
 def test_a_company_may_carry_several_labels_in_one_article() -> None:
@@ -524,3 +530,27 @@ def test_sub_industry_takes_several_nodes_of_any_level_and_companies() -> None:
     )
     codes, errors = long.resolve_sub_industries("Metal, Glass & Plastic Containers, 25")
     assert not errors and codes == ("15103010", "25")
+
+
+def test_the_extra_sector_draw_is_seeded_balanced_and_tops_up_small_sectors() -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import draw_sector_extra_2026_11_05 as draw  # noqa: PLC0415
+
+    def item(i: int, noun: str) -> dict[str, object]:
+        return {"article_id": i, "noun": noun}
+
+    pool = {
+        "Energy": [item(i, "oil" if i % 2 else "gas") for i in range(1, 9)],
+        "Utilities": [item(100, "utilities")],  # a sector with fewer candidates than places
+        "Financials": [item(i, "banks") for i in range(200, 220)],
+    }
+    first = draw.draw(pool, 3, seed=1)
+    assert first == draw.draw(pool, 3, seed=1)  # the same seed, the same draw
+    sectors = Counter(str(r["sector"]) for r in first)
+    target = 3 * len(draw.INDUSTRY_NOUNS)
+    assert len(first) == min(target, 8 + 1 + 20) and len({r["article_id"] for r in first}) == len(
+        first
+    )
+    assert sectors["Utilities"] == 1 and sectors["Energy"] >= 3
+    energy = [r for r in first[:3] if r["sector"] == "Energy"]
+    assert {r["noun"] for r in energy} == {"oil", "gas"}  # one noun does not fill the sector
