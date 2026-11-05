@@ -1023,9 +1023,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         - *The fixed 240 (owner answer 2026-11-04).* `scripts/draw_gate240_2026_11_04.py` draws it once, quotas sector 9,
           market_economy 9, unrelated 31, investing_general 40, multi 60, single 91 (`retag.GATE_QUOTAS`); it stops, writing
           nothing, if the draw is not 240 or a stratum holds more tagged rows than its quota. The set is
-          `data/gate240_ids.csv` (local) and, tracked in git, `gold/gate240_ids.csv` (ids and strata, no news text) with
-          `gold/gate240_draw.json` (seed, quotas, review-file hash): the recorded ids are the gate, a redraw with the same seed
-          on a later review file would not give the same set. The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
+          `data/gate240_ids.csv` (local, git-ignored); the only tracked gold files are the train set `gold/category_gold_v2.csv`
+          (240 + 44 sector) and the held-out test set (200), and every later feature reads those two (owner call 2026-11-05). The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
           Spanish aid after `text`, existing tags included; never overwritten); `merge` copies its tags into the review
           file as a new `_merged_` file, and the newest one is the current review file. The other 480 of the 720 can wait until
           the 240 passes; the full 720 is needed only for the confirmation run and the rules re-measure. Workflow, conflicts and `merge --gate-wins`: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".

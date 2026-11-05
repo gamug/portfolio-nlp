@@ -1,7 +1,6 @@
 """Draw the fixed 240-body set of the prompt gate (Work item 18, T-146c) from the review file.
 
     uv run scripts/draw_gate240_2026_11_04.py [draw] [--out data] [--file NAME] [--seed 20261104]
-                                              [--tracked gold]
     uv run scripts/draw_gate240_2026_11_04.py merge [--out data] [--file NAME] [--gate-wins]
 
 ``draw`` writes ``data/gate240_ids.csv`` (the 240 with their stratum; **drawn once**, a second run
@@ -11,11 +10,6 @@ in the same columns as the review file (title, text, the Spanish ``spanish_title
 already made included. That file is never overwritten once it holds rows. Nothing is written until
 the draw, the quotas and the ids have been checked (a stratum short of its quota, a gate id missing
 from the review file, or more tagged rows than a quota all stop the run).
-
-The set is also recorded in git, because ``data/`` is not: ``gold/gate240_ids.csv`` (article id and
-stratum only, no news text) and ``gold/gate240_draw.json`` (seed, quotas and the hash of the review
-file). The draw depends on which rows were tagged when it ran, so the same seed on a later review
-file would give another set: the recorded ids are the gate, not the seed.
 
 ``merge`` copies the tags made in the gate file into the review file as a new file
 (``<stem>_merged_<timestamp>.csv``); nothing is replaced and a row with different tags in both is
@@ -37,8 +31,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
-import json
 import os
 import sys
 from collections import Counter
@@ -52,8 +44,6 @@ from news_nlp import retag
 
 IDS_NAME = "gate240_ids.csv"
 TO_TAG_NAME = "gate240_to_tag.csv"
-DRAW_NAME = "gate240_draw.json"
-TRACKED_COLUMNS = ("review_order", "article_id", "stratum")
 
 
 def _write(
@@ -63,7 +53,7 @@ def _write(
     tmp = path.with_name(path.name + ".tmp")
     try:
         with tmp.open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(columns or rows[0]), extrasaction="ignore")
+            writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
             writer.writeheader()
             writer.writerows(rows)
         os.replace(tmp, path)
@@ -84,49 +74,8 @@ def _current_review(out: Path, file: str) -> Path:
     return merged[-1] if merged else out / file
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _record(
-    tracked: Path,
-    review: Path,
-    chosen: Sequence[dict[str, str]],
-    seed: int,
-    *,
-    after: bool,
-    quotas: Mapping[str, int],
-) -> None:
-    """The set and how it was drawn, in a directory git tracks. Written once."""
-    tracked.mkdir(parents=True, exist_ok=True)
-    if not (tracked / IDS_NAME).exists():
-        _write(tracked / IDS_NAME, chosen, TRACKED_COLUMNS)
-    if not (tracked / DRAW_NAME).exists():
-        info = {
-            "seed": seed,
-            "quotas": dict(quotas),
-            "review_file": review.name,  # the file the rows were read from
-            "review_sha256": _sha256(review),
-            "recorded_at": datetime.now().isoformat(timespec="seconds"),
-            "recorded_after_draw": after,  # True: the hash is of the file at recording, not at the draw
-        }
-        (tracked / DRAW_NAME).write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
-
-
-def _check_tracked(chosen: Sequence[Mapping[str, str]], tracked_ids: Path) -> None:
-    """The local set and the one in git must be the same articles in the same strata."""
-    if not tracked_ids.exists():
-        return
-    key = lambda rows: [(r["review_order"], r["article_id"], r["stratum"]) for r in rows]  # noqa: E731
-    if key(chosen) != key(_read(tracked_ids)):
-        sys.exit(
-            f"{tracked_ids} and the local set differ: the gate is the recorded set, "
-            "restore whichever file was edited"
-        )
-
-
 def cmd_draw(
-    out: Path, file: str, seed: int, tracked: Path, quotas: Mapping[str, int] = retag.GATE_QUOTAS
+    out: Path, file: str, seed: int, quotas: Mapping[str, int] = retag.GATE_QUOTAS
 ) -> None:
     review = _current_review(out, file)
     rows = retag.read_tag_file(review)
@@ -135,10 +84,6 @@ def cmd_draw(
     if existing:  # the set is fixed
         chosen = _read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again")
-        _check_tracked(chosen, tracked / IDS_NAME)
-        recorded = tracked / DRAW_NAME
-        if recorded.exists() and json.loads(recorded.read_text("utf-8"))["seed"] != seed:
-            print(f"  --seed {seed} ignored: the set was drawn with another seed ({recorded})")
     else:
         try:
             chosen = retag.draw_gate(rows, quotas, seed=seed)
@@ -158,7 +103,6 @@ def cmd_draw(
         sys.exit(str(exc))
     if not existing:
         _write(ids_path, chosen)
-    _record(tracked, review, chosen, seed, after=existing, quotas=quotas)
     target = out / TO_TAG_NAME
     if target.exists() and _read(target):
         done = sum(1 for r in _read(target) if retag.tagged(r))
@@ -218,7 +162,6 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--file", default=retag.REVIEW_NAME)
     parser.add_argument("--seed", type=int, default=20261104)
-    parser.add_argument("--tracked", type=Path, default=Path("gold"))
     parser.add_argument(
         "--gate-wins",
         action="store_true",
@@ -228,7 +171,7 @@ def main() -> None:
     if args.command == "merge":
         cmd_merge(args.out, args.file, gate_wins=args.gate_wins)
     else:
-        cmd_draw(args.out, args.file, args.seed, args.tracked)
+        cmd_draw(args.out, args.file, args.seed)
 
 
 if __name__ == "__main__":
