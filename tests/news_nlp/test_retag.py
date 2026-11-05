@@ -554,3 +554,36 @@ def test_the_extra_sector_draw_is_seeded_balanced_and_tops_up_small_sectors() ->
     assert sectors["Utilities"] == 1 and sectors["Energy"] >= 3
     energy = [r for r in first[:3] if r["sector"] == "Energy"]
     assert {r["noun"] for r in energy} == {"oil", "gas"}  # one noun does not fill the sector
+
+
+def _tagging_row(**changes: str) -> dict[str, str]:
+    row = dict.fromkeys(retag.TAGGING_COLUMNS, "x")
+    row.update(changes)
+    return row
+
+
+def test_every_tagging_file_has_the_spanish_columns_after_text_and_translated_rows() -> None:
+    assert retag.TAGGING_COLUMNS.index("spanish_title") == retag.TAGGING_COLUMNS.index("text") + 1
+    assert retag.TAGGING_COLUMNS.index("spanish_text") == retag.TAGGING_COLUMNS.index("text") + 2
+    assert retag.tagging_format_problems([_tagging_row()]) == []
+    assert any("empty" in p for p in retag.tagging_format_problems([_tagging_row(spanish_text="")]))
+    no_spanish = {k: v for k, v in _tagging_row().items() if not k.startswith("spanish")}
+    assert any("not the tagging format" in p for p in retag.tagging_format_problems([no_spanish]))
+    shuffled = dict(reversed(list(_tagging_row().items())))
+    assert retag.tagging_format_problems([shuffled])
+    with pytest.raises(retag.TagFileError, match="is not written"):
+        retag.require_tagging_format([no_spanish], "gate.csv")
+
+
+def test_the_scripts_refuse_to_write_a_tagging_file_without_the_spanish_columns(
+    tmp_path: Path,
+) -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415
+
+    bare = {k: "x" for k in retag.TAGGING_COLUMNS if not k.startswith("spanish")}
+    with pytest.raises(SystemExit, match="is not written"):
+        cli.write_tagging_csv(tmp_path / "t.csv", [bare])
+    assert not (tmp_path / "t.csv").exists()
+    cli.write_tagging_csv(tmp_path / "ok.csv", [_tagging_row()])
+    assert (tmp_path / "ok.csv").exists()

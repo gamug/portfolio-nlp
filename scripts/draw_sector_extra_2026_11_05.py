@@ -323,10 +323,7 @@ def main() -> None:
         _write(
             out / IDS_NAME,
             [
-                {
-                    k: str(r[k])
-                    for k in ("article_id", "sector", "noun", "hits", "subjects", "title")
-                }
+                {k: str(r[k]) for k in ("article_id", "sector", "noun", "hits", "subjects")}
                 for r in chosen
             ],
         )
@@ -336,7 +333,10 @@ def main() -> None:
         out, rows, retag_cli._translator(), yes=args.yes, max_new=args.max_new
     )
     try:
+        retag.require_tagging_format(rows, TO_TAG_NAME)
         _write(out / TO_TAG_NAME, rows)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
     except PermissionError:
         sys.exit(f"cannot write {out / TO_TAG_NAME}: close it in Excel and run again")
     print(f"{len(rows)} bodies -> {out / TO_TAG_NAME}")

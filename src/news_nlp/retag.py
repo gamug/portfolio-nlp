@@ -62,6 +62,48 @@ CARRIED = (
 )
 
 
+#: The one format of every file the owner tags (the review file, the gate file, any later draw):
+#: the Spanish reading aid right after ``text``, the v1 guidance, then the columns to tag.
+TAGGING_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "v1_label",
+    "v1_notes",
+    "v1_scope_derived",
+    *TAG_COLUMNS,
+)
+
+
+def tagging_format_problems(rows: Sequence[Mapping[str, str]]) -> list[str]:
+    """What keeps *rows* from being a tagging file of the owner's format: other columns or another
+    order (the Spanish columns must follow ``text``) and any row without its Spanish title and text.
+    Empty when the file is right."""
+    if not rows:
+        return ["no rows"]
+    problems: list[str] = []
+    columns = tuple(rows[0])
+    if columns != TAGGING_COLUMNS:
+        missing = [c for c in TAGGING_COLUMNS if c not in columns]
+        extra = [c for c in columns if c not in TAGGING_COLUMNS]
+        problems.append(
+            f"columns are not the tagging format (missing {missing}, extra {extra}, "
+            f"expected order {', '.join(TAGGING_COLUMNS)})"
+        )
+    for column in ("spanish_title", "spanish_text"):
+        empty = [r.get("article_id", "?") for r in rows if not (r.get(column) or "").strip()]
+        if empty:
+            problems.append(f"{column} is empty for {len(empty)} rows (first: {empty[:5]})")
+    return problems
+
+
+def require_tagging_format(rows: Sequence[Mapping[str, str]], name: str) -> None:
+    """Refuse to write a file for the owner to tag unless it has the tagging format."""
+    problems = tagging_format_problems(rows)
+    if problems:
+        raise TagFileError(f"{name} is not written: " + "; ".join(problems))
+
+
 @dataclass(frozen=True)
 class Universe:
     """The SOURCE universe: ticker -> canonical ticker (share classes of one company resolve to
@@ -544,7 +586,6 @@ def draw_gate(
                 "article_id": r["article_id"],
                 "stratum": stratum,
                 "already_tagged": "yes" if (r.get("scope") or "").strip() else "no",
-                "title": r["title"],
             }
             for r in picked
         ]

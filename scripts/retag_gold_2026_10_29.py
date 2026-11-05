@@ -219,7 +219,7 @@ def cmd_translate(
             break
         backup = backup.with_name(f"{source.stem}_before_translate_{stamp}_{n}.csv")
     shutil.copy2(source, backup)
-    write_csv(source, result)
+    write_tagging_csv(source, result)
     print(f"{len(result)} rows -> {source} (backup: {backup})")
 
 
@@ -259,7 +259,7 @@ def cmd_migrate(out: Path, *, file: str | None = None) -> None:
     new_rows, problems = retag.migrate_rows(rows)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     target = out / f"{source.stem.rstrip('_')}_new_format_{stamp}.csv"
-    write_csv(target, new_rows)
+    write_tagging_csv(target, new_rows)
     for problem in problems:
         print(f"  {problem}")
     print(
@@ -300,6 +300,16 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_tagging_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write a file the owner tags: refused unless it has the tagging format (Spanish columns after
+    ``text``, every row translated)."""
+    try:
+        retag.require_tagging_format(rows, path.name)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    write_csv(path, rows)
 
 
 TICKERS_NAME = "category_gold_v2_review_tickers.csv"
@@ -357,7 +367,7 @@ def cmd_normalise(
             f"{target} was edited after {source.name}: fix the cells in {source.name} and run "
             "normalise again, or pass --force to overwrite the copy"
         )
-    write_csv(target, result)
+    write_tagging_csv(target, result)
     if problems:
         print(
             "left as typed (outside the 509 companies, or a typo: fix typos in the review file):",

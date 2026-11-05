@@ -37,6 +37,15 @@ def _write(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
+def _write_tagging(path: Path, rows: list[dict[str, str]]) -> None:
+    """Every file for the owner to tag has the tagging format, Spanish columns included."""
+    try:
+        retag.require_tagging_format(rows, path.name)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    _write(path, rows)
+
+
 def _read(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -59,7 +68,7 @@ def cmd_draw(out: Path, file: str, seed: int) -> None:
         )
     gate = retag.gate_rows(chosen, rows)
     try:
-        _write(target, gate)
+        _write_tagging(target, gate)
     except PermissionError:
         sys.exit(
             f"cannot write {target}: it is open in another program (Excel?); close it and run again"
@@ -77,7 +86,7 @@ def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
     merged, copied, conflicts, replaced = retag.merge_tags(review, gate, source_wins=gate_wins)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     target = out / f"{Path(file).stem}_merged_{stamp}.csv"
-    _write(target, merged)
+    _write_tagging(target, merged)
     print(f"{len(merged)} rows -> {target}: {copied} tagged rows copied from {TO_TAG_NAME}")
     if replaced:
         print(f"  replaced by the gate file's tags (--gate-wins): {', '.join(replaced)}")
