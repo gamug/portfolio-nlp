@@ -1,8 +1,9 @@
 """The owner's re-tag of the 720 articles under the new taxonomy: gold v2 (Work item 18, T-146b).
 
 The first tagging ("tags v1") has a label and a note per article. Gold v2 has, per body: the
-**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **companies** analysed (single: one;
-multi: two or more, every one with a D15 **label**), the **mentions** (companies named but not
+**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **company_labels** (one ``TICKER:label``
+per analysed company, separated by commas: single: one; multi: two or more; the analysed companies
+are exactly the labelled ones, so there is no separate companies column), the **mentions** (companies named but not
 analysed, D23) and, for a sector body, the GICS **sub-industry**. :func:`retag_rows` builds
 the file the owner fills in (the v1 tag shown as guidance, never the LLM's label), and
 :func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The rules follow
@@ -15,11 +16,14 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from news_nlp.company_names import split_list
+from news_nlp.gics_codes import SUB_INDUSTRY_CODES
 from news_nlp.taxonomy import CATEGORY_LABELS, CATEGORY_SLUGS
 from news_nlp.triage import GOLD_SCOPES, Company, CompanyResolver, gold_scope
 
@@ -34,11 +38,12 @@ D15_LABELS = (
     "uncertain",
     "unrelated",
 )
-TAG_COLUMNS = ("scope", "companies", "company_labels", "mentions", "sub_industry", "notes")
+TAG_COLUMNS = ("scope", "company_labels", "mentions", "sub_industry", "notes")
 #: Scopes that analyse no company: no company or label is expected.
 NO_COMPANY_SCOPES = ("market_economy", "investing_general", "unrelated", "sector")
 #: ``unrelated`` is a body-level scope, not a label of one company; ``uncertain`` is allowed.
 COMPANY_LABELS = tuple(label for label in D15_LABELS if label != "unrelated")
+LEGACY_COLUMN = "companies"  # the first format; its content is now company_labels
 REVIEW_NAME = "category_gold_v2_review.csv"
 KEY_NAME = "category_gold_v2_key.csv"
 CARRIED = (
@@ -60,6 +65,25 @@ class Universe:
 
     tickers: dict[str, str]
     sub_industries: dict[str, str]  # lower case -> source spelling
+
+    def resolve_sub_industry(self, text: str) -> tuple[str | None, str | None]:
+        """The source spelling of a sub-industry given as a name (case and ``&`` / ``and`` do not
+        matter) or as its 8-digit GICS code, or ``(None, why not)``. A code is looked up in
+        :data:`~news_nlp.gics_codes.SUB_INDUSTRY_CODES`; one whose name no company of the universe
+        has is refused, not guessed."""
+        raw = text.strip()
+        by_key = {_sub_key(name): name for name in self.sub_industries.values()}
+        if raw.isdigit():
+            name = SUB_INDUSTRY_CODES.get(raw)
+            if name is None:
+                return None, f"{raw!r} is not a GICS sub-industry code"
+            if _sub_key(name) not in by_key:
+                return None, f"code {raw} is {name!r}, which no company of the universe has"
+            return by_key[_sub_key(name)], None
+        known = self.sub_industries.get(raw.lower()) or by_key.get(_sub_key(raw))
+        if known is None:
+            return None, f"{raw!r} is not a GICS sub-industry (name or code) of the universe"
+        return known, None
 
     @classmethod
     def of(cls, companies: Sequence[Company]) -> Universe:
@@ -97,8 +121,11 @@ def retag_rows(
     return review, [dict(k) for k in v1_key]
 
 
-def _split(value: str) -> list[str]:
-    return [part.strip() for part in value.replace("\n", ";").split(";") if part.strip()]
+def _sub_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", name.lower().replace("&", "and")).strip()
+
+
+_split = split_list
 
 
 @dataclass(frozen=True)
@@ -111,36 +138,74 @@ class Gold:
     labels: dict[str, str]  # company -> D15 label
     mentions: tuple[str, ...]
     sub_industry: str
+    outside: tuple[
+        str, ...
+    ] = ()  # companies (analysed or mentioned) outside the universe, as typed
 
 
-def _tickers(value: str, universe: Universe | None, errors: list[str]) -> tuple[str, ...]:
+_MAX_TICKER = 5  # the longest ticker of the universe is five characters (BF.B has the dot)
+
+
+def _ticker_like(text: str) -> bool:
+    """Short and upper case, no space: written as a ticker, so a typo of one, not a name."""
+    return text.isupper() and " " not in text and len(text) <= _MAX_TICKER
+
+
+def _company(
+    raw: str, universe: Universe | None, errors: list[str], outside: list[str]
+) -> str | None:
+    """The canonical ticker of *raw*; with a universe, a name that is no ticker of it is a company
+    outside the universe (**[owner call 9]**) and is kept as typed, listed in *outside* so that the
+    report shows it (a typo would look the same). ``None`` after an error."""
+    if universe is None:
+        return raw.upper()
+    ticker = raw.upper()
+    if ticker in universe.tickers:
+        return universe.tickers[ticker]
+    if _ticker_like(raw):
+        errors.append(f"{ticker}: not a ticker of the universe")
+        return None
+    if ";" in raw or ":" in raw:
+        errors.append(f"{raw!r}: looks like several entries; separate them with commas")
+        return None
+    outside.append(raw)
+    return raw
+
+
+def _tickers(
+    value: str, universe: Universe | None, errors: list[str], outside: list[str]
+) -> tuple[str, ...]:
     out: list[str] = []
     for raw in _split(value):
-        ticker = raw.upper()
-        if universe is not None:
-            if ticker not in universe.tickers:
-                errors.append(f"{ticker}: not a ticker of the universe")
-                continue
-            ticker = universe.tickers[ticker]
-        if ticker in out:
-            errors.append(f"{ticker}: listed twice")
-        out.append(ticker)
+        company = _company(raw, universe, errors, outside)
+        if company is None:
+            continue
+        if company.casefold() in (c.casefold() for c in out):
+            errors.append(f"{company}: listed twice")
+        out.append(company)
     return tuple(out)
 
 
 def _parse_labels(
-    value: str, companies: tuple[str, ...], universe: Universe | None, errors: list[str]
+    value: str, universe: Universe | None, errors: list[str], outside: list[str]
 ) -> dict[str, str]:
+    """``AAPL:product_innovation, MSFT:other`` -> {ticker: label}; the keys are the analysed
+    companies (a name outside the universe is kept as typed)."""
     labels: dict[str, str] = {}
     for item in _split(value):
-        company, _, label = item.partition(":")
-        company, label = company.strip().upper(), label.strip().lower()
-        if universe is not None:
-            company = universe.tickers.get(company, company)
+        company, sep, label = item.rpartition(":")
+        company, label = company.strip(), label.strip().lower()
+        if not sep:
+            errors.append(f"{item!r}: no label (write TICKER:label)")
+            continue
+        found = _company(company, universe, errors, outside)
+        if found is None:
+            continue
+        company = found
+        if company.casefold() in (c.casefold() for c in labels):
+            errors.append(f"{company}: listed twice")
         if label not in COMPANY_LABELS:
             errors.append(f"{company}: label {label!r} is not a company label (D15)")
-        elif company not in companies:
-            errors.append(f"{company}: labelled but not in companies")
         labels[company] = label
     return labels
 
@@ -157,13 +222,10 @@ def _scope_errors(
     errors = []
     if len(companies) < needed or (scope == "single" and len(companies) != 1):
         errors.append(
-            "scope single needs exactly 1 analysed company (the others are mentions)"
+            "scope single needs exactly 1 labelled company (the others are mentions)"
             if scope == "single"
-            else "scope multi needs 2 or more analysed companies"
+            else "scope multi needs 2 or more labelled companies"
         )
-    missing = [c for c in companies if c not in labels]
-    if missing:
-        errors.append(f"no label for {', '.join(missing)}")
     return errors
 
 
@@ -177,24 +239,26 @@ def check_row(
     if scope not in GOLD_SCOPES:
         return None, [f"scope {scope!r} is not one of {', '.join(GOLD_SCOPES)}"]
     errors: list[str] = []
-    companies = _tickers(row.get("companies") or "", universe, errors)
-    mentions = _tickers(row.get("mentions") or "", universe, errors)
-    if set(companies) & set(mentions):
+    outside: list[str] = []
+    labels = _parse_labels(row.get("company_labels") or "", universe, errors, outside)
+    companies = tuple(labels)
+    mentions = _tickers(row.get("mentions") or "", universe, errors, outside)
+    if {c.casefold() for c in companies} & {m.casefold() for m in mentions}:
         errors.append("a company is both analysed and a mention")
-    labels = _parse_labels(row.get("company_labels") or "", companies, universe, errors)
     sub_industry = (row.get("sub_industry") or "").strip()
     if universe is not None and sub_industry:
-        known = universe.sub_industries.get(sub_industry.lower())
+        known, why = universe.resolve_sub_industry(sub_industry)
         if known is None:
-            errors.append(
-                f"sub_industry {sub_industry!r} is not a GICS sub-industry of the universe"
-            )
+            errors.append(f"sub_industry {why}")
         else:
             sub_industry = known
     errors += _scope_errors(scope, companies, labels, sub_industry)
     if errors:
         return None, errors
-    return Gold(int(row["article_id"]), scope, companies, labels, mentions, sub_industry), []
+    gold = Gold(
+        int(row["article_id"]), scope, companies, labels, mentions, sub_industry, tuple(outside)
+    )
+    return gold, []
 
 
 @dataclass
@@ -207,6 +271,7 @@ class Report:
     missing: list[int]  # expected ids absent from the file
     duplicated: list[int]
     unknown: list[str]  # ids that are not expected (or not integers)
+    outside: Counter[str] = field(default_factory=Counter)  # names outside the universe -> rows
 
 
 class TagFileError(ValueError):
@@ -230,7 +295,40 @@ def read_tag_file(path: Path) -> list[dict[str, str]]:
             f"{path.name} lacks the columns {missing}: it was probably saved with another "
             "delimiter or code page; save it as CSV UTF-8 (comma delimited)"
         )
-    return list(reader)
+    rows = list(reader)
+    if any((row.get(LEGACY_COLUMN) or "").strip() for row in rows):
+        raise TagFileError(
+            f"{path.name} still has the old {LEGACY_COLUMN!r} column with content: run 'migrate' "
+            "(the analysed companies are now the ones in company_labels, separated by commas)"
+        )
+    return rows
+
+
+def migrate_rows(rows: Sequence[Mapping[str, str]]) -> tuple[list[dict[str, str]], list[str]]:
+    """The rows of the first format (a ``companies`` column, ``;`` separators) in the current one:
+    no ``companies`` column, ``company_labels`` and ``mentions`` separated by commas. Every
+    company of the old column that has no entry in ``company_labels`` is added to it, as typed and
+    without a label, and listed in the problems: nothing the owner wrote is dropped or guessed."""
+    out: list[dict[str, str]] = []
+    problems: list[str] = []
+    for row in rows:
+        new = {k: v for k, v in row.items() if k != LEGACY_COLUMN}
+        tag = f"article {row.get('article_id', '?')}"
+        items = split_list((row.get("company_labels") or "").replace(";", ","))
+        named = {item.rpartition(":")[0].strip().casefold() or item.casefold() for item in items}
+        for company in split_list((row.get(LEGACY_COLUMN) or "").replace(";", ",")):
+            if company.casefold() not in named:
+                items.append(company)
+                problems.append(
+                    f"{tag}: {company!r} was in companies but had no entry in company_labels"
+                )
+        problems += [
+            f"{tag}: {item!r} has no label (write name:label)" for item in items if ":" not in item
+        ]
+        new["company_labels"] = ", ".join(items)
+        new["mentions"] = ", ".join(split_list((row.get("mentions") or "").replace(";", ",")))
+        out.append(new)
+    return out, problems
 
 
 def load_gold_v2(
@@ -256,6 +354,7 @@ def load_gold_v2(
         gold, errors = check_row(row, universe)
         if gold:
             report.good.append(gold)
+            report.outside.update(set(gold.outside))
         else:
             report.bad[raw_id] = errors
     report.duplicated = sorted(i for i, n in seen.items() if n > 1)
@@ -283,9 +382,9 @@ NEW_LABEL_GUIDE = {
 
 
 COLUMN_GUIDE = {
-    "companies": "The analysed companies, separated by ';'. Tickers, or names and nicknames as the article writes them: 'normalise' converts them to tickers (and lists what it could not or inferred).",
-    "mentions": "Companies named but not analysed, in every scope; same format as companies.",
-    "company_labels": "One label per analysed company: 'Apple: product_innovation; Google: other' (names or tickers).",
+    "company_labels": "The analysed companies, each with its label, separated by commas: 'Apple:product_innovation, Google:other'. Tickers, or names and nicknames as the article writes them: 'normalise' converts them to tickers (and lists what it could not or inferred). Single: one entry; multi: two or more; the other scopes: none.",
+    "mentions": "Companies named but not analysed, separated by commas, in every scope (names or tickers).",
+    "sub_industry": "A GICS sub-industry, as its 8-digit code (see gics_sub_industries.csv) or its name. Required for a sector body; optional on every other scope.",
 }
 
 
@@ -301,6 +400,11 @@ def guide_rows() -> list[dict[str, str]]:
 
 
 def sub_industry_rows(companies: Sequence[Company]) -> list[dict[str, str]]:
-    """The distinct (GICS sector, sub-industry) pairs of the universe, for the owner to copy."""
+    """The distinct (GICS sector, sub-industry) pairs of the universe, with the 8-digit GICS code
+    of each (empty when the name is not in the table), for the owner to copy."""
+    code_of = {_sub_key(name): code for code, name in SUB_INDUSTRY_CODES.items()}
     pairs = sorted({(c.gics_sector, c.gics_sub_industry) for c in companies if c.gics_sub_industry})
-    return [{"gics_sector": a, "gics_sub_industry": b} for a, b in pairs]
+    return [
+        {"gics_sector": a, "gics_sub_industry": b, "gics_code": code_of.get(_sub_key(b), "")}
+        for a, b in pairs
+    ]

@@ -17,10 +17,9 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | column | content |
 |---|---|
 | `scope` | one of the six scopes below (always filled) |
-| `companies` | the **analysed** companies, separated by `;` (single: exactly one; multi: two or more; the other scopes: none). Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` |
-| `company_labels` | one label per analysed company, `TICKER:label; TICKER:label` (a name works in place of the ticker) |
-| `mentions` | companies named but not analysed (D23), tickers separated by `;`; in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
-| `sub_industry` | a GICS sub-industry of the source (sector bodies only; spelling as in the source) |
+| `company_labels` | the **analysed** companies, each with its D15 label, separated by commas: `AAPL:product_innovation, MSFT:other` (single: exactly one entry; multi: two or more; the other scopes: none). There is no separate companies column: the analysed companies are the labelled ones. Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` (a comma inside a name such as `Booking Holdings, Inc.` is kept). A company outside the 509 of the universe (Macy's, Twitter, Toyota) is written by name as the article writes it: it is kept as typed, counts as analysed (and for the scope) like any other, and `check` lists these names so that a typo is noticed (**[owner call 9]**); an upper-case text of up to five characters is read as a ticker and must exist |
+| `mentions` | companies named but not analysed (D23), separated by commas (names or tickers); in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
+| `sub_industry` | a GICS sub-industry, as its 8-digit code or its name (`data/gics_sub_industries.csv` lists both): required for a sector body, **optional on every other scope** (**[owner call 8]**) |
 | `notes` | anything that helps (never required) |
 
 `spanish_title` and `spanish_text` follow `text`: a Spanish reading aid (finance jargon translated, the English term in parentheses the first time), made by the LLM from the same 6,000 characters (the Spanish text therefore stops where the English one is cut). It is never an input of a model and never in the key file. **Every file the owner has to tag carries them.** The tagging rule is always the English article.
@@ -141,13 +140,15 @@ rival Amazon, is `single` with `competitive_actions`; 88609, a spinoff raising m
 
 ## Sector bodies
 
-Pick the GICS **sub-industry** the article is about, as spelled in the source `articles` table
-(`gics_sub_industry`). The check rejects names the source does not have; the list of valid names,
+Pick the GICS **sub-industry** the article is about, as its 8-digit GICS code (the table of
+<https://en.wikipedia.org/wiki/Global_Industry_Classification_Standard>, kept in
+`news_nlp/gics_codes.py`) or as its name in the source `articles` table (`gics_sub_industry`). The
+check rejects a code it does not know and a code or name no company of the universe has; the list of valid names,
 with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
-export` (PR #117) together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
+export` together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
 of this document. **[owner call 4]** For a broad sector story that spans several sub-industries,
 enter the most central sub-industry (the plan tests sub-industry, D24); there is no sector-level
-value. The companies a sector body names go in `mentions`, not in `companies` (**[owner call 7]**).
+value. The companies a sector body names go in `mentions`, not in `company_labels` (**[owner call 7]**).
 
 ## Returning the file
 
@@ -164,6 +165,12 @@ value. The companies a sector body names go in `mentions`, not in `companies` (*
    with the date in its name: no checker can detect a mis-save such as a sort that detaches the
    rows from their ids.
 5. `guide` rewrites the guide CSVs at any time; `export` refuses to touch a tagged review file.
+6. A file saved under another name needs `--file NAME` (`check`, `normalise`, `translate`). A file
+   still in the first format (a `companies` column, `;` separators) is refused with the way out:
+   `migrate --file NAME` writes a copy without `companies` and with commas, under a new name with
+   the date and time (never over an earlier copy), keeps every company of the old column in
+   `company_labels` (without a label, listed for you) and never touches the original. Work in
+   one file only: tagging done in the old file after the copy is not in the copy.
 
 ## Owner calls (answered 2026-10-29)
 
@@ -174,10 +181,14 @@ value. The companies a sector body names go in `mentions`, not in `companies` (*
 5. A round-up of firms from one industry is `multi`; `sector` only when the industry is the point.
 6. A one-company comparison against its sector or peers is `single` with `peer_comparison`.
 7. Companies named in `sector`, `market_economy` and `investing_general` bodies are listed in
-   `mentions`; `companies` stays empty there.
+   `mentions`; `company_labels` stays empty there.
+8. `sub_industry` (a code or a name) may be given on any scope, and is required only for a sector
+   body (the owner's first tagged row, a `multi` body, carries one).
+9. A company outside the 509 of the universe is recorded by name as typed (in `company_labels` and
+   in `mentions`), counts for the scope and the label, and is never a ticker-level target.
 
 Also settled by the owner and stated above: the headline event decides the scope (a company framed
 by its industry or moving the market stays `single` unless the industry or the market is the
 point), and the content rule, not D23's count, decides analysed vs mention in the gold.
 
-The checker (`news_nlp/retag.py`, PR #117) enforces the shape above.
+The checker (`news_nlp/retag.py`) enforces the shape above.

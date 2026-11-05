@@ -1,7 +1,7 @@
 """Company names, nicknames and tickers -> the universe's canonical tickers (Work item 18, T-146b).
 
-The owner tags ``companies`` / ``mentions`` / ``company_labels`` of the gold with the names as the
-article writes them; :class:`NameBook` turns them into tickers. It never guesses: a text that
+The owner tags ``mentions`` / ``company_labels`` of the gold with the names as the
+article writes them, separated by commas (``Apple:other, Google:uncertain``); :class:`NameBook` turns them into tickers. It never guesses: a text that
 matches no company, or more than one, is reported with its candidates and left as typed.
 """
 
@@ -253,16 +253,26 @@ class NameBook:
         return match.ticker, match.why
 
 
-def _split_list(value: str) -> list[str]:
-    return [p.strip() for p in value.replace("\n", ";").split(";") if p.strip()]
+def split_list(value: str) -> list[str]:
+    """The items of a comma-separated cell. A piece that is only a legal form (``Inc.``, ``Corp``,
+    ``LLC``: what follows the comma of ``Booking Holdings, Inc.``) belongs to the item before it."""
+    items: list[str] = []
+    for piece in (p.strip() for p in value.replace("\n", ",").split(",")):
+        if not piece:
+            continue
+        if items and not normalize_name(piece.split(":")[0]):
+            items[-1] += ", " + piece
+        else:
+            items.append(piece)
+    return items
 
 
 def normalise_row(
     book: NameBook, row: dict[str, str]
 ) -> tuple[dict[str, str], list[str], list[str]]:
-    """The row with ``companies``, ``mentions`` and the company part of ``company_labels`` as
+    """The row with ``mentions`` and the company part of ``company_labels`` as
     tickers, the problems found (the text of each is left as typed) and the inferred matches the
-    owner should confirm. A company listed twice (``Apple; AAPL``) becomes one entry: ``check``
+    owner should confirm. A company listed twice (``Apple, AAPL``) becomes one entry: ``check``
     on the original would have reported it."""
     out = dict(row)
     problems: list[str] = []
@@ -279,15 +289,14 @@ def normalise_row(
     def tickers(column: str) -> None:
         resolved: list[str] = []
         kept: list[str] = []
-        for part in _split_list(row.get(column) or ""):
+        for part in split_list(row.get(column) or ""):
             ticker = lookup(column, part)
             if ticker is None:
                 kept.append(part)
             elif ticker not in resolved:
                 resolved.append(ticker)
-        out[column] = "; ".join([*resolved, *kept])
+        out[column] = ", ".join([*resolved, *kept])
 
-    tickers("companies")
     tickers("mentions")
     out["company_labels"] = _normalise_labels(
         row.get("company_labels") or "", lambda name: lookup("company_labels", name), problems
@@ -296,11 +305,11 @@ def normalise_row(
 
 
 def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems: list[str]) -> str:
-    """``Apple: other; Google: uncertain`` -> ``AAPL:other; GOOG:uncertain``; what cannot be
+    """``Apple: other, Google: uncertain`` -> ``AAPL:other, GOOG:uncertain``; what cannot be
     resolved stays as typed."""
     labels: dict[str, str] = {}
     kept: list[str] = []
-    for part in _split_list(value):
+    for part in split_list(value):
         name, sep, label = part.rpartition(":")
         label = label.strip()
         ticker = lookup(name.strip()) if sep else None
@@ -312,7 +321,7 @@ def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems:
             problems.append(f"company_labels: {ticker} given {labels[ticker]!r} and {label!r}")
         else:
             labels[ticker] = label
-    return "; ".join([*(f"{t}:{lb}" for t, lb in labels.items()), *kept])
+    return ", ".join([*(f"{t}:{lb}" for t, lb in labels.items()), *kept])
 
 
 def self_check(companies: Sequence[Company], canonical: dict[str, str]) -> list[str]:
