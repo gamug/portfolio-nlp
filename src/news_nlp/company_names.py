@@ -18,6 +18,11 @@ from news_nlp.triage import _WORD_TICKERS, Company, normalize_name
 #: Well-known names other than the legal one, by ticker. A ticker absent from the universe is
 #: skipped, so the list may name companies that left the index.
 NICKNAMES: dict[str, tuple[str, ...]] = {
+    "CCI": ("Crown Castle International",),
+    "LYB": ("LyondellBasell Industries",),
+    "NWSA": ("NewsCorp", "News Corporation"),
+    "TAP": ("Molson Coors",),
+    "WMB": ("Williams Cos",),
     "AAPL": ("Apple Computer", "Apple Inc"),
     "ABBV": ("Abbvie",),
     "ABT": ("Abbott",),
@@ -120,7 +125,7 @@ NICKNAMES: dict[str, tuple[str, ...]] = {
     "VZ": ("Verizon Communications", "Verizon Wireless"),
     "WBD": ("Warner Bros", "Warner Brothers"),
     "WFC": ("Wells Fargo & Co", "Wells Fargo Bank"),
-    "WMT": ("Wal-Mart", "Walmart Inc", "Wal Mart"),
+    "WMT": ("Wal-Mart", "Wal-Mart Stores", "Walmart Inc", "Wal Mart"),
     "XOM": ("Exxon", "Exxon Mobil", "Exxon Mobil Corporation"),
     "XYZ": ("Block Inc",),
     "YUM": ("Yum Brands",),
@@ -156,6 +161,11 @@ BRANDS: dict[str, tuple[str, ...]] = {
 #: Companies the triage keeps as two tickers (class B / class A): a name stands for class A, an
 #: explicit ticker for itself.
 CLASS_A = {"FOX": "FOXA", "NWS": "NWSA"}
+#: First words that name a company outside the universe in the owner's articles (Snap Inc., the
+#: Snapchat parent; Motorola Mobility, the phone maker) and so must not resolve to the universe
+#: company that starts with the same word (Snap-on, Motorola Solutions): left unknown, they are
+#: kept as typed and counted as outside the universe. The full names still resolve.
+_NOT_FIRST_WORD = frozenset({"snap", "motorola"})
 _MIN_FIRST_WORD = 3
 #: Tickers that are also everyday words or letters: every one-letter ticker (A, C, F, T, V) and
 #: the words below, besides triage's ``_WORD_TICKERS``. Two-letter tickers such as GE or GM are not
@@ -208,7 +218,11 @@ class NameBook:
         firsts: dict[str, set[str]] = defaultdict(set)
         for key, tickers in list(self._names.items()):
             words = key.split()
-            if len(words) > 1 and len(words[0]) >= _MIN_FIRST_WORD:
+            if (
+                len(words) > 1
+                and len(words[0]) >= _MIN_FIRST_WORD
+                and words[0] not in _NOT_FIRST_WORD
+            ):
                 firsts[words[0]] |= tickers
         for word, tickers in firsts.items():
             if word not in self._names:  # a full name beats a first word ("FedEx", "Williams")

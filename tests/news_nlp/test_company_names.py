@@ -402,3 +402,19 @@ def _script_cli() -> Any:
     import retag_gold_2026_10_29 as cli  # noqa: PLC0415
 
     return cli
+
+
+def test_names_of_companies_outside_the_universe_do_not_borrow_a_namesake() -> None:
+    firms = [
+        Company("SNA", "Snap-on", "Industrials", "Industrial Machinery"),
+        Company("MSI", "Motorola Solutions", "Information Technology", "Communications Equipment"),
+        Company("TAP", "Molson Coors Beverage Company", "Consumer Staples", "Brewers"),
+        Company("WMT", "Walmart", "Consumer Staples", "Consumer Staples Merchandise Retail"),
+    ]
+    book = NameBook(firms, retag.Universe.of(firms).tickers)
+    assert book.lookup("Snap").ticker is None  # Snap Inc. is not Snap-on
+    assert book.lookup("Motorola").ticker is None  # the phone maker is not Motorola Solutions
+    assert book.lookup("Snap-on").ticker == "SNA"
+    assert book.lookup("Motorola Solutions").ticker == "MSI"
+    assert book.lookup("Molson Coors").ticker == "TAP"
+    assert book.lookup("Wal-Mart Stores").ticker == "WMT"
