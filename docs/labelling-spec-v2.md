@@ -180,11 +180,11 @@ names may be labelled in `company_labels` or listed in `mentions` (**[owner call
 1. Human-interest stories that only use a company as setting: `unrelated`.
 2. Round-ups: only companies with a sentence of their own are analysed; the rest are mentions.
 3. `investor_activity` only when a stake moves; an investor's view alone is `market_analyst_sentiment`.
-4. Broad sector stories: the most central sub-industry.
+4. Broad sector stories: the most central sub-industry. *(Superseded by call 13: codes of any level, several per article.)*
 5. A round-up of firms from one industry is `multi`; `sector` only when the industry is the point.
 6. A one-company comparison against its sector or peers is `single` with `peer_comparison`.
 7. Companies named in `sector`, `market_economy` and `investing_general` bodies are listed in
-   `mentions`; `company_labels` stays empty there.
+   `mentions`; `company_labels` stays empty there. *(Superseded by call 11: they may be labelled.)*
 8. `sub_industry` (a code or a name) may be given on any scope, and is required only for a sector
    body (the owner's first tagged row, a `multi` body, carries one).
 9. A company outside the 509 of the universe is recorded by name as typed (in `company_labels` and

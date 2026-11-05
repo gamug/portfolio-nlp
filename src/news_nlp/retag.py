@@ -1,10 +1,13 @@
 """The owner's re-tag of the 720 articles under the new taxonomy: gold v2 (Work item 18, T-146b).
 
 The first tagging ("tags v1") has a label and a note per article. Gold v2 has, per body: the
-**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **company_labels** (one ``TICKER:label``
-per analysed company, separated by commas: single: one; multi: two or more; the analysed companies
-are exactly the labelled ones, so there is no separate companies column), the **mentions** (companies named but not
-analysed, D23) and, for a sector body, the GICS **sub-industry**. :func:`retag_rows` builds
+**scope** (one of :data:`~news_nlp.triage.GOLD_SCOPES`), the **company_labels** (``TICKER:label``
+entries separated by commas: single: one company; multi: two or more; a company may carry several
+different labels in one article, the same label twice is an error; the analysed companies are
+exactly the labelled ones, so there is no separate companies column; sector, market_economy and
+investing_general bodies may label the companies they name, unrelated may not), the **mentions**
+(companies named but not analysed, D23) and the GICS **sub_industry** (one or more codes of any
+level, 2/4/6/8 digits, or names; required for a sector body, allowed on any scope). :func:`retag_rows` builds
 the file the owner fills in (the v1 tag shown as guidance, never the LLM's label), and
 :func:`check_row` / :func:`load_gold_v2` validate it when it comes back. The rules follow
 ``docs/labelling-spec-v2.md`` (T-146a): D15's labels in :data:`D15_LABELS`, the per-scope shape in
@@ -173,6 +176,11 @@ class Universe:
     @classmethod
     def of(cls, companies: Sequence[Company]) -> Universe:
         by_ticker = CompanyResolver(companies).by_ticker
+        # keyed by canonical ticker: a share class that lacks a sub-industry takes its family's
+        company_sub: dict[str, str] = {}
+        for c in companies:
+            if c.gics_sub_industry:
+                company_sub.setdefault(by_ticker[c.ticker.upper()], c.gics_sub_industry)
         return cls(
             by_ticker,
             {
@@ -180,7 +188,7 @@ class Universe:
                 for c in companies
                 if c.gics_sub_industry
             },
-            {c.ticker.upper(): c.gics_sub_industry for c in companies if c.gics_sub_industry},
+            company_sub,
         )
 
 
@@ -323,8 +331,10 @@ def check_row(
     row: Mapping[str, str], universe: Universe | None = None
 ) -> tuple[Gold | None, list[str]]:
     """Validate one returned row; ``(None, errors)`` when it is not usable. With a *universe*,
-    tickers must belong to it (share classes are canonicalised) and ``sub_industry`` must be one
-    of its GICS sub-industries."""
+    tickers must belong to it (share classes are canonicalised). ``company_labels`` may give a company
+    several different labels (the same label twice is an error); ``sub_industry`` takes one or more
+    GICS codes of any level or names, or companies standing for their own sub-industry, and the
+    returned :class:`Gold` carries the canonical codes."""
     scope = (row.get("scope") or "").strip().lower()
     if scope not in GOLD_SCOPES:
         return None, [f"scope {scope!r} is not one of {', '.join(GOLD_SCOPES)}"]

@@ -118,7 +118,8 @@ def test_row_keeps_several_labels_of_a_company_and_reports_a_missing_label() -> 
         "company_labels": "Google:other, Alphabet:uncertain, GOOG:other, Apple",
     }
     new, problems, _ = normalise_row(BOOK, row)
-    assert new["company_labels"] == "GOOG:other, GOOG:uncertain, Apple"
+    # the repeated GOOG:other is kept, so the checker can report it (see retag's duplicate test)
+    assert new["company_labels"] == "GOOG:other, GOOG:uncertain, GOOG:other, Apple"
     assert problems == ["company_labels: 'Apple' has no label"]
 
 
@@ -131,6 +132,22 @@ def test_sub_industry_keeps_gics_text_and_turns_company_names_into_tickers() -> 
     assert new["sub_industry"] == "MSFT, AAPL" and problems == []
     row["sub_industry"] = "4510, 25"
     assert normalise_row(BOOK, row, is_gics)[0]["sub_industry"] == "4510, 25"
+
+
+def test_a_gics_name_with_a_comma_is_not_split_into_company_lookups() -> None:
+    names = {"Hotels, Resorts & Cruise Lines", "Diversified Banks"}
+
+    def is_gics(text: str) -> bool:
+        return text in names
+
+    row = {
+        "mentions": "",
+        "company_labels": "",
+        "sub_industry": "Hotels, Resorts & Cruise Lines, Apple, Diversified Banks",
+    }
+    new, problems, _ = normalise_row(BOOK, row, is_gics)
+    assert new["sub_industry"] == "Hotels, Resorts & Cruise Lines, AAPL, Diversified Banks"
+    assert problems == []  # no 'Hotels' or 'Resorts & Cruise Lines' reported as unknown companies
 
 
 def test_empty_cells_stay_empty() -> None:
@@ -427,3 +444,10 @@ def test_names_of_companies_outside_the_universe_do_not_borrow_a_namesake() -> N
     assert book.lookup("Motorola Solutions").ticker == "MSI"
     assert book.lookup("Molson Coors").ticker == "TAP"
     assert book.lookup("Wal-Mart Stores").ticker == "WMT"
+
+
+def test_the_same_label_under_two_names_of_one_company_still_reaches_the_checker() -> None:
+    row = {"scope": "single", "mentions": "", "company_labels": "Google:other, Alphabet:other"}
+    new, _, _ = normalise_row(BOOK, row)
+    gold, errors = retag.check_row({**row, **new}, retag.Universe.of(FIRMS))
+    assert gold is None and any("label other listed twice" in e for e in errors)

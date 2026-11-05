@@ -686,3 +686,17 @@ def test_tag_differences_lists_every_differing_column() -> None:
         {"article_id": "104", "column": "scope", "review_value": "single", "gate_value": "multi"},
         {"article_id": "104", "column": "notes", "review_value": "", "gate_value": "n"},
     ]
+
+
+def test_a_share_class_without_a_sub_industry_takes_its_familys() -> None:
+    universe = retag.Universe.of(
+        [
+            Company("GOOG", "Alphabet Inc. (Class C)", "Communication Services", ""),
+            Company(
+                "GOOGL", "Alphabet Inc. (Class A)", "Communication Services", "Interactive Media"
+            ),
+        ]
+    )
+    canonical = universe.tickers["GOOG"]
+    assert universe.tickers["GOOGL"] == canonical
+    assert universe.company_sub == {canonical: "Interactive Media"}

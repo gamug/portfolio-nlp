@@ -316,8 +316,11 @@ def normalise_row(
     if is_gics is not None and whole and not is_gics(whole):
         # sub_industry: GICS codes and names stay, company names become tickers
         out["sub_industry"] = ", ".join(
-            part if is_gics(part) else lookup("sub_industry", part) or part
-            for part in split_list(row.get("sub_industry") or "")
+            _sub_industry_items(
+                split_list(row.get("sub_industry") or ""),
+                is_gics,
+                lambda part: lookup("sub_industry", part),
+            )
         )
     out["company_labels"] = _normalise_labels(
         row.get("company_labels") or "", lambda name: lookup("company_labels", name), problems
@@ -325,10 +328,31 @@ def normalise_row(
     return out, problems, confirm
 
 
+def _sub_industry_items(
+    parts: Sequence[str], is_gics: Callable[[str], bool], lookup: Callable[[str], str | None]
+) -> list[str]:
+    """The items of a ``sub_industry`` cell. A GICS name with a comma in it (``Hotels, Resorts &
+    Cruise Lines``) arrives in several pieces; the longest run of pieces that is a GICS code or name
+    is kept whole, and only the other pieces are looked up as company names."""
+    items: list[str] = []
+    i = 0
+    while i < len(parts):
+        for end in range(len(parts), i, -1):
+            joined = ", ".join(parts[i:end])
+            if is_gics(joined):
+                items.append(joined)
+                i = end
+                break
+        else:
+            items.append(lookup(parts[i]) or parts[i])
+            i += 1
+    return items
+
+
 def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems: list[str]) -> str:
     """``Apple: other, Google: uncertain`` -> ``AAPL:other, GOOG:uncertain``; what cannot be
     resolved stays as typed. A company given several labels keeps them all (an article may say
-    two things about it); the same label twice collapses to one."""
+    two things about it); the same label twice is kept as typed, so the checker reports it."""
     labels: dict[str, list[str]] = {}
     kept: list[str] = []
     for part in split_list(value):
@@ -339,8 +363,8 @@ def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems:
             problems.append(f"company_labels: {part!r} has no label")
         if ticker is None:
             kept.append(part)
-        elif label not in labels.setdefault(ticker, []):
-            labels[ticker].append(label)
+        else:
+            labels.setdefault(ticker, []).append(label)
     return ", ".join([*(f"{t}:{lb}" for t, many in labels.items() for lb in many), *kept])
 
 
