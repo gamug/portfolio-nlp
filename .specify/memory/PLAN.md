@@ -2257,7 +2257,9 @@ above, it says so; nothing else above is touched.
   not). Training data: **all years** (owner, 2026-11-05; D31). **D12 stands**: the
   owner first chose to amend D12 for an LLM exception in step 4, then replaced it by this model
   after the narrative share was measured; the amendment is written only if (b) fails its check.
-  The model is a new pinned checkpoint (constitution AI #1, #7, #12).
+  The training set is `gold/company_segments_train.csv` (ids and positions only; the repository is
+  public): 2,834 bodies and 34,943 segments, 21,682 clean `lead` and 13,261 noisy `continuation`
+  labels, the 33 bodies shared with tagged or held-out articles left out. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
 - **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
   is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate

@@ -29,6 +29,23 @@ def test_structured_body_gives_one_text_per_company_in_order() -> None:
     assert "Stocks making" not in found["AAPL"]  # the introduction belongs to no company
 
 
+def test_label_segments_marks_leads_and_continuations_and_skips_the_introduction() -> None:
+    body = (
+        "Stocks making the biggest moves midday:\n"
+        "Apple - Shares rose 3% after the company raised its dividend.\n"
+        "It also announced a larger buyback than analysts expected.\n"
+        "Microsoft - Shares fell 2% as cloud growth slowed in the quarter.\n"
+        "Oracle - Shares jumped 5% on a new contract with the Pentagon."
+    )
+    labels = company_texts.label_segments(body, RESOLVER)
+    assert labels == [
+        company_texts.SegmentLabel(1, "AAPL", "lead"),
+        company_texts.SegmentLabel(2, "AAPL", "continuation"),
+        company_texts.SegmentLabel(3, "MSFT", "lead"),
+        company_texts.SegmentLabel(4, "ORCL", "lead"),
+    ]
+
+
 def test_narrative_body_is_left_to_the_exception_path() -> None:
     body = (
         "Apple and Microsoft are fighting over the same customers in the enterprise market.\n"
@@ -54,3 +71,13 @@ def test_sentiment_tagging_format_keeps_the_spanish_pair_after_text() -> None:
     assert any(
         "not the tagging format" in p for p in retag.tagging_format_problems([without], cols)
     )
+
+
+def test_segment_text_rebuilds_the_text_of_a_label_from_its_position() -> None:
+    body = (
+        "Intro line of the round-up goes here today:\n"
+        "short\n"
+        "Apple - Shares rose 3% after the company raised its dividend.\n"
+        "Microsoft - Shares fell 2% as cloud growth slowed in the quarter."
+    )
+    assert company_texts.segment_text(body, 1).startswith("Apple - Shares rose")

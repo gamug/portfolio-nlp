@@ -1019,9 +1019,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         - *The fixed 240 (owner answer 2026-11-04).* `scripts/draw_gate240_2026_11_04.py` draws it once, quotas sector 9,
           market_economy 9, unrelated 31, investing_general 40, multi 60, single 91 (`retag.GATE_QUOTAS`); it stops, writing
           nothing, if the draw is not 240 or a stratum holds more tagged rows than its quota. The set is
-          `data/gate240_ids.csv` (local, git-ignored); the only tracked gold files are the train set `gold/category_gold_v2.csv`
-          (240 + 44 sector) and the held-out test set `gold/category_gold_v2_test.csv` (200, untagged yet), both added by #123, and every later feature
-          reads those two (owner call 2026-11-05); the gold is built from the gate file, `merge` is only a copy into the 720-row review file. The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
+          `data/gate240_ids.csv` (local, git-ignored); the tracked gold files are the train set `gold/category_gold_v2.csv` (240 + 44 sector) and the held-out test set `gold/category_gold_v2_test.csv` (200, untagged yet), both added by #123, and every later scope feature reads those two (owner call 2026-11-05); a third, `gold/company_segments_train.csv` (T-148b2), holds automatic attribution labels, not tags; the gold is built from the gate file, `merge` is only a copy into the 720-row review file. The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
           Spanish aid after `text`, existing tags included; never overwritten); `merge` copies its tags into the review
           file as a new `_merged_` file, and the newest one is the current review file. The other 480 of the 720 can wait until
           the 240 passes; the full 720 is needed only for the confirmation run and the rules re-measure. Workflow, conflicts and `merge --gate-wins`: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".
@@ -1057,11 +1055,10 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         already builds minus the NLP features (title and body only: sentiment now follows the summary). Checks that
         a body longer than the model's window is chunked and reduced, as `hierarchical_summarize_batch` does. → D25, D26.
       - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
-        - [ ] **T-148b1** `news_nlp.company_texts.split_company_texts`, the one-segment-per-company
-          parser, with tests *(written 2026-11-05 on `feat/wi18-sentiment-gold`, not yet merged; it
-          finds 2,867 of the 81,961 unique bodies)*.
+        - [ ] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
+          parser, with tests *(written 2026-11-05 on `feat/wi18-sentiment-gold`, not yet merged; a body is structured with at least 4 segments, 50% of them led by a company and 3 companies, the rule that finds 2,867 of the 81,961 unique bodies)*.
         - [ ] **T-148b2** Training set for the attribution model from those bodies (company name
-          masked, previous sentence as context, all years), the mention-and-recency baseline, and
+          masked, previous sentence as context, all years). **Set built 2026-11-05** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 34,943 labelled segments (21,682 `lead`, 13,261 `continuation`), 1 body in 10 as `val`; the 33 structured bodies that share text with a tagged or held-out article are left out. Still to do: the mention-and-recency baseline, and
           the owner's faithfulness check on about 30 narrative multi bodies (a file in the tagging
           format, Spanish columns after `text`). Acceptance (D32): at least 80% of the extracted company texts faithful on the 30, and better than the baseline on the same 30.
         - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in

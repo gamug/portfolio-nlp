@@ -217,12 +217,10 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   240 is stratified but not a random sample; the rest of each stratum is a seeded draw. The draw
   stops, writing nothing, if it is not 240 or a stratum holds more tagged rows than its quota.
 - **Where it is recorded.** `data/gate240_ids.csv` is local and git-ignored; it carries the six
-  strata, which no tracked file does. The only gold files git tracks are two, both added by #123
-  (added by #123): the train set
+  strata, which no tracked file does. The gold files git tracks are three. Two were added by #123: the train set
   `gold/category_gold_v2.csv` (the 240 plus the 44 sector bodies, one row per article, `session`
   = `gate240` or `sector_extra`, tags only, no news text) and the held-out test set
-  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). Nothing else lives in
-  `gold/`, and every later feature reads those two. The draw depends on which rows were tagged when
+  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). The third is `gold/company_segments_train.csv` (2026-11-05, owner call: the training set of the step-4 attribution model, T-148b2): automatic labels, not the owner's tags, as article ids, segment positions and tickers, no news text (the text is rebuilt from SOURCE with `news_nlp.company_texts.segment_text`). Nothing else lives in `gold/`, and every later scope or tag feature reads the first two. The draw depends on which rows were tagged when
   it ran, so a redraw with the same seed on a later file would give another set: the train file, not
   the seed, is the record of its members. The gate is scored on the overall figure only (see
   T-146c), so the strata do not need a tracked home; per-scope recall is judged on the held-out test.
