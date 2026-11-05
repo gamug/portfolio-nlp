@@ -146,7 +146,8 @@ def test_merge_with_a_conflict_lists_it_writes_the_audit_and_exits_1(
     out = _conflicting(work, script)
     with pytest.raises(SystemExit, match="NOT complete"):
         script.cmd_merge(out, retag.REVIEW_NAME)
-    assert "105 (scope)" in capsys.readouterr().out
+    shown = capsys.readouterr().out
+    assert "105 (scope)" in shown and "now the current review file" not in shown
     (audit,) = out.glob("*_conflicts_*.csv")
     assert _rows(audit) == [
         {
@@ -157,8 +158,21 @@ def test_merge_with_a_conflict_lists_it_writes_the_audit_and_exits_1(
             "resolution": "kept_review",
         }
     ]
-    merged = _rows(sorted(out.glob("*_merged_*.csv"))[-1])
-    assert next(r for r in merged if r["article_id"] == "105")["scope"] == "single"
+    assert not list(out.glob("*_merged_*.csv"))  # an incomplete merge is not a merged file
+    (incomplete,) = out.glob("*_incomplete_*.csv")
+    assert next(r for r in _rows(incomplete) if r["article_id"] == "105")["scope"] == "single"
+    assert script._current_review(out, retag.REVIEW_NAME) == out / retag.REVIEW_NAME
+
+
+def test_gate_wins_after_an_incomplete_merge_starts_from_the_review_file(work: Path) -> None:
+    script = _script()
+    out = _conflicting(work, script)
+    with pytest.raises(SystemExit):
+        script.cmd_merge(out, retag.REVIEW_NAME)
+    script.cmd_merge(out, retag.REVIEW_NAME, gate_wins=True)
+    (merged,) = out.glob("*_merged_*.csv")  # one current file, the incomplete one is not read
+    assert next(r for r in _rows(merged) if r["article_id"] == "105")["scope"] == "multi"
+    assert script._current_review(out, retag.REVIEW_NAME) == merged
 
 
 def test_merge_gate_wins_takes_the_gate_tags_and_the_audit_says_so(
@@ -173,3 +187,33 @@ def test_merge_gate_wins_takes_the_gate_tags_and_the_audit_says_so(
     (audit,) = out.glob("*_conflicts_*.csv")
     assert _rows(audit)[0]["resolution"] == "took_gate"
     assert len(list(out.glob("*_merged_*.csv"))) == 1  # the audit file is not read as a review file
+
+
+def test_write_refuses_an_empty_list(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match="no rows"):
+        _script()._write(tmp_path / "x.csv", [])
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_file_open_in_excel_gives_a_clear_message_and_leaves_no_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def locked(*_a: object, **_k: object) -> None:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("os.replace", locked)
+    with pytest.raises(SystemExit, match="close it"):
+        _script()._write(tmp_path / "x.csv", [{"a": "1"}])
+    assert not list(tmp_path.iterdir())  # neither x.csv nor x.csv.tmp
+
+
+def test_any_other_write_error_also_removes_the_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*_a: object, **_k: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("os.replace", broken)
+    with pytest.raises(OSError, match="disk full"):
+        _script()._write(tmp_path / "x.csv", [{"a": "1"}])
+    assert not list(tmp_path.iterdir())

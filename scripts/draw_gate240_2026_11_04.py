@@ -15,7 +15,8 @@ from the review file, or more tagged rows than a quota all stop the run).
 (``<stem>_merged_<timestamp>.csv``); nothing is replaced and a row with different tags in both is
 listed with the columns that differ, and every differing column is written to
 ``<stem>_conflicts_<timestamp>.csv`` (review value, gate value, kept or replaced). While any row
-is still in conflict the command exits 1: the merged file is not complete. ``--gate-wins`` takes
+is still in conflict the command exits 1 and the file is written as ``<stem>_incomplete_<timestamp>.csv``,
+which is never the current review file. ``--gate-wins`` takes
 the gate file's tags for those rows (the owner tags in the gate file only, so its tags are the later
 ones); the audit file shows what was replaced. The **newest** ``_merged_`` file is the current review file:
 ``draw`` and ``merge`` both start from it, so tags accumulate in one chain and the original file
@@ -54,6 +55,8 @@ TO_TAG_NAME = "gate240_to_tag.csv"
 
 def _write(path: Path, rows: Sequence[Mapping[str, str]]) -> None:
     """Write through a temporary file and rename, so a crash never leaves a truncated CSV."""
+    if not rows:
+        sys.exit(f"nothing to write to {path}: no rows")
     tmp = path.with_name(path.name + ".tmp")
     try:
         with tmp.open("w", newline="", encoding="utf-8-sig") as fh:
@@ -62,9 +65,13 @@ def _write(path: Path, rows: Sequence[Mapping[str, str]]) -> None:
             writer.writerows(rows)
         os.replace(tmp, path)
     except PermissionError:
+        tmp.unlink(missing_ok=True)
         sys.exit(
             f"cannot write {path}: it is open in another program (Excel?); close it and run again"
         )
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _write_tagging(path: Path, rows: list[dict[str, str]]) -> None:
@@ -133,7 +140,9 @@ def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
     """Copy the tags made in the gate file into the current review file, as a NEW file (timestamped
     name): neither input is touched. A review row that already holds different tags keeps them
     (listed, exit 1) unless *gate_wins* takes the gate file's tags (listed). Every differing
-    column goes to ``<stem>_conflicts_<timestamp>.csv``."""
+    column goes to ``<stem>_conflicts_<timestamp>.csv``. A merge that leaves conflicts is written as
+    ``<stem>_incomplete_<timestamp>.csv``, outside the ``_merged_`` names, so it never becomes the
+    current review file; only a complete merge does."""
     source = _current_review(out, file)
     review = retag.read_tag_file(source)
     try:
@@ -143,12 +152,14 @@ def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
-    target = out / f"{Path(file).stem}_merged_{stamp}.csv"
+    kind = "incomplete" if conflicts else "merged"
+    target = out / f"{Path(file).stem}_{kind}_{stamp}.csv"
     _write_tagging(target, merged)
     print(
         f"{len(merged)} rows -> {target} (from {source.name}): {copied} rows copied from {TO_TAG_NAME}"
     )
-    print("this is now the current review file (the newest *_merged_* file)")
+    if not conflicts:
+        print("this is now the current review file (the newest *_merged_* file)")
     if differences:
         took = {item.split(" ")[0] for item in replaced}
         audit = [
@@ -164,8 +175,9 @@ def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
         print(f"  not overwritten (different tags in both files): {item}")
     if conflicts:
         sys.exit(
-            f"{len(conflicts)} rows still differ: the merged file is NOT complete. "
-            "Review them, then run again with --gate-wins to take the gate file's tags."
+            f"{len(conflicts)} rows still differ: {target.name} is NOT complete and is not the "
+            "current review file. Review them, then run again with --gate-wins to take the gate "
+            "file's tags."
         )
 
 

@@ -218,7 +218,7 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   stops, writing nothing, if it is not 240 or a stratum holds more tagged rows than its quota.
 - **Where it is recorded.** `data/gate240_ids.csv` is local and git-ignored; it carries the six
   strata, which no tracked file does. The only gold files git tracks are two, both added by #123
-  (not present on this branch or on master until it lands): the train set
+  (added by #123): the train set
   `gold/category_gold_v2.csv` (the 240 plus the 44 sector bodies, one row per article, `session`
   = `gate240` or `sector_extra`, tags only, no news text) and the held-out test set
   `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). Nothing else lives in
