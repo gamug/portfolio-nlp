@@ -1028,7 +1028,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
           on a later review file would not give the same set. The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
           Spanish aid after `text`, existing tags included; never overwritten); `merge` copies its tags into the review
           file as a new `_merged_` file, and the newest one is the current review file. The other 480 of the 720 can wait until
-          the 240 passes; the full 720 is needed only for the confirmation run and the rules re-measure.
+          the 240 passes; the full 720 is needed only for the confirmation run and the rules re-measure. Workflow, conflicts and `merge --gate-wins`: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".
       - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
         the candidates for the rare scopes.
       - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -144,15 +145,70 @@ def test_merges_chain_from_the_newest_file_and_two_in_one_second_do_not_collide(
     assert "newest" in capsys.readouterr().out
 
 
-def test_merge_lists_the_conflicting_columns(
-    work: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
-) -> None:
+def _conflicting(work: tuple[Path, Path], script: ModuleType) -> tuple[Path, Path]:
     out, gold = work
-    script = _script()
     script.cmd_draw(out, retag.REVIEW_NAME, 7, gold, QUOTAS)
     gate = _rows(out / "gate240_to_tag.csv")
     row = next(g for g in gate if g["article_id"] == "105")  # "single" in the review file
     row["scope"] = "multi"
     script._write(out / "gate240_to_tag.csv", gate)
-    script.cmd_merge(out, retag.REVIEW_NAME)
+    return out, gold
+
+
+def test_merge_with_a_conflict_lists_it_writes_the_audit_and_exits_1(
+    work: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = _script()
+    out, _ = _conflicting(work, script)
+    with pytest.raises(SystemExit, match="NOT complete"):
+        script.cmd_merge(out, retag.REVIEW_NAME)
     assert "105 (scope)" in capsys.readouterr().out
+    (audit,) = out.glob("*_conflicts_*.csv")
+    assert _rows(audit) == [
+        {
+            "article_id": "105",
+            "column": "scope",
+            "review_value": "single",
+            "gate_value": "multi",
+            "resolution": "kept_review",
+        }
+    ]
+    merged = _rows(sorted(out.glob("*_merged_*.csv"))[-1])
+    assert next(r for r in merged if r["article_id"] == "105")["scope"] == "single"
+
+
+def test_merge_gate_wins_takes_the_gate_tags_and_the_audit_says_so(
+    work: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    script = _script()
+    out, _ = _conflicting(work, script)
+    script.cmd_merge(out, retag.REVIEW_NAME, gate_wins=True)  # no exit: nothing left in conflict
+    assert "replaced by the gate file's tags" in capsys.readouterr().out
+    merged = _rows(sorted(out.glob("*_merged_*.csv"))[-1])
+    assert next(r for r in merged if r["article_id"] == "105")["scope"] == "multi"
+    (audit,) = out.glob("*_conflicts_*.csv")
+    assert _rows(audit)[0]["resolution"] == "took_gate"
+    assert len(list(out.glob("*_merged_*.csv"))) == 1  # the audit file is not read as a review file
+
+
+def test_the_local_set_must_equal_the_tracked_one(work: tuple[Path, Path]) -> None:
+    out, gold = work
+    script = _script()
+    script.cmd_draw(out, retag.REVIEW_NAME, 7, gold, QUOTAS)
+    tracked = _rows(gold / "gate240_ids.csv")
+    tracked[0]["stratum"] = "multi"
+    script._write(gold / "gate240_ids.csv", tracked)
+    (out / "gate240_to_tag.csv").unlink()
+    with pytest.raises(SystemExit, match="differ"):
+        script.cmd_draw(out, retag.REVIEW_NAME, 7, gold, QUOTAS)
+
+
+def test_the_recorded_hash_is_of_the_file_the_rows_came_from(work: tuple[Path, Path]) -> None:
+    out, gold = work
+    script = _script()
+    merged = out / "category_gold_v2_review_merged_2026-11-05_000000_000000.csv"
+    merged.write_bytes((out / retag.REVIEW_NAME).read_bytes() + b"\n")  # a later current file
+    script.cmd_draw(out, retag.REVIEW_NAME, 7, gold, QUOTAS)
+    record = json.loads((gold / "gate240_draw.json").read_text("utf-8"))
+    assert record["review_file"] == merged.name
+    assert record["review_sha256"] == hashlib.sha256(merged.read_bytes()).hexdigest()

@@ -451,38 +451,84 @@ def tagged(row: Mapping[str, str]) -> bool:
     return any((row.get(c) or "").strip() for c in TAG_COLUMNS)
 
 
-def merge_tags(
-    target: Sequence[Mapping[str, str]], source: Sequence[Mapping[str, str]]
-) -> tuple[list[dict[str, str]], int, list[str]]:
-    """*target* with the tags of the tagged rows of *source* copied in (same ``article_id``):
-    ``(rows, copied, conflicts)``. A target row that already holds different tags is left as it is
-    and listed as ``"<id> (<columns that differ>)"``: nothing the owner typed is overwritten. A row
-    counts as tagged when any tag column has content. Raises :class:`TagFileError` when *source*
-    repeats an ``article_id`` that holds tags (which copy would win is not knowable)."""
+def _tagged_by_id(rows: Sequence[Mapping[str, str]]) -> dict[str, Mapping[str, str]]:
+    """The tagged rows by ``article_id``; raises :class:`TagFileError` on a repeated tagged id
+    (which copy would win is not knowable)."""
     by_id: dict[str, Mapping[str, str]] = {}
-    for r in source:
+    for r in rows:
         if not tagged(r):
             continue
         if r["article_id"] in by_id:
             raise TagFileError(f"article_id {r['article_id']} is tagged twice in the gate file")
         by_id[r["article_id"]] = r
+    return by_id
+
+
+def _tags(row: Mapping[str, str]) -> dict[str, str]:
+    return {c: (row.get(c) or "").strip() for c in TAG_COLUMNS}
+
+
+def merge_tags(
+    target: Sequence[Mapping[str, str]],
+    source: Sequence[Mapping[str, str]],
+    *,
+    source_wins: bool = False,
+) -> tuple[list[dict[str, str]], int, list[str], list[str]]:
+    """*target* with the tags of the tagged rows of *source* copied in (same ``article_id``):
+    ``(rows, copied, conflicts, replaced)``. A row counts as tagged when any tag column has content.
+    A target row that already holds different tags is left as it is and listed in *conflicts* as
+    ``"<id> (<columns that differ>)"``: nothing the owner typed is overwritten. With *source_wins*
+    (the owner's later corrections are in *source*) those rows take the source tags and are listed
+    the same way in *replaced*. Raises :class:`TagFileError` when *source* repeats a tagged
+    ``article_id``."""
+    by_id = _tagged_by_id(source)
     merged: list[dict[str, str]] = []
     copied = 0
     conflicts: list[str] = []
+    replaced: list[str] = []
     for row in target:
         new = dict(row)
         other = by_id.get(row["article_id"])
         if other is not None:
-            mine = {c: (row.get(c) or "").strip() for c in TAG_COLUMNS}
-            theirs = {c: (other.get(c) or "").strip() for c in TAG_COLUMNS}
+            mine, theirs = _tags(row), _tags(other)
             if not any(mine.values()):
                 new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
                 copied += 1
             elif mine != theirs:
-                differ = ", ".join(c for c in TAG_COLUMNS if mine[c] != theirs[c])
-                conflicts.append(f"{row['article_id']} ({differ})")
+                label = f"{row['article_id']} ({', '.join(c for c in TAG_COLUMNS if mine[c] != theirs[c])})"
+                if source_wins:
+                    new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
+                    replaced.append(label)
+                else:
+                    conflicts.append(label)
         merged.append(new)
-    return merged, copied, conflicts
+    return merged, copied, conflicts, replaced
+
+
+def tag_differences(
+    target: Sequence[Mapping[str, str]], source: Sequence[Mapping[str, str]]
+) -> list[dict[str, str]]:
+    """Every tag column where a tagged *target* row and the same article in *source* hold different
+    values: ``article_id``, ``column``, ``review_value``, ``gate_value`` (an audit of what a merge
+    kept or replaced)."""
+    by_id = _tagged_by_id(source)
+    out: list[dict[str, str]] = []
+    for row in target:
+        other = by_id.get(row["article_id"])
+        if other is None or not tagged(row):
+            continue
+        mine, theirs = _tags(row), _tags(other)
+        out += [
+            {
+                "article_id": row["article_id"],
+                "column": c,
+                "review_value": mine[c],
+                "gate_value": theirs[c],
+            }
+            for c in TAG_COLUMNS
+            if mine[c] != theirs[c]
+        ]
+    return out
 
 
 def gate_shortfalls(

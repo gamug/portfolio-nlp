@@ -466,8 +466,8 @@ def test_merge_copies_new_tags_and_never_overwrites_different_ones() -> None:
     gate = [dict(r) for r in rows[:3]]
     gate[0]["scope"], gate[0]["company_labels"] = "single", "AAPL:other"  # 101: untagged in review
     gate[1]["notes"] = "x"  # 102 is tagged "single" in the review file; same scope, other notes
-    merged, copied, conflicts = retag.merge_tags(rows, gate)
-    assert copied == 1 and conflicts == ["102 (notes)"]
+    merged, copied, conflicts, replaced = retag.merge_tags(rows, gate)
+    assert copied == 1 and conflicts == ["102 (notes)"] and replaced == []
     first = next(m for m in merged if m["article_id"] == "101")
     assert first["scope"] == "single" and first["company_labels"] == "AAPL:other"
     assert next(m for m in merged if m["article_id"] == "102")["notes"] == ""  # kept as it was
@@ -515,7 +515,7 @@ def test_merge_takes_notes_typed_without_a_scope_and_lists_the_columns_in_confli
     gate = [dict(r) for r in rows[:4]]
     gate[0]["notes"] = "flag"  # 101: no scope yet, but the owner wrote a note
     gate[3]["scope"], gate[3]["notes"] = "multi", "n"  # 104 is "single" in the review file
-    merged, copied, conflicts = retag.merge_tags(rows, gate)
+    merged, copied, conflicts, _ = retag.merge_tags(rows, gate)
     assert next(m for m in merged if m["article_id"] == "101")["notes"] == "flag" and copied == 1
     assert conflicts == ["104 (scope, notes)"]
 
@@ -525,3 +525,26 @@ def test_merge_refuses_a_gate_file_that_tags_an_article_twice() -> None:
     gate = [{**rows[0], "scope": "single"}, {**rows[0], "scope": "multi"}]
     with pytest.raises(retag.TagFileError, match="twice"):
         retag.merge_tags(rows, gate)
+
+
+def test_merge_with_source_wins_takes_the_gate_tags_on_a_scope_conflict() -> None:
+    rows = _full_rows()  # 104 is "single" in the review file
+    gate = [dict(r) for r in rows[:4]]
+    gate[3]["scope"] = "multi"
+    kept, _, conflicts, replaced = retag.merge_tags(rows, gate)
+    assert conflicts == ["104 (scope)"] and replaced == []
+    assert next(m for m in kept if m["article_id"] == "104")["scope"] == "single"
+    won, _, conflicts, replaced = retag.merge_tags(rows, gate, source_wins=True)
+    assert conflicts == [] and replaced == ["104 (scope)"]
+    assert next(m for m in won if m["article_id"] == "104")["scope"] == "multi"
+    assert rows[3]["scope"] == "single"  # the input is not modified
+
+
+def test_tag_differences_lists_every_differing_column() -> None:
+    rows = _full_rows()
+    gate = [dict(r) for r in rows[:4]]
+    gate[3]["scope"], gate[3]["notes"] = "multi", "n"
+    assert retag.tag_differences(rows, gate) == [
+        {"article_id": "104", "column": "scope", "review_value": "single", "gate_value": "multi"},
+        {"article_id": "104", "column": "notes", "review_value": "", "gate_value": "n"},
+    ]
