@@ -138,11 +138,21 @@ def test_empty_cells_stay_empty() -> None:
     assert new == {"mentions": "", "company_labels": ""} and problems == []
 
 
+def _full(**changes: str) -> dict[str, str]:
+    """A row of the owner's one tagging format (the Spanish aid translated), empty but for *changes*."""
+    return {
+        **dict.fromkeys(retag.TAGGING_COLUMNS, ""),
+        "spanish_title": "es",
+        "spanish_text": "es b",
+        **changes,
+    }
+
+
 def test_cli_normalise_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
     import retag_gold_2026_10_29 as cli  # noqa: PLC0415 -- the script is not a package
 
-    base = {c: "" for c in ("review_order", "article_id", *retag.TAG_COLUMNS)}
+    base = _full()
     typed = {
         **base,
         "article_id": "10",
@@ -256,11 +266,10 @@ def test_self_check_finds_a_name_hijacked_by_a_nickname(monkeypatch: pytest.Monk
 
 
 def _write_review(path: Path, mentions: str) -> None:
-    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer = csv.DictWriter(fh, fieldnames=list(retag.TAGGING_COLUMNS))
         writer.writeheader()
-        writer.writerow({**dict.fromkeys(fields, ""), "article_id": "10", "mentions": mentions})
+        writer.writerow(_full(article_id="10", mentions=mentions))
 
 
 def test_normalise_does_not_overwrite_an_edited_copy(tmp_path: Path) -> None:
@@ -331,13 +340,14 @@ def test_cmd_migrate_never_replaces_an_earlier_copy(
 ) -> None:
     cli = _script_cli()
     monkeypatch.setattr(cli, "datetime", _Clock())
-    fields = ["article_id", "scope", "companies", "company_labels", "mentions"]
+    fields = [*retag.TAGGING_COLUMNS, "companies"]  # the first format kept a companies column
     path = tmp_path / "work_.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
         writer.writerow(
             {
+                **_full(),
                 "article_id": "1",
                 "scope": "multi",
                 "companies": "Amazon; Toyota",
@@ -378,13 +388,12 @@ def test_a_name_with_a_comma_survives_normalise_end_to_end(tmp_path: Path) -> No
     cli = _script_cli()
     firms = [*FIRMS, Company("BKNG", "Booking Holdings Inc.", "x", "y")]
     review = tmp_path / retag.REVIEW_NAME
-    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
     with review.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer = csv.DictWriter(fh, fieldnames=list(retag.TAGGING_COLUMNS))
         writer.writeheader()
         writer.writerow(
             {
-                **dict.fromkeys(fields, ""),
+                **_full(),
                 "article_id": "10",
                 "scope": "multi",
                 "company_labels": "Booking Holdings, Inc.:other, Apple:uncertain",

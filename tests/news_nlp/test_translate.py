@@ -129,7 +129,8 @@ class FakeLLM:
 
 
 def _review(path: Path, scope: str = "") -> None:
-    fields = ["review_order", "article_id", "title", "text", "v1_label", *retag.TAG_COLUMNS]
+    # the file before translation: the tagging format without the Spanish columns
+    fields = [c for c in retag.TAGGING_COLUMNS if not c.startswith("spanish_")]
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
@@ -164,16 +165,7 @@ def test_cmd_translate_pilot_leaves_the_file_then_full_run_backs_it_up(
     cli.cmd_translate(tmp_path, translator=llm, yes=True)  # type: ignore[attr-defined]
     assert llm.calls == 1  # the pilot's translation came from the cache
     (row,) = list(csv.DictReader(review.open(encoding="utf-8-sig")))
-    assert list(row)[:8] == [
-        "review_order",
-        "article_id",
-        "title",
-        "text",
-        "spanish_title",
-        "spanish_text",
-        "v1_label",
-        "scope",
-    ]
+    assert list(row) == list(retag.TAGGING_COLUMNS)  # the Spanish columns right after text
     assert row["spanish_title"] == "ES Hi" and row["spanish_text"] == "ES Body"
     (backup,) = list((tmp_path / "backup").glob("*_before_translate_*.csv"))
     assert backup.read_bytes() == before
