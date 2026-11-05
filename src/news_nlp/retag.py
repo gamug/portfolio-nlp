@@ -78,20 +78,35 @@ TAGGING_COLUMNS = (
 )
 
 
-def tagging_format_problems(rows: Sequence[Mapping[str, str]]) -> list[str]:
+#: The format of a file the owner tags for the sentiment of pipeline texts: the same carried columns
+#: and the Spanish pair right after ``text``, then ``kind`` (``summary`` or ``company_text``, read
+#: only) and the columns to tag.
+SENTIMENT_TAG_COLUMNS = ("sentiment", "notes")
+SENTIMENT_TAGGING_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "kind",
+    *SENTIMENT_TAG_COLUMNS,
+)
+
+
+def tagging_format_problems(
+    rows: Sequence[Mapping[str, str]], columns: Sequence[str] = TAGGING_COLUMNS
+) -> list[str]:
     """What keeps *rows* from being a tagging file of the owner's format: other columns or another
     order (the Spanish columns must follow ``text``) and any row without its Spanish title and text.
     Empty when the file is right."""
     if not rows:
         return ["no rows"]
     problems: list[str] = []
-    columns = tuple(rows[0])
-    if columns != TAGGING_COLUMNS:
-        missing = [c for c in TAGGING_COLUMNS if c not in columns]
-        extra = [c for c in columns if c not in TAGGING_COLUMNS]
+    present = tuple(rows[0])
+    if present != tuple(columns):
+        missing = [c for c in columns if c not in present]
+        extra = [c for c in present if c not in columns]
         problems.append(
             f"columns are not the tagging format (missing {missing}, extra {extra}, "
-            f"expected order {', '.join(TAGGING_COLUMNS)})"
+            f"expected order {', '.join(columns)})"
         )
     for column in ("spanish_title", "spanish_text"):
         empty = [r.get("article_id", "?") for r in rows if not (r.get(column) or "").strip()]
@@ -100,9 +115,11 @@ def tagging_format_problems(rows: Sequence[Mapping[str, str]]) -> list[str]:
     return problems
 
 
-def require_tagging_format(rows: Sequence[Mapping[str, str]], name: str) -> None:
+def require_tagging_format(
+    rows: Sequence[Mapping[str, str]], name: str, columns: Sequence[str] = TAGGING_COLUMNS
+) -> None:
     """Refuse to write a file for the owner to tag unless it has the tagging format."""
-    problems = tagging_format_problems(rows)
+    problems = tagging_format_problems(rows, columns)
     if problems:
         raise TagFileError(f"{name} is not written: " + "; ".join(problems))
 

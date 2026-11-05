@@ -388,7 +388,7 @@ Dependencies at a glance:
       GPU projection use the full corrected corpus, and a sentiment run reads about two
       thirds of its input from outside 2022+. **Blocks (now unblocked):** T-117's
       sampling, T-124's size.
-- [ ] **T-132** **→ Work item 18 P1 and P3 (2026-10-28). Body-hash grouping and name/ticker resolution shipped in P1 (`news_nlp.triage`, T-144); what stays open here is the upstream alias table and the decision on the quarantined `review` pairs.** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
+- [ ] **T-132** **→ Work item 18 P1 and P3 (2026-10-28). Body-hash grouping and name/ticker resolution shipped in P1 (`news_nlp.triage`, T-144); **shrunk 2026-11-05 by the owner: only the upstream alias table stays open. The per-pair verdicts, T-130's judge and the block on T-117 (both superseded) are dropped; the quarantined pairs follow D19 (T-131). The text below is the original design, kept as the record.** *(from `portfolio-data-mining` T-055 design v1, approved 2026-10-15;
       reshaped 2026-10-22 to the 2026-10-21 hand-off)* Decide the quarantined
       `review` pairs. Never act on doubt, in either direction.
       - **Goal:** answer "is the company a subject of this article?" for the pairs
@@ -789,7 +789,7 @@ Dependencies at a glance:
 - [x] **T-126** **Superseded 2026-10-28 → Work item 18** (re-scope D11–D24: triage per unique body replaces the relevance gate, calibration and re-label; not done). *(contingent)* Option H: classify on more than title + lead
       chunk. Only if T-123 shows misses concentrated in weak-lead articles.
       → step 7.
-- [ ] **T-127** **→ Work item 18 P4: per-company sentiment (2026-10-28).** *(separate PR)* Measure the sentiment-side impact of the same
+- [x] **T-127** **Superseded 2026-11-05 → Work item 18 T-148c** (D26: sentiment reads the summary or the company text, so the subject weighting of `_text_mentions_subject` is not used by the new pipeline; the v1 `article_sentiment` is replaced at the backfill, T-150; not done). *(separate PR)* Measure the sentiment-side impact of the same
       weakness: `_text_mentions_subject` matches a lowercased ticker as a bare
       word (`\bon\b`, `\ba\b`, …), so subject weighting is likely
       non-discriminating for the eight English-word tickers, and off-topic
@@ -864,8 +864,7 @@ Dependencies at a glance:
       regenerates only at the next `--summarize` run; (d) the owner decided D4 on
       2026-10-22 at the recommended defaults: keep the `<table>_removed` archives, and
       delete only the affected `sector_summary` rows (no version bump), which (b) and (c)
-      apply. Runs **before**
-      T-124 (never together), so no reader sees a half-cleaned store.
+      apply. Runs **before** T-124 (never together), so no reader sees a half-cleaned store. *(2026-11-05: T-117, T-124 and T-130 are superseded and not done; the judge calls and the `article_category` rename they carried are dropped, and the v1 move of the old tables is T-150, D19.)*
       → step 6b.
       *D4 (decided 2026-10-22):* the recommended defaults apply (keep the
       `<table>_removed` archives; delete only the affected `sector_summary` rows).
@@ -873,13 +872,12 @@ Dependencies at a glance:
       ship as its own PR; it stays in this work item because T-124 depends on
       its removed-id list and ordering.
 - [ ] **T-129** **Re-pointed 2026-10-28: closes with Work item 18's close-out (T-150).** Close-out: annotate `SPEC.md` §13 item 19 / §14, add
-      one FR per behavior that ships (gate if built, calibrated rule, the
-      opt-in relevance judge T-130, results cleanup T-131) in the PR that
+      one FR per behavior that ships (results cleanup T-131; the gate, the
+      calibrated rule and the relevance judge T-130 are superseded) in the PR that
       ships it (SPEC's own rule), update
       `docs/category-taxonomy.md`, `docs/evaluation.md` (dated follow-up),
       `docs/modules/news-nlp.md`; reconcile both architecture artifacts —
-      never rename (constitution AI behavior #11); confirm T-130 and T-131 are
-      done or cancelled in place; then move this work item to
+      never rename (constitution AI behavior #11); confirm T-131 is done (T-130 is superseded); then move this work item to
       `CHANGELOG.md` (AI behavior #15). → acceptance criteria.
 
 ## Work item 17 — Articles that name more than one company (decided 2026-10-22: its own work item, sizing first, D9 default)
@@ -926,7 +924,7 @@ Dependencies at a glance:
         upstream's 42 News Corp multi-company URLs) reports role agreement per type with
         its interval, never one average. Report; do not ship.
       - **Depends on:** T-132's grouping and ORG-to-ticker resolution; D9 (decided, T-139).
-- [ ] **T-138** **→ Work item 18 P4: per-company analysis (2026-10-28).** *(conditional on T-137's result; D9 decided)* Build the stages the sizing justifies:
+- [x] **T-138** **Superseded 2026-11-05 → Work item 18 T-148b and T-152** (D27: the text of each company comes from the one-segment-per-company parser and a trained attribution model, not roles and fact tables; D28: the company snapshot is one row per (body, company), so no `multi` flag on the old result tables is added; not done). *(conditional on T-137's result; D9 decided)* Build the stages the sizing justifies:
       roles, sentence attribution with offsets (a sentence naming two companies is
       flagged shared and keeps both), facts per `(article, company)` from attributed
       spans only, and the `multi` flag on every article-level score of a multi-subject
@@ -941,13 +939,11 @@ Dependencies at a glance:
       risk.
 - [ ] **T-138b** **Re-pointed 2026-10-28: closes with Work item 18's close-out (T-150).** Close-out of Work item 17: annotate `SPEC.md` §13 item 21 / §14, reconcile
       both architecture artifacts (never rename; AI behavior #11), then move the work item
-      to `CHANGELOG.md` (AI behavior #15). It closes after T-137's report if the owner
-      stops there (T-138 cancelled in place, with the reason), or after T-138 ships.
-      Depends on T-137 (and T-138 if built).
+      to `CHANGELOG.md` (AI behavior #15). T-137's sizing was absorbed by T-144 and T-138 is superseded in place (2026-11-05), so it closes with T-150 and waits on nothing else.
 
 ## Work item 18 — Triage-first pipeline: unique bodies, subject scope, per-company and sector news (re-scoped from Work items 15 and 17, 2026-10-28)
 
-Plan: `PLAN.md` Work item 18. Decisions D11–D24 (T-143). Each phase is its own PR; a schema
+Plan: `PLAN.md` Work item 18. Decisions D11–D24 (T-143), D25–D30 (T-151). Each phase is its own PR; a schema
 change is proposed to the owner in the PR that needs it (constitution AI behavior #10).
 
 - [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
@@ -1036,12 +1032,12 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
       - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
         `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
-      - [ ] **T-146e** Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
+      - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them; any scope under 40 gold bodies is topped up from the T-146e1 candidates, PLAN WI18 open question 3)* Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
         any training from candidates prefiltered by custom rules, 50 of them checked by the owner
         first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
         twice (Q4).
-- [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), NER first,
-      scope from a local classifier (a fine-tuned small encoder reading the text, with the
+- [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), the scope first (NER then runs on
+      `single` and `multi` bodies only, D25), from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
       confidence; **accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and
       recall >= 80% for each of the six scopes (point estimates with intervals, >= 40 gold bodies per
@@ -1053,10 +1049,33 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       checkpoint in `config/pipeline_models.json` with its revision, its selection is justified
       against alternatives like every other model, the `ExperimentSpec` stage list is extended
       deliberately (a snapshot test), and the complete metric set is reported per scope. → P3.
-- [ ] **T-148** *(P4)* Per-(body, company) analysis: sentence attribution (T-138's design),
-      sentiment (T-127) and D15 category per company; single-company bodies use the whole text,
-      a dominated body (D23) is single + mentions; **accepted at >= 80% agreement with the owner's
-      held-out gold for the per-company category (D24, confirmed)**; its own FR. → P4.
+- [ ] **T-148** *(P4)* Texts, sentiment and category per (body, company), steps 3-5 of D25; each
+      sub-task its own PR and its own FR when it ships. Single-company bodies use the whole summary;
+      a dominated body (D23) is single + mentions; **the per-company category is accepted at >= 80%
+      agreement with the owner's held-out gold (D24, confirmed)**. → P4.
+      - [ ] **T-148a** Summaries: the pinned local summariser (`c_summary`) on every non-multi body
+        (single, sector, market / economy, `investing_general`), with the input the pipeline
+        already builds minus the NLP features (title and body only: sentiment now follows the summary). Checks that
+        a body longer than the model's window is chunked and reduced, as `hierarchical_summarize_batch` does. → D25, D26.
+      - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
+        - [ ] **T-148b1** `news_nlp.company_texts.split_company_texts`, the one-segment-per-company
+          parser, with tests *(written 2026-11-05 on `feat/wi18-sentiment-gold`, not yet merged; it
+          finds 2,867 of the 81,961 unique bodies)*.
+        - [ ] **T-148b2** Training set for the attribution model from those bodies (company name
+          masked, previous sentence as context, all years), the mention-and-recency baseline, and
+          the owner's faithfulness check on about 30 narrative multi bodies (a file in the tagging
+          format, Spanish columns after `text`). The acceptance threshold is the owner's
+          (PLAN WI18 open question 2).
+        - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in
+          `config/pipeline_models.json` with its revision, selection justified against the baseline
+          (constitution AI #1, #7, #12), the `ExperimentSpec` stage list extended deliberately.
+          Bodies it cannot attribute are flagged `unextracted` and counted, never given a default text.
+      - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): after T-148b exists,
+        draw the 180-text sentiment gold (60 per class, `scripts/draw_sentiment_gold_2026_11_05.py`,
+        drafted on `feat/wi18-sentiment-gold` and parked until then), the owner tags the price impact,
+        the current model is measured on it, and fine-tuned on summaries only if it fails the
+        owner's threshold (PLAN WI18 open question 2). Covers T-127's question on real output.
+      - [ ] **T-148d** Category over the same texts (D29), measured against the owner's gold. → D24.
 - [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
       summaries of sector, market, economy and `investing_general` bodies feeding `sector_summary`,
       with `MARKET` / `ECONOMY` rows; **sector sub-industry detection accepted at >= 80% agreement
@@ -1066,11 +1085,27 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       architecture artifacts (AI #11), then Work items 15, 17 and 18 to `CHANGELOG.md` (AI #15,
       closing T-129 and T-138b). → acceptance.
 
+- [x] **T-151** *(decision record, 2026-11-05, the owner)* **D25–D30**: the order of the stages,
+      sentiment over the summary or company text, step 4 without an LLM, the snapshot tables, category
+      on the same texts, the held-out 200. Full text and the four open questions: `PLAN.md` Work item 18.
+- [ ] **T-152** *(P5)* The company snapshot table (one row per (body, company): text, ticker, D15
+      label, sentiment, `pub_date`) and the sector snapshot table (one row per (body, sector): text,
+      sentiment), RESULTS, the old tables kept as v1 (D28, D19). The schema is **proposed to the owner in
+      this PR** (constitution AI #10): column types, keys, the model names and revisions each row
+      records; its own FR. → P5.
+- [ ] **T-153** *(coordination)* Reply to `portfolio-financial-analysis` (`to_nlp_backtest.md`, their 8
+      questions): the training-data facts (about 30% of the sentences and bodies are from 2022 on, the
+      labels have no date cut-off, nothing limits hindsight), what is decided and what is not (PLAN WI18
+      open questions 1 and 4), `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
+      and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
+
 ## Status
+
+**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30, T-151). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153. T-127 and T-138 are superseded in place (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
 
 **Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (T-143 records D11–D24).
 T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded in place, and
-T-127, T-131, T-132, T-137 and T-138 continue under Work item 18. T-144 (sizing and the rules' check on the
+T-131, T-132 (shrunk to the alias table, 2026-11-05) and the sizing of T-137 (absorbed by T-144) continue under Work item 18; T-127 and T-138 were superseded on 2026-11-05. T-144 (sizing and the rules' check on the
 720 articles tagged v1) is the first PR; T-145 (Laya) was tried and cancelled.
 
 Closed Work items 1, 5, 6 and 8–14 are in `CHANGELOG.md` (Work item 5 closed 2026-10-14; its
@@ -1079,22 +1114,7 @@ only open task, T-041, was superseded by Work item 15).
 T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
 infrastructure decision — nothing in that item has started.
 
-**Work item 15 update (2026-10-22):** T-128 is done (data-mining's Work item 10 and
-T-058 hand-off are recorded done upstream), so development can start. The corrected
-corpus is about 80% smaller than the RESULTS store, which resizes T-131, T-132 and
-T-124 (plan, "corrected corpus"). T-116 and T-130 can run now (T-133 and T-121(a) are done); D5–D9 were
-settled at their defaults on 2026-10-22 (T-139). Two proposals from the 2026-10-21
-hand-off are accepted as their own work items: 16 (schema guard, T-135–T-136, closed 2026-10-22, `CHANGELOG.md`) and 17 (multi-company articles, sizing
-first, T-137–T-138).
-
-**Work item 15 (category `other` bucket), filed 2026-10-14:** T-118 records D1–D3
-(the `not_relevant` label representation, used only if T-117 justifies building a
-gate; full re-run after a satisfactory test; fix the crawler first, T-128, now done).
-`portfolio-data-mining` has handed off the corrected corpus and its quarantined
-`review` pairs (T-132 decides them, before T-117). D4 (what to do with existing
-results for removed articles, T-131) was settled on 2026-10-22 at its recommended
-defaults, with D5–D9 (T-139). T-124 waits on
-T-123's result and on T-131.
+**Work item 15's own plan (filed 2026-10-14) is superseded by Work item 18**: T-116, T-117, T-119, T-120, T-122–T-126 and T-130 each say so in place and none is on the roadmap (T-118, T-139 and T-140 are closed decision records, T-121 closed negative). What carries over is the corrected corpus (T-128, done 2026-10-22), the results cleanup (T-131, now the backfill of P6), the alias table (T-132, shrunk) and the close-out (T-129). Work item 16 (schema guard, T-135–T-136) is closed in `CHANGELOG.md`; Work item 17 (multi-company articles) is re-scoped into Work item 18, its sizing absorbed by T-144 and its design superseded by D27–D28.
 
 **Model performance checking (Work items 3, 4, 7) is resolved except
 non-blocking items:** Work item 3's only open task is T-022 (full-corpus

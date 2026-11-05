@@ -2193,7 +2193,8 @@ The unit is the cause: an `articles` row is a (URL, ticker) pair, the same body 
 tagged ticker (35.9% of `ok` articles share a body), and every stage scores the pair as if the
 article were about that ticker. Round-ups, sector and macro news have no correct label in that model.
 
-**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24):
+**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24; D25–D30 added
+2026-11-05, T-151):
 D11 the unit is the unique article body (body hash), its subjects found in the content; D12 LLMs
 only label and evaluate, the pipeline keeps local pinned models (constitution AI #1/#2); D13 GICS
 sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
@@ -2226,6 +2227,74 @@ owner confirmed on 2026-10-29).
 Laya (`convaiinnovations/laya`, a local non-generative typed-decision model) was tried as a
 yes/no checker of the triage questions and dropped on 2026-10-29: zero-shot it said "yes" to almost
 everything (5.4% scope agreement with the owner, against 70% for the rules on six scopes; T-145).
+
+**The 7-step pipeline and the owner's calls of 2026-11-05 (D25–D30, T-151).** After tagging the
+gate the owner fixed the order the stages run in, and the backtest team (`portfolio-financial-analysis`,
+`to_nlp_backtest.md`) asked what the final tables will hold. Where a call below changes a decision
+above, it says so; nothing else above is touched.
+
+- **D25 Order of the stages.** (1) the scope of the body; (2) NER, only for `single` and `multi`
+  bodies; (3) a summary of every body that is not `multi`; (4) for a `multi` body, the text each
+  mentioned company gets; (5) sentiment, and the D15 category (D29), over the texts of steps 3 and 4;
+  (6) company snapshots; (7) sector snapshots. `unrelated` stops at step 1 (D16). NER no longer
+  runs on every body: sector, market / economy and `investing_general` bodies skip it.
+- **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
+  model was fine-tuned on sentences, so it is checked on the pipeline's own texts before it is
+  trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
+  at that size an observed 90% per class has a 95% lower bound of about 80%), tagged on real
+  output of steps 3-4 after step 4 exists, the sample over-sampling the rare negative class by the
+  current model's prediction (never shown to the owner) and re-weighted afterwards. The label is the
+  **price impact on the company** an investor would read (for a sector or market text, on that
+  sector or market). The model is fine-tuned on summaries only if it fails the gate (threshold:
+  open question 2).
+- **D27 Step 4 without an LLM.** (a) A body written as one segment per company is split by
+  `news_nlp.company_texts` (a segment leads with a company when exactly one universe company is
+  named in its first 50 characters): 2,867 of the 81,961 unique bodies (3.5%) and 21,941
+  company-led segments. (b) The other multi bodies (about 75% of the owner's tagged multi bodies,
+  not "a few": 77 tagged, about 15 structured, about 14 a single paragraph, the rest narrative) go
+  to a **trained attribution model**: a small local encoder trained on (a) with the company name
+  masked and the previous sentence as context, so it learns who a sentence is about from its
+  content. It is compared with a mention-and-recency baseline and with a faithfulness check the
+  owner reads (about 30 narrative multi bodies, the extracted text per company marked faithful or
+  not). Training data: **all years** (owner, 2026-11-05; see open question 1). **D12 stands**: the
+  owner first chose to amend D12 for an LLM exception in step 4, then replaced it by this model
+  after the narrative share was measured; the amendment is written only if (b) fails its check.
+  The model is a new pinned checkpoint (constitution AI #1, #7, #12).
+- **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
+  is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
+  snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
+  per day: the per-(asset, day) signal of D14 is built downstream from the per-body rows, which
+  also keeps one count per unique body for the backtest. Sketch only: the schema is proposed to
+  the owner in the P5 PR (constitution AI #10).
+- **D29 Category** is computed on the same texts as sentiment (step 5): the summary of a
+  non-multi body, the company text of a multi body. The D24 target (>= 80% with the held-out gold)
+  is measured there.
+- **D30 Held-out gold for the scope.** 200 bodies drawn once on 2026-11-05
+  (`gold/category_gold_v2_test.csv`; 200 is the minimum at which an observed 90% keeps a 95% lower
+  bound near 85%): all 39 bodies the rules call no-company, sector, market or economy, the rest a
+  seeded random draw from the 1,000-body corpus sample, none sharing a body with the 720 or the 44;
+  checked for leakage on 2026-11-05 (same body, title, ticker and day, near-duplicate text,
+  earlier evaluation runs: one article, 247586, was in an old judged run with the previous
+  model and judge, and is kept). The 50-article filter check, the ~60 random misses and the ~50
+  double-tagged bodies of Q4/Q6/Q9 are unchanged. The sample was also used to size the rules, so a
+  rules-versus-gold figure on it is slightly optimistic.
+
+- **T-132 shrunk (owner, 2026-11-05).** It was designed around T-117's call budget and T-130's
+  relevance judge, both superseded. Only the upstream alias table stays; the quarantined pairs
+  follow D19 (their results are purged, T-131).
+
+**Open questions (no default taken).**
+1. *Hindsight.* About 30% of the sentiment training sentences, of the gold bodies and of the held-out
+   bodies are from 2022 on, and the labels have no date cut-off. The backtest decides on dates from
+   2021-12-31 to 2026-10-15. Whether the sentiment and category models (and the extractor) are
+   trained before 2022 only is **not decided**; the owner deferred it until the sentiment gold
+   exists. The backtest team is told the facts, not a decision.
+2. *Acceptance thresholds* for the extractor's faithfulness check (D27) and for the sentiment
+   gate (D26): the owner sets them before the model is trained or the gold is measured.
+3. *D20 asks for >= 40 gold bodies per scope*; 200 bodies cannot guarantee it for the rare scopes.
+   After the owner tags them, any scope below 40 is topped up from the prefilter candidates (T-146e1).
+4. *Timeline.* The backtest reports its news layer as not evaluated if per-company sentiment does
+   not exist for the stored corpus by the thesis delivery on 2026-11-20. P3-P5 cannot be done by then.
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
@@ -2264,16 +2333,20 @@ everything (5.4% scope agreement with the owner, against 70% for the rules on si
    spend, no schema change.
 2. **P2 — labels (T-146).** Labelling spec v2, the revised prompt, the D18 silver labels and the
    owner's ~300 gold bodies.
-3. **P3 — triage stage (T-147).** On unique bodies: NER first, then the scope (single company,
+3. **P3 — triage stage (T-147).** On unique bodies: the scope first (single company,
    several companies, sector, market / economy, `investing_general`, `unrelated`) from a local classifier (a fine-tuned
    small encoder over the text, the P1 rule features as inputs) trained on silver and gold, with
    active-learning rounds on its low-confidence bodies (D21) until it reaches >= 90% on the
    held-out gold (D20). Sketch of the tables: a body table keyed by body hash with its member pairs, and a
-   per-body triage row (scope, companies, confidence).
-4. **P4 — per-company analysis (T-148).** Sentence attribution per company (Work item 17's design),
-   then sentiment and the D15 category per (body, company).
-5. **P5 — sector, market and economy news (T-149).** GICS sector / sub-industry detection, and
-   summaries of those bodies into `sector_summary` with `MARKET` / `ECONOMY` rows.
+   per-body triage row (scope, companies, confidence). NER then runs on `single` and `multi`
+   bodies only (D25).
+4. **P4 — texts, sentiment and category (T-148).** The summary of every non-multi body (the pinned
+   local summariser, step 3); for a multi body, the text of each company (step 4, D27: the
+   one-segment-per-company parser, then the trained attribution model); then sentiment and the D15
+   category over those texts (D26, D29), with the 180-text sentiment gold.
+5. **P5 — sector, market and economy news, and the snapshots (T-149, T-152).** GICS sector /
+   sub-industry detection, summaries of those bodies into `sector_summary` with `MARKET` /
+   `ECONOMY` rows, and the company and sector snapshot tables (D28).
 6. **P6 — backfill and close-out (T-150).** Re-process the stored corpus, update the
    knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
 
@@ -2282,14 +2355,16 @@ bodies (corpus-weighted point estimate, interval reported) and reaches recall >=
 scopes (point estimate, interval reported, at least 40 gold bodies per scope; D20), measured with the
 complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
 with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
-per-company sentiment and category exist for every company a body is about; `sector_summary`
+per-company sentiment and category exist for every company a body is about, computed on its
+summary or company text (D26); company and sector snapshots exist, one row per body (D28); `sector_summary`
 carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
 documented; SPEC gains one FR per behaviour shipped.
 
 ## Sequencing
 
 **Work item 18 (2026-10-28) supersedes the open parts of Work items 15 and 17** and is the
-current focus: P1 (sizing and the rules' check) first, then P2–P6 in order.
+current focus: P1 (sizing and the rules' check) is done; P2 (labels) is open, then P3–P6 in order
+(the stage order is D25, 2026-11-05).
 
 Work items 1 and 2 are independent of each other — no ordering
 dependency. Work item 1 (pin checkpoints) is a small, self-contained code
