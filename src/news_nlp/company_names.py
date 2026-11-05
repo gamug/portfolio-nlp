@@ -18,6 +18,11 @@ from news_nlp.triage import _WORD_TICKERS, Company, normalize_name
 #: Well-known names other than the legal one, by ticker. A ticker absent from the universe is
 #: skipped, so the list may name companies that left the index.
 NICKNAMES: dict[str, tuple[str, ...]] = {
+    "CCI": ("Crown Castle International",),
+    "LYB": ("LyondellBasell Industries",),
+    "NWSA": ("NewsCorp", "News Corporation"),
+    "TAP": ("Molson Coors",),
+    "WMB": ("Williams Cos",),
     "AAPL": ("Apple Computer", "Apple Inc"),
     "ABBV": ("Abbvie",),
     "ABT": ("Abbott",),
@@ -120,7 +125,7 @@ NICKNAMES: dict[str, tuple[str, ...]] = {
     "VZ": ("Verizon Communications", "Verizon Wireless"),
     "WBD": ("Warner Bros", "Warner Brothers"),
     "WFC": ("Wells Fargo & Co", "Wells Fargo Bank"),
-    "WMT": ("Wal-Mart", "Walmart Inc", "Wal Mart"),
+    "WMT": ("Wal-Mart", "Wal-Mart Stores", "Walmart Inc", "Wal Mart"),
     "XOM": ("Exxon", "Exxon Mobil", "Exxon Mobil Corporation"),
     "XYZ": ("Block Inc",),
     "YUM": ("Yum Brands",),
@@ -156,6 +161,11 @@ BRANDS: dict[str, tuple[str, ...]] = {
 #: Companies the triage keeps as two tickers (class B / class A): a name stands for class A, an
 #: explicit ticker for itself.
 CLASS_A = {"FOX": "FOXA", "NWS": "NWSA"}
+#: First words that name a company outside the universe in the owner's articles (Snap Inc., the
+#: Snapchat parent; Motorola Mobility, the phone maker) and so must not resolve to the universe
+#: company that starts with the same word (Snap-on, Motorola Solutions): left unknown, they are
+#: kept as typed and counted as outside the universe. The full names still resolve.
+_NOT_FIRST_WORD = frozenset({"snap", "motorola"})
 _MIN_FIRST_WORD = 3
 #: Tickers that are also everyday words or letters: every one-letter ticker (A, C, F, T, V) and
 #: the words below, besides triage's ``_WORD_TICKERS``. Two-letter tickers such as GE or GM are not
@@ -208,7 +218,11 @@ class NameBook:
         firsts: dict[str, set[str]] = defaultdict(set)
         for key, tickers in list(self._names.items()):
             words = key.split()
-            if len(words) > 1 and len(words[0]) >= _MIN_FIRST_WORD:
+            if (
+                len(words) > 1
+                and len(words[0]) >= _MIN_FIRST_WORD
+                and words[0] not in _NOT_FIRST_WORD
+            ):
                 firsts[words[0]] |= tickers
         for word, tickers in firsts.items():
             if word not in self._names:  # a full name beats a first word ("FedEx", "Williams")
@@ -268,7 +282,7 @@ def split_list(value: str) -> list[str]:
 
 
 def normalise_row(
-    book: NameBook, row: dict[str, str]
+    book: NameBook, row: dict[str, str], is_gics: Callable[[str], bool] | None = None
 ) -> tuple[dict[str, str], list[str], list[str]]:
     """The row with ``mentions`` and the company part of ``company_labels`` as
     tickers, the problems found (the text of each is left as typed) and the inferred matches the
@@ -298,16 +312,48 @@ def normalise_row(
         out[column] = ", ".join([*resolved, *kept])
 
     tickers("mentions")
+    whole = (row.get("sub_industry") or "").strip()
+    if is_gics is not None and whole and not is_gics(whole):
+        # sub_industry: GICS codes and names stay, company names become tickers
+        out["sub_industry"] = ", ".join(
+            _sub_industry_items(
+                split_list(row.get("sub_industry") or ""),
+                is_gics,
+                lambda part: lookup("sub_industry", part),
+            )
+        )
     out["company_labels"] = _normalise_labels(
         row.get("company_labels") or "", lambda name: lookup("company_labels", name), problems
     )
     return out, problems, confirm
 
 
+def _sub_industry_items(
+    parts: Sequence[str], is_gics: Callable[[str], bool], lookup: Callable[[str], str | None]
+) -> list[str]:
+    """The items of a ``sub_industry`` cell. A GICS name with a comma in it (``Hotels, Resorts &
+    Cruise Lines``) arrives in several pieces; the longest run of pieces that is a GICS code or name
+    is kept whole, and only the other pieces are looked up as company names."""
+    items: list[str] = []
+    i = 0
+    while i < len(parts):
+        for end in range(len(parts), i, -1):
+            joined = ", ".join(parts[i:end])
+            if is_gics(joined):
+                items.append(joined)
+                i = end
+                break
+        else:
+            items.append(lookup(parts[i]) or parts[i])
+            i += 1
+    return items
+
+
 def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems: list[str]) -> str:
     """``Apple: other, Google: uncertain`` -> ``AAPL:other, GOOG:uncertain``; what cannot be
-    resolved stays as typed."""
-    labels: dict[str, str] = {}
+    resolved stays as typed. A company given several labels keeps them all (an article may say
+    two things about it); the same label twice is kept as typed, so the checker reports it."""
+    labels: dict[str, list[str]] = {}
     kept: list[str] = []
     for part in split_list(value):
         name, sep, label = part.rpartition(":")
@@ -317,11 +363,9 @@ def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems:
             problems.append(f"company_labels: {part!r} has no label")
         if ticker is None:
             kept.append(part)
-        elif labels.get(ticker, label) != label:
-            problems.append(f"company_labels: {ticker} given {labels[ticker]!r} and {label!r}")
         else:
-            labels[ticker] = label
-    return ", ".join([*(f"{t}:{lb}" for t, lb in labels.items()), *kept])
+            labels.setdefault(ticker, []).append(label)
+    return ", ".join([*(f"{t}:{lb}" for t, many in labels.items() for lb in many), *kept])
 
 
 def self_check(companies: Sequence[Company], canonical: dict[str, str]) -> list[str]:

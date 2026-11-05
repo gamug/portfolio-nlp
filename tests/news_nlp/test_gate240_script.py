@@ -12,16 +12,7 @@ import pytest
 from news_nlp import retag
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "draw_gate240_2026_11_04.py"
-COLUMNS = [
-    "review_order",
-    "article_id",
-    "title",
-    "text",
-    "spanish_title",
-    "spanish_text",
-    "v1_scope_derived",
-    *retag.TAG_COLUMNS,
-]
+COLUMNS = list(retag.TAGGING_COLUMNS)  # the one format of every file the owner tags
 QUOTAS = {"sector": 2, "single": 3}
 
 
@@ -45,6 +36,8 @@ def _review(path: Path, *, tagged: dict[int, dict[str, str]] | None = None, n: i
                 article_id=str(100 + i),
                 title=f"t{i}",
                 text="b",
+                spanish_title="es",
+                spanish_text="es b",
                 v1_scope_derived="sector" if i <= 4 else "single",
             )
             row.update(tagged.get(i, {}))

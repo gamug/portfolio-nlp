@@ -3086,3 +3086,11 @@ text was 1.05-1.19 times the English length (nothing cut), every original column
 backup, the key file untouched. A later export of another tagging file (the held-out gold T-146e,
 about 300 bodies) is estimated at 0.8k prompt + 0.9k completion tokens per article and needs
 `--yes`; one run may buy at most `--max-new` (800) articles.
+
+### Follow-up (2026-11-05): Spanish reading aid for 44 extra sector bodies (Work item 18, T-146c)
+
+Same engine and purpose as above, for `data/sector_extra_to_tag.csv`: 44 bodies drawn by free rules
+(`scripts/draw_sector_extra_2026_11_05.py`) so that the sub-industry gate has more than the 16 sector
+bodies of the 240. Outside the D18 labelling budget, paid, logged here. **Spend: 44 articles = 44
+paid calls, 0 failures; 37,940 prompt + 45,359 completion tokens (retries and rejected replies
+included); well under 1 USD at list prices (estimate).**

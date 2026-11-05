@@ -74,6 +74,15 @@ def _write(path: Path, rows: Sequence[Mapping[str, str]]) -> None:
         raise
 
 
+def _write_tagging(path: Path, rows: list[dict[str, str]]) -> None:
+    """Every file for the owner to tag has the tagging format, Spanish columns included."""
+    try:
+        retag.require_tagging_format(rows, path.name)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    _write(path, rows)
+
+
 def _read(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -121,7 +130,7 @@ def cmd_draw(
             f"{target} exists and is your tagging file ({done} tagged): it is not overwritten. "
             "Use 'merge' to bring its tags into the review file."
         )
-    _write(target, gate)
+    _write_tagging(target, gate)
     tagged = sum(1 for r in gate if (r.get("scope") or "").strip())
     print(f"{len(gate)} bodies -> {target} ({tagged} already tagged, {len(gate) - tagged} to tag)")
     print("by stratum:", dict(Counter(r["stratum"] for r in chosen)))
@@ -145,7 +154,7 @@ def cmd_merge(out: Path, file: str, *, gate_wins: bool = False) -> None:
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
     kind = "incomplete" if conflicts else "merged"
     target = out / f"{Path(file).stem}_{kind}_{stamp}.csv"
-    _write(target, merged)
+    _write_tagging(target, merged)
     print(
         f"{len(merged)} rows -> {target} (from {source.name}): {copied} rows copied from {TO_TAG_NAME}"
     )

@@ -219,7 +219,7 @@ def cmd_translate(
             break
         backup = backup.with_name(f"{source.stem}_before_translate_{stamp}_{n}.csv")
     shutil.copy2(source, backup)
-    write_csv(source, result)
+    write_tagging_csv(source, result)
     print(f"{len(result)} rows -> {source} (backup: {backup})")
 
 
@@ -259,7 +259,7 @@ def cmd_migrate(out: Path, *, file: str | None = None) -> None:
     new_rows, problems = retag.migrate_rows(rows)
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     target = out / f"{source.stem.rstrip('_')}_new_format_{stamp}.csv"
-    write_csv(target, new_rows)
+    write_tagging_csv(target, new_rows)
     for problem in problems:
         print(f"  {problem}")
     print(
@@ -302,6 +302,16 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
+def write_tagging_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write a file the owner tags: refused unless it has the tagging format (Spanish columns after
+    ``text``, every row translated)."""
+    try:
+        retag.require_tagging_format(rows, path.name)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    write_csv(path, rows)
+
+
 TICKERS_NAME = "category_gold_v2_review_tickers.csv"
 
 
@@ -326,7 +336,12 @@ def cmd_normalise(
         if failures:
             sys.exit(1)
         return
-    book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
+    universe = retag.Universe.of(firms)
+    book = company_names.NameBook(firms, universe.tickers)
+
+    def is_gics(text: str) -> bool:
+        return not universe.resolve_sub_industries(text)[1]
+
     source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
@@ -336,7 +351,7 @@ def cmd_normalise(
     problems: list[str] = []
     confirm: list[str] = []
     for row in rows:
-        new, found, inferred = company_names.normalise_row(book, row)
+        new, found, inferred = company_names.normalise_row(book, row, is_gics)
         result.append(new)
         tag = f"article {row.get('article_id')}"
         problems += [f"  {tag}: {p}" for p in found]
@@ -352,7 +367,7 @@ def cmd_normalise(
             f"{target} was edited after {source.name}: fix the cells in {source.name} and run "
             "normalise again, or pass --force to overwrite the copy"
         )
-    write_csv(target, result)
+    write_tagging_csv(target, result)
     if problems:
         print(
             "left as typed (outside the 509 companies, or a typo: fix typos in the review file):",

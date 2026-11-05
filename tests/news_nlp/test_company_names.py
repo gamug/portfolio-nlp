@@ -112,15 +112,42 @@ def test_a_comma_inside_a_company_name_does_not_split_it() -> None:
     assert split_list("A, B,, ,C\nD") == ["A", "B", "C", "D"]
 
 
-def test_row_conflicting_labels_and_missing_label_are_reported() -> None:
+def test_row_keeps_several_labels_of_a_company_and_reports_a_missing_label() -> None:
     row = {
         "mentions": "",
-        "company_labels": "Google:other, Alphabet:uncertain, Apple",
+        "company_labels": "Google:other, Alphabet:uncertain, GOOG:other, Apple",
     }
     new, problems, _ = normalise_row(BOOK, row)
-    assert new["company_labels"] == "GOOG:other, Apple"
-    assert any("given 'other' and 'uncertain'" in p for p in problems)
-    assert any("has no label" in p for p in problems)
+    # the repeated GOOG:other is kept, so the checker can report it (see retag's duplicate test)
+    assert new["company_labels"] == "GOOG:other, GOOG:uncertain, GOOG:other, Apple"
+    assert problems == ["company_labels: 'Apple' has no label"]
+
+
+def test_sub_industry_keeps_gics_text_and_turns_company_names_into_tickers() -> None:
+    def is_gics(text: str) -> bool:
+        return text.replace(" ", "").replace(",", "").isdigit()
+
+    row = {"mentions": "", "company_labels": "", "sub_industry": "Microsoft, Apple Inc."}
+    new, problems, _ = normalise_row(BOOK, row, is_gics)
+    assert new["sub_industry"] == "MSFT, AAPL" and problems == []
+    row["sub_industry"] = "4510, 25"
+    assert normalise_row(BOOK, row, is_gics)[0]["sub_industry"] == "4510, 25"
+
+
+def test_a_gics_name_with_a_comma_is_not_split_into_company_lookups() -> None:
+    names = {"Hotels, Resorts & Cruise Lines", "Diversified Banks"}
+
+    def is_gics(text: str) -> bool:
+        return text in names
+
+    row = {
+        "mentions": "",
+        "company_labels": "",
+        "sub_industry": "Hotels, Resorts & Cruise Lines, Apple, Diversified Banks",
+    }
+    new, problems, _ = normalise_row(BOOK, row, is_gics)
+    assert new["sub_industry"] == "Hotels, Resorts & Cruise Lines, AAPL, Diversified Banks"
+    assert problems == []  # no 'Hotels' or 'Resorts & Cruise Lines' reported as unknown companies
 
 
 def test_empty_cells_stay_empty() -> None:
@@ -128,11 +155,21 @@ def test_empty_cells_stay_empty() -> None:
     assert new == {"mentions": "", "company_labels": ""} and problems == []
 
 
+def _full(**changes: str) -> dict[str, str]:
+    """A row of the owner's one tagging format (the Spanish aid translated), empty but for *changes*."""
+    return {
+        **dict.fromkeys(retag.TAGGING_COLUMNS, ""),
+        "spanish_title": "es",
+        "spanish_text": "es b",
+        **changes,
+    }
+
+
 def test_cli_normalise_then_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
     import retag_gold_2026_10_29 as cli  # noqa: PLC0415 -- the script is not a package
 
-    base = {c: "" for c in ("review_order", "article_id", *retag.TAG_COLUMNS)}
+    base = _full()
     typed = {
         **base,
         "article_id": "10",
@@ -246,11 +283,10 @@ def test_self_check_finds_a_name_hijacked_by_a_nickname(monkeypatch: pytest.Monk
 
 
 def _write_review(path: Path, mentions: str) -> None:
-    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer = csv.DictWriter(fh, fieldnames=list(retag.TAGGING_COLUMNS))
         writer.writeheader()
-        writer.writerow({**dict.fromkeys(fields, ""), "article_id": "10", "mentions": mentions})
+        writer.writerow(_full(article_id="10", mentions=mentions))
 
 
 def test_normalise_does_not_overwrite_an_edited_copy(tmp_path: Path) -> None:
@@ -321,13 +357,14 @@ def test_cmd_migrate_never_replaces_an_earlier_copy(
 ) -> None:
     cli = _script_cli()
     monkeypatch.setattr(cli, "datetime", _Clock())
-    fields = ["article_id", "scope", "companies", "company_labels", "mentions"]
+    fields = [*retag.TAGGING_COLUMNS, "companies"]  # the first format kept a companies column
     path = tmp_path / "work_.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
         writer.writeheader()
         writer.writerow(
             {
+                **_full(),
                 "article_id": "1",
                 "scope": "multi",
                 "companies": "Amazon; Toyota",
@@ -368,13 +405,12 @@ def test_a_name_with_a_comma_survives_normalise_end_to_end(tmp_path: Path) -> No
     cli = _script_cli()
     firms = [*FIRMS, Company("BKNG", "Booking Holdings Inc.", "x", "y")]
     review = tmp_path / retag.REVIEW_NAME
-    fields = ["review_order", "article_id", *retag.TAG_COLUMNS]
     with review.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields)
+        writer = csv.DictWriter(fh, fieldnames=list(retag.TAGGING_COLUMNS))
         writer.writeheader()
         writer.writerow(
             {
-                **dict.fromkeys(fields, ""),
+                **_full(),
                 "article_id": "10",
                 "scope": "multi",
                 "company_labels": "Booking Holdings, Inc.:other, Apple:uncertain",
@@ -392,3 +428,26 @@ def _script_cli() -> Any:
     import retag_gold_2026_10_29 as cli  # noqa: PLC0415
 
     return cli
+
+
+def test_names_of_companies_outside_the_universe_do_not_borrow_a_namesake() -> None:
+    firms = [
+        Company("SNA", "Snap-on", "Industrials", "Industrial Machinery"),
+        Company("MSI", "Motorola Solutions", "Information Technology", "Communications Equipment"),
+        Company("TAP", "Molson Coors Beverage Company", "Consumer Staples", "Brewers"),
+        Company("WMT", "Walmart", "Consumer Staples", "Consumer Staples Merchandise Retail"),
+    ]
+    book = NameBook(firms, retag.Universe.of(firms).tickers)
+    assert book.lookup("Snap").ticker is None  # Snap Inc. is not Snap-on
+    assert book.lookup("Motorola").ticker is None  # the phone maker is not Motorola Solutions
+    assert book.lookup("Snap-on").ticker == "SNA"
+    assert book.lookup("Motorola Solutions").ticker == "MSI"
+    assert book.lookup("Molson Coors").ticker == "TAP"
+    assert book.lookup("Wal-Mart Stores").ticker == "WMT"
+
+
+def test_the_same_label_under_two_names_of_one_company_still_reaches_the_checker() -> None:
+    row = {"scope": "single", "mentions": "", "company_labels": "Google:other, Alphabet:other"}
+    new, _, _ = normalise_row(BOOK, row)
+    gold, errors = retag.check_row({**row, **new}, retag.Universe.of(FIRMS))
+    assert gold is None and any("label other listed twice" in e for e in errors)

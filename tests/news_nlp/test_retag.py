@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -87,9 +89,9 @@ def test_valid_rows() -> None:
         ),
         UNIVERSE,
     )
-    assert not e and g and g.labels == {"AAPL": "product_innovation"} and g.mentions == ("MSFT",)
+    assert not e and g and g.labels == {"AAPL": ("product_innovation",)} and g.mentions == ("MSFT",)
     g, e = retag.check_row(row(scope="sector", sub_industry="systems software"), UNIVERSE)
-    assert not e and g and g.sub_industry == "Systems Software"
+    assert not e and g and g.sub_industry == ("45103020",)
     assert retag.check_row(row(scope="market_economy"), UNIVERSE)[0]
     g, e = retag.check_row(
         row(
@@ -104,7 +106,7 @@ def test_valid_rows() -> None:
 
 def test_share_classes_are_canonicalised() -> None:
     g, e = retag.check_row(row(scope="single", company_labels="GOOGL:other"), UNIVERSE)
-    assert not e and g and g.companies == ("GOOG",) and g.labels == {"GOOG": "other"}
+    assert not e and g and g.companies == ("GOOG",) and g.labels == {"GOOG": ("other",)}
 
 
 @pytest.mark.parametrize(
@@ -121,8 +123,14 @@ def test_share_classes_are_canonicalised() -> None:
         ),
         ({"scope": "unrelated", "company_labels": "AAPL:other"}, "analyses no company"),
         ({"scope": "sector"}, "needs a sub_industry"),
-        ({"scope": "sector", "sub_industry": "Made Up"}, "not a GICS sub-industry"),
-        ({"scope": "sector", "sub_industry": "Information Technology"}, "not a GICS sub-industry"),
+        ({"scope": "sector", "sub_industry": "Made Up"}, "not a GICS code, sub-industry name"),
+        (
+            {"scope": "sector", "sub_industry": "45-this is the entire sector"},
+            "not a GICS code, sub-industry name",
+        ),
+        ({"scope": "sector", "sub_industry": "99"}, "is not a GICS code"),
+        ({"scope": "sector", "sub_industry": "101"}, "2, 4, 6 or 8 digits"),
+        ({"scope": "sector", "sub_industry": "45, 45"}, "listed twice"),
         ({"scope": "multi", "company_labels": "AAPL:other"}, "2 or more"),
         ({"scope": "multi", "company_labels": "AAPL:other, MSFT"}, "no label"),
         ({"scope": "single", "company_labels": "AAPL:other, MSFT:other"}, "exactly 1"),
@@ -130,7 +138,6 @@ def test_share_classes_are_canonicalised() -> None:
             {"scope": "single", "company_labels": "AAPL:other; MSFT:other"},
             "separate them with commas",
         ),
-        ({"scope": "single", "company_labels": "ZZZZ:other"}, "not a ticker"),
         ({"scope": "single", "company_labels": "AAPL:other, AAPL:other"}, "listed twice"),
         (
             {"scope": "single", "company_labels": "AAPL:other", "mentions": "AAPL"},
@@ -327,12 +334,17 @@ RETAIL = retag.Universe.of(
 @pytest.mark.parametrize(
     ("text", "known"),
     [
-        ("25501010", "Distributors"),  # a code of the Wikipedia table
-        ("25503030", "Broadline Retail"),
-        (" 25503030 ", "Broadline Retail"),
-        ("broadline retail", "Broadline Retail"),
-        ("Interactive Media and Services", "Interactive Media & Services"),
-        ("interactive media & services", "Interactive Media & Services"),
+        ("25501010", "25501010"),  # a code of the Wikipedia table
+        ("25503030", "25503030"),
+        (" 25503030 ", "25503030"),
+        ("broadline retail", "25503030"),
+        ("Interactive Media and Services", "50203010"),
+        ("interactive media & services", "50203010"),
+        ("25", "25"),  # a sector
+        ("2550", "2550"),  # an industry group
+        ("255010", "255010"),  # an industry
+        ("AMZN", "25503030"),  # a company stands for its own sub-industry
+        ("amzn", "25503030"),
     ],
 )
 def test_sub_industry_as_code_or_name(text: str, known: str) -> None:
@@ -342,10 +354,11 @@ def test_sub_industry_as_code_or_name(text: str, known: str) -> None:
 @pytest.mark.parametrize(
     ("text", "message"),
     [
-        ("99999999", "not a GICS sub-industry code"),
+        ("99999999", "is not a GICS code"),
+        ("99", "is not a GICS code"),
+        ("255", "2, 4, 6 or 8 digits"),
         ("10101010", "no company of the universe has"),  # Oil & Gas Drilling is a real code, unused
-        ("Made Up", "not a GICS sub-industry"),
-        ("2550", "not a GICS sub-industry code"),  # an industry group, not a sub-industry
+        ("Made Up", "not a GICS code, sub-industry name or ticker"),
     ],
 )
 def test_sub_industry_refusals_say_why(text: str, message: str) -> None:
@@ -356,13 +369,13 @@ def test_sub_industry_refusals_say_why(text: str, message: str) -> None:
 def test_sub_industry_is_optional_on_every_scope_and_checked_when_given() -> None:
     fields = {"scope": "multi", "company_labels": "AMZN:other, GPC:other", "mentions": "GOOG"}
     gold, errors = retag.check_row(row(**fields, sub_industry="25503030"), RETAIL)
-    assert not errors and gold and gold.sub_industry == "Broadline Retail"
+    assert not errors and gold and gold.sub_industry == ("25503030",)
     gold, errors = retag.check_row(row(**fields), RETAIL)
-    assert not errors and gold and gold.sub_industry == ""
+    assert not errors and gold and gold.sub_industry == ()
     gold, errors = retag.check_row(row(**fields, sub_industry="99999999"), RETAIL)
-    assert gold is None and any("not a GICS sub-industry code" in e for e in errors)
+    assert gold is None and any("is not a GICS code" in e for e in errors)
     sector, errors = retag.check_row(row(scope="sector", sub_industry="25501010"), RETAIL)
-    assert not errors and sector and sector.sub_industry == "Distributors"
+    assert not errors and sector and sector.sub_industry == ("25501010",)
     assert retag.check_row(row(scope="sector"), RETAIL)[0] is None  # still required for a sector
 
 
@@ -384,13 +397,14 @@ def test_a_company_outside_the_universe_is_kept_as_typed_and_reported() -> None:
     gold, errors = retag.check_row(
         row(scope="single", company_labels="Macy's:other, macy's:other"), RETAIL
     )
-    assert gold is None and any("listed twice" in e for e in errors)
+    assert gold is None and any("label other listed twice" in e for e in errors)
     gold, errors = retag.check_row(
         row(scope="single", company_labels="Macys:other", mentions="Macys"), RETAIL
     )
     assert gold is None and any("both analysed and a mention" in e for e in errors)
-    # an upper-case short text is a mistyped ticker, not a name
-    assert retag.check_row(row(scope="single", company_labels="AMZNN:other"), RETAIL)[0] is None
+    # a delisted company written as its old ticker is outside the universe too, reported
+    gold, errors = retag.check_row(row(scope="single", company_labels="USG:other"), RETAIL)
+    assert not errors and gold and gold.companies == ("USG",) and gold.outside == ("USG",)
     # with no universe nothing is outside it
     bare, _ = retag.check_row(row(scope="single", company_labels="Macy's:other"))
     assert bare is not None and bare.companies == ("MACY'S",)
@@ -474,6 +488,130 @@ def test_merge_copies_new_tags_and_never_overwrites_different_ones() -> None:
     assert rows[0]["scope"] == ""  # the input is not modified
 
 
+def test_a_company_may_carry_several_labels_in_one_article() -> None:
+    gold, errors = retag.check_row(
+        row(scope="single", company_labels="AMZN:earnings_performance, amzn:product_innovation"),
+        RETAIL,
+    )
+    assert (
+        not errors
+        and gold
+        and gold.labels == {"AMZN": ("earnings_performance", "product_innovation")}
+    )
+    assert gold.companies == ("AMZN",)  # still one analysed company: a single body
+
+
+def test_sector_market_and_investing_bodies_may_label_the_companies_they_name() -> None:
+    for scope in ("sector", "market_economy", "investing_general"):
+        extra = {"sub_industry": "25503030"} if scope == "sector" else {}
+        gold, errors = retag.check_row(
+            row(scope=scope, company_labels="AMZN:market_analyst_sentiment", **extra), RETAIL
+        )
+        assert not errors and gold and gold.companies == ("AMZN",)
+    assert retag.check_row(row(scope="unrelated", company_labels="AMZN:other"), RETAIL)[0] is None
+
+
+def test_sub_industry_takes_several_nodes_of_any_level_and_companies() -> None:
+    gold, errors = retag.check_row(
+        row(scope="sector", sub_industry="2010, 25503030,GPC, AMZN"), RETAIL
+    )
+    assert gold is None and any("listed twice" in e for e in errors)  # AMZN twice
+    gold, errors = retag.check_row(
+        row(scope="sector", sub_industry="2010,25,GPC,Interactive Media & Services"), RETAIL
+    )
+    assert not errors and gold and gold.sub_industry == ("2010", "25", "25501010", "50203010")
+    # a sub-industry name with a comma is one node
+    long = retag.Universe(
+        {}, {"metal, glass & plastic containers": "Metal, Glass & Plastic Containers"}
+    )
+    codes, errors = long.resolve_sub_industries("Metal, Glass & Plastic Containers, 25")
+    assert not errors and codes == ("15103010", "25")
+
+
+def test_the_extra_sector_draw_is_seeded_balanced_and_tops_up_small_sectors() -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import draw_sector_extra_2026_11_05 as draw  # noqa: PLC0415
+
+    def item(i: int, noun: str) -> dict[str, object]:
+        return {"article_id": i, "noun": noun}
+
+    pool = {
+        "Energy": [item(i, "oil" if i % 2 else "gas") for i in range(1, 9)],
+        "Utilities": [item(100, "utilities")],  # a sector with fewer candidates than places
+        "Financials": [item(i, "banks") for i in range(200, 220)],
+    }
+    first = draw.draw(pool, 3, seed=1)
+    assert first == draw.draw(pool, 3, seed=1)  # the same seed, the same draw
+    sectors = Counter(str(r["sector"]) for r in first)
+    target = 3 * len(draw.INDUSTRY_NOUNS)
+    assert len(first) == min(target, 8 + 1 + 20) and len({r["article_id"] for r in first}) == len(
+        first
+    )
+    assert sectors["Utilities"] == 1 and sectors["Energy"] >= 3
+    energy = [r for r in first[:3] if r["sector"] == "Energy"]
+    assert {r["noun"] for r in energy} == {"oil", "gas"}  # one noun does not fill the sector
+
+
+def _tagging_row(**changes: str) -> dict[str, str]:
+    row = dict.fromkeys(retag.TAGGING_COLUMNS, "x")
+    row.update(changes)
+    return row
+
+
+def test_every_tagging_file_has_the_spanish_columns_after_text_and_translated_rows() -> None:
+    assert retag.TAGGING_COLUMNS.index("spanish_title") == retag.TAGGING_COLUMNS.index("text") + 1
+    assert retag.TAGGING_COLUMNS.index("spanish_text") == retag.TAGGING_COLUMNS.index("text") + 2
+    assert retag.tagging_format_problems([_tagging_row()]) == []
+    assert any("empty" in p for p in retag.tagging_format_problems([_tagging_row(spanish_text="")]))
+    no_spanish = {k: v for k, v in _tagging_row().items() if not k.startswith("spanish")}
+    assert any("not the tagging format" in p for p in retag.tagging_format_problems([no_spanish]))
+    shuffled = dict(reversed(list(_tagging_row().items())))
+    assert retag.tagging_format_problems([shuffled])
+    with pytest.raises(retag.TagFileError, match="is not written"):
+        retag.require_tagging_format([no_spanish], "gate.csv")
+
+
+def test_the_scripts_refuse_to_write_a_tagging_file_without_the_spanish_columns(
+    tmp_path: Path,
+) -> None:
+    sys.path.insert(0, str(Path(__file__).parents[2] / "scripts"))
+    import retag_gold_2026_10_29 as cli  # noqa: PLC0415
+
+    bare = {k: "x" for k in retag.TAGGING_COLUMNS if not k.startswith("spanish")}
+    with pytest.raises(SystemExit, match="is not written"):
+        cli.write_tagging_csv(tmp_path / "t.csv", [bare])
+    assert not (tmp_path / "t.csv").exists()
+    cli.write_tagging_csv(tmp_path / "ok.csv", [_tagging_row()])
+    assert (tmp_path / "ok.csv").exists()
+
+
+def test_gold_file_rows_carry_the_validated_tags_without_the_article_text() -> None:
+    first = row(
+        article_id="10",
+        scope="multi",
+        company_labels="AAPL:product_innovation, MSFT:other, AAPL:peer_comparison",
+        mentions="GOOG",
+        notes="n1",
+    )
+    second = row(article_id="5", scope="sector", sub_industry="4510, 45103020")
+    sessions = {"gate240": [first], "sector_extra": [second]}
+    golds = {
+        name: [retag.check_row(r, UNIVERSE)[0] for r in rows] for name, rows in sessions.items()
+    }
+    assert all(g for gs in golds.values() for g in gs)
+    out = retag.gold_file_rows(sessions, {k: [g for g in v if g] for k, v in golds.items()})
+    assert [r["article_id"] for r in out] == ["5", "10"]
+    assert all(tuple(r) == retag.GOLD_COLUMNS for r in out)
+    assert "text" not in out[0] and "title" not in out[0]
+    assert out[1]["company_labels"] == "AAPL:product_innovation, AAPL:peer_comparison, MSFT:other"
+    assert out[1]["session"] == "gate240" and out[1]["notes"] == "n1"
+    with pytest.raises(retag.TagFileError, match="two sessions"):
+        retag.gold_file_rows(
+            {"a": [first], "b": [first]},
+            {"a": [g for g in golds["gate240"] if g], "b": [g for g in golds["gate240"] if g]},
+        )
+
+
 def test_draw_gate_with_the_real_quotas_gives_240() -> None:
     rows = [
         {
@@ -548,3 +686,17 @@ def test_tag_differences_lists_every_differing_column() -> None:
         {"article_id": "104", "column": "scope", "review_value": "single", "gate_value": "multi"},
         {"article_id": "104", "column": "notes", "review_value": "", "gate_value": "n"},
     ]
+
+
+def test_a_share_class_without_a_sub_industry_takes_its_familys() -> None:
+    universe = retag.Universe.of(
+        [
+            Company("GOOG", "Alphabet Inc. (Class C)", "Communication Services", ""),
+            Company(
+                "GOOGL", "Alphabet Inc. (Class A)", "Communication Services", "Interactive Media"
+            ),
+        ]
+    )
+    canonical = universe.tickers["GOOG"]
+    assert universe.tickers["GOOGL"] == canonical
+    assert universe.company_sub == {canonical: "Interactive Media"}
