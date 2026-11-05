@@ -21,6 +21,12 @@ ones); the audit file shows what was replaced. The **newest** ``_merged_`` file 
 ``draw`` and ``merge`` both start from it, so tags accumulate in one chain and the original file
 stays as it was.
 
+Which file is the source of truth: the tracked train gold (``gold/category_gold_v2.csv``, added by
+#123 and built by ``build_gold_2026_11_05.py`` straight from the gate file) is. ``merge`` makes a
+convenience copy of the same tags inside the full 720-row review file, which only the confirmation
+run and the rules re-measure need (they read all 720); produce it with ``--gate-wins`` so it agrees
+with the gold, and do not read tags from it for the gate itself.
+
 Titles are copied as they are. A title that starts with ``=``, ``+``, ``-`` or ``@`` would be read as
 a formula by a spreadsheet; the titles are public news headlines the owner already reads in the
 review file, so they are not rewritten here (rewriting them would make this file differ from the
@@ -46,9 +52,7 @@ IDS_NAME = "gate240_ids.csv"
 TO_TAG_NAME = "gate240_to_tag.csv"
 
 
-def _write(
-    path: Path, rows: Sequence[Mapping[str, str]], columns: Sequence[str] | None = None
-) -> None:
+def _write(path: Path, rows: Sequence[Mapping[str, str]]) -> None:
     """Write through a temporary file and rename, so a crash never leaves a truncated CSV."""
     tmp = path.with_name(path.name + ".tmp")
     try:
