@@ -1011,14 +1011,25 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         for the owner's new columns (protected like `gold_review`: refuses to overwrite a tagged
         file); gold v2; re-measure the rules' 0.70 on it (`gold_scope` maps v1 tags, v2 uses new
         columns).
-      - [ ] **T-146c** *(2026-11-04: the fixed 240 is drawn once by `scripts/draw_gate240_2026_11_04.py` into `data/gate240_ids.csv`, stratified on the v1-derived scope because gold v2 scopes do not exist yet: sector 9, market_economy 9, unrelated 31, investing_general 40, multi 60, single 91, the owner's already tagged rows first; owner answer 2026-11-04. The owner tags the 240 in `data/gate240_to_tag.csv`, a tagging file of its own with the review file's columns (Spanish aid after `text`, the 133 existing tags included; never overwritten), and `scripts/draw_gate240_2026_11_04.py merge` copies its tags into the review file as a new dated file; the other 480 of the 720 can wait until the 240 passes, the full 720 is needed only for the confirmation run and the rules re-measure. 2026-11-05 owner calls after tagging the 240: company labels allowed on sector/market_economy/investing_general bodies, several labels per company, `sub_industry` as GICS codes of any level and several per article (the gate compares by shared prefix); see `docs/labelling-spec-v2.md` calls 11-13. Because the 240 hold only 16 sector bodies, 44 more sector-like bodies are drawn by free rules into `data/sector_extra_to_tag.csv` (`scripts/draw_sector_extra_2026_11_05.py`; the owner tags scope, sub_industry and notes) for the sub-industry gate, which compares codes by shared prefix. 2026-11-05: both sessions (240 + 44, all valid) are in the tracked `gold/category_gold_v2.csv`, tags only (the article text stays out of git: news text, public repo), built by `scripts/build_gold_2026_11_05.py`.)* Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of
-        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. The 240 is stratified on gold v2
-        scope; with a few items per rare scope it gates the overall figure only (per-scope recall is
-        judged on the held-out gold). Silver D15 labels and sub-industries are bought in P2 only if
+      - [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of
+        gold v2 (at most 5, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. The 240 is stratified on the
+        scope the v1 notes imply (`v1_scope_derived`), because gold v2 scopes do not exist before the owner tags; it is not a random
+        sample, since the owner's already tagged rows come first. With a few items per rare scope it gates the overall figure only
+        (per-scope recall is judged on the held-out gold). Silver D15 labels and sub-industries are bought in P2 only if
         a second gate on the 240 (per-company category and sub-industry agreement with gold v2,
         threshold >= 80%, owner answer Q8) passes; otherwise silver is scope-only and P4/P5 labels
         come from the owner's gold in later rounds. Budget: silver <= 6,000 - 240k - 480 for k
         iterations (k = 5 gives 4,320); judge repair re-calls count against the 6,000.
+        - *The fixed 240 (owner answer 2026-11-04).* `scripts/draw_gate240_2026_11_04.py` draws it once, quotas sector 9,
+          market_economy 9, unrelated 31, investing_general 40, multi 60, single 91 (`retag.GATE_QUOTAS`); it stops, writing
+          nothing, if the draw is not 240 or a stratum holds more tagged rows than its quota. The set is
+          `data/gate240_ids.csv` (local, git-ignored); the only tracked gold files are the train set `gold/category_gold_v2.csv`
+          (240 + 44 sector) and the held-out test set `gold/category_gold_v2_test.csv` (200, untagged yet), both added by #123, and every later feature
+          reads those two (owner call 2026-11-05); the gold is built from the gate file, `merge` is only a copy into the 720-row review file. The owner tags it in `data/gate240_to_tag.csv` (the review file's columns,
+          Spanish aid after `text`, existing tags included; never overwritten); `merge` copies its tags into the review
+          file as a new `_merged_` file, and the newest one is the current review file. The other 480 of the 720 can wait until
+          the 240 passes; the full 720 is needed only for the confirmation run and the rules re-measure. Workflow, conflicts and `merge --gate-wins`: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".
+        - *2026-11-05 owner calls after tagging the 240: company labels allowed on sector/market_economy/investing_general bodies, several labels per company, `sub_industry` as GICS codes of any level and several per article (the gate compares by shared prefix); see `docs/labelling-spec-v2.md` calls 11-13. Because the 240 hold only 16 sector bodies, 44 more sector-like bodies are drawn by free rules into `data/sector_extra_to_tag.csv` (`scripts/draw_sector_extra_2026_11_05.py`; the owner tags scope, sub_industry and notes) for the sub-industry gate, which compares codes by shared prefix. 2026-11-05: both sessions (240 + 44, all valid) are in the tracked `gold/category_gold_v2.csv`, tags only (the article text stays out of git: news text, public repo), built by `scripts/build_gold_2026_11_05.py`.*
       - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
         the candidates for the rare scopes.
       - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`

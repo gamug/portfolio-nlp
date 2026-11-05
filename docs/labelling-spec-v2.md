@@ -203,3 +203,44 @@ by its industry or moving the market stays `single` unless the industry or the m
 point), and the content rule, not D23's count, decides analysed vs mention in the gold.
 
 The checker (`news_nlp/retag.py`) enforces the shape above.
+
+## The fixed 240 of the prompt gate (T-146c)
+
+The prompt gate runs on a fixed 240 of the 720 bodies; the other 480 wait until the 240 passes
+(they are needed only for the confirmation run and the rules re-measure). Everything below is done
+by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_rows` /
+`merge_tags`.
+
+- **The set.** Quotas by the scope the v1 notes imply (`v1_scope_derived`, because gold v2 scopes
+  do not exist before the owner tags): sector 9, market_economy 9, unrelated 31, investing_general
+  40, multi 60, single 91 (`retag.GATE_QUOTAS`). The owner's already tagged rows come first, so the
+  240 is stratified but not a random sample; the rest of each stratum is a seeded draw. The draw
+  stops, writing nothing, if it is not 240 or a stratum holds more tagged rows than its quota.
+- **Where it is recorded.** `data/gate240_ids.csv` is local and git-ignored; it carries the six
+  strata, which no tracked file does. The only gold files git tracks are two, both added by #123
+  (not present on this branch or on master until it lands): the train set
+  `gold/category_gold_v2.csv` (the 240 plus the 44 sector bodies, one row per article, `session`
+  = `gate240` or `sector_extra`, tags only, no news text) and the held-out test set
+  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). Nothing else lives in
+  `gold/`, and every later feature reads those two. The draw depends on which rows were tagged when
+  it ran, so a redraw with the same seed on a later file would give another set: the train file, not
+  the seed, is the record of its members. The gate is scored on the overall figure only (see
+  T-146c), so the strata do not need a tracked home; per-scope recall is judged on the held-out test.
+- **Tagging.** `data/gate240_to_tag.csv` is a tagging file of its own: the 240 rows in the review
+  file's columns (the Spanish aid after `text`) with the tags already made. It is never
+  overwritten once it holds rows.
+- **Bringing the tags back.** The train gold is the source of truth (it is built from the gate file
+  directly). `merge` makes a convenience copy of the same tags in the 720-row review file, which only
+  the confirmation run and the rules re-measure read; run it with `--gate-wins` so the copy agrees
+  with the gold. It copies the tags into the review file as a new
+  `<review>_merged_<timestamp>.csv`; neither input is touched. **The newest `_merged_` file is the
+  current review file**: `draw` and `merge` both start from it, so tags chain. A row counts as
+  tagged when any tag column has content.
+- **Conflicts.** A review row that already holds different tags keeps them and is listed with the
+  differing columns; `merge` then exits 1 ("merged file NOT complete") and writes
+  `<review>_conflicts_<timestamp>.csv` (review value, gate value, resolution). Because the owner
+  tags in the gate file only, its tags are the later ones: after looking at that file, run
+  `merge --gate-wins` and the gate file's tags replace the different ones (the same audit file
+  records `took_gate`). Nothing is replaced without that flag.
+- **Not covered.** Spreadsheet formula prefixes in titles are not neutralised (research tooling over
+  public headlines, not a production service).

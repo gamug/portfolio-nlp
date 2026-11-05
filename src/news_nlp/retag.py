@@ -518,13 +518,43 @@ def gate_rows(
 ) -> list[dict[str, str]]:
     """The review rows of the gate bodies, in file order and unchanged: the same columns as the
     review file (the Spanish aid after ``text``, the v1 columns, the columns to tag) and the tags
-    the owner has already made. It is a tagging file of its own, 240 rows."""
+    the owner has already made. It is a tagging file of its own, 240 rows. Raises ``ValueError`` when an id is not in *rows*."""
     wanted = {i["article_id"] for i in ids}
-    return [
+    out = [
         dict(r)
         for r in sorted(rows, key=lambda r: int(r["review_order"]))
         if r["article_id"] in wanted
     ]
+    missing = sorted(wanted - {r["article_id"] for r in out})
+    if missing:
+        raise ValueError(
+            f"{len(missing)} gate ids are not in the review file (first: {', '.join(missing[:5])}): "
+            "the file is not the one the set was drawn from"
+        )
+    return out
+
+
+def tagged(row: Mapping[str, str]) -> bool:
+    """A row holds owner work when any tag column has content, not only ``scope``: notes or labels
+    typed on a body whose scope is still empty are work too."""
+    return any((row.get(c) or "").strip() for c in TAG_COLUMNS)
+
+
+def _tagged_by_id(rows: Sequence[Mapping[str, str]]) -> dict[str, Mapping[str, str]]:
+    """The tagged rows by ``article_id``; raises :class:`TagFileError` on a repeated tagged id
+    (which copy would win is not knowable)."""
+    by_id: dict[str, Mapping[str, str]] = {}
+    for r in rows:
+        if not tagged(r):
+            continue
+        if r["article_id"] in by_id:
+            raise TagFileError(f"article_id {r['article_id']} is tagged twice in the gate file")
+        by_id[r["article_id"]] = r
+    return by_id
+
+
+def _tags(row: Mapping[str, str]) -> dict[str, str]:
+    return {c: (row.get(c) or "").strip() for c in TAG_COLUMNS}
 
 
 #: The tracked gold file: the tags only. The article text (and its Spanish aid) stays out of git:
@@ -577,11 +607,13 @@ def merge_tags(
     source_wins: bool = False,
 ) -> tuple[list[dict[str, str]], int, list[str], list[str]]:
     """*target* with the tags of the tagged rows of *source* copied in (same ``article_id``):
-    ``(rows, copied, conflicts, replaced)``. A target row that already holds different tags is left
-    as it is and its id listed in *conflicts*: nothing the owner typed is overwritten. With
-    *source_wins* (the owner tags in *source* only, so its tags are the later ones) those rows take
-    the source tags instead and are listed in *replaced*."""
-    by_id = {r["article_id"]: r for r in source if (r.get("scope") or "").strip()}
+    ``(rows, copied, conflicts, replaced)``. A row counts as tagged when any tag column has content.
+    A target row that already holds different tags is left as it is and listed in *conflicts* as
+    ``"<id> (<columns that differ>)"``: nothing the owner typed is overwritten. With *source_wins*
+    (the owner's later corrections are in *source*) those rows take the source tags and are listed
+    the same way in *replaced*. Raises :class:`TagFileError` when *source* repeats a tagged
+    ``article_id``."""
+    by_id = _tagged_by_id(source)
     merged: list[dict[str, str]] = []
     copied = 0
     conflicts: list[str] = []
@@ -590,19 +622,58 @@ def merge_tags(
         new = dict(row)
         other = by_id.get(row["article_id"])
         if other is not None:
-            mine = {c: (row.get(c) or "").strip() for c in TAG_COLUMNS}
-            theirs = {c: (other.get(c) or "").strip() for c in TAG_COLUMNS}
+            mine, theirs = _tags(row), _tags(other)
             if not any(mine.values()):
                 new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
                 copied += 1
             elif mine != theirs:
+                label = f"{row['article_id']} ({', '.join(c for c in TAG_COLUMNS if mine[c] != theirs[c])})"
                 if source_wins:
                     new.update({c: other.get(c) or "" for c in TAG_COLUMNS})
-                    replaced.append(row["article_id"])
+                    replaced.append(label)
                 else:
-                    conflicts.append(row["article_id"])
+                    conflicts.append(label)
         merged.append(new)
     return merged, copied, conflicts, replaced
+
+
+def tag_differences(
+    target: Sequence[Mapping[str, str]], source: Sequence[Mapping[str, str]]
+) -> list[dict[str, str]]:
+    """Every tag column where a tagged *target* row and the same article in *source* hold different
+    values: ``article_id``, ``column``, ``review_value``, ``gate_value`` (an audit of what a merge
+    kept or replaced)."""
+    by_id = _tagged_by_id(source)
+    out: list[dict[str, str]] = []
+    for row in target:
+        other = by_id.get(row["article_id"])
+        if other is None or not tagged(row):
+            continue
+        mine, theirs = _tags(row), _tags(other)
+        out += [
+            {
+                "article_id": row["article_id"],
+                "column": c,
+                "review_value": mine[c],
+                "gate_value": theirs[c],
+            }
+            for c in TAG_COLUMNS
+            if mine[c] != theirs[c]
+        ]
+    return out
+
+
+def gate_shortfalls(
+    rows: Sequence[Mapping[str, str]],
+    chosen: Sequence[Mapping[str, str]],
+    quotas: Mapping[str, int] = GATE_QUOTAS,
+) -> tuple[dict[str, tuple[int, int]], int]:
+    """What a draw did not deliver: ``({stratum: (got, quota)} for the strata below quota, number of
+    rows whose ``v1_scope_derived`` is not a quota key and so can never be drawn)``."""
+    got = Counter(r["stratum"] for r in chosen)
+    short = {s: (got[s], q) for s, q in quotas.items() if got[s] < q}
+    unknown = sum(1 for r in rows if r.get("v1_scope_derived") not in quotas)
+    return short, unknown
 
 
 def draw_gate(
@@ -613,16 +684,24 @@ def draw_gate(
 ) -> list[dict[str, str]]:
     """The gate set: per ``v1_scope_derived`` stratum, the rows the owner has already tagged first
     (in file order), then a seeded random draw of untagged rows up to the quota (the whole stratum
-    if it is smaller). Each result row has ``stratum`` and ``already_tagged``; the list is in
-    file order."""
+    if it is smaller; see :func:`gate_shortfalls`). Each result row has ``stratum`` and
+    ``already_tagged``; the list is in file order. The draw depends on which rows are tagged, so it
+    is reproducible only for the same review-file state: the script records the seed and a hash of
+    the file. Raises ``ValueError`` when a stratum holds more tagged rows than its quota: dropping
+    work the owner has done would be silent."""
     rng = random.Random(seed)  # noqa: S311 -- a reproducible sample, not security
     chosen: list[dict[str, str]] = []
     for stratum, quota in quotas.items():
         members = [r for r in rows if r.get("v1_scope_derived") == stratum]
         done = [r for r in members if (r.get("scope") or "").strip()]
         todo = [r for r in members if not (r.get("scope") or "").strip()]
+        if len(done) > quota:
+            raise ValueError(
+                f"stratum {stratum!r}: {len(done)} rows already tagged, quota {quota}; "
+                "raise the quota rather than drop tagged rows"
+            )
         rng.shuffle(todo)
-        picked = done[:quota] + todo[: max(0, quota - len(done))]
+        picked = done + todo[: quota - len(done)]
         chosen += [
             {
                 "review_order": r["review_order"],
