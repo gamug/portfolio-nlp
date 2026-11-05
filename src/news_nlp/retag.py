@@ -527,6 +527,49 @@ def gate_rows(
     ]
 
 
+#: The tracked gold file: the tags only. The article text (and its Spanish aid) stays out of git:
+#: it is news text under its publishers' rights and the repository is public; it is read back from
+#: the SOURCE store by ``article_id``.
+GOLD_COLUMNS = (
+    "article_id",
+    "session",
+    "ticker",
+    "scope",
+    "company_labels",
+    "mentions",
+    "sub_industry",
+    "notes",
+)
+
+
+def gold_file_rows(
+    sessions: Mapping[str, Sequence[Mapping[str, str]]], golds: Mapping[str, Sequence[Gold]]
+) -> list[dict[str, str]]:
+    """One row per tagged article of every session, in the validated form (tickers, GICS codes),
+    sorted by ``article_id``. An article tagged in two sessions is an error: the sessions are
+    disjoint by construction."""
+    out: dict[int, dict[str, str]] = {}
+    for session, rows in sessions.items():
+        by_id = {int(r["article_id"]): r for r in rows}
+        for gold in golds[session]:
+            if gold.article_id in out:
+                raise TagFileError(f"article {gold.article_id} is tagged in two sessions")
+            src = by_id[gold.article_id]
+            out[gold.article_id] = {
+                "article_id": str(gold.article_id),
+                "session": session,
+                "ticker": src.get("ticker", ""),
+                "scope": gold.scope,
+                "company_labels": ", ".join(
+                    f"{c}:{label}" for c, labels in gold.labels.items() for label in labels
+                ),
+                "mentions": ", ".join(gold.mentions),
+                "sub_industry": ", ".join(gold.sub_industry),
+                "notes": (src.get("notes") or "").strip(),
+            }
+    return [out[i] for i in sorted(out)]
+
+
 def merge_tags(
     target: Sequence[Mapping[str, str]],
     source: Sequence[Mapping[str, str]],

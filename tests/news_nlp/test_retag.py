@@ -587,3 +587,30 @@ def test_the_scripts_refuse_to_write_a_tagging_file_without_the_spanish_columns(
     assert not (tmp_path / "t.csv").exists()
     cli.write_tagging_csv(tmp_path / "ok.csv", [_tagging_row()])
     assert (tmp_path / "ok.csv").exists()
+
+
+def test_gold_file_rows_carry_the_validated_tags_without_the_article_text() -> None:
+    first = row(
+        article_id="10",
+        scope="multi",
+        company_labels="AAPL:product_innovation, MSFT:other, AAPL:peer_comparison",
+        mentions="GOOG",
+        notes="n1",
+    )
+    second = row(article_id="5", scope="sector", sub_industry="4510, 45103020")
+    sessions = {"gate240": [first], "sector_extra": [second]}
+    golds = {
+        name: [retag.check_row(r, UNIVERSE)[0] for r in rows] for name, rows in sessions.items()
+    }
+    assert all(g for gs in golds.values() for g in gs)
+    out = retag.gold_file_rows(sessions, {k: [g for g in v if g] for k, v in golds.items()})
+    assert [r["article_id"] for r in out] == ["5", "10"]
+    assert all(tuple(r) == retag.GOLD_COLUMNS for r in out)
+    assert "text" not in out[0] and "title" not in out[0]
+    assert out[1]["company_labels"] == "AAPL:product_innovation, AAPL:peer_comparison, MSFT:other"
+    assert out[1]["session"] == "gate240" and out[1]["notes"] == "n1"
+    with pytest.raises(retag.TagFileError, match="two sessions"):
+        retag.gold_file_rows(
+            {"a": [first], "b": [first]},
+            {"a": [g for g in golds["gate240"] if g], "b": [g for g in golds["gate240"] if g]},
+        )
