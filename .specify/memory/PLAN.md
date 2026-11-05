@@ -2193,8 +2193,7 @@ The unit is the cause: an `articles` row is a (URL, ticker) pair, the same body 
 tagged ticker (35.9% of `ok` articles share a body), and every stage scores the pair as if the
 article were about that ticker. Round-ups, sector and macro news have no correct label in that model.
 
-**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24; D25–D30 added
-2026-11-05, T-151):
+**Decisions** (T-143, 2026-10-28, amended 2026-10-29, with the owner; D11–D24; D25–D30 added 2026-11-05, T-151; D31–D34 the same day):
 D11 the unit is the unique article body (body hash), its subjects found in the content; D12 LLMs
 only label and evaluate, the pipeline keeps local pinned models (constitution AI #1/#2); D13 GICS
 sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
@@ -2215,7 +2214,7 @@ owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 p
 the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
 recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
-(at 40 bodies the per-scope interval is about +/-13 points); D21 each
+(at 40 bodies the per-scope interval is about +/-13 points; D33 amends: a scope with fewer than 40 gold bodies is reported with its interval, not gated); D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
 (active learning); D22 six scopes: single company, several companies, sector, market / economy,
 `investing_general` (investing or market-advice content about no company and no sector, the owner's
@@ -2245,8 +2244,7 @@ above, it says so; nothing else above is touched.
   output of steps 3-4 after step 4 exists, the sample over-sampling the rare negative class by the
   current model's prediction (never shown to the owner) and re-weighted afterwards. The label is the
   **price impact on the company** an investor would read (for a sector or market text, on that
-  sector or market). The model is fine-tuned on summaries only if it fails the gate (threshold:
-  open question 2).
+  sector or market). The model is fine-tuned on summaries only if it misses the D32 bar.
 - **D27 Step 4 without an LLM.** (a) A body written as one segment per company is split by
   `news_nlp.company_texts` (a segment leads with a company when exactly one universe company is
   named in its first 50 characters): 2,867 of the 81,961 unique bodies (3.5%) and 21,941
@@ -2256,7 +2254,7 @@ above, it says so; nothing else above is touched.
   masked and the previous sentence as context, so it learns who a sentence is about from its
   content. It is compared with a mention-and-recency baseline and with a faithfulness check the
   owner reads (about 30 narrative multi bodies, the extracted text per company marked faithful or
-  not). Training data: **all years** (owner, 2026-11-05; see open question 1). **D12 stands**: the
+  not). Training data: **all years** (owner, 2026-11-05; D31). **D12 stands**: the
   owner first chose to amend D12 for an LLM exception in step 4, then replaced it by this model
   after the narrative share was measured; the amendment is written only if (b) fails its check.
   The model is a new pinned checkpoint (constitution AI #1, #7, #12).
@@ -2283,18 +2281,39 @@ above, it says so; nothing else above is touched.
   relevance judge, both superseded. Only the upstream alias table stays; the quarantined pairs
   follow D19 (their results are purged, T-131).
 
-**Open questions (no default taken).**
-1. *Hindsight.* About 30% of the sentiment training sentences, of the gold bodies and of the held-out
-   bodies are from 2022 on, and the labels have no date cut-off. The backtest decides on dates from
-   2021-12-31 to 2026-10-15. Whether the sentiment and category models (and the extractor) are
-   trained before 2022 only is **not decided**; the owner deferred it until the sentiment gold
-   exists. The backtest team is told the facts, not a decision.
-2. *Acceptance thresholds* for the extractor's faithfulness check (D27) and for the sentiment
-   gate (D26): the owner sets them before the model is trained or the gold is measured.
-3. *D20 asks for >= 40 gold bodies per scope*; 200 bodies cannot guarantee it for the rare scopes.
-   After the owner tags them, any scope below 40 is topped up from the prefilter candidates (T-146e1).
-4. *Timeline.* The backtest reports its news layer as not evaluated if per-company sentiment does
-   not exist for the stored corpus by the thesis delivery on 2026-11-20. P3-P5 cannot be done by then.
+**Owner calls on the four open questions (interactive session, 2026-11-05; D31–D34).**
+
+- **D31 Training years: all years, disclosed.** The sentiment model, the category model and the
+  step-4 attribution model are trained on bodies of all years. About 30% of the sentiment training
+  sentences, of the gold bodies and of the held-out bodies are from 2022 on, and the labels have
+  no date cut-off, so nothing limits hindsight. The backtest team (decides on dates from
+  2021-12-31 to 2026-10-15) is told these facts and chooses: our models, base `ProsusAI/finbert`
+  for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
+  redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
+- **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
+  least **80% of the extracted company texts faithful** on the owner's ~30 narrative multi bodies,
+  and better than the mention-and-recency baseline on the same 30. Sentiment on the 180-text gold
+  (60 per class): **overall agreement >= 80%, and precision and recall each >= 70% for the negative
+  class** (the one the backtest counts); at that size each per-class figure has an interval of
+  about +/-13 points. The model is fine-tuned on summaries only if it misses this.
+- **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
+  (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
+  scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
+  95% interval and not gated. No top-up draw is made. The 200 held-out bodies (D30) are therefore
+  enough as drawn.
+- **D34 The backtest cut for the 2026-11-20 thesis delivery (T-154).** A short path, built while the
+  full plan continues: for the bodies of the backtest window (published 2021-12-31 or later, about
+  29,000 unique bodies), scope from the rules (not the classifier), NER for single and multi
+  bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, about 6
+  hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
+  the 180-text gold (D32). **Provisional**: the output says so and carries the measured figures; it
+  is not the accepted pipeline. Left to after the delivery: the trained scope classifier and its
+  90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
+  snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
+  2026-11-12**: if the owner's tagging (about 30 + 180 items) is done and the extractor passes D32,
+  the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
+  for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
+  notice, to report the layer as not evaluated.
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
@@ -2352,7 +2371,7 @@ above, it says so; nothing else above is touched.
 
 **Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
 bodies (corpus-weighted point estimate, interval reported) and reaches recall >= 80% in each of the six
-scopes (point estimate, interval reported, at least 40 gold bodies per scope; D20), measured with the
+scopes (point estimate, interval reported; the floor applies to a scope with at least 40 gold bodies, D20 as amended by D33), measured with the
 complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
 with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
 per-company sentiment and category exist for every company a body is about, computed on its

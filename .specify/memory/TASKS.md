@@ -1032,7 +1032,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
       - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
         `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
-      - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them; any scope under 40 gold bodies is topped up from the T-146e1 candidates, PLAN WI18 open question 3)* Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
+      - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them; a scope under 40 gold bodies is not topped up and has no recall floor, D33)* Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
         any training from candidates prefiltered by custom rules, 50 of them checked by the owner
         first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
         twice (Q4).
@@ -1040,8 +1040,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       `single` and `multi` bodies only, D25), from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
       confidence; **accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and
-      recall >= 80% for each of the six scopes (point estimates with intervals, >= 40 gold bodies per
-      scope; D20)**, the
+      recall >= 80% for each of the six scopes that has >= 40 gold bodies, the others reported with their interval (point estimates with intervals; D20 as amended by D33)**, the
       complete metric set per scope (AI #12). Each round exports a stratified sample of about 300
       low-confidence bodies for the owner's tagging, fed back into training (D21), until the
       target holds; `unrelated` flag-and-skip; tables proposed to the owner in the PR; its own
@@ -1064,8 +1063,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         - [ ] **T-148b2** Training set for the attribution model from those bodies (company name
           masked, previous sentence as context, all years), the mention-and-recency baseline, and
           the owner's faithfulness check on about 30 narrative multi bodies (a file in the tagging
-          format, Spanish columns after `text`). The acceptance threshold is the owner's
-          (PLAN WI18 open question 2).
+          format, Spanish columns after `text`). Acceptance (D32): at least 80% of the extracted company texts faithful on the 30, and better than the baseline on the same 30.
         - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in
           `config/pipeline_models.json` with its revision, selection justified against the baseline
           (constitution AI #1, #7, #12), the `ExperimentSpec` stage list extended deliberately.
@@ -1073,8 +1071,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): after T-148b exists,
         draw the 180-text sentiment gold (60 per class, `scripts/draw_sentiment_gold_2026_11_05.py`,
         drafted on `feat/wi18-sentiment-gold` and parked until then), the owner tags the price impact,
-        the current model is measured on it, and fine-tuned on summaries only if it fails the
-        owner's threshold (PLAN WI18 open question 2). Covers T-127's question on real output.
+        the current model is measured on it, and fine-tuned on summaries only if it misses the D32 bar (overall agreement >= 80%, negative precision and recall >= 70%). Covers T-127's question on real output.
       - [ ] **T-148d** Category over the same texts (D29), measured against the owner's gold. → D24.
 - [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
       summaries of sector, market, economy and `investing_general` bodies feeding `sector_summary`,
@@ -1087,7 +1084,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 
 - [x] **T-151** *(decision record, 2026-11-05, the owner)* **D25–D30**: the order of the stages,
       sentiment over the summary or company text, step 4 without an LLM, the snapshot tables, category
-      on the same texts, the held-out 200. Full text and the four open questions: `PLAN.md` Work item 18.
+      on the same texts, the held-out 200. Full text: `PLAN.md` Work item 18. The four open questions were answered the same day as D31–D34 (all years disclosed; the bars of the extractor and of sentiment; no recall floor under 40 gold bodies; the backtest cut).
 - [ ] **T-152** *(P5)* The company snapshot table (one row per (body, company): text, ticker, D15
       label, sentiment, `pub_date`) and the sector snapshot table (one row per (body, sector): text,
       sentiment), RESULTS, the old tables kept as v1 (D28, D19). The schema is **proposed to the owner in
@@ -1095,13 +1092,23 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       records; its own FR. → P5.
 - [ ] **T-153** *(coordination)* Reply to `portfolio-financial-analysis` (`to_nlp_backtest.md`, their 8
       questions): the training-data facts (about 30% of the sentences and bodies are from 2022 on, the
-      labels have no date cut-off, nothing limits hindsight), what is decided and what is not (PLAN WI18
-      open questions 1 and 4), `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
-      and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
+      labels have no date cut-off, nothing limits hindsight), what is decided (D31, D34) and what is not, `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
+      the backtest cut (T-154: provisional, delivered about 2026-11-16 if the 2026-11-12 go/no-go holds) and the latest date their runs can use, and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
+
+- [ ] **T-154** *(backtest cut, D34; the full plan continues around it)* A provisional output for the
+      bodies of the backtest window (published 2021-12-31 or later) by about 2026-11-16: scope from the
+      rules, NER for single and multi bodies, summaries (T-148a), company texts (T-148b), sentiment
+      over the texts (T-148c), written to the tables proposed in T-152 or, if those are not approved
+      in time, to a file in the same columns for the backtest team; marked provisional, with the
+      measured figures (rules' scope agreement on the held-out 200, extractor faithfulness, sentiment
+      agreement on the 180) next to it. **Go/no-go on 2026-11-12:** the owner's tagging (30 + 180
+      items) is done and the extractor passes D32; otherwise the backtest team is told with a week's
+      notice. Not in the cut: the trained scope classifier, the prompt gate and silver labels,
+      category, sub-industry, sector snapshots, active learning, the full backfill. → D34.
 
 ## Status
 
-**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30, T-151). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153. T-127 and T-138 are superseded in place (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
+**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30, T-151). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 are superseded in place (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
 
 **Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (T-143 records D11–D24).
 T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded in place, and
