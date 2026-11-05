@@ -326,7 +326,12 @@ def cmd_normalise(
         if failures:
             sys.exit(1)
         return
-    book = company_names.NameBook(firms, retag.Universe.of(firms).tickers)
+    universe = retag.Universe.of(firms)
+    book = company_names.NameBook(firms, universe.tickers)
+
+    def is_gics(text: str) -> bool:
+        return not universe.resolve_sub_industries(text)[1]
+
     source = review_path(out, file)
     try:
         rows = retag.read_tag_file(source)
@@ -336,7 +341,7 @@ def cmd_normalise(
     problems: list[str] = []
     confirm: list[str] = []
     for row in rows:
-        new, found, inferred = company_names.normalise_row(book, row)
+        new, found, inferred = company_names.normalise_row(book, row, is_gics)
         result.append(new)
         tag = f"article {row.get('article_id')}"
         problems += [f"  {tag}: {p}" for p in found]

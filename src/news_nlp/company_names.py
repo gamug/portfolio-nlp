@@ -268,7 +268,7 @@ def split_list(value: str) -> list[str]:
 
 
 def normalise_row(
-    book: NameBook, row: dict[str, str]
+    book: NameBook, row: dict[str, str], is_gics: Callable[[str], bool] | None = None
 ) -> tuple[dict[str, str], list[str], list[str]]:
     """The row with ``mentions`` and the company part of ``company_labels`` as
     tickers, the problems found (the text of each is left as typed) and the inferred matches the
@@ -298,6 +298,13 @@ def normalise_row(
         out[column] = ", ".join([*resolved, *kept])
 
     tickers("mentions")
+    whole = (row.get("sub_industry") or "").strip()
+    if is_gics is not None and whole and not is_gics(whole):
+        # sub_industry: GICS codes and names stay, company names become tickers
+        out["sub_industry"] = ", ".join(
+            part if is_gics(part) else lookup("sub_industry", part) or part
+            for part in split_list(row.get("sub_industry") or "")
+        )
     out["company_labels"] = _normalise_labels(
         row.get("company_labels") or "", lambda name: lookup("company_labels", name), problems
     )
@@ -306,8 +313,9 @@ def normalise_row(
 
 def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems: list[str]) -> str:
     """``Apple: other, Google: uncertain`` -> ``AAPL:other, GOOG:uncertain``; what cannot be
-    resolved stays as typed."""
-    labels: dict[str, str] = {}
+    resolved stays as typed. A company given several labels keeps them all (an article may say
+    two things about it); the same label twice collapses to one."""
+    labels: dict[str, list[str]] = {}
     kept: list[str] = []
     for part in split_list(value):
         name, sep, label = part.rpartition(":")
@@ -317,11 +325,9 @@ def _normalise_labels(value: str, lookup: Callable[[str], str | None], problems:
             problems.append(f"company_labels: {part!r} has no label")
         if ticker is None:
             kept.append(part)
-        elif labels.get(ticker, label) != label:
-            problems.append(f"company_labels: {ticker} given {labels[ticker]!r} and {label!r}")
-        else:
-            labels[ticker] = label
-    return ", ".join([*(f"{t}:{lb}" for t, lb in labels.items()), *kept])
+        elif label not in labels.setdefault(ticker, []):
+            labels[ticker].append(label)
+    return ", ".join([*(f"{t}:{lb}" for t, many in labels.items() for lb in many), *kept])
 
 
 def self_check(companies: Sequence[Company], canonical: dict[str, str]) -> list[str]:

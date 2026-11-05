@@ -112,15 +112,25 @@ def test_a_comma_inside_a_company_name_does_not_split_it() -> None:
     assert split_list("A, B,, ,C\nD") == ["A", "B", "C", "D"]
 
 
-def test_row_conflicting_labels_and_missing_label_are_reported() -> None:
+def test_row_keeps_several_labels_of_a_company_and_reports_a_missing_label() -> None:
     row = {
         "mentions": "",
-        "company_labels": "Google:other, Alphabet:uncertain, Apple",
+        "company_labels": "Google:other, Alphabet:uncertain, GOOG:other, Apple",
     }
     new, problems, _ = normalise_row(BOOK, row)
-    assert new["company_labels"] == "GOOG:other, Apple"
-    assert any("given 'other' and 'uncertain'" in p for p in problems)
-    assert any("has no label" in p for p in problems)
+    assert new["company_labels"] == "GOOG:other, GOOG:uncertain, Apple"
+    assert problems == ["company_labels: 'Apple' has no label"]
+
+
+def test_sub_industry_keeps_gics_text_and_turns_company_names_into_tickers() -> None:
+    def is_gics(text: str) -> bool:
+        return text.replace(" ", "").replace(",", "").isdigit()
+
+    row = {"mentions": "", "company_labels": "", "sub_industry": "Microsoft, Apple Inc."}
+    new, problems, _ = normalise_row(BOOK, row, is_gics)
+    assert new["sub_industry"] == "MSFT, AAPL" and problems == []
+    row["sub_industry"] = "4510, 25"
+    assert normalise_row(BOOK, row, is_gics)[0]["sub_industry"] == "4510, 25"
 
 
 def test_empty_cells_stay_empty() -> None:

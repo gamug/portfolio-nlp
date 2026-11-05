@@ -17,9 +17,9 @@ read (what the judge and the first tagging saw). Columns of the re-tag file
 | column | content |
 |---|---|
 | `scope` | one of the six scopes below (always filled) |
-| `company_labels` | the **analysed** companies, each with its D15 label, separated by commas: `AAPL:product_innovation, MSFT:other` (single: exactly one entry; multi: two or more; the other scopes: none). There is no separate companies column: the analysed companies are the labelled ones. Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` (a comma inside a name such as `Booking Holdings, Inc.` is kept). A company outside the 509 of the universe (Macy's, Twitter, Toyota) is written by name as the article writes it: it is kept as typed, counts as analysed (and for the scope) like any other, and `check` lists these names so that a typo is noticed (**[owner call 9]**); an upper-case text of up to five characters is read as a ticker and must exist |
+| `company_labels` | the **analysed** companies, each with its D15 label, separated by commas: `AAPL:product_innovation, MSFT:other` (single: exactly one company; multi: two or more; `sector`, `market_economy` and `investing_general`: optional, **[owner call 11]**; `unrelated`: none). **A company may appear again with another label** (`AMZN:earnings_performance, AMZN:partnerships_business_dev`, **[owner call 12]**): it is still one analysed company, and the same label twice is an error. There is no separate companies column: the analysed companies are the labelled ones. Tickers, or names and nicknames as the article writes them: `scripts/retag_gold_2026_10_29.py normalise` converts them to tickers before `check` (a comma inside a name such as `Booking Holdings, Inc.` is kept). A company outside the 509 of the universe (Macy's, Twitter, Toyota) is written by name as the article writes it: it is kept as typed, counts as analysed (and for the scope) like any other, and `check` lists these names so that a typo is noticed (**[owner call 9]**); a delisted or foreign company written as its ticker (USG, TUP, TSMC) is treated the same way: kept as typed and listed |
 | `mentions` | companies named but not analysed (D23), separated by commas (names or tickers); in every scope, including `sector`, `market_economy` and `investing_general` (**[owner call 7]**) |
-| `sub_industry` | a GICS sub-industry, as its 8-digit code or its name (`data/gics_sub_industries.csv` lists both): required for a sector body, **optional on every other scope** (**[owner call 8]**) |
+| `sub_industry` | GICS codes **of any level** (2 sector, 4 industry group, 6 industry or 8 sub-industry digits), **several separated by commas** when the article speaks of several related sectors (**[owner call 13]**); a sub-industry name or a company (its own sub-industry; `normalise` turns a company name into its ticker) also works. Required for a sector body, optional on every other scope (**[owner call 8]**). Comments belong in `notes` |
 | `notes` | anything that helps (never required) |
 
 `spanish_title` and `spanish_text` follow `text`: a Spanish reading aid (finance jargon translated, the English term in parentheses the first time), made by the LLM from the same 6,000 characters (the Spanish text therefore stops where the English one is cut). It is never an input of a model and never in the key file. **Every file the owner has to tag carries them.** The tagging rule is always the English article.
@@ -140,15 +140,18 @@ rival Amazon, is `single` with `competitive_actions`; 88609, a spinoff raising m
 
 ## Sector bodies
 
-Pick the GICS **sub-industry** the article is about, as its 8-digit GICS code (the table of
+Pick the GICS node the article is about, as a GICS code of **any level** (2-digit sector, 4-digit
+industry group, 6-digit industry, 8-digit sub-industry; the table of
 <https://en.wikipedia.org/wiki/Global_Industry_Classification_Standard>, kept in
-`news_nlp/gics_codes.py`) or as its name in the source `articles` table (`gics_sub_industry`). The
-check rejects a code it does not know and a code or name no company of the universe has; the list of valid names,
-with their sector, is `data/gics_sub_industries.csv`, written by `scripts/retag_gold_2026_10_29.py
-export` together with `data/category_gold_v2_guide.csv`, a CSV of the scopes and labels
-of this document. **[owner call 4]** For a broad sector story that spans several sub-industries,
-enter the most central sub-industry (the plan tests sub-industry, D24); there is no sector-level
-value. The companies a sector body names go in `mentions`, not in `company_labels` (**[owner call 7]**).
+`news_nlp/gics_codes.py`): a story that speaks of a whole sector is tagged at the level it speaks
+of, and one that spans related sectors lists several codes separated by commas (**[owner call 13]**,
+which replaces call 4's "most central sub-industry"). A sub-industry name or a company also works.
+The check rejects a code that is no prefix of a GICS code and an 8-digit code no company of the
+universe has; the list of valid names, with their sector, is `data/gics_sub_industries.csv`, written
+by `scripts/retag_gold_2026_10_29.py export` together with `data/category_gold_v2_guide.csv`, a CSV
+of the scopes and labels of this document. The gate compares the model's nodes with yours by shared
+prefix, so a coarse tag is not punished for a model that is finer. The companies a sector body
+names may be labelled in `company_labels` or listed in `mentions` (**[owner calls 7, 11]**).
 
 ## Returning the file
 
@@ -186,6 +189,14 @@ value. The companies a sector body names go in `mentions`, not in `company_label
    body (the owner's first tagged row, a `multi` body, carries one).
 9. A company outside the 509 of the universe is recorded by name as typed (in `company_labels` and
    in `mentions`), counts for the scope and the label, and is never a ticker-level target.
+
+## Owner calls (answered 2026-11-05, replacing calls 4 and 7 where they differ)
+
+11. `sector`, `market_economy` and `investing_general` bodies may label the companies they name in
+    `company_labels` (optional; the gate scores them as a bonus); `unrelated` bodies may not.
+12. A company may carry several labels in one article.
+13. `sub_industry` takes codes of any level, several per article, and a company stands for its own
+    sub-industry; the gate compares by shared prefix.
 
 Also settled by the owner and stated above: the headline event decides the scope (a company framed
 by its industry or moving the market stays `single` unless the industry or the market is the
