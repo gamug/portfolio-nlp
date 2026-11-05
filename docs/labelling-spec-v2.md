@@ -226,10 +226,12 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   current review file**: `draw` and `merge` both start from it, so tags chain. A row counts as
   tagged when any tag column has content.
 - **Conflicts.** A review row that already holds different tags keeps them and is listed with the
-  differing columns; `merge` then exits 1 ("merged file NOT complete") and writes
-  `<review>_conflicts_<timestamp>.csv` (review value, gate value, resolution). Because the owner
+  differing columns; `merge` then exits 1 and writes the result as
+  `<review>_incomplete_<timestamp>.csv` (never the current review file) and every differing column
+  to `<review>_conflicts_<timestamp>.csv` (review value, gate value, resolution). Because the owner
   tags in the gate file only, its tags are the later ones: after looking at that file, run
   `merge --gate-wins` and the gate file's tags replace the different ones (the same audit file
-  records `took_gate`). Nothing is replaced without that flag.
+  records `took_gate`). Nothing is replaced without that flag. Once `--gate-wins` has written
+  the `_merged_` file, the `_incomplete_` and `_conflicts_` files are safe to delete.
 - **Not covered.** Spreadsheet formula prefixes in titles are not neutralised (research tooling over
   public headlines, not a production service).
