@@ -467,8 +467,61 @@ def test_merge_copies_new_tags_and_never_overwrites_different_ones() -> None:
     gate[0]["scope"], gate[0]["company_labels"] = "single", "AAPL:other"  # 101: untagged in review
     gate[1]["notes"] = "x"  # 102 is tagged "single" in the review file; same scope, other notes
     merged, copied, conflicts = retag.merge_tags(rows, gate)
-    assert copied == 1 and conflicts == ["102"]
+    assert copied == 1 and conflicts == ["102 (notes)"]
     first = next(m for m in merged if m["article_id"] == "101")
     assert first["scope"] == "single" and first["company_labels"] == "AAPL:other"
     assert next(m for m in merged if m["article_id"] == "102")["notes"] == ""  # kept as it was
     assert rows[0]["scope"] == ""  # the input is not modified
+
+
+def test_draw_gate_with_the_real_quotas_gives_240() -> None:
+    rows = [
+        {
+            "review_order": str(i),
+            "article_id": str(i),
+            "title": f"t{i}",
+            "v1_scope_derived": stratum,
+            "scope": "",
+        }
+        for i, stratum in enumerate(s for s, q in retag.GATE_QUOTAS.items() for _ in range(q + 5))
+    ]
+    got = retag.draw_gate(rows, seed=3)
+    assert len(got) == 240
+    assert retag.gate_shortfalls(rows, got) == ({}, 0)
+
+
+def test_draw_gate_never_drops_tagged_rows_silently() -> None:
+    rows = _gate_rows()  # 2 tagged "single" rows
+    with pytest.raises(ValueError, match="already tagged"):
+        retag.draw_gate(rows, {"single": 1}, seed=1)
+
+
+def test_gate_shortfalls_names_small_strata_and_unreachable_rows() -> None:
+    rows = _gate_rows()  # 20 single, 5 multi, 5 sector
+    quotas = {"sector": 9, "multi": 3}
+    got = retag.draw_gate(rows, quotas, seed=1)
+    short, unknown = retag.gate_shortfalls(rows, got, quotas)
+    assert short == {"sector": (5, 9)} and unknown == 20  # the 20 single rows have no quota
+
+
+def test_gate_rows_fails_on_an_id_missing_from_the_review_file() -> None:
+    rows = _full_rows()
+    with pytest.raises(ValueError, match="not in the review file"):
+        retag.gate_rows([{"article_id": "999"}], rows)
+
+
+def test_merge_takes_notes_typed_without_a_scope_and_lists_the_columns_in_conflict() -> None:
+    rows = _full_rows()
+    gate = [dict(r) for r in rows[:4]]
+    gate[0]["notes"] = "flag"  # 101: no scope yet, but the owner wrote a note
+    gate[3]["scope"], gate[3]["notes"] = "multi", "n"  # 104 is "single" in the review file
+    merged, copied, conflicts = retag.merge_tags(rows, gate)
+    assert next(m for m in merged if m["article_id"] == "101")["notes"] == "flag" and copied == 1
+    assert conflicts == ["104 (scope, notes)"]
+
+
+def test_merge_refuses_a_gate_file_that_tags_an_article_twice() -> None:
+    rows = _full_rows()
+    gate = [{**rows[0], "scope": "single"}, {**rows[0], "scope": "multi"}]
+    with pytest.raises(retag.TagFileError, match="twice"):
+        retag.merge_tags(rows, gate)
