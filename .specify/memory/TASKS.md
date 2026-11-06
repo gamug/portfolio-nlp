@@ -1135,9 +1135,9 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       back by 11-11 evening, the decision on 11-12 is no-go and the backtest team is told (the week's notice). The
       developer reports the count of marked rows per file on 11-09, 11-10 and 11-11 (`report_wi18` refuses a half-marked
       file and names the missing rows).
-      The owner's tagging is 610 items in six days (200 + 200 + 30 + 180). **Rules fixed beforehand (owner,
+      The owner's tagging is 770 items in six days (200 + 200 + 190 + 180). **Rules fixed beforehand (owner,
       2026-11-06, also in PLAN D34):** a sentiment figure whose interval straddles its bar ("not decided") still goes,
-      with the interval printed; if the model is not ready on 11-09, the 30 texts are exported from the baseline
+      with the interval printed; if the model is not ready on 11-09, the 190 texts are exported from the baseline
       alone (`--extractors baseline`) and the decision is on the baseline (the cut uses it for narrative bodies if it
       is at least 80% faithful, otherwise narrative multi bodies are left out of the cut and counted).
       **Go/no-go on 2026-11-12:** the owner's tagging (the held-out 200 for the scope, 200
