@@ -206,7 +206,7 @@ def read_marked(
     return rows
 
 
-def _year(row: Mapping[str, str]) -> int | None:
+def year_of(row: Mapping[str, str]) -> int | None:
     """The publication year of a row (``pub_date`` as ``YYYY-...``), ``None`` when it has none."""
     head = (row.get("pub_date") or "").strip()[:4]
     return int(head) if head.isdigit() else None
@@ -214,7 +214,7 @@ def _year(row: Mapping[str, str]) -> int | None:
 
 def rows_without_year(rows: Sequence[Mapping[str, str]]) -> int:
     """Rows the ``2022+`` figures cannot place because their ``pub_date`` is empty or malformed."""
-    return sum(_year(r) is None for r in rows)
+    return sum(year_of(r) is None for r in rows)
 
 
 def label_check_report(rows: Sequence[Mapping[str, str]]) -> dict[str, Figure]:
@@ -228,7 +228,7 @@ def label_check_report(rows: Sequence[Mapping[str, str]]) -> dict[str, Figure]:
     for kind in ("lead", "continuation"):
         part = [r for r in rows if r["kind"] == kind]
         out[kind] = wilson(sum(r["correct"] == "yes" for r in part), len(part))
-        late = [r for r in part if (_year(r) or 0) >= LATE_FROM_YEAR]
+        late = [r for r in part if (year_of(r) or 0) >= LATE_FROM_YEAR]
         out[f"{kind} 2022+"] = wilson(sum(r["correct"] == "yes" for r in late), len(late))
     return out
 
@@ -243,6 +243,16 @@ def train_on_lead_only(report: Mapping[str, Figure]) -> bool:
             "no `continuation` row in the label check: the D27 rule has no figure"
         )
     return report["continuation"].point <= CONTINUATION_BAR
+
+
+def gain_verdict(gain: Figure) -> str:
+    """D32: the extractor is ``better`` than the baseline when the whole interval of its gain is
+    above 0, ``not better`` when the whole interval is at or below 0, else ``not decided``."""
+    if gain.low > 0:
+        return "better"
+    if gain.high <= 0:
+        return "not better"
+    return "not decided"
 
 
 def faithfulness_report(

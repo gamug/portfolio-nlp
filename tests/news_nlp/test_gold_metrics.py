@@ -111,6 +111,13 @@ def test_a_bar_is_judged_on_the_whole_interval_including_the_edges() -> None:
     assert fig(0.82, 0.74, 0.89).judge(0.80) == "not decided"  # point above, interval straddles
 
 
+def test_the_gain_over_the_baseline_has_a_verdict() -> None:
+    fig = gold_metrics.Figure
+    assert gold_metrics.gain_verdict(fig(0.2, 0.05, 0.35)) == "better"
+    assert gold_metrics.gain_verdict(fig(0.0, -0.1, 0.1)) == "not decided"
+    assert gold_metrics.gain_verdict(fig(-0.1, -0.2, 0.0)) == "not better"
+
+
 def test_the_label_check_refuses_what_it_cannot_judge() -> None:
     with pytest.raises(MarkedFileError, match="pub_date"):
         gold_metrics.label_check_report([{"kind": "lead", "correct": "yes"}])

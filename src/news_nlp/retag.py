@@ -135,18 +135,21 @@ TAG_COLUMNS_ALL = tuple(
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 
 
+def _is_formula(value: str) -> bool:
+    return value.lstrip().startswith(_FORMULA_STARTS) or value.startswith(("\t", "\r"))
+
+
 def spreadsheet_safe(
     rows: Sequence[Mapping[str, str]], tag_columns: Sequence[str] = TAG_COLUMNS_ALL
 ) -> list[dict[str, str]]:
     """Copies of *rows* for a file the owner opens in a spreadsheet: a value that starts with ``=``,
     ``+``, ``-``, ``@``, a tab or a return gets a leading apostrophe, so it is shown as text and never
-    run as a formula. The columns the owner marks (*tag_columns*) are left as they are; the file's
-    marks are the only thing read back from it."""
+    run as a formula (leading spaces do not hide it). The columns the owner marks (*tag_columns*) are
+    left as they are. Only the marks and the id columns (``article_id``, ``review_order``,
+    ``ticker``, ``kind``) are read back from these files; the escaped text columns never are, so
+    the apostrophe cannot reach a figure. Do not read ``title`` or ``text`` back from them."""
     return [
-        {
-            k: ("'" + v if k not in tag_columns and v.startswith(_FORMULA_STARTS) else v)
-            for k, v in row.items()
-        }
+        {k: ("'" + v if k not in tag_columns and _is_formula(v) else v) for k, v in row.items()}
         for row in rows
     ]
 

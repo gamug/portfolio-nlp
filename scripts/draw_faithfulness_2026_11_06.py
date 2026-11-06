@@ -47,7 +47,7 @@ TO_TAG_NAME = "faithfulness_to_tag.csv"
 CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
-IDS_FIELDS = ("review_order", "key", "article_id", "ticker", "extractors")
+IDS_FIELDS = ("review_order", "key", "article_id", "ticker", "extractors", "pub_date")
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
 

@@ -2328,8 +2328,11 @@ above, it says so; nothing else above is touched.
   re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is **passed** when the
   whole 95% interval is at or above it, **failed** when the whole interval is below it, and "not decided"
   otherwise (the interval straddles the bar, or only touches it from below); the point estimate is
-  always printed and never decides alone (`Figure.judge`, edges tested). Faithfulness and the baseline gain are judged
-  the same way. The result "not decided" is reported as such,
+  always printed and never decides alone (`Figure.judge`, edges tested). Faithfulness is judged the same way, for all
+  texts and for the bodies from 2022 on apart (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
+  baseline** (model minus baseline on the same company texts, paired bootstrap) is `better` when the whole
+  interval is above 0, `not better` when it is at or below 0, `not decided` otherwise (`gain_verdict`); it is
+  also printed for 2022+ apart. A file or id the report cannot place stops the run naming the rows. The result "not decided" is reported as such,
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the gold holds the summaries and the
   company texts of structured multi bodies; the texts the attribution model writes for narrative

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import csv
 import importlib.util
 import sys
@@ -281,7 +282,14 @@ def test_the_faithfulness_report_compares_the_model_with_the_baseline_on_the_sam
         ):
             order += 1
             key = f"{article}#T#{order}"
-            ids.append({"review_order": str(order), "key": key, "extractors": extractors})
+            ids.append(
+                {
+                    "review_order": str(order),
+                    "key": key,
+                    "extractors": extractors,
+                    "pub_date": "2023-01-01" if article % 2 else "2020-01-01",
+                }
+            )
             tags.append(
                 {"article_id": str(article), "review_order": str(order), "faithful": faithful}
             )
@@ -289,6 +297,54 @@ def test_the_faithfulness_report_compares_the_model_with_the_baseline_on_the_sam
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "baseline" in text and "model" in text and "model minus baseline" in text
+    assert "[all]" in text and "[2022+]" in text
+    assert "-> better" in text or "-> not decided" in text or "-> not better" in text
+
+
+def test_the_faithfulness_report_stops_on_what_it_cannot_place(tmp_path: Path) -> None:
+    tags = [{"article_id": "1", "review_order": "9", "faithful": "yes"}]
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _csv(
+        tmp_path / "faithfulness_ids.csv",
+        [{"review_order": "1", "key": "1#T#1", "extractors": "model"}],
+    )
+    with pytest.raises(MarkedFileError, match="pub_date"):
+        REPORT.faithfulness_report(tmp_path)
+    _csv(
+        tmp_path / "faithfulness_ids.csv",
+        [{"review_order": "1", "key": "1#T#1", "extractors": "model", "pub_date": "2023-01-01"}],
+    )
+    with pytest.raises(MarkedFileError, match="not in the ids file"):
+        REPORT.faithfulness_report(tmp_path)
+
+
+def test_the_scope_report_stops_on_an_id_the_draw_does_not_have(tmp_path: Path) -> None:
+    _csv(tmp_path / "heldout_strata.csv", [{"stratum": "single", "frame": "10"}])
+    _csv(tmp_path / "heldout_ids.csv", [{"article_id": "1", "stratum": "single"}])
+    _csv(tmp_path / "heldout_to_tag.csv", [{"article_id": "2", "scope": "single"}])
+    with pytest.raises(MarkedFileError, match="not in heldout_ids"):
+        REPORT.scope_report(tmp_path)
+
+
+def test_every_draw_script_writes_the_owners_file_spreadsheet_safe() -> None:
+    for name in (
+        "draw_segment_check_2026_11_05",
+        "draw_sentiment_gold_2026_11_05",
+        "draw_faithfulness_2026_11_06",
+        "draw_heldout_2026_11_05",
+    ):
+        tree = ast.parse((Path(__file__).parents[2] / "scripts" / f"{name}.py").read_text())
+        writes = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and ast.unparse(n.func) == "extra._write"
+            and ast.unparse(n.args[0]) == "target"
+        ]
+        assert writes, name
+        assert all(ast.unparse(w.args[1]).startswith("retag.spreadsheet_safe(") for w in writes), (
+            name
+        )
 
 
 def test_the_scope_report_does_not_gate_a_scope_under_forty_gold_bodies(tmp_path: Path) -> None:

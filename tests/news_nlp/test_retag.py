@@ -721,3 +721,7 @@ def test_spreadsheet_safe_neutralises_formulas_but_not_the_owners_marks() -> Non
     assert got["title"] == "'=SUM(A1)" and got["text"] == "'-5% on the day"
     assert got["ticker"] == "AAPL" and got["notes"] == "=keep"
     assert rows[0]["title"] == "=SUM(A1)"  # the input is not changed
+    assert retag.spreadsheet_safe([{"title": "  =1+1", "text": "\t=x"}])[0] == {
+        "title": "'  =1+1",
+        "text": "'\t=x",
+    }

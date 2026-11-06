@@ -45,6 +45,9 @@ def scope_report(out: Path) -> list[str]:
         out / "heldout_to_tag.csv", "scope", triage.GOLD_SCOPES, ("article_id",)
     )
     stratum_of = {r["article_id"]: r["stratum"] for r in extra._read(out / "heldout_ids.csv")}
+    unknown = sorted(r["article_id"] for r in tagged if r["article_id"] not in stratum_of)
+    if unknown:
+        raise MarkedFileError(f"heldout_to_tag.csv has ids not in heldout_ids.csv: {unknown[:5]}")
     populations = {r["stratum"]: int(r["frame"]) for r in extra._read(out / "heldout_strata.csv")}
     rows = [
         {
@@ -126,17 +129,16 @@ def sentiment_report(out: Path) -> list[str]:
     ]
 
 
-def faithfulness_report(out: Path) -> list[str]:
-    tagged = gold_metrics.read_marked(out / "faithfulness_to_tag.csv", "faithful", ("yes", "no"))
-    ids = {r["review_order"]: r for r in extra._read(out / "faithfulness_ids.csv")}
-    marks: dict[str, bool] = {}
-    owners: dict[str, list[str]] = {}
-    for r in tagged:
-        row = ids[r["review_order"]]
-        marks[row["key"]] = r["faithful"] == "yes"
-        owners[row["key"]] = row["extractors"].split("|")
+def _faithfulness_block(
+    label: str, marks: dict[str, bool], owners: dict[str, list[str]]
+) -> list[str]:
+    """The per-extractor shares and the gain over the baseline for one set of texts."""
+    if not marks:
+        return [f"[{label}] no texts"]
     report = gold_metrics.faithfulness_report(marks, owners)
-    lines = [f"{name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)}" for name, fig in report.items()]
+    lines = [
+        f"[{label}] {name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)}" for name, fig in report.items()
+    ]
     if {"model", "baseline"} <= set(report):
         pairs: dict[str, dict[str, bool]] = {}
         for key, names in owners.items():
@@ -144,10 +146,44 @@ def faithfulness_report(out: Path) -> list[str]:
             for name in names:
                 pairs.setdefault(pair, {})[name] = marks[key]
         both = [v for v in pairs.values() if {"model", "baseline"} <= set(v)]
-        gain = gold_metrics.paired_difference(
-            [v["model"] for v in both], [v["baseline"] for v in both]
+        if both:
+            gain = gold_metrics.paired_difference(
+                [v["model"] for v in both], [v["baseline"] for v in both]
+            )
+            lines.append(
+                f"[{label}] model minus baseline on {len(both)} company texts: {gain} -> "
+                f"{gold_metrics.gain_verdict(gain)}"
+            )
+    return lines
+
+
+def faithfulness_report(out: Path) -> list[str]:
+    tagged = gold_metrics.read_marked(
+        out / "faithfulness_to_tag.csv", "faithful", ("yes", "no"), ("article_id", "review_order")
+    )
+    ids = {r["review_order"]: r for r in extra._read(out / "faithfulness_ids.csv")}
+    if ids and "pub_date" not in next(iter(ids.values())):
+        raise MarkedFileError("faithfulness_ids.csv lacks pub_date: the 2022+ split needs it")
+    unknown = sorted(r["review_order"] for r in tagged if r["review_order"] not in ids)
+    if unknown:
+        raise MarkedFileError(
+            f"faithfulness_to_tag.csv has rows not in the ids file: {unknown[:5]}"
         )
-        lines.append(f"model minus baseline on {len(both)} company texts: {gain}")
+    marks: dict[str, bool] = {}
+    owners: dict[str, list[str]] = {}
+    late: set[str] = set()
+    for r in tagged:
+        row = ids[r["review_order"]]
+        marks[row["key"]] = r["faithful"] == "yes"
+        owners[row["key"]] = row["extractors"].split("|")
+        if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR:
+            late.add(row["key"])
+    lines = _faithfulness_block("all", marks, owners)
+    lines += _faithfulness_block(
+        "2022+",
+        {k: v for k, v in marks.items() if k in late},
+        {k: v for k, v in owners.items() if k in late},
+    )
     return lines
 
 
