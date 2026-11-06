@@ -47,6 +47,8 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
 * ``--redo-failed`` makes again the chunks that hold a ``summary_failed`` / ``summary_empty`` row (the
   old file waits in ``redo/`` until the new one is written). The lock covers the manifest too: a
   second start can neither change it nor the chunks while a run is in progress.
+* The manifest is written atomically like the chunks, and an index with no manifest beside it (a first
+  run killed in between) is listed again. ``--status`` slices the index by the manifest's chunk size.
 * ``--status`` reads only (no lock, no manifest, no index built); it prints the chunks done and the scope counts so far, and loads no model. The scopes
   the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
   that had no stored NER span: read it after the first chunks, before leaving the job to run.
@@ -146,6 +148,20 @@ def atomic_write(path: Path, fields: Sequence[str], rows: Iterable[Row]) -> None
         writer.writerows(rows)
         fh.flush()
         os.fsync(fh.fileno())  # the content is on disk before the name appears
+    _publish(tmp, path)
+
+
+def atomic_text(path: Path, text: str) -> None:
+    """:func:`atomic_write` for a text file (the manifest): whole or absent, never truncated."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        fh.write(text)
+        fh.flush()
+        os.fsync(fh.fileno())
+    _publish(tmp, path)
+
+
+def _publish(tmp: Path, path: Path) -> None:
     os.replace(tmp, path)
     with contextlib.suppress(OSError):  # a directory cannot be synced on every file system
         dir_fd = os.open(path.parent, os.O_RDONLY)
@@ -153,6 +169,19 @@ def atomic_write(path: Path, fields: Sequence[str], rows: Iterable[Row]) -> None
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
+
+
+def load_manifest(path: Path) -> dict[str, Any]:
+    """The manifest, or a stop that says what to do if the file cannot be read (it is written
+    atomically now; a file from before, or damaged by hand, can still be truncated)."""
+    try:
+        loaded: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"{path} cannot be read ({exc}). If the chunks next to it are yours, restore it from a "
+            "copy; deleting it makes the next run write a new one from the arguments typed then."
+        ) from exc
+    return loaded
 
 
 def read_rows(path: Path) -> list[Row]:
@@ -210,7 +239,7 @@ def entities_basis(conn: db.NewsNlpDatabase, since: str, manifest: Path) -> tupl
     a newer row than the manifest's."""
     newest = str(conn.execute(NEWEST_ENTITY_SQL).fetchone()[0])
     if manifest.exists():
-        before = json.loads(manifest.read_text(encoding="utf-8"))
+        before = load_manifest(manifest)
         if before.get("ner_newest_id") == newest:
             return before["ner_spans"], newest
     return "{}:{}".format(*conn.execute(ENTITIES_SQL, (since,)).fetchone()), newest
@@ -233,9 +262,9 @@ def check_manifest(
     made under it go to ``ner_spans_history``; every other change refuses (summaries of two kinds
     in one cut)."""
     if not path.exists():
-        path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
+        atomic_text(path, json.dumps({**now, "ner_newest_id": newest}, indent=2))
         return
-    before = json.loads(path.read_text(encoding="utf-8"))
+    before = load_manifest(path)
     history = before.get("ner_spans_history", [])
     core = {k: v for k, v in before.items() if k not in BOOKKEEPING}
     if core != now:
@@ -270,9 +299,7 @@ def check_manifest(
     elif not newest or before.get("ner_newest_id") == newest:
         return
     kept = {"ner_spans_history": history} if history else {}
-    path.write_text(
-        json.dumps({**now, "ner_newest_id": newest, **kept}, indent=2), encoding="utf-8"
-    )
+    atomic_text(path, json.dumps({**now, "ner_newest_id": newest, **kept}, indent=2))
 
 
 def row_is_sound(row: Row) -> bool:
@@ -300,7 +327,7 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
             sys.exit(
                 f"{path}: {len(broken)} rows are not sound (a summary missing without "
                 f"{EMPTY} / {FAILED}, or a summary on a scope that gets none; first {broken[0]}): "
-                "the file is damaged; delete it to make the chunk again"
+                "the file is damaged; delete it (and its copy in redo/, if any) to make the chunk again"
             )
         done.add(number)
     return done
@@ -444,6 +471,8 @@ def _remake(
     if not old_path.exists():
         return process(part)
     old = {r["body_hash"]: r for r in read_rows(old_path)}
+    if list(old) != [e["body_hash"] for e in part]:
+        sys.exit(f"{old_path} does not hold the bodies of its slice of {INDEX_NAME}: look at it")
     todo = [e for e in part if old[e["body_hash"]]["status"] in (EMPTY, FAILED)]
     fresh = {r["body_hash"]: r for r in process(todo)} if todo else {}
     return [fresh.get(e["body_hash"], old[e["body_hash"]]) for e in part]
@@ -654,7 +683,10 @@ def read_cut_summaries(
     manifest_path = out / MANIFEST_NAME
     if not manifest_path.exists():
         raise CutSummariesError(f"{manifest_path} not found: not a cut made by this script")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = load_manifest(manifest_path)
+    except SystemExit as exc:
+        raise CutSummariesError(str(exc)) from exc
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
     pinned = f"{cfg['model']}@{cfg['revision']}"
     if manifest["summariser"] != pinned:
@@ -680,8 +712,12 @@ def read_cut_summaries(
     return rows
 
 
-def load_or_build_index(conn: db.NewsNlpDatabase, path: Path, since: str) -> list[Row]:
-    if path.exists():
+def load_or_build_index(
+    conn: db.NewsNlpDatabase, path: Path, since: str, *, manifest_exists: bool = True
+) -> list[Row]:
+    """The index of the job. One with no manifest next to it (a first run killed in between) does
+    not say which ``--since`` it was listed for, so it is listed again."""
+    if path.exists() and manifest_exists:
         return read_rows(path)
     print(f"listing the unique bodies published {since} or later (a few minutes, once) ...")
     index = build_index(conn.execute(WINDOW_SQL, (since,)))
@@ -727,7 +763,9 @@ def main() -> None:
         if not index_path.exists():
             print(f"no cut in {out} yet")
             return
-        print("\n".join(status(out, slices(read_rows(index_path), args.chunk_size))))
+        manifest = out / MANIFEST_NAME
+        size = int(load_manifest(manifest)["chunk_size"]) if manifest.exists() else args.chunk_size
+        print("\n".join(status(out, slices(read_rows(index_path), size))))
         return
     stop = {"now": False}
 
@@ -743,7 +781,9 @@ def main() -> None:
 
     with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it
         conn = db.connect_pipeline()
-        index = load_or_build_index(conn, index_path, args.since)
+        index = load_or_build_index(
+            conn, index_path, args.since, manifest_exists=(out / MANIFEST_NAME).exists()
+        )
         entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
         parts = slices(index, args.chunk_size)
         check_manifest(

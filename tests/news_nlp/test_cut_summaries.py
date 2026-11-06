@@ -462,7 +462,7 @@ def _wired_main(
     calls: list[str] = []
     monkeypatch.setattr(CUT.db, "connect_pipeline", object)
 
-    def fake_index(_conn: object, path: Path, _since: str) -> list[dict[str, str]]:
+    def fake_index(_conn: object, path: Path, _since: str, **_kw: bool) -> list[dict[str, str]]:
         CUT.atomic_write(path, CUT.INDEX_FIELDS, _index(5))
         return _index(5)
 
@@ -621,3 +621,69 @@ def test_the_cut_summarises_the_scopes_the_sentiment_draw_expects() -> None:
         s for s, g in triage.RULE_SCOPE_TO_GOLD.items() if g in draw.SUMMARY_SCOPES
     }
     assert summarised_by_rules == set(CUT.SUMMARY_RULE_SCOPES)  # no scope left out or added
+
+
+def test_a_killed_manifest_write_leaves_the_old_manifest_and_a_truncated_one_is_explained(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "manifest.json"
+    now = {"since": "2021-12-31", "summariser": "m@r1", "chunk_size": 250}
+    CUT.check_manifest(path, now, "1")
+    before = path.read_text(encoding="utf-8")
+
+    def dies(_tmp: Path, _path: Path) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(CUT, "_publish", dies)
+    with pytest.raises(KeyboardInterrupt):
+        CUT.check_manifest(
+            path, now, "2"
+        )  # NER wrote: the manifest is refreshed, and the kill hits
+    assert path.read_text(encoding="utf-8") == before  # never half a file
+    monkeypatch.undo()
+    path.write_text(before[:20], encoding="utf-8")  # a manifest truncated by an older version
+    with pytest.raises(SystemExit, match="cannot be read"):
+        CUT.check_manifest(path, now, "2")
+    with pytest.raises(CUT.CutSummariesError, match="cannot be read"):
+        CUT.read_cut_summaries(tmp_path)
+
+
+def test_status_slices_the_index_as_the_job_did(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1")  # a job with --chunk-size 2
+    CUT.main()
+    capsys.readouterr()
+    monkeypatch.setattr(sys, "argv", ["c", "--out", str(tmp_path), "--status"])  # default 250
+    CUT.main()
+    assert "1 of 3 chunks done (2 of 5 bodies)" in capsys.readouterr().out
+
+
+def test_a_redo_file_that_is_not_the_slice_stops_the_run(tmp_path: Path) -> None:
+    parts = _chunk_with_a_failed_row(tmp_path)
+    other = CUT.read_rows(tmp_path / "chunk_00002.csv")
+    (tmp_path / "chunk_00001.csv").unlink()  # the owner deleted a damaged chunk ...
+    (tmp_path / "redo").mkdir()  # ... and a leftover of another slice waits in redo/
+    CUT.atomic_write(tmp_path / "redo" / "chunk_00001.csv", CUT.CHUNK_FIELDS, other)
+    with pytest.raises(SystemExit, match=r"redo/chunk_00001\.csv does not hold the bodies"):
+        CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None)
+
+
+def test_an_index_with_no_manifest_is_listed_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / CUT.INDEX_NAME
+    CUT.atomic_write(path, CUT.INDEX_FIELDS, _index(2))  # listed for some other --since
+
+    class Conn:
+        def execute(self, *_a: object) -> Conn:
+            return self
+
+        def fetchone(self) -> list[int]:
+            return [0]
+
+    monkeypatch.setattr(CUT, "build_index", lambda _pairs: _index(3))
+    kept = CUT.load_or_build_index(Conn(), path, "2022-01-01", manifest_exists=True)  # type: ignore[arg-type]
+    assert len(kept) == 2
+    fresh = CUT.load_or_build_index(Conn(), path, "2022-01-01", manifest_exists=False)  # type: ignore[arg-type]
+    assert len(fresh) == 3 and len(CUT.read_rows(path)) == 3
