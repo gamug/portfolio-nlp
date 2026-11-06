@@ -39,6 +39,7 @@ SCOPE_BAR = 0.90  # D20 overall agreement (reported for the rules, gated for the
 RECALL_BAR = 0.80  # D20, only for a scope with MIN_GOLD bodies (D33)
 MIN_GOLD = 40
 COVERAGE_NAME = "faithfulness_coverage.csv"
+KNOWN_EXTRACTORS = ("baseline", "model")
 
 
 def scope_report(out: Path) -> list[str]:
@@ -201,36 +202,59 @@ def _faithfulness_block(
     if not marks and not any(omitted.values()):
         return [f"[{label}] no texts"]
     report = gold_metrics.faithfulness_report(marks, owners, omitted=omitted)
-    lines = [
-        f"[{label}] {name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)}" for name, fig in report.items()
-    ]
-    if any(omitted.values()):
+    lines = []
+    for name, fig in report.items():
+        texts = [k for k, owner in owners.items() if name in owner]
+        right = sum(marks[k] for k in texts)
+        skipped = len(omitted.get(name, ()))
         lines.append(
-            f"[{label}] companies named but left without a text (counted unfaithful): "
-            f"{ {n: len(v) for n, v in sorted(omitted.items())} }"
+            f"[{label}] {name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)} (the bar: of the companies "
+            f"named, those with a faithful text; {right} faithful of {len(texts)} texts + "
+            f"{skipped} companies left without one)"
         )
-    if {"model", "baseline"} <= set(report):
-        pairs: dict[str, dict[str, bool]] = {}
-        for key, names in owners.items():
-            pair = key.rsplit("#", 1)[0]
-            for name in names:
-                pairs.setdefault(pair, {})[name] = marks[key]
-        for name, pair_keys in omitted.items():
-            for pair in pair_keys:
-                pairs.setdefault(pair, {})[name] = False
-        both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
-        if both:
-            gain = gold_metrics.paired_difference(
-                [v["model"] for v in both.values()],
-                [v["baseline"] for v in both.values()],
-                clusters=[gold_metrics.body_of_key(p) for p in both],
-            )
-            bodies = len({gold_metrics.body_of_key(p) for p in both})
+        if texts:
+            only = gold_metrics.wilson(right, len(texts))
             lines.append(
-                f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
-                f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
+                f"[{label}] {name:>10}: of the texts it wrote, {only} (informative; omissions not "
+                "counted)"
             )
+    if {"model", "baseline"} <= set(report):
+        lines += _gain_lines(label, marks, owners, omitted)
     return lines
+
+
+def _gain_lines(
+    label: str,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
+) -> list[str]:
+    """Model minus baseline on the companies at least one of them wrote a text for; a company one
+    skipped counts as unfaithful for it, and a company both skipped says nothing on which is
+    better (it stays in the shares only)."""
+    pairs: dict[str, dict[str, bool]] = {}
+    for key, names in owners.items():
+        pair = key.rsplit("#", 1)[0]
+        for name in names:
+            pairs.setdefault(pair, {})[name] = marks[key]
+    written = set(pairs)
+    for name, pair_keys in omitted.items():
+        for pair in pair_keys:
+            if pair in written:
+                pairs[pair][name] = False
+    both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
+    if not both:
+        return []
+    gain = gold_metrics.paired_difference(
+        [v["model"] for v in both.values()],
+        [v["baseline"] for v in both.values()],
+        clusters=[gold_metrics.body_of_key(p) for p in both],
+    )
+    bodies = len({gold_metrics.body_of_key(p) for p in both})
+    return [
+        f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
+        f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
+    ]
 
 
 def faithfulness_report(out: Path) -> list[str]:
@@ -255,9 +279,19 @@ def faithfulness_report(out: Path) -> list[str]:
             f"{COVERAGE_NAME} not found: it lists the companies an extractor left without a text, "
             "which the shares and the gain count as unfaithful. Draw the file again."
         )
+    drawn = {r["article_id"] for r in extra._read(out / "faithfulness_bodies.csv")}
+    coverage = extra._read(coverage_path)
+    foreign = sorted(
+        {c["article_id"] for c in coverage if c["article_id"] not in drawn}
+        | {c["extractor"] for c in coverage if c["extractor"] not in KNOWN_EXTRACTORS}
+    )
+    if foreign:
+        raise MarkedFileError(
+            f"{COVERAGE_NAME} has bodies or extractors the draw does not have: {foreign[:5]}"
+        )
     omitted: dict[str, list[str]] = {}
     omitted_late: dict[str, list[str]] = {}
-    for c in extra._read(coverage_path):
+    for c in coverage:
         pair = f"{c['article_id']}#{c['ticker']}"
         omitted.setdefault(c["extractor"], []).append(pair)
         if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR:

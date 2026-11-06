@@ -2320,7 +2320,7 @@ above, it says so; nothing else above is touched.
   for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
   redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
 - **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
-  least **80% of the extracted company texts faithful** on the owner's ~30 narrative multi bodies,
+  least **80% of the companies named in the owner's ~30 narrative multi bodies with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
   and better than the mention-and-recency baseline on the same 30, reported apart for bodies from
   2022 on. Sentiment on the 180-text gold (60 per class **of the model's predicted class**):
   **overall agreement >= 80%, and precision and recall each >= 70% for the negative class** (the one
@@ -2352,7 +2352,8 @@ above, it says so; nothing else above is touched.
   (`gold/category_gold_v2.csv`: the 240-body gate and the 44 sector bodies, built on the tuning sets), **not of the corpus
   or of the 2022+ window**: the sentiment figures are weighted to that pool, they are not corpus figures (owner,
   2026-11-06: relabelled, the draw is kept). The report prints the texts drawn from 2022 on in each stratum. A stratum with fewer
-  texts than the draw takes stops the draw (`--allow-short` draws what there is). The model is fine-tuned on summaries only if it misses the bar.
+  texts than the draw takes is **drawn whole** (owner, 2026-11-06): the others are unchanged and the report shows the real counts and
+  the wider interval; `--pool-only` shows the shortfall before the draw day, and the scored pool is kept so the draw does not score twice. A company both extractors skipped is in the shares but not in the gain. The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
   (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
@@ -2381,7 +2382,7 @@ above, it says so; nothing else above is touched.
   (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
   cut: it goes with the point estimate and the interval printed; (b) if the attribution model is not
   ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
-  is on the baseline: the cut uses it for narrative bodies if it is at least 80% faithful,
+  is on the baseline: the cut uses it for narrative bodies if it is at least 80% faithful (D32 reading: of the companies named),
   otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
   D27 decides, before the model trains, whether the `continuation` labels are used. **Runs:**
   the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need

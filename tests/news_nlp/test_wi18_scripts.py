@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import csv
 import importlib.util
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -168,6 +169,13 @@ def _csv(path: Path, rows: list[dict[str, str]], fields: tuple[str, ...] = ()) -
         writer.writerows(rows)
 
 
+def _bodies(path: Path) -> None:
+    _csv(
+        path / "faithfulness_bodies.csv",
+        [{"article_id": str(a), "segments": "3"} for a in range(30)],
+    )
+
+
 def _heldout_dir(tmp_path: Path) -> Path:
     out = tmp_path / "data"
     out.mkdir()
@@ -296,6 +304,7 @@ def test_the_faithfulness_report_compares_the_model_with_the_baseline_on_the_sam
             )
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
     _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "baseline" in text and "model" in text and "model minus baseline" in text
@@ -443,6 +452,7 @@ def test_the_faithfulness_report_says_how_many_texts_have_no_date(tmp_path: Path
     ]
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
     _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "1 texts have no usable pub_date" in text and "bootstrap over bodies" in text
@@ -582,9 +592,10 @@ def test_an_extractor_that_skips_companies_does_not_win_the_gain(tmp_path: Path)
     ]
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
     _csv(tmp_path / "faithfulness_coverage.csv", skipped, FAITH.COVERAGE_FIELDS)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "left without a text" in text and "model': 10" in text
+    assert "10 companies left without one" in text
     assert "model: 50.0%" in text and "baseline: 100.0%" in text
     (tmp_path / "faithfulness_coverage.csv").unlink()
     with pytest.raises(MarkedFileError, match=r"faithfulness_coverage\.csv not found"):
@@ -605,3 +616,111 @@ def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
     ]
     with pytest.raises(ValueError, match="share the key"):
         SENTIMENT.draw(twins, 2, 1)
+
+
+def _faith_files(tmp_path: Path, skipped: list[dict[str, str]]) -> None:
+    ids, tags = [], []
+    for order, article in enumerate(range(1, 7), 1):
+        ids.append(
+            {
+                "review_order": str(order),
+                "key": f"{article}#T#1",
+                "extractors": "baseline|model",
+                "pub_date": "2023-01-01",
+            }
+        )
+        tags.append({"article_id": str(article), "review_order": str(order), "faithful": "yes"})
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", skipped, FAITH.COVERAGE_FIELDS)
+
+
+def _skip(article: int, extractor: str) -> dict[str, str]:
+    return {
+        "article_id": str(article),
+        "ticker": "U",
+        "extractor": extractor,
+        "pub_date": "2023-01-01",
+    }
+
+
+def test_the_faithfulness_report_prints_both_readings_of_the_bar(tmp_path: Path) -> None:
+    _faith_files(tmp_path, [_skip(1, "model"), _skip(2, "model")])
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "6 faithful of 6 texts + 2 companies left without one" in text
+    assert "of the texts it wrote, 100.0%" in text
+
+
+def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
+    tmp_path: Path,
+) -> None:
+    both = [_skip(a, e) for a in (20, 21) for e in ("baseline", "model")]
+    _faith_files(tmp_path, both)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "model minus baseline on 6 company texts" in text
+    assert "6 faithful of 6 texts + 2 companies" in text
+
+
+def test_the_faithfulness_report_refuses_a_coverage_file_the_draw_did_not_write(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [_skip(99, "model")])
+    with pytest.raises(MarkedFileError, match="the draw does not have"):
+        REPORT.faithfulness_report(tmp_path)
+    _faith_files(tmp_path, [_skip(1, "gpt")])
+    with pytest.raises(MarkedFileError, match="the draw does not have"):
+        REPORT.faithfulness_report(tmp_path)
+
+
+class _Resolver:
+    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
+        return {"T", "U"}
+
+
+def _source(monkeypatch: pytest.MonkeyPatch, articles: dict[int, str]) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("ATTACH ':memory:' AS source")
+    conn.execute(
+        "CREATE TABLE source.articles (id INTEGER, title TEXT, body_text TEXT, pub_date TEXT, "
+        "source_domain TEXT)"
+    )
+    for i, body in articles.items():
+        conn.execute("INSERT INTO source.articles VALUES (?, 't', ?, '2023-01-01', 'd')", (i, body))
+    monkeypatch.setattr(FAITH.db, "connect_pipeline", lambda: conn)
+    monkeypatch.setattr(SENTIMENT.db, "connect_pipeline", lambda: conn)
+
+
+def test_the_draws_refuse_a_held_out_body_under_another_article_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source(monkeypatch, {1: "Same body.", 2: "Same body.", 3: "Another body."})
+    _csv(tmp_path / "heldout_ids.csv", [{"article_id": "2", "stratum": "single"}])
+    gold = [{"article_id": "1", "scope": "multi"}, {"article_id": "3", "scope": "multi"}]
+    _csv(tmp_path / "gold.csv", gold)
+    monkeypatch.setattr(FAITH, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    got = FAITH.candidate_bodies(tmp_path, _Resolver())  # type: ignore[arg-type]
+    assert [c["article_id"] for c in got] == ["3"]
+    with pytest.raises(SystemExit, match="1 held-out bodies"):
+        SENTIMENT.tagged_bodies(tmp_path)
+
+
+def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _source(monkeypatch, {1: "Body."})
+    monkeypatch.setitem(FAITH.EXTRACTORS, "skipper", lambda body, resolver: {"T": "Text of T."})
+    monkeypatch.setitem(
+        FAITH.EXTRACTORS, "writer", lambda body, resolver: {"T": "Text of T.", "U": "Text of U."}
+    )
+    items, omissions = FAITH.collect_items(
+        [{"article_id": "1", "segments": "1"}],
+        ["skipper", "writer"],
+        _Resolver(),  # type: ignore[arg-type]
+    )
+    assert omissions == [
+        {"article_id": "1", "ticker": "U", "extractor": "skipper", "pub_date": "2023-01-01"}
+    ]
+    assert {i["ticker"] for i in items} == {"T", "U"}

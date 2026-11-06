@@ -1,7 +1,7 @@
 """Draw the texts to tag for the sentiment gold on real pipeline output (Work item 18, steps 1-5).
 
     uv run scripts/draw_sentiment_gold_2026_11_05.py [--out data] [--per-class 40] [--per-class-extractor 20]
-        [--extractor baseline] [--seed 20261105] [--yes]
+        [--extractor baseline] [--seed 20261105] [--pool-only] [--yes]
 
 The 7-step pipeline does not exist yet, so its first steps are emulated on the bodies the owner has
 tagged with a scope (``gold/category_gold_v2.csv``; ``unrelated`` is skipped, the held-out set is
@@ -29,7 +29,11 @@ to the tagging file, whose rows are shuffled. The ids file holds the prediction,
 of each stratum.
 
 A company text over ``MAX_COMPANY_CHARS`` is left out of the pool and counted in
-``<out>/sentiment_gold_pool.json`` with the pool sizes.
+``<out>/sentiment_gold_pool.json`` with the pool sizes. The scored pool is kept in
+``<out>/sentiment_gold_pool.csv`` and read back by the next run (delete it to score again);
+``--pool-only`` scores it and prints the sizes without drawing, to see a short stratum before the
+draw day. A stratum with fewer texts than the draw takes is drawn whole (owner, D34): the others are
+unchanged, and the real counts are in the ids file and the report.
 
 Writes ``<out>/sentiment_gold_ids.csv`` (drawn once, with the texts) and
 ``<out>/sentiment_gold_to_tag.csv``, a tagging file in the sentiment format
@@ -62,6 +66,7 @@ from news_nlp.triage import CompanyResolver
 IDS_NAME = "sentiment_gold_ids.csv"
 TO_TAG_NAME = "sentiment_gold_to_tag.csv"
 POOL_NAME = "sentiment_gold_pool.json"
+POOL_CSV_NAME = "sentiment_gold_pool.csv"
 CACHE_DIR = "sentiment_gold"
 GOLD = Path("gold/category_gold_v2.csv")
 CONFIG = Path("config/pipeline_models.json")
@@ -75,6 +80,17 @@ SUBJECT = {
     "market_economy": "[market / economy]",
     "investing_general": "[investing in general]",
 }
+POOL_FIELDS = (
+    "article_id",
+    "kind",
+    "extractor",
+    "scope",
+    "ticker",
+    "company",
+    "predicted",
+    "title",
+    "text",
+)
 IDS_FIELDS = (
     "key",
     "article_id",
@@ -261,6 +277,33 @@ def draw(
     return chosen
 
 
+def part_of(text: dict[str, str]) -> str:
+    return "extractor" if text["kind"] == "extractor_text" else "checked"
+
+
+def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
+    """The texts with the current model's label. Summaries and scoring are slow, so they are kept
+    in ``<out>/sentiment_gold_pool.csv`` (news text: git-ignored) and read back on the next run;
+    delete the file to score again (for instance once the trained extractor exists)."""
+    path = out / POOL_CSV_NAME
+    if path.exists():
+        print(f"{path} exists: the pool is not scored again")
+        return extra._read(path)
+    texts, skipped = build_texts(out, extractor)
+    texts = predict(texts)
+    pool = {
+        f"{k}/{p}": n for (k, p), n in Counter((t["kind"], t["predicted"]) for t in texts).items()
+    }
+    (out / POOL_NAME).write_text(
+        json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
+    )
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(POOL_FIELDS), extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(texts)
+    return texts
+
+
 def shortfalls(
     pool: dict[str, int], per_class: int, per_class_extractor: int
 ) -> dict[str, tuple[int, int]]:
@@ -322,7 +365,9 @@ def main() -> None:
     parser.add_argument("--per-class-extractor", type=int, default=20)
     parser.add_argument("--extractor", choices=sorted(EXTRACTORS), default="baseline")
     parser.add_argument("--seed", type=int, default=20261105)
-    parser.add_argument("--allow-short", action="store_true", help="draw a stratum that is short")
+    parser.add_argument(
+        "--pool-only", action="store_true", help="score the pool and print its sizes; draw nothing"
+    )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     args = parser.parse_args()
@@ -334,27 +379,23 @@ def main() -> None:
         chosen = extra._read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again")
     else:
-        texts, skipped = build_texts(out, args.extractor)
-        texts = predict(texts)
-        pool = {
-            f"{k}/{p}": n
-            for (k, p), n in Counter((t["kind"], t["predicted"]) for t in texts).items()
-        }
+        texts = scored_pool(out, args.extractor)
+        pool = Counter(f"{t['kind']}/{t['predicted']}" for t in texts)
         print("pool:", pool)
-        (out / POOL_NAME).write_text(
-            json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
-        )
-        chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
         short = shortfalls(
-            Counter(f"{t['part']}/{t['predicted']}" for t in texts),
+            Counter(f"{part_of(t)}/{t['predicted']}" for t in texts),
             args.per_class,
             args.per_class_extractor,
         )
-        if short and not args.allow_short:
-            sys.exit(
-                f"strata with fewer texts than the draw takes (pool, target): {short}. The pool "
-                f"is in {out / POOL_NAME}. Nothing is drawn; --allow-short draws what there is."
+        if short:
+            print(
+                f"strata with fewer texts than the draw takes (pool, target): {short}. Rule "
+                "(owner, D34): every text of a short stratum is drawn, the others are not "
+                "changed, and the real counts are in the report."
             )
+        if args.pool_only:
+            return
+        chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
         with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
             writer.writeheader()
