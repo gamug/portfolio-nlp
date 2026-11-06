@@ -1065,6 +1065,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in
           `config/pipeline_models.json` with its revision, selection justified against the baseline
           (constitution AI #1, #7, #12), the `ExperimentSpec` stage list extended deliberately.
+          **Trains on `lead` rows only (D27, label check 2026-11-06)**: the training set is built with `kind == lead`, the rows used are counted and printed, and the run refuses to start unless `gold/segment_check_gold.csv` gives `gold_metrics.train_on_lead_only` true (so the rule is applied, not remembered).
           Bodies it cannot attribute are flagged `unextracted` and counted, never given a default text.
           A one-paragraph body is split into sentences and each sentence is attributed by the same model.
       - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): after T-148b exists,
@@ -1101,7 +1102,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       separates analysed from mention-only, D23), question 6 (running the pipeline on a SOURCE they provide: not yet; the cut covers the stored corpus, which ends 2026-08-12, and the bodies they add are not in it), question 8 (the agreement figures travel with the output and are in `PLAN.md` D32), `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
       the backtest cut (T-154: provisional, delivered about 2026-11-16 if the 2026-11-12 go/no-go holds) and the latest date their runs can use, and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
 
-- [ ] **T-155** *(gold sets, `docs/gold_datasets.md`, 2026-11-06)* The builders that move the label check, the extractor sample and the sentiment set from
+- [ ] **T-155** *(gold sets, `docs/gold_datasets.md`, 2026-11-06)* The builders that move the label check (**done 2026-11-06**: `scripts/build_segment_check_gold_2026_11_06.py`, 200 rows in `gold/segment_check_gold.csv`; the other two to do by 2026-11-12, the extractor sample as soon as it is marked), the extractor sample and the sentiment set from
   `data/` to `gold/`, as `build_gold_2026_11_05.py` does for the scope sets: label check
   (`gold/segment_check_gold.csv`), extractor sample (`gold/faithfulness_gold.csv`, keyed by article, ticker and text hash, not by
   `review_order`) and sentiment (`gold/sentiment_gold.csv`, with the draw's `stratum`, `extractor`, `predicted` and `population`).
@@ -1123,7 +1124,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         depend on the tagging; wasted only on a no-go); the T-153 reply is drafted for the owner.
       - *11-07 to 11-08:* the owner tags the label check first, then the held-out 200.
       - *11-08:* `report_wi18 label-check` applies the rule of T-148b2; the attribution model trains (GPU, after the summaries).
-      - *11-09:* the 30 faithfulness texts of the baseline and the model are exported (one blind file); T-153 is sent
+      - *11-09:* the faithfulness texts (190 for the baseline, plus the model's) are exported (one blind file); T-153 is sent
         after the owner's approval, so the backtest team plans before the decision.
       - *11-09 to 11-10:* the owner tags the 30. *11-10:* the 180 sentiment texts are drawn; the owner tags them 11-11.
       - *11-12:* decision, from `report_wi18 scope|sentiment|faithfulness`. After a go: NER, step 4 and sentiment over
@@ -1140,7 +1141,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       alone (`--extractors baseline`) and the decision is on the baseline (the cut uses it for narrative bodies if it
       is at least 80% faithful, otherwise narrative multi bodies are left out of the cut and counted).
       **Go/no-go on 2026-11-12:** the owner's tagging (the held-out 200 for the scope, 200
-      items of the label check, the 30 faithfulness texts and the 180 sentiment texts) is done and the extractor
+      items of the label check, the 190 faithfulness texts and the 180 sentiment texts) is done and the extractor
       (or, if the model is late, the baseline) passes D32; otherwise the backtest team is told with a week's
       notice. Not in the cut: the trained scope classifier, the prompt gate and silver labels,
       category, sub-industry, sector snapshots, active learning, the full backfill. → D34.

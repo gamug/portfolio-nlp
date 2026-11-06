@@ -2320,7 +2320,7 @@ above, it says so; nothing else above is touched.
   for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
   redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
 - **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
-  least **80% of the companies named in the owner's ~30 narrative multi bodies with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
+  least **80% of the companies named in the owner's 30 narrative multi bodies (190 company texts today) with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
   and better than the mention-and-recency baseline on the same 30, reported apart for bodies from
   2022 on. Sentiment on the 180-text gold (60 per class **of the model's predicted class**):
   **overall agreement >= 80%, and precision and recall each >= 70% for the negative class** (the one
@@ -2375,7 +2375,7 @@ above, it says so; nothing else above is touched.
   90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
   snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
   2026-11-12**: if the owner's tagging (the held-out 200, 200 label-check paragraphs, the 30
-  190 faithfulness texts (30 bodies; 2026-11-06 the draw gave 190, not the 30 assumed) and the 180 sentiment texts: 770 items, 200 of them marked) is done and the extractor passes D32 (**owner call, open: keep the 190 faithfulness texts or reduce the set; the date is close**),
+  190 faithfulness texts (30 bodies; 2026-11-06 the draw gave 190, not the 30 assumed) and the 180 sentiment texts: 770 items, 200 of them marked) is done and the extractor passes D32 (**owner call 2026-11-06: tag all 190 faithfulness texts**),
   the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
   notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**

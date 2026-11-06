@@ -54,7 +54,7 @@ pins the `gold/` headers to the column constants in `retag`.
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
-| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file is a scaffold until T-155 |
+| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn 2026-11-06: 190 texts of 30 bodies, Spanish aid filled, `faithful` empty; `gold/` file is a scaffold |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
 
@@ -179,8 +179,7 @@ each set blocks, earliest block first.
 
 Owner work before the go / no-go of 2026-11-12: 770 items (200 + 200 + 190 + 180), 200 of them marked
 (the label check). The PLAN counted 610 by taking 30 texts for the faithfulness set, but the set is 30
-*bodies* and one row per company text: drawn, it is 190. **Open owner call: keep the 190 or reduce the set**
-(a smaller draw needs a new draw before any mark, and the date is close).
+*bodies* and one row per company text: drawn, it is 190. **Owner call, 2026-11-06: tag all 190** (no reduction).
 
 Why this order:
 
@@ -204,8 +203,9 @@ on a hard kill. A leftover `*.tmp` next to a tagging file is not the owner's wor
 1. The owner marks the `data/` file and runs `scripts/report_wi18_2026_11_06.py <scope|label-check|faithfulness|sentiment>`,
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
-   (exist; the test file also takes `stratum` and `frame` from the draw's record); sets 3, 4 and 5 by
+   (exist; the test file also takes `stratum` and `frame` from the draw's record); set 3 by
+   `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`); sets 4 and 5 by
    a builder that does not exist yet and is written with the same rules (refuse unless every row is marked
-   and valid, marks and ids only, sorted, the weights of the draw copied). **Writing those three builders
+   and valid, marks and ids only, sorted, the weights of the draw copied). **Writing those two builders
    is task T-155**: until then those `gold/` files stay header-only and the reports read `data/`.
 3. From then on features read `gold/`; the `data/` file is kept only as the owner's working copy.

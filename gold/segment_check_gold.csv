@@ -1,1 +1,201 @@
-﻿key,article_id,segment_index,ticker,kind,year,correct,notes
+key,article_id,segment_index,ticker,kind,year,correct,notes
+175617#1,175617,1,GLW,continuation,2011,yes,
+165997#15,165997,15,J,lead,2019,yes,Previous text is not a context. The text speacks about a different company. Coming from multi no contextual article
+139566#4,139566,4,DPZ,continuation,2023,no,Previous text is not a context. The text speacks about a different company. Coming from multi no contextual article
+140207#7,140207,7,BRK.B,continuation,2009,no,The article in fact comes from a single scope new talking about the identified company but the text doen't have anything to do with the company
+157409#14,157409,14,TSLA,lead,2019,yes,Previous text is not a context. The text speacks about a different company. Coming from multi no contextual article
+440270#3,440270,3,DIS,lead,2008,yes,"Even when the previous text don't speack about a diferent company, the text is not helping as context"
+114670#24,114670,24,AAPL,continuation,2025,yes,
+4441#13,4441,13,AMD,continuation,2023,no,"Even when the title speaks about AMD, the provided texts are companyless."
+157290#6,157290,6,CAT,continuation,2019,no,The title speaks about Caterpillar but the provided context doesn't have mentions to it
+91272#23,91272,23,COIN,continuation,2023,yes,"Good catch, even when the title don't mention Coinbase the statement does"
+182076#9,182076,9,DAL,continuation,2024,yes,It reffers to Delta but the notice fact was cut before say anything interesting
+142327#1,142327,1,NVDA,continuation,2020,yes,
+287087#10,287087,10,INTC,lead,2015,yes,
+277245#10,277245,10,COIN,lead,2022,yes,Previous text is not a context. The text speacks about a different company. Coming from multi no contextual article
+265432#2,265432,2,GS,continuation,2017,no,"Golman Sacs is the investor that raises the Netflix price, so, the news is about Netflix"
+132867#0,132867,0,BAC,lead,2019,no,"Bank of America is naming a company to invest, so, the bank is the subject to invest, not the commpany the article speaks about."
+91429#4,91429,4,AMZN,continuation,2022,no,previous text speaks about Amazon but text is about T-mobile
+172084#2,172084,2,CMCSA,lead,2021,yes,Previous text is not a context. The text speacks about a different company. Coming from multi no contextual article
+172373#4,172373,4,AAPL,continuation,2013,no,"No idea why it was tagged as Appe, the real company in the text is Buffalo Wild Wings"
+128649#5,128649,5,XOM,lead,2026,yes,
+92575#8,92575,8,QCOM,lead,2020,yes,"Great catch: JPMorgan recomends the action, so, is not about JPMorgan but instead about Qualcomm"
+181656#7,181656,7,UNH,continuation,2013,no,Previos fragment speak about UnitedHEalth Group but the text SPLICITLY speaks about Thomson Reuters
+474741#7,474741,7,T,lead,2015,yes,
+155814#5,155814,5,BX,continuation,2025,yes,
+88734#15,88734,15,JPM,continuation,2016,no,JPMorgan doesn't have mentions neither on text or previous stuff. The text is about Toyota
+119041#3,119041,3,DIS,lead,2018,yes,
+321720#6,321720,6,AMZN,continuation,2020,no,"Previous text is about Amazon, current one about Novartis"
+120434#7,120434,7,AAPL,continuation,2016,no,"Previous fragment speak about Apple, current one about Cirrus Logic"
+87947#7,87947,7,TXN,continuation,2024,no,"Previous fragment speak about Texas Instruments, current one about Mattel"
+155478#7,155478,7,TSN,lead,2022,yes,
+266102#4,266102,4,GS,continuation,2015,no,"GS is in tittle, current news is about Horizon Pharma"
+421457#2,421457,2,TSLA,lead,2019,yes,
+253882#2,253882,2,GM,continuation,2017,yes,
+92911#8,92911,8,TSLA,continuation,2020,yes,"Great catch, this is one of the cases to show"
+321661#10,321661,10,COIN,continuation,2021,no,"Previous fragment speak about Coinbase Instruments, current one about Beyond Meat"
+120987#7,120987,7,IBM,lead,2016,yes,
+121973#3,121973,3,AAPL,continuation,2014,no,"Even when the entire notice is about Icahn and Apple, the specific fracment is ambiguous"
+304145#12,304145,12,NFLX,continuation,2012,no,"Previous fragment speak about Netflix, current one about Tempur-Pedic"
+157349#11,157349,11,PH,continuation,2019,no,"The entire article is about Southwest Airlines, Parker is a name, not a company"
+1097550#13,1097550,13,SNA,continuation,2022,yes,"Another great catch, keep in mind all flagged as great catch"
+94926#3,94926,3,AMZN,lead,2017,yes,"Is about competitive_actions made by Amanzon, great catch"
+425228#13,425228,13,CRM,lead,2020,yes,Great catch
+280129#1,280129,1,TSLA,lead,2018,no,"This also speaks about Home Depot, so, even when the first company is goot catched,it is mixed with another one (Home Depot)"
+432904#2,432904,2,V,continuation,2021,no,"Previous fragment speak about Visa, current one about GamStop"
+142413#8,142413,8,BAC,continuation,2020,no,"No idea from where you got BAC, the article fragment speaks about DraftKings"
+123684#14,123684,14,IBM,continuation,2012,no,Even when the article is about IBM the text is ambiguous (don't speak about IBM at all)
+94127#4,94127,4,GOOG,continuation,2018,no,"Previous fragment speak about Alphabet and Meta, current one about Carbonite"
+316994#8,316994,8,NEM,continuation,2013,no,"Previous text speaks about Newmont, current one is ambiguous"
+176366#16,176366,16,COST,continuation,2023,yes,This is a great catch
+285599#4,285599,4,INTC,lead,2008,yes,
+88740#6,88740,6,HSY,lead,2016,yes,
+476860#6,476860,6,WMT,continuation,2020,yes,Great catch
+207940#7,207940,7,PYPL,continuation,2021,no,"Previous fragment speak about Paypal, current one about Grubhub"
+411267#4,411267,4,ORCL,lead,2015,yes,Great catch
+327210#31,327210,31,NFLX,continuation,2023,yes,The current text is not financial relevant even when it speaks about Netflix
+94917#0,94917,0,AMZN,lead,2017,yes,Great catch
+157148#11,157148,11,FRT,continuation,2019,no,The entire article is about Boeing and not idea why you tagged it as Federal Realty Investment Trust
+155020#6,155020,6,WMT,lead,2019,yes,
+414457#5,414457,5,ABT,lead,2020,yes,
+326951#2,326951,2,WBD,continuation,2026,yes,Great catch
+155976#11,155976,11,UAL,lead,2023,yes,Great catch
+1241#3,1241,3,NVDA,continuation,2026,yes,"This is amazing, Great catch"
+422507#0,422507,0,RTX,lead,2025,yes,great catch
+94926#7,94926,7,AMZN,continuation,2017,no,"""department stores have lost roughly $25 billion in sales on a combined basis"" don't speak about Amazon but about anyone else instead"
+317718#11,317718,11,NVDA,lead,2021,yes,
+327965#1,327965,1,NFLX,lead,2019,yes,
+413273#15,413273,15,LRCX,lead,2019,yes,
+88047#6,88047,6,V,lead,2023,yes,
+177283#13,177283,13,KHC,continuation,2017,no,"Previous text speaks about Helen of Troy, current one is Navistar"
+450201#2,450201,2,TXN,continuation,2007,yes,Great catch
+182593#1,182593,1,DAL,lead,2019,yes,Great catch
+157032#6,157032,6,SYF,lead,2020,yes,
+88667#3,88667,3,FANG,lead,2017,no,"FANG is not about Diamondback Energy but about Facebook, Amazon, Netflix and Google (FANG for its initials)"
+168041#5,168041,5,CVS,lead,2018,yes,Great catch
+286458#5,286458,5,NVDA,continuation,2023,yes,
+157453#7,157453,7,BA,lead,2019,yes,
+94090#4,94090,4,TGT,lead,2018,yes,
+92261#9,92261,9,AMZN,continuation,2021,yes,
+342732#6,342732,6,NVDA,continuation,2024,yes,
+914#2,914,2,ADBE,lead,2022,yes,
+163542#1,163542,1,JNJ,continuation,2015,yes,Great catch
+219314#1,219314,1,JNJ,lead,2019,yes,
+114033#6,114033,6,AAPL,lead,2020,yes,
+121599#16,121599,16,AAPL,lead,2015,no,"Even when the text speaks about Apple, it also speaks about Spotify."
+303011#4,303011,4,TGT,continuation,2012,no,"Even when TGT is mentioned in previous text, the text is about Kroger"
+128504#4,128504,4,HD,lead,2021,yes,
+286422#5,286422,5,INTC,lead,2024,yes,
+1633#4,1633,4,INTC,continuation,2021,yes,
+139535#14,139535,14,NVDA,continuation,2024,no,The statement is ambiguous and is not representative to say it is about Nvidia
+154566#0,154566,0,TTWO,lead,2021,no,Is all trash
+169558#7,169558,7,RJF,continuation,2013,no,No idea why you tagged it as Raymond James Financial. The article speaks about Citigroup. The selected text aren't clear about what company are speaking about.
+128147#2,128147,2,ADP,continuation,2012,yes,
+157395#6,157395,6,OXY,lead,2019,no,"The text has three relevant mentions: Occidental Petroleum, Chevron and Anadarko but the specific news is about Anadarko"
+88238#10,88238,10,GRMN,continuation,2021,no,"Previous text speaks about Garmin, current one is Brinker International"
+264903#10,264903,10,PYPL,continuation,2019,no,"Previous text speaks about Paypal, current one is Vale"
+121471#16,121471,16,UBER,continuation,2015,yes,Great catch
+155765#6,155765,6,HLT,lead,2007,yes,
+284943#3,284943,3,IBM,continuation,2022,no,Even when title has IMB the previous news is about NCR and current one is about Cinemark
+444006#6,444006,6,AXP,lead,2025,yes,
+123352#18,123352,18,MO,continuation,2012,no,"Previous text fragment is about Altria, in fact, but curren one is ambiguous"
+475616#10,475616,10,BA,continuation,2020,no,"Previous text speaks about Boeing, current one is Zumiez"
+90290#0,90290,0,AMZN,lead,2026,yes,
+139973#2,139973,2,BRK.B,lead,2012,yes,
+1110333#1,1110333,1,TSLA,lead,2022,yes,
+476603#12,476603,12,WMT,lead,2022,yes,
+157076#3,157076,3,PFE,lead,2020,yes,
+120341#11,120341,11,EW,lead,2016,yes,
+315714#4,315714,4,META,continuation,2022,yes,Correct inference of the current tag from title. Great catch
+412366#5,412366,5,DE,continuation,2021,no,"Previous text speaks about Deere & Company, current one is Foot Locker"
+140029#2,140029,2,GS,continuation,2011,yes,Great catch
+264592#6,264592,6,BBY,lead,2020,yes,
+118181#11,118181,11,EFX,continuation,2019,no,"Current text is ambiguos, in fact, previous text speaks about Equifax"
+155291#120,155291,120,BLK,continuation,2012,no,Current and previous text is like a table layout that doesn't have many data to validate
+92811#1,92811,1,CVX,lead,2020,yes,
+328891#6,328891,6,AMZN,continuation,2014,no,"Not sure why you tagged it as Amazon. The tittle speaks about Netflix and, in fact, current text is about Netflix."
+127789#3,127789,3,APO,lead,2013,yes,
+61389#2,61389,2,AAPL,continuation,2015,no,Previous text speaks about Apple. Curent one speaks about multiple companies
+121611#8,121611,8,C,continuation,2015,no,"Previous text speaks about Citigroup, current one is Yahoo"
+154621#2,154621,2,BIIB,lead,2017,yes,
+172423#7,172423,7,CMCSA,continuation,2007,yes,Great catch
+157803#4,157803,4,PG,continuation,2017,no,"Previous text speaks about Procter & Gamble, current one is Twitter"
+277517#6,277517,6,HPE,continuation,2016,yes,Great catch from title context
+119082#3,119082,3,AAPL,continuation,2018,yes,Great catch from title context
+176127#19,176127,19,COST,continuation,2024,no,"Even when the title context suggest current text is about Cosco, the previous content reveals is more like a general statement instead of a company sentence"
+171534#3,171534,3,COIN,lead,2022,yes,
+465251#4,465251,4,UBER,lead,2019,yes,
+263846#8,263846,8,COST,continuation,2022,no,"Many time we found this kind of texts: ""X person contributed reporting"" tagged as the previous company. This is wrong due that the text itself is trash. BTW, previous text is about Costco"
+266444#6,266444,6,GS,lead,2011,yes,
+321481#6,321481,6,BBY,continuation,2022,no,Not sure why you tagged it as Best Buy. Previous text is about Aspon Group and current one about ABM Industries
+60942#3,60942,3,ABNB,lead,2023,yes,
+310776#13,310776,13,BAC,continuation,2012,no,This is another trash footer text
+127003#4,127003,4,HRL,lead,2016,yes,
+172346#14,172346,14,CHTR,lead,2014,yes,
+157434#4,157434,4,WFC,lead,2019,yes,
+277518#13,277518,13,AAPL,continuation,2016,no,"Not sure why you tagg it as Apple. Previous company is Priceline, current one is Netsuite. Current text also can be summarized as Oracle"
+91#10,91,10,SPG,lead,2020,yes,Current text also speaks about Brookfield Property (BPY)
+131791#0,131791,0,BSX,lead,2021,yes,It also speaks about Medtronic
+140125#2,140125,2,BRK.B,lead,2008,no,"With tittle context we inferred that the news is about an inversor (Berkshire) who owns stocks of a company ConocoPhillips. So the news is about the ConocoPhillips stakes, not about Berkshire"
+178572#3,178572,3,CRWD,lead,2026,yes,Great catch
+1216#4,1216,4,AMD,continuation,2026,yes,Great catch
+139718#10,139718,10,KHC,continuation,2019,no,Not sure why you tagged it as Kraft Heinz. The article is about Berkshire
+88516#2,88516,2,AMZN,lead,2018,yes,
+88505#4,88505,4,GOOG,continuation,2018,no,"Previous text speaks about Mallinckrodt, current one is Signet Jewelers"
+171534#10,171534,10,PSKY,lead,2022,yes,
+96156#18,96156,18,KLAC,continuation,2014,no,"Previous text speaks about KLA Tencor, current one is AMC  Networks"
+320180#16,320180,16,MSFT,continuation,2016,no,"The current statement is a footer, nothinng relevant. The previous is about what a speaker of Google saids, not about Microsoft."
+180168#10,180168,10,CMG,lead,2013,no,The current statement speaks about Chipotle but is not relevant
+478319#15,478319,15,PSKY,lead,2025,yes,
+159770#14,159770,14,AAPL,lead,2017,yes,
+93423#19,93423,19,WMT,lead,2019,yes,
+117345#11,117345,11,AMZN,continuation,2020,no,"Previous text speaks about Amazon, current one is Dunkin' Brands"
+155741#5,155741,5,PNW,continuation,2007,yes,
+285444#12,285444,12,HPQ,lead,2013,yes,
+203003#4,203003,4,DASH,continuation,2022,no,"Previous text speaks about DoorDash, current one is VF Corp"
+1110019#11,1110019,11,TSLA,continuation,2022,no,"Previous text speaks about Tesla, current one is Rent The Runway"
+88080#5,88080,5,SCHW,lead,2023,yes,
+155291#77,155291,77,BLK,lead,2012,no,"This is like a table layout stuff, Even when it mention the company has no relevant data"
+119339#6,119339,6,AAPL,continuation,2018,yes,Great catch
+156549#5,156549,5,GS,continuation,2022,no,"Previous text speaks about Goldman Sachs, current one is about many travel companies (Royal Caribbean, Carnival, Norwegian Cruise, United, Delta y American)"
+139973#5,139973,5,BRK.B,continuation,2012,yes,Great catch about investing
+250718#3,250718,3,JNJ,lead,2020,yes,
+157417#11,157417,11,BA,continuation,2019,no,"Previous text speaks about Boeing, current one is Tiffany"
+157093#8,157093,8,TSLA,lead,2019,yes,
+163655#5,163655,5,CRL,lead,2022,yes,
+121599#8,121599,8,AAPL,continuation,2015,yes,
+250718#6,250718,6,HD,lead,2020,no,"Almost there, the ticker is KBH not HD"
+115662#38,115662,38,QCOM,lead,2023,yes,Great catch from previous context
+115423#8,115423,8,AAPL,lead,2024,yes,
+114670#26,114670,26,AAPL,lead,2025,yes,
+1348#27,1348,27,META,lead,2025,yes,
+157409#10,157409,10,TXN,lead,2019,yes,
+156833#13,156833,13,ISRG,continuation,2020,no,"Previous text speaks about Chewy, current one is Intuitive Surgical"
+182706#7,182706,7,LEN,lead,2017,yes,
+1216#7,1216,7,AMD,continuation,2026,yes,Many other companies mentioned
+90056#14,90056,14,T,lead,2015,yes,
+94479#1,94479,1,AMZN,continuation,2018,yes,Great catch from previous context
+1018#14,1018,14,WFC,continuation,2017,no,"Previous text speaks about Wells Fargo, current one is Sinclair Broadcasting"
+1097550#15,1097550,15,SNA,continuation,2022,no,"Current text is a footer trash. BTW, previous text is about Snap-on"
+163786#0,163786,0,TTWO,lead,2014,no,Current and previous are trash text
+177520#6,177520,6,MSFT,lead,2016,yes,
+92261#3,92261,3,AMZN,lead,2021,yes,
+177002#7,177002,7,PSX,lead,2019,no,"Philips is a person, the current company is Stitch Fix. Previous company is Jetblue"
+145619#3,145619,3,BBY,continuation,2012,yes,Great catch from title context
+174900#7,174900,7,XEL,lead,2025,yes,Great catch. Good job chunking
+324443#2,324443,2,MS,lead,2020,yes,Curren text leave outside important details
+121930#5,121930,5,AAPL,continuation,2014,yes,
+171470#2,171470,2,CRM,lead,2023,yes,
+91565#6,91565,6,XOM,lead,2022,yes,
+90349#1,90349,1,AMZN,continuation,2026,yes,Great catch from previous context
+159718#3,159718,3,CMCSA,continuation,2018,no,"Previous text speaks about Comcast, current one is CA Technologies"
+171577#0,171577,0,MA,lead,2022,yes,
+114033#4,114033,4,CCL,continuation,2020,no,"Previous text speaks about Carnival, current one is AMC Entertainment"
+61069#2,61069,2,HAS,lead,2020,yes,Great inference considering that it speaks about an inversor who talked about the company
+90987#2,90987,2,AMZN,lead,2024,yes,
+476771#6,476771,6,SLB,continuation,2020,no,"Previous text speaks about Schlumberger, current one is AMC Sanofi"
+1097550#2,1097550,2,META,continuation,2022,yes,
+117652#4,117652,4,AAPL,lead,2019,yes,
+277305#9,277305,9,MDLZ,lead,2016,yes,
+180084#9,180084,9,ACN,lead,2021,yes,
+96522#15,96522,15,XOM,continuation,2012,no,The sentences aren't clear enough

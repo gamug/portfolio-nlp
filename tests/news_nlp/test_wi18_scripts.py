@@ -36,6 +36,7 @@ BUILD = _script("build_company_segments_2026_11_05")
 SENTIMENT = _script("draw_sentiment_gold_2026_11_05")
 CHECK = _script("draw_segment_check_2026_11_05")
 FAITH = _script("draw_faithfulness_2026_11_06")
+SEGGOLD = _script("build_segment_check_gold_2026_11_06")
 REPORT = _script("report_wi18_2026_11_06")
 BUILD_GOLD = _script("build_gold_2026_11_05")
 
@@ -1200,7 +1201,59 @@ def test_a_failed_add_leaves_the_three_files_as_they_were(
     _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
     _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
     _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
-    before = {n: (out / n).read_bytes() for n in (FAITH.TO_TAG_NAME, FAITH.IDS_NAME)}
+    before = {
+        n: (out / n).read_bytes() for n in (FAITH.TO_TAG_NAME, FAITH.IDS_NAME, FAITH.COVERAGE_NAME)
+    }
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(FAITH, "collect_items", lambda *_a: ([_item("1", "T", "A new text.")], []))
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+
+    real_write = FAITH.write_coverage
+    calls: list[int] = []
+
+    def locked_once(*a: Path | list[dict[str, str]]) -> None:
+        calls.append(1)
+        if len(calls) == 1:  # the forward write fails, the undo goes through
+            raise PermissionError("coverage is open in Excel")
+        real_write(*a)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(FAITH, "write_coverage", locked_once)
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="nothing was added"):
+        FAITH.main()
+    assert {n: (out / n).read_bytes() for n in before} == before
+    assert not (out / "faithfulness_to_tag.before_model.csv").exists()
+
+
+def test_an_add_that_cannot_undo_keeps_the_copy_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        }
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
     monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
     monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
     monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
@@ -1220,11 +1273,20 @@ def test_a_failed_add_leaves_the_three_files_as_they_were(
         raise PermissionError("coverage is open in Excel")
 
     monkeypatch.setattr(FAITH, "write_coverage", locked)
+    real_copy = FAITH.shutil.copy2
+    copies: list[int] = []
+
+    def copy_once(src: Path, dst: Path) -> object:
+        copies.append(1)
+        if len(copies) > 1:  # the first copy is the backup; restoring it fails
+            raise PermissionError("target is open in Excel")
+        return real_copy(src, dst)
+
+    monkeypatch.setattr(FAITH.shutil, "copy2", copy_once)
     monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
-    with pytest.raises(SystemExit, match="cannot write"):
+    with pytest.raises(SystemExit, match="could not undo"):
         FAITH.main()
-    assert {n: (out / n).read_bytes() for n in before} == before
-    assert not (out / "faithfulness_to_tag.before_model.csv").exists()
+    assert (out / "faithfulness_to_tag.before_model.csv").exists()
 
 
 def test_adding_an_extractor_needs_a_first_draw_and_an_extractor_that_exists(
@@ -1236,3 +1298,71 @@ def test_adding_an_extractor_needs_a_first_draw_and_an_extractor_that_exists(
     monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
     with pytest.raises(SystemExit, match=r"needs faithfulness_to_tag\.csv"):
         FAITH.main()
+
+
+def _segment_files(out: Path, correct: tuple[str, str] = ("yes", "no")) -> None:
+    ids = [
+        {
+            "key": "1#2",
+            "article_id": "1",
+            "segment_index": "2",
+            "ticker": "T",
+            "kind": "lead",
+            "year": "2020",
+        },
+        {
+            "key": "1#5",
+            "article_id": "1",
+            "segment_index": "5",
+            "ticker": "T",
+            "kind": "lead",
+            "year": "2020",
+        },
+    ]
+    _csv(out / SEGGOLD.IDS_NAME, ids)
+    marks = [
+        {
+            "review_order": str(i),
+            "article_id": "1",
+            "ticker": "T",
+            "kind": "lead",
+            "pub_date": "2020-01-01",
+            "correct": c,
+            "notes": "",
+        }
+        for i, c in enumerate(correct, 1)
+    ]
+    _csv(out / SEGGOLD.TO_TAG_NAME, marks)
+
+
+def test_segment_check_gold_pairs_two_paragraphs_of_one_article_and_company(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _segment_files(tmp_path)
+    gold = tmp_path / "gold.csv"
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(gold)])
+    SEGGOLD.main()
+    rows = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert tuple(rows[0]) == retag.SEGMENT_CHECK_GOLD_COLUMNS
+    assert [(r["key"], r["segment_index"], r["correct"]) for r in rows] == [
+        ("1#2", "2", "yes"),
+        ("1#5", "5", "no"),
+    ]
+
+
+def test_segment_check_gold_refuses_unmarked_rows_and_other_paragraphs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _segment_files(tmp_path, ("yes", ""))
+    monkeypatch.setattr(
+        sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(tmp_path / "g.csv")]
+    )
+    with pytest.raises(SystemExit, match="without correct"):
+        SEGGOLD.main()
+    assert not (tmp_path / "g.csv").exists()
+    _segment_files(tmp_path)
+    ids = list(csv.DictReader((tmp_path / SEGGOLD.IDS_NAME).open(encoding="utf-8-sig")))
+    ids[1]["ticker"] = "U"
+    _csv(tmp_path / SEGGOLD.IDS_NAME, ids)
+    with pytest.raises(SystemExit, match="ticker"):
+        SEGGOLD.main()

@@ -290,22 +290,36 @@ def add_extractor(args: argparse.Namespace) -> None:
     ]
     try:
         retag.require_tagging_format(added, target.name, retag.FAITHFULNESS_COLUMNS)
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    try:
         shutil.copy2(target, backup)  # the owner's marks, as they were
         # The tagging file goes first: if it cannot be written (open in Excel) nothing else changed.
         extra._write(target, retag.spreadsheet_safe(kept + added))  # idempotent on earlier rows
+    except OSError as exc:
+        backup.unlink(
+            missing_ok=True
+        )  # the tagging file was not touched: the next run starts clean
+        sys.exit(f"cannot write {target.name} ({exc}); close it in Excel and run again")
+    try:
+        extra._write(ids_path, ids)
+        write_coverage(coverage_path, coverage)
+    except OSError as exc:
+        # The tagging file already has the new rows; put the three back as they were. If that fails
+        # too, the copy stays and the message says what state each file is in.
         try:
-            extra._write(ids_path, ids)
-            write_coverage(coverage_path, coverage)
-        except OSError:
             shutil.copy2(backup, target)
             extra._write(ids_path, old_ids)
             write_coverage(coverage_path, old_coverage)
-            raise
-    except retag.TagFileError as exc:
-        sys.exit(str(exc))
-    except OSError as exc:
-        backup.unlink(missing_ok=True)  # nothing was added: the next run starts clean
-        sys.exit(f"cannot write the files ({exc}); close {target.name} in Excel and run again")
+        except OSError as again:
+            sys.exit(
+                f"cannot write {ids_path.name} or {COVERAGE_NAME} ({exc}) and could not undo "
+                f"({again}). {target.name} may already hold the new rows; {ids_path.name} and "
+                f"{COVERAGE_NAME} may be old or half-written. The marks as they were are in "
+                f"{backup.name}: do not delete it. Fix the cause and run again."
+            )
+        backup.unlink(missing_ok=True)
+        sys.exit(f"cannot write {ids_path.name} or {COVERAGE_NAME} ({exc}); nothing was added")
     print(f"{len(added)} new texts appended to {target} (marks untouched; copy in {backup.name})")
 
 
