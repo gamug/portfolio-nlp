@@ -136,15 +136,33 @@ def _period_lines(rows: list[dict[str, str]]) -> list[str]:
     return lines
 
 
-def _confusion_lines(rows: list[dict[str, str]]) -> list[str]:
+def _confusion_lines(rows: list[dict[str, str]], populations: dict[str, int]) -> list[str]:
     """Where the model and the owner part: a row per class the model predicted, a column per class
-    the owner marked (raw counts of the sample, not re-weighted)."""
+    the owner marked. Raw counts of the sample, then the same rows as shares re-weighted by stratum
+    size (the sample draws the same number per class, the corpus does not), and per part."""
     classes = gold_metrics.SENTIMENT_CLASSES
     counts = Counter((r["predicted"], r["gold"]) for r in rows)
     lines = ["[all] model (rows) against owner (columns), raw counts: " + " | ".join(classes)]
     for predicted in classes:
         cells = " | ".join(f"{counts[(predicted, gold)]:>3}" for gold in classes)
         lines.append(f"[all]   {predicted:>8}: {cells}")
+    size = Counter(r["stratum"] for r in rows)
+    weighted: Counter[tuple[str, str]] = Counter()
+    for r in rows:
+        weighted[(r["predicted"], r["gold"])] += populations[r["stratum"]] / size[r["stratum"]]
+    lines.append("[all] the same rows re-weighted by stratum size (share of each predicted class)")
+    for predicted in classes:
+        total = sum(weighted[(predicted, gold)] for gold in classes)
+        cells = " | ".join(
+            f"{100 * weighted[(predicted, gold)] / total:5.1f}%" if total else "  n/a "
+            for gold in classes
+        )
+        lines.append(f"[all]   {predicted:>8}: {cells}")
+    for part in sorted({r["part"] for r in rows}):
+        mine = Counter((r["predicted"], r["gold"]) for r in rows if r["part"] == part)
+        for predicted in classes:
+            cells = " | ".join(f"{mine[(predicted, gold)]:>3}" for gold in classes)
+            lines.append(f"[{part}]   {predicted:>8}: {cells}")
     return lines
 
 
@@ -242,7 +260,7 @@ def sentiment_report(out: Path, gold: bool = False) -> list[str]:
     ]
     lines += _period_lines(rows)
     lines += _sentiment_block("all", rows, populations)
-    lines += _confusion_lines(rows)
+    lines += _confusion_lines(rows, populations)
     parts = sorted({r["part"] for r in rows})
     if len(parts) > 1:
         for part in parts:

@@ -195,8 +195,8 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 
   The largest error by far is a text the model calls neutral and the owner calls positive (34 of the 60
   predicted neutral). The notes of the owner are not the cause: 25 of the 31 notes say the text is not about the
-  company or states no relevant fact (all marked neutral), but agreement on the other 155 texts is 58.1%,
-  against 57.2% on all 180. (The count is by reading the 31 notes: 25 "not about the company / no relevant fact",
+  company or states no relevant fact (all marked neutral), but agreement on the other 155 texts is 57.4%,
+  against 57.2% on all 180 (the 25 agree 14 of 25); the 25 keys, read by hand: 158982#TTD 328872#TTWO 323191#EQR 474491#TTWO 164613#JNJ 155187#TTWO 341540#OKE 341540#CAT 295682#JPM 252049#BE 341540#MDLZ 341540#BA 93680#AMZN 474491#TTD 264983#summary 157085#AMZN 208175#MSI 115964#AAPL 439320#STLD 465240#FLEX 169817#summary 90037#GS 191952#HD 131202#FRT 174853#STZ). (The count is by reading the 31 notes: 25 "not about the company / no relevant fact",
   2 "unclear", 3 "weird" (the news is good and the stock fell; marked neutral), 1 "Investor activity" (positive).)
 - **The same text for two companies:** 16 of the 180 texts are shared by two companies or more of one
   article, and marked once per company. Two of the eight pairs got different marks (157085 NFLX positive and AMZN

@@ -16,9 +16,9 @@ is no ``review_order`` in the draw). The run stops unless
   hash the draw recorded (so the mark belongs to that text and the file was not edited while
   tagging);
 * every row of the draw has the stratum, the prediction, the part and the stratum size the figures
-  of D32 need, and the sample is the one drawn (``gold_metrics.check_sentiment_design``: ``--per-class``
-  texts of each predicted class in part ``checked``, ``--per-class-extractor`` in part ``extractor``,
-  all of a stratum that is smaller, one whole-number size per stratum).
+  of D32 need, and the sample is the one drawn (``gold_metrics.check_sentiment_design``:
+  ``gold_metrics.SENTIMENT_DESIGN`` texts of each predicted class in each part, all of a stratum
+  that is smaller, one whole-number size per stratum: the same design ``report_wi18 --gold`` checks).
 
 ``text_hash`` and ``revision`` are copied from the ids, never recomputed; ``pub_date`` is the one the
 draw wrote in the file the owner tagged (the draw's ids file has none). A gold file that already
@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -104,10 +105,18 @@ def build(
                 f"{drawn['key']}: the text in {TO_TAG_NAME} is not the text the draw recorded (it "
                 "was edited after the draw); the mark would belong to another text"
             )
+        pub_date = (marked.get("pub_date") or "").strip()
+        try:
+            date.fromisoformat(pub_date[:10])
+        except ValueError:
+            raise gold_metrics.MarkedFileError(
+                f"{drawn['key']}: pub_date {pub_date!r} in {TO_TAG_NAME} is not an ISO date "
+                "(YYYY-MM-DD...); a spreadsheet may have rewritten it"
+            ) from None
         out.append(
             {
                 **{f: drawn[f] for f in retag.SENTIMENT_GOLD_COLUMNS if f in drawn},
-                "pub_date": marked.get("pub_date", ""),
+                "pub_date": pub_date,
                 "sentiment": marked["sentiment"],
                 "notes": marked["notes"],
             }
@@ -125,9 +134,6 @@ def main() -> None:
         action="store_true",
         help="accept that marks, text hashes or rows of the existing gold file change or go",
     )
-    design = gold_metrics.SENTIMENT_DESIGN
-    parser.add_argument("--per-class", type=int, default=design.get("checked", 0))
-    parser.add_argument("--per-class-extractor", type=int, default=design.get("extractor", 0))
     args = parser.parse_args()
     try:
         marks = gold_metrics.read_marked(
@@ -136,11 +142,7 @@ def main() -> None:
             gold_metrics.SENTIMENT_CLASSES,
             required=("article_id", "ticker", "kind", "text", "pub_date"),
         )
-        rows = build(
-            marks,
-            gold_metrics.read_rows(args.out / IDS_NAME),
-            {"checked": args.per_class, "extractor": args.per_class_extractor},
-        )
+        rows = build(marks, gold_metrics.read_rows(args.out / IDS_NAME))
     except gold_metrics.MarkedFileError as exc:
         sys.exit(str(exc))
     if args.gold.exists() and not args.overwrite_marks:

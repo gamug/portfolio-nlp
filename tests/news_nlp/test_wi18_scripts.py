@@ -1832,7 +1832,7 @@ def test_a_first_draw_that_cannot_write_everything_leaves_no_half_set(
     assert target.read_bytes() == b"header-only scaffold\n"
 
 
-SENT_DESIGN = ("--per-class", "1", "--per-class-extractor", "1")
+SENT_DESIGN = {"checked": 1, "extractor": 1}
 SENT_SPEC = [  # kind, ticker, part, predicted, the owner's mark
     ("summary", "", "checked", "positive", "positive"),
     ("company_text", "B", "checked", "negative", "negative"),
@@ -1895,7 +1895,9 @@ def _edit_csv(path: Path, edit: Callable[[list[dict[str, str]]], object]) -> Non
 def _run_sentiment_gold(
     monkeypatch: pytest.MonkeyPatch, out: Path, gold: Path, *extra: str, design: bool = True
 ) -> None:
-    argv = ["b", "--out", str(out), "--gold", str(gold), *(SENT_DESIGN if design else ()), *extra]
+    if design:
+        monkeypatch.setattr(gold_metrics, "SENTIMENT_DESIGN", dict(SENT_DESIGN))
+    argv = ["b", "--out", str(out), "--gold", str(gold), *extra]
     monkeypatch.setattr(sys, "argv", argv)
     SENTGOLD.main()
 
@@ -1990,16 +1992,22 @@ def test_sentiment_gold_refuses_a_sample_that_is_not_the_one_drawn(
         _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
     _sentiment_gold_files(tmp_path)  # a class that is smaller than the draw's number is taken whole
     with pytest.raises(SystemExit, match=r"checked/positive: 1 rows, the draw takes 2"):
-        _run_sentiment_gold(
-            monkeypatch,
-            tmp_path,
-            tmp_path / "g.csv",
-            "--per-class",
-            "2",
-            "--per-class-extractor",
-            "1",
-            design=False,
-        )
+        monkeypatch.setattr(gold_metrics, "SENTIMENT_DESIGN", {"checked": 2, "extractor": 1})
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv", design=False)
+
+
+def test_sentiment_gold_refuses_a_pub_date_a_spreadsheet_rewrote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    _edit_csv(tmp_path / SENTGOLD.TO_TAG_NAME, lambda rows: rows[1].update(pub_date="3/1/2022"))
+    with pytest.raises(SystemExit, match=r"2#B: pub_date '3/1/2022'.*not an ISO date"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    _edit_csv(
+        tmp_path / SENTGOLD.TO_TAG_NAME,
+        lambda rows: rows[1].update(pub_date="2022-03-01T10:00:00+0000"),
+    )
+    _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")  # the draw's own format passes
 
 
 def test_sentiment_gold_protects_the_tracked_marks_and_weights_from_a_silent_change(
@@ -2086,7 +2094,7 @@ def test_sentiment_report_from_the_tracked_gold_equals_the_one_from_data(
     monkeypatch.setattr(gold_metrics, "SENTIMENT_DESIGN", {"checked": 10})
     _sentiment_fixture_for_the_report(tmp_path)
     gold = tmp_path / "gold" / "sentiment_gold.csv"
-    _run_sentiment_gold(monkeypatch, tmp_path, gold, "--per-class", "10", design=False)
+    _run_sentiment_gold(monkeypatch, tmp_path, gold, design=False)
     # the builder's own extractor part is not in this fixture: only `checked` has a design
     from_data = REPORT.sentiment_report(tmp_path)
     from_gold = REPORT.sentiment_report(gold.parent, gold=True)
@@ -2103,21 +2111,29 @@ def test_sentiment_report_prints_where_the_model_and_the_owner_part(tmp_path: Pa
         r["key"]: r
         for r in csv.DictReader((tmp_path / SENTGOLD.IDS_NAME).open(encoding="utf-8-sig"))
     }
+    marks = ("positive", "negative", "positive", "positive", "neutral", "neutral")
     lines = REPORT._confusion_lines(
         [
-            {"predicted": ids[k]["predicted"], "gold": g}
-            for k, g in zip(
-                ids,
-                ("positive", "negative", "positive", "positive", "neutral", "neutral"),
-                strict=True,
-            )
-        ]
+            {
+                "predicted": ids[k]["predicted"],
+                "stratum": ids[k]["stratum"],
+                "part": ids[k]["part"],
+                "gold": g,
+            }
+            for k, g in zip(ids, marks, strict=True)
+        ],
+        {i["stratum"]: int(i["population"]) for i in ids.values()},
     )
     table = {
         line.split(":")[0].split()[-1]: [int(c) for c in line.split(":")[1].split("|")]
-        for line in lines[1:]
+        for line in lines[1:4]
     }
     assert table == {"positive": [2, 0, 0], "negative": [0, 1, 1], "neutral": [1, 0, 1]}
+    weighted = next(i for i, line in enumerate(lines) if "re-weighted by stratum size" in line)
+    # neutral row: checked/neutral (population 107, owner positive) and extractor/neutral (110, neutral)
+    assert lines[weighted + 1].endswith("100.0% |   0.0% |   0.0%")
+    assert lines[weighted + 3].endswith(" 49.3% |   0.0% |  50.7%")
+    assert any(line.startswith("[extractor]") for line in lines)  # the split by part
 
 
 def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
@@ -2126,7 +2142,7 @@ def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
     monkeypatch.setattr(gold_metrics, "SENTIMENT_DESIGN", {"checked": 10})
     _sentiment_fixture_for_the_report(tmp_path)
     gold = tmp_path / "gold" / "sentiment_gold.csv"
-    _run_sentiment_gold(monkeypatch, tmp_path, gold, "--per-class", "10", design=False)
+    _run_sentiment_gold(monkeypatch, tmp_path, gold, design=False)
     full = gold.read_text(encoding="utf-8")
     lines = full.splitlines()
     gold.write_text("\n".join(lines[:21]) + "\n", encoding="utf-8")  # 20 of the 30 texts
