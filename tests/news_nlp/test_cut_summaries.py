@@ -702,3 +702,27 @@ def test_chunks_without_their_manifest_stop_the_run_and_keep_the_index(tmp_path:
             chunks_exist=True,
         )
     assert path.read_bytes() == before  # the index the chunks were made from is intact
+
+
+@pytest.mark.parametrize(
+    ("where", "lost"),
+    [("", "manifest"), ("redo", "manifest"), ("", "index")],
+)
+def test_main_stops_when_chunks_exist_and_the_manifest_or_the_index_is_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, where: str, lost: str
+) -> None:
+    """Through ``main()`` itself: the real ``load_or_build_index`` gets the arguments it needs."""
+    parts = CUT.slices(_index(4), 2)
+    CUT.atomic_write(tmp_path / CUT.INDEX_NAME, CUT.INDEX_FIELDS, _index(4))
+    CUT.run_chunks(tmp_path, parts, _processor([]), max_chunks=1, log=lambda _m: None)
+    CUT.atomic_text(tmp_path / CUT.MANIFEST_NAME, "{}")
+    if where:
+        (tmp_path / where).mkdir()
+        (tmp_path / "chunk_00001.csv").rename(tmp_path / where / "chunk_00001.csv")
+    (tmp_path / (CUT.MANIFEST_NAME if lost == "manifest" else CUT.INDEX_NAME)).unlink()
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    monkeypatch.setattr(CUT.db, "connect_pipeline", object)
+    monkeypatch.setattr(sys, "argv", ["c", "--out", str(tmp_path), "--chunk-size", "2"])
+    with pytest.raises(SystemExit, match="Nothing was changed"):
+        CUT.main()
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before

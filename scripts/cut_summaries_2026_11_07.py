@@ -48,8 +48,8 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
   old file waits in ``redo/`` until the new one is written). The lock covers the manifest too: a
   second start can neither change it nor the chunks while a run is in progress.
 * The manifest is written atomically like the chunks, and an index with no manifest beside it (a first
-  run killed in between) is listed again, unless chunks exist: then the run stops and the manifest
-  has to be restored. ``--status`` slices the index by the manifest's chunk size.
+  run killed in between) is listed again, unless chunks exist (also in ``redo/``): then the run stops, and so it does when the
+  index is missing and chunks exist; the missing file has to be restored. ``--status`` slices the index by the manifest's chunk size.
 * ``--status`` reads only (no lock, no manifest, no index built); it prints the chunks done and the scope counts so far, and loads no model. The scopes
   the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
   that had no stored NER span: read it after the first chunks, before leaving the job to run.
@@ -714,6 +714,11 @@ def read_cut_summaries(
     return rows
 
 
+def chunk_files_exist(out: Path) -> bool:
+    """Any chunk of the cut, also one set aside in ``redo/``."""
+    return any(out.glob("chunk_*.csv")) or any((out / "redo").glob("chunk_*.csv"))
+
+
 def load_or_build_index(
     conn: db.NewsNlpDatabase,
     path: Path,
@@ -726,11 +731,12 @@ def load_or_build_index(
     not say which ``--since`` it was listed for, so it is listed again, but only when no chunk
     exists: chunks without their manifest were made from an index that a new listing could
     replace by another one, so the run stops and the manifest has to be restored."""
-    if chunks_exist and not manifest_exists:
+    if chunks_exist and not (manifest_exists and path.exists()):
         sys.exit(
-            f"chunks exist in {path.parent} but {MANIFEST_NAME} does not: the index and the "
-            "conditions they were made under are not known. Restore the manifest from a copy, or "
-            "move the folder away to start a new cut. Nothing was changed."
+            f"chunks exist in {path.parent} but {MANIFEST_NAME} or {INDEX_NAME} does not: the index "
+            "and the conditions they were made under are not known, and a new listing could differ. "
+            "Restore the missing file from a copy, or move the folder away to start a new cut. "
+            "Nothing was changed."
         )
     if path.exists() and manifest_exists:
         return read_rows(path)
@@ -801,7 +807,7 @@ def main() -> None:
             index_path,
             args.since,
             manifest_exists=(out / MANIFEST_NAME).exists(),
-            chunks_exist=any(out.glob("chunk_*.csv")),
+            chunks_exist=chunk_files_exist(out),
         )
         entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
         parts = slices(index, args.chunk_size)
