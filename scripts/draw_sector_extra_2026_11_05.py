@@ -124,6 +124,12 @@ def _read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
+def has_rows(path: Path) -> bool:
+    """True when the file exists and holds at least one row: a header-only file (the empty
+    scaffold of a set not drawn yet, ``docs/gold_datasets.md``) is not the owner's tagging work."""
+    return path.exists() and bool(_read(path))
+
+
 def _write(path: Path, rows: list[dict[str, str]]) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(rows[0]))

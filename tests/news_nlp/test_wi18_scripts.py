@@ -775,3 +775,13 @@ def test_the_report_names_the_missing_file_and_marks_a_census(
     _csv(tmp_path / "sentiment_gold_ids.csv", ids)
     _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
     assert "(census, not resampled" in "\n".join(REPORT.sentiment_report(tmp_path))
+
+
+def test_a_header_only_scaffold_is_not_the_owners_tagging_file(tmp_path: Path) -> None:
+    extra = _script("draw_sector_extra_2026_11_05")
+    path = tmp_path / "sentiment_gold_to_tag.csv"
+    assert not extra.has_rows(path)  # no file
+    path.write_text("﻿review_order,article_id,sentiment\n", encoding="utf-8")
+    assert not extra.has_rows(path)  # the scaffold: columns, no rows
+    _csv(path, [{"review_order": "1", "article_id": "7", "sentiment": ""}])
+    assert extra.has_rows(path)  # one row is the owner's work, even untagged

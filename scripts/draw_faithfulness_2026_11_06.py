@@ -207,7 +207,7 @@ def main() -> None:
             "is T-148b3; use --extractors baseline for the decision on the baseline (D34)."
         )
     target = out / TO_TAG_NAME
-    if target.exists():
+    if extra.has_rows(target):
         sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     universe = retag_cli.companies()
     resolver = CompanyResolver(universe)

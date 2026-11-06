@@ -406,7 +406,7 @@ def main() -> None:
     args = parser.parse_args()
     out: Path = args.out
     ids_path, target = out / IDS_NAME, out / TO_TAG_NAME
-    if target.exists():
+    if extra.has_rows(target):
         sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     if ids_path.exists():
         chosen = extra._read(ids_path)
