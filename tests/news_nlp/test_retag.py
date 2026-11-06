@@ -713,3 +713,11 @@ def test_sentiment_tagging_format_keeps_the_spanish_pair_after_text() -> None:
     assert any(
         "not the tagging format" in p for p in retag.tagging_format_problems([without], cols)
     )
+
+
+def test_spreadsheet_safe_neutralises_formulas_but_not_the_owners_marks() -> None:
+    rows = [{"title": "=SUM(A1)", "text": "-5% on the day", "ticker": "AAPL", "notes": "=keep"}]
+    got = retag.spreadsheet_safe(rows)[0]
+    assert got["title"] == "'=SUM(A1)" and got["text"] == "'-5% on the day"
+    assert got["ticker"] == "AAPL" and got["notes"] == "=keep"
+    assert rows[0]["title"] == "=SUM(A1)"  # the input is not changed

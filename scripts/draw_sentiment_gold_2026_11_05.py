@@ -313,7 +313,7 @@ def main() -> None:
     rows = tag_rows(chosen, spanish)
     try:
         retag.require_tagging_format(rows, target.name, retag.SENTIMENT_TAGGING_COLUMNS)
-        extra._write(target, rows)
+        extra._write(target, retag.spreadsheet_safe(rows))
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     except PermissionError:

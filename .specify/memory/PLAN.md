@@ -2271,7 +2271,13 @@ above, it says so; nothing else above is touched.
   precision of each kind is recorded here. **Rule fixed before the figure is seen (owner,
   2026-11-06):** if at most 80% of the `continuation` paragraphs are right they are dropped from
   training (train on `lead` only); otherwise both kinds are used. With 100 paragraphs each
-  precision has an interval of about +/-8 to 10 points, and it is reported for 2022+ apart. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
+  precision has an interval of about +/-8 to 10 points, and it is reported for 2022+ apart. **The rule is on
+  the point estimate, as the owner fixed it** (the one bar not judged on the interval): the report prints the
+  interval and a note when it straddles 80%, but the decision does not change; with no `continuation` row
+  marked the report stops instead of choosing (`train_on_lead_only`). The check file must carry `pub_date`.
+  **Comparison unit (D32):** the model and the baseline are compared on the same 30 bodies, but the baseline cuts
+  by sentence and gives a sentence to every company it names, the structured parser by paragraph; the gain
+  therefore measures the extractor as a whole (cut and attribution), not the attribution alone. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
 - **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
   is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
@@ -2319,8 +2325,11 @@ above, it says so; nothing else above is touched.
   stratum sizes (`population` in the ids file) and its interval is a bootstrap over the strata.
   Negative **precision** is read inside the predicted-negative stratum (60 texts, about +/-13
   points); negative **recall** needs the true negatives hidden in the other two strata, so it is a
-  re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is judged on the point
-  estimate; when the interval of a figure straddles its bar the result is reported as "not decided",
+  re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is **passed** when the
+  whole 95% interval is at or above it, **failed** when the whole interval is below it, and "not decided"
+  otherwise (the interval straddles the bar, or only touches it from below); the point estimate is
+  always printed and never decides alone (`Figure.judge`, edges tested). Faithfulness and the baseline gain are judged
+  the same way. The result "not decided" is reported as such,
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the gold holds the summaries and the
   company texts of structured multi bodies; the texts the attribution model writes for narrative
@@ -2354,7 +2363,7 @@ above, it says so; nothing else above is touched.
   the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
   one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
   model trains on 2026-11-08 on the same GPU after them; NER, step 4 and sentiment run after the
-  go, 2026-11-12 to 2026-11-14.
+  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Non-atomic writes and concurrent draws stay accepted: single-owner tooling.
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*

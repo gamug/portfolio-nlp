@@ -1110,6 +1110,12 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       - *11-09 to 11-10:* the owner tags the 30. *11-10:* the 180 sentiment texts are drawn; the owner tags them 11-11.
       - *11-12:* decision, from `report_wi18 scope|sentiment|faithfulness`. After a go: NER, step 4 and sentiment over
         the window 11-12 to 11-14, hand-over about 11-16.
+      **Checkpoint 11-09 (end of day):** the tagging of the label check and the held-out 200 (400 items) must be
+      back, and the faithfulness file exported. If the held-out 200 is not back, the scope figure is reported as
+      "not evaluated" and the cut still goes if the other three pass; if the faithfulness or sentiment marks are not
+      back by 11-11 evening, the decision on 11-12 is no-go and the backtest team is told (the week's notice). The
+      developer reports the count of marked rows per file on 11-09, 11-10 and 11-11 (`report_wi18` refuses a half-marked
+      file and names the missing rows).
       The owner's tagging is 610 items in six days (200 + 200 + 30 + 180). **Rules fixed beforehand (owner,
       2026-11-06, also in PLAN D34):** a sentiment figure whose interval straddles its bar ("not decided") still goes,
       with the interval printed; if the model is not ready on 11-09, the 30 texts are exported from the baseline

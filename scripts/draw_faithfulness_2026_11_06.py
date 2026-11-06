@@ -216,7 +216,7 @@ def main() -> None:
         extra._write(
             out / IDS_NAME, ids
         )  # no news text: the owner's file is matched on review_order
-        extra._write(target, rows)
+        extra._write(target, retag.spreadsheet_safe(rows))
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     except PermissionError:

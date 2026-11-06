@@ -122,6 +122,35 @@ FAITHFULNESS_COLUMNS = (
 )
 
 
+TAG_COLUMNS_ALL = tuple(
+    dict.fromkeys(
+        (
+            *TAG_COLUMNS,
+            *SENTIMENT_TAG_COLUMNS,
+            *SEGMENT_CHECK_TAG_COLUMNS,
+            *FAITHFULNESS_TAG_COLUMNS,
+        )
+    )
+)
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def spreadsheet_safe(
+    rows: Sequence[Mapping[str, str]], tag_columns: Sequence[str] = TAG_COLUMNS_ALL
+) -> list[dict[str, str]]:
+    """Copies of *rows* for a file the owner opens in a spreadsheet: a value that starts with ``=``,
+    ``+``, ``-``, ``@``, a tab or a return gets a leading apostrophe, so it is shown as text and never
+    run as a formula. The columns the owner marks (*tag_columns*) are left as they are; the file's
+    marks are the only thing read back from it."""
+    return [
+        {
+            k: ("'" + v if k not in tag_columns and v.startswith(_FORMULA_STARTS) else v)
+            for k, v in row.items()
+        }
+        for row in rows
+    ]
+
+
 def tagging_format_problems(
     rows: Sequence[Mapping[str, str]], columns: Sequence[str] = TAGGING_COLUMNS
 ) -> list[str]:

@@ -71,10 +71,24 @@ def scope_report(out: Path) -> list[str]:
 
 
 def label_check_report(out: Path) -> list[str]:
-    rows = gold_metrics.read_marked(out / "segment_check_to_tag.csv", "correct", ("yes", "no"))
+    rows = gold_metrics.read_marked(
+        out / "segment_check_to_tag.csv",
+        "correct",
+        ("yes", "no"),
+        required=("article_id", "pub_date", "kind"),
+    )
     report = gold_metrics.label_check_report(rows)
     lines = [f"{name:>18}: {figure}" for name, figure in report.items()]
     lead_only = gold_metrics.train_on_lead_only(report)
+    undated = gold_metrics.rows_without_year(rows)
+    if undated:
+        lines.append(f"{undated} rows have no usable pub_date: they are not in the 2022+ figures")
+    cont = report["continuation"]
+    if cont.low <= gold_metrics.CONTINUATION_BAR <= cont.high:
+        lines.append(
+            f"note: the continuation interval {cont} straddles the "
+            f"{gold_metrics.CONTINUATION_BAR:.0%} bar; the owner's rule is on the point estimate"
+        )
     lines.append(
         "D27 rule: continuation precision "
         f"{report['continuation'].point:.1%} -> "

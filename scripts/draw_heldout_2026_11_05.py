@@ -165,7 +165,7 @@ def main() -> None:
     )
     try:
         retag.require_tagging_format(rows, target.name)
-        extra._write(target, rows)
+        extra._write(target, retag.spreadsheet_safe(rows))
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     except PermissionError:

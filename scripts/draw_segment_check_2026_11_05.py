@@ -166,7 +166,7 @@ def main() -> None:
     rows = build_rows(chosen, names, spanish)
     try:
         retag.require_tagging_format(rows, target.name, retag.SEGMENT_CHECK_COLUMNS)
-        extra._write(target, rows)
+        extra._write(target, retag.spreadsheet_safe(rows))
     except retag.TagFileError as exc:
         sys.exit(str(exc))
     except PermissionError:

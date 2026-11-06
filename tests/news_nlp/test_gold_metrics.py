@@ -103,6 +103,31 @@ def test_the_label_check_drops_continuation_only_at_or_under_the_bar() -> None:
     assert high["lead 2022+"].point == pytest.approx(0.95)
 
 
+def test_a_bar_is_judged_on_the_whole_interval_including_the_edges() -> None:
+    fig = gold_metrics.Figure
+    assert fig(0.9, 0.80, 0.95).judge(0.80) == "pass"  # low end exactly at the bar
+    assert fig(0.7, 0.60, 0.80).judge(0.80) == "not decided"  # high end exactly at the bar
+    assert fig(0.7, 0.60, 0.79).judge(0.80) == "fail"
+    assert fig(0.82, 0.74, 0.89).judge(0.80) == "not decided"  # point above, interval straddles
+
+
+def test_the_label_check_refuses_what_it_cannot_judge() -> None:
+    with pytest.raises(MarkedFileError, match="pub_date"):
+        gold_metrics.label_check_report([{"kind": "lead", "correct": "yes"}])
+    only_lead = gold_metrics.label_check_report(
+        [{"kind": "lead", "correct": "yes", "pub_date": "2023-01-01"}]
+    )
+    with pytest.raises(MarkedFileError, match="continuation"):
+        gold_metrics.train_on_lead_only(only_lead)
+    rows = [
+        {"kind": "lead", "correct": "yes", "pub_date": ""},
+        {"kind": "lead", "correct": "yes", "pub_date": "2021-05-01"},
+        {"kind": "lead", "correct": "yes", "pub_date": "2022-01-01"},
+    ]
+    assert gold_metrics.rows_without_year(rows) == 1
+    assert gold_metrics.label_check_report(rows)["lead 2022+"].point == 1.0
+
+
 def test_faithfulness_is_counted_per_extractor_when_a_text_is_shared() -> None:
     marks = {"a": True, "b": False, "c": True, "d": True}
     owners = {"a": ["baseline", "model"], "b": ["baseline"], "c": ["model"], "d": ["model"]}

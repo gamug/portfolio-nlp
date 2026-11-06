@@ -19,6 +19,7 @@ from news_nlp import triage
 
 Z95 = 1.96
 RESAMPLES = 2000
+LATE_FROM_YEAR = 2022  # the backtest window (D34)
 CONTINUATION_BAR = 0.80  # D27: at most this share right -> train on `lead` only
 SENTIMENT_CLASSES = ("positive", "negative", "neutral")
 
@@ -36,8 +37,10 @@ class Figure:
     high: float
 
     def judge(self, bar: float) -> str:
-        """``pass`` when the whole interval clears *bar*, ``fail`` when it is all below, else
-        ``not decided`` (D32: reported with the interval, the cut still goes, D34)."""
+        """``pass`` when the whole interval clears *bar* (its low end is at or above it), ``fail``
+        when the whole interval is below it, else ``not decided``: an interval that straddles the
+        bar or only touches it from below (``high == bar``) is not a pass or a fail. The point
+        estimate decides nothing alone (D32: reported with the interval, the cut still goes, D34)."""
         if self.low >= bar:
             return "pass"
         if self.high < bar:
@@ -203,22 +206,42 @@ def read_marked(
     return rows
 
 
+def _year(row: Mapping[str, str]) -> int | None:
+    """The publication year of a row (``pub_date`` as ``YYYY-...``), ``None`` when it has none."""
+    head = (row.get("pub_date") or "").strip()[:4]
+    return int(head) if head.isdigit() else None
+
+
+def rows_without_year(rows: Sequence[Mapping[str, str]]) -> int:
+    """Rows the ``2022+`` figures cannot place because their ``pub_date`` is empty or malformed."""
+    return sum(_year(r) is None for r in rows)
+
+
 def label_check_report(rows: Sequence[Mapping[str, str]]) -> dict[str, Figure]:
     """Precision of the automatic labels per kind (``lead`` / ``continuation``) from the marked
     ``correct`` column (yes / no), with Wilson intervals; ``<kind> 2022+`` repeats it for the rows
-    published from 2022 on (``pub_date``), the window the backtest cut serves."""
+    published from 2022 on (``pub_date``), the window the backtest cut serves. A file without the
+    ``pub_date`` column is refused: its ``2022+`` figures would silently be ``0 of 0``."""
+    if rows and "pub_date" not in rows[0]:
+        raise MarkedFileError("the label-check rows lack the column 'pub_date'")
     out: dict[str, Figure] = {}
     for kind in ("lead", "continuation"):
         part = [r for r in rows if r["kind"] == kind]
         out[kind] = wilson(sum(r["correct"] == "yes" for r in part), len(part))
-        late = [r for r in part if (r.get("pub_date") or "")[:4] >= "2022"]
+        late = [r for r in part if (_year(r) or 0) >= LATE_FROM_YEAR]
         out[f"{kind} 2022+"] = wilson(sum(r["correct"] == "yes" for r in late), len(late))
     return out
 
 
 def train_on_lead_only(report: Mapping[str, Figure]) -> bool:
     """D27's rule, fixed before the owner read the sample: the `continuation` labels are dropped
-    from training when at most :data:`CONTINUATION_BAR` of them are right."""
+    from training when at most :data:`CONTINUATION_BAR` of them are right. The rule is on the point
+    estimate, as the owner fixed it; the interval is printed beside it, not used. With no
+    `continuation` row marked there is no estimate and no rule: that raises, it never defaults."""
+    if math.isnan(report["continuation"].point):
+        raise MarkedFileError(
+            "no `continuation` row in the label check: the D27 rule has no figure"
+        )
     return report["continuation"].point <= CONTINUATION_BAR
 
 
