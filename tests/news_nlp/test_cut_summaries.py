@@ -286,3 +286,87 @@ def test_the_slow_span_count_is_repeated_only_when_ner_wrote_something(tmp_path:
     spans, newest = CUT.entities_basis(conn, "2021-12-31", path)  # type: ignore[arg-type]
     with pytest.raises(SystemExit, match="other conditions"):
         CUT.check_manifest(path, {"ner_spans": spans, "x": 1}, newest)
+
+
+def test_new_ner_spans_are_refused_unless_accepted_and_nothing_else_is(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    now = {"ner_spans": "5:10", "summariser": "m@r1"}
+    CUT.check_manifest(path, now, "10")
+    changed = {**now, "ner_spans": "6:12"}
+    with pytest.raises(SystemExit, match=r"--accept-new-spans"):
+        CUT.check_manifest(path, changed, "12")
+    CUT.check_manifest(path, changed, "12", accept_new_spans=True, chunks_done=7)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["ner_spans"] == "6:12"
+    assert saved["ner_spans_history"] == [{"ner_spans": "5:10", "chunks_made_under_it": 7}]
+    CUT.check_manifest(path, changed, "13")  # the same basis again: no new history
+    assert len(json.loads(path.read_text(encoding="utf-8"))["ner_spans_history"]) == 1
+    other = {**changed, "summariser": "m@r2"}
+    with pytest.raises(SystemExit, match="other conditions"):
+        CUT.check_manifest(path, other, "13", accept_new_spans=True)  # only spans may be accepted
+
+
+def test_the_lock_always_has_its_pid_and_can_be_broken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with CUT.locked(tmp_path):
+        assert (tmp_path / CUT.LOCK_NAME).read_text(encoding="utf-8").isdigit()
+        assert not list(tmp_path.glob("run.lock.*"))  # the private file is gone
+    (tmp_path / CUT.LOCK_NAME).write_text("424242", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)
+    with pytest.raises(SystemExit, match="--break-lock"), CUT.locked(tmp_path):
+        pass
+    with CUT.locked(tmp_path, break_lock=True):  # a pid reused after a restart
+        pass
+    assert not (tmp_path / CUT.LOCK_NAME).exists()
+
+
+def test_an_empty_summary_is_retried_once_and_then_marked_never_silent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[list[str]] = []
+
+    def flaky(texts: list[str]) -> list[tuple[str, int]]:
+        calls.append(texts)
+        return [("" if t.endswith("bad") and len(calls) == 1 else "ok", 1) for t in texts]
+
+    assert CUT.summarise_with_retry(flaky, ["a", "b bad"]) == [("ok", 1), ("ok", 1)]
+    assert calls == [["a", "b bad"], ["b bad"]]
+    process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
+    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
+    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    entry = {"body_hash": triage.body_hash("Acme rose."), "article_ids": "1"}
+    [row] = process([entry])
+    assert row["status"] == CUT.EMPTY and row["summary"] == ""
+    parts = [[entry]]
+    CUT.run_chunks(tmp_path, parts, lambda _p: [row], log=lambda _m: None)
+    assert any("came back empty: 1" in line for line in CUT.status(tmp_path, parts))
+
+
+def _finished_cut(out: Path, monkeypatch: pytest.MonkeyPatch, n: int = 5) -> None:
+    index = _index(n)
+    CUT.atomic_write(out / CUT.INDEX_NAME, CUT.INDEX_FIELDS, index)
+    args = argparse.Namespace(since="2021-12-31", chunk_size=2)
+    CUT.check_manifest(out / CUT.MANIFEST_NAME, CUT.conditions(args, out / CUT.INDEX_NAME, "1:1"))
+    CUT.run_chunks(out, CUT.slices(index, 2), _processor([]), log=lambda _m: None)
+
+
+def test_read_cut_summaries_checks_the_cut_before_it_returns_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _finished_cut(tmp_path, monkeypatch)
+    rows = CUT.read_cut_summaries(tmp_path)
+    assert sorted(rows) == sorted(f"h{i}" for i in range(5))
+    assert rows["h3"]["summary"] == "summary of h3"
+    (tmp_path / "chunk_00003.csv").unlink()
+    with pytest.raises(CUT.CutSummariesError, match="not finished"):
+        CUT.read_cut_summaries(tmp_path)
+    assert len(CUT.read_cut_summaries(tmp_path, allow_partial=True)) == 4
+    manifest = json.loads((tmp_path / CUT.MANIFEST_NAME).read_text(encoding="utf-8"))
+    manifest["summariser"] = "other/model@abc"
+    (tmp_path / CUT.MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(CUT.CutSummariesError, match="the pipeline pins"):
+        CUT.read_cut_summaries(tmp_path, allow_partial=True)
+    with pytest.raises(CUT.CutSummariesError, match="not found"):
+        CUT.read_cut_summaries(tmp_path / "nowhere")

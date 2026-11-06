@@ -31,6 +31,15 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
   while it is alive stops (after Ctrl-C the first run still finishes its chunk: wait for it). A lock
   whose process is gone is taken over. Temporary files carry the pid of their writer.
 * A second ``Ctrl-C`` aborts at once (the atomic write makes that safe).
+* If the window's stored NER spans change between runs (D25 runs NER on the window), the run is
+  refused; ``--accept-new-spans`` resumes and keeps the chunks made (every row carries ``spans``),
+  recording the old value in the manifest. ``--break-lock`` removes ``run.lock`` first (a pid reused
+  after a restart).
+* A row's ``status`` is ``summarised``, ``no_summary_by_scope`` or ``summary_empty`` (a body whose
+  scope asks for a summary that came back empty twice: never silent, counted by ``--status``).
+* ``read_cut_summaries(out)`` is the one way to read a cut (manifest, pinned summariser, index and
+  chunks all checked). Columns: ``body_hash``, ``article_ids``, ``rule_scope``, ``gold_scope``,
+  ``spans``, ``status``, ``summary``, ``num_chunks``.
 * ``--status`` prints the chunks done and the scope counts so far, and loads no model. The scopes
   the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
   that had no stored NER span: read it after the first chunks, before leaving the job to run.
@@ -72,9 +81,14 @@ CHUNK_FIELDS = (
     "rule_scope",
     "gold_scope",
     "spans",
+    "status",
     "summary",
     "num_chunks",
 )
+#: ``status`` of a row: what became of its summary.
+SUMMARISED, BY_SCOPE, EMPTY = "summarised", "no_summary_by_scope", "summary_empty"
+#: Keys of the manifest that are bookkeeping, not conditions of the job.
+BOOKKEEPING = ("ner_newest_id", "ner_spans_history")
 LOCK_NAME = "run.lock"
 #: Rule scopes whose bodies get a summary (D25 step 3; ``multi_dominated`` is single + mentions, D23).
 SUMMARY_RULE_SCOPES = frozenset({"single", "multi_dominated", "sector", "market", "economy"})
@@ -170,28 +184,49 @@ def entities_basis(conn: db.NewsNlpDatabase, since: str, manifest: Path) -> tupl
     return "{}:{}".format(*conn.execute(ENTITIES_SQL, (since,)).fetchone()), newest
 
 
-def check_manifest(path: Path, now: dict[str, Any], newest: str = "") -> None:
+def check_manifest(
+    path: Path,
+    now: dict[str, Any],
+    newest: str = "",
+    *,
+    accept_new_spans: bool = False,
+    chunks_done: int = 0,
+) -> None:
     """Write the manifest of a new job, or stop when an existing job was made under other
-    conditions. ``ner_newest_id`` is bookkeeping (it moves when NER works on other articles) and
-    is refreshed, not compared."""
+    conditions. ``ner_newest_id`` moves when NER works on other articles and is refreshed, not
+    compared. If only the window's NER spans changed, ``accept_new_spans`` keeps the chunks already
+    made (their rows carry ``spans``) and records the old value and how many chunks were made under
+    it in ``ner_spans_history``; every other change refuses (summaries of two kinds in one cut)."""
     if not path.exists():
         path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
         return
     before = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        newest
-        and before.get("ner_newest_id") != newest
-        and {k: v for k, v in before.items() if k != "ner_newest_id"} == now
-    ):
-        path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
+    history = before.get("ner_spans_history", [])
+    core = {k: v for k, v in before.items() if k not in BOOKKEEPING}
+    if core != now:
+        changed = {k: (core.get(k), now.get(k)) for k in now if core.get(k) != now.get(k)}
+        if accept_new_spans and set(changed) == {"ner_spans"}:
+            history = [
+                *history,
+                {"ner_spans": core["ner_spans"], "chunks_made_under_it": chunks_done},
+            ]
+        else:
+            hint = (
+                " The NER spans of the window changed: --accept-new-spans keeps the chunks made "
+                "and records the change."
+                if set(changed) == {"ner_spans"}
+                else ""
+            )
+            sys.exit(
+                f"{path} was made under other conditions {changed}: summaries of two kinds would "
+                f"be mixed in one cut.{hint} Otherwise move the folder away to start a new cut."
+            )
+    elif not newest or before.get("ner_newest_id") == newest:
         return
-    before.pop("ner_newest_id", None)
-    if before != now:
-        changed = {k: (before.get(k), now.get(k)) for k in now if before.get(k) != now.get(k)}
-        sys.exit(
-            f"{path} was made under other conditions {changed}: summaries of two kinds would be "
-            "mixed in one cut. Move the folder away to start a new cut."
-        )
+    kept = {"ner_spans_history": history} if history else {}
+    path.write_text(
+        json.dumps({**now, "ner_newest_id": newest, **kept}, indent=2), encoding="utf-8"
+    )
 
 
 def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
@@ -220,27 +255,35 @@ def _alive(pid: int) -> bool:
 
 
 @contextlib.contextmanager
-def locked(out: Path) -> Iterator[None]:
+def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
     """One run at a time in *out*: ``run.lock`` holds the pid of the run in progress. A second
-    start while that process is alive stops; a lock left by a dead process is taken over."""
+    start while that process is alive stops; a lock left by a dead process is taken over. The pid is
+    written to a private file that is then hard-linked to ``run.lock``, so the lock never exists
+    without its content. ``break_lock`` removes a lock first (a pid reused after a restart)."""
     path = out / LOCK_NAME
-    for _ in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            text = path.read_text(encoding="utf-8").strip()
-            if text.isdigit() and _alive(int(text)) and int(text) != os.getpid():
-                sys.exit(
-                    f"another run (pid {text}) holds {path}. After Ctrl-C it still finishes its "
-                    "chunk: wait for it to end, then run again."
-                )
-            path.unlink(missing_ok=True)  # left by a process that is gone
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(str(os.getpid()))
-        break
-    else:
-        sys.exit(f"could not take {path}")
+    private = out / f"{LOCK_NAME}.{os.getpid()}"
+    private.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        if break_lock:
+            path.unlink(missing_ok=True)
+        for _ in range(2):
+            try:
+                os.link(private, path)
+            except FileExistsError:
+                text = path.read_text(encoding="utf-8").strip()
+                if text.isdigit() and _alive(int(text)) and int(text) != os.getpid():
+                    sys.exit(
+                        f"another run (pid {text}) holds {path}. After Ctrl-C it still finishes "
+                        f"its chunk: wait for it to end, then run again. If you are sure none is "
+                        f"running (a pid reused after a restart), run with --break-lock."
+                    )
+                path.unlink(missing_ok=True)  # left by a process that is gone
+                continue
+            break
+        else:
+            sys.exit(f"could not take {path}")
+    finally:
+        private.unlink(missing_ok=True)
     try:
         yield
     finally:
@@ -255,10 +298,11 @@ def run_chunks(
     max_chunks: int | None = None,
     should_stop: Callable[[], bool] = lambda: False,
     log: Callable[[str], None] = print,
+    break_lock: bool = False,
 ) -> int:
     """Make every chunk that has no file, in order, and return how many were made. Stops after
     *max_chunks* or when *should_stop* says so, always between two chunks."""
-    with locked(out):
+    with locked(out, break_lock=break_lock):
         return _make_chunks(out, parts, process, max_chunks, should_stop, log)
 
 
@@ -285,7 +329,11 @@ def _make_chunks(
         atomic_write(out / chunk_name(number), CHUNK_FIELDS, rows)
         made += 1
         rate = (time.monotonic() - started) / made
-        log(f"chunk {number}/{len(parts)} written; about {rate * (len(pending) - made):.0f} s left")
+        log(
+            f"chunk {number}/{len(parts)} written ({len(rows)} bodies, "
+            f"{rate / max(len(rows), 1):.2f} s per body); about "
+            f"{rate * (len(pending) - made):.0f} s left"
+        )
     return made
 
 
@@ -294,11 +342,13 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
     scopes: Counter[str] = Counter()
     summarised = 0
     no_spans = 0
+    empty = 0
     for number in done:
         for r in read_rows(out / chunk_name(number)):
             scopes[r["rule_scope"]] += 1
             summarised += bool(r["summary"])
             no_spans += r["spans"] == "0"
+            empty += r["status"] == EMPTY
     bodies = sum(len(parts[n - 1]) for n in done)
     return [
         f"{len(done)} of {len(parts)} chunks done ({bodies:,} of {sum(map(len, parts)):,} bodies)",
@@ -306,6 +356,7 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
         f"summaries so far: {summarised:,}; without a summary by design (rules' scope): "
         f"{ {k: v for k, v in scopes.items() if k not in SUMMARY_RULE_SCOPES} }",
         f"bodies with no stored NER span (scope read from the text alone): {no_spans:,}",
+        f"rows whose scope asks for a summary but came back empty: {empty:,}",
     ]
 
 
@@ -320,6 +371,7 @@ def load_summariser() -> Summariser:
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = AutoModelForSeq2SeqLM.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = model.to(device).eval()
+    print(f"summariser {cfg['model']}@{cfg['revision'][:8]} on {device.type}", flush=True)
 
     def summarise(texts: list[str]) -> list[tuple[str, int]]:
         return hierarchical_summarize_batch(
@@ -327,6 +379,16 @@ def load_summariser() -> Summariser:
         )
 
     return summarise
+
+
+def summarise_with_retry(summarise: Summariser, texts: list[str]) -> list[tuple[str, int]]:
+    """Summarise *texts*; the ones that come back empty are tried once more together."""
+    done = summarise(texts)
+    again = [i for i, (summary, _) in enumerate(done) if not summary]
+    if again:
+        for i, result in zip(again, summarise([texts[i] for i in again]), strict=True):
+            done[i] = result
+    return done
 
 
 def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[Row]]:
@@ -359,6 +421,7 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
                     "rule_scope": scope.scope,
                     "gold_scope": triage.RULE_SCOPE_TO_GOLD[scope.scope],
                     "spans": str(len(spans)),
+                    "status": SUMMARISED if scope.scope in SUMMARY_RULE_SCOPES else BY_SCOPE,
                     "summary": "",
                     "num_chunks": "",
                 }
@@ -370,10 +433,12 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
         if to_summarise:
             if "run" not in state:
                 state["run"] = load_summariser()
-            done = state["run"]([text for _, text in to_summarise])
+            done = summarise_with_retry(state["run"], [text for _, text in to_summarise])
             for (position, _), (summary, n_chunks) in zip(to_summarise, done, strict=True):
                 rows[position]["summary"] = summary
                 rows[position]["num_chunks"] = str(n_chunks)
+                if not summary:
+                    rows[position]["status"] = EMPTY  # never silent: counted by --status
         return rows
 
     return process
@@ -415,6 +480,46 @@ def first_spans(conn: db.NewsNlpDatabase, ids: Sequence[int]) -> list[str]:
     return []
 
 
+class CutSummariesError(Exception):
+    """The cut cannot be read as a whole and valid set of summaries."""
+
+
+def read_cut_summaries(out: Path, *, allow_partial: bool = False) -> dict[str, Row]:
+    """The rows of a cut by ``body_hash``, after checking that they can be trusted: a manifest
+    exists, its summariser is the one pinned in ``config/pipeline_models.json`` today, the index is
+    the one the manifest digests, every chunk file has the columns of :data:`CHUNK_FIELDS` and holds
+    its slice of the index, and (unless *allow_partial*) every chunk exists. Raises
+    :class:`CutSummariesError` naming the first problem."""
+    manifest_path = out / MANIFEST_NAME
+    if not manifest_path.exists():
+        raise CutSummariesError(f"{manifest_path} not found: not a cut made by this script")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
+    pinned = f"{cfg['model']}@{cfg['revision']}"
+    if manifest["summariser"] != pinned:
+        raise CutSummariesError(f"made with {manifest['summariser']}, the pipeline pins {pinned}")
+    index_path = out / INDEX_NAME
+    if file_digest(index_path) != manifest["index"]:
+        raise CutSummariesError(f"{INDEX_NAME} is not the one the manifest digests")
+    parts = slices(read_rows(index_path), int(manifest["chunk_size"]))
+    rows: dict[str, Row] = {}
+    for number, part in enumerate(parts, 1):
+        path = out / chunk_name(number)
+        if not path.exists():
+            if allow_partial:
+                continue
+            raise CutSummariesError(f"{path.name} is missing: the cut is not finished")
+        with path.open(encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            if tuple(reader.fieldnames or ()) != CHUNK_FIELDS:
+                raise CutSummariesError(f"{path.name} does not have the columns {CHUNK_FIELDS}")
+            chunk = list(reader)
+        if [r["body_hash"] for r in chunk] != [r["body_hash"] for r in part]:
+            raise CutSummariesError(f"{path.name} is not its slice of {INDEX_NAME}")
+        rows.update({r["body_hash"]: r for r in chunk})
+    return rows
+
+
 def load_or_build_index(conn: db.NewsNlpDatabase, path: Path, since: str) -> list[Row]:
     if path.exists():
         return read_rows(path)
@@ -434,6 +539,16 @@ def main() -> None:
     parser.add_argument("--chunk-size", type=int, default=250)
     parser.add_argument("--max-chunks", type=int, default=None)
     parser.add_argument("--status", action="store_true")
+    parser.add_argument(
+        "--accept-new-spans",
+        action="store_true",
+        help="resume although the window's stored NER spans changed (the old chunks are kept)",
+    )
+    parser.add_argument(
+        "--break-lock",
+        action="store_true",
+        help="remove run.lock first (a pid reused after a restart)",
+    )
     args = parser.parse_args()
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -441,8 +556,14 @@ def main() -> None:
     index_path = out / INDEX_NAME
     index = load_or_build_index(conn, index_path, args.since)
     entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
-    check_manifest(out / MANIFEST_NAME, conditions(args, index_path, entities), newest)
     parts = slices(index, args.chunk_size)
+    check_manifest(
+        out / MANIFEST_NAME,
+        conditions(args, index_path, entities),
+        newest,
+        accept_new_spans=args.accept_new_spans,
+        chunks_done=len(done_chunks(out, parts)),
+    )
     if args.status:
         print("\n".join(status(out, parts)))
         return
@@ -466,6 +587,7 @@ def main() -> None:
         make_processor(conn),
         max_chunks=args.max_chunks,
         should_stop=lambda: stop["now"],
+        break_lock=args.break_lock,
     )
     print("\n".join(status(out, parts)))
     print(f"{made} chunks made in this run")
