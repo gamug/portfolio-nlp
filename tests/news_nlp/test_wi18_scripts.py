@@ -1178,10 +1178,53 @@ def test_adding_an_extractor_keeps_every_mark_and_saves_a_copy(
     ]
     ids = list(csv.DictReader((out / FAITH.IDS_NAME).open(encoding="utf-8-sig", newline="")))
     assert [r["extractors"] for r in ids] == ["baseline|model", "baseline", "model"]
-    with pytest.raises(
-        SystemExit, match="previous add"
-    ):  # a second run does not overwrite the copy
+    with pytest.raises(SystemExit, match="interrupted"):  # a second run does not overwrite the copy
         FAITH.main()
+
+
+def test_a_failed_add_leaves_the_three_files_as_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        }
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    before = {n: (out / n).read_bytes() for n in (FAITH.TO_TAG_NAME, FAITH.IDS_NAME)}
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(FAITH, "collect_items", lambda *_a: ([_item("1", "T", "A new text.")], []))
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+
+    def locked(*_a: object) -> None:
+        raise PermissionError("coverage is open in Excel")
+
+    monkeypatch.setattr(FAITH, "write_coverage", locked)
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="cannot write"):
+        FAITH.main()
+    assert {n: (out / n).read_bytes() for n in before} == before
+    assert not (out / "faithfulness_to_tag.before_model.csv").exists()
 
 
 def test_adding_an_extractor_needs_a_first_draw_and_an_extractor_that_exists(

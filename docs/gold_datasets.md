@@ -54,8 +54,8 @@ pins the `gold/` headers to the column constants in `retag`.
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
-| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn 2026-11-06 (200 paragraphs, Spanish aid bought); owner marking; `gold/` file is a scaffold |
-| 4 | **Extractor sample** (faithfulness) | about 30 bodies | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | empty scaffold, not drawn |
+| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file is a scaffold until T-155 |
+| 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn 2026-11-06: 190 texts of 30 bodies, Spanish aid filled, `faithful` empty; `gold/` file is a scaffold |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
@@ -98,10 +98,14 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   purpose. Gold columns: `key`, `article_id`, `segment_index`, `ticker`, `kind`, `year`, `correct`, `notes`.
 - **Used for:** the rule fixed on 2026-11-06 (D27): if at most 80% of the `continuation` paragraphs are
   right they are dropped from training. **It decides what the attribution model trains on.**
+- **Result (read 2026-11-06):** `lead` 88.0% right (95% interval 80.2 to 93.0), `continuation` 38.0%
+  (29.1 to 47.8; 2022+ only 55.2%, 37.5 to 71.6). The rule gives **train on `lead` only**. Of the 12 wrong
+  `lead` labels, 5 are paragraphs about two or more companies, 3 a look-alike entity (another ticker, a
+  person) and 4 are not text about a company (market-mover intros, a table row).
 
 ### 4. Extractor sample (faithfulness) — `gold/faithfulness_gold.csv`
 
-- **What:** about 30 bodies the owner tagged `multi` that the one-segment-per-company parser cannot split
+- **What:** 30 bodies the owner tagged `multi` that the one-segment-per-company parser cannot split
   (narrative bodies), drawn once (`scripts/draw_faithfulness_2026_11_06.py`, `data/faithfulness_bodies.csv`).
   Each extractor (the mention-and-recency baseline today, the trained model later) writes the text each
   named company gets; the owner reads each text with its article and marks `faithful` (yes / no).
@@ -168,14 +172,15 @@ each set blocks, earliest block first.
 | Order | Set | Unblocks | Needed by | Waits for |
 |---|---|---|---|---|
 | 1 | **3. Label check** (200 paragraphs) | training the attribution model (`lead` only, or both kinds) | 2026-11-08 | nothing: the training set exists |
-| 2 | **4. Extractor sample** (about 30 bodies) | the decision on the extractor for narrative bodies; the extractor part of set 5 | 2026-11-09 | nothing: baseline-only draw (D34 rule b) |
+| 2 | **4. Extractor sample** (30 bodies, 190 texts) | the decision on the extractor for narrative bodies; the extractor part of set 5 | 2026-11-09 | nothing: baseline-only draw (D34 rule b) |
 | 3 | **5. Sentiment** (180 texts) | the D32 sentiment bar, so the cut can say whether its sentiment is checked | 2026-11-12 | the extractor decision (its 60 texts come from the extractor chosen) |
 | 4 | **2. Scope test** (200 bodies) | the scope measure (rules now, classifier later), the D24 category target | 2026-11-12 (go / no-go) | nothing: it can be tagged any time, but the cut does not wait for its result to start |
 | done | 1. Scope train | the labelling prompt, the sample for sets 4 and 5 | | |
 
-Owner work before the go / no-go of 2026-11-12: 580 rows (200 + 200 + 180) plus the faithfulness texts.
-The PLAN counts 610 by taking 30 texts for them, but the set is about 30 *bodies* and one row per company
-text, so the real number is known only when it is drawn.
+Owner work before the go / no-go of 2026-11-12: 770 items (200 + 200 + 190 + 180), 200 of them marked
+(the label check). The PLAN counted 610 by taking 30 texts for the faithfulness set, but the set is 30
+*bodies* and one row per company text: drawn, it is 190. **Open owner call: keep the 190 or reduce the set**
+(a smaller draw needs a new draw before any mark, and the date is close).
 
 Why this order:
 

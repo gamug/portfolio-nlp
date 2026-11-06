@@ -3,6 +3,7 @@ owner marks (Work item 18, T-148b2, D27, D32).
 
     uv run scripts/draw_faithfulness_2026_11_06.py [--out data] [--n 30] [--seed 20261106]
         [--extractors baseline,model] [--yes]
+    uv run scripts/draw_faithfulness_2026_11_06.py --add-extractor model [--out data] [--yes]
 
 The bodies are the ones the owner tagged ``multi`` (``gold/category_gold_v2.csv``) that the
 one-segment-per-company parser cannot split (``company_texts.split_company_texts`` is ``None``),
@@ -267,7 +268,11 @@ def add_extractor(args: argparse.Namespace) -> None:
     kept = extra._read(target)
     backup = target.with_name(f"{target.stem}.before_{name}{target.suffix}")
     if backup.exists():
-        sys.exit(f"{backup} exists: a previous add of {name} was not finished; look at it first")
+        sys.exit(
+            f"{backup} exists: the add of {name} was interrupted. Compare it with {target.name}: if "
+            f"{target.name} has the same marks, delete the copy and run again; if marks are "
+            f"missing, copy it over {target.name} first."
+        )
     done = retag_cli.add_spanish(
         out / CACHE_DIR,
         to_translate(new),
@@ -277,21 +282,30 @@ def add_extractor(args: argparse.Namespace) -> None:
     )
     names_of = {c.ticker: c.name for c in universe}
     added = tag_rows(new, {r["article_id"]: r for r in done}, names_of)
+    coverage_path = out / COVERAGE_NAME
+    old_ids, old_coverage = extra._read(ids_path), extra._read(coverage_path)
+    known = {tuple(r.values()) for r in old_coverage}
+    coverage = old_coverage + [
+        o for o in omissions if tuple(o[k] for k in COVERAGE_FIELDS) not in known
+    ]
     try:
         retag.require_tagging_format(added, target.name, retag.FAITHFULNESS_COLUMNS)
         shutil.copy2(target, backup)  # the owner's marks, as they were
-        extra._write(ids_path, ids)
-        known = {tuple(r.values()) for r in extra._read(out / COVERAGE_NAME)}
-        write_coverage(
-            out / COVERAGE_NAME,
-            extra._read(out / COVERAGE_NAME)
-            + [o for o in omissions if tuple(o[k] for k in COVERAGE_FIELDS) not in known],
-        )
+        # The tagging file goes first: if it cannot be written (open in Excel) nothing else changed.
         extra._write(target, retag.spreadsheet_safe(kept + added))  # idempotent on earlier rows
+        try:
+            extra._write(ids_path, ids)
+            write_coverage(coverage_path, coverage)
+        except OSError:
+            shutil.copy2(backup, target)
+            extra._write(ids_path, old_ids)
+            write_coverage(coverage_path, old_coverage)
+            raise
     except retag.TagFileError as exc:
         sys.exit(str(exc))
-    except PermissionError:
-        sys.exit(f"cannot write {target}: close it in Excel and run again")
+    except OSError as exc:
+        backup.unlink(missing_ok=True)  # nothing was added: the next run starts clean
+        sys.exit(f"cannot write the files ({exc}); close {target.name} in Excel and run again")
     print(f"{len(added)} new texts appended to {target} (marks untouched; copy in {backup.name})")
 
 

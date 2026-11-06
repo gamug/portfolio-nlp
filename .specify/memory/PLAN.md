@@ -2271,7 +2271,7 @@ above, it says so; nothing else above is touched.
   mix, so the model is also reported on the 2022+ bodies apart (the backtest window). The labels are
   automatic and unchecked: the owner reads 100 `lead` and 100 `continuation` paragraphs
   (`scripts/draw_segment_check_2026_11_05.py`, T-148b2) before the model trains, and the measured
-  precision of each kind is recorded here. **Rule fixed before the figure is seen (owner,
+  precision of each kind is recorded here (**read 2026-11-06, 200 paragraphs marked: `lead` 88.0% [80.2, 93.0], `continuation` 38.0% [29.1, 47.8], 2022+ `continuation` 55.2% [37.5, 71.6]; the rule below gives: train on `lead` only**; of the 12 wrong `lead` labels, 5 are paragraphs about two or more companies, 3 a different entity with a similar name (a ticker or a person) and 4 are not text about a company: market-mover intros, a table row, a cross-reference). **Rule fixed before the figure is seen (owner,
   2026-11-06):** if at most 80% of the `continuation` paragraphs are right they are dropped from
   training (train on `lead` only); otherwise both kinds are used. With 100 paragraphs each
   precision has an interval of about +/-8 to 10 points, and it is reported for 2022+ apart. **The rule is on
@@ -2375,7 +2375,7 @@ above, it says so; nothing else above is touched.
   90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
   snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
   2026-11-12**: if the owner's tagging (the held-out 200, 200 label-check paragraphs, the 30
-  faithfulness texts and the 180 sentiment texts: 610 items) is done and the extractor passes D32,
+  190 faithfulness texts (30 bodies; 2026-11-06 the draw gave 190, not the 30 assumed) and the 180 sentiment texts: 770 items, 200 of them marked) is done and the extractor passes D32 (**owner call, open: keep the 190 faithfulness texts or reduce the set; the date is close**),
   the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
   notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**
