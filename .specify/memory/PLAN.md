@@ -2268,7 +2268,10 @@ above, it says so; nothing else above is touched.
   mix, so the model is also reported on the 2022+ bodies apart (the backtest window). The labels are
   automatic and unchecked: the owner reads 100 `lead` and 100 `continuation` paragraphs
   (`scripts/draw_segment_check_2026_11_05.py`, T-148b2) before the model trains, and the measured
-  precision of each kind is recorded here. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
+  precision of each kind is recorded here. **Rule fixed before the figure is seen (owner,
+  2026-11-06):** if at most 80% of the `continuation` paragraphs are right they are dropped from
+  training (train on `lead` only); otherwise both kinds are used. With 100 paragraphs each
+  precision has an interval of about +/-8 to 10 points, and it is reported for 2022+ apart. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
 - **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
   is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
@@ -2289,7 +2292,10 @@ above, it says so; nothing else above is touched.
   rules-versus-gold figure on it is slightly optimistic. **Weights:** the bodies that share an article
   with the 720 or the 44 were left out of the draw and were not a random part of the sample (the 720
   were stratified), so a rate is re-weighted to the corpus with the size of each rule scope in the whole
-  1,000-body sample (`frame` in `data/heldout_strata.csv`), not with the bodies left to draw from.
+  1,000-body sample (`frame` in `data/heldout_strata.csv`), not with the bodies left to draw from. The frame (`data/heldout_strata.csv`, written by the draw
+  script on every run from the 720 and the 44 only) is: single 514, multi_dominated 245, roundup 108,
+  multi 93, sector 18, no_company 12, economy 5, market 5 (1,000 bodies; 7 left out for sharing an
+  article with the 720 or the 44, so the weights barely move).
 
 - **T-132 shrunk (owner, 2026-11-05).** It was designed around T-117's call budget and T-130's
   relevance judge, both superseded. Only the upstream alias table stays; the quarantined pairs
@@ -2328,16 +2334,27 @@ above, it says so; nothing else above is touched.
 - **D34 The backtest cut for the 2026-11-20 thesis delivery (T-154).** A short path, built while the
   full plan continues: for the bodies of the backtest window (published 2021-12-31 or later, about
   29,000 unique bodies), scope from the rules (not the classifier), NER for single and multi
-  bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, about 6
+  bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, up to 7
   hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
   the 180-text gold (D32). **Provisional**: the output says so and carries the measured figures; it
   is not the accepted pipeline. Left to after the delivery: the trained scope classifier and its
   90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
   snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
-  2026-11-12**: if the owner's tagging (about 30 + 180 items) is done and the extractor passes D32,
+  2026-11-12**: if the owner's tagging (the held-out 200, 200 label-check paragraphs, the 30
+  faithfulness texts and the 180 sentiment texts: 610 items) is done and the extractor passes D32,
   the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
-  notice, to report the layer as not evaluated.
+  notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**
+  (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
+  cut: it goes with the point estimate and the interval printed; (b) if the attribution model is not
+  ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
+  is on the baseline: the cut uses it for narrative bodies if it is at least 80% faithful,
+  otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
+  D27 decides, before the model trains, whether the `continuation` labels are used. **Runs:**
+  the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
+  one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
+  model trains on 2026-11-08 on the same GPU after them; NER, step 4 and sentiment run after the
+  go, 2026-11-12 to 2026-11-14.
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*

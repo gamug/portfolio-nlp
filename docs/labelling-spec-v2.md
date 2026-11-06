@@ -244,3 +244,18 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   the `_merged_` file, the `_incomplete_` and `_conflicts_` files are safe to delete.
 - **Not covered.** Spreadsheet formula prefixes in titles are not neutralised (research tooling over
   public headlines, not a production service).
+
+## Files the owner marks for Work item 18 (2026-11-06)
+
+All carry `spanish_title` and `spanish_text` right after `text` (`news_nlp.retag`); the figures come
+from `scripts/report_wi18_2026_11_06.py`, which stops on a half-marked file and names the rows.
+
+| File | Script | Columns after the Spanish pair | The owner marks | Figure |
+|---|---|---|---|---|
+| `heldout_to_tag.csv` | `draw_heldout_2026_11_05.py` | the scope format (`TAGGING_COLUMNS`) | `scope` | `report_wi18 scope`: rules' agreement, weighted with `heldout_strata.csv` |
+| `segment_check_to_tag.csv` | `draw_segment_check_2026_11_05.py` | `kind`, `previous_segment`, `spanish_previous_segment` | `correct` yes / no | `report_wi18 label-check`: precision per kind, D27's rule |
+| `faithfulness_to_tag.csv` | `draw_faithfulness_2026_11_06.py` | `body`, `spanish_body` | `faithful` yes / no | `report_wi18 faithfulness`: per extractor, blind |
+| `sentiment_gold_to_tag.csv` | `draw_sentiment_gold_2026_11_05.py` | `kind` | `sentiment` positive / negative / neutral | `report_wi18 sentiment`: D32 |
+
+In the label check the parser's company is shown on purpose (it checks an automatic label, it is not a
+gold tagging). In the faithfulness file the extractor is not shown and the rows are shuffled.

@@ -45,12 +45,18 @@ SAMPLE_NAME = "triage_sample_bodies.csv"
 RARE = ("no_company", "sector", "market", "economy")  # all taken: too few to leave to chance
 
 
+#: Files of ``*_ids.csv`` that are not held-out draws: their articles are not the owner's work on
+#: the scope and must not change which bodies this draw leaves out or counts as excluded.
+NOT_HELDOUT = ("gate240_ids.csv", "sentiment_gold_ids.csv", "segment_check_ids.csv")
+
+
 def tagged_ids(out: Path, name: str) -> set[str]:
     """Articles of every file already tagged or drawn for tagging: the review file, the sector
-    extras and any earlier held-out draw (not ``name`` itself, whose set is fixed)."""
+    extras and any earlier held-out draw (not ``name`` itself, whose set is fixed, and not the
+    draws of other work: :data:`NOT_HELDOUT`)."""
     ids = {r["article_id"] for r in extra._read(out / retag.REVIEW_NAME)}
-    for path in (out / extra.TO_TAG_NAME, *out.glob("*_ids.csv")):
-        if path.name in (f"{name}_ids.csv", "gate240_ids.csv") or not path.exists():
+    for path in (out / extra.TO_TAG_NAME, *sorted(out.glob("*_ids.csv"))):
+        if path.name in (f"{name}_ids.csv", *NOT_HELDOUT) or not path.exists():
             continue
         ids |= {r["article_id"] for r in extra._read(path) if r.get("article_id")}
     return ids
@@ -134,18 +140,22 @@ def main() -> None:
     args = parser.parse_args()
     out: Path = args.out
     ids_path, target = out / f"{args.name}_ids.csv", out / f"{args.name}_to_tag.csv"
-    if target.exists():
-        sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     frame = extra._read(out / SAMPLE_NAME)
     taken = tagged_ids(out, args.name)
     if ids_path.exists():
         chosen = extra._read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again (--n and --seed are ignored)")
+    elif target.exists():
+        sys.exit(f"{target} exists without {ids_path.name}: it is your tagging file")
     else:
         chosen = draw(frame, args.n, args.seed, taken)
         extra._write(ids_path, chosen)
         print(f"{len(chosen)} drawn:", dict(Counter(r["stratum"] for r in chosen)))
-    extra._write(out / f"{args.name}_strata.csv", strata_rows(frame, taken, chosen))
+    strata = strata_rows(frame, taken, chosen)
+    extra._write(out / f"{args.name}_strata.csv", strata)  # derived: rewritten on every run
+    print("strata (frame / excluded / free / drawn):", [tuple(r.values()) for r in strata])
+    if target.exists():
+        sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     rows = retag_cli.add_spanish(
         out,
         extra.tag_rows(source_rows(chosen)),

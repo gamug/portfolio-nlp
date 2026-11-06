@@ -461,6 +461,18 @@ def gics_guess(mentions: Counter[str], universe: dict[str, Company]) -> tuple[st
 
 #: Scopes the owner's 720 gold articles can be mapped to.
 GOLD_SCOPES = ("single", "multi", "sector", "market_economy", "investing_general", "unrelated")
+#: Rule scope (:class:`Scope`) -> the gold scope the owner's tag would be. A body the rules call
+#: single-company dominated by one company is *single + mentions* (D23).
+RULE_SCOPE_TO_GOLD = {
+    "single": "single",
+    "multi_dominated": "single",
+    "multi": "multi",
+    "roundup": "multi",
+    "market": "market_economy",
+    "economy": "market_economy",
+    "sector": "sector",
+    "no_company": "unrelated",
+}
 _UNRELATED_LABELS = frozenset({"unrelated", "non-related", "not-related"})
 _MULTI_NOTE = re.compile(
     r"multiple companies|many companies|other company|two companies|two stocks|comparison",

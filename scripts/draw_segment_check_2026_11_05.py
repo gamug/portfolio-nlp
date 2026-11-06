@@ -92,6 +92,9 @@ def build_rows(
                 "spanish_text": es["spanish_text"],
                 "kind": r["kind"],
                 "previous_segment": parts[index - 1][:MAX_CHARS] if index > 0 else "",
+                "spanish_previous_segment": (
+                    spanish[f"{r['key']}~prev"]["spanish_text"] if index > 0 else ""
+                ),
                 "correct": "",
                 "notes": "",
             }
@@ -100,6 +103,7 @@ def build_rows(
 
 
 def texts_to_translate(chosen: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The paragraph (key ``<id>#<position>``) and the one before it (key ``<id>#<position>~prev``)."""
     conn = db.connect_pipeline()
     keyed: list[dict[str, str]] = []
     for r in chosen:
@@ -107,13 +111,17 @@ def texts_to_translate(chosen: list[dict[str, str]]) -> list[dict[str, str]]:
             "SELECT title, body_text FROM source.articles WHERE id = ?", (int(r["article_id"]),)
         ).fetchone()
         parts = company_texts.segments(src["body_text"] or "")
-        keyed.append(
-            {
-                "article_id": r["key"],
-                "title": src["title"] or "",
-                "text": parts[int(r["segment_index"])][:MAX_CHARS],
-            }
-        )
+        index = int(r["segment_index"])
+        title = src["title"] or ""
+        keyed.append({"article_id": r["key"], "title": title, "text": parts[index][:MAX_CHARS]})
+        if index > 0:
+            keyed.append(
+                {
+                    "article_id": f"{r['key']}~prev",
+                    "title": title,
+                    "text": parts[index - 1][:MAX_CHARS],
+                }
+            )
     return keyed
 
 

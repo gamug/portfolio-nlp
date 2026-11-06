@@ -1031,9 +1031,10 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
         `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
       - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them before the 2026-11-12 go/no-go, T-154; a scope under 40 gold bodies is not topped up and has no recall floor, D33; the "about 300 bodies, at least 40 per scope" below is the original plan)* Held-out gold, drawn once before
-        any training from candidates prefiltered by custom rules, 50 of them checked by the owner
-        first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
-        twice (Q4).
+        any training. *As drawn (D30): all 39 bodies the rules call no-company, sector, market or economy,
+        the rest a seeded random draw from the 1,000-body sample; the original plan below (candidates
+        prefiltered by custom rules, 50 of them checked by the owner first (Q6), ~60 random bodies from
+        outside the filter (Q9), about 50 held-out bodies tagged twice (Q4)) is not what was drawn.*
 - [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), the scope first (NER then runs on
       `single` and `multi` bodies only, D25), from a local classifier (a fine-tuned small encoder reading the text, with the
       `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated
@@ -1058,9 +1059,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         - [x] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
           parser, with tests *(2026-11-05; a segment naming two companies at its start is `ambiguous`: no label, nothing inherited past it; a body is structured with at least 4 segments, 50% of them led by a company and 3 companies, the rule that finds 2,867 of the 81,961 unique bodies)*.
         - [ ] **T-148b2** Training set for the attribution model from those bodies (company name
-          masked, previous sentence as context, all years). **Set built 2026-11-05** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 33,624 labelled segments (21,682 `lead`, 11,942 `continuation`; ambiguous paragraphs have no row), 1 body in 10 as `val` (205 bodies before 2022, 65 from 2022 on: report the check on the 2022+ ones apart); the 33 structured bodies that share text with a tagged or held-out article are left out; the script stops and names the local git-ignored files it needs, and `tests/news_nlp/test_company_texts.py` pins the parser constants and the counts. Still to do: the owner's label check (100 `lead` + 100 `continuation` paragraphs, `scripts/draw_segment_check_2026_11_05.py`, Spanish columns after `text`; the precision goes into PLAN D27 before training), the mention-and-recency baseline, and
-          the owner's faithfulness check on about 30 narrative multi bodies (a file in the tagging
-          format, Spanish columns after `text`). Acceptance (D32): at least 80% of the extracted company texts faithful on the 30, and better than the baseline on the same 30.
+          masked, previous sentence as context, all years). **Set built 2026-11-05** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 33,624 labelled segments (21,682 `lead`, 11,942 `continuation`; ambiguous paragraphs have no row), 1 body in 10 as `val` (205 bodies before 2022, 65 from 2022 on: report the check on the 2022+ ones apart); the 33 structured bodies that share text with a tagged or held-out article are left out; the script stops and names the local git-ignored files it needs, and `tests/news_nlp/test_company_texts.py` pins the parser constants and the counts. Built 2026-11-06: the mention-and-recency baseline (`news_nlp.attribution_baseline`), the owner's label check (100 `lead` + 100 `continuation` paragraphs, `scripts/draw_segment_check_2026_11_05.py`, Spanish columns after `text` and a Spanish version of the previous paragraph), the faithfulness check (`scripts/draw_faithfulness_2026_11_06.py`: 30 narrative multi bodies drawn once, one blind file with the baseline's and the model's texts, shuffled), and the readers and figures of every owner file (`news_nlp.gold_metrics`, `scripts/report_wi18_2026_11_06.py scope|label-check|sentiment|faithfulness`, D32 bootstrap, refusing a half-marked file). **Rule fixed before the label check is read (owner, 2026-11-06):** if at most 80% of the `continuation` paragraphs are right they are dropped from training (train on `lead` only); the `lead` labels are kept in any case; the precision is recorded in PLAN D27. Still to do: the owner's two files, then the model (T-148b3). Acceptance (D32): at least 80% of the extracted company texts faithful on the 30, and better than the baseline on the same 30.
         - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in
           `config/pipeline_models.json` with its revision, selection justified against the baseline
           (constitution AI #1, #7, #12), the `ExperimentSpec` stage list extended deliberately.
@@ -1099,14 +1098,26 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       over the texts (T-148c), written to the tables proposed in T-152 or, if those are not approved
       in time, to a file in the same columns for the backtest team; marked provisional, with the
       measured figures (rules' scope agreement on the held-out 200, extractor faithfulness, sentiment
-      agreement on the 180) next to it. **Schedule (owner, 2026-11-06):** 11-07 baseline and tests, export
-      of the 200-paragraph label check (the held-out 200 is already in `data/heldout_to_tag.csv`); owner
-      tags both 11-07 to 11-08; 11-08 train the attribution model (GPU), after the label check; 11-09
-      export the 30 faithfulness texts; owner tags them 11-09 to 11-10; 11-10 draw the 180 sentiment
-      texts, owner tags them 11-11; 11-12 decision. If a date slips, the owner decides what the
-      decision covers; nothing is assumed. The owner's tagging is 610 items in six days (200 + 200 +
-      30 + 180). **Go/no-go on 2026-11-12:** the owner's tagging (the held-out 200 for the scope, 200
-      items of the label check, the 30 faithfulness texts and the 180 sentiment texts) is done and the extractor passes D32; otherwise the backtest team is told with a week's
+      agreement on the 180) next to it. **Schedule (owner, 2026-11-06):**
+      - *11-07:* the baseline (done) and the exports: the label check (200 paragraphs, translation with `--yes`)
+        and, from the baseline, the faithfulness file; T-148a code (the summary run over the window's non-multi
+        bodies, scope from the rules) and its start in the evening (about 7 GPU hours overnight; it does not
+        depend on the tagging; wasted only on a no-go); the T-153 reply is drafted for the owner.
+      - *11-07 to 11-08:* the owner tags the label check first, then the held-out 200.
+      - *11-08:* `report_wi18 label-check` applies the rule of T-148b2; the attribution model trains (GPU, after the summaries).
+      - *11-09:* the 30 faithfulness texts of the baseline and the model are exported (one blind file); T-153 is sent
+        after the owner's approval, so the backtest team plans before the decision.
+      - *11-09 to 11-10:* the owner tags the 30. *11-10:* the 180 sentiment texts are drawn; the owner tags them 11-11.
+      - *11-12:* decision, from `report_wi18 scope|sentiment|faithfulness`. After a go: NER, step 4 and sentiment over
+        the window 11-12 to 11-14, hand-over about 11-16.
+      The owner's tagging is 610 items in six days (200 + 200 + 30 + 180). **Rules fixed beforehand (owner,
+      2026-11-06, also in PLAN D34):** a sentiment figure whose interval straddles its bar ("not decided") still goes,
+      with the interval printed; if the model is not ready on 11-09, the 30 texts are exported from the baseline
+      alone (`--extractors baseline`) and the decision is on the baseline (the cut uses it for narrative bodies if it
+      is at least 80% faithful, otherwise narrative multi bodies are left out of the cut and counted).
+      **Go/no-go on 2026-11-12:** the owner's tagging (the held-out 200 for the scope, 200
+      items of the label check, the 30 faithfulness texts and the 180 sentiment texts) is done and the extractor
+      (or, if the model is late, the baseline) passes D32; otherwise the backtest team is told with a week's
       notice. Not in the cut: the trained scope classifier, the prompt gate and silver labels,
       category, sub-industry, sector snapshots, active learning, the full backfill. → D34.
 

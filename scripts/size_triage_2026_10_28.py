@@ -95,16 +95,7 @@ STEPS: tuple[tuple[str, dict[str, bool]], ...] = (
 FULL = STEPS[-1][1]
 #: Rule scope -> the scopes the owner's tags can be mapped to (``news_nlp.triage.GOLD_SCOPES``).
 # a body the rules call single-company dominated by one company is *single + mentions* (D23)
-TO_GOLD = {
-    "single": "single",
-    "multi_dominated": "single",
-    "multi": "multi",
-    "roundup": "multi",
-    "market": "market_economy",
-    "economy": "market_economy",
-    "sector": "sector",
-    "no_company": "unrelated",
-}
+TO_GOLD = triage.RULE_SCOPE_TO_GOLD
 
 
 def slug_of(url: str | None) -> str:

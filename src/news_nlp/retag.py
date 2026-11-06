@@ -93,7 +93,7 @@ SENTIMENT_TAGGING_COLUMNS = (
 
 #: The format of the file the owner reads to check the automatic labels of the step-4 training set:
 #: the company the parser chose is in ``ticker`` / ``company``, ``kind`` is ``lead`` or
-#: ``continuation`` (read only), ``previous_segment`` is the paragraph before the one to judge, and
+#: ``continuation`` (read only), ``previous_segment`` is the paragraph before the one to judge (with its Spanish version), and
 #: the owner marks ``correct`` (yes / no).
 SEGMENT_CHECK_TAG_COLUMNS = ("correct", "notes")
 SEGMENT_CHECK_COLUMNS = (
@@ -102,7 +102,23 @@ SEGMENT_CHECK_COLUMNS = (
     "spanish_text",
     "kind",
     "previous_segment",
+    "spanish_previous_segment",
     *SEGMENT_CHECK_TAG_COLUMNS,
+)
+
+
+#: The format of the file the owner reads to mark the texts an extractor wrote for each company of a
+#: narrative multi body (D27, D32): ``text`` is the extracted text of the company in ``ticker``,
+#: ``body`` the article it was taken from (each with its Spanish version), and the owner marks
+#: ``faithful`` (yes / no). The extractor is not in the file: the rows are shuffled and blind.
+FAITHFULNESS_TAG_COLUMNS = ("faithful", "notes")
+FAITHFULNESS_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "body",
+    "spanish_body",
+    *FAITHFULNESS_TAG_COLUMNS,
 )
 
 
