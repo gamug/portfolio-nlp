@@ -1763,9 +1763,65 @@ def test_a_pair_write_deletes_the_temporary_files_of_a_killed_run(tmp_path: Path
     assert sorted(p.name for p in tmp_path.iterdir()) == ["a.csv"]
 
 
-def test_the_draw_refuses_an_old_coverage_file_it_cannot_trust(tmp_path: Path) -> None:
-    _write_coverage(tmp_path, "1,T,gpt,2026-01-01")
-    with pytest.raises(MarkedFileError, match="extractors the draw does not have"):
-        gold_metrics.read_coverage(tmp_path / FAITHGOLD.COVERAGE_NAME)
-    FAITH.write_coverage(tmp_path / "c.csv", [])
-    assert (tmp_path / "c.csv").read_text() == ",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n"
+def test_an_add_refuses_an_old_coverage_file_it_cannot_trust(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        }
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _write_coverage(out, "1,U,gpt,2026-01-01")  # an extractor the draw never had
+    names = (FAITH.TO_TAG_NAME, FAITH.IDS_NAME, FAITH.COVERAGE_NAME)
+    before = {n: (out / n).read_bytes() for n in names}
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="extractors the draw does not have"):
+        FAITH.main()
+    assert {n: (out / n).read_bytes() for n in names} == before
+    assert not (out / "faithfulness_to_tag.before_model.csv").exists()
+
+
+def test_a_first_draw_that_cannot_write_everything_leaves_no_half_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids_path, coverage_path, target = (
+        tmp_path / FAITH.IDS_NAME,
+        tmp_path / FAITH.COVERAGE_NAME,
+        tmp_path / FAITH.TO_TAG_NAME,
+    )
+    target.write_bytes(b"header-only scaffold\n")
+    real = FAITH.extra._write
+
+    def tagging_file_is_locked(path: Path, rows: list[dict[str, str]]) -> None:
+        if path == target:
+            raise PermissionError("open in Excel")
+        real(path, rows)
+
+    monkeypatch.setattr(FAITH.extra, "_write", tagging_file_is_locked)
+    with pytest.raises(OSError, match="open in Excel"):
+        FAITH.write_first_draw(
+            {ids_path: [{"review_order": "1"}], target: [{"a": "b"}]}, coverage_path, []
+        )
+    assert not ids_path.exists()  # written before the failure, taken back
+    assert not coverage_path.exists()
+    assert target.read_bytes() == b"header-only scaffold\n"

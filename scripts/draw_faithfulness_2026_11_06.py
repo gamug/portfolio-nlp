@@ -175,6 +175,35 @@ def write_coverage(path: Path, omissions: list[dict[str, str]]) -> None:
     gold_metrics.write_pair_atomically({path: gold_metrics.render_csv(COVERAGE_FIELDS, omissions)})
 
 
+def write_first_draw(
+    csv_files: dict[Path, list[dict[str, str]]],
+    coverage_path: Path,
+    omissions: list[dict[str, str]],
+) -> None:
+    """The ids, the owner's file and the coverage of a first draw. If one cannot be written (open in
+    Excel, disk full) the ones already written are put back as they were, so a half-drawn set never
+    sits next to an old tagging file; ``OSError`` is then raised with what could not be undone."""
+    paths = [*csv_files, coverage_path]
+    before = {p: p.read_bytes() if p.exists() else None for p in paths}
+    try:
+        for path, rows in csv_files.items():
+            extra._write(path, rows)
+        write_coverage(coverage_path, omissions)
+    except OSError as exc:
+        stuck = []
+        for path, old in before.items():
+            try:
+                if old is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(old)
+            except OSError:
+                stuck.append(path.name)
+        if stuck:
+            raise OSError(f"{exc}; and could not put back {', '.join(stuck)}") from None
+        raise
+
+
 def tag_rows(
     items: list[dict[str, str]], spanish: dict[str, dict[str, str]], names_of: dict[str, str]
 ) -> list[dict[str, str]]:
@@ -385,15 +414,15 @@ def main() -> None:
             {"review_order": str(n), **{k: i[k] for k in IDS_FIELDS[1:]}}
             for n, i in enumerate(items, 1)
         ]
-        extra._write(
-            out / IDS_NAME, ids
-        )  # no news text: the owner's file is matched on review_order
-        write_coverage(out / COVERAGE_NAME, omissions)
-        extra._write(target, retag.spreadsheet_safe(rows))
+        write_first_draw(
+            {out / IDS_NAME: ids, target: retag.spreadsheet_safe(rows)},
+            out / COVERAGE_NAME,
+            omissions,
+        )
     except retag.TagFileError as exc:
         sys.exit(str(exc))
-    except PermissionError:
-        sys.exit(f"cannot write {target}: close it in Excel and run again")
+    except OSError as exc:
+        sys.exit(f"cannot write the draw's files ({exc}); close them in Excel and run again")
     print(f"{len(rows)} texts -> {target}")
 
 
