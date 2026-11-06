@@ -11,6 +11,12 @@ market, economy) are all taken, because a random 200 would hold about eight of t
 seeded random draw over the other rule scopes. ``stratum`` in the ids file is the rule scope, so a
 rate over the whole corpus can be re-weighted by the stratum sizes (``population`` column).
 
+``<out>/<name>_strata.csv`` holds, per rule scope, the size in the whole 1,000-body sample
+(``frame``), the bodies left out because they share an article with the 720 or the 44 (``excluded``),
+the bodies left to draw from (``free``) and the bodies drawn. The weight of a stratum when a rate is
+re-weighted to the corpus is its ``frame`` size, not ``free``: the bodies left out were not a random
+part of the sample. It is rewritten on every run (it is derived, not tagging work).
+
 Writes ``<out>/<name>_ids.csv`` and ``<out>/<name>_to_tag.csv`` (drawn once, never overwritten): a
 tagging file in the review file's columns, ``spanish_title`` / ``spanish_text`` after ``text``,
 the v1 columns empty. The Spanish aid is the approved paid translation of the same engine as the
@@ -73,6 +79,25 @@ def draw(frame: list[dict[str, str]], n: int, seed: int, taken: set[str]) -> lis
     ]
 
 
+def strata_rows(
+    frame: list[dict[str, str]], taken: set[str], chosen: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Per rule scope: the size in the sample, the bodies left out, the bodies left and the drawn."""
+    size = Counter(r["rule_scope"] for r in frame)
+    free = Counter(r["rule_scope"] for r in frame if not set(_ids(r["article_ids"])) & taken)
+    drawn = Counter(r["stratum"] for r in chosen)
+    return [
+        {
+            "stratum": s,
+            "frame": str(size[s]),
+            "excluded": str(size[s] - free[s]),
+            "free": str(free[s]),
+            "drawn": str(drawn[s]),
+        }
+        for s in sorted(size)
+    ]
+
+
 def source_rows(chosen: list[dict[str, str]]) -> list[dict[str, object]]:
     conn = db.connect_pipeline()
     out: list[dict[str, object]] = []
@@ -111,14 +136,16 @@ def main() -> None:
     ids_path, target = out / f"{args.name}_ids.csv", out / f"{args.name}_to_tag.csv"
     if target.exists():
         sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
+    frame = extra._read(out / SAMPLE_NAME)
+    taken = tagged_ids(out, args.name)
     if ids_path.exists():
         chosen = extra._read(ids_path)
-        print(f"{ids_path} exists: the set is not drawn again")
+        print(f"{ids_path} exists: the set is not drawn again (--n and --seed are ignored)")
     else:
-        frame = extra._read(out / SAMPLE_NAME)
-        chosen = draw(frame, args.n, args.seed, tagged_ids(out, args.name))
+        chosen = draw(frame, args.n, args.seed, taken)
         extra._write(ids_path, chosen)
         print(f"{len(chosen)} drawn:", dict(Counter(r["stratum"] for r in chosen)))
+    extra._write(out / f"{args.name}_strata.csv", strata_rows(frame, taken, chosen))
     rows = retag_cli.add_spanish(
         out,
         extra.tag_rows(source_rows(chosen)),

@@ -965,7 +965,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
       iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
       agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
-      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope. **D19** full backfill of the
+      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope *(D30 drew 200; D33: no top-up, no recall floor under 40 gold bodies)*. **D19** full backfill of the
       **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
       as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
       are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
@@ -1030,7 +1030,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
       - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
         `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
-      - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them; a scope under 40 gold bodies is not topped up and has no recall floor, D33)* Held-out gold: about 300 bodies, at least 40 per scope, drawn once before
+      - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`, untagged; the owner tags them before the 2026-11-12 go/no-go, T-154; a scope under 40 gold bodies is not topped up and has no recall floor, D33; the "about 300 bodies, at least 40 per scope" below is the original plan)* Held-out gold, drawn once before
         any training from candidates prefiltered by custom rules, 50 of them checked by the owner
         first (Q6), plus ~60 random bodies from outside the filter (Q9); about 50 held-out bodies tagged
         twice (Q4).
@@ -1055,19 +1055,20 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         already builds minus the NLP features (title and body only: sentiment now follows the summary). Checks that
         a body longer than the model's window is chunked and reduced, as `hierarchical_summarize_batch` does. → D25, D26.
       - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
-        - [ ] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
-          parser, with tests *(written 2026-11-05 on `feat/wi18-sentiment-gold`, not yet merged; a body is structured with at least 4 segments, 50% of them led by a company and 3 companies, the rule that finds 2,867 of the 81,961 unique bodies)*.
+        - [x] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
+          parser, with tests *(2026-11-05; a segment naming two companies at its start is `ambiguous`: no label, nothing inherited past it; a body is structured with at least 4 segments, 50% of them led by a company and 3 companies, the rule that finds 2,867 of the 81,961 unique bodies)*.
         - [ ] **T-148b2** Training set for the attribution model from those bodies (company name
-          masked, previous sentence as context, all years). **Set built 2026-11-05** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 34,943 labelled segments (21,682 `lead`, 13,261 `continuation`), 1 body in 10 as `val`; the 33 structured bodies that share text with a tagged or held-out article are left out. Still to do: the mention-and-recency baseline, and
+          masked, previous sentence as context, all years). **Set built 2026-11-05** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 33,624 labelled segments (21,682 `lead`, 11,942 `continuation`; ambiguous paragraphs have no row), 1 body in 10 as `val` (205 bodies before 2022, 65 from 2022 on: report the check on the 2022+ ones apart); the 33 structured bodies that share text with a tagged or held-out article are left out; the script stops and names the local git-ignored files it needs, and `tests/news_nlp/test_company_texts.py` pins the parser constants and the counts. Still to do: the owner's label check (100 `lead` + 100 `continuation` paragraphs, `scripts/draw_segment_check_2026_11_05.py`, Spanish columns after `text`; the precision goes into PLAN D27 before training), the mention-and-recency baseline, and
           the owner's faithfulness check on about 30 narrative multi bodies (a file in the tagging
           format, Spanish columns after `text`). Acceptance (D32): at least 80% of the extracted company texts faithful on the 30, and better than the baseline on the same 30.
         - [ ] **T-148b3** The trained attribution model: a new pinned checkpoint in
           `config/pipeline_models.json` with its revision, selection justified against the baseline
           (constitution AI #1, #7, #12), the `ExperimentSpec` stage list extended deliberately.
           Bodies it cannot attribute are flagged `unextracted` and counted, never given a default text.
+          A one-paragraph body is split into sentences and each sentence is attributed by the same model.
       - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): after T-148b exists,
         draw the 180-text sentiment gold (60 per class, `scripts/draw_sentiment_gold_2026_11_05.py`,
-        drafted on `feat/wi18-sentiment-gold` and parked until then), the owner tags the price impact,
+        parked until then; it must also call the attribution model for narrative multi bodies, today it counts and leaves them out in `data/sentiment_gold_pool.json`), the owner tags the price impact,
         the current model is measured on it, and fine-tuned on summaries only if it misses the D32 bar (overall agreement >= 80%, negative precision and recall >= 70%). Covers T-127's question on real output.
       - [ ] **T-148d** Category over the same texts (D29), measured against the owner's gold. → D24.
 - [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
@@ -1098,8 +1099,14 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       over the texts (T-148c), written to the tables proposed in T-152 or, if those are not approved
       in time, to a file in the same columns for the backtest team; marked provisional, with the
       measured figures (rules' scope agreement on the held-out 200, extractor faithfulness, sentiment
-      agreement on the 180) next to it. **Go/no-go on 2026-11-12:** the owner's tagging (30 + 180
-      items) is done and the extractor passes D32; otherwise the backtest team is told with a week's
+      agreement on the 180) next to it. **Schedule (owner, 2026-11-06):** 11-07 baseline and tests, export
+      of the 200-paragraph label check (the held-out 200 is already in `data/heldout_to_tag.csv`); owner
+      tags both 11-07 to 11-08; 11-08 train the attribution model (GPU), after the label check; 11-09
+      export the 30 faithfulness texts; owner tags them 11-09 to 11-10; 11-10 draw the 180 sentiment
+      texts, owner tags them 11-11; 11-12 decision. If a date slips, the owner decides what the
+      decision covers; nothing is assumed. The owner's tagging is 610 items in six days (200 + 200 +
+      30 + 180). **Go/no-go on 2026-11-12:** the owner's tagging (the held-out 200 for the scope, 200
+      items of the label check, the 30 faithfulness texts and the 180 sentiment texts) is done and the extractor passes D32; otherwise the backtest team is told with a week's
       notice. Not in the cut: the trained scope classifier, the prompt gate and silver labels,
       category, sub-industry, sector snapshots, active learning, the full backfill. → D34.
 

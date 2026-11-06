@@ -3,8 +3,9 @@ company, for the bodies written as one segment per company (``COMPANY - sentence
 per paragraph).
 
 A segment *leads* with a company when exactly one universe company is named in its first
-``LEAD_CHARS`` characters. A segment that leads with none *continues* the previous company's. A
-body is *structured* when it has at least ``MIN_SEGMENTS`` segments, at least ``MIN_LED_SHARE`` of
+``LEAD_CHARS`` characters. A segment that names two or more at its start is *ambiguous*: it belongs to no company and the
+company before it is not inherited past it. A segment that leads with none *continues* the previous
+company's. A body is *structured* when it has at least ``MIN_SEGMENTS`` segments, at least ``MIN_LED_SHARE`` of
 them lead with a company and at least ``MIN_COMPANIES`` companies are led; any other multi body is
 left to the trained attribution model (D27) and ``label_segments`` returns ``None`` for it.
 """
@@ -42,7 +43,8 @@ def segment_text(body: str, index: int) -> str:
 
 def label_segments(body: str, resolver: CompanyResolver) -> list[SegmentLabel] | None:
     """The company of each segment of a structured body, or ``None`` when the body is not written
-    as one segment per company. Text before the first company (an introduction) has no label."""
+    as one segment per company. Text before the first company (an introduction) and an ambiguous
+    segment have no label, and the paragraphs after an ambiguous one have none until the next lead."""
     parts = segments(body)
     labels: list[SegmentLabel] = []
     current: str | None = None
@@ -53,6 +55,9 @@ def label_segments(body: str, resolver: CompanyResolver) -> list[SegmentLabel] |
             current = next(iter(lead))
             led += 1
             kind = "lead"
+        elif len(lead) > 1:
+            current = None
+            continue
         else:
             kind = "continuation"
         if current is not None:

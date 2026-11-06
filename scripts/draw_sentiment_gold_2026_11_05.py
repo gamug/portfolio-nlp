@@ -15,9 +15,16 @@ never used):
   ``MAX_COMPANY_CHARS`` is left out and counted too.
 
 Step 5's current model (``config/pipeline_models.json`` ``sentiment``) scores every text only to
-choose the sample: ``--per-class`` texts of each predicted class, so the rare negative class is
+choose the sample, the way the pipeline's sentiment stage reads a text: sentence-packed chunks of
+at most 510 tokens (``chunking.chunk_text``), the chunk probabilities averaged with equal weights
+(the text is already the company's, so there is no subject weighting, D26): ``--per-class`` texts of each predicted class, so the rare negative class is
 covered; the prediction is never written to the tagging file, whose rows are shuffled. The ids file
 holds the prediction and the size of each stratum, to re-weight the result.
+
+A multi body the parser cannot split and a company text over ``MAX_COMPANY_CHARS`` are left out of
+the pool and counted in ``<out>/sentiment_gold_pool.json`` with the pool sizes, so the limit of the
+gold is on record: until the attribution model (T-148b3) exists, the gold does not cover the texts
+that model will produce.
 
 Writes ``<out>/sentiment_gold_ids.csv`` (drawn once, with the texts) and
 ``<out>/sentiment_gold_to_tag.csv``, a tagging file in the sentiment format
@@ -49,6 +56,7 @@ from news_nlp.triage import CompanyResolver
 
 IDS_NAME = "sentiment_gold_ids.csv"
 TO_TAG_NAME = "sentiment_gold_to_tag.csv"
+POOL_NAME = "sentiment_gold_pool.json"
 CACHE_DIR = "sentiment_gold"
 GOLD = Path("gold/category_gold_v2.csv")
 CONFIG = Path("config/pipeline_models.json")
@@ -96,7 +104,7 @@ def subject_of(row: dict[str, str], book: NameBook, names: dict[str, str]) -> tu
     return "", SUBJECT[scope]
 
 
-def build_texts(out: Path) -> list[dict[str, str]]:
+def build_texts(out: Path) -> tuple[list[dict[str, str]], Counter[str]]:
     conn = db.connect_pipeline()
     universe = retag_cli.companies()
     names = {c.ticker: c.name for c in universe}
@@ -141,7 +149,7 @@ def build_texts(out: Path) -> list[dict[str, str]]:
                     )
     texts += summarise(to_summarise)
     print("left out:", dict(skipped))
-    return [t for t in texts if len(t["text"]) >= MIN_TEXT_CHARS]
+    return [t for t in texts if len(t["text"]) >= MIN_TEXT_CHARS], skipped
 
 
 def _models() -> dict[str, dict[str, str]]:
@@ -166,10 +174,19 @@ def summarise(items: list[tuple[dict[str, str], str]]) -> list[dict[str, str]]:
     return [{**meta, "text": summary} for (meta, _), (summary, _) in zip(items, done, strict=True)]
 
 
-def predict(texts: list[dict[str, str]]) -> None:
-    """Add the current sentiment model's label to each text (to choose the sample only)."""
+def predicted_label(chunk_probs: list[list[float]], id2label: dict[int, str]) -> str:
+    """The class of the mean of the chunks' probabilities (equal weights)."""
+    mean = [sum(col) / len(chunk_probs) for col in zip(*chunk_probs, strict=True)]
+    return id2label[max(range(len(mean)), key=mean.__getitem__)]
+
+
+def predict(texts: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Add the current sentiment model's label to each text (to choose the sample only), read as
+    the pipeline's stage reads a text. Returns the texts that have at least one chunk."""
     import torch  # noqa: PLC0415
     from transformers import AutoModelForSequenceClassification, AutoTokenizer  # noqa: PLC0415
+
+    from chunking import chunk_text  # noqa: PLC0415
 
     cfg = _models()["sentiment"]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -179,11 +196,21 @@ def predict(texts: list[dict[str, str]]) -> None:
     )
     model = model.to(device).eval()
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
+    kept: list[dict[str, str]] = []
     for item in texts:
-        inputs = tok(item["text"], return_tensors="pt", truncation=True, max_length=512).to(device)
-        with torch.no_grad():
-            probs = torch.softmax(model(**inputs).logits[0], dim=-1).cpu()
-        item["predicted"] = id2label[int(probs.argmax())]
+        chunks = chunk_text(item["text"], tok, max_tokens=510)
+        if not chunks:
+            continue
+        chunk_probs: list[list[float]] = []
+        for chunk in chunks:
+            inputs = tok(chunk.text, return_tensors="pt", truncation=True, max_length=512).to(
+                device
+            )
+            with torch.no_grad():
+                chunk_probs.append(torch.softmax(model(**inputs).logits[0], dim=-1).cpu().tolist())
+        item["predicted"] = predicted_label(chunk_probs, id2label)
+        kept.append(item)
+    return kept
 
 
 def draw(texts: list[dict[str, str]], per_class: int, seed: int) -> list[dict[str, str]]:
@@ -259,11 +286,15 @@ def main() -> None:
         chosen = extra._read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again")
     else:
-        texts = build_texts(out)
-        predict(texts)
-        print(
-            "pool:",
-            dict(Counter((t["kind"], t["predicted"]) for t in texts)),
+        texts, skipped = build_texts(out)
+        texts = predict(texts)
+        pool = {
+            f"{k}/{p}": n
+            for (k, p), n in Counter((t["kind"], t["predicted"]) for t in texts).items()
+        }
+        print("pool:", pool)
+        (out / POOL_NAME).write_text(
+            json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
         )
         chosen = draw(texts, args.per_class, args.seed)
         with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:

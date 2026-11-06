@@ -50,19 +50,33 @@ def split_of(body_hash: str) -> str:
     return "val" if int(body_hash[:8], 16) % VAL_EVERY == 0 else "train"
 
 
-def tagged_ids(out: Path) -> set[int]:
-    """Every article the owner has tagged or been given to tag: the 720, the sector extras, the
-    held-out set."""
-    ids: set[int] = set()
-    for name in (retag.REVIEW_NAME, extra.TO_TAG_NAME, "heldout_ids.csv"):
-        ids |= {int(r["article_id"]) for r in extra._read(out / name)}
-    return ids
+LOCAL_FILES = (retag.REVIEW_NAME, extra.TO_TAG_NAME, "heldout_ids.csv")
+
+
+def tagged_ids(out: Path) -> dict[str, set[int]]:
+    """Every article the owner has tagged or been given to tag, by file: the 720, the sector
+    extras, the held-out set. The files are git-ignored, so a clean clone cannot rebuild the
+    tracked gold file: the run stops and names what is missing."""
+    missing = [name for name in LOCAL_FILES if not (out / name).exists()]
+    if missing:
+        sys.exit(
+            f"cannot build: {', '.join(missing)} not found in {out}. They are local, git-ignored "
+            "files of the owner's tagging; without them a body the owner tags could enter the "
+            "training set."
+        )
+    return {name: {int(r["article_id"]) for r in extra._read(out / name)} for name in LOCAL_FILES}
 
 
 def build(out: Path) -> list[dict[str, str]]:
     conn = db.connect_pipeline()
     resolver = CompanyResolver(retag_cli.companies())
-    skip = extra.excluded_hashes(conn, tagged_ids(out))
+    by_file = tagged_ids(out)
+    skip = extra.excluded_hashes(conn, set().union(*by_file.values()))
+    print(
+        "left out as tagged or held out:",
+        {name: len(ids) for name, ids in by_file.items()},
+        f"-> {len(skip)} body hashes",
+    )
     seen: set[str] = set()
     rows: list[dict[str, str]] = []
     bodies = left_out = scanned = 0
@@ -113,6 +127,11 @@ def main() -> None:
     print(f"{len(rows)} segments -> {args.gold}")
     print("kind:", dict(Counter(r["kind"] for r in rows)))
     print("split (lead segments):", dict(Counter(r["split"] for r in rows if r["kind"] == "lead")))
+    val_years = Counter(
+        ("2022+" if r["year"] >= "2022" else "before 2022")
+        for r in {r["body_hash"]: r for r in rows if r["split"] == "val"}.values()
+    )
+    print("val bodies by period (report the check on 2022+ apart):", dict(val_years))
     print(
         "years:",
         dict(

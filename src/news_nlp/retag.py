@@ -91,6 +91,21 @@ SENTIMENT_TAGGING_COLUMNS = (
 )
 
 
+#: The format of the file the owner reads to check the automatic labels of the step-4 training set:
+#: the company the parser chose is in ``ticker`` / ``company``, ``kind`` is ``lead`` or
+#: ``continuation`` (read only), ``previous_segment`` is the paragraph before the one to judge, and
+#: the owner marks ``correct`` (yes / no).
+SEGMENT_CHECK_TAG_COLUMNS = ("correct", "notes")
+SEGMENT_CHECK_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "kind",
+    "previous_segment",
+    *SEGMENT_CHECK_TAG_COLUMNS,
+)
+
+
 def tagging_format_problems(
     rows: Sequence[Mapping[str, str]], columns: Sequence[str] = TAGGING_COLUMNS
 ) -> list[str]:

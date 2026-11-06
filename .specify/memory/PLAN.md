@@ -2209,7 +2209,7 @@ task, the run stops at it), the owner re-tags the 720 under the new taxonomy (v1
 set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
 with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
 1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
-owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope; D19 full backfill of the **81,961 unique `ok` bodies** (not the
+owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope (D30 drew 200 instead; D33: no top-up, and no recall floor for a scope under 40 gold bodies); D19 full backfill of the **81,961 unique `ok` bodies** (not the
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
 the results of the 377,010 quarantined pairs are purged (T-131); D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
@@ -2233,7 +2233,7 @@ gate the owner fixed the order the stages run in, and the backtest team (`portfo
 above, it says so; nothing else above is touched.
 
 - **D25 Order of the stages.** (1) the scope of the body; (2) NER, only for `single` and `multi`
-  bodies; (3) a summary of every body that is not `multi`; (4) for a `multi` body, the text each
+  bodies; (3) a summary of every `single`, `sector`, `market_economy` and `investing_general` body (not `multi`, not `unrelated`); (4) for a `multi` body, the text each
   mentioned company gets; (5) sentiment, and the D15 category (D29), over the texts of steps 3 and 4;
   (6) company snapshots; (7) sector snapshots. `unrelated` stops at step 1 (D16). NER no longer
   runs on every body: sector, market / economy and `investing_general` bodies skip it.
@@ -2244,12 +2244,15 @@ above, it says so; nothing else above is touched.
   output of steps 3-4 after step 4 exists, the sample over-sampling the rare negative class by the
   current model's prediction (never shown to the owner) and re-weighted afterwards. The label is the
   **price impact on the company** an investor would read (for a sector or market text, on that
-  sector or market). The model is fine-tuned on summaries only if it misses the D32 bar.
+  sector or market). The model reads a text the way the pipeline's sentiment stage does: sentence-packed
+  chunks of at most 510 tokens, their probabilities averaged with equal weights (the text is already
+  the company's, so the v1 subject weighting is not used). The model is fine-tuned on summaries only if it misses the D32 bar.
 - **D27 Step 4 without an LLM.** (a) A body written as one segment per company is split by
   `news_nlp.company_texts` (a segment leads with a company when exactly one universe company is
   named in its first 50 characters): 2,867 of the 81,961 unique bodies (3.5%) and 21,941
-  company-led segments. (b) The other multi bodies (about 75% of the owner's tagged multi bodies,
-  not "a few": 77 tagged, about 15 structured, about 14 a single paragraph, the rest narrative) go
+  company-led segments. (b) The other multi bodies (about 80% of the owner's tagged multi bodies,
+  not "a few": of 77 tagged, about 15 are structured, about 14 are one paragraph and about 48 are
+  narrative) go
   to a **trained attribution model**: a small local encoder trained on (a) with the company name
   masked and the previous sentence as context, so it learns who a sentence is about from its
   content. It is compared with a mention-and-recency baseline and with a faithfulness check the
@@ -2258,8 +2261,14 @@ above, it says so; nothing else above is touched.
   owner first chose to amend D12 for an LLM exception in step 4, then replaced it by this model
   after the narrative share was measured; the amendment is written only if (b) fails its check.
   The training set is `gold/company_segments_train.csv` (ids and positions only; the repository is
-  public): 2,834 bodies and 34,943 segments, 21,682 clean `lead` and 13,261 noisy `continuation`
-  labels, the 33 bodies shared with tagged or held-out articles left out. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
+  public): 2,834 bodies and 33,624 segments, 21,682 clean `lead` and 11,942 noisy `continuation`
+  labels, the 33 bodies shared with tagged or held-out articles left out; a paragraph that names two
+  or more companies at its start is `ambiguous` and has no row, nor do the paragraphs after it until
+  the next lead. 77% of the bodies are from before 2022 and `val` (1 body in 10 by hash) has the same
+  mix, so the model is also reported on the 2022+ bodies apart (the backtest window). The labels are
+  automatic and unchecked: the owner reads 100 `lead` and 100 `continuation` paragraphs
+  (`scripts/draw_segment_check_2026_11_05.py`, T-148b2) before the model trains, and the measured
+  precision of each kind is recorded here. The model is a new pinned checkpoint (constitution AI #1, #7, #12).
 - **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
   is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
@@ -2277,7 +2286,10 @@ above, it says so; nothing else above is touched.
   earlier evaluation runs: one article, 247586, was in an old judged run with the previous
   model and judge, and is kept). The 50-article filter check, the ~60 random misses and the ~50
   double-tagged bodies of Q4/Q6/Q9 are unchanged. The sample was also used to size the rules, so a
-  rules-versus-gold figure on it is slightly optimistic.
+  rules-versus-gold figure on it is slightly optimistic. **Weights:** the bodies that share an article
+  with the 720 or the 44 were left out of the draw and were not a random part of the sample (the 720
+  were stratified), so a rate is re-weighted to the corpus with the size of each rule scope in the whole
+  1,000-body sample (`frame` in `data/heldout_strata.csv`), not with the bodies left to draw from.
 
 - **T-132 shrunk (owner, 2026-11-05).** It was designed around T-117's call budget and T-130's
   relevance judge, both superseded. Only the upstream alias table stays; the quarantined pairs
@@ -2294,10 +2306,20 @@ above, it says so; nothing else above is touched.
   redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
 - **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
   least **80% of the extracted company texts faithful** on the owner's ~30 narrative multi bodies,
-  and better than the mention-and-recency baseline on the same 30. Sentiment on the 180-text gold
-  (60 per class): **overall agreement >= 80%, and precision and recall each >= 70% for the negative
-  class** (the one the backtest counts); at that size each per-class figure has an interval of
-  about +/-13 points. The model is fine-tuned on summaries only if it misses this.
+  and better than the mention-and-recency baseline on the same 30, reported apart for bodies from
+  2022 on. Sentiment on the 180-text gold (60 per class **of the model's predicted class**):
+  **overall agreement >= 80%, and precision and recall each >= 70% for the negative class** (the one
+  the backtest counts). Because the draw is balanced by prediction, every figure is re-weighted by the
+  stratum sizes (`population` in the ids file) and its interval is a bootstrap over the strata.
+  Negative **precision** is read inside the predicted-negative stratum (60 texts, about +/-13
+  points); negative **recall** needs the true negatives hidden in the other two strata, so it is a
+  re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is judged on the point
+  estimate; when the interval of a figure straddles its bar the result is reported as "not decided",
+  the backtest team is told so and the owner decides whether to fine-tune (default written by the
+  developer, for the owner to confirm or change). **Coverage:** the gold holds the summaries and the
+  company texts of structured multi bodies; the texts the attribution model writes for narrative
+  bodies are not in it until T-148b3 exists, so this bar does not certify them (the extractor's own
+  faithfulness check does). The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
   (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
