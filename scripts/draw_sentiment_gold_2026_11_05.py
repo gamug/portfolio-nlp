@@ -318,13 +318,28 @@ def pool_conditions(extractor: str) -> dict[str, str]:
     return {
         "extractor": extractor,
         "gold_bodies": hashlib.sha256("\n".join(tags).encode()).hexdigest()[:16],
-        "parser": retag.parser_revision(),
-        "extractor_code": retag.extractor_revision(extractor),
         **{
             stage: f"{models[stage]['model']}@{models[stage]['revision']}"
             for stage in ("sentiment", "c_summary")
         },
     }
+
+
+def stale_kinds(texts: list[dict[str, str]], extractor: str) -> dict[str, tuple[str, str]]:
+    """For each kind of text in the pool that code (not a pinned model) wrote, ``(kept, now)``
+    when its revision is no longer the current one. Summaries are not checked here: their model
+    revision is in ``pool_conditions``. Any edit to the modules a revision covers, a comment
+    included, makes the kind stale."""
+    current = {
+        "company_text": retag.parser_revision(),
+        "extractor_text": retag.extractor_revision(extractor),
+    }
+    stale = {}
+    for kind, now in current.items():
+        kept = {t["revision"] for t in texts if t["kind"] == kind}
+        if kept and kept != {now}:
+            stale[kind] = (", ".join(sorted(kept)), now)
+    return stale
 
 
 def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
@@ -343,8 +358,15 @@ def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
                 f"{path} was scored under other conditions (kept, now): {differ}. Delete "
                 f"{path.name} and {meta_path.name} to score the pool again."
             )
+        texts = extra._read(path)
+        stale = stale_kinds(texts, extractor)
+        if stale:
+            sys.exit(
+                f"{path} holds texts made by code that has changed since: {stale}. Delete "
+                f"{path.name} and {meta_path.name} to score the pool again."
+            )
         print(f"{path} exists: the pool is not scored again")
-        return extra._read(path)
+        return texts
     texts, skipped = build_texts(out, extractor)
     texts = predict(texts)
     pool = {

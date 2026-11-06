@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import csv
 import random
+import shutil
 import sys
 from collections import Counter
 from collections.abc import Callable
@@ -180,9 +181,11 @@ def write_coverage(path: Path, omissions: list[dict[str, str]]) -> None:
 def tag_rows(
     items: list[dict[str, str]], spanish: dict[str, dict[str, str]], names_of: dict[str, str]
 ) -> list[dict[str, str]]:
+    """The owner's rows; ``review_order`` is the item's own when it has one (rows added later for
+    another extractor), else its position."""
     return [
         {
-            "review_order": str(order),
+            "review_order": i.get("review_order", str(order)),
             "article_id": i["article_id"],
             "ticker": i["ticker"],
             "company": names_of.get(i["ticker"], i["ticker"]),
@@ -201,15 +204,118 @@ def tag_rows(
     ]
 
 
-def main() -> None:
+def merge_new_extractor(
+    ids: list[dict[str, str]], items: list[dict[str, str]], seed: int
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Add the texts of one more extractor to a file the owner has begun to mark, touching no mark.
+
+    A text that an earlier row already holds (same article, company and ``text_hash``) only gets the
+    extractor's name and revision added to that row of the ids. Any other text is a new row, with the
+    next ``review_order`` and a key past the ones in use, in a shuffled order. Returns the updated
+    ids and the new items (``review_order`` and ``key`` set); the earlier rows are not reordered."""
+    by_text = {(r["article_id"], r["ticker"], r["text_hash"]): r for r in ids}
+    new: list[dict[str, str]] = []
+    for item in items:
+        row = by_text.get((item["article_id"], item["ticker"], item["text_hash"]))
+        if row is None:
+            new.append(item)
+            continue
+        have = dict(zip(row["extractors"].split("|"), row["revisions"].split("|"), strict=True))
+        have.update(zip(item["extractors"].split("|"), item["revisions"].split("|"), strict=True))
+        row["extractors"] = "|".join(sorted(have))
+        row["revisions"] = "|".join(have[n] for n in sorted(have))
+    used: dict[tuple[str, str], int] = {}
+    for r in ids:
+        article, ticker, number = r["key"].rsplit("#", 2)
+        used[(article, ticker)] = max(used.get((article, ticker), 0), int(number))
+    random.Random(seed).shuffle(new)  # noqa: S311 -- blind within the new rows
+    order = max((int(r["review_order"]) for r in ids), default=0)
+    out: list[dict[str, str]] = []
+    for item in new:
+        order += 1
+        used[(item["article_id"], item["ticker"])] = number = (
+            used.get((item["article_id"], item["ticker"]), 0) + 1
+        )
+        out.append(
+            {
+                **item,
+                "review_order": str(order),
+                "key": f"{item['article_id']}#{item['ticker']}#{number}",
+            }
+        )
+    return ids + [{k: i[k] for k in IDS_FIELDS} for i in out], out
+
+
+def add_extractor(args: argparse.Namespace) -> None:
+    """``--add-extractor NAME``: bring one more extractor's texts into the file being marked."""
+    out: Path = args.out
+    name: str = args.add_extractor
+    if name not in EXTRACTORS:
+        sys.exit(f"no extractor {name!r}: only {sorted(EXTRACTORS)} exist today (T-148b3).")
+    target, ids_path, bodies_path = out / TO_TAG_NAME, out / IDS_NAME, out / BODIES_NAME
+    if not (extra.has_rows(target) and ids_path.exists() and bodies_path.exists()):
+        sys.exit(
+            f"--add-extractor needs {target.name} (with rows), {IDS_NAME} and {BODIES_NAME} from a "
+            "first draw; without them draw normally."
+        )
+    universe = retag_cli.companies()
+    items, omissions = collect_items(extra._read(bodies_path), [name], CompanyResolver(universe))
+    ids, new = merge_new_extractor(extra._read(ids_path), items, args.seed)
+    print(
+        f"{len(items)} texts of {name}: {len(items) - len(new)} already in the file, {len(new)} new"
+    )
+    kept = extra._read(target)
+    backup = target.with_name(f"{target.stem}.before_{name}{target.suffix}")
+    if backup.exists():
+        sys.exit(f"{backup} exists: a previous add of {name} was not finished; look at it first")
+    done = retag_cli.add_spanish(
+        out / CACHE_DIR,
+        to_translate(new),
+        retag_cli._translator(),
+        yes=args.yes,
+        max_new=args.max_new,
+    )
+    names_of = {c.ticker: c.name for c in universe}
+    added = tag_rows(new, {r["article_id"]: r for r in done}, names_of)
+    try:
+        retag.require_tagging_format(added, target.name, retag.FAITHFULNESS_COLUMNS)
+        shutil.copy2(target, backup)  # the owner's marks, as they were
+        extra._write(ids_path, ids)
+        known = {tuple(r.values()) for r in extra._read(out / COVERAGE_NAME)}
+        write_coverage(
+            out / COVERAGE_NAME,
+            extra._read(out / COVERAGE_NAME)
+            + [o for o in omissions if tuple(o[k] for k in COVERAGE_FIELDS) not in known],
+        )
+        extra._write(target, retag.spreadsheet_safe(kept + added))  # idempotent on earlier rows
+    except retag.TagFileError as exc:
+        sys.exit(str(exc))
+    except PermissionError:
+        sys.exit(f"cannot write {target}: close it in Excel and run again")
+    print(f"{len(added)} new texts appended to {target} (marks untouched; copy in {backup.name})")
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--n", type=int, default=30)
     parser.add_argument("--seed", type=int, default=20261106)
     parser.add_argument("--extractors", default="baseline,model")
+    parser.add_argument(
+        "--add-extractor",
+        metavar="NAME",
+        help="add this extractor's texts to the file already being marked (no mark is touched)",
+    )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    if args.add_extractor:
+        add_extractor(args)
+        return
     out: Path = args.out
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]

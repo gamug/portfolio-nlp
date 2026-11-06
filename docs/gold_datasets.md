@@ -115,9 +115,17 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   stripped, UTF-8, as the draw wrote it (capped at `TEXT_CAP`). The draw writes it to
   `faithfulness_ids.csv` and the builder copies it from there, never recomputes it (the tagging file may
   show the text with a spreadsheet-safe apostrophe).
-  A mark belongs to a text, identified by (`article_id`, `ticker`, `text_hash`), **not** by `review_order`:
-  that is a shuffle position and changes when the model's texts are added to the baseline's. The baseline's
-  marks therefore stay valid; a text the model writes identically only adds its name to `extractors`.
+  In the gold a mark belongs to a text, identified by (`article_id`, `ticker`, `text_hash`), **not** by
+  `review_order`. Before the builder (T-155) has run, `report_wi18` and the owner's file use `review_order`,
+  so **never draw this set again once marking has begun**: a new draw reshuffles it and the marks point at
+  other texts with no error.
+  **Adding the model after the baseline is marked:** `draw_faithfulness_2026_11_06.py --add-extractor model`
+  (when the model exists, T-148b3). It reads the first draw's bodies and ids, a text the model wrote
+  identically to a row already there only adds its name and revision to that row of the ids file, and every
+  other text is appended to the tagging file as a new row with the next `review_order`. No existing row or
+  mark is changed; a copy of the file as it was is saved as `faithfulness_to_tag.before_model.csv` (a second
+  run stops while that copy exists). The appended rows are all the model's, so the blindness to the extractor
+  is only partial for them (their position gives them away); the owner is told the file has grown.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
   bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
 
@@ -138,8 +146,11 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   pinned like a model `company_texts@<digest>` / `extractor:<name>@<digest>`: `retag.code_revision`, 12 hex
   digits of the SHA-256 of the source of the modules the output depends on (the parser: `company_texts`,
   `triage`; the baseline: `attribution_baseline`, `triage`, `chunking`). **It detects an edit to those
-  modules; it does not cover the company universe or other data they read.** The scored pool is refused if
-  any of these digests changed since it was scored). The only copy of the texts is
+  modules; it does not cover the company universe or other data they read.** A scored pool is refused for
+  each kind of text whose code changed since it was scored (the summaries depend on a pinned model, not on
+  these modules). Any edit to those modules, a comment included, counts, and the only way out is to delete
+  the pool and its meta file and score again, which can change the stratum sizes: do not edit `triage.py`,
+  `chunking.py`, `company_texts.py` or `attribution_baseline.py` between `--pool-only` and the draw). The only copy of the texts is
   `data/sentiment_gold_ids.csv` (its `text` column); **back it up**, since without it the 180 marks cannot
   be used to measure another model. Back up `sentiment_gold_pool.csv` and its meta file too: deleting them
   makes the next draw score the pool again, with possibly different strata and sizes than the ones the marks

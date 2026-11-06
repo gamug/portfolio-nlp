@@ -1023,7 +1023,23 @@ def test_each_kind_of_sentiment_text_names_how_it_was_made() -> None:
     ) == retag.extractor_revision("baseline")
 
 
-def test_a_pool_scored_under_other_code_is_refused(
+def test_a_pool_is_refused_only_for_a_kind_whose_code_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = {"article_id": "1", "kind": "summary", "revision": "org/c_summary@r1"}
+    company = {
+        "article_id": "2",
+        "kind": "company_text",
+        "revision": retag.parser_revision(),
+    }
+    assert SENTIMENT.stale_kinds([summary, company], "baseline") == {}
+    monkeypatch.setattr(retag, "parser_revision", lambda: "company_texts@000000000000")
+    stale = SENTIMENT.stale_kinds([summary, company], "baseline")
+    assert list(stale) == ["company_text"]  # the summary does not depend on the parser
+    assert SENTIMENT.stale_kinds([summary], "baseline") == {}  # no such kind in the pool: fine
+
+
+def test_scored_pool_stops_when_the_parser_changed_since_it_was_scored(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
@@ -1032,13 +1048,16 @@ def test_a_pool_scored_under_other_code_is_refused(
     config.write_text(json.dumps(models), encoding="utf-8")
     monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
     monkeypatch.setattr(SENTIMENT, "CONFIG", config)
-    _csv(tmp_path / SENTIMENT.POOL_CSV_NAME, [{"article_id": "1", "kind": "summary"}])
+    _csv(
+        tmp_path / SENTIMENT.POOL_CSV_NAME,
+        [{"article_id": "1", "kind": "company_text", "revision": retag.parser_revision()}],
+    )
     (tmp_path / SENTIMENT.POOL_META_NAME).write_text(
         json.dumps(SENTIMENT.pool_conditions("baseline")), encoding="utf-8"
     )
     assert SENTIMENT.scored_pool(tmp_path, "baseline")  # same code: read back
     monkeypatch.setattr(retag, "parser_revision", lambda: "company_texts@000000000000")
-    with pytest.raises(SystemExit, match="parser"):
+    with pytest.raises(SystemExit, match="company_text"):
         SENTIMENT.scored_pool(tmp_path, "baseline")
 
 
@@ -1050,3 +1069,127 @@ def test_the_faithfulness_ids_and_gold_carry_the_revision_of_each_extractor() ->
 def test_the_label_check_gold_keeps_the_year_for_the_2022_split() -> None:
     assert "year" in retag.SEGMENT_CHECK_GOLD_COLUMNS
     assert "year" in _script("draw_segment_check_2026_11_05").IDS_FIELDS
+
+
+def _ids_row(order: int, key: str, text_hash: str, names: str = "baseline") -> dict[str, str]:
+    article, ticker, _n = key.rsplit("#", 2)
+    return {
+        "review_order": str(order),
+        "key": key,
+        "article_id": article,
+        "ticker": ticker,
+        "text_hash": text_hash,
+        "extractors": names,
+        "revisions": "|".join(f"extractor:{n}@r" for n in names.split("|")),
+        "pub_date": "2023-01-01",
+    }
+
+
+def _item(article: str, ticker: str, text: str, name: str = "model") -> dict[str, str]:
+    return {
+        **_ids_row(0, f"{article}#{ticker}#1", retag.text_hash(text), name),
+        "title": "t",
+        "text": text,
+        "source_domain": "d",
+        "body": "b",
+    }
+
+
+def test_adding_an_extractor_marks_identical_texts_and_appends_the_others() -> None:
+    ids = [
+        _ids_row(1, "1#T#1", retag.text_hash("Same.")),
+        _ids_row(2, "1#U#1", retag.text_hash("Own.")),
+    ]
+    items = [
+        _item("1", "T", "Same."),
+        _item("1", "U", "Different."),
+        _item("2", "T", "Other body."),
+    ]
+    merged, new = FAITH.merge_new_extractor(ids, items, seed=1)
+    assert merged[0]["extractors"] == "baseline|model"
+    assert merged[0]["revisions"] == "extractor:baseline@r|extractor:model@r"
+    assert merged[1]["extractors"] == "baseline"  # its text was not written by the model
+    assert [r["review_order"] for r in merged[:2]] == ["1", "2"]  # earlier rows are not moved
+    assert sorted(i["review_order"] for i in new) == ["3", "4"]
+    keys = {i["key"] for i in new}
+    assert keys == {"1#U#2", "2#T#1"}  # past the numbers in use for the same article and company
+    assert {r["extractors"] for r in merged[2:]} == {"model"}
+
+
+def test_adding_an_extractor_keeps_every_mark_and_saves_a_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        },
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "2",
+            "article_id": "1",
+            "ticker": "U",
+            "faithful": "no",
+        },
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(
+        out / FAITH.IDS_NAME,
+        [_ids_row(1, "1#T#1", retag.text_hash("Same.")), _ids_row(2, "1#U#1", "h2")],
+    )
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(
+        FAITH,
+        "collect_items",
+        lambda *_a: ([_item("1", "T", "Same."), _item("1", "T", "A new text.")], []),
+    )
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    FAITH.main()
+    rows = list(csv.DictReader((out / FAITH.TO_TAG_NAME).open(encoding="utf-8-sig", newline="")))
+    assert [(r["review_order"], r["faithful"]) for r in rows] == [
+        ("1", "yes"),
+        ("2", "no"),
+        ("3", ""),
+    ]
+    assert rows[2]["text"] == "A new text."
+    backup = out / "faithfulness_to_tag.before_model.csv"
+    assert [r["faithful"] for r in csv.DictReader(backup.open(encoding="utf-8-sig"))] == [
+        "yes",
+        "no",
+    ]
+    ids = list(csv.DictReader((out / FAITH.IDS_NAME).open(encoding="utf-8-sig", newline="")))
+    assert [r["extractors"] for r in ids] == ["baseline|model", "baseline", "model"]
+    with pytest.raises(
+        SystemExit, match="previous add"
+    ):  # a second run does not overwrite the copy
+        FAITH.main()
+
+
+def test_adding_an_extractor_needs_a_first_draw_and_an_extractor_that_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(tmp_path), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="no extractor 'model'"):
+        FAITH.main()
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    with pytest.raises(SystemExit, match=r"needs faithfulness_to_tag\.csv"):
+        FAITH.main()
