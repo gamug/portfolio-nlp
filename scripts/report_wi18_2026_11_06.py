@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import functools
 import sys
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -135,6 +136,31 @@ def _period_lines(rows: list[dict[str, str]]) -> list[str]:
     return lines
 
 
+def _confusion_lines(rows: list[dict[str, str]]) -> list[str]:
+    """Where the model and the owner part: a row per class the model predicted, a column per class
+    the owner marked (raw counts of the sample, not re-weighted)."""
+    classes = gold_metrics.SENTIMENT_CLASSES
+    counts = Counter((r["predicted"], r["gold"]) for r in rows)
+    lines = ["[all] model (rows) against owner (columns), raw counts: " + " | ".join(classes)]
+    for predicted in classes:
+        cells = " | ".join(f"{counts[(predicted, gold)]:>3}" for gold in classes)
+        lines.append(f"[all]   {predicted:>8}: {cells}")
+    return lines
+
+
+def _shared_text_note(rows: list[dict[str, str]]) -> str:
+    """The intervals treat every row as independent; a text two companies of one article share is
+    the same words marked twice."""
+    hashes = Counter(r["text_hash"] for r in rows if r.get("text_hash"))
+    shared = sum(n for n in hashes.values() if n > 1)
+    return (
+        f"{shared} of {len(rows)} texts are shared by two companies or more of one article, so "
+        "the intervals are a little narrow."
+        if shared
+        else "no text is shared by two companies."
+    )
+
+
 def _sentiment_block(
     label: str, rows: list[dict[str, str]], populations: dict[str, int]
 ) -> list[str]:
@@ -174,6 +200,7 @@ def _sentiment_rows_from_data(out: Path) -> tuple[list[dict[str, str]], dict[str
                 "part": row.get("part") or "checked",
                 "gold": r["sentiment"],
                 "pub_date": r.get("pub_date", ""),
+                "text_hash": row.get("text_hash", ""),
             }
         )
     populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
@@ -182,36 +209,27 @@ def _sentiment_rows_from_data(out: Path) -> tuple[list[dict[str, str]], dict[str
 
 def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
     """From the tracked ``sentiment_gold.csv`` in *out*: the marks and the draw's weights, no
-    ``data/``. The file keeps no date, so there is no per-period count."""
+    ``data/``. The sample must be the one the draw took (``gold_metrics.check_sentiment_design``)."""
     path = out / "sentiment_gold.csv"
     tagged = gold_metrics.read_marked(
         path,
         "sentiment",
         gold_metrics.SENTIMENT_CLASSES,
-        required=("key", "part", "stratum", "predicted", "population"),
+        required=("key", "part", "stratum", "predicted", "population", "text_hash", "pub_date"),
     )
     gold_metrics.require_unique([r["key"] for r in tagged], path.name)
+    populations = gold_metrics.check_sentiment_design(tagged)
     rows = [
         {
             "predicted": r["predicted"],
             "stratum": r["stratum"],
             "part": r["part"],
             "gold": r["sentiment"],
+            "pub_date": r["pub_date"],
+            "text_hash": r["text_hash"],
         }
         for r in tagged
     ]
-    sizes: dict[str, set[str]] = {}
-    for r in tagged:
-        sizes.setdefault(r["stratum"], set()).add(r["population"])
-    split = sorted(s for s, v in sizes.items() if len(v) > 1)
-    if split:
-        raise MarkedFileError(
-            f"{path.name}: the stratum size is not the same on every row of {split}"
-        )
-    try:
-        populations = {s: int(next(iter(v))) for s, v in sizes.items()}
-    except ValueError:
-        raise MarkedFileError(f"{path.name}: population is not a whole number") from None
     return rows, populations
 
 
@@ -222,9 +240,9 @@ def sentiment_report(out: Path, gold: bool = False) -> list[str]:
         "weights: the size of each stratum in the pool of the owner's tagged bodies "
         "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
     ]
-    if not gold:
-        lines += _period_lines(rows)
+    lines += _period_lines(rows)
     lines += _sentiment_block("all", rows, populations)
+    lines += _confusion_lines(rows)
     parts = sorted({r["part"] for r in rows})
     if len(parts) > 1:
         for part in parts:
@@ -237,8 +255,8 @@ def sentiment_report(out: Path, gold: bool = False) -> list[str]:
         )
     lines.append(
         "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
-        "interval printed (D34). The intervals resample texts inside each stratum: the company "
-        "texts of one body are not independent, so they are a little narrow."
+        "interval printed (D34). The intervals resample texts inside each stratum, as if each were "
+        "independent: " + _shared_text_note(rows)
     )
     return lines
 

@@ -16,11 +16,14 @@ is no ``review_order`` in the draw). The run stops unless
   hash the draw recorded (so the mark belongs to that text and the file was not edited while
   tagging);
 * every row of the draw has the stratum, the prediction, the part and the stratum size the figures
-  of D32 need, and the stratum sizes agree inside one stratum.
+  of D32 need, and the sample is the one drawn (``gold_metrics.check_sentiment_design``: ``--per-class``
+  texts of each predicted class in part ``checked``, ``--per-class-extractor`` in part ``extractor``,
+  all of a stratum that is smaller, one whole-number size per stratum).
 
-``text_hash`` and ``revision`` are copied from the ids, never recomputed. A gold file that already
-exists is the reference: if a mark or a text hash of it would change, or a row would go missing, the
-run stops and names how many (``--overwrite-marks`` to accept). The file is replaced as a whole
+``text_hash`` and ``revision`` are copied from the ids, never recomputed; ``pub_date`` is the one the
+draw wrote in the file the owner tagged (the draw's ids file has none). A gold file that already
+exists is the reference: if a mark, a text hash or any column the figures depend on (``PROTECTED``)
+would change, or a row would go missing, the run stops and names how many (``--overwrite-marks`` to accept). The file is replaced as a whole
 (temporary file, then replace).
 
 The texts cannot be rebuilt (a summary is generated, a company text depends on the extractor): the
@@ -41,6 +44,19 @@ from news_nlp import gold_metrics, retag
 TO_TAG_NAME = "sentiment_gold_to_tag.csv"
 IDS_NAME = "sentiment_gold_ids.csv"
 NEEDED_FROM_THE_DRAW = ("part", "stratum", "predicted", "population", "text_hash", "revision")
+#: What a rebuild may not change in a tracked row without ``--overwrite-marks``: the mark, the text
+#: it belongs to, and everything that weights it or says how the text was made.
+PROTECTED = (
+    "sentiment",
+    "text_hash",
+    "revision",
+    "part",
+    "stratum",
+    "extractor",
+    "predicted",
+    "population",
+    "pub_date",
+)
 
 
 def key_of(row: dict[str, str]) -> str:
@@ -48,18 +64,20 @@ def key_of(row: dict[str, str]) -> str:
 
 
 def changed_marks(before: list[dict[str, str]], after: list[dict[str, str]]) -> list[str]:
-    """Keys of the existing gold that the new rows would change (mark or text hash) or drop."""
+    """Keys of the existing gold that the new rows would change (a ``PROTECTED`` column) or drop."""
     now = {r["key"]: r for r in after}
     return [
         r["key"]
         for r in before
-        if r["key"] not in now
-        or now[r["key"]]["sentiment"] != r["sentiment"]
-        or now[r["key"]]["text_hash"] != r["text_hash"]
+        if r["key"] not in now or any(now[r["key"]].get(c) != r.get(c) for c in PROTECTED)
     ]
 
 
-def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[str, str]]:
+def build(
+    marks: list[dict[str, str]],
+    ids: list[dict[str, str]],
+    design: dict[str, int] | None = None,
+) -> list[dict[str, str]]:
     """The gold rows, in the order of the draw. Raises ``MarkedFileError`` when the marks and the
     draw are not the same texts."""
     gold_metrics.require_unique([r["key"] for r in ids], IDS_NAME)
@@ -89,18 +107,12 @@ def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[s
         out.append(
             {
                 **{f: drawn[f] for f in retag.SENTIMENT_GOLD_COLUMNS if f in drawn},
+                "pub_date": marked.get("pub_date", ""),
                 "sentiment": marked["sentiment"],
                 "notes": marked["notes"],
             }
         )
-    sizes: dict[str, set[str]] = {}
-    for r in out:
-        sizes.setdefault(r["stratum"], set()).add(r["population"])
-    split = sorted(s for s, v in sizes.items() if len(v) > 1)
-    if split:
-        raise gold_metrics.MarkedFileError(
-            f"{IDS_NAME}: the stratum size is not the same on every row of {split}"
-        )
+    gold_metrics.check_sentiment_design(out, design)
     return out
 
 
@@ -113,15 +125,22 @@ def main() -> None:
         action="store_true",
         help="accept that marks, text hashes or rows of the existing gold file change or go",
     )
+    design = gold_metrics.SENTIMENT_DESIGN
+    parser.add_argument("--per-class", type=int, default=design.get("checked", 0))
+    parser.add_argument("--per-class-extractor", type=int, default=design.get("extractor", 0))
     args = parser.parse_args()
     try:
         marks = gold_metrics.read_marked(
             args.out / TO_TAG_NAME,
             "sentiment",
             gold_metrics.SENTIMENT_CLASSES,
-            required=("article_id", "ticker", "kind", "text"),
+            required=("article_id", "ticker", "kind", "text", "pub_date"),
         )
-        rows = build(marks, gold_metrics.read_rows(args.out / IDS_NAME))
+        rows = build(
+            marks,
+            gold_metrics.read_rows(args.out / IDS_NAME),
+            {"checked": args.per_class, "extractor": args.per_class_extractor},
+        )
     except gold_metrics.MarkedFileError as exc:
         sys.exit(str(exc))
     if args.gold.exists() and not args.overwrite_marks:

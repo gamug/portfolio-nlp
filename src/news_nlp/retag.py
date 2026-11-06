@@ -726,6 +726,7 @@ SENTIMENT_GOLD_COLUMNS = (
     "extractor",
     "predicted",
     "population",
+    "pub_date",
     "sentiment",
     "notes",
 )
