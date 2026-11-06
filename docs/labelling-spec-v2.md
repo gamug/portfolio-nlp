@@ -217,12 +217,10 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   240 is stratified but not a random sample; the rest of each stratum is a seeded draw. The draw
   stops, writing nothing, if it is not 240 or a stratum holds more tagged rows than its quota.
 - **Where it is recorded.** `data/gate240_ids.csv` is local and git-ignored; it carries the six
-  strata, which no tracked file does. The only gold files git tracks are two, both added by #123
-  (added by #123): the train set
+  strata, which no tracked file does. The gold files git tracks are three. Two were added by #123: the train set
   `gold/category_gold_v2.csv` (the 240 plus the 44 sector bodies, one row per article, `session`
   = `gate240` or `sector_extra`, tags only, no news text) and the held-out test set
-  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). Nothing else lives in
-  `gold/`, and every later feature reads those two. The draw depends on which rows were tagged when
+  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). The third is `gold/company_segments_train.csv` (2026-11-05, owner call: the training set of the step-4 attribution model, T-148b2): automatic labels, not the owner's tags, as article ids, segment positions and tickers, no news text (the text is rebuilt from SOURCE with `news_nlp.company_texts.segment_text`). Nothing else lives in `gold/`, and every later scope or tag feature reads the first two. The draw depends on which rows were tagged when
   it ran, so a redraw with the same seed on a later file would give another set: the train file, not
   the seed, is the record of its members. The gate is scored on the overall figure only (see
   T-146c), so the strata do not need a tracked home; per-scope recall is judged on the held-out test.
@@ -246,3 +244,25 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   the `_merged_` file, the `_incomplete_` and `_conflicts_` files are safe to delete.
 - **Not covered.** Spreadsheet formula prefixes in titles are not neutralised (research tooling over
   public headlines, not a production service).
+
+## Files the owner marks for Work item 18 (2026-11-06)
+
+All carry `spanish_title` and `spanish_text` right after `text` (`news_nlp.retag`); the figures come
+from `scripts/report_wi18_2026_11_06.py`, which stops on a half-marked file and names the rows.
+
+| File | Script | Columns after the Spanish pair | The owner marks | Figure |
+|---|---|---|---|---|
+| `heldout_to_tag.csv` | `draw_heldout_2026_11_05.py` | the scope format (`TAGGING_COLUMNS`) | `scope` | `report_wi18 scope`: rules' agreement, weighted with `heldout_strata.csv` |
+| `segment_check_to_tag.csv` | `draw_segment_check_2026_11_05.py` | `kind`, `previous_segment`, `spanish_previous_segment` | `correct` yes / no | `report_wi18 label-check`: precision per kind, D27's rule |
+| `faithfulness_to_tag.csv` | `draw_faithfulness_2026_11_06.py` | `body`, `spanish_body` | `faithful` yes / no | `report_wi18 faithfulness`: per extractor, blind |
+| `sentiment_gold_to_tag.csv` | `draw_sentiment_gold_2026_11_05.py` | `kind` | `sentiment` positive / negative / neutral | `report_wi18 sentiment`: D32 |
+
+In the label check the parser's company is shown on purpose (it checks an automatic label, it is not a
+gold tagging). In the faithfulness file the extractor is not shown and the rows are shuffled.
+
+**Pulling the held-out tags into `gold/`.** The owner tags `data/heldout_to_tag.csv` (the 200 of
+D30, same columns as the 240's file, never overwritten). When it is finished,
+`uv run scripts/build_gold_2026_11_05.py --set test` checks every row (all tagged and valid) and
+that the articles are exactly the 200 already in `gold/category_gold_v2_test.csv`, and rewrites that
+file with the tags only (`session` = `heldout`, no news text). `--set train` (the default) does the
+same for the 240 + 44.

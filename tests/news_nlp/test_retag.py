@@ -700,3 +700,28 @@ def test_a_share_class_without_a_sub_industry_takes_its_familys() -> None:
     canonical = universe.tickers["GOOG"]
     assert universe.tickers["GOOGL"] == canonical
     assert universe.company_sub == {canonical: "Interactive Media"}
+
+
+def test_sentiment_tagging_format_keeps_the_spanish_pair_after_text() -> None:
+    row = dict.fromkeys(retag.SENTIMENT_TAGGING_COLUMNS, "x")
+    cols = retag.SENTIMENT_TAGGING_COLUMNS
+    assert cols.index("spanish_title") == cols.index("text") + 1
+    assert cols.index("spanish_text") == cols.index("text") + 2
+    assert retag.tagging_format_problems([row], cols) == []
+    assert retag.tagging_format_problems([row])  # it is not the scope format
+    without = {k: v for k, v in row.items() if k != "kind"}
+    assert any(
+        "not the tagging format" in p for p in retag.tagging_format_problems([without], cols)
+    )
+
+
+def test_spreadsheet_safe_neutralises_formulas_but_not_the_owners_marks() -> None:
+    rows = [{"title": "=SUM(A1)", "text": "-5% on the day", "ticker": "AAPL", "notes": "=keep"}]
+    got = retag.spreadsheet_safe(rows)[0]
+    assert got["title"] == "'=SUM(A1)" and got["text"] == "'-5% on the day"
+    assert got["ticker"] == "AAPL" and got["notes"] == "=keep"
+    assert rows[0]["title"] == "=SUM(A1)"  # the input is not changed
+    assert retag.spreadsheet_safe([{"title": "  =1+1", "text": "\t=x"}])[0] == {
+        "title": "'  =1+1",
+        "text": "'\t=x",
+    }

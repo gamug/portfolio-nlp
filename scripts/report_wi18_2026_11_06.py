@@ -1,0 +1,350 @@
+"""Turn the owner's tagged files of Work item 18 into the figures of the acceptance bars (PLAN D27,
+D30, D32, D33).
+
+    uv run scripts/report_wi18_2026_11_06.py scope|label-check|sentiment|faithfulness [--out data]
+
+* ``scope``: the rules' agreement with the owner's tags on the held-out 200 (``heldout_to_tag.csv``),
+  re-weighted to the corpus with the sample sizes of ``heldout_strata.csv`` (D30), and the recall of
+  each scope, gated only for a scope with at least 40 gold bodies (D33).
+* ``label-check``: the precision of the `lead` / `continuation` labels (``segment_check_to_tag.csv``)
+  and D27's rule: whether the `continuation` labels are dropped from training.
+* ``sentiment``: agreement and negative precision / recall on the 180 (``sentiment_gold_to_tag.csv``
+  with ``sentiment_gold_ids.csv``), re-weighted by the stratum sizes, bootstrap intervals (D32).
+* ``faithfulness``: the share of faithful texts per extractor (``faithfulness_to_tag.csv`` with
+  ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
+
+A file that is not completely and correctly marked stops the run, naming the rows. Nothing is
+written; this only prints.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Callable
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import draw_sector_extra_2026_11_05 as extra
+
+from news_nlp import gold_metrics, triage
+from news_nlp.gold_metrics import MarkedFileError
+
+AGREEMENT_BAR = 0.80  # D32 sentiment overall agreement
+NEGATIVE_BAR = 0.70  # D32 negative precision and recall
+FAITHFUL_BAR = 0.80  # D32 extractor
+SCOPE_BAR = 0.90  # D20 overall agreement (reported for the rules, gated for the classifier)
+RECALL_BAR = 0.80  # D20, only for a scope with MIN_GOLD bodies (D33)
+MIN_GOLD = 40
+COVERAGE_NAME = "faithfulness_coverage.csv"
+KNOWN_EXTRACTORS = ("baseline", "model")
+
+
+def scope_report(out: Path) -> list[str]:
+    tagged = gold_metrics.read_marked(
+        out / "heldout_to_tag.csv", "scope", triage.GOLD_SCOPES, ("article_id",)
+    )
+    stratum_of = {r["article_id"]: r["stratum"] for r in extra._read(out / "heldout_ids.csv")}
+    unknown = sorted(r["article_id"] for r in tagged if r["article_id"] not in stratum_of)
+    if unknown:
+        raise MarkedFileError(f"heldout_to_tag.csv has ids not in heldout_ids.csv: {unknown[:5]}")
+    gold_metrics.require_unique([r["article_id"] for r in tagged], "heldout_to_tag.csv")
+    gold_metrics.require_same_keys(
+        [r["article_id"] for r in tagged], list(stratum_of), "heldout_to_tag.csv"
+    )
+    populations = {r["stratum"]: int(r["frame"]) for r in extra._read(out / "heldout_strata.csv")}
+    rows = [
+        {
+            "stratum": stratum_of[r["article_id"]],
+            "predicted": triage.RULE_SCOPE_TO_GOLD[stratum_of[r["article_id"]]],
+            "gold": r["scope"],
+        }
+        for r in tagged
+    ]
+    lines: list[str] = []
+    overall = gold_metrics.stratified_report(
+        rows, populations, label="single", stratum_key="stratum"
+    )
+    lines.append(
+        f"agreement, weighted to the corpus: {overall.agreement} "
+        f"(raw {overall.raw_agreement}; bar {SCOPE_BAR:.0%} is the classifier's, reported here)"
+    )
+    if overall.census:
+        lines.append(f"(census, not resampled: {list(overall.census)})")
+    for scope in triage.GOLD_SCOPES:
+        r = gold_metrics.stratified_report(rows, populations, label=scope, stratum_key="stratum")
+        gated = r.gold_count >= MIN_GOLD
+        verdict = r.recall.judge(RECALL_BAR) if gated else "not gated (< 40 gold bodies, D33)"
+        lines.append(f"{scope:>18}: {r.gold_count:3d} gold | recall {r.recall} | {verdict}")
+    return lines
+
+
+def label_check_report(out: Path) -> list[str]:
+    rows = gold_metrics.read_marked(
+        out / "segment_check_to_tag.csv",
+        "correct",
+        ("yes", "no"),
+        required=("article_id", "pub_date", "kind"),
+    )
+    report = gold_metrics.label_check_report(rows)
+    lines = [f"{name:>18}: {figure}" for name, figure in report.items()]
+    lead_only = gold_metrics.train_on_lead_only(report)
+    undated = gold_metrics.rows_without_year(rows)
+    if undated:
+        lines.append(f"{undated} rows have no usable pub_date: they are not in the 2022+ figures")
+    cont = report["continuation"]
+    if cont.low <= gold_metrics.CONTINUATION_BAR <= cont.high:
+        lines.append(
+            f"note: the continuation interval {cont} straddles the "
+            f"{gold_metrics.CONTINUATION_BAR:.0%} bar; the owner's rule is on the point estimate"
+        )
+    lines.append(
+        "D27 rule: continuation precision "
+        f"{report['continuation'].point:.1%} -> "
+        + (
+            f"at most {gold_metrics.CONTINUATION_BAR:.0%}: train on `lead` only"
+            if lead_only
+            else "above the bar: train on `lead` and `continuation`"
+        )
+    )
+    return lines
+
+
+def _period_lines(rows: list[dict[str, str]]) -> list[str]:
+    """Per stratum: the texts drawn and how many are from 2022 on (the window of the cut, D34)."""
+    lines = []
+    for stratum in sorted({r["stratum"] for r in rows}):
+        mine = [r for r in rows if r["stratum"] == stratum]
+        late = sum((gold_metrics.year_of(r) or 0) >= gold_metrics.LATE_FROM_YEAR for r in mine)
+        lines.append(
+            f"  {stratum}: {len(mine)} drawn, {late} from {gold_metrics.LATE_FROM_YEAR} on"
+        )
+    undated = gold_metrics.rows_without_year(rows)
+    if undated:
+        lines.append(f"  {undated} texts have no usable pub_date")
+    return lines
+
+
+def _sentiment_block(
+    label: str, rows: list[dict[str, str]], populations: dict[str, int]
+) -> list[str]:
+    rep = gold_metrics.sentiment_report(rows, populations)
+    return [
+        f"[{label}] drawn per stratum: {rep.drawn}"
+        + (f" | (census, not resampled): {list(rep.census)}" if rep.census else ""),
+        f"[{label}] overall agreement (weighted): {rep.agreement} -> "
+        f"{rep.agreement.judge(AGREEMENT_BAR)} (raw {rep.raw_agreement})",
+        f"[{label}] negative precision: {rep.negative_precision} -> "
+        f"{rep.negative_precision.judge(NEGATIVE_BAR)}",
+        f"[{label}] negative recall: {rep.negative_recall} -> "
+        f"{rep.negative_recall.judge(NEGATIVE_BAR)}",
+    ]
+
+
+def sentiment_report(out: Path) -> list[str]:
+    tagged = gold_metrics.read_marked(
+        out / "sentiment_gold_to_tag.csv", "sentiment", gold_metrics.SENTIMENT_CLASSES
+    )
+    drawn = extra._read(out / "sentiment_gold_ids.csv")
+    gold_metrics.require_unique([r["key"] for r in drawn], "sentiment_gold_ids.csv")
+    ids = {r["key"]: r for r in drawn}
+    keys = [f"{r['article_id']}#{r['ticker'] or r['kind']}" for r in tagged]
+    gold_metrics.require_unique(keys, "sentiment_gold_to_tag.csv")
+    for key in keys:
+        if key not in ids:
+            raise MarkedFileError(f"{key} is not in sentiment_gold_ids.csv")
+    gold_metrics.require_same_keys(keys, list(ids), "sentiment_gold_to_tag.csv")
+    rows = []
+    for key, r in zip(keys, tagged, strict=True):
+        row = ids[key]
+        rows.append(
+            {
+                "predicted": row["predicted"],
+                "stratum": row.get("stratum") or row["predicted"],
+                "part": row.get("part") or "checked",
+                "gold": r["sentiment"],
+                "pub_date": r.get("pub_date", ""),
+            }
+        )
+    populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
+    lines = [
+        "weights: the size of each stratum in the pool of the owner's tagged bodies "
+        "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
+    ]
+    lines += _period_lines(rows)
+    lines += _sentiment_block("all", rows, populations)
+    parts = sorted({r["part"] for r in rows})
+    if len(parts) > 1:
+        for part in parts:
+            mine = [r for r in rows if r["part"] == part]
+            pops = {k: v for k, v in populations.items() if k in {r["stratum"] for r in mine}}
+            lines += _sentiment_block(part, mine, pops)
+        lines.append(
+            "part `extractor` = the texts the baseline / model wrote for narrative multi bodies; "
+            "`checked` = summaries and structured multi texts"
+        )
+    lines.append(
+        "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
+        "interval printed (D34). The intervals resample texts inside each stratum: the company "
+        "texts of one body are not independent, so they are a little narrow."
+    )
+    return lines
+
+
+def _faithfulness_block(
+    label: str,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
+) -> list[str]:
+    """The per-extractor shares and the gain over the baseline for one set of texts. *omitted* is,
+    per extractor, the companies (``<article>#<ticker>``) it named but wrote no text for: each
+    counts as an unfaithful text, in the share and in the gain."""
+    if not marks and not any(omitted.values()):
+        return [f"[{label}] no texts"]
+    report = gold_metrics.faithfulness_report(marks, owners, omitted=omitted)
+    lines = []
+    for name, fig in report.items():
+        texts = [k for k, owner in owners.items() if name in owner]
+        right = sum(marks[k] for k in texts)
+        skipped = len(omitted.get(name, ()))
+        lines.append(
+            f"[{label}] {name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)} (the bar: of the companies "
+            f"named, those with a faithful text; {right} faithful of {len(texts)} texts + "
+            f"{skipped} companies left without one)"
+        )
+        if texts:
+            only = gold_metrics.wilson(right, len(texts))
+            lines.append(
+                f"[{label}] {name:>10}: of the texts it wrote, {only} (informative; omissions not "
+                "counted)"
+            )
+    if {"model", "baseline"} <= set(report):
+        lines += _gain_lines(label, marks, owners, omitted)
+    return lines
+
+
+def _gain_lines(
+    label: str,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
+) -> list[str]:
+    """Model minus baseline on the companies at least one of them wrote a text for; a company one
+    skipped counts as unfaithful for it, and a company both skipped says nothing on which is
+    better (it stays in the shares only)."""
+    pairs: dict[str, dict[str, bool]] = {}
+    for key, names in owners.items():
+        pair = key.rsplit("#", 1)[0]
+        for name in names:
+            pairs.setdefault(pair, {})[name] = marks[key]
+    written = set(pairs)
+    for name, pair_keys in omitted.items():
+        for pair in pair_keys:
+            if pair in written:
+                pairs[pair][name] = False
+    both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
+    if not both:
+        return []
+    gain = gold_metrics.paired_difference(
+        [v["model"] for v in both.values()],
+        [v["baseline"] for v in both.values()],
+        clusters=[gold_metrics.body_of_key(p) for p in both],
+    )
+    bodies = len({gold_metrics.body_of_key(p) for p in both})
+    return [
+        f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
+        f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
+    ]
+
+
+def faithfulness_report(out: Path) -> list[str]:
+    tagged = gold_metrics.read_marked(
+        out / "faithfulness_to_tag.csv", "faithful", ("yes", "no"), ("article_id", "review_order")
+    )
+    ids = {r["review_order"]: r for r in extra._read(out / "faithfulness_ids.csv")}
+    if ids and "pub_date" not in next(iter(ids.values())):
+        raise MarkedFileError("faithfulness_ids.csv lacks pub_date: the 2022+ split needs it")
+    unknown = sorted(r["review_order"] for r in tagged if r["review_order"] not in ids)
+    if unknown:
+        raise MarkedFileError(
+            f"faithfulness_to_tag.csv has rows not in the ids file: {unknown[:5]}"
+        )
+    gold_metrics.require_unique([r["review_order"] for r in tagged], "faithfulness_to_tag.csv")
+    gold_metrics.require_same_keys(
+        [r["review_order"] for r in tagged], list(ids), "faithfulness_to_tag.csv"
+    )
+    coverage_path = out / COVERAGE_NAME
+    if not coverage_path.exists():
+        raise MarkedFileError(
+            f"{COVERAGE_NAME} not found: it lists the companies an extractor left without a text, "
+            "which the shares and the gain count as unfaithful. Draw the file again."
+        )
+    drawn = {r["article_id"] for r in extra._read(out / "faithfulness_bodies.csv")}
+    coverage = extra._read(coverage_path)
+    foreign = sorted(
+        {c["article_id"] for c in coverage if c["article_id"] not in drawn}
+        | {c["extractor"] for c in coverage if c["extractor"] not in KNOWN_EXTRACTORS}
+    )
+    if foreign:
+        raise MarkedFileError(
+            f"{COVERAGE_NAME} has bodies or extractors the draw does not have: {foreign[:5]}"
+        )
+    omitted: dict[str, list[str]] = {}
+    omitted_late: dict[str, list[str]] = {}
+    for c in coverage:
+        pair = f"{c['article_id']}#{c['ticker']}"
+        omitted.setdefault(c["extractor"], []).append(pair)
+        if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR:
+            omitted_late.setdefault(c["extractor"], []).append(pair)
+    marks: dict[str, bool] = {}
+    owners: dict[str, list[str]] = {}
+    late: set[str] = set()
+    for r in tagged:
+        row = ids[r["review_order"]]
+        marks[row["key"]] = r["faithful"] == "yes"
+        owners[row["key"]] = row["extractors"].split("|")
+        if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR:
+            late.add(row["key"])
+    undated = sum(gold_metrics.year_of(ids[r["review_order"]]) is None for r in tagged)
+    lines = ["the intervals are a bootstrap over bodies, not over texts (D32)"]
+    if undated:
+        lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
+    lines += _faithfulness_block("all", marks, owners, omitted)
+    lines += _faithfulness_block(
+        "2022+",
+        {k: v for k, v in marks.items() if k in late},
+        {k: v for k, v in owners.items() if k in late},
+        omitted_late,
+    )
+    return lines
+
+
+COMMANDS: dict[str, Callable[[Path], list[str]]] = {
+    "scope": scope_report,
+    "label-check": label_check_report,
+    "sentiment": sentiment_report,
+    "faithfulness": faithfulness_report,
+}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=sorted(COMMANDS))
+    parser.add_argument("--out", type=Path, default=Path("data"))
+    args = parser.parse_args()
+    try:
+        print("\n".join(COMMANDS[args.command](args.out)))
+    except MarkedFileError as exc:
+        sys.exit(str(exc))
+    except FileNotFoundError as exc:
+        sys.exit(
+            f"{exc.filename} not found: it is written by the draw script of that set "
+            "(scripts/draw_*; see the docstring of this script) or is the owner's tagged file"
+        )
+
+
+if __name__ == "__main__":
+    main()

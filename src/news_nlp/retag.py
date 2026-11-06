@@ -78,20 +78,98 @@ TAGGING_COLUMNS = (
 )
 
 
-def tagging_format_problems(rows: Sequence[Mapping[str, str]]) -> list[str]:
+#: The format of a file the owner tags for the sentiment of pipeline texts: the same carried columns
+#: and the Spanish pair right after ``text``, then ``kind`` (``summary`` or ``company_text``, read
+#: only) and the columns to tag.
+SENTIMENT_TAG_COLUMNS = ("sentiment", "notes")
+SENTIMENT_TAGGING_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "kind",
+    *SENTIMENT_TAG_COLUMNS,
+)
+
+
+#: The format of the file the owner reads to check the automatic labels of the step-4 training set:
+#: the company the parser chose is in ``ticker`` / ``company``, ``kind`` is ``lead`` or
+#: ``continuation`` (read only), ``previous_segment`` is the paragraph before the one to judge (with its Spanish version), and
+#: the owner marks ``correct`` (yes / no).
+SEGMENT_CHECK_TAG_COLUMNS = ("correct", "notes")
+SEGMENT_CHECK_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "kind",
+    "previous_segment",
+    "spanish_previous_segment",
+    *SEGMENT_CHECK_TAG_COLUMNS,
+)
+
+
+#: The format of the file the owner reads to mark the texts an extractor wrote for each company of a
+#: narrative multi body (D27, D32): ``text`` is the extracted text of the company in ``ticker``,
+#: ``body`` the article it was taken from (each with its Spanish version), and the owner marks
+#: ``faithful`` (yes / no). The extractor is not in the file: the rows are shuffled and blind.
+FAITHFULNESS_TAG_COLUMNS = ("faithful", "notes")
+FAITHFULNESS_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "body",
+    "spanish_body",
+    *FAITHFULNESS_TAG_COLUMNS,
+)
+
+
+TAG_COLUMNS_ALL = tuple(
+    dict.fromkeys(
+        (
+            *TAG_COLUMNS,
+            *SENTIMENT_TAG_COLUMNS,
+            *SEGMENT_CHECK_TAG_COLUMNS,
+            *FAITHFULNESS_TAG_COLUMNS,
+        )
+    )
+)
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _is_formula(value: str) -> bool:
+    return value.lstrip().startswith(_FORMULA_STARTS) or value.startswith(("\t", "\r"))
+
+
+def spreadsheet_safe(
+    rows: Sequence[Mapping[str, str]], tag_columns: Sequence[str] = TAG_COLUMNS_ALL
+) -> list[dict[str, str]]:
+    """Copies of *rows* for a file the owner opens in a spreadsheet: a value that starts with ``=``,
+    ``+``, ``-``, ``@``, a tab or a return gets a leading apostrophe, so it is shown as text and never
+    run as a formula (leading spaces do not hide it). The columns the owner marks (*tag_columns*) are
+    left as they are. Only the marks and the id columns (``article_id``, ``review_order``,
+    ``ticker``, ``kind``) are read back from these files; the escaped text columns never are, so
+    the apostrophe cannot reach a figure. Do not read ``title`` or ``text`` back from them."""
+    return [
+        {k: ("'" + v if k not in tag_columns and _is_formula(v) else v) for k, v in row.items()}
+        for row in rows
+    ]
+
+
+def tagging_format_problems(
+    rows: Sequence[Mapping[str, str]], columns: Sequence[str] = TAGGING_COLUMNS
+) -> list[str]:
     """What keeps *rows* from being a tagging file of the owner's format: other columns or another
     order (the Spanish columns must follow ``text``) and any row without its Spanish title and text.
     Empty when the file is right."""
     if not rows:
         return ["no rows"]
     problems: list[str] = []
-    columns = tuple(rows[0])
-    if columns != TAGGING_COLUMNS:
-        missing = [c for c in TAGGING_COLUMNS if c not in columns]
-        extra = [c for c in columns if c not in TAGGING_COLUMNS]
+    present = tuple(rows[0])
+    if present != tuple(columns):
+        missing = [c for c in columns if c not in present]
+        extra = [c for c in present if c not in columns]
         problems.append(
             f"columns are not the tagging format (missing {missing}, extra {extra}, "
-            f"expected order {', '.join(TAGGING_COLUMNS)})"
+            f"expected order {', '.join(columns)})"
         )
     for column in ("spanish_title", "spanish_text"):
         empty = [r.get("article_id", "?") for r in rows if not (r.get(column) or "").strip()]
@@ -100,9 +178,11 @@ def tagging_format_problems(rows: Sequence[Mapping[str, str]]) -> list[str]:
     return problems
 
 
-def require_tagging_format(rows: Sequence[Mapping[str, str]], name: str) -> None:
+def require_tagging_format(
+    rows: Sequence[Mapping[str, str]], name: str, columns: Sequence[str] = TAGGING_COLUMNS
+) -> None:
     """Refuse to write a file for the owner to tag unless it has the tagging format."""
-    problems = tagging_format_problems(rows)
+    problems = tagging_format_problems(rows, columns)
     if problems:
         raise TagFileError(f"{name} is not written: " + "; ".join(problems))
 
