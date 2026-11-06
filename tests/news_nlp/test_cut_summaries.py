@@ -496,11 +496,15 @@ def test_main_status_loads_no_model_and_takes_no_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     calls = _wired_main(monkeypatch, tmp_path, "--status")
+    CUT.main()
+    assert "no cut in" in capsys.readouterr().out  # nothing is built just to read a status
+    assert not list(tmp_path.iterdir())
+    CUT.atomic_write(tmp_path / CUT.INDEX_NAME, CUT.INDEX_FIELDS, _index(5))
     (tmp_path / CUT.LOCK_NAME).write_text("1", encoding="utf-8")  # another run is "in progress"
     monkeypatch.setattr(CUT, "_alive", lambda pid: True)
     CUT.main()  # --status is allowed while a run is in progress
     assert "0 of 3 chunks done" in capsys.readouterr().out
-    assert calls == []  # make_processor was never called
+    assert calls == [] and not (tmp_path / CUT.MANIFEST_NAME).exists()  # read only
 
 
 def test_main_passes_the_accept_flags_to_the_manifest(
@@ -516,3 +520,104 @@ def test_main_passes_the_accept_flags_to_the_manifest(
     manifest = json.loads((tmp_path / CUT.MANIFEST_NAME).read_text(encoding="utf-8"))
     assert manifest["ner_spans"] == "9:9"
     assert manifest["ner_spans_history"][0]["chunks_made_under_it"] == 1
+
+
+def test_a_second_start_cannot_touch_the_manifest_while_a_run_holds_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1")
+    CUT.main()
+    before = (tmp_path / CUT.MANIFEST_NAME).read_bytes()
+    (tmp_path / CUT.LOCK_NAME).write_text("424242", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)
+    _wired_main(monkeypatch, tmp_path, "--accept-new-spans", spans="9:9")
+    with pytest.raises(SystemExit, match="another run"):
+        CUT.main()
+    assert (tmp_path / CUT.MANIFEST_NAME).read_bytes() == before  # not rewritten, no history
+
+
+def test_the_private_lock_file_of_a_dead_run_is_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "run.lock.555").write_text("555", encoding="utf-8")
+    (tmp_path / "run.lock.556").write_text("556", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: pid == 556)
+    with CUT.locked(tmp_path):
+        assert not (tmp_path / "run.lock.555").exists()  # its run is gone
+        assert (tmp_path / "run.lock.556").exists()  # still alive: left alone
+
+
+def _chunk_with_a_failed_row(tmp_path: Path) -> list[list[dict[str, str]]]:
+    parts: list[list[dict[str, str]]] = CUT.slices(_index(4), 2)
+    CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None)
+    rows = CUT.read_rows(tmp_path / "chunk_00001.csv")
+    rows[1].update(status=CUT.FAILED, summary="", num_chunks="", error="RuntimeError: oom")
+    CUT.atomic_write(tmp_path / "chunk_00001.csv", CUT.CHUNK_FIELDS, rows)
+    return parts
+
+
+def test_redo_failed_makes_only_the_failed_bodies_again_and_keeps_the_rest(
+    tmp_path: Path,
+) -> None:
+    parts = _chunk_with_a_failed_row(tmp_path)
+    again: list[str] = []
+    messages: list[str] = []
+    made = CUT.run_chunks(tmp_path, parts, _processor(again), redo_failed=True, log=messages.append)
+    assert made == 1 and again == ["h1"]  # chunk 2 was fine; in chunk 1 only the failed body
+    rows = CUT.read_rows(tmp_path / "chunk_00001.csv")
+    assert [(r["status"], r["summary"]) for r in rows] == [
+        ("summarised", "summary of h0"),
+        ("summarised", "summary of h1"),
+    ]
+    assert not (tmp_path / "redo" / "chunk_00001.csv").exists()  # the new file replaced it
+    assert any("1 bodies with no summary in 1 chunks" in m for m in messages)
+
+
+def test_a_kill_after_the_old_chunk_was_set_aside_loses_nothing(tmp_path: Path) -> None:
+    parts = _chunk_with_a_failed_row(tmp_path)
+
+    def dies(_part: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+        raise RuntimeError("killed")
+
+    with pytest.raises(RuntimeError):
+        CUT.run_chunks(tmp_path, parts, dies, redo_failed=True, log=lambda _m: None)
+    assert (tmp_path / "redo" / "chunk_00001.csv").exists()  # the old rows are still there
+    again: list[str] = []
+    CUT.run_chunks(tmp_path, parts, _processor(again), log=lambda _m: None)  # no flag this time
+    assert again == ["h1"]  # it still finds the old file and keeps the good row
+
+
+def test_status_tells_what_to_run_when_bodies_have_no_summary(tmp_path: Path) -> None:
+    parts = _chunk_with_a_failed_row(tmp_path)
+    assert "--redo-failed" in CUT.status(tmp_path, parts)[0]
+
+
+def test_the_reader_refuses_gaps_and_damage_unless_told(tmp_path: Path) -> None:
+    index = _index(4)
+    CUT.atomic_write(tmp_path / CUT.INDEX_NAME, CUT.INDEX_FIELDS, index)
+    args = argparse.Namespace(since="2021-12-31", chunk_size=2)
+    CUT.check_manifest(
+        tmp_path / CUT.MANIFEST_NAME, CUT.conditions(args, tmp_path / CUT.INDEX_NAME, "1:1")
+    )
+    parts = _chunk_with_a_failed_row(tmp_path)
+    with pytest.raises(CUT.CutSummariesError, match="redo-failed"):
+        CUT.read_cut_summaries(tmp_path)
+    rows = CUT.read_cut_summaries(tmp_path, allow_gaps=True)
+    assert rows["h1"]["status"] == CUT.FAILED and rows["h0"]["status"] == CUT.SUMMARISED
+    damaged = CUT.read_rows(tmp_path / "chunk_00002.csv")
+    damaged[0]["summary"] = ""  # right hashes, a missing summary that claims to be fine
+    CUT.atomic_write(tmp_path / "chunk_00002.csv", CUT.CHUNK_FIELDS, damaged)
+    with pytest.raises(CUT.CutSummariesError, match="not sound"):
+        CUT.read_cut_summaries(tmp_path, allow_gaps=True)
+    assert len(parts) == 2
+
+
+def test_the_cut_summarises_the_scopes_the_sentiment_draw_expects() -> None:
+    draw = _script("draw_sentiment_gold_2026_11_05")
+    gold_of_cut = {triage.RULE_SCOPE_TO_GOLD[s] for s in CUT.SUMMARY_RULE_SCOPES}
+    # the rules never predict investing_general (D25 summarises it): the one known difference
+    assert gold_of_cut == set(draw.SUMMARY_SCOPES) - {"investing_general"}
+    summarised_by_rules = {
+        s for s, g in triage.RULE_SCOPE_TO_GOLD.items() if g in draw.SUMMARY_SCOPES
+    }
+    assert summarised_by_rules == set(CUT.SUMMARY_RULE_SCOPES)  # no scope left out or added

@@ -44,7 +44,10 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
 * ``read_cut_summaries(out)`` is the one way to read a cut (manifest, pinned summariser, index and
   chunks all checked). Columns: ``body_hash``, ``article_ids``, ``rule_scope``, ``gold_scope``,
   ``spans``, ``status``, ``summary``, ``num_chunks``.
-* ``--status`` prints the chunks done and the scope counts so far, and loads no model. The scopes
+* ``--redo-failed`` makes again the chunks that hold a ``summary_failed`` / ``summary_empty`` row (the
+  old file waits in ``redo/`` until the new one is written). The lock covers the manifest too: a
+  second start can neither change it nor the chunks while a run is in progress.
+* ``--status`` reads only (no lock, no manifest, no index built); it prints the chunks done and the scope counts so far, and loads no model. The scopes
   the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
   that had no stored NER span: read it after the first chunks, before leaving the job to run.
 
@@ -321,6 +324,10 @@ def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
     without its content. ``break_lock`` removes a lock first (a pid reused after a restart)."""
     path = out / LOCK_NAME
     private = out / f"{LOCK_NAME}.{os.getpid()}"
+    for stale in out.glob(f"{LOCK_NAME}.*"):  # left by a run killed between write and unlink
+        suffix = stale.name.rsplit(".", 1)[1]
+        if suffix.isdigit() and int(suffix) != os.getpid() and not _alive(int(suffix)):
+            stale.unlink(missing_ok=True)
     private.write_text(str(os.getpid()), encoding="utf-8")
     try:
         if break_lock:
@@ -358,11 +365,36 @@ def run_chunks(
     should_stop: Callable[[], bool] = lambda: False,
     log: Callable[[str], None] = print,
     break_lock: bool = False,
+    hold_lock: bool = True,
+    redo_failed: bool = False,
 ) -> int:
     """Make every chunk that has no file, in order, and return how many were made. Stops after
-    *max_chunks* or when *should_stop* says so, always between two chunks."""
+    *max_chunks* or when *should_stop* says so, always between two chunks. The lock is taken here
+    unless the caller already holds it (``hold_lock=False``: ``main`` locks before the manifest).
+    With *redo_failed* the chunks that hold a failed or empty summary are moved to ``redo/`` first
+    and made again."""
+    if not hold_lock:
+        return _make_chunks(out, parts, process, max_chunks, should_stop, log, redo_failed)
     with locked(out, break_lock=break_lock):
-        return _make_chunks(out, parts, process, max_chunks, should_stop, log)
+        return _make_chunks(out, parts, process, max_chunks, should_stop, log, redo_failed)
+
+
+def set_aside_failed(out: Path, parts: Sequence[Sequence[Row]], log: Callable[[str], None]) -> int:
+    """Move every chunk that holds a ``summary_failed`` / ``summary_empty`` row to ``<out>/redo/``
+    so the loop makes it again; the old file stays there until the new one is written (a kill in
+    between loses nothing). Returns the number of bodies to try again."""
+    moved = bodies = 0
+    for number in done_chunks(out, parts):
+        path = out / chunk_name(number)
+        gaps = sum(r["status"] in (EMPTY, FAILED) for r in read_rows(path))
+        if gaps:
+            (out / "redo").mkdir(exist_ok=True)
+            os.replace(path, out / "redo" / chunk_name(number))
+            moved += 1
+            bodies += gaps
+    if moved:
+        log(f"{bodies} bodies with no summary in {moved} chunks: the chunks are made again")
+    return bodies
 
 
 def _make_chunks(
@@ -372,9 +404,12 @@ def _make_chunks(
     max_chunks: int | None,
     should_stop: Callable[[], bool],
     log: Callable[[str], None],
+    redo_failed: bool = False,
 ) -> int:
     for leftover in out.glob("*.tmp"):  # safe: the lock says no other run is writing
         leftover.unlink()
+    if redo_failed:
+        set_aside_failed(out, parts, log)
     done = done_chunks(out, parts)
     pending = [n for n in range(1, len(parts) + 1) if n not in done]
     log(f"{len(done)} of {len(parts)} chunks done, {len(pending)} to make")
@@ -384,8 +419,9 @@ def _make_chunks(
         if (max_chunks is not None and made >= max_chunks) or should_stop():
             log("stopped between chunks; run the same command to resume")
             break
-        rows = process(parts[number - 1])
+        rows = _remake(out, number, parts[number - 1], process)
         atomic_write(out / chunk_name(number), CHUNK_FIELDS, rows)
+        (out / "redo" / chunk_name(number)).unlink(missing_ok=True)  # the new file replaces it
         made += 1
         rate = (time.monotonic() - started) / made
         log(
@@ -394,6 +430,23 @@ def _make_chunks(
             f"{rate * (len(pending) - made):.0f} s left"
         )
     return made
+
+
+def _remake(
+    out: Path,
+    number: int,
+    part: Sequence[Row],
+    process: Callable[[Sequence[Row]], list[Row]],
+) -> list[Row]:
+    """The rows of a chunk. If an earlier version waits in ``redo/``, only the bodies without a
+    summary are processed again and the others keep the rows they had."""
+    old_path = out / "redo" / chunk_name(number)
+    if not old_path.exists():
+        return process(part)
+    old = {r["body_hash"]: r for r in read_rows(old_path)}
+    todo = [e for e in part if old[e["body_hash"]]["status"] in (EMPTY, FAILED)]
+    fresh = {r["body_hash"]: r for r in process(todo)} if todo else {}
+    return [fresh.get(e["body_hash"], old[e["body_hash"]]) for e in part]
 
 
 def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
@@ -411,7 +464,13 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
             empty += r["status"] == EMPTY
             failed += r["status"] == FAILED
     bodies = sum(len(parts[n - 1]) for n in done)
+    gaps = (
+        [f"{empty + failed:,} bodies have no summary: run again with --redo-failed to retry them"]
+        if empty + failed
+        else []
+    )
     return [
+        *gaps,
         f"{len(done)} of {len(parts)} chunks done ({bodies:,} of {sum(map(len, parts)):,} bodies)",
         f"scopes so far: {dict(scopes.most_common())}",
         f"summaries so far: {summarised:,}; without a summary by design (rules' scope): "
@@ -566,12 +625,32 @@ class CutSummariesError(Exception):
     """The cut cannot be read as a whole and valid set of summaries."""
 
 
-def read_cut_summaries(out: Path, *, allow_partial: bool = False) -> dict[str, Row]:
+def _read_valid_chunk(path: Path, part: Sequence[Row]) -> list[Row]:
+    """One chunk file of a cut, checked: its columns, its slice of the index, every row sound."""
+    with path.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if tuple(reader.fieldnames or ()) != CHUNK_FIELDS:
+            raise CutSummariesError(f"{path.name} does not have the columns {CHUNK_FIELDS}")
+        chunk = list(reader)
+    if [r["body_hash"] for r in chunk] != [r["body_hash"] for r in part]:
+        raise CutSummariesError(f"{path.name} is not its slice of {INDEX_NAME}")
+    if broken := [r["body_hash"] for r in chunk if not row_is_sound(r)]:
+        raise CutSummariesError(
+            f"{path.name}: {len(broken)} rows are not sound (first {broken[0]}): damaged"
+        )
+    return chunk
+
+
+def read_cut_summaries(
+    out: Path, *, allow_partial: bool = False, allow_gaps: bool = False
+) -> dict[str, Row]:
     """The rows of a cut by ``body_hash``, after checking that they can be trusted: a manifest
     exists, its summariser is the one pinned in ``config/pipeline_models.json`` today, the index is
     the one the manifest digests, every chunk file has the columns of :data:`CHUNK_FIELDS` and holds
     its slice of the index, and (unless *allow_partial*) every chunk exists. Raises
-    :class:`CutSummariesError` naming the first problem."""
+    :class:`CutSummariesError` naming the first problem. Every row must be sound (the writer's own
+    test, :func:`row_is_sound`); rows whose summary failed or came back empty are refused unless
+    *allow_gaps*, which returns them with their ``status`` so the caller has to look at it."""
     manifest_path = out / MANIFEST_NAME
     if not manifest_path.exists():
         raise CutSummariesError(f"{manifest_path} not found: not a cut made by this script")
@@ -591,14 +670,13 @@ def read_cut_summaries(out: Path, *, allow_partial: bool = False) -> dict[str, R
             if allow_partial:
                 continue
             raise CutSummariesError(f"{path.name} is missing: the cut is not finished")
-        with path.open(encoding="utf-8", newline="") as fh:
-            reader = csv.DictReader(fh)
-            if tuple(reader.fieldnames or ()) != CHUNK_FIELDS:
-                raise CutSummariesError(f"{path.name} does not have the columns {CHUNK_FIELDS}")
-            chunk = list(reader)
-        if [r["body_hash"] for r in chunk] != [r["body_hash"] for r in part]:
-            raise CutSummariesError(f"{path.name} is not its slice of {INDEX_NAME}")
-        rows.update({r["body_hash"]: r for r in chunk})
+        rows.update({r["body_hash"]: r for r in _read_valid_chunk(path, part)})
+    gaps = [r for r in rows.values() if r["status"] in (EMPTY, FAILED)]
+    if gaps and not allow_gaps:
+        raise CutSummariesError(
+            f"{len(gaps)} bodies have no summary ({EMPTY} / {FAILED}); run the job again with "
+            "--redo-failed, or read with allow_gaps=True and look at each row's status"
+        )
     return rows
 
 
@@ -636,24 +714,20 @@ def main() -> None:
         action="store_true",
         help="remove run.lock first (a pid reused after a restart)",
     )
+    parser.add_argument(
+        "--redo-failed",
+        action="store_true",
+        help="make again the chunks that hold a failed or empty summary (the old file is kept in redo/)",
+    )
     args = parser.parse_args()
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
-    conn = db.connect_pipeline()
     index_path = out / INDEX_NAME
-    index = load_or_build_index(conn, index_path, args.since)
-    entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
-    parts = slices(index, args.chunk_size)
-    check_manifest(
-        out / MANIFEST_NAME,
-        conditions(args, index_path, entities),
-        newest,
-        accept_new_spans=args.accept_new_spans,
-        accept_environment_change=args.accept_environment_change,
-        chunks_done=len(done_chunks(out, parts)),
-    )
-    if args.status:
-        print("\n".join(status(out, parts)))
+    if args.status:  # reads only: no lock, no manifest, no index built
+        if not index_path.exists():
+            print(f"no cut in {out} yet")
+            return
+        print("\n".join(status(out, slices(read_rows(index_path), args.chunk_size))))
         return
     stop = {"now": False}
 
@@ -667,16 +741,30 @@ def main() -> None:
             flush=True,
         )
 
-    signal.signal(signal.SIGINT, ask_stop)
-    signal.signal(signal.SIGTERM, ask_stop)
-    made = run_chunks(
-        out,
-        parts,
-        make_processor(conn),
-        max_chunks=args.max_chunks,
-        should_stop=lambda: stop["now"],
-        break_lock=args.break_lock,
-    )
+    with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it
+        conn = db.connect_pipeline()
+        index = load_or_build_index(conn, index_path, args.since)
+        entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
+        parts = slices(index, args.chunk_size)
+        check_manifest(
+            out / MANIFEST_NAME,
+            conditions(args, index_path, entities),
+            newest,
+            accept_new_spans=args.accept_new_spans,
+            accept_environment_change=args.accept_environment_change,
+            chunks_done=len(done_chunks(out, parts)),
+        )
+        signal.signal(signal.SIGINT, ask_stop)
+        signal.signal(signal.SIGTERM, ask_stop)
+        made = run_chunks(
+            out,
+            parts,
+            make_processor(conn),
+            max_chunks=args.max_chunks,
+            should_stop=lambda: stop["now"],
+            hold_lock=False,
+            redo_failed=args.redo_failed,
+        )
     print("\n".join(status(out, parts)))
     print(f"{made} chunks made in this run")
 
