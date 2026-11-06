@@ -16,7 +16,7 @@ from types import ModuleType
 
 import pytest
 
-from news_nlp import retag
+from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -1409,15 +1409,29 @@ def test_a_partial_faithfulness_report_needs_the_first_rows_marked_in_order(
 
 def test_the_label_check_report_reads_the_committed_gold_file() -> None:
     gold = Path(__file__).resolve().parents[2] / "gold"
-    lines = REPORT.label_check_report(gold, gold=True)
-    text = "\n".join(lines)
-    assert "lead: 88.0%" in text.replace("  ", " ") or "88.0%" in text
+    text = "\n".join(REPORT.label_check_report(gold, gold=True))
     assert "train on `lead` only" in text
     rows = list(csv.DictReader((gold / "segment_check_gold.csv").open(encoding="utf-8")))
+    figures = gold_metrics.label_check_report(rows)
+    assert (figures["lead"].point, figures["continuation"].point) == (0.88, 0.38)
+    assert figures["continuation 2022+"].point == pytest.approx(0.552, abs=0.001)
     assert Counter((r["kind"], r["correct"]) for r in rows) == {
         ("lead", "yes"): 88,
         ("lead", "no"): 12,
         ("continuation", "yes"): 38,
         ("continuation", "no"): 62,
     }  # the figures of PLAN D27 and the page
-    assert "2022+" in text
+
+
+def test_partial_report_edge_cases(tmp_path: Path) -> None:
+    _partial_faith_files(tmp_path, list(range(1, 31)))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path, partial=5))
+    assert "PARTIAL" not in text  # every row is marked: it is the full report
+    with pytest.raises(MarkedFileError, match="at least 1"):
+        REPORT.faithfulness_report(tmp_path, partial=0)
+    _partial_faith_files(tmp_path, list(range(1, 11)))
+    rows = list(csv.DictReader((tmp_path / "faithfulness_to_tag.csv").open(encoding="utf-8-sig")))
+    rows[0]["review_order"] = "uno"
+    _csv(tmp_path / "faithfulness_to_tag.csv", rows)
+    with pytest.raises(MarkedFileError, match="whole number"):
+        REPORT.faithfulness_report(tmp_path, partial=5)

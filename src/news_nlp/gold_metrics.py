@@ -270,7 +270,14 @@ def read_marked_prefix(
             raise MarkedFileError(
                 f"{path.name}: {r['review_order']}={r[column]!r} is not in {list(allowed)}"
             )
-    if sorted(int(r["review_order"]) for r in marked) != list(range(1, len(marked) + 1)):
+    orders = [r["review_order"].strip() for r in marked]
+    if not all(o.isdigit() for o in orders):
+        raise MarkedFileError(
+            f"{path.name}: review_order must be a whole number in every marked row"
+        )
+    if minimum < 1:
+        raise MarkedFileError("a partial report needs a minimum of at least 1 marked row")
+    if sorted(int(o) for o in orders) != list(range(1, len(marked) + 1)):
         raise MarkedFileError(
             f"{path.name}: a partial report needs the rows marked in order, review_order 1 to k "
             "with no gap (the rows are shuffled, so that prefix is a random sample)"

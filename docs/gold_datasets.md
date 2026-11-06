@@ -189,7 +189,7 @@ Why this order:
   applied *before* training; it is the shortest set and needs no other result.
 - Set 4 needs only the baseline, so it can be drawn and tagged at once; if the model is not ready on
   2026-11-09 the decision is on the baseline alone.
-  **If the 190 are not all marked on 2026-11-09 (proposed rule, owner to confirm; fixed before any figure is read):**
+  **Only if the 190 are not all marked on 2026-11-09 (the owner expects to finish them on 2026-11-06, so this is a contingency; the 120 below is a proposal the owner has not confirmed; fixed before any figure is read):**
   the owner marks in `review_order` order; on 2026-11-09 the decision uses the first rows marked, if at
   least 120 (about two thirds; `report_wi18 faithfulness --partial 120`, which refuses a gap or fewer
   rows and prints PARTIAL, counting every company left without a text); with fewer the baseline is kept and

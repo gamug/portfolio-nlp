@@ -274,6 +274,8 @@ def _faithfulness_marks(out: Path, partial: int | None) -> tuple[list[dict[str, 
             path, "faithful", ("yes", "no"), ("article_id", "review_order")
         ), []
     tagged, total = gold_metrics.read_marked_prefix(path, "faithful", ("yes", "no"), partial)
+    if len(tagged) == total:
+        return tagged, []  # finished: it is the full report, nothing provisional
     return tagged, [
         f"PARTIAL: {len(tagged)} of {total} texts marked (the first {len(tagged)} of the shuffled "
         "order); the companies an extractor left without a text are counted in full, so the "
@@ -354,6 +356,13 @@ COMMANDS: dict[str, Callable[[Path], list[str]]] = {
 }
 
 
+def _at_least_one(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be 1 or more")
+    return number
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(COMMANDS))
@@ -363,7 +372,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--partial",
-        type=int,
+        type=_at_least_one,
         metavar="MIN",
         help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
     )
