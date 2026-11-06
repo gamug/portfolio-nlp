@@ -104,6 +104,21 @@ def label_check_report(out: Path) -> list[str]:
     return lines
 
 
+def _sentiment_block(
+    label: str, rows: list[dict[str, str]], populations: dict[str, int]
+) -> list[str]:
+    rep = gold_metrics.sentiment_report(rows, populations)
+    return [
+        f"[{label}] drawn per stratum: {rep.drawn}",
+        f"[{label}] overall agreement (weighted): {rep.agreement} -> "
+        f"{rep.agreement.judge(AGREEMENT_BAR)} (raw {rep.raw_agreement})",
+        f"[{label}] negative precision: {rep.negative_precision} -> "
+        f"{rep.negative_precision.judge(NEGATIVE_BAR)}",
+        f"[{label}] negative recall: {rep.negative_recall} -> "
+        f"{rep.negative_recall.judge(NEGATIVE_BAR)}",
+    ]
+
+
 def sentiment_report(out: Path) -> list[str]:
     tagged = gold_metrics.read_marked(
         out / "sentiment_gold_to_tag.csv", "sentiment", gold_metrics.SENTIMENT_CLASSES
@@ -114,19 +129,33 @@ def sentiment_report(out: Path) -> list[str]:
         key = f"{r['article_id']}#{r['ticker'] or r['kind']}"
         if key not in ids:
             raise MarkedFileError(f"{key} is not in sentiment_gold_ids.csv")
-        rows.append({"predicted": ids[key]["predicted"], "gold": r["sentiment"]})
-    populations = {r["predicted"]: int(r["population"]) for r in ids.values()}
-    rep = gold_metrics.sentiment_report(rows, populations)
-    return [
-        f"drawn per predicted class: {rep.drawn}",
-        f"overall agreement (weighted): {rep.agreement} -> {rep.agreement.judge(AGREEMENT_BAR)}"
-        f" (raw {rep.raw_agreement})",
-        f"negative precision: {rep.negative_precision} -> "
-        f"{rep.negative_precision.judge(NEGATIVE_BAR)}",
-        f"negative recall: {rep.negative_recall} -> {rep.negative_recall.judge(NEGATIVE_BAR)}",
+        row = ids[key]
+        rows.append(
+            {
+                "predicted": row["predicted"],
+                "stratum": row.get("stratum") or row["predicted"],
+                "part": row.get("part") or "checked",
+                "gold": r["sentiment"],
+            }
+        )
+    populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
+    lines = _sentiment_block("all", rows, populations)
+    parts = sorted({r["part"] for r in rows})
+    if len(parts) > 1:
+        for part in parts:
+            mine = [r for r in rows if r["part"] == part]
+            pops = {k: v for k, v in populations.items() if k in {r["stratum"] for r in mine}}
+            lines += _sentiment_block(part, mine, pops)
+        lines.append(
+            "part `extractor` = the texts the baseline / model wrote for narrative multi bodies; "
+            "`checked` = summaries and structured multi texts"
+        )
+    lines.append(
         "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
-        "interval printed (D34)",
-    ]
+        "interval printed (D34). The intervals resample texts inside each stratum: the company "
+        "texts of one body are not independent, so they are a little narrow."
+    )
+    return lines
 
 
 def _faithfulness_block(
@@ -145,14 +174,17 @@ def _faithfulness_block(
             pair = key.rsplit("#", 1)[0]
             for name in names:
                 pairs.setdefault(pair, {})[name] = marks[key]
-        both = [v for v in pairs.values() if {"model", "baseline"} <= set(v)]
+        both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
         if both:
             gain = gold_metrics.paired_difference(
-                [v["model"] for v in both], [v["baseline"] for v in both]
+                [v["model"] for v in both.values()],
+                [v["baseline"] for v in both.values()],
+                clusters=[gold_metrics.body_of_key(p) for p in both],
             )
+            bodies = len({gold_metrics.body_of_key(p) for p in both})
             lines.append(
-                f"[{label}] model minus baseline on {len(both)} company texts: {gain} -> "
-                f"{gold_metrics.gain_verdict(gain)}"
+                f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
+                f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
             )
     return lines
 
@@ -178,7 +210,11 @@ def faithfulness_report(out: Path) -> list[str]:
         owners[row["key"]] = row["extractors"].split("|")
         if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR:
             late.add(row["key"])
-    lines = _faithfulness_block("all", marks, owners)
+    undated = sum(gold_metrics.year_of(ids[r["review_order"]]) is None for r in tagged)
+    lines = ["the intervals are a bootstrap over bodies, not over texts (D32)"]
+    if undated:
+        lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
+    lines += _faithfulness_block("all", marks, owners)
     lines += _faithfulness_block(
         "2022+",
         {k: v for k, v in marks.items() if k in late},

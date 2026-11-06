@@ -1053,7 +1053,9 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       agreement with the owner's held-out gold (D24, confirmed)**. → P4.
       - [ ] **T-148a** Summaries: the pinned local summariser (`c_summary`) on every non-multi body
         (single, sector, market / economy, `investing_general`), with the input the pipeline
-        already builds minus the NLP features (title and body only: sentiment now follows the summary). Checks that
+        already builds minus the NLP features (title and body only: sentiment now follows the summary).
+        For the cut (T-154) it writes chunks under `data/cut/summaries/` and resumes from the last chunk
+        (the code is not written yet; it starts the evening of 2026-11-07). Checks that
         a body longer than the model's window is chunked and reduced, as `hierarchical_summarize_batch` does. → D25, D26.
       - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
         - [x] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
@@ -1066,8 +1068,10 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
           Bodies it cannot attribute are flagged `unextracted` and counted, never given a default text.
           A one-paragraph body is split into sentences and each sentence is attributed by the same model.
       - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): after T-148b exists,
-        draw the 180-text sentiment gold (60 per class, `scripts/draw_sentiment_gold_2026_11_05.py`,
-        parked until then; it must also call the attribution model for narrative multi bodies, today it counts and leaves them out in `data/sentiment_gold_pool.json`), the owner tags the price impact,
+        draw the 180-text sentiment gold (60 per class, `scripts/draw_sentiment_gold_2026_11_05.py`: 120
+        from summaries and structured multi texts, 60 from the texts the extractor writes for narrative
+        multi bodies, `--extractor baseline` today and `model` once T-148b3 exists; the pool sizes and what
+        is left out are in `data/sentiment_gold_pool.json`), the owner tags the price impact,
         the current model is measured on it, and fine-tuned on summaries only if it misses the D32 bar (overall agreement >= 80%, negative precision and recall >= 70%). Covers T-127's question on real output.
       - [ ] **T-148d** Category over the same texts (D29), measured against the owner's gold. → D24.
 - [ ] **T-149** *(P5)* Sector detection (GICS sector + sub-industry) for sector bodies;
@@ -1084,19 +1088,25 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       on the same texts, the held-out 200. Full text: `PLAN.md` Work item 18. The four open questions were answered the same day as D31–D34 (all years disclosed; the bars of the extractor and of sentiment; no recall floor under 40 gold bodies; the backtest cut).
 - [ ] **T-152** *(P5)* The company snapshot table (one row per (body, company): text, ticker, D15
       label, sentiment, `pub_date`) and the sector snapshot table (one row per (body, sector): text,
-      sentiment), RESULTS, the old tables kept as v1 (D28, D19). The schema is **proposed to the owner in
-      this PR** (constitution AI #10): column types, keys, the model names and revisions each row
-      records; its own FR. → P5.
+      sentiment), RESULTS, the old tables kept as v1 (D28, D19). **Columns approved by the owner on
+      2026-11-06** (for the cut's files and as the base of the table): `body_hash`, `article_id` (first),
+      `pub_date` (as stored), `scope` (rules), `ticker`, `role` (analysed | mention, D23), `text_kind`
+      (summary | company_text | unextracted), `text_source` (summary | parser | baseline | model), `text`,
+      `sentiment`, `p_positive`, `p_negative`, `p_neutral`, `sentiment_checked` (yes | no), the
+      summary, extractor and sentiment model with their revisions, `provisional` (1), `run_id`. The types,
+      the keys and the migration are proposed to the owner in the P5 PR (constitution AI #10); its own FR. → P5.
 - [ ] **T-153** *(coordination)* Reply to `portfolio-financial-analysis` (`to_nlp_backtest.md`, their 8
       questions): the training-data facts (about 30% of the sentences and bodies are from 2022 on, the
-      labels have no date cut-off, nothing limits hindsight), what is decided (D31, D34) and what is not, `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
+      labels have no date cut-off, nothing limits hindsight), what is decided (D31, D34) and what is not, their question 4 (which bodies count: the `role` column
+      separates analysed from mention-only, D23), question 6 (running the pipeline on a SOURCE they provide: not yet; the cut covers the stored corpus, which ends 2026-08-12, and the bodies they add are not in it), question 8 (the agreement figures travel with the output and are in `PLAN.md` D32), `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
       the backtest cut (T-154: provisional, delivered about 2026-11-16 if the 2026-11-12 go/no-go holds) and the latest date their runs can use, and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
 
 - [ ] **T-154** *(backtest cut, D34; the full plan continues around it)* A provisional output for the
       bodies of the backtest window (published 2021-12-31 or later) by about 2026-11-16: scope from the
       rules, NER for single and multi bodies, summaries (T-148a), company texts (T-148b), sentiment
-      over the texts (T-148c), written to the tables proposed in T-152 or, if those are not approved
-      in time, to a file in the same columns for the backtest team; marked provisional, with the
+      over the texts (T-148c), written (owner, 2026-11-06) as chunked files under `data/cut/` in the columns
+      approved in T-152, resumable, no schema change; the stored corpus only (it ends 2026-08-12: the bodies the
+      backtest team adds upstream are not in the cut); marked provisional, with the
       measured figures (rules' scope agreement on the held-out 200, extractor faithfulness, sentiment
       agreement on the 180) next to it. **Schedule (owner, 2026-11-06):**
       - *11-07:* the baseline (done) and the exports: the label check (200 paragraphs, translation with `--yes`)

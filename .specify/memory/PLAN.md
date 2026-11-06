@@ -2242,7 +2242,10 @@ above, it says so; nothing else above is touched.
   trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
   at that size an observed 90% per class has a 95% lower bound of about 80%), tagged on real
   output of steps 3-4 after step 4 exists, the sample over-sampling the rare negative class by the
-  current model's prediction (never shown to the owner) and re-weighted afterwards. The label is the
+  current model's prediction (never shown to the owner) and re-weighted afterwards. Of the 180, 120 are
+  summaries and the company texts of structured multi bodies and **60 (20 per class) are the texts the
+  extractor writes for narrative multi bodies** (owner, 2026-11-06), reported apart, because those are
+  the per-company texts of about 80% of multi bodies. The label is the
   **price impact on the company** an investor would read (for a sector or market text, on that
   sector or market). The model reads a text the way the pipeline's sentiment stage does: sentence-packed
   chunks of at most 510 tokens, their probabilities averaged with equal weights (the text is already
@@ -2329,15 +2332,19 @@ above, it says so; nothing else above is touched.
   whole 95% interval is at or above it, **failed** when the whole interval is below it, and "not decided"
   otherwise (the interval straddles the bar, or only touches it from below); the point estimate is
   always printed and never decides alone (`Figure.judge`, edges tested). Faithfulness is judged the same way, for all
-  texts and for the bodies from 2022 on apart (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
+  texts and for the bodies from 2022 on apart; **its point is the share of faithful texts, and its interval is a
+  bootstrap over the bodies** (about 30), not over the texts, because the company texts of one body stand or fall
+  together (`faithfulness_report`, `paired_difference` with clusters) (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
   baseline** (model minus baseline on the same company texts, paired bootstrap) is `better` when the whole
   interval is above 0, `not better` when it is at or below 0, `not decided` otherwise (`gain_verdict`); it is
   also printed for 2022+ apart. A file or id the report cannot place stops the run naming the rows. The result "not decided" is reported as such,
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
-  developer, for the owner to confirm or change). **Coverage:** the gold holds the summaries and the
-  company texts of structured multi bodies; the texts the attribution model writes for narrative
-  bodies are not in it until T-148b3 exists, so this bar does not certify them (the extractor's own
-  faithfulness check does). The model is fine-tuned on summaries only if it misses the bar.
+  developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
+  company texts of structured multi bodies (120) and the texts the extractor writes for narrative
+  multi bodies (60: the baseline, or the model if it is ready on 2026-11-10); the two parts are reported
+  apart, and the figures of the second part are the ones that say whether the cut's per-company
+  sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
+  stratum, so for the company texts of one body they are a little narrow. The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
   (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
@@ -2348,7 +2355,13 @@ above, it says so; nothing else above is touched.
   29,000 unique bodies), scope from the rules (not the classifier), NER for single and multi
   bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, up to 7
   hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
-  the 180-text gold (D32). **Provisional**: the output says so and carries the measured figures; it
+  the 180-text gold (D32; the 60 extractor texts cover narrative multi bodies, and a row's
+  `sentiment_checked` says whether its kind of text was in the gold). **Output (owner, 2026-11-06):**
+  files, not tables: chunks under `data/cut/` (git-ignored, they hold news text), one row per
+  (body, company) with the approved columns of T-152, written chunk by chunk so a stopped run resumes
+  from the last chunk; no schema change. **Coverage:** the stored corpus, which ends 2026-08-12; the
+  backtest window runs to 2026-10-15, and the bodies the backtest team adds upstream are not in the
+  cut. **Provisional**: the output says so and carries the measured figures; it
   is not the accepted pipeline. Left to after the delivery: the trained scope classifier and its
   90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
   snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on

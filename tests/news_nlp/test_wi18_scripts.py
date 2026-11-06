@@ -429,3 +429,76 @@ def test_the_pull_refuses_a_file_that_is_not_fully_tagged(
     monkeypatch.setattr(retag, "load_gold_v2", lambda *_a, **_k: report)
     with pytest.raises(SystemExit, match="untagged 1"):
         BUILD_GOLD.main()
+
+
+def test_the_faithfulness_report_says_how_many_texts_have_no_date(tmp_path: Path) -> None:
+    ids = [
+        {"review_order": "1", "key": "1#T#1", "extractors": "model", "pub_date": ""},
+        {"review_order": "2", "key": "2#T#1", "extractors": "model", "pub_date": "2023-05-01"},
+    ]
+    tags = [
+        {"article_id": "1", "review_order": "1", "faithful": "yes"},
+        {"article_id": "2", "review_order": "2", "faithful": "no"},
+    ]
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 texts have no usable pub_date" in text and "bootstrap over bodies" in text
+
+
+def _mixed_pool() -> list[dict[str, str]]:
+    pool = []
+    for i in range(60):
+        kind = "extractor_text" if i % 3 == 0 else "summary"
+        predicted = ("positive", "negative", "neutral")[i % 5 % 3]
+        pool.append({"article_id": str(i), "ticker": f"T{i}", "kind": kind, "predicted": predicted})
+    return pool
+
+
+def test_the_sentiment_draw_takes_the_extractor_texts_as_their_own_part() -> None:
+    got = SENTIMENT.draw(_mixed_pool(), 4, 1, 2)
+    part = Counter(t["part"] for t in got)
+    assert part["checked"] <= 12 and part["extractor"] <= 6 and part["extractor"] > 0
+    assert all((t["kind"] == "extractor_text") == (t["part"] == "extractor") for t in got)
+    sizes = Counter(f"{t['part']}/{t['predicted']}" for t in _mixed_pool_with_parts())
+    assert {t["stratum"]: int(t["population"]) for t in got} == {
+        k: sizes[k] for k in {t["stratum"] for t in got}
+    }
+    assert SENTIMENT.draw(_mixed_pool(), 4, 1, 0) and all(
+        t["part"] == "checked" for t in SENTIMENT.draw(_mixed_pool(), 4, 1, 0)
+    )  # the old call still works
+
+
+def _mixed_pool_with_parts() -> list[dict[str, str]]:
+    return [
+        {**t, "part": "extractor" if t["kind"] == "extractor_text" else "checked"}
+        for t in _mixed_pool()
+    ]
+
+
+def test_the_sentiment_report_prints_each_part_apart(tmp_path: Path) -> None:
+    ids, tags = [], []
+    for i in range(36):
+        part = "extractor" if i % 2 else "checked"
+        predicted = ("positive", "negative", "neutral")[i % 3]
+        ids.append(
+            {
+                "key": f"{i}#T{i}",
+                "predicted": predicted,
+                "part": part,
+                "stratum": f"{part}/{predicted}",
+                "population": "50",
+            }
+        )
+        tags.append(
+            {
+                "article_id": str(i),
+                "ticker": f"T{i}",
+                "kind": "summary",
+                "sentiment": predicted if i % 4 else "neutral",
+            }
+        )
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
+    text = "\n".join(REPORT.sentiment_report(tmp_path))
+    assert "[all]" in text and "[checked]" in text and "[extractor]" in text

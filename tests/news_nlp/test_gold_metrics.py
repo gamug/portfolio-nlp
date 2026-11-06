@@ -164,3 +164,33 @@ def test_the_baseline_gives_a_sentence_to_the_companies_it_names_and_then_by_rec
     assert list(texts) == ["AAPL", "MSFT"]
     assert "surprised analysts" in texts["AAPL"] and "Markets were quiet" not in texts["AAPL"]
     assert "Investors reacted badly" in texts["MSFT"]
+
+
+def test_faithfulness_interval_is_over_bodies_not_texts() -> None:
+    # 10 bodies of 4 texts: six bodies are all faithful, four are all unfaithful (the texts of a
+    # body stand or fall together), so 40 texts carry the information of about 10.
+    marks, owners = {}, {}
+    for body in range(10):
+        for n in range(4):
+            key = f"{body}#T#{n}"
+            marks[key], owners[key] = body < 6, ["model"]
+    by_body = gold_metrics.faithfulness_report(marks, owners, resamples=500)["model"]
+    by_text = gold_metrics.wilson(24, 40)
+    assert by_body.point == pytest.approx(0.6)
+    assert by_body.high - by_body.low > by_text.high - by_text.low  # honestly wider
+
+
+def test_the_gain_over_the_baseline_can_resample_bodies() -> None:
+    model = [True] * 20 + [False] * 20
+    base = [False] * 20 + [True] * 20
+    items = [f"{i // 4}" for i in range(40)]  # 10 bodies of 4 texts
+    per_text = gold_metrics.paired_difference(model, base, resamples=500)
+    per_body = gold_metrics.paired_difference(model, base, clusters=items, resamples=500)
+    assert per_body.point == per_text.point
+    assert per_body.high - per_body.low >= per_text.high - per_text.low
+    with pytest.raises(ValueError, match="one cluster per item"):
+        gold_metrics.paired_difference(model, base, clusters=["a"])
+
+
+def test_the_body_of_a_text_key() -> None:
+    assert gold_metrics.body_of_key("123#AAPL#2") == "123" and gold_metrics.body_of_key("x") == "x"

@@ -1,6 +1,7 @@
 """Draw the texts to tag for the sentiment gold on real pipeline output (Work item 18, steps 1-5).
 
-    uv run scripts/draw_sentiment_gold_2026_11_05.py [--out data] [--per-class 60] [--seed 20261105] [--yes]
+    uv run scripts/draw_sentiment_gold_2026_11_05.py [--out data] [--per-class 40] [--per-class-extractor 20]
+        [--extractor baseline] [--seed 20261105] [--yes]
 
 The 7-step pipeline does not exist yet, so its first steps are emulated on the bodies the owner has
 tagged with a scope (``gold/category_gold_v2.csv``; ``unrelated`` is skipped, the held-out set is
@@ -10,21 +11,25 @@ never used):
 * step 3, a body that is not *multi*: the local summary of the pipeline's own model
   (``config/pipeline_models.json`` ``c_summary``) over the title and body;
 * step 4, a *multi* body: the text of each company by ``company_texts.split_company_texts`` (one
-  segment per company). A body that is not structured that way is left out and counted: its texts
-  will come from the LLM exception path, which has its own gold later. A company text over
-  ``MAX_COMPANY_CHARS`` is left out and counted too.
+  segment per company). A body that is not structured that way is narrative, and the texts of its
+  companies are written by the extractor (``--extractor``: the baseline today, the trained model
+  once T-148b3 exists; kind ``extractor_text``). A company text over ``MAX_COMPANY_CHARS`` is left
+  out and counted.
 
 Step 5's current model (``config/pipeline_models.json`` ``sentiment``) scores every text only to
 choose the sample, the way the pipeline's sentiment stage reads a text: sentence-packed chunks of
 at most 510 tokens (``chunking.chunk_text``), the chunk probabilities averaged with equal weights
-(the text is already the company's, so there is no subject weighting, D26): ``--per-class`` texts of each predicted class, so the rare negative class is
-covered; the prediction is never written to the tagging file, whose rows are shuffled. The ids file
-holds the prediction and the size of each stratum, to re-weight the result.
+(the text is already the company's, so there is no subject weighting, D26). The draw has two parts
+(owner, 2026-11-06): ``--per-class`` texts of each predicted class from the summaries and the
+structured multi texts (part ``checked``, 40 per class) and ``--per-class-extractor`` from the
+extractor's texts of narrative multi bodies (part ``extractor``, 20 per class): 60 per class, 180 in
+all, so the rare negative class is covered. Each stratum is a part and a predicted class, and the
+figures are re-weighted by its size and reported for each part apart. The prediction is never written
+to the tagging file, whose rows are shuffled. The ids file holds the prediction, the part and the size
+of each stratum.
 
-A multi body the parser cannot split and a company text over ``MAX_COMPANY_CHARS`` are left out of
-the pool and counted in ``<out>/sentiment_gold_pool.json`` with the pool sizes, so the limit of the
-gold is on record: until the attribution model (T-148b3) exists, the gold does not cover the texts
-that model will produce.
+A company text over ``MAX_COMPANY_CHARS`` is left out of the pool and counted in
+``<out>/sentiment_gold_pool.json`` with the pool sizes.
 
 Writes ``<out>/sentiment_gold_ids.csv`` (drawn once, with the texts) and
 ``<out>/sentiment_gold_to_tag.csv``, a tagging file in the sentiment format
@@ -50,7 +55,7 @@ import draw_sector_extra_2026_11_05 as extra
 import retag_gold_2026_10_29 as retag_cli
 
 import news_nlp as db
-from news_nlp import company_texts, retag
+from news_nlp import attribution_baseline, company_texts, retag
 from news_nlp.company_names import NameBook
 from news_nlp.triage import CompanyResolver
 
@@ -64,6 +69,8 @@ SUMMARY_SCOPES = ("single", "sector", "market_economy", "investing_general")
 MAX_COMPANY_CHARS = 1500
 MIN_TEXT_CHARS = 40
 CLASSES = ("positive", "negative", "neutral")
+#: Who writes the company texts of a narrative multi body (the trained model, T-148b3, is not here yet).
+EXTRACTORS = {"baseline": attribution_baseline.baseline_company_texts}
 SUBJECT = {
     "market_economy": "[market / economy]",
     "investing_general": "[investing in general]",
@@ -72,6 +79,9 @@ IDS_FIELDS = (
     "key",
     "article_id",
     "kind",
+    "part",
+    "stratum",
+    "extractor",
     "scope",
     "ticker",
     "company",
@@ -104,7 +114,7 @@ def subject_of(row: dict[str, str], book: NameBook, names: dict[str, str]) -> tu
     return "", SUBJECT[scope]
 
 
-def build_texts(out: Path) -> tuple[list[dict[str, str]], Counter[str]]:
+def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counter[str]]:
     conn = db.connect_pipeline()
     universe = retag_cli.companies()
     names = {c.ticker: c.name for c in universe}
@@ -129,9 +139,11 @@ def build_texts(out: Path) -> tuple[list[dict[str, str]], Counter[str]]:
             )
         elif row["scope"] == "multi":
             found = company_texts.split_company_texts(body, resolver)
+            kind = "company_text"
             if found is None:
-                skipped["multi, not structured"] += 1
-                continue
+                skipped["multi, not structured (extractor texts)"] += 1
+                found = EXTRACTORS[extractor](body, resolver)
+                kind = "extractor_text"
             for ticker, text in found.items():
                 if len(text) > MAX_COMPANY_CHARS:
                     skipped["company text too long"] += 1
@@ -141,7 +153,8 @@ def build_texts(out: Path) -> tuple[list[dict[str, str]], Counter[str]]:
                     texts.append(
                         {
                             **base,
-                            "kind": "company_text",
+                            "kind": kind,
+                            "extractor": extractor if kind == "extractor_text" else "",
                             "ticker": ticker,
                             "company": names.get(ticker, ticker),
                             "text": text,
@@ -213,17 +226,27 @@ def predict(texts: list[dict[str, str]]) -> list[dict[str, str]]:
     return kept
 
 
-def draw(texts: list[dict[str, str]], per_class: int, seed: int) -> list[dict[str, str]]:
+def draw(
+    texts: list[dict[str, str]], per_class: int, seed: int, per_class_extractor: int = 0
+) -> list[dict[str, str]]:
+    """``per_class`` texts of each predicted class from the summaries and the structured multi
+    texts (part ``checked``), and ``per_class_extractor`` of each class from the texts an extractor
+    wrote for narrative multi bodies (part ``extractor``). Each stratum is a part and a predicted
+    class; ``population`` is its size in the pool, to re-weight the result."""
     rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
-    population = Counter(t["predicted"] for t in texts)
+    for t in texts:
+        t["part"] = "extractor" if t["kind"] == "extractor_text" else "checked"
+        t["stratum"] = f"{t['part']}/{t['predicted']}"
+    population = Counter(t["stratum"] for t in texts)
     chosen: list[dict[str, str]] = []
-    for label in CLASSES:
-        members = sorted(
-            (t for t in texts if t["predicted"] == label),
-            key=lambda t: (int(t["article_id"]), t["ticker"], t["kind"]),
-        )
-        rng.shuffle(members)
-        chosen += [{**t, "population": str(population[label])} for t in members[:per_class]]
+    for part, take in (("checked", per_class), ("extractor", per_class_extractor)):
+        for label in CLASSES:
+            members = sorted(
+                (t for t in texts if t["stratum"] == f"{part}/{label}"),
+                key=lambda t: (int(t["article_id"]), t["ticker"], t["kind"]),
+            )
+            rng.shuffle(members)
+            chosen += [{**t, "population": str(population[t["stratum"]])} for t in members[:take]]
     rng.shuffle(chosen)  # the order must not reveal the predicted class
     for t in chosen:
         t["key"] = f"{t['article_id']}#{t['ticker'] or t['kind']}"
@@ -273,7 +296,9 @@ def tag_rows(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data"))
-    parser.add_argument("--per-class", type=int, default=60)
+    parser.add_argument("--per-class", type=int, default=40)
+    parser.add_argument("--per-class-extractor", type=int, default=20)
+    parser.add_argument("--extractor", choices=sorted(EXTRACTORS), default="baseline")
     parser.add_argument("--seed", type=int, default=20261105)
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
@@ -286,7 +311,7 @@ def main() -> None:
         chosen = extra._read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again")
     else:
-        texts, skipped = build_texts(out)
+        texts, skipped = build_texts(out, args.extractor)
         texts = predict(texts)
         pool = {
             f"{k}/{p}": n
@@ -296,7 +321,7 @@ def main() -> None:
         (out / POOL_NAME).write_text(
             json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
         )
-        chosen = draw(texts, args.per_class, args.seed)
+        chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
         with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
             writer.writeheader()

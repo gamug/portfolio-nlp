@@ -97,10 +97,12 @@ def sentiment_report(
     seed: int = 20261106,
     resamples: int = RESAMPLES,
 ) -> SentimentReport:
-    """*rows* carry ``predicted`` (the stratum) and ``gold`` (the owner's class). *populations* is
-    the size of each stratum in the pool the draw came from."""
+    """*rows* carry ``predicted`` and ``gold`` (the owner's class), and ``stratum`` when the draw has
+    more than one part (otherwise ``predicted`` is the stratum). *populations* is the size of each
+    stratum in the pool the draw came from."""
+    key = "stratum" if rows and "stratum" in rows[0] else "predicted"
     r = stratified_report(
-        rows, populations, label="negative", stratum_key="predicted", seed=seed, resamples=resamples
+        rows, populations, label="negative", stratum_key=key, seed=seed, resamples=resamples
     )
     return SentimentReport(r.agreement, r.precision, r.recall, r.raw_agreement, r.drawn)
 
@@ -164,17 +166,45 @@ def stratified_report(
     )
 
 
+def _cluster_ratio(clusters: Sequence[tuple[float, int]], seed: int, resamples: int) -> Figure:
+    """The ratio ``sum(first) / sum(second)`` over *clusters*, with a bootstrap interval that
+    resamples whole clusters: the units that are independent (the bodies), not their texts."""
+    total = sum(n for _, n in clusters)
+    if not total:
+        return Figure(math.nan, math.nan, math.nan)
+    point = sum(x for x, _ in clusters) / total
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible interval, not security
+    draws: list[float] = []
+    for _ in range(resamples):
+        sample = rng.choices(clusters, k=len(clusters))
+        n = sum(c for _, c in sample)
+        if n:
+            draws.append(sum(x for x, _ in sample) / n)
+    return Figure(point, _percentile(draws, 0.025), _percentile(draws, 0.975))
+
+
 def paired_difference(
-    a: Sequence[bool], b: Sequence[bool], *, seed: int = 20261106, resamples: int = RESAMPLES
+    a: Sequence[bool],
+    b: Sequence[bool],
+    *,
+    clusters: Sequence[str] | None = None,
+    seed: int = 20261106,
+    resamples: int = RESAMPLES,
 ) -> Figure:
-    """Share of items *a* gets right minus the share *b* gets right, on the same items, with a
-    bootstrap interval over the items (the extractor against the baseline on the same 30)."""
+    """Share of items *a* gets right minus the share *b* gets right, on the same items (the
+    extractor against the baseline). With *clusters* (the body of each item) the interval is a
+    bootstrap over the bodies, because the company texts of one body are not independent;
+    without it, over the items."""
     if len(a) != len(b) or not a:
         raise ValueError("two non-empty lists of the same length are needed")
+    if clusters is not None and len(clusters) != len(a):
+        raise ValueError("one cluster per item is needed")
     diffs = [int(x) - int(y) for x, y in zip(a, b, strict=True)]
-    rng = random.Random(seed)  # noqa: S311 -- a reproducible interval, not security
-    draws = [sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(resamples)]
-    return Figure(sum(diffs) / len(diffs), _percentile(draws, 0.025), _percentile(draws, 0.975))
+    names = list(clusters) if clusters is not None else [str(i) for i in range(len(diffs))]
+    grouped: dict[str, list[int]] = {}
+    for name, d in zip(names, diffs, strict=True):
+        grouped.setdefault(name, []).append(d)
+    return _cluster_ratio([(sum(v), len(v)) for v in grouped.values()], seed, resamples)
 
 
 def read_marked(
@@ -255,14 +285,29 @@ def gain_verdict(gain: Figure) -> str:
     return "not decided"
 
 
+def body_of_key(key: str) -> str:
+    """The body (article) of a faithfulness text key ``<article>#<ticker>#<n>``."""
+    return key.split("#", 1)[0]
+
+
 def faithfulness_report(
-    marks: Mapping[str, bool], extractors_of: Mapping[str, Sequence[str]]
+    marks: Mapping[str, bool],
+    extractors_of: Mapping[str, Sequence[str]],
+    *,
+    cluster_of: Callable[[str], str] = body_of_key,
+    seed: int = 20261106,
+    resamples: int = RESAMPLES,
 ) -> dict[str, Figure]:
     """Share of faithful texts per extractor. *marks* is the owner's yes / no by text key and
-    *extractors_of* says which extractors produced each text (one text can be both's)."""
+    *extractors_of* says which extractors produced each text (one text can be both's). The point
+    is the share of texts; the interval is a bootstrap over bodies (*cluster_of*), because the
+    company texts of one body are not independent (D32)."""
     names = sorted({e for v in extractors_of.values() for e in v})
     out: dict[str, Figure] = {}
     for name in names:
-        keys = [k for k, v in extractors_of.items() if name in v]
-        out[name] = wilson(sum(marks[k] for k in keys), len(keys))
+        grouped: dict[str, list[int]] = {}
+        for key, owners in extractors_of.items():
+            if name in owners:
+                grouped.setdefault(cluster_of(key), []).append(int(marks[key]))
+        out[name] = _cluster_ratio([(sum(v), len(v)) for v in grouped.values()], seed, resamples)
     return out
