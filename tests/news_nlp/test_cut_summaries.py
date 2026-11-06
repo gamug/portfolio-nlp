@@ -687,3 +687,18 @@ def test_an_index_with_no_manifest_is_listed_again(
     assert len(kept) == 2
     fresh = CUT.load_or_build_index(Conn(), path, "2022-01-01", manifest_exists=False)  # type: ignore[arg-type]
     assert len(fresh) == 3 and len(CUT.read_rows(path)) == 3
+
+
+def test_chunks_without_their_manifest_stop_the_run_and_keep_the_index(tmp_path: Path) -> None:
+    path = tmp_path / CUT.INDEX_NAME
+    CUT.atomic_write(path, CUT.INDEX_FIELDS, _index(2))
+    before = path.read_bytes()
+    with pytest.raises(SystemExit, match="Nothing was changed"):
+        CUT.load_or_build_index(
+            object(),  # type: ignore[arg-type]
+            path,
+            "2022-01-01",
+            manifest_exists=False,
+            chunks_exist=True,
+        )
+    assert path.read_bytes() == before  # the index the chunks were made from is intact

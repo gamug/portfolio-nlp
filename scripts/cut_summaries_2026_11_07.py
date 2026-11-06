@@ -48,7 +48,8 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
   old file waits in ``redo/`` until the new one is written). The lock covers the manifest too: a
   second start can neither change it nor the chunks while a run is in progress.
 * The manifest is written atomically like the chunks, and an index with no manifest beside it (a first
-  run killed in between) is listed again. ``--status`` slices the index by the manifest's chunk size.
+  run killed in between) is listed again, unless chunks exist: then the run stops and the manifest
+  has to be restored. ``--status`` slices the index by the manifest's chunk size.
 * ``--status`` reads only (no lock, no manifest, no index built); it prints the chunks done and the scope counts so far, and loads no model. The scopes
   the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
   that had no stored NER span: read it after the first chunks, before leaving the job to run.
@@ -179,7 +180,8 @@ def load_manifest(path: Path) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise SystemExit(
             f"{path} cannot be read ({exc}). If the chunks next to it are yours, restore it from a "
-            "copy; deleting it makes the next run write a new one from the arguments typed then."
+            "copy. Do not just delete it: with chunks beside it the run refuses to start without "
+            "it, because the index they were made from cannot be told from a new listing."
         ) from exc
     return loaded
 
@@ -713,10 +715,23 @@ def read_cut_summaries(
 
 
 def load_or_build_index(
-    conn: db.NewsNlpDatabase, path: Path, since: str, *, manifest_exists: bool = True
+    conn: db.NewsNlpDatabase,
+    path: Path,
+    since: str,
+    *,
+    manifest_exists: bool = True,
+    chunks_exist: bool = False,
 ) -> list[Row]:
     """The index of the job. One with no manifest next to it (a first run killed in between) does
-    not say which ``--since`` it was listed for, so it is listed again."""
+    not say which ``--since`` it was listed for, so it is listed again, but only when no chunk
+    exists: chunks without their manifest were made from an index that a new listing could
+    replace by another one, so the run stops and the manifest has to be restored."""
+    if chunks_exist and not manifest_exists:
+        sys.exit(
+            f"chunks exist in {path.parent} but {MANIFEST_NAME} does not: the index and the "
+            "conditions they were made under are not known. Restore the manifest from a copy, or "
+            "move the folder away to start a new cut. Nothing was changed."
+        )
     if path.exists() and manifest_exists:
         return read_rows(path)
     print(f"listing the unique bodies published {since} or later (a few minutes, once) ...")
@@ -782,7 +797,11 @@ def main() -> None:
     with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it
         conn = db.connect_pipeline()
         index = load_or_build_index(
-            conn, index_path, args.since, manifest_exists=(out / MANIFEST_NAME).exists()
+            conn,
+            index_path,
+            args.since,
+            manifest_exists=(out / MANIFEST_NAME).exists(),
+            chunks_exist=any(out.glob("chunk_*.csv")),
         )
         entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
         parts = slices(index, args.chunk_size)
