@@ -27,7 +27,13 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
   summariser ``model@revision``, the input format, a digest of the index and of the rules' source. A
   run under other conditions stops instead of mixing two kinds of summary in one cut: move the folder
   away to start a new cut.
-* ``--status`` prints the chunks done and the scope counts so far, and loads no model.
+* Only one run at a time: ``<out>/run.lock`` holds the pid of the run in progress; a second start
+  while it is alive stops (after Ctrl-C the first run still finishes its chunk: wait for it). A lock
+  whose process is gone is taken over. Temporary files carry the pid of their writer.
+* A second ``Ctrl-C`` aborts at once (the atomic write makes that safe).
+* ``--status`` prints the chunks done and the scope counts so far, and loads no model. The scopes
+  the rules never summarise (``multi``, ``roundup``, ``no_company``) are named there, with the bodies
+  that had no stored NER span: read it after the first chunks, before leaving the job to run.
 
 The input of the summariser is ``Title-<title>\\nBody-<body>``, as in ``draw_sentiment_gold``.
 """
@@ -35,6 +41,7 @@ The input of the summariser is ``Title-<title>\\nBody-<body>``, as in ``draw_sen
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import hashlib
 import json
@@ -43,7 +50,7 @@ import signal
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -59,13 +66,37 @@ CONFIG = Path("config/pipeline_models.json")
 INDEX_NAME = "index.csv"
 MANIFEST_NAME = "manifest.json"
 INDEX_FIELDS = ("body_hash", "article_ids")
-CHUNK_FIELDS = ("body_hash", "article_ids", "rule_scope", "gold_scope", "summary", "num_chunks")
+CHUNK_FIELDS = (
+    "body_hash",
+    "article_ids",
+    "rule_scope",
+    "gold_scope",
+    "spans",
+    "summary",
+    "num_chunks",
+)
+LOCK_NAME = "run.lock"
 #: Rule scopes whose bodies get a summary (D25 step 3; ``multi_dominated`` is single + mentions, D23).
 SUMMARY_RULE_SCOPES = frozenset({"single", "multi_dominated", "sector", "market", "economy"})
 INPUT_FORMAT = "Title-{title}\nBody-{body}"
 WINDOW_SQL = (
     "SELECT id, body_text FROM source.articles WHERE fetch_status = 'ok' AND body_text IS NOT NULL "
     "AND body_text != '' AND pub_date >= ? ORDER BY id"
+)
+
+NO_DATE_SQL = (
+    "SELECT COUNT(*) FROM source.articles WHERE fetch_status = 'ok' AND body_text IS NOT NULL "
+    "AND body_text != '' AND (pub_date IS NULL OR pub_date NOT GLOB '[0-9][0-9][0-9][0-9]-*')"
+)
+#: What the scope reads besides the code: how many stored NER ``ORG`` spans the window has, and the
+#: last one. If the NER stage writes for the window between two runs, the scopes would differ.
+#: The newest NER row of the whole table: instant. If it is the one in the manifest nothing was
+#: written since, and the slow count below (about two minutes) is not repeated.
+NEWEST_ENTITY_SQL = "SELECT COALESCE(MAX(id), 0) FROM article_entities"
+ENTITIES_SQL = (
+    "SELECT COUNT(*), COALESCE(MAX(e.id), 0) FROM article_entities e "
+    "JOIN source.articles a ON a.id = e.article_id "
+    "WHERE e.entity_type = 'ORG' AND a.fetch_status = 'ok' AND a.pub_date >= ?"
 )
 
 Row = dict[str, str]
@@ -80,7 +111,7 @@ def chunk_name(number: int) -> str:
 def atomic_write(path: Path, fields: Sequence[str], rows: Iterable[Row]) -> None:
     """Write *rows* so that *path* either does not exist or is whole: a temporary file first, then
     ``os.replace``."""
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with tmp.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(fields), lineterminator="\n")
         writer.writeheader()
@@ -114,7 +145,7 @@ def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
-def conditions(args: argparse.Namespace, index_path: Path) -> dict[str, Any]:
+def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dict[str, Any]:
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
     return {
         "since": args.since,
@@ -123,16 +154,38 @@ def conditions(args: argparse.Namespace, index_path: Path) -> dict[str, Any]:
         "input_format": INPUT_FORMAT,
         "index": file_digest(index_path),
         "rules": retag.code_revision(triage, size_triage),
+        "ner_spans": entities,
     }
 
 
-def check_manifest(path: Path, now: dict[str, Any]) -> None:
+def entities_basis(conn: db.NewsNlpDatabase, since: str, manifest: Path) -> tuple[str, str]:
+    """``(ner_spans, newest_id)``: the count and last id of the window's stored NER ``ORG`` spans,
+    and the newest row of the table. The count is slow, so it is read again only if the table has
+    a newer row than the manifest's."""
+    newest = str(conn.execute(NEWEST_ENTITY_SQL).fetchone()[0])
+    if manifest.exists():
+        before = json.loads(manifest.read_text(encoding="utf-8"))
+        if before.get("ner_newest_id") == newest:
+            return before["ner_spans"], newest
+    return "{}:{}".format(*conn.execute(ENTITIES_SQL, (since,)).fetchone()), newest
+
+
+def check_manifest(path: Path, now: dict[str, Any], newest: str = "") -> None:
     """Write the manifest of a new job, or stop when an existing job was made under other
-    conditions."""
+    conditions. ``ner_newest_id`` is bookkeeping (it moves when NER works on other articles) and
+    is refreshed, not compared."""
     if not path.exists():
-        path.write_text(json.dumps(now, indent=2), encoding="utf-8")
+        path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
         return
     before = json.loads(path.read_text(encoding="utf-8"))
+    if (
+        newest
+        and before.get("ner_newest_id") != newest
+        and {k: v for k, v in before.items() if k != "ner_newest_id"} == now
+    ):
+        path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
+        return
+    before.pop("ner_newest_id", None)
     if before != now:
         changed = {k: (before.get(k), now.get(k)) for k in now if before.get(k) != now.get(k)}
         sys.exit(
@@ -156,6 +209,44 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
     return done
 
 
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@contextlib.contextmanager
+def locked(out: Path) -> Iterator[None]:
+    """One run at a time in *out*: ``run.lock`` holds the pid of the run in progress. A second
+    start while that process is alive stops; a lock left by a dead process is taken over."""
+    path = out / LOCK_NAME
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            text = path.read_text(encoding="utf-8").strip()
+            if text.isdigit() and _alive(int(text)) and int(text) != os.getpid():
+                sys.exit(
+                    f"another run (pid {text}) holds {path}. After Ctrl-C it still finishes its "
+                    "chunk: wait for it to end, then run again."
+                )
+            path.unlink(missing_ok=True)  # left by a process that is gone
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+        break
+    else:
+        sys.exit(f"could not take {path}")
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def run_chunks(
     out: Path,
     parts: Sequence[Sequence[Row]],
@@ -167,7 +258,19 @@ def run_chunks(
 ) -> int:
     """Make every chunk that has no file, in order, and return how many were made. Stops after
     *max_chunks* or when *should_stop* says so, always between two chunks."""
-    for leftover in out.glob("*.tmp"):
+    with locked(out):
+        return _make_chunks(out, parts, process, max_chunks, should_stop, log)
+
+
+def _make_chunks(
+    out: Path,
+    parts: Sequence[Sequence[Row]],
+    process: Callable[[Sequence[Row]], list[Row]],
+    max_chunks: int | None,
+    should_stop: Callable[[], bool],
+    log: Callable[[str], None],
+) -> int:
+    for leftover in out.glob("*.tmp"):  # safe: the lock says no other run is writing
         leftover.unlink()
     done = done_chunks(out, parts)
     pending = [n for n in range(1, len(parts) + 1) if n not in done]
@@ -190,15 +293,19 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
     done = done_chunks(out, parts)
     scopes: Counter[str] = Counter()
     summarised = 0
+    no_spans = 0
     for number in done:
         for r in read_rows(out / chunk_name(number)):
             scopes[r["rule_scope"]] += 1
             summarised += bool(r["summary"])
+            no_spans += r["spans"] == "0"
     bodies = sum(len(parts[n - 1]) for n in done)
     return [
         f"{len(done)} of {len(parts)} chunks done ({bodies:,} of {sum(map(len, parts)):,} bodies)",
         f"scopes so far: {dict(scopes.most_common())}",
-        f"summaries so far: {summarised:,}",
+        f"summaries so far: {summarised:,}; without a summary by design (rules' scope): "
+        f"{ {k: v for k, v in scopes.items() if k not in SUMMARY_RULE_SCOPES} }",
+        f"bodies with no stored NER span (scope read from the text alone): {no_spans:,}",
     ]
 
 
@@ -235,13 +342,15 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
         to_summarise: list[tuple[int, str]] = []
         for entry in part:
             ids = [int(i) for i in entry["article_ids"].split()]
-            title, body, slug, headlines = fetch_body(conn, ids)
+            own_title, body, own_slug, headlines = fetch_body(conn, ids)
             if triage.body_hash(body) != entry["body_hash"]:
                 sys.exit(f"article {ids[0]}: the body no longer matches the index")
-            title, slug = size_triage.roundup_headline(headlines) or (title, slug)
+            # the round-up test reads the first headline that looks like one; the summary reads the
+            # article's own title (as draw_sentiment_gold does)
+            headline, slug = size_triage.roundup_headline(headlines) or (own_title, own_slug)
             spans = first_spans(conn, ids)
             scope, _ = size_triage.classify(
-                resolver, title, body, slug, spans, terms, **size_triage.FULL
+                resolver, headline, body, slug, spans, terms, **size_triage.FULL
             )
             rows.append(
                 {
@@ -249,12 +358,15 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
                     "article_ids": entry["article_ids"],
                     "rule_scope": scope.scope,
                     "gold_scope": triage.RULE_SCOPE_TO_GOLD[scope.scope],
+                    "spans": str(len(spans)),
                     "summary": "",
                     "num_chunks": "",
                 }
             )
             if scope.scope in SUMMARY_RULE_SCOPES:
-                to_summarise.append((len(rows) - 1, INPUT_FORMAT.format(title=title, body=body)))
+                to_summarise.append(
+                    (len(rows) - 1, INPUT_FORMAT.format(title=own_title, body=body))
+                )
         if to_summarise:
             if "run" not in state:
                 state["run"] = load_summariser()
@@ -309,7 +421,9 @@ def load_or_build_index(conn: db.NewsNlpDatabase, path: Path, since: str) -> lis
     print(f"listing the unique bodies published {since} or later (a few minutes, once) ...")
     index = build_index(conn.execute(WINDOW_SQL, (since,)))
     atomic_write(path, INDEX_FIELDS, index)
+    undated = conn.execute(NO_DATE_SQL).fetchone()[0]
     print(f"{len(index):,} unique bodies -> {path}")
+    print(f"left out of the window: {undated:,} ok articles with text and no usable pub_date")
     return index
 
 
@@ -326,7 +440,8 @@ def main() -> None:
     conn = db.connect_pipeline()
     index_path = out / INDEX_NAME
     index = load_or_build_index(conn, index_path, args.since)
-    check_manifest(out / MANIFEST_NAME, conditions(args, index_path))
+    entities, newest = entities_basis(conn, args.since, out / MANIFEST_NAME)
+    check_manifest(out / MANIFEST_NAME, conditions(args, index_path, entities), newest)
     parts = slices(index, args.chunk_size)
     if args.status:
         print("\n".join(status(out, parts)))
@@ -335,7 +450,13 @@ def main() -> None:
 
     def ask_stop(signum: int, _frame: object) -> None:
         stop["now"] = True
-        print(f"signal {signum}: finishing the chunk in progress, then stopping", flush=True)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, signal.SIG_DFL)  # a second signal aborts at once
+        print(
+            f"signal {signum}: finishing the chunk in progress, then stopping "
+            "(send it again to abort now)",
+            flush=True,
+        )
 
     signal.signal(signal.SIGINT, ask_stop)
     signal.signal(signal.SIGTERM, ask_stop)
