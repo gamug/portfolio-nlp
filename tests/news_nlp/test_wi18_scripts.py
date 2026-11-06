@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 import csv
 import importlib.util
+import json
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -161,11 +163,18 @@ def test_segment_check_columns_keep_the_spanish_pair_after_text() -> None:
     assert retag.tagging_format_problems([row], cols) == []
 
 
-def _csv(path: Path, rows: list[dict[str, str]]) -> None:
+def _csv(path: Path, rows: list[dict[str, str]], fields: tuple[str, ...] = ()) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(fh, fieldnames=list(fields or rows[0]))
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _bodies(path: Path) -> None:
+    _csv(
+        path / "faithfulness_bodies.csv",
+        [{"article_id": str(a), "segments": "3"} for a in range(30)],
+    )
 
 
 def _heldout_dir(tmp_path: Path) -> Path:
@@ -296,6 +305,8 @@ def test_the_faithfulness_report_compares_the_model_with_the_baseline_on_the_sam
             )
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "baseline" in text and "model" in text and "model minus baseline" in text
     assert "[all]" in text and "[2022+]" in text
@@ -442,6 +453,8 @@ def test_the_faithfulness_report_says_how_many_texts_have_no_date(tmp_path: Path
     ]
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "1 texts have no usable pub_date" in text and "bootstrap over bodies" in text
 
@@ -502,3 +515,263 @@ def test_the_sentiment_report_prints_each_part_apart(tmp_path: Path) -> None:
     _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
     text = "\n".join(REPORT.sentiment_report(tmp_path))
     assert "[all]" in text and "[checked]" in text and "[extractor]" in text
+
+
+def test_the_reports_stop_when_the_owner_file_lacks_rows_of_the_draw(tmp_path: Path) -> None:
+    _csv(tmp_path / "heldout_strata.csv", [{"stratum": "single", "frame": "10"}])
+    _csv(
+        tmp_path / "heldout_ids.csv",
+        [{"article_id": "1", "stratum": "single"}, {"article_id": "2", "stratum": "single"}],
+    )
+    _csv(tmp_path / "heldout_to_tag.csv", [{"article_id": "1", "scope": "single"}])
+    with pytest.raises(MarkedFileError, match="1 rows of the draw are not in the tagged file"):
+        REPORT.scope_report(tmp_path)
+    ids = [{"key": f"{i}#T", "predicted": "positive", "population": "9"} for i in range(3)]
+    tags = [
+        {"article_id": str(i), "ticker": "T", "kind": "summary", "sentiment": "positive"}
+        for i in range(2)
+    ]
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
+    with pytest.raises(MarkedFileError, match="not in the tagged file"):
+        REPORT.sentiment_report(tmp_path)
+    _csv(
+        tmp_path / "faithfulness_ids.csv",
+        [
+            {
+                "review_order": str(i),
+                "key": f"{i}#T#1",
+                "extractors": "model",
+                "pub_date": "2023-01-01",
+            }
+            for i in (1, 2)
+        ],
+    )
+    _csv(
+        tmp_path / "faithfulness_to_tag.csv",
+        [{"article_id": "1", "review_order": "1", "faithful": "yes"}],
+    )
+    with pytest.raises(MarkedFileError, match="not in the tagged file"):
+        REPORT.faithfulness_report(tmp_path)
+
+
+def test_the_sentiment_report_says_whose_weights_and_how_many_texts_are_2022_on(
+    tmp_path: Path,
+) -> None:
+    ids = [{"key": f"{i}#T", "predicted": "negative", "population": "9"} for i in range(4)]
+    tags = [
+        {
+            "article_id": str(i),
+            "ticker": "T",
+            "kind": "summary",
+            "sentiment": "negative",
+            "pub_date": "2023-01-01" if i < 3 else "2019-01-01",
+        }
+        for i in range(4)
+    ]
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
+    text = "\n".join(REPORT.sentiment_report(tmp_path))
+    assert "not in the corpus" in text and "negative: 4 drawn, 3 from 2022 on" in text
+
+
+def test_an_extractor_that_skips_companies_does_not_win_the_gain(tmp_path: Path) -> None:
+    ids, tags = [], []
+    for order, article in enumerate(range(1, 11), 1):
+        ids.append(
+            {
+                "review_order": str(order),
+                "key": f"{article}#T#1",
+                "extractors": "baseline|model",
+                "pub_date": "2023-01-01",
+            }
+        )
+        tags.append({"article_id": str(article), "review_order": str(order), "faithful": "yes"})
+    skipped = [
+        {"article_id": str(a), "ticker": "U", "extractor": "model", "pub_date": "2023-01-01"}
+        for a in range(1, 11)
+    ]
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", skipped, FAITH.COVERAGE_FIELDS)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "10 companies left without one" in text
+    assert "model: 50.0%" in text and "baseline: 100.0%" in text
+    (tmp_path / "faithfulness_coverage.csv").unlink()
+    with pytest.raises(MarkedFileError, match=r"faithfulness_coverage\.csv not found"):
+        REPORT.faithfulness_report(tmp_path)
+
+
+def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
+    pool = {"checked/positive": 50, "checked/negative": 39, "extractor/neutral": 20}
+    assert SENTIMENT.shortfalls(pool, 40, 20) == {
+        "checked/negative": (39, 40),
+        "checked/neutral": (0, 40),
+        "extractor/positive": (0, 20),
+        "extractor/negative": (0, 20),
+    }
+    twins = [
+        {"article_id": "1", "ticker": "T", "kind": "summary", "predicted": "positive"},
+        {"article_id": "1", "ticker": "T", "kind": "company_text", "predicted": "positive"},
+    ]
+    with pytest.raises(ValueError, match="share the key"):
+        SENTIMENT.draw(twins, 2, 1)
+
+
+def _faith_files(tmp_path: Path, skipped: list[dict[str, str]]) -> None:
+    ids, tags = [], []
+    for order, article in enumerate(range(1, 7), 1):
+        ids.append(
+            {
+                "review_order": str(order),
+                "key": f"{article}#T#1",
+                "extractors": "baseline|model",
+                "pub_date": "2023-01-01",
+            }
+        )
+        tags.append({"article_id": str(article), "review_order": str(order), "faithful": "yes"})
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", skipped, FAITH.COVERAGE_FIELDS)
+
+
+def _skip(article: int, extractor: str) -> dict[str, str]:
+    return {
+        "article_id": str(article),
+        "ticker": "U",
+        "extractor": extractor,
+        "pub_date": "2023-01-01",
+    }
+
+
+def test_the_faithfulness_report_prints_both_readings_of_the_bar(tmp_path: Path) -> None:
+    _faith_files(tmp_path, [_skip(1, "model"), _skip(2, "model")])
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "6 faithful of 6 texts + 2 companies left without one" in text
+    assert "of the texts it wrote, 100.0%" in text
+
+
+def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
+    tmp_path: Path,
+) -> None:
+    both = [_skip(a, e) for a in (20, 21) for e in ("baseline", "model")]
+    _faith_files(tmp_path, both)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "model minus baseline on 6 company texts" in text
+    assert "6 faithful of 6 texts + 2 companies" in text
+
+
+def test_the_faithfulness_report_refuses_a_coverage_file_the_draw_did_not_write(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [_skip(99, "model")])
+    with pytest.raises(MarkedFileError, match="the draw does not have"):
+        REPORT.faithfulness_report(tmp_path)
+    _faith_files(tmp_path, [_skip(1, "gpt")])
+    with pytest.raises(MarkedFileError, match="the draw does not have"):
+        REPORT.faithfulness_report(tmp_path)
+
+
+class _Resolver:
+    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
+        return {"T", "U"}
+
+
+def _source(monkeypatch: pytest.MonkeyPatch, articles: dict[int, str]) -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("ATTACH ':memory:' AS source")
+    conn.execute(
+        "CREATE TABLE source.articles (id INTEGER, title TEXT, body_text TEXT, pub_date TEXT, "
+        "source_domain TEXT)"
+    )
+    for i, body in articles.items():
+        conn.execute("INSERT INTO source.articles VALUES (?, 't', ?, '2023-01-01', 'd')", (i, body))
+    monkeypatch.setattr(FAITH.db, "connect_pipeline", lambda: conn)
+    monkeypatch.setattr(SENTIMENT.db, "connect_pipeline", lambda: conn)
+
+
+def test_the_draws_refuse_a_held_out_body_under_another_article_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source(monkeypatch, {1: "Same body.", 2: "Same body.", 3: "Another body."})
+    _csv(tmp_path / "heldout_ids.csv", [{"article_id": "2", "stratum": "single"}])
+    gold = [{"article_id": "1", "scope": "multi"}, {"article_id": "3", "scope": "multi"}]
+    _csv(tmp_path / "gold.csv", gold)
+    monkeypatch.setattr(FAITH, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    got = FAITH.candidate_bodies(tmp_path, _Resolver())  # type: ignore[arg-type]
+    assert [c["article_id"] for c in got] == ["3"]
+    with pytest.raises(SystemExit, match="1 held-out bodies"):
+        SENTIMENT.tagged_bodies(tmp_path)
+
+
+def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _source(monkeypatch, {1: "Body."})
+    monkeypatch.setitem(FAITH.EXTRACTORS, "skipper", lambda body, resolver: {"T": "Text of T."})
+    monkeypatch.setitem(
+        FAITH.EXTRACTORS, "writer", lambda body, resolver: {"T": "Text of T.", "U": "Text of U."}
+    )
+    items, omissions = FAITH.collect_items(
+        [{"article_id": "1", "segments": "1"}],
+        ["skipper", "writer"],
+        _Resolver(),  # type: ignore[arg-type]
+    )
+    assert omissions == [
+        {"article_id": "1", "ticker": "U", "extractor": "skipper", "pub_date": "2023-01-01"}
+    ]
+    assert {i["ticker"] for i in items} == {"T", "U"}
+
+
+def test_a_scored_pool_is_refused_under_other_conditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    _csv(
+        tmp_path / SENTIMENT.POOL_CSV_NAME,
+        [{"article_id": "1", "kind": "summary", "predicted": "positive"}],
+    )
+    (tmp_path / SENTIMENT.POOL_META_NAME).write_text(
+        json.dumps(SENTIMENT.pool_conditions("baseline")), encoding="utf-8"
+    )
+    assert SENTIMENT.scored_pool(tmp_path, "baseline")[0]["kind"] == "summary"
+    with pytest.raises(SystemExit, match="other conditions"):
+        SENTIMENT.scored_pool(tmp_path, "model")
+    models["sentiment"]["revision"] = "r2"
+    config.write_text(json.dumps(models), encoding="utf-8")
+    with pytest.raises(SystemExit, match="sentiment"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+    (tmp_path / SENTIMENT.POOL_META_NAME).unlink()
+    with pytest.raises(SystemExit, match="other conditions"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+
+
+def test_the_report_names_the_missing_file_and_marks_a_census(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["report", "scope", "--out", str(tmp_path)])
+    with pytest.raises(SystemExit, match=r"heldout_to_tag\.csv not found"):
+        REPORT.main()
+    ids = [{"key": f"{i}#T", "predicted": "negative", "population": "3"} for i in range(3)]
+    tags = [
+        {
+            "article_id": str(i),
+            "ticker": "T",
+            "kind": "summary",
+            "sentiment": "negative",
+            "pub_date": "2023-01-01",
+        }
+        for i in range(3)
+    ]
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
+    assert "(census, not resampled" in "\n".join(REPORT.sentiment_report(tmp_path))

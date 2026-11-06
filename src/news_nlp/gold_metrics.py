@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import math
 import random
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,12 +68,15 @@ def _bootstrap(
     statistic: Callable[[Mapping[str, list[Mapping[str, str]]]], float],
     seed: int,
     resamples: int,
+    fixed: frozenset[str] = frozenset(),
 ) -> Figure:
+    """Seeded percentile interval of *statistic*, resampling inside each stratum. A stratum in
+    *fixed* was drawn whole (a census): it has no sampling error and is not resampled."""
     point = statistic(strata)
     rng = random.Random(seed)  # noqa: S311 -- a reproducible interval, not security
     draws: list[float] = []
     for _ in range(resamples):
-        sample = {k: [rng.choice(v) for _ in v] for k, v in strata.items()}
+        sample = {k: v if k in fixed else [rng.choice(v) for _ in v] for k, v in strata.items()}
         value = statistic(sample)
         if not math.isnan(value):
             draws.append(value)
@@ -88,6 +92,7 @@ class SentimentReport:
     negative_recall: Figure
     raw_agreement: Figure  # not re-weighted: for comparison only
     drawn: dict[str, int]
+    census: tuple[str, ...] = ()  # strata drawn whole: held fixed in the bootstrap
 
 
 def sentiment_report(
@@ -104,7 +109,7 @@ def sentiment_report(
     r = stratified_report(
         rows, populations, label="negative", stratum_key=key, seed=seed, resamples=resamples
     )
-    return SentimentReport(r.agreement, r.precision, r.recall, r.raw_agreement, r.drawn)
+    return SentimentReport(r.agreement, r.precision, r.recall, r.raw_agreement, r.drawn, r.census)
 
 
 @dataclass(frozen=True)
@@ -115,6 +120,7 @@ class StratifiedReport:
     raw_agreement: Figure
     drawn: dict[str, int]
     gold_count: int  # rows the owner calls *label* in the sample (D33: under 40, not gated)
+    census: tuple[str, ...] = ()  # strata drawn whole (drawn >= population): not resampled
 
 
 def stratified_report(
@@ -128,7 +134,8 @@ def stratified_report(
 ) -> StratifiedReport:
     """Agreement and the precision / recall of *label* of a draw stratified on *stratum_key*, each
     row weighing ``population / drawn`` of its stratum; the intervals are a seeded bootstrap that
-    resamples inside each stratum. *rows* carry ``predicted`` and ``gold``."""
+    resamples inside each stratum, except a stratum drawn whole (a census: no sampling error there).
+    *rows* carry ``predicted`` and ``gold``."""
     strata: dict[str, list[Mapping[str, str]]] = {}
     for row in rows:
         strata.setdefault(row[stratum_key], []).append(row)
@@ -156,13 +163,15 @@ def stratified_report(
         return hit / actual if actual else math.nan
 
     raw = wilson(sum(r["gold"] == r["predicted"] for r in rows), len(rows))
+    census = frozenset(k for k, v in strata.items() if len(v) >= populations[k])
     return StratifiedReport(
-        agreement=_bootstrap(strata, agreement, seed, resamples),
-        precision=_bootstrap(strata, precision, seed + 1, resamples),
-        recall=_bootstrap(strata, recall, seed + 2, resamples),
+        agreement=_bootstrap(strata, agreement, seed, resamples, census),
+        precision=_bootstrap(strata, precision, seed + 1, resamples, census),
+        recall=_bootstrap(strata, recall, seed + 2, resamples, census),
         raw_agreement=raw,
         drawn={k: len(v) for k, v in strata.items()},
         gold_count=sum(r["gold"] == label for r in rows),
+        census=tuple(sorted(census)),
     )
 
 
@@ -236,6 +245,24 @@ def read_marked(
     return rows
 
 
+def require_unique(keys: Sequence[str], what: str) -> None:
+    """Stop when a key repeats: a repeated key would give two rows one weight and one mark."""
+    repeated = sorted(k for k, n in Counter(keys).items() if n > 1)
+    if repeated:
+        raise MarkedFileError(f"{what}: repeated keys {repeated[:5]}")
+
+
+def require_same_keys(found: Sequence[str], expected: Sequence[str], what: str) -> None:
+    """Stop when the owner's file does not hold exactly the rows of the draw. A deleted row would
+    silently change the weights (``population / rows tagged``) or drop a text from a share."""
+    missing = sorted(set(expected) - set(found))
+    if missing:
+        raise MarkedFileError(
+            f"{what}: {len(missing)} rows of the draw are not in the tagged file "
+            f"(first: {missing[:5]})"
+        )
+
+
 def year_of(row: Mapping[str, str]) -> int | None:
     """The publication year of a row (``pub_date`` as ``YYYY-...``), ``None`` when it has none."""
     head = (row.get("pub_date") or "").strip()[:4]
@@ -277,10 +304,11 @@ def train_on_lead_only(report: Mapping[str, Figure]) -> bool:
 
 def gain_verdict(gain: Figure) -> str:
     """D32: the extractor is ``better`` than the baseline when the whole interval of its gain is
-    above 0, ``not better`` when the whole interval is at or below 0, else ``not decided``."""
+    above 0, ``not better`` when the whole interval is below 0, else ``not decided``. The edges
+    are those of :meth:`Figure.judge`: an interval that only touches 0 decides nothing."""
     if gain.low > 0:
         return "better"
-    if gain.high <= 0:
+    if gain.high < 0:
         return "not better"
     return "not decided"
 
@@ -295,19 +323,25 @@ def faithfulness_report(
     extractors_of: Mapping[str, Sequence[str]],
     *,
     cluster_of: Callable[[str], str] = body_of_key,
+    omitted: Mapping[str, Sequence[str]] | None = None,
     seed: int = 20261106,
     resamples: int = RESAMPLES,
 ) -> dict[str, Figure]:
     """Share of faithful texts per extractor. *marks* is the owner's yes / no by text key and
     *extractors_of* says which extractors produced each text (one text can be both's). The point
     is the share of texts; the interval is a bootstrap over bodies (*cluster_of*), because the
-    company texts of one body are not independent (D32)."""
-    names = sorted({e for v in extractors_of.values() for e in v})
+    company texts of one body are not independent (D32). *omitted* maps an extractor to the keys
+    of the companies it named but wrote no text for; each counts as an unfaithful text, so an
+    extractor cannot raise its share by leaving the hard companies out."""
+    omitted = omitted or {}
+    names = sorted({e for v in extractors_of.values() for e in v} | set(omitted))
     out: dict[str, Figure] = {}
     for name in names:
         grouped: dict[str, list[int]] = {}
         for key, owners in extractors_of.items():
             if name in owners:
                 grouped.setdefault(cluster_of(key), []).append(int(marks[key]))
+        for key in omitted.get(name, ()):
+            grouped.setdefault(cluster_of(key), []).append(0)
         out[name] = _cluster_ratio([(sum(v), len(v)) for v in grouped.values()], seed, resamples)
     return out

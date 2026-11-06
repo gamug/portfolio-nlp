@@ -115,7 +115,8 @@ def test_the_gain_over_the_baseline_has_a_verdict() -> None:
     fig = gold_metrics.Figure
     assert gold_metrics.gain_verdict(fig(0.2, 0.05, 0.35)) == "better"
     assert gold_metrics.gain_verdict(fig(0.0, -0.1, 0.1)) == "not decided"
-    assert gold_metrics.gain_verdict(fig(-0.1, -0.2, 0.0)) == "not better"
+    assert gold_metrics.gain_verdict(fig(-0.1, -0.2, 0.0)) == "not decided"  # only touches 0
+    assert gold_metrics.gain_verdict(fig(-0.1, -0.2, -0.01)) == "not better"
 
 
 def test_the_label_check_refuses_what_it_cannot_judge() -> None:
@@ -194,3 +195,43 @@ def test_the_gain_over_the_baseline_can_resample_bodies() -> None:
 
 def test_the_body_of_a_text_key() -> None:
     assert gold_metrics.body_of_key("123#AAPL#2") == "123" and gold_metrics.body_of_key("x") == "x"
+
+
+def test_an_omitted_company_counts_as_an_unfaithful_text() -> None:
+    marks = {"1#T#1": True, "2#T#1": True}
+    owners = {"1#T#1": ["model"], "2#T#1": ["model"]}
+    plain = gold_metrics.faithfulness_report(marks, owners, resamples=200)["model"]
+    abstains = gold_metrics.faithfulness_report(
+        marks, owners, omitted={"model": ["3#T", "4#T", "5#T"]}, resamples=200
+    )["model"]
+    assert plain.point == 1.0 and abstains.point == pytest.approx(2 / 5)
+
+
+def test_the_guards_name_duplicate_and_missing_rows() -> None:
+    with pytest.raises(MarkedFileError, match="repeated keys"):
+        gold_metrics.require_unique(["a", "b", "a"], "f.csv")
+    gold_metrics.require_unique(["a", "b"], "f.csv")
+    with pytest.raises(MarkedFileError, match=r"2 rows of the draw are not in the tagged file"):
+        gold_metrics.require_same_keys(["a"], ["a", "b", "c"], "f.csv")
+    gold_metrics.require_same_keys(["a", "b"], ["a", "b"], "f.csv")
+
+
+def test_a_stratum_drawn_whole_is_not_resampled() -> None:
+    rows = [{"predicted": "negative", "gold": "negative", "stratum": "a"} for _ in range(5)]
+    rows += [
+        {"predicted": "neutral", "gold": "neutral" if i % 2 else "negative", "stratum": "b"}
+        for i in range(10)
+    ]
+    whole = gold_metrics.stratified_report(
+        rows, {"a": 5, "b": 100}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert whole.census == ("a",)
+    sampled = gold_metrics.stratified_report(
+        rows, {"a": 50, "b": 100}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert sampled.census == ()
+    # with every stratum drawn whole there is no sampling error at all
+    every = gold_metrics.stratified_report(
+        rows, {"a": 5, "b": 10}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert every.agreement.low == every.agreement.high == every.agreement.point

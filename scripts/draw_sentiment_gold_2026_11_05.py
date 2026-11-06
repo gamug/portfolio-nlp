@@ -1,7 +1,7 @@
 """Draw the texts to tag for the sentiment gold on real pipeline output (Work item 18, steps 1-5).
 
     uv run scripts/draw_sentiment_gold_2026_11_05.py [--out data] [--per-class 40] [--per-class-extractor 20]
-        [--extractor baseline] [--seed 20261105] [--yes]
+        [--extractor baseline] [--seed 20261105] [--pool-only] [--yes]
 
 The 7-step pipeline does not exist yet, so its first steps are emulated on the bodies the owner has
 tagged with a scope (``gold/category_gold_v2.csv``; ``unrelated`` is skipped, the held-out set is
@@ -29,7 +29,12 @@ to the tagging file, whose rows are shuffled. The ids file holds the prediction,
 of each stratum.
 
 A company text over ``MAX_COMPANY_CHARS`` is left out of the pool and counted in
-``<out>/sentiment_gold_pool.json`` with the pool sizes.
+``<out>/sentiment_gold_pool.json`` with the pool sizes. The scored pool is kept in
+``<out>/sentiment_gold_pool.csv`` with its conditions (``sentiment_gold_pool_meta.json``) and read
+back by the next run, which stops if the extractor, the tagged bodies or the model revisions differ;
+``--pool-only`` scores it and prints the sizes without drawing, to see a short stratum before the
+draw day. A stratum with fewer texts than the draw takes is drawn whole (owner, D34): the others are
+unchanged, and the real counts are in the ids file and the report.
 
 Writes ``<out>/sentiment_gold_ids.csv`` (drawn once, with the texts) and
 ``<out>/sentiment_gold_to_tag.csv``, a tagging file in the sentiment format
@@ -42,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import sys
@@ -62,6 +68,8 @@ from news_nlp.triage import CompanyResolver
 IDS_NAME = "sentiment_gold_ids.csv"
 TO_TAG_NAME = "sentiment_gold_to_tag.csv"
 POOL_NAME = "sentiment_gold_pool.json"
+POOL_CSV_NAME = "sentiment_gold_pool.csv"
+POOL_META_NAME = "sentiment_gold_pool_meta.json"
 CACHE_DIR = "sentiment_gold"
 GOLD = Path("gold/category_gold_v2.csv")
 CONFIG = Path("config/pipeline_models.json")
@@ -75,6 +83,17 @@ SUBJECT = {
     "market_economy": "[market / economy]",
     "investing_general": "[investing in general]",
 }
+POOL_FIELDS = (
+    "article_id",
+    "kind",
+    "extractor",
+    "scope",
+    "ticker",
+    "company",
+    "predicted",
+    "title",
+    "text",
+)
 IDS_FIELDS = (
     "key",
     "article_id",
@@ -93,12 +112,17 @@ IDS_FIELDS = (
 
 
 def tagged_bodies(out: Path) -> list[dict[str, str]]:
-    """The owner's scope tags, with the text of the tagging files, minus ``unrelated``."""
+    """The owner's scope tags, with the text of the tagging files, minus ``unrelated``. A tagged
+    body that is also a held-out body (under any article id: twins share a body) stops the run."""
     tags = [r for r in extra._read(GOLD) if r["scope"] and r["scope"] != "unrelated"]
-    held = {r["article_id"] for r in extra._read(out / "heldout_ids.csv")}
-    clash = held & {r["article_id"] for r in tags}
+    conn = db.connect_pipeline()
+    held = extra.excluded_hashes(
+        conn, {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
+    )
+    tagged = extra.excluded_hashes(conn, {int(r["article_id"]) for r in tags})
+    clash = held & tagged
     if clash:
-        sys.exit(f"held-out articles among the tagged bodies: {sorted(clash)[:5]}")
+        sys.exit(f"{len(clash)} held-out bodies are among the tagged bodies")
     return tags
 
 
@@ -250,7 +274,81 @@ def draw(
     rng.shuffle(chosen)  # the order must not reveal the predicted class
     for t in chosen:
         t["key"] = f"{t['article_id']}#{t['ticker'] or t['kind']}"
+    repeated = sorted(k for k, n in Counter(t["key"] for t in chosen).items() if n > 1)
+    if repeated:
+        raise ValueError(f"two drawn texts share the key {repeated[:5]}")
     return chosen
+
+
+def part_of(text: dict[str, str]) -> str:
+    return "extractor" if text["kind"] == "extractor_text" else "checked"
+
+
+def pool_conditions(extractor: str) -> dict[str, str]:
+    """What a scored pool depends on: who wrote the narrative multi texts, the tagged bodies (and
+    their scopes) it was built from, and the pinned summary and sentiment models (AI #1)."""
+    tags = sorted(
+        f"{r['article_id']}:{r['scope']}"
+        for r in extra._read(GOLD)
+        if r["scope"] and r["scope"] != "unrelated"
+    )
+    models = _models()
+    return {
+        "extractor": extractor,
+        "gold_bodies": hashlib.sha256("\n".join(tags).encode()).hexdigest()[:16],
+        **{
+            stage: f"{models[stage]['model']}@{models[stage]['revision']}"
+            for stage in ("sentiment", "c_summary")
+        },
+    }
+
+
+def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
+    """The texts with the current model's label. Summaries and scoring are slow, so they are kept
+    in ``<out>/sentiment_gold_pool.csv`` (news text: git-ignored) with the conditions they were
+    made under (``pool_conditions``) and read back on the next run. A run whose conditions differ
+    (another extractor, other tagged bodies, other model revisions) stops and names the difference:
+    delete both files to score again."""
+    path, meta_path = out / POOL_CSV_NAME, out / POOL_META_NAME
+    now = pool_conditions(extractor)
+    if path.exists():
+        before = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+        differ = {k: (before.get(k), now[k]) for k in now if before.get(k) != now[k]}
+        if differ:
+            sys.exit(
+                f"{path} was scored under other conditions (kept, now): {differ}. Delete "
+                f"{path.name} and {meta_path.name} to score the pool again."
+            )
+        print(f"{path} exists: the pool is not scored again")
+        return extra._read(path)
+    texts, skipped = build_texts(out, extractor)
+    texts = predict(texts)
+    pool = {
+        f"{k}/{p}": n for (k, p), n in Counter((t["kind"], t["predicted"]) for t in texts).items()
+    }
+    (out / POOL_NAME).write_text(
+        json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
+    )
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(POOL_FIELDS), extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(texts)
+    meta_path.write_text(json.dumps(now, indent=2), encoding="utf-8")
+    return texts
+
+
+def shortfalls(
+    pool: dict[str, int], per_class: int, per_class_extractor: int
+) -> dict[str, tuple[int, int]]:
+    """Strata (``<part>/<class>``) whose pool is smaller than the number to draw: ``(pool, target)``.
+    A short stratum widens the interval D32 quotes (about +/-13 points for 60 texts)."""
+    short = {}
+    for part, target in (("checked", per_class), ("extractor", per_class_extractor)):
+        for label in CLASSES:
+            have = pool.get(f"{part}/{label}", 0)
+            if have < target:
+                short[f"{part}/{label}"] = (have, target)
+    return short
 
 
 def source_meta(ids: list[str]) -> dict[str, dict[str, str]]:
@@ -300,6 +398,9 @@ def main() -> None:
     parser.add_argument("--per-class-extractor", type=int, default=20)
     parser.add_argument("--extractor", choices=sorted(EXTRACTORS), default="baseline")
     parser.add_argument("--seed", type=int, default=20261105)
+    parser.add_argument(
+        "--pool-only", action="store_true", help="score the pool and print its sizes; draw nothing"
+    )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     args = parser.parse_args()
@@ -311,16 +412,22 @@ def main() -> None:
         chosen = extra._read(ids_path)
         print(f"{ids_path} exists: the set is not drawn again")
     else:
-        texts, skipped = build_texts(out, args.extractor)
-        texts = predict(texts)
-        pool = {
-            f"{k}/{p}": n
-            for (k, p), n in Counter((t["kind"], t["predicted"]) for t in texts).items()
-        }
+        texts = scored_pool(out, args.extractor)
+        pool = Counter(f"{t['kind']}/{t['predicted']}" for t in texts)
         print("pool:", pool)
-        (out / POOL_NAME).write_text(
-            json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
+        short = shortfalls(
+            Counter(f"{part_of(t)}/{t['predicted']}" for t in texts),
+            args.per_class,
+            args.per_class_extractor,
         )
+        if short:
+            print(
+                f"strata with fewer texts than the draw takes (pool, target): {short}. Rule "
+                "(owner, D34): every text of a short stratum is drawn, the others are not "
+                "changed, and the real counts are in the report."
+            )
+        if args.pool_only:
+            return
         chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
         with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")

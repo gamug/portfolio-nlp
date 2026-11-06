@@ -2320,7 +2320,7 @@ above, it says so; nothing else above is touched.
   for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
   redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
 - **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
-  least **80% of the extracted company texts faithful** on the owner's ~30 narrative multi bodies,
+  least **80% of the companies named in the owner's ~30 narrative multi bodies with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
   and better than the mention-and-recency baseline on the same 30, reported apart for bodies from
   2022 on. Sentiment on the 180-text gold (60 per class **of the model's predicted class**):
   **overall agreement >= 80%, and precision and recall each >= 70% for the negative class** (the one
@@ -2336,15 +2336,24 @@ above, it says so; nothing else above is touched.
   bootstrap over the bodies** (about 30), not over the texts, because the company texts of one body stand or fall
   together (`faithfulness_report`, `paired_difference` with clusters) (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
   baseline** (model minus baseline on the same company texts, paired bootstrap) is `better` when the whole
-  interval is above 0, `not better` when it is at or below 0, `not decided` otherwise (`gain_verdict`); it is
-  also printed for 2022+ apart. A file or id the report cannot place stops the run naming the rows. The result "not decided" is reported as such,
+  interval is above 0, `not better` when it is below 0, `not decided` otherwise (`gain_verdict`; the edges are those of
+  `Figure.judge`: an interval that only touches the bar, or 0, decides nothing); it is
+  also printed for 2022+ apart. **A company an extractor names but writes no text for counts as an unfaithful
+  text**, in the share and in the gain, so an extractor cannot gain by leaving the hard companies out
+  (`faithfulness_coverage.csv`, written by the draw, printed by the report). A file or id the report cannot place
+  stops the run naming the rows, and so does a tagged file that lacks rows of the draw or repeats a key. The result "not decided" is reported as such,
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
   company texts of structured multi bodies (120) and the texts the extractor writes for narrative
   multi bodies (60: the baseline, or the model if it is ready on 2026-11-10); the two parts are reported
   apart, and the figures of the second part are the ones that say whether the cut's per-company
   sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
-  stratum, so for the company texts of one body they are a little narrow. The model is fine-tuned on summaries only if it misses the bar.
+  stratum, so for the company texts of one body they are a little narrow. **The stratum sizes are those of the pool of the owner's tagged bodies**
+  (`gold/category_gold_v2.csv`: the 240-body gate and the 44 sector bodies, built on the tuning sets), **not of the corpus
+  or of the 2022+ window**: the sentiment figures are weighted to that pool, they are not corpus figures (owner,
+  2026-11-06: relabelled, the draw is kept). The report prints the texts drawn from 2022 on in each stratum. A stratum with fewer
+  texts than the draw takes is **drawn whole** (owner, 2026-11-06): the others are unchanged and the report shows the real counts and
+  the wider interval; `--pool-only` shows the shortfall before the draw day, and the scored pool is kept so the draw does not score twice (with its conditions: a different extractor, tagged bodies or model revision stops the draw). A stratum drawn whole is held fixed in the bootstrap (owner, 2026-11-06) and marked `(census)` in the report. A company both extractors skipped is in the shares but not in the gain. The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
   (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
@@ -2356,7 +2365,7 @@ above, it says so; nothing else above is touched.
   bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, up to 7
   hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
   the 180-text gold (D32; the 60 extractor texts cover narrative multi bodies, and a row's
-  `sentiment_checked` says whether its kind of text was in the gold). **Output (owner, 2026-11-06):**
+  `sentiment_checked` says whether its kind of text was in the gold, whose figures are weighted to the tagged-body pool, D32). **Output (owner, 2026-11-06):**
   files, not tables: chunks under `data/cut/` (git-ignored, they hold news text), one row per
   (body, company) with the approved columns of T-152, written chunk by chunk so a stopped run resumes
   from the last chunk; no schema change. **Coverage:** the stored corpus, which ends 2026-08-12; the
@@ -2373,9 +2382,9 @@ above, it says so; nothing else above is touched.
   (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
   cut: it goes with the point estimate and the interval printed; (b) if the attribution model is not
   ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
-  is on the baseline: the cut uses it for narrative bodies if it is at least 80% faithful,
+  is on the baseline: the cut uses it for narrative bodies if it is at least 80% faithful (D32 reading: of the companies named),
   otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
-  D27 decides, before the model trains, whether the `continuation` labels are used. **Runs:**
+  D27 decides, before the model trains, whether the `continuation` labels are used; (d) a sentiment stratum with fewer texts than the draw takes is drawn whole (a census: held fixed in the bootstrap and marked in the report), the others do not change, and the cut still goes (D32); the scored pool is kept with the extractor, tagged bodies and model revisions it was made under, and a draw under other conditions stops. **Runs:**
   the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
   one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
   model trains on 2026-11-08 on the same GPU after them; NER, step 4 and sentiment run after the

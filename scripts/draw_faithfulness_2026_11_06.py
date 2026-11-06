@@ -25,6 +25,7 @@ translation of the same engine; nothing is bought without ``--yes``. Its cache i
 from __future__ import annotations
 
 import argparse
+import csv
 import random
 import sys
 from collections import Counter
@@ -38,7 +39,7 @@ import draw_sector_extra_2026_11_05 as extra
 import retag_gold_2026_10_29 as retag_cli
 
 import news_nlp as db
-from news_nlp import attribution_baseline, company_texts, retag
+from news_nlp import attribution_baseline, company_texts, retag, triage
 from news_nlp.triage import CompanyResolver
 
 BODIES_NAME = "faithfulness_bodies.csv"
@@ -47,6 +48,8 @@ TO_TAG_NAME = "faithfulness_to_tag.csv"
 CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
+COVERAGE_NAME = "faithfulness_coverage.csv"
+COVERAGE_FIELDS = ("article_id", "ticker", "extractor", "pub_date")
 IDS_FIELDS = ("review_order", "key", "article_id", "ticker", "extractors", "pub_date")
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
@@ -73,16 +76,20 @@ def merge_texts(
 
 
 def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str]]:
-    held = {r["article_id"] for r in extra._read(out / "heldout_ids.csv")}
     conn = db.connect_pipeline()
+    held = extra.excluded_hashes(
+        conn, {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
+    )
     found: list[dict[str, str]] = []
     for row in extra._read(GOLD):
-        if row["scope"] != "multi" or row["article_id"] in held:
+        if row["scope"] != "multi":
             continue
         src = conn.execute(
             "SELECT body_text FROM source.articles WHERE id = ?", (int(row["article_id"]),)
         ).fetchone()
         body = src["body_text"] or ""
+        if triage.body_hash(body) in held:  # the body, not the article id: twins share a body
+            continue
         if company_texts.split_company_texts(body, resolver) is None:
             found.append(
                 {
@@ -95,13 +102,14 @@ def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str
 
 def collect_items(
     bodies: list[dict[str, str]], names: list[str], resolver: CompanyResolver
-) -> tuple[list[dict[str, str]], Counter[str]]:
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """One item per distinct text an extractor wrote for a company named in a body, with the
-    extractors that wrote it (``extractors``) and the article it was taken from; and, per
-    extractor, how many named companies it left without a text."""
+    extractors that wrote it (``extractors``) and the article it was taken from; and one row per
+    named company an extractor left without a text (``COVERAGE_FIELDS``): the report counts each as
+    unfaithful, so an extractor cannot gain by leaving the hard companies out."""
     conn = db.connect_pipeline()
     items: list[dict[str, str]] = []
-    unextracted: Counter[str] = Counter()
+    omissions: list[dict[str, str]] = []
     for b in bodies:
         src = conn.execute(
             "SELECT title, body_text, pub_date, source_domain FROM source.articles WHERE id = ?",
@@ -111,7 +119,16 @@ def collect_items(
         found = {name: EXTRACTORS[name](body, resolver) for name in names}
         for ticker in sorted(resolver.resolve(body, skip_attribution=False)):
             per = {n: {"text": found[n].get(ticker, "")} for n in names}
-            unextracted.update(n for n in names if not per[n]["text"].strip())
+            omissions += [
+                {
+                    "article_id": b["article_id"],
+                    "ticker": ticker,
+                    "extractor": n,
+                    "pub_date": src["pub_date"] or "",
+                }
+                for n in names
+                if not per[n]["text"].strip()
+            ]
             for number, (text, extractors) in enumerate(merge_texts(per), 1):
                 items.append(
                     {
@@ -126,7 +143,7 @@ def collect_items(
                         "body": body[: extra.TEXT_CAP],
                     }
                 )
-    return items, unextracted
+    return items, omissions
 
 
 def to_translate(items: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -138,6 +155,14 @@ def to_translate(items: list[dict[str, str]]) -> list[dict[str, str]]:
         for a, i in articles.items()
     ]
     return keyed
+
+
+def write_coverage(path: Path, omissions: list[dict[str, str]]) -> None:
+    """The companies left without a text, also when there are none (the report needs the file)."""
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(COVERAGE_FIELDS))
+        writer.writeheader()
+        writer.writerows(omissions)
 
 
 def tag_rows(
@@ -198,7 +223,8 @@ def main() -> None:
         print(
             f"{len(candidates)} narrative multi bodies; {len(bodies)} drawn ({one} one paragraph)"
         )
-    items, unextracted = collect_items(bodies, names, resolver)
+    items, omissions = collect_items(bodies, names, resolver)
+    unextracted = Counter(o["extractor"] for o in omissions)
     random.Random(args.seed).shuffle(items)  # noqa: S311 -- blind: the order hides the extractor
     print("texts for the owner:", len(items), "| left without a text:", dict(unextracted))
     cache = out / CACHE_DIR
@@ -216,6 +242,7 @@ def main() -> None:
         extra._write(
             out / IDS_NAME, ids
         )  # no news text: the owner's file is matched on review_order
+        write_coverage(out / COVERAGE_NAME, omissions)
         extra._write(target, retag.spreadsheet_safe(rows))
     except retag.TagFileError as exc:
         sys.exit(str(exc))
