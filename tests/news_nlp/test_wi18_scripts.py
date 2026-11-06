@@ -1785,6 +1785,9 @@ def test_an_add_refuses_an_old_coverage_file_it_cannot_trust(
     before = {n: (out / n).read_bytes() for n in names}
     monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
     monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(FAITH, "collect_items", lambda *_a: ([_item("1", "T", "A new text.")], []))
     monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
     monkeypatch.setattr(
         FAITH.retag_cli,
