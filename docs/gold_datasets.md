@@ -132,8 +132,8 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   mark is changed; a copy of the file as it was is saved as `faithfulness_to_tag.before_model.csv` (a second
   run stops while that copy exists). The appended rows are all the model's, so the blindness to the extractor
   is only partial for them (their position gives them away); the owner is told the file has grown.
-- **What `faithful` means (as the 190 marks of 2026-11-06 apply it; the owner confirms or corrects this
-  sentence):** `yes` if the text is about the company, even when it also names or discusses other
+- **What `faithful` means (as the 190 marks of 2026-11-06 apply it; the owner confirmed this rule on
+  2026-11-06):** `yes` if the text is about the company, even when it also names or discusses other
   companies (45 of the 115 `yes` marks carry a note like "it also speaks about Pfizer"); `no` if the text is
   mainly about another company or the company is only mentioned in passing. The model's texts are judged by
   the same rule.
