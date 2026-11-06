@@ -41,7 +41,7 @@ import draw_sector_extra_2026_11_05 as extra
 import retag_gold_2026_10_29 as retag_cli
 
 import news_nlp as db
-from news_nlp import attribution_baseline, company_texts, retag, triage
+from news_nlp import attribution_baseline, company_texts, gold_metrics, retag, triage
 from news_nlp.triage import CompanyResolver
 
 BODIES_NAME = "faithfulness_bodies.csv"
@@ -50,8 +50,8 @@ TO_TAG_NAME = "faithfulness_to_tag.csv"
 CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
-COVERAGE_NAME = "faithfulness_coverage.csv"
-COVERAGE_FIELDS = ("article_id", "ticker", "extractor", "pub_date")
+COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+COVERAGE_FIELDS = gold_metrics.COVERAGE_COLUMNS
 IDS_FIELDS = (
     "review_order",
     "key",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 import random
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -23,6 +24,9 @@ RESAMPLES = 2000
 LATE_FROM_YEAR = 2022  # the backtest window (D34)
 CONTINUATION_BAR = 0.80  # D27: at most this share right -> train on `lead` only
 SENTIMENT_CLASSES = ("positive", "negative", "neutral")
+COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
+COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
+KNOWN_EXTRACTORS = ("baseline", "model")
 
 
 class MarkedFileError(ValueError):
@@ -285,6 +289,44 @@ def read_marked_prefix(
     if len(marked) < minimum:
         raise MarkedFileError(f"{path.name}: {len(marked)} rows marked, the rule needs {minimum}")
     return marked, len(rows)
+
+
+def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
+    """The companies left without a text, checked to have the columns the faithfulness figures read,
+    only known extractors and no repeated (article, ticker, extractor): a repeat would count one
+    company twice as unfaithful. One reader for the draw's file, the builder and the tracked gold."""
+    if not path.exists():
+        raise MarkedFileError(
+            f"{path.name} not found: it lists the companies an extractor left without a text, "
+            f"which the D32 share counts as unfaithful{hint}"
+        )
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if tuple(reader.fieldnames or ()) != COVERAGE_COLUMNS:
+            raise MarkedFileError(f"{path.name} must have the columns {COVERAGE_COLUMNS}")
+        rows = list(reader)
+    foreign = sorted({r["extractor"] for r in rows} - set(KNOWN_EXTRACTORS))
+    if foreign:
+        raise MarkedFileError(f"{path.name} has extractors the draw does not have: {foreign}")
+    require_unique([f"{r['article_id']}#{r['ticker']}#{r['extractor']}" for r in rows], path.name)
+    return rows
+
+
+def write_pair_atomically(files: Mapping[Path, str]) -> None:
+    """Write every file to a temporary neighbour first (flushed to disk), then replace them: a write
+    that fails (disk full, file open in Excel) leaves all the old files as they were."""
+    temps = {path: path.with_name(f"{path.name}.{os.getpid()}.tmp") for path in files}
+    try:
+        for path, text in files.items():
+            with temps[path].open("w", newline="", encoding="utf-8") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+        for path, tmp in temps.items():
+            os.replace(tmp, path)
+    finally:
+        for tmp in temps.values():
+            tmp.unlink(missing_ok=True)
 
 
 def require_unique(keys: Sequence[str], what: str) -> None:

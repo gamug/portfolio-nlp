@@ -22,12 +22,15 @@ how many (``--overwrite-marks`` to accept). Adding the model's texts (``extracto
 ``faithfulness_coverage.csv`` (the companies an extractor named and wrote no text for, which the D32
 share counts as unfaithful) is copied next to the gold file, so ``report_wi18 faithfulness --gold``
 needs nothing from ``data/``. It must exist: an empty one (header only) says that none was left out.
+Both files are written together (temporary files, then replaced), and a tracked coverage entry the new
+file lacks stops the run like a changed mark.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import io
 import sys
 from pathlib import Path
 
@@ -37,29 +40,23 @@ from news_nlp import gold_metrics, retag
 
 TO_TAG_NAME = "faithfulness_to_tag.csv"
 IDS_NAME = "faithfulness_ids.csv"
-COVERAGE_NAME = "faithfulness_coverage.csv"
-COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
-KNOWN_EXTRACTORS = ("baseline", "model")
+COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+COVERAGE_COLUMNS = gold_metrics.COVERAGE_COLUMNS
 
 
 def read_coverage(path: Path) -> list[dict[str, str]]:
-    """The companies left without a text, checked to have the columns the report reads."""
-    if not path.exists():
-        raise gold_metrics.MarkedFileError(
-            f"{path.name} not found: it lists the companies an extractor left without a text, "
-            "which the D32 share counts as unfaithful (draw_faithfulness writes it)"
-        )
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        if tuple(reader.fieldnames or ()) != COVERAGE_COLUMNS:
-            raise gold_metrics.MarkedFileError(
-                f"{path.name} must have the columns {COVERAGE_COLUMNS}"
-            )
-        rows = list(reader)
-    foreign = sorted({r["extractor"] for r in rows} - set(KNOWN_EXTRACTORS))
-    if foreign:
-        raise gold_metrics.MarkedFileError(f"{path.name} has unknown extractors: {foreign}")
-    return rows
+    return gold_metrics.read_coverage(path, hint=" (draw_faithfulness writes it)")
+
+
+def lost_coverage(before: list[dict[str, str]], after: list[dict[str, str]]) -> list[str]:
+    """Companies the tracked coverage lists that the new one would not: each is a text the D32 share
+    counts as unfaithful, so dropping one moves the figure up."""
+    now = {(r["article_id"], r["ticker"], r["extractor"]) for r in after}
+    return [
+        f"{r['article_id']}#{r['ticker']}#{r['extractor']}"
+        for r in before
+        if (r["article_id"], r["ticker"], r["extractor"]) not in now
+    ]
 
 
 def changed_marks(before: list[dict[str, str]], after: list[dict[str, str]]) -> list[str]:
@@ -115,6 +112,14 @@ def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[s
     return out
 
 
+def render(fields: tuple[str, ...], rows: list[dict[str, str]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data"))
@@ -138,26 +143,41 @@ def main() -> None:
         coverage = read_coverage(args.out / COVERAGE_NAME)
     except gold_metrics.MarkedFileError as exc:
         sys.exit(str(exc))
-    if args.gold.exists() and not args.overwrite_marks:
-        with args.gold.open(encoding="utf-8-sig", newline="") as fh:
-            moved = changed_marks(list(csv.DictReader(fh)), rows)
-        if moved:
+    coverage_path = args.gold.with_name(COVERAGE_NAME)
+    if not args.overwrite_marks:
+        problems = []
+        if args.gold.exists():
+            with args.gold.open(encoding="utf-8-sig", newline="") as fh:
+                moved = changed_marks(list(csv.DictReader(fh)), rows)
+            if moved:
+                problems.append(
+                    f"{len(moved)} rows of {args.gold} would change or go missing (first {moved[0]})"
+                )
+        if coverage_path.exists():
+            try:
+                gone = lost_coverage(gold_metrics.read_coverage(coverage_path), coverage)
+            except gold_metrics.MarkedFileError as exc:
+                sys.exit(f"the tracked {coverage_path} is not usable: {exc}")
+            if gone:
+                problems.append(
+                    f"{len(gone)} companies without a text in {coverage_path} would go missing "
+                    f"(first {gone[0]})"
+                )
+        if problems:
             sys.exit(
-                f"{len(moved)} rows of {args.gold} would change or go missing (first {moved[0]}): "
-                "the gold file is the reference; run with --overwrite-marks if this is intended"
+                "; ".join(problems)
+                + ": the gold files are the reference; run with --overwrite-marks if this is intended"
             )
     args.gold.parent.mkdir(parents=True, exist_ok=True)
-    with args.gold.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh, fieldnames=list(retag.FAITHFULNESS_GOLD_COLUMNS), lineterminator="\n"
+    try:
+        gold_metrics.write_pair_atomically(
+            {
+                args.gold: render(retag.FAITHFULNESS_GOLD_COLUMNS, retag.spreadsheet_safe(rows)),
+                coverage_path: render(COVERAGE_COLUMNS, coverage),
+            }
         )
-        writer.writeheader()
-        writer.writerows(retag.spreadsheet_safe(rows))
-    coverage_path = args.gold.with_name(COVERAGE_NAME)
-    with coverage_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(COVERAGE_COLUMNS), lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(coverage)
+    except OSError as exc:
+        sys.exit(f"cannot write {args.gold} or {coverage_path} ({exc}); both are as they were")
     print(
         f"{args.gold}: {len(rows)} rows; {coverage_path}: {len(coverage)} companies without a text"
     )

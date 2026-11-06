@@ -6,7 +6,9 @@ import ast
 import csv
 import importlib.util
 import json
+import os
 import re
+import shutil
 import sqlite3
 import sys
 import types
@@ -1598,3 +1600,72 @@ def test_adding_the_model_to_a_marked_row_keeps_the_baselines_mark(
     assert [(r["key"], r["faithful"], r["text_hash"]) for r in again] == [
         (r["key"], r["faithful"], r["text_hash"]) for r in first
     ]
+
+
+def test_the_gold_report_names_a_coverage_file_it_cannot_use(tmp_path: Path) -> None:
+    shutil.copy(Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv", tmp_path)
+    with pytest.raises(MarkedFileError, match=r"faithfulness_coverage\.csv not found"):
+        REPORT.faithfulness_gold_report(tmp_path)
+    coverage = tmp_path / FAITHGOLD.COVERAGE_NAME
+    coverage.write_text("article_id,ticker\n1,X\n", encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="must have the columns"):
+        REPORT.faithfulness_gold_report(tmp_path)
+    header = ",".join(FAITHGOLD.COVERAGE_COLUMNS)
+    coverage.write_text(f"{header}\n1,X,baseline,2026-01-01\n1,X,baseline,2026-01-01\n")
+    with pytest.raises(MarkedFileError, match="repeated keys"):
+        REPORT.faithfulness_gold_report(tmp_path)  # one company counted twice as unfaithful
+
+
+def test_the_gold_report_refuses_rows_of_an_extractor_the_draw_does_not_have(
+    tmp_path: Path,
+) -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv"
+    rows = list(csv.DictReader(gold.open(encoding="utf-8")))
+    rows[0]["extractors"] = ""
+    _csv(tmp_path / "faithfulness_gold.csv", rows)
+    (tmp_path / FAITHGOLD.COVERAGE_NAME).write_text(",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n")
+    with pytest.raises(MarkedFileError, match="extractors the draw does not have"):
+        REPORT.faithfulness_gold_report(tmp_path)
+
+
+def test_faithfulness_gold_does_not_drop_a_tracked_company_without_a_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "gold" / "faithfulness_gold.csv"
+    _faithfulness_gold_files(tmp_path)
+    header = ",".join(FAITHGOLD.COVERAGE_COLUMNS)
+    (tmp_path / FAITHGOLD.COVERAGE_NAME).write_text(f"{header}\n3,T,baseline,2026-01-01\n")
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    tracked = (gold.parent / FAITHGOLD.COVERAGE_NAME).read_bytes()
+    before = gold.read_bytes()
+    (tmp_path / FAITHGOLD.COVERAGE_NAME).write_text(f"{header}\n")  # regenerated empty
+    with pytest.raises(SystemExit, match=r"1 companies without a text .* would go missing"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    assert (gold.read_bytes(), (gold.parent / FAITHGOLD.COVERAGE_NAME).read_bytes()) == (
+        before,
+        tracked,
+    )
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold, "--overwrite-marks")
+    assert (gold.parent / FAITHGOLD.COVERAGE_NAME).read_text() == f"{header}\n"
+
+
+def test_a_failed_write_leaves_the_gold_and_the_coverage_as_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "gold" / "faithfulness_gold.csv"
+    _faithfulness_gold_files(tmp_path)
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    old = {p.name: p.read_bytes() for p in gold.parent.iterdir()}
+    real_fsync, calls = os.fsync, []
+
+    def second_fsync_fails(fd: int) -> None:
+        calls.append(fd)
+        if len(calls) == 2:
+            raise OSError("disk full")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", second_fsync_fails)
+    _faithfulness_gold_files(tmp_path, ("no", "no"))
+    with pytest.raises(SystemExit, match="both are as they were"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold, "--overwrite-marks")
+    assert {p.name: p.read_bytes() for p in gold.parent.iterdir()} == old  # no temp file either

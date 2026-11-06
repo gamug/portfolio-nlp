@@ -43,8 +43,8 @@ FAITHFUL_BAR = 0.80  # D32 extractor
 SCOPE_BAR = 0.90  # D20 overall agreement (reported for the rules, gated for the classifier)
 RECALL_BAR = 0.80  # D20, only for a scope with MIN_GOLD bodies (D33)
 MIN_GOLD = 40
-COVERAGE_NAME = "faithfulness_coverage.csv"
-KNOWN_EXTRACTORS = ("baseline", "model")
+COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+KNOWN_EXTRACTORS = gold_metrics.KNOWN_EXTRACTORS
 
 
 def scope_report(out: Path) -> list[str]:
@@ -303,22 +303,11 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         [k for k in ids if partial is None or int(k) <= len(tagged)],
         "faithfulness_to_tag.csv",
     )
-    coverage_path = out / COVERAGE_NAME
-    if not coverage_path.exists():
-        raise MarkedFileError(
-            f"{COVERAGE_NAME} not found: it lists the companies an extractor left without a text, "
-            "which the shares and the gain count as unfaithful. Draw the file again."
-        )
+    coverage = gold_metrics.read_coverage(out / COVERAGE_NAME, hint=". Draw the file again.")
     drawn = {r["article_id"] for r in extra._read(out / "faithfulness_bodies.csv")}
-    coverage = extra._read(coverage_path)
-    foreign = sorted(
-        {c["article_id"] for c in coverage if c["article_id"] not in drawn}
-        | {c["extractor"] for c in coverage if c["extractor"] not in KNOWN_EXTRACTORS}
-    )
+    foreign = sorted({c["article_id"] for c in coverage if c["article_id"] not in drawn})
     if foreign:
-        raise MarkedFileError(
-            f"{COVERAGE_NAME} has bodies or extractors the draw does not have: {foreign[:5]}"
-        )
+        raise MarkedFileError(f"{COVERAGE_NAME} has bodies the draw does not have: {foreign[:5]}")
     marks: dict[str, bool] = {}
     owners: dict[str, list[str]] = {}
     dates: dict[str, dict[str, str]] = {}
@@ -376,10 +365,12 @@ def faithfulness_gold_report(out: Path) -> list[str]:
         required=("key", "article_id", "ticker", "extractors", "pub_date"),
     )
     gold_metrics.require_unique([r["key"] for r in rows], "faithfulness_gold.csv")
-    coverage = extra._read(out / COVERAGE_NAME)
-    foreign = sorted({c["extractor"] for c in coverage} - set(KNOWN_EXTRACTORS))
-    if foreign:
-        raise MarkedFileError(f"{COVERAGE_NAME} has extractors the draw does not have: {foreign}")
+    coverage = gold_metrics.read_coverage(out / COVERAGE_NAME)
+    owned = sorted({n for r in rows for n in r["extractors"].split("|")} - set(KNOWN_EXTRACTORS))
+    if owned:
+        raise MarkedFileError(
+            f"faithfulness_gold.csv has extractors the draw does not have: {owned}"
+        )
     marks = {r["key"]: r["faithful"] == "yes" for r in rows}
     owners = {r["key"]: r["extractors"].split("|") for r in rows}
     note = [
