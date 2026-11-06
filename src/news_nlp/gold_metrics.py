@@ -245,6 +245,41 @@ def read_marked(
     return rows
 
 
+def read_marked_prefix(
+    path: Path,
+    column: str,
+    allowed: Sequence[str],
+    minimum: int,
+    required: Sequence[str] = ("article_id", "review_order"),
+) -> tuple[list[dict[str, str]], int]:
+    """The marked rows of a file the owner has not finished, and the number of rows in the file.
+    Allowed only when the marked rows are exactly ``review_order`` 1..k (the rows are shuffled, so a
+    prefix is a random sample; a hand-picked subset is not) and k is at least *minimum*. A value
+    outside *allowed* stops the run as in :func:`read_marked`."""
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        rows = [dict(r) for r in csv.DictReader(fh)]
+    if not rows:
+        raise MarkedFileError(f"{path.name} has no rows")
+    missing = [c for c in (column, *required) if c not in rows[0]]
+    if missing:
+        raise MarkedFileError(f"{path.name} lacks the columns {missing}")
+    marked = [r for r in rows if (r[column] or "").strip()]
+    for r in marked:
+        r[column] = r[column].strip().lower()
+        if r[column] not in allowed:
+            raise MarkedFileError(
+                f"{path.name}: {r['review_order']}={r[column]!r} is not in {list(allowed)}"
+            )
+    if sorted(int(r["review_order"]) for r in marked) != list(range(1, len(marked) + 1)):
+        raise MarkedFileError(
+            f"{path.name}: a partial report needs the rows marked in order, review_order 1 to k "
+            "with no gap (the rows are shuffled, so that prefix is a random sample)"
+        )
+    if len(marked) < minimum:
+        raise MarkedFileError(f"{path.name}: {len(marked)} rows marked, the rule needs {minimum}")
+    return marked, len(rows)
+
+
 def require_unique(keys: Sequence[str], what: str) -> None:
     """Stop when a key repeats: a repeated key would give two rows one weight and one mark."""
     repeated = sorted(k for k, n in Counter(keys).items() if n > 1)
@@ -264,8 +299,9 @@ def require_same_keys(found: Sequence[str], expected: Sequence[str], what: str) 
 
 
 def year_of(row: Mapping[str, str]) -> int | None:
-    """The publication year of a row (``pub_date`` as ``YYYY-...``), ``None`` when it has none."""
-    head = (row.get("pub_date") or "").strip()[:4]
+    """The publication year of a row (``pub_date`` as ``YYYY-...``, or the ``year`` column of a gold
+    file, which keeps the year and not the date), ``None`` when it has none."""
+    head = (row.get("pub_date") or row.get("year") or "").strip()[:4]
     return int(head) if head.isdigit() else None
 
 
@@ -279,8 +315,8 @@ def label_check_report(rows: Sequence[Mapping[str, str]]) -> dict[str, Figure]:
     ``correct`` column (yes / no), with Wilson intervals; ``<kind> 2022+`` repeats it for the rows
     published from 2022 on (``pub_date``), the window the backtest cut serves. A file without the
     ``pub_date`` column is refused: its ``2022+`` figures would silently be ``0 of 0``."""
-    if rows and "pub_date" not in rows[0]:
-        raise MarkedFileError("the label-check rows lack the column 'pub_date'")
+    if rows and "pub_date" not in rows[0] and "year" not in rows[0]:
+        raise MarkedFileError("the label-check rows lack the column 'pub_date' (or 'year')")
     out: dict[str, Figure] = {}
     for kind in ("lead", "continuation"):
         part = [r for r in rows if r["kind"] == kind]

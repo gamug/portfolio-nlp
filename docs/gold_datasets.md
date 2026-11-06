@@ -25,7 +25,7 @@ computed from `data/`, and the draw's record is **required**, not optional:
 | set | the draw's record in `data/` (keep it until migrated) |
 |---|---|
 | 2 scope test | `heldout_ids.csv` (stratum per body) and `heldout_strata.csv` (`frame` sizes) |
-| 3 label check | `segment_check_ids.csv` (the gold keeps its `year`, so the 2022+ figure of D27 survives) |
+| 3 label check | `segment_check_ids.csv` (the gold keeps its `year`, so the 2022+ figure of D27 survives: `report_wi18 label-check --gold --out gold` reproduces the figures from the tracked file, and a test pins them) |
 | 4 extractor sample | `faithfulness_bodies.csv` (the bodies drawn) **and** `faithfulness_ids.csv` (which extractor wrote each `review_order`; without it the report cannot be computed) |
 | 5 sentiment | `sentiment_gold_ids.csv` (stratum, prediction, `population`, extractor, the text) **and** `sentiment_gold_pool.csv` with `sentiment_gold_pool_meta.json` (the scored pool the stratum sizes come from) |
 
@@ -46,7 +46,9 @@ file in `data/` (the exact columns the draw writes) and a header-only tracked fi
 checkout has none until this is run (or the draw is, which creates the file itself). The label-check,
 extractor and sentiment draws read a header-only working file as not drawn yet and fill it; a file with
 rows is the owner's work and is refused. The scope draws do not use scaffolds: they are drawn. A test
-pins the `gold/` headers to the column constants in `retag`.
+pins the `gold/` headers to the column constants in `retag`. Today only sets 4 and 5 are still
+scaffolds in `gold/`: set 3's file was built on 2026-11-06 (200 rows) and the scaffold script never
+overwrites a file, with rows or without.
 
 ## The sets
 
@@ -187,6 +189,11 @@ Why this order:
   applied *before* training; it is the shortest set and needs no other result.
 - Set 4 needs only the baseline, so it can be drawn and tagged at once; if the model is not ready on
   2026-11-09 the decision is on the baseline alone.
+  **If the 190 are not all marked on 2026-11-09 (proposed rule, owner to confirm; fixed before any figure is read):**
+  the owner marks in `review_order` order; on 2026-11-09 the decision uses the first rows marked, if at
+  least 120 (about two thirds; `report_wi18 faithfulness --partial 120`, which refuses a gap or fewer
+  rows and prints PARTIAL, counting every company left without a text); with fewer the baseline is kept and
+  the model is reported as not evaluated. The full figure replaces the partial one when the file is finished.
 - Set 5 draws its extractor part from whichever extractor set 4 selected, so it is drawn after.
   Its checked part (120) does not depend on it and can be tagged first if the owner wants to split the work.
 - Set 2 is independent of the others, so it fills the gaps; it is last only because nothing downstream

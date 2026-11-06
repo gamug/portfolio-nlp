@@ -1,7 +1,7 @@
 """Turn the owner's tagged files of Work item 18 into the figures of the acceptance bars (PLAN D27,
 D30, D32, D33).
 
-    uv run scripts/report_wi18_2026_11_06.py scope|label-check|sentiment|faithfulness [--out data]
+    uv run scripts/report_wi18_2026_11_06.py scope|label-check|sentiment|faithfulness [--out data] [--gold] [--partial MIN]
 
 * ``scope``: the rules' agreement with the owner's tags on the held-out 200 (``heldout_to_tag.csv``),
   re-weighted to the corpus with the sample sizes of ``heldout_strata.csv`` (D30), and the recall of
@@ -13,6 +13,9 @@ D30, D32, D33).
 * ``faithfulness``: the share of faithful texts per extractor (``faithfulness_to_tag.csv`` with
   ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
 
+``label-check --gold --out gold`` reads the tracked file instead (it keeps the year). ``faithfulness --partial MIN``
+reports a file the owner has not finished, if its first MIN rows or more are marked in order (PLAN D32).
+
 A file that is not completely and correctly marked stops the run, naming the rows. Nothing is
 written; this only prints.
 """
@@ -20,6 +23,7 @@ written; this only prints.
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -81,12 +85,14 @@ def scope_report(out: Path) -> list[str]:
     return lines
 
 
-def label_check_report(out: Path) -> list[str]:
+def label_check_report(out: Path, gold: bool = False) -> list[str]:
+    """From the owner's file in *out*, or with *gold* from the tracked ``gold/`` file (``out`` is
+    then its folder), which keeps the year and not the date."""
     rows = gold_metrics.read_marked(
-        out / "segment_check_to_tag.csv",
+        out / ("segment_check_gold.csv" if gold else "segment_check_to_tag.csv"),
         "correct",
         ("yes", "no"),
-        required=("article_id", "pub_date", "kind"),
+        required=("article_id", "year" if gold else "pub_date", "kind"),
     )
     report = gold_metrics.label_check_report(rows)
     lines = [f"{name:>18}: {figure}" for name, figure in report.items()]
@@ -260,10 +266,26 @@ def _gain_lines(
     ]
 
 
-def faithfulness_report(out: Path) -> list[str]:
-    tagged = gold_metrics.read_marked(
-        out / "faithfulness_to_tag.csv", "faithful", ("yes", "no"), ("article_id", "review_order")
-    )
+def _faithfulness_marks(out: Path, partial: int | None) -> tuple[list[dict[str, str]], list[str]]:
+    """The owner's marked rows and, for a partial report, the line that says so."""
+    path = out / "faithfulness_to_tag.csv"
+    if partial is None:
+        return gold_metrics.read_marked(
+            path, "faithful", ("yes", "no"), ("article_id", "review_order")
+        ), []
+    tagged, total = gold_metrics.read_marked_prefix(path, "faithful", ("yes", "no"), partial)
+    return tagged, [
+        f"PARTIAL: {len(tagged)} of {total} texts marked (the first {len(tagged)} of the shuffled "
+        "order); the companies an extractor left without a text are counted in full, so the "
+        "share is a floor. Provisional: the full figure replaces it."
+    ]
+
+
+def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
+    """With *partial* (the least number of marked rows the rule accepts, PLAN D32) the owner may not
+    have finished: the marked rows must be ``review_order`` 1..k, the omissions are counted in full
+    (conservative) and the output says it is partial."""
+    tagged, note = _faithfulness_marks(out, partial)
     ids = {r["review_order"]: r for r in extra._read(out / "faithfulness_ids.csv")}
     if ids and "pub_date" not in next(iter(ids.values())):
         raise MarkedFileError("faithfulness_ids.csv lacks pub_date: the 2022+ split needs it")
@@ -274,7 +296,9 @@ def faithfulness_report(out: Path) -> list[str]:
         )
     gold_metrics.require_unique([r["review_order"] for r in tagged], "faithfulness_to_tag.csv")
     gold_metrics.require_same_keys(
-        [r["review_order"] for r in tagged], list(ids), "faithfulness_to_tag.csv"
+        [r["review_order"] for r in tagged],
+        [k for k in ids if partial is None or int(k) <= len(tagged)],
+        "faithfulness_to_tag.csv",
     )
     coverage_path = out / COVERAGE_NAME
     if not coverage_path.exists():
@@ -309,7 +333,7 @@ def faithfulness_report(out: Path) -> list[str]:
         if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR:
             late.add(row["key"])
     undated = sum(gold_metrics.year_of(ids[r["review_order"]]) is None for r in tagged)
-    lines = ["the intervals are a bootstrap over bodies, not over texts (D32)"]
+    lines = [*note, "the intervals are a bootstrap over bodies, not over texts (D32)"]
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
     lines += _faithfulness_block("all", marks, owners, omitted)
@@ -334,9 +358,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--out", type=Path, default=Path("data"))
+    parser.add_argument(
+        "--gold", action="store_true", help="label-check: read gold/segment_check_gold.csv in --out"
+    )
+    parser.add_argument(
+        "--partial",
+        type=int,
+        metavar="MIN",
+        help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
+    )
     args = parser.parse_args()
+    if args.gold and args.command != "label-check":
+        parser.error("--gold is for label-check only")
+    if args.partial is not None and args.command != "faithfulness":
+        parser.error("--partial is for faithfulness only")
+    command = COMMANDS[args.command]
+    if args.command == "label-check":
+        command = functools.partial(label_check_report, gold=args.gold)
+    elif args.command == "faithfulness":
+        command = functools.partial(faithfulness_report, partial=args.partial)
     try:
-        print("\n".join(COMMANDS[args.command](args.out)))
+        print("\n".join(command(args.out)))
     except MarkedFileError as exc:
         sys.exit(str(exc))
     except FileNotFoundError as exc:

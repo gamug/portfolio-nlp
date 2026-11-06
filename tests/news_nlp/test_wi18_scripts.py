@@ -1366,3 +1366,58 @@ def test_segment_check_gold_refuses_unmarked_rows_and_other_paragraphs(
     _csv(tmp_path / SEGGOLD.IDS_NAME, ids)
     with pytest.raises(SystemExit, match="ticker"):
         SEGGOLD.main()
+
+
+def _partial_faith_files(tmp_path: Path, marked: list[int]) -> None:
+    ids, tags = [], []
+    for order in range(1, 31):
+        ids.append(
+            {
+                "review_order": str(order),
+                "key": f"{order % 10}#T#{order}",
+                "extractors": "baseline",
+                "pub_date": "2023-01-01",
+            }
+        )
+        tags.append(
+            {
+                "article_id": str(order % 10),
+                "review_order": str(order),
+                "faithful": "yes" if order in marked else "",
+            }
+        )
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
+
+
+def test_a_partial_faithfulness_report_needs_the_first_rows_marked_in_order(
+    tmp_path: Path,
+) -> None:
+    _partial_faith_files(tmp_path, list(range(1, 21)))
+    with pytest.raises(MarkedFileError, match="without faithful"):
+        REPORT.faithfulness_report(tmp_path)  # the full report still refuses a half-marked file
+    text = "\n".join(REPORT.faithfulness_report(tmp_path, partial=15))
+    assert "PARTIAL: 20 of 30 texts marked" in text
+    with pytest.raises(MarkedFileError, match="the rule needs 25"):
+        REPORT.faithfulness_report(tmp_path, partial=25)
+    _partial_faith_files(tmp_path, [*range(1, 11), *range(15, 25)])  # a gap: not a random sample
+    with pytest.raises(MarkedFileError, match="in order"):
+        REPORT.faithfulness_report(tmp_path, partial=15)
+
+
+def test_the_label_check_report_reads_the_committed_gold_file() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    lines = REPORT.label_check_report(gold, gold=True)
+    text = "\n".join(lines)
+    assert "lead: 88.0%" in text.replace("  ", " ") or "88.0%" in text
+    assert "train on `lead` only" in text
+    rows = list(csv.DictReader((gold / "segment_check_gold.csv").open(encoding="utf-8")))
+    assert Counter((r["kind"], r["correct"]) for r in rows) == {
+        ("lead", "yes"): 88,
+        ("lead", "no"): 12,
+        ("continuation", "yes"): 38,
+        ("continuation", "no"): 62,
+    }  # the figures of PLAN D27 and the page
+    assert "2022+" in text
