@@ -58,7 +58,7 @@ overwrites a file, with rows or without.
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
-| 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
+| 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | drawn, marked and migrated 2026-11-06: 82 positive, 65 negative, 33 neutral; overall agreement 60.4% (interval 52.8 to 67.6), under the D32 bar of 80%; negative precision 78.7% (67.3 to 89.3) and recall 77.7% (69.4 to 86.8), not decided against 70%; `gold/` file built (180 rows, `build_sentiment_gold_2026_11_06.py`) |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.
@@ -179,6 +179,16 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **Used for:** the D32 bar (overall agreement >= 80%; precision and recall >= 70% for negative), re-weighted
   by the stratum sizes (`population`). It says whether the pinned
   sentiment model can read summaries and company texts.
+- **Result (owner's marks, 2026-11-06):** 180 marked, 82 positive, 65 negative, 33 neutral. Overall agreement
+  60.4% [52.8, 67.6] (raw 57.2%): **fails** the 80% bar. Negative precision 78.7% [67.3, 89.3] and recall 77.7%
+  [69.4, 86.8]: not decided against 70%. By part: `checked` (summaries and structured company texts) 56.4%
+  [48.9, 64.4]; `extractor` 64.0% [51.5, 76.0]. The two parts both fail; the extractor's texts are not the
+  weaker ones. Per the rule above, a mark is tied to its text by `text_hash` and `revision`, so the figures can
+  be recomputed for another model on the same 180 texts, which are only in `data/sentiment_gold_ids.csv`.
+- **Owner's notes:** 31 rows carry a note, 24 of them say the company is not in the text, or that the text says nothing relevant or clear, and
+  all 24 are marked neutral. Eight texts are shared by two companies of one article; six of the
+  eight pairs got the same mark, two got different marks (157085 NFLX positive and AMZN neutral; 164613 JNJ neutral and
+  AMZN positive), which is allowed: the label is the impact on that company.
 
 ## Roadmap: what each set unlocks and the order to tag
 
@@ -226,8 +236,11 @@ on a hard kill. A leftover `*.tmp` next to a tagging file is not the owner's wor
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
    (exist; the test file also takes `stratum` and `frame` from the draw's record); set 3 by
-   `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`); sets 4 and 5 by
-   a builder that does not exist yet and is written with the same rules (refuse unless every row is marked
-   and valid, marks and ids only, sorted, the weights of the draw copied). **Writing those two builders
-   is task T-155**: until then those `gold/` files stay header-only and the reports read `data/`.
+   `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`);
+   set 4 by `build_faithfulness_gold_2026_11_06.py` (190 rows and the coverage file); set 5 by
+   `build_sentiment_gold_2026_11_06.py` (180 rows; pairs by the draw's `key`, checks the hash of the text the owner
+   read, copies `text_hash`, `revision` and the stratum sizes, and refuses to change a tracked mark without
+   `--overwrite-marks`). Each refuses unless every row is marked and valid, and writes marks and ids only.
+   `report_wi18 sentiment --gold --out gold` reproduces the D32 figures from the tracked file (no per-period
+   count: the file keeps no date).
 3. From then on features read `gold/`; the `data/` file is kept only as the owner's working copy.

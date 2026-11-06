@@ -40,6 +40,7 @@ CHECK = _script("draw_segment_check_2026_11_05")
 FAITH = _script("draw_faithfulness_2026_11_06")
 SEGGOLD = _script("build_segment_check_gold_2026_11_06")
 FAITHGOLD = _script("build_faithfulness_gold_2026_11_06")
+SENTGOLD = _script("build_sentiment_gold_2026_11_06")
 REPORT = _script("report_wi18_2026_11_06")
 BUILD_GOLD = _script("build_gold_2026_11_05")
 
@@ -1828,3 +1829,203 @@ def test_a_first_draw_that_cannot_write_everything_leaves_no_half_set(
     assert not ids_path.exists()  # written before the failure, taken back
     assert not coverage_path.exists()
     assert target.read_bytes() == b"header-only scaffold\n"
+
+
+SENT_TEXTS = ("Acme rose on strong sales.", "Beta fell after a recall.", "Gamma was flat.")
+
+
+def _sentiment_gold_files(out: Path) -> None:
+    """Three texts of one stratum each pair: a summary and two company texts, as the draw writes
+    them (there is no review_order in the draw)."""
+    spec = [
+        ("summary", "", "checked", "checked/positive", "positive"),
+        ("company_text", "B", "checked", "checked/negative", "negative"),
+        ("extractor_text", "G", "extractor", "extractor/neutral", "neutral"),
+    ]
+    ids, tagged = [], []
+    for i, (text, (kind, ticker, part, stratum, mark)) in enumerate(
+        zip(SENT_TEXTS, spec, strict=True), 1
+    ):
+        key = f"{i}#{ticker or kind}"
+        ids.append(
+            {
+                "key": key,
+                "article_id": str(i),
+                "ticker": ticker,
+                "kind": kind,
+                "part": part,
+                "text_hash": retag.text_hash(text),
+                "revision": "rev",
+                "stratum": stratum,
+                "extractor": "baseline" if part == "extractor" else "",
+                "predicted": stratum.split("/")[1],
+                "population": str(100 + i),
+                "text": text,
+            }
+        )
+        tagged.append(
+            {
+                "review_order": str(i),
+                "article_id": str(i),
+                "ticker": ticker,
+                "kind": kind,
+                "text": text,
+                "sentiment": mark if i != 3 else "Neutral ",
+                "notes": "=1+1" if i == 1 else "",
+            }
+        )
+    _csv(out / SENTGOLD.IDS_NAME, ids)
+    _csv(out / SENTGOLD.TO_TAG_NAME, tagged)
+
+
+def _run_sentiment_gold(
+    monkeypatch: pytest.MonkeyPatch, out: Path, gold: Path, *extra: str
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(out), "--gold", str(gold), *extra])
+    SENTGOLD.main()
+
+
+def test_sentiment_gold_copies_the_draws_weights_and_keeps_only_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    gold = tmp_path / "gold" / "sentiment_gold.csv"
+    _run_sentiment_gold(monkeypatch, tmp_path, gold)
+    rows = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert tuple(rows[0]) == retag.SENTIMENT_GOLD_COLUMNS
+    assert [(r["key"], r["sentiment"], r["population"], r["part"]) for r in rows] == [
+        ("1#summary", "positive", "101", "checked"),
+        ("2#B", "negative", "102", "checked"),
+        ("3#G", "neutral", "103", "extractor"),
+    ]
+    assert rows[2]["extractor"] == "baseline"
+    assert rows[0]["text_hash"] == retag.text_hash(SENT_TEXTS[0])
+    assert rows[0]["notes"] == "=1+1"  # the owner's own mark columns are kept as typed
+    assert "text" not in rows[0]  # no news text in gold/
+    first = gold.read_bytes()
+    _run_sentiment_gold(monkeypatch, tmp_path, gold)
+    assert gold.read_bytes() == first  # byte-identical on a rebuild
+
+
+def test_sentiment_gold_refuses_an_unmarked_or_mistyped_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    tagged = list(csv.DictReader((tmp_path / SENTGOLD.TO_TAG_NAME).open(encoding="utf-8-sig")))
+    tagged[1]["sentiment"] = ""
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="without sentiment"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    tagged[1]["sentiment"] = "bullish"
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="outside"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    assert not (tmp_path / "g.csv").exists()
+
+
+def test_sentiment_gold_refuses_a_text_edited_after_the_draw_or_a_row_that_is_not_the_draws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    tagged = list(csv.DictReader((tmp_path / SENTGOLD.TO_TAG_NAME).open(encoding="utf-8-sig")))
+    tagged[0]["text"] += " Edited."
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="edited after the draw"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    tagged[0]["text"] = SENT_TEXTS[0]
+    tagged[1]["kind"] = (
+        "extractor_text"  # the key (article and company) is the same, the kind is not
+    )
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="kind"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged[:2])  # one text of the draw missing
+    with pytest.raises(SystemExit, match="against"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    assert not (tmp_path / "g.csv").exists()
+
+
+def test_sentiment_gold_refuses_a_draw_that_lacks_the_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    ids = list(csv.DictReader((tmp_path / SENTGOLD.IDS_NAME).open(encoding="utf-8-sig")))
+    ids[0]["population"] = ""
+    _csv(tmp_path / SENTGOLD.IDS_NAME, ids)
+    with pytest.raises(SystemExit, match="population"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+    ids[0]["population"] = "101"
+    ids[1]["stratum"] = ids[0]["stratum"]  # two sizes in one stratum
+    _csv(tmp_path / SENTGOLD.IDS_NAME, ids)
+    with pytest.raises(SystemExit, match="stratum size"):
+        _run_sentiment_gold(monkeypatch, tmp_path, tmp_path / "g.csv")
+
+
+def test_sentiment_gold_protects_the_tracked_marks_from_a_silent_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _sentiment_gold_files(tmp_path)
+    gold = tmp_path / "gold" / "sentiment_gold.csv"
+    _run_sentiment_gold(monkeypatch, tmp_path, gold)
+    kept = gold.read_bytes()
+    tagged = list(csv.DictReader((tmp_path / SENTGOLD.TO_TAG_NAME).open(encoding="utf-8-sig")))
+    tagged[0]["sentiment"] = "negative"  # the owner changed a mark after the migration
+    _csv(tmp_path / SENTGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match=r"1 rows .* would change"):
+        _run_sentiment_gold(monkeypatch, tmp_path, gold)
+    assert gold.read_bytes() == kept
+    _run_sentiment_gold(monkeypatch, tmp_path, gold, "--overwrite-marks")
+    assert "1#summary,1,,summary,checked" in gold.read_text(encoding="utf-8")
+    assert gold.read_bytes() != kept
+
+
+def test_sentiment_report_from_the_tracked_gold_equals_the_one_from_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids: list[dict[str, str]] = []
+    tagged: list[dict[str, str]] = []
+    for stratum, size in (("positive", 90), ("negative", 70), ("neutral", 80)):
+        for n in range(10):
+            key = f"{len(ids) + 1}#kind"
+            ids.append(
+                {
+                    "key": key,
+                    "article_id": str(len(ids) + 1),
+                    "ticker": "",
+                    "kind": "kind",
+                    "part": "checked",
+                    "text_hash": "h",
+                    "revision": "r",
+                    "stratum": f"checked/{stratum}",
+                    "extractor": "",
+                    "predicted": stratum,
+                    "population": str(size),
+                    "text": "t",
+                }
+            )
+            tagged.append(
+                {
+                    "article_id": ids[-1]["article_id"],
+                    "ticker": "",
+                    "kind": "kind",
+                    "sentiment": stratum if n % 4 else "neutral",
+                    "notes": "",
+                }
+            )
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tagged)
+    for t, i in zip(tagged, ids, strict=True):  # the builder wants the text the owner read
+        t["text"], t["review_order"] = "t", i["key"]
+        i["text_hash"] = retag.text_hash("t")
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tagged)
+    gold = tmp_path / "gold" / "sentiment_gold.csv"
+    _run_sentiment_gold(monkeypatch, tmp_path, gold)
+    from_data = REPORT.sentiment_report(tmp_path)
+    from_gold = REPORT.sentiment_report(gold.parent, gold=True)
+    figures = [ln for ln in from_data if ln.startswith("[")]
+    assert figures  # not an empty comparison
+    assert [ln for ln in from_gold if ln.startswith("[")] == figures
+    gold.write_text(gold.read_text(encoding="utf-8").replace(",90,", ",91,", 1), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="stratum size"):
+        REPORT.sentiment_report(gold.parent, gold=True)

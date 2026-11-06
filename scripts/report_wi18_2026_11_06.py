@@ -14,6 +14,7 @@ D30, D32, D33).
   ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
 
 ``label-check --gold --out gold`` reads the tracked file instead (it keeps the year);
+``sentiment --gold --out gold`` reads ``sentiment_gold.csv`` (the marks and the draw's weights);
 ``faithfulness --gold --out gold`` reads ``faithfulness_gold.csv`` and ``faithfulness_coverage.csv``. ``faithfulness --partial MIN``
 reports a file the owner has not finished, if its first MIN rows or more are marked in order (PLAN D32).
 
@@ -150,7 +151,7 @@ def _sentiment_block(
     ]
 
 
-def sentiment_report(out: Path) -> list[str]:
+def _sentiment_rows_from_data(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
     tagged = gold_metrics.read_marked(
         out / "sentiment_gold_to_tag.csv", "sentiment", gold_metrics.SENTIMENT_CLASSES
     )
@@ -176,11 +177,53 @@ def sentiment_report(out: Path) -> list[str]:
             }
         )
     populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
+    return rows, populations
+
+
+def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
+    """From the tracked ``sentiment_gold.csv`` in *out*: the marks and the draw's weights, no
+    ``data/``. The file keeps no date, so there is no per-period count."""
+    path = out / "sentiment_gold.csv"
+    tagged = gold_metrics.read_marked(
+        path,
+        "sentiment",
+        gold_metrics.SENTIMENT_CLASSES,
+        required=("key", "part", "stratum", "predicted", "population"),
+    )
+    gold_metrics.require_unique([r["key"] for r in tagged], path.name)
+    rows = [
+        {
+            "predicted": r["predicted"],
+            "stratum": r["stratum"],
+            "part": r["part"],
+            "gold": r["sentiment"],
+        }
+        for r in tagged
+    ]
+    sizes: dict[str, set[str]] = {}
+    for r in tagged:
+        sizes.setdefault(r["stratum"], set()).add(r["population"])
+    split = sorted(s for s, v in sizes.items() if len(v) > 1)
+    if split:
+        raise MarkedFileError(
+            f"{path.name}: the stratum size is not the same on every row of {split}"
+        )
+    try:
+        populations = {s: int(next(iter(v))) for s, v in sizes.items()}
+    except ValueError:
+        raise MarkedFileError(f"{path.name}: population is not a whole number") from None
+    return rows, populations
+
+
+def sentiment_report(out: Path, gold: bool = False) -> list[str]:
+    """From the owner's files in *out*, or with *gold* from the tracked ``gold/sentiment_gold.csv``."""
+    rows, populations = _sentiment_rows_from_gold(out) if gold else _sentiment_rows_from_data(out)
     lines = [
         "weights: the size of each stratum in the pool of the owner's tagged bodies "
         "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
     ]
-    lines += _period_lines(rows)
+    if not gold:
+        lines += _period_lines(rows)
     lines += _sentiment_block("all", rows, populations)
     parts = sorted({r["part"] for r in rows})
     if len(parts) > 1:
@@ -407,7 +450,7 @@ def main() -> None:
     parser.add_argument(
         "--gold",
         action="store_true",
-        help="label-check / faithfulness: read the tracked gold/ files in --out",
+        help="label-check / sentiment / faithfulness: read the tracked gold/ files in --out",
     )
     parser.add_argument(
         "--partial",
@@ -416,8 +459,8 @@ def main() -> None:
         help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
     )
     args = parser.parse_args()
-    if args.gold and args.command not in ("label-check", "faithfulness"):
-        parser.error("--gold is for label-check and faithfulness only")
+    if args.gold and args.command not in ("label-check", "sentiment", "faithfulness"):
+        parser.error("--gold is for label-check, sentiment and faithfulness only")
     if args.gold and args.partial is not None:
         parser.error("--partial reads the owner's file in progress: not with --gold")
     if args.partial is not None and args.command != "faithfulness":
@@ -425,6 +468,8 @@ def main() -> None:
     command = COMMANDS[args.command]
     if args.command == "label-check":
         command = functools.partial(label_check_report, gold=args.gold)
+    elif args.command == "sentiment":
+        command = functools.partial(sentiment_report, gold=args.gold)
     elif args.command == "faithfulness":
         command = (
             faithfulness_gold_report
