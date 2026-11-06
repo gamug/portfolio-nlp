@@ -1055,7 +1055,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         (single, sector, market / economy, `investing_general`), with the input the pipeline
         already builds minus the NLP features (title and body only: sentiment now follows the summary).
         For the cut (T-154) it writes chunks under `data/cut/summaries/` and resumes from the last chunk
-        (the code is not written yet; it starts the evening of 2026-11-07). Checks that
+        (**code written 2026-11-06**: `scripts/cut_summaries_2026_11_07.py`, chunks of 250 bodies, stop with Ctrl-C and run the same command to resume, `--status`; smoke-run on 58 bodies; full run about 29,113 unique bodies, about 70% summarised, 5 to 6 GPU hours; it starts the evening of 2026-11-07). Checks that
         a body longer than the model's window is chunked and reduced, as `hierarchical_summarize_batch` does. → D25, D26.
       - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
         - [x] **T-148b1** `news_nlp.company_texts` (`label_segments`, `split_company_texts`, `segment_text`), the one-segment-per-company
