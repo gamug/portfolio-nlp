@@ -33,6 +33,7 @@ SENTIMENT = _script("draw_sentiment_gold_2026_11_05")
 CHECK = _script("draw_segment_check_2026_11_05")
 FAITH = _script("draw_faithfulness_2026_11_06")
 REPORT = _script("report_wi18_2026_11_06")
+BUILD_GOLD = _script("build_gold_2026_11_05")
 
 
 def _frame() -> list[dict[str, str]]:
@@ -365,3 +366,66 @@ def test_the_scope_report_does_not_gate_a_scope_under_forty_gold_bodies(tmp_path
     assert (
         "not gated (< 40 gold bodies, D33)" in text and "agreement, weighted to the corpus" in text
     )
+
+
+def _gold(article_id: int, scope: str = "single") -> retag.Gold:
+    return retag.Gold(article_id, scope, ("AAPL",), {"AAPL": ("other",)}, (), ())
+
+
+def _build_test_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tagged: list[int], fixed: list[int]
+) -> Path:
+    out = tmp_path / "data"
+    out.mkdir()
+    gold = tmp_path / "category_gold_v2_test.csv"
+    _csv(gold, [{"article_id": str(i), "session": "heldout"} for i in fixed])
+    rows = [{"article_id": str(i), "ticker": "AAPL", "notes": ""} for i in tagged]
+    monkeypatch.setattr(BUILD_GOLD.retag_cli, "load_universe", lambda: None)
+    monkeypatch.setattr(retag, "read_tag_file", lambda _path: rows)
+    report = retag.Report([_gold(i) for i in tagged], {}, 0, [], [], [])
+    monkeypatch.setattr(retag, "load_gold_v2", lambda *_a, **_k: report)
+    monkeypatch.setattr(
+        sys, "argv", ["build", "--set", "test", "--out", str(out), "--gold", str(gold)]
+    )
+    return gold
+
+
+def test_the_test_set_reads_the_heldout_file_and_writes_the_test_gold() -> None:
+    sessions, gold = BUILD_GOLD.SETS["test"]
+    assert sessions == {"heldout": "heldout_to_tag.csv"}
+    assert gold == Path("gold/category_gold_v2_test.csv")
+    assert set(BUILD_GOLD.SETS["train"][0]) == {"gate240", "sector_extra"}  # train is unchanged
+
+
+def test_the_pull_of_the_test_set_writes_the_tags_of_exactly_the_fixed_articles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = _build_test_set(tmp_path, monkeypatch, tagged=[3, 1, 2], fixed=[1, 2, 3])
+    BUILD_GOLD.main()
+    with gold.open(encoding="utf-8", newline="") as fh:
+        written = list(csv.DictReader(fh))
+    assert [(r["article_id"], r["session"], r["scope"]) for r in written] == [
+        ("1", "heldout", "single"),
+        ("2", "heldout", "single"),
+        ("3", "heldout", "single"),
+    ]
+
+
+def test_the_pull_of_the_test_set_refuses_other_articles_and_keeps_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = _build_test_set(tmp_path, monkeypatch, tagged=[1, 2, 9], fixed=[1, 2, 3])
+    before = gold.read_text(encoding="utf-8-sig")
+    with pytest.raises(SystemExit, match="not the 3 fixed"):
+        BUILD_GOLD.main()
+    assert gold.read_text(encoding="utf-8-sig") == before
+
+
+def test_the_pull_refuses_a_file_that_is_not_fully_tagged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _build_test_set(tmp_path, monkeypatch, tagged=[1, 2], fixed=[1, 2])
+    report = retag.Report([_gold(1)], {}, 1, [], [], [])
+    monkeypatch.setattr(retag, "load_gold_v2", lambda *_a, **_k: report)
+    with pytest.raises(SystemExit, match="untagged 1"):
+        BUILD_GOLD.main()

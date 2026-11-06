@@ -259,3 +259,10 @@ from `scripts/report_wi18_2026_11_06.py`, which stops on a half-marked file and 
 
 In the label check the parser's company is shown on purpose (it checks an automatic label, it is not a
 gold tagging). In the faithfulness file the extractor is not shown and the rows are shuffled.
+
+**Pulling the held-out tags into `gold/`.** The owner tags `data/heldout_to_tag.csv` (the 200 of
+D30, same columns as the 240's file, never overwritten). When it is finished,
+`uv run scripts/build_gold_2026_11_05.py --set test` checks every row (all tagged and valid) and
+that the articles are exactly the 200 already in `gold/category_gold_v2_test.csv`, and rewrites that
+file with the tags only (`session` = `heldout`, no news text). `--set train` (the default) does the
+same for the 240 + 44.
