@@ -1105,7 +1105,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
   `data/` to `gold/`, as `build_gold_2026_11_05.py` does for the scope sets: label check
   (`gold/segment_check_gold.csv`), extractor sample (`gold/faithfulness_gold.csv`, keyed by article, ticker and text hash, not by
   `review_order`) and sentiment (`gold/sentiment_gold.csv`, with the draw's `stratum`, `extractor`, `predicted` and `population`).
-  Each refuses unless every row is marked and valid, writes marks and ids only (no news text), and then `report_wi18` reads the
+  `text_hash` (`retag.text_hash`) and, for sentiment, `revision` are written by the draws into their ids files and copied by the builders, never recomputed. Each builder refuses unless every row is marked and valid, writes marks and ids only (no news text), and ships a typed reader per gold file in `news_nlp.retag` (today only the column tuples exist); then `report_wi18` reads the
   `gold/` file, so the figures of D27 and D32 no longer need `data/`. `scripts/scaffold_gold_sets_2026_11_06.py` writes the empty
   files (tracked in `gold/`, local in `data/`); the draw scripts fill a header-only working file. Do it when the owner has tagged
   each set; the order to tag is on the page.

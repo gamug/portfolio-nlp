@@ -95,7 +95,13 @@ def test_building_stops_and_names_the_local_files_a_clean_clone_lacks(tmp_path: 
 def _texts() -> list[dict[str, str]]:
     labels = ["positive"] * 8 + ["negative"] * 5 + ["neutral"] * 20
     return [
-        {"article_id": str(i), "ticker": "T" if i % 2 else "", "kind": "summary", "predicted": p}
+        {
+            "article_id": str(i),
+            "ticker": "T" if i % 2 else "",
+            "kind": "summary",
+            "predicted": p,
+            "text": f"text {i}",
+        }
         for i, p in enumerate(labels)
     ]
 
@@ -424,7 +430,7 @@ def test_the_pull_of_the_test_set_writes_the_tags_of_exactly_the_fixed_articles(
     ]
     assert tuple(written[0]) == retag.TEST_GOLD_COLUMNS
     # the weight is the stratum's size in the whole sample (``frame``), so gold/ alone re-weights a rate
-    assert {(r["stratum"], r["population"]) for r in written} == {("single", "514")}
+    assert {(r["stratum"], r["frame"]) for r in written} == {("single", "514")}
 
 
 def test_the_pull_of_the_test_set_refuses_other_articles_and_keeps_the_file(
@@ -469,7 +475,15 @@ def _mixed_pool() -> list[dict[str, str]]:
     for i in range(60):
         kind = "extractor_text" if i % 3 == 0 else "summary"
         predicted = ("positive", "negative", "neutral")[i % 5 % 3]
-        pool.append({"article_id": str(i), "ticker": f"T{i}", "kind": kind, "predicted": predicted})
+        pool.append(
+            {
+                "article_id": str(i),
+                "ticker": f"T{i}",
+                "kind": kind,
+                "predicted": predicted,
+                "text": f"text {i}",
+            }
+        )
     return pool
 
 
@@ -879,3 +893,48 @@ def test_an_interrupted_write_leaves_the_target_untouched_and_no_temporary_file(
         extra._write(target, [{"a": "2"}, {"b": "bad key"}])
     assert target.read_text(encoding="utf-8") == "a\n1\n"
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_text_hash_ignores_outer_whitespace_and_tells_texts_apart() -> None:
+    assert retag.text_hash(" One.\n") == retag.text_hash("One.")
+    assert retag.text_hash("One.") != retag.text_hash("Two.")
+    assert len(retag.text_hash("One.")) == 64
+
+
+def test_the_sentiment_draw_writes_the_hash_of_each_text() -> None:
+    got = SENTIMENT.draw(_texts(), 2, 1)
+    assert all(t["text_hash"] == retag.text_hash(t["text"]) for t in got)
+    assert {"text_hash", "revision"} <= set(SENTIMENT.IDS_FIELDS)
+    assert {"text_hash", "revision"} <= set(retag.SENTIMENT_GOLD_COLUMNS)
+
+
+def test_the_faithfulness_ids_carry_the_hash_the_gold_is_keyed_by() -> None:
+    assert "text_hash" in FAITH.IDS_FIELDS
+    assert {"article_id", "ticker", "text_hash"} <= set(retag.FAITHFULNESS_GOLD_COLUMNS)
+
+
+def test_the_pull_of_the_test_set_names_a_stratum_without_a_frame_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _build_test_set(tmp_path, monkeypatch, tagged=[1, 2], fixed=[1, 2])
+    _csv(tmp_path / "data" / "heldout_strata.csv", [{"stratum": "multi", "frame": "93"}])
+    with pytest.raises(SystemExit, match="lacks the frame size"):
+        BUILD_GOLD.main()
+
+
+def test_a_rerun_after_an_interrupted_draw_reuses_the_ids_and_fills_the_empty_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _script("draw_segment_check_2026_11_05")
+    _csv(tmp_path / module.IDS_NAME, [{f: "1" for f in module.IDS_FIELDS}])  # drawn, then stopped
+    (tmp_path / module.TO_TAG_NAME).write_text(
+        ",".join(retag.SEGMENT_CHECK_COLUMNS) + "\n", encoding="utf-8-sig"
+    )
+
+    def stop(*_a: object, **_k: object) -> None:
+        raise _Reached
+
+    monkeypatch.setattr(module, "texts_to_translate", stop)
+    monkeypatch.setattr(sys, "argv", ["draw", "--out", str(tmp_path)])
+    with pytest.raises(_Reached):  # it read the ids it had and went on to the translation
+        module.main()

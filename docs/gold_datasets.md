@@ -17,8 +17,8 @@ Every set has two files with the same stem and different jobs:
 
 The rule: **tag in `data/`, migrate to `gold/` when the set is finished, and use only `gold/` from
 then on.** For that to hold, each `gold/` file carries what the figures need besides the marks: the
-`stratum` and `population` of the held-out rows (`population` is the stratum's size in the whole
-sample, the `frame` of D30, not the bodies left to draw from), and the `stratum`, `extractor`,
+`stratum` and `frame` of the held-out rows (`frame` is the stratum's size in the whole sample, D30; it
+is **not** the `population` column of `heldout_ids.csv`, which counts the bodies left to draw from), and the `stratum`, `extractor`,
 `predicted` and `population` of the sentiment rows (D32). Until a set is migrated its figures are
 computed from `data/`, and the draw's record is **required**, not optional:
 
@@ -38,7 +38,7 @@ train and test files (#123), the three files of sets 3, 4 and 5 (added here at t
 `gold/` holds only the train and the test file (2026-11-05) is superseded by this one. Anything with
 text, a cache or a translation stays in `data/`.
 
-## Empty files of the sets not drawn yet
+## Empty files of the sets without a draw
 
 `uv run scripts/scaffold_gold_sets_2026_11_06.py` writes, for sets 3, 4 and 5, a header-only working
 file in `data/` (the exact columns the draw writes) and a header-only tracked file in `gold/`
@@ -53,10 +53,13 @@ pins the `gold/` headers to the column constants in `retag`.
 | # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-06 |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
-| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; 2 of 200 tagged; `gold/` file is the untagged shell |
-| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | empty scaffold, not drawn |
+| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
+| 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn 2026-11-06 (200 paragraphs, Spanish aid bought); owner marking; `gold/` file is a scaffold |
 | 4 | **Extractor sample** (faithfulness) | about 30 bodies | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | empty scaffold, not drawn |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
+
+The state column is the state on the day it was written; the files themselves are the record. Counts of
+tagged rows are not kept here.
 
 Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_train.csv` is the
 **training set** of the step-4 attribution model (33,624 paragraphs, automatic labels, no owner tags;
@@ -79,8 +82,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **What:** the 200 held-out bodies (D30): all 39 the rules call no-company, sector, market or economy,
   the rest a seeded random draw from the 1,000-body corpus sample, none sharing a body with the 720
   or the 44. Drawn once; the set is fixed.
-- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `population` (the weights
-  of D30). In `gold/` the tag columns are empty until the owner finishes.
+- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns are empty until the owner finishes.
 - **Used for:** the **only** measure of the scope: the rules' and later the classifier's agreement with
   the owner (>= 90% corpus-weighted, D20/D33) and the D24 category target. Never trained on (Q3).
   `data/heldout_strata.csv` holds the stratum sizes (`frame`) that re-weight a rate to the corpus.
@@ -106,6 +108,10 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **Scope:** the file is **blind to the extractor** (rows shuffled, a text two extractors wrote identically
   is one row). The row count is not fixed: it is one row per distinct (body, company) text, known when
   drawn. Gold columns: `key`, `article_id`, `ticker`, `text_hash`, `extractors`, `pub_date`, `faithful`, `notes`.
+  `text_hash` is `retag.text_hash(text)`: SHA-256 (hex) of the text the owner reads, outer whitespace
+  stripped, UTF-8, as the draw wrote it (capped at `TEXT_CAP`). The draw writes it to
+  `faithfulness_ids.csv` and the builder copies it from there, never recomputes it (the tagging file may
+  show the text with a spreadsheet-safe apostrophe).
   A mark belongs to a text, identified by (`article_id`, `ticker`, `text_hash`), **not** by `review_order`:
   that is a shuffle position and changes when the model's texts are added to the baseline's. The baseline's
   marks therefore stay valid; a text the model writes identically only adds its name to `extractors`.
@@ -121,9 +127,14 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   never shown to the owner.
 - **Scope:** the label is the **price impact on the company** an investor would read (on the sector or
   the market for a sector or market text): `positive`, `negative`, `neutral`. Gold columns: `key`,
-  `article_id`, `ticker`, `kind`, `part`, `stratum`, `extractor`, `predicted`, `population`, `sentiment`,
-  `notes` (the draw's weights travel with each row). The text itself is not in `gold/`; it is
-  rebuilt from the pipeline and the `key`.
+  `article_id`, `ticker`, `kind`, `part`, `text_hash`, `revision`, `stratum`, `extractor`, `predicted`,
+  `population`, `sentiment`, `notes` (the draw's weights travel with each row). The text itself is not in
+  `gold/` (news-derived), and **it cannot be rebuilt**: a summary is generated by a model, a company text
+  depends on the extractor. So the label is tied to its text by `text_hash` (same hash as above) and to the
+  way the text was made by `revision` (the summariser `model@revision` of `config/pipeline_models.json`,
+  `company_texts.split_company_texts`, or `extractor:<name>`). The only copy of the texts is
+  `data/sentiment_gold_ids.csv` (its `text` column); **back it up**, since without it the 180 marks cannot
+  be used to measure another model.
 - **Used for:** the D32 bar (overall agreement >= 80%; precision and recall >= 70% for negative), re-weighted
   by the stratum sizes (`population`). It says whether the pinned
   sentiment model can read summaries and company texts.
@@ -162,7 +173,7 @@ Why this order:
 1. The owner marks the `data/` file and runs `scripts/report_wi18_2026_11_06.py <scope|label-check|faithfulness|sentiment>`,
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
-   (exist; the test file also takes `stratum` and `population` from the draw's record); sets 3, 4 and 5 by
+   (exist; the test file also takes `stratum` and `frame` from the draw's record); sets 3, 4 and 5 by
    a builder that does not exist yet and is written with the same rules (refuse unless every row is marked
    and valid, marks and ids only, sorted, the weights of the draw copied). **Writing those three builders
    is task T-155**: until then those `gold/` files stay header-only and the reports read `data/`.

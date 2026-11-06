@@ -1,4 +1,4 @@
-article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,stratum,population
+article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,stratum,frame
 155880,heldout,BNY,,,,,,single,514
 140256,heldout,BRK.B,,,,,,multi_dominated,245
 286206,heldout,INTC,,,,,,roundup,108

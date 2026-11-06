@@ -1,1 +1,1 @@
-﻿key,article_id,ticker,kind,part,stratum,extractor,predicted,population,sentiment,notes
+﻿key,article_id,ticker,kind,part,text_hash,revision,stratum,extractor,predicted,population,sentiment,notes

@@ -11,7 +11,7 @@ file is rewritten from the two tagging files each time.
 
 ``--set test`` does the same for the held-out set: it reads ``data/heldout_to_tag.csv`` (the 200 the
 owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldout``, with the draw's
-``stratum`` from ``data/heldout_ids.csv`` and ``population`` = the stratum's ``frame`` size from
+``stratum`` from ``data/heldout_ids.csv`` and ``frame`` = the stratum's size from
 ``data/heldout_strata.csv``, so a rate can be re-weighted from ``gold/`` alone). The set is fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
 test file.
 """
@@ -91,9 +91,11 @@ def main() -> None:
         frame = {r["stratum"]: r["frame"] for r in _read(args.out / "heldout_strata.csv")}
         if missing := sorted({r["article_id"] for r in out_rows} - stratum_of.keys()):
             sys.exit(f"heldout_ids.csv lacks the stratum of {missing[:5]}")
+        if unsized := sorted({stratum_of[r["article_id"]] for r in out_rows} - frame.keys()):
+            sys.exit(f"heldout_strata.csv lacks the frame size of the strata {unsized}")
         for r in out_rows:
             r["stratum"] = stratum_of[r["article_id"]]
-            r["population"] = frame[r["stratum"]]  # D30: the size in the whole sample, not "free"
+            r["frame"] = frame[r["stratum"]]  # D30: the size in the whole sample, not "free"
     gold_path.parent.mkdir(parents=True, exist_ok=True)
     with gold_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(columns), lineterminator="\n")

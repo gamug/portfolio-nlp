@@ -99,6 +99,8 @@ IDS_FIELDS = (
     "article_id",
     "kind",
     "part",
+    "text_hash",
+    "revision",
     "stratum",
     "extractor",
     "scope",
@@ -153,11 +155,18 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
         ).fetchone()
         title, body = src["title"] or "", src["body_text"] or ""
         base = {"article_id": row["article_id"], "scope": row["scope"], "title": title}
+        summariser = _models()["c_summary"]
         if row["scope"] in SUMMARY_SCOPES:
             ticker, company = subject_of(row, book, names)
             to_summarise.append(
                 (
-                    {**base, "kind": "summary", "ticker": ticker, "company": company},
+                    {
+                        **base,
+                        "kind": "summary",
+                        "revision": f"{summariser['model']}@{summariser['revision']}",
+                        "ticker": ticker,
+                        "company": company,
+                    },
                     f"Title-{title}\nBody-{body}",
                 )
             )
@@ -179,6 +188,9 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
                             **base,
                             "kind": kind,
                             "extractor": extractor if kind == "extractor_text" else "",
+                            "revision": f"extractor:{extractor}"
+                            if kind == "extractor_text"
+                            else "company_texts.split_company_texts",
                             "ticker": ticker,
                             "company": names.get(ticker, ticker),
                             "text": text,
@@ -274,6 +286,7 @@ def draw(
     rng.shuffle(chosen)  # the order must not reveal the predicted class
     for t in chosen:
         t["key"] = f"{t['article_id']}#{t['ticker'] or t['kind']}"
+        t["text_hash"] = retag.text_hash(t["text"])
     repeated = sorted(k for k, n in Counter(t["key"] for t in chosen).items() if n > 1)
     if repeated:
         raise ValueError(f"two drawn texts share the key {repeated[:5]}")

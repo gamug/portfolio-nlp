@@ -50,7 +50,15 @@ GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
 COVERAGE_NAME = "faithfulness_coverage.csv"
 COVERAGE_FIELDS = ("article_id", "ticker", "extractor", "pub_date")
-IDS_FIELDS = ("review_order", "key", "article_id", "ticker", "extractors", "pub_date")
+IDS_FIELDS = (
+    "review_order",
+    "key",
+    "article_id",
+    "ticker",
+    "text_hash",
+    "extractors",
+    "pub_date",
+)
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
 
@@ -135,6 +143,7 @@ def collect_items(
                         "key": f"{b['article_id']}#{ticker}#{number}",
                         "article_id": b["article_id"],
                         "ticker": ticker,
+                        "text_hash": retag.text_hash(text[: extra.TEXT_CAP]),
                         "extractors": "|".join(extractors),
                         "title": src["title"] or "",
                         "text": text[: extra.TEXT_CAP],

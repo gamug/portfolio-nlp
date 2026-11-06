@@ -18,6 +18,7 @@ names the owner typed are converted first by :mod:`news_nlp.company_names` (``no
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import random
 import re
@@ -662,9 +663,19 @@ GOLD_COLUMNS = (
 )
 
 
-#: The held-out gold also carries the weight of its draw (``stratum``, and ``population``: the size of
-#: that stratum in the whole corpus sample), so a rate can be re-weighted from ``gold/`` alone.
-TEST_GOLD_COLUMNS = (*GOLD_COLUMNS, "stratum", "population")
+#: The held-out gold also carries the weight of its draw (``stratum``, and ``frame``: the size of that
+#: stratum in the whole corpus sample, D30), so a rate can be re-weighted from ``gold/`` alone. It is
+#: not ``population`` of ``heldout_ids.csv``, which counts the bodies left to draw from.
+TEST_GOLD_COLUMNS = (*GOLD_COLUMNS, "stratum", "frame")
+
+
+def text_hash(text: str) -> str:
+    """The identity of a text a mark belongs to: SHA-256 (hex) of the text with the outer
+    whitespace stripped, UTF-8. Computed once by the draw and written to its ids file; a gold
+    builder copies it from there and never recomputes it (the tagging file may carry the text
+    with a spreadsheet-safe apostrophe)."""
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
 
 #: The tracked files of the sets that are not scope tags (``docs/gold_datasets.md``): the owner's
 #: marks and the ids of the draw, never the text. The draw's weights travel with each row, so the
@@ -675,6 +686,8 @@ SENTIMENT_GOLD_COLUMNS = (
     "ticker",
     "kind",
     "part",
+    "text_hash",
+    "revision",
     "stratum",
     "extractor",
     "predicted",
