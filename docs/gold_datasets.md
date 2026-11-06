@@ -57,7 +57,7 @@ overwrites a file, with rows or without.
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
-| 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn 2026-11-06: 190 texts of 30 bodies, Spanish aid filled, `faithful` empty; `gold/` file is a scaffold |
+| 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of

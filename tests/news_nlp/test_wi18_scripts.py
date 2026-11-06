@@ -37,6 +37,7 @@ SENTIMENT = _script("draw_sentiment_gold_2026_11_05")
 CHECK = _script("draw_segment_check_2026_11_05")
 FAITH = _script("draw_faithfulness_2026_11_06")
 SEGGOLD = _script("build_segment_check_gold_2026_11_06")
+FAITHGOLD = _script("build_faithfulness_gold_2026_11_06")
 REPORT = _script("report_wi18_2026_11_06")
 BUILD_GOLD = _script("build_gold_2026_11_05")
 
@@ -1435,3 +1436,84 @@ def test_partial_report_edge_cases(tmp_path: Path) -> None:
     _csv(tmp_path / "faithfulness_to_tag.csv", rows)
     with pytest.raises(MarkedFileError, match="whole number"):
         REPORT.faithfulness_report(tmp_path, partial=5)
+
+
+def _faithfulness_gold_files(out: Path, marks: tuple[str, str] = ("yes", "no")) -> None:
+    texts = ["Acme rose on strong sales.", "Beta fell after a recall."]
+    ids = [
+        {
+            "review_order": str(i),
+            "key": f"{i}#T#{i}",
+            "article_id": str(i),
+            "ticker": "T",
+            "text_hash": retag.text_hash(text),
+            "extractors": "baseline",
+            "revisions": "extractor:baseline@abc",
+            "pub_date": "2026-01-01",
+        }
+        for i, text in enumerate(texts, 1)
+    ]
+    tagged = [
+        {
+            "review_order": str(i),
+            "article_id": str(i),
+            "ticker": "T",
+            "text": text,
+            "faithful": mark,
+            "notes": "=1+1" if i == 1 else "",
+        }
+        for i, (text, mark) in enumerate(zip(texts, marks, strict=True), 1)
+    ]
+    _csv(out / FAITHGOLD.IDS_NAME, ids)
+    _csv(out / FAITHGOLD.TO_TAG_NAME, tagged)
+
+
+def test_faithfulness_gold_copies_the_draws_ids_and_keeps_only_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _faithfulness_gold_files(tmp_path)
+    gold = tmp_path / "gold.csv"
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(gold)])
+    FAITHGOLD.main()
+    rows = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert tuple(rows[0]) == retag.FAITHFULNESS_GOLD_COLUMNS
+    assert [(r["key"], r["text_hash"], r["faithful"]) for r in rows] == [
+        ("1#T#1", retag.text_hash("Acme rose on strong sales."), "yes"),
+        ("2#T#2", retag.text_hash("Beta fell after a recall."), "no"),
+    ]
+    assert rows[0]["revisions"] == "extractor:baseline@abc"
+    assert rows[0]["notes"] == "=1+1"  # the owner's own mark columns are kept as typed
+    assert "text" not in rows[0]  # no news text in gold/
+
+
+def test_faithfulness_gold_refuses_unmarked_rows_edited_texts_and_other_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "g.csv"
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(gold)])
+    _faithfulness_gold_files(tmp_path, ("yes", ""))
+    with pytest.raises(SystemExit, match="without faithful"):
+        FAITHGOLD.main()
+    _faithfulness_gold_files(tmp_path)
+    tagged = list(csv.DictReader((tmp_path / FAITHGOLD.TO_TAG_NAME).open(encoding="utf-8-sig")))
+    tagged[1]["text"] = "Beta fell after a recall, edited."
+    _csv(tmp_path / FAITHGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="edited after the draw"):
+        FAITHGOLD.main()
+    tagged[1]["text"] = "Beta fell after a recall."
+    tagged[1]["ticker"] = "U"
+    _csv(tmp_path / FAITHGOLD.TO_TAG_NAME, tagged)
+    with pytest.raises(SystemExit, match="ticker"):
+        FAITHGOLD.main()
+    assert not gold.exists()
+
+
+def test_the_committed_faithfulness_gold_is_the_owners_190_marks() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv"
+    rows = list(csv.DictReader(gold.open(encoding="utf-8-sig")))
+    assert tuple(rows[0]) == retag.FAITHFULNESS_GOLD_COLUMNS
+    assert len(rows) == 190
+    assert Counter(r["faithful"] for r in rows) == {"yes": 115, "no": 75}
+    assert len({r["key"] for r in rows}) == 190  # one mark per text
+    assert {r["extractors"] for r in rows} == {"baseline"}
+    assert len({r["article_id"] for r in rows}) == 30  # the 30 bodies drawn
