@@ -132,6 +132,21 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   mark is changed; a copy of the file as it was is saved as `faithfulness_to_tag.before_model.csv` (a second
   run stops while that copy exists). The appended rows are all the model's, so the blindness to the extractor
   is only partial for them (their position gives them away); the owner is told the file has grown.
+- **What `faithful` means (as the 190 marks of 2026-11-06 apply it; the owner confirms or corrects this
+  sentence):** `yes` if the text is about the company, even when it also names or discusses other
+  companies (45 of the 115 `yes` marks carry a note like "it also speaks about Pfizer"); `no` if the text is
+  mainly about another company or the company is only mentioned in passing. The model's texts are judged by
+  the same rule.
+- **Companies left without a text:** `gold/faithfulness_coverage.csv` (columns `article_id`, `ticker`,
+  `extractor`, `pub_date`) lists the companies an extractor named and wrote no text for; the D32 share counts
+  each as unfaithful. **On 2026-11-06 it is empty (header only): the baseline left no company without a text.**
+  The builder copies it from `data/faithfulness_coverage.csv` next to the gold file and refuses to run without it.
+- **Reading it:** `uv run scripts/report_wi18_2026_11_06.py faithfulness --gold --out gold` gives the
+  figures from the two tracked files alone (baseline 60.5% [45.2, 73.8], 2022+ 60.6% [27.6, 86.1]); nothing from
+  the git-ignored `data/` is needed. A test pins these figures.
+- **Rebuilding:** the builder rewrites the file from `data/`, but this file is the reference: if a mark, a text hash or a row
+  would change or go missing the run stops (`--overwrite-marks` to accept). Adding the model only adds names to
+  `extractors` and `revisions` and new rows, and goes through.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
   bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
 

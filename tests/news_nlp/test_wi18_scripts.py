@@ -1466,6 +1466,9 @@ def _faithfulness_gold_files(out: Path, marks: tuple[str, str] = ("yes", "no")) 
     ]
     _csv(out / FAITHGOLD.IDS_NAME, ids)
     _csv(out / FAITHGOLD.TO_TAG_NAME, tagged)
+    (out / FAITHGOLD.COVERAGE_NAME).write_text(
+        ",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n", encoding="utf-8"
+    )  # header only: no company was left without a text
 
 
 def test_faithfulness_gold_copies_the_draws_ids_and_keeps_only_marks(
@@ -1517,3 +1520,81 @@ def test_the_committed_faithfulness_gold_is_the_owners_190_marks() -> None:
     assert len({r["key"] for r in rows}) == 190  # one mark per text
     assert {r["extractors"] for r in rows} == {"baseline"}
     assert len({r["article_id"] for r in rows}) == 30  # the 30 bodies drawn
+
+
+def _run_faithfulness_gold(
+    monkeypatch: pytest.MonkeyPatch, out: Path, gold: Path, *flags: str
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(out), "--gold", str(gold), *flags])
+    FAITHGOLD.main()
+
+
+def test_faithfulness_gold_copies_the_coverage_and_the_report_reads_the_tracked_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _faithfulness_gold_files(tmp_path)
+    (tmp_path / FAITHGOLD.COVERAGE_NAME).write_text(
+        ",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n3,T,baseline,2026-01-01\n", encoding="utf-8"
+    )
+    gold_dir = tmp_path / "gold"
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold_dir / "faithfulness_gold.csv")
+    copied = list(csv.DictReader((gold_dir / FAITHGOLD.COVERAGE_NAME).open(encoding="utf-8")))
+    assert [(r["article_id"], r["extractor"]) for r in copied] == [("3", "baseline")]
+    from_gold = "\n".join(REPORT.faithfulness_gold_report(gold_dir))
+    assert "1 companies left without a text" in from_gold
+    assert "1 faithful of 2 texts + 1 companies left without one" in from_gold  # as D32 counts it
+    # the owner's file with the draw and the coverage, copied into the draw's names, gives the same
+    (tmp_path / "faithfulness_bodies.csv").write_text("article_id\n1\n2\n3\n", encoding="utf-8")
+    from_data = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert from_data.splitlines() == from_gold.splitlines()[1:]  # but for the gold's first line
+
+
+def test_the_report_reads_the_committed_gold_and_gives_the_figures_of_the_decision() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    text = "\n".join(REPORT.faithfulness_gold_report(gold))
+    assert "190 texts, 0 companies left without a text" in text
+    assert "[all]   baseline: 60.5% [45.2%, 73.8%] -> fail" in text  # PLAN D32, 2026-11-06
+    assert "[2022+]   baseline: 60.6% [27.6%, 86.1%] -> not decided" in text
+
+
+def test_faithfulness_gold_needs_the_coverage_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _faithfulness_gold_files(tmp_path)
+    (tmp_path / FAITHGOLD.COVERAGE_NAME).unlink()
+    with pytest.raises(SystemExit, match=FAITHGOLD.COVERAGE_NAME):
+        _run_faithfulness_gold(monkeypatch, tmp_path, tmp_path / "g" / "faithfulness_gold.csv")
+
+
+def test_faithfulness_gold_does_not_change_a_mark_it_already_holds_unless_told(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "gold" / "faithfulness_gold.csv"
+    _faithfulness_gold_files(tmp_path)
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    before = gold.read_bytes()
+    _faithfulness_gold_files(tmp_path, ("no", "no"))  # the first mark flipped in data/
+    with pytest.raises(SystemExit, match=r"1 rows of .* would change or go missing"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    assert gold.read_bytes() == before  # nothing was written
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold, "--overwrite-marks")
+    assert next(iter(csv.DictReader(gold.open(encoding="utf-8"))))["faithful"] == "no"
+
+
+def test_adding_the_model_to_a_marked_row_keeps_the_baselines_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "gold" / "faithfulness_gold.csv"
+    _faithfulness_gold_files(tmp_path)
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    first = list(csv.DictReader(gold.open(encoding="utf-8")))
+    ids = list(csv.DictReader((tmp_path / FAITHGOLD.IDS_NAME).open(encoding="utf-8-sig")))
+    ids[0]["extractors"] = "baseline|model"  # the model wrote the same text as the baseline
+    ids[0]["revisions"] = "extractor:baseline@abc|model@def"
+    _csv(tmp_path / FAITHGOLD.IDS_NAME, ids)
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)  # goes through without the flag
+    again = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert again[0]["extractors"] == "baseline|model"
+    assert [(r["key"], r["faithful"], r["text_hash"]) for r in again] == [
+        (r["key"], r["faithful"], r["text_hash"]) for r in first
+    ]
