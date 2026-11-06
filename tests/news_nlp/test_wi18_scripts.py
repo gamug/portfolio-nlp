@@ -631,8 +631,14 @@ def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
         "extractor/negative": (0, 20),
     }
     twins = [
-        {"article_id": "1", "ticker": "T", "kind": "summary", "predicted": "positive"},
-        {"article_id": "1", "ticker": "T", "kind": "company_text", "predicted": "positive"},
+        {"article_id": "1", "ticker": "T", "kind": "summary", "predicted": "positive", "text": "a"},
+        {
+            "article_id": "1",
+            "ticker": "T",
+            "kind": "company_text",
+            "predicted": "positive",
+            "text": "b",
+        },
     ]
     with pytest.raises(ValueError, match="share the key"):
         SENTIMENT.draw(twins, 2, 1)
@@ -938,3 +944,51 @@ def test_a_rerun_after_an_interrupted_draw_reuses_the_ids_and_fills_the_empty_fi
     monkeypatch.setattr(sys, "argv", ["draw", "--out", str(tmp_path)])
     with pytest.raises(_Reached):  # it read the ids it had and went on to the translation
         module.main()
+
+
+def test_a_scored_pool_read_back_keeps_the_revision_of_each_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    text = {
+        "article_id": "1",
+        "kind": "summary",
+        "extractor": "",
+        "revision": "org/c_summary@r1",
+        "scope": "single",
+        "ticker": "T",
+        "company": "T Inc",
+        "title": "t",
+        "text": "a summary",
+    }
+    monkeypatch.setattr(SENTIMENT, "build_texts", lambda *_a: ([{**text}], Counter()))
+    monkeypatch.setattr(
+        SENTIMENT, "predict", lambda texts: [{**t, "predicted": "positive"} for t in texts]
+    )
+    SENTIMENT.scored_pool(tmp_path, "baseline")  # scored and written
+    again = SENTIMENT.scored_pool(tmp_path, "baseline")  # read back
+    assert again[0]["revision"] == "org/c_summary@r1"
+
+
+def test_a_code_revision_changes_with_the_module_and_is_twelve_digits(tmp_path: Path) -> None:
+    import types  # noqa: PLC0415
+
+    one = tmp_path / "one.py"
+    one.write_text("A = 1\n", encoding="utf-8")
+    module = types.ModuleType("one")
+    module.__file__ = str(one)
+    first = SENTIMENT.code_revision(module)
+    assert len(first) == 12 and first == SENTIMENT.code_revision(module)
+    one.write_text("A = 2\n", encoding="utf-8")
+    assert SENTIMENT.code_revision(module) != first
+    assert SENTIMENT.code_revision(SENTIMENT.attribution_baseline) != first
+
+
+def test_the_label_check_gold_keeps_the_year_for_the_2022_split() -> None:
+    assert "year" in retag.SEGMENT_CHECK_GOLD_COLUMNS
+    assert "year" in _script("draw_segment_check_2026_11_05").IDS_FIELDS

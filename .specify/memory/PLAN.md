@@ -2345,7 +2345,7 @@ above, it says so; nothing else above is touched.
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
   company texts of structured multi bodies (120) and the texts the extractor writes for narrative
-  multi bodies (60: the baseline, or the model if it is ready on 2026-11-09, the date of D34 rule (b); D32 said 2026-11-10 until 2026-11-06 and is aligned to the owner's rule); the two parts are reported
+  multi bodies (60: the baseline, or the model if it is ready on 2026-11-09, the date of D34 rule (b)); the two parts are reported
   apart, and the figures of the second part are the ones that say whether the cut's per-company
   sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
   stratum, so for the company texts of one body they are a little narrow. **The stratum sizes are those of the pool of the owner's tagged bodies**
@@ -2388,7 +2388,7 @@ above, it says so; nothing else above is touched.
   the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
   one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
   model trains on 2026-11-08 on the same GPU after them; NER, step 4 and sentiment run after the
-  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Concurrent draws stay accepted (single-owner tooling); since 2026-11-06 the draw writes go through a temporary file and `os.replace`, so an interrupted draw leaves no half-written file.
+  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Concurrent draws stay accepted (single-owner tooling).
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*

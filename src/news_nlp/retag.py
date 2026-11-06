@@ -711,6 +711,7 @@ SEGMENT_CHECK_GOLD_COLUMNS = (
     "segment_index",
     "ticker",
     "kind",
+    "year",
     "correct",
     "notes",
 )
