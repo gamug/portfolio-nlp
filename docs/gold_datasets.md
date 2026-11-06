@@ -57,7 +57,7 @@ overwrites a file, with rows or without.
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
-| 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn 2026-11-06: 190 texts of 30 bodies, Spanish aid filled, `faithful` empty; `gold/` file is a scaffold |
+| 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | empty scaffold, not drawn |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
@@ -132,6 +132,21 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   mark is changed; a copy of the file as it was is saved as `faithfulness_to_tag.before_model.csv` (a second
   run stops while that copy exists). The appended rows are all the model's, so the blindness to the extractor
   is only partial for them (their position gives them away); the owner is told the file has grown.
+- **What `faithful` means (as the 190 marks of 2026-11-06 apply it; the owner confirmed this rule on
+  2026-11-06):** `yes` if the text is about the company, even when it also names or discusses other
+  companies (45 of the 115 `yes` marks carry a note like "it also speaks about Pfizer"); `no` if the text is
+  mainly about another company or the company is only mentioned in passing. The model's texts are judged by
+  the same rule.
+- **Companies left without a text:** `gold/faithfulness_coverage.csv` (columns `article_id`, `ticker`,
+  `extractor`, `pub_date`) lists the companies an extractor named and wrote no text for; the D32 share counts
+  each as unfaithful. **On 2026-11-06 it is empty (header only): the baseline left no company without a text.**
+  The builder copies it from `data/faithfulness_coverage.csv` next to the gold file and refuses to run without it.
+- **Reading it:** `uv run scripts/report_wi18_2026_11_06.py faithfulness --gold --out gold` gives the
+  figures from the two tracked files alone (baseline 60.5% [45.2, 73.8], 2022+ 60.6% [27.6, 86.1]); nothing from
+  the git-ignored `data/` is needed. A test pins these figures.
+- **Rebuilding:** the builder rewrites the file from `data/`, but this file is the reference: if a mark, a text hash or a row
+  would change or go missing the run stops (`--overwrite-marks` to accept). The tracked coverage is protected the same way (a company without a text it lists cannot disappear), it must belong to a body in `faithfulness_bodies.csv` and not to a company the same extractor wrote a text for, and the gold file and the coverage file are written together: if the second cannot be written the first is put back, and if that fails the message names the file that is new. Adding the model only adds names to
+  `extractors` and `revisions` and new rows, and goes through.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
   bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
 

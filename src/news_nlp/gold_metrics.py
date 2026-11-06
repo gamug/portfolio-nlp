@@ -8,8 +8,11 @@ each figure is a bootstrap that resamples inside each stratum. Everything is see
 
 from __future__ import annotations
 
+import contextlib
 import csv
+import io
 import math
+import os
 import random
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -23,6 +26,9 @@ RESAMPLES = 2000
 LATE_FROM_YEAR = 2022  # the backtest window (D34)
 CONTINUATION_BAR = 0.80  # D27: at most this share right -> train on `lead` only
 SENTIMENT_CLASSES = ("positive", "negative", "neutral")
+COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
+COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
+KNOWN_EXTRACTORS = ("baseline", "model")
 
 
 class MarkedFileError(ValueError):
@@ -285,6 +291,141 @@ def read_marked_prefix(
     if len(marked) < minimum:
         raise MarkedFileError(f"{path.name}: {len(marked)} rows marked, the rule needs {minimum}")
     return marked, len(rows)
+
+
+def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
+    """The companies left without a text, checked to have the columns the faithfulness figures read,
+    only known extractors and no repeated (article, ticker, extractor): a repeat would count one
+    company twice as unfaithful. One reader for the draw's file, the builder and the tracked gold."""
+    if not path.exists():
+        raise MarkedFileError(
+            f"{path.name} not found: it lists the companies an extractor left without a text, "
+            f"which the D32 share counts as unfaithful{hint}"
+        )
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if tuple(reader.fieldnames or ()) != COVERAGE_COLUMNS:
+            raise MarkedFileError(f"{path.name} must have the columns {COVERAGE_COLUMNS}")
+        rows = list(reader)
+    foreign = sorted({r["extractor"] for r in rows} - set(KNOWN_EXTRACTORS))
+    if foreign:
+        raise MarkedFileError(f"{path.name} has extractors the draw does not have: {foreign}")
+    require_unique([f"{r['article_id']}#{r['ticker']}#{r['extractor']}" for r in rows], path.name)
+    return rows
+
+
+class PairWriteError(OSError):
+    """A replace failed after another file of the group was already replaced and could not be put back."""
+
+
+def render_csv(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def _fsync_dir(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY)  # not possible on Windows: the replace stays atomic there
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def read_rows(path: Path) -> list[dict[str, str]]:
+    """The rows of a draw's helper file (``faithfulness_bodies.csv``); a clean error when absent."""
+    if not path.exists():
+        raise MarkedFileError(
+            f"{path.name} not found: it is written by the draw script of that set"
+        )
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def check_coverage_against_draw(
+    coverage: Sequence[Mapping[str, str]],
+    *,
+    drawn_bodies: set[str] | None,
+    texts: Sequence[tuple[str, str, Sequence[str]]],
+) -> None:
+    """A company left without a text must belong to a drawn body (when the list of bodies is at hand)
+    and must not have a text from the same extractor: both would shift the D32 share."""
+    if drawn_bodies is not None:
+        foreign = sorted({c["article_id"] for c in coverage} - drawn_bodies)
+        if foreign:
+            raise MarkedFileError(
+                f"{COVERAGE_NAME} has bodies the draw does not have: {foreign[:5]}"
+            )
+    written = {(a, t, e) for a, t, owners in texts for e in owners}
+    both = sorted(
+        f"{c['article_id']}#{c['ticker']}#{c['extractor']}"
+        for c in coverage
+        if (c["article_id"], c["ticker"], c["extractor"]) in written
+    )
+    if both:
+        raise MarkedFileError(
+            f"{COVERAGE_NAME} lists {len(both)} companies that the same extractor wrote a text "
+            f"for (first {both[0]}): a company with a text is not left without one"
+        )
+
+
+def _put_back(
+    replaced: Sequence[Path], old: Mapping[Path, bytes | None], temps: Mapping[Path, Path]
+) -> list[str]:
+    """Restore the files already replaced; the names of those that could not be restored."""
+    failed = []
+    for path in replaced:
+        try:
+            before = old[path]
+            if before is None:
+                path.unlink()
+            else:
+                temps[path].write_bytes(before)
+                os.replace(temps[path], path)
+        except OSError:
+            failed.append(path.name)
+    return failed
+
+
+def write_pair_atomically(files: Mapping[Path, str]) -> None:
+    """Write every file to a temporary neighbour first (flushed to disk), then replace them: a write
+    that fails (disk full, file open in Excel) leaves all the old files as they were. If a replace
+    fails after another file was replaced, the replaced ones are put back from their old bytes; when
+    that fails too, ``PairWriteError`` names the files that are new. Temporary files of a killed
+    earlier run are deleted first."""
+    temps = {path: path.with_name(f"{path.name}.{os.getpid()}.tmp") for path in files}
+    for path in files:
+        for stale in path.parent.glob(f"{path.name}.*.tmp"):
+            stale.unlink(missing_ok=True)
+    old = {path: path.read_bytes() if path.exists() else None for path in files}
+    replaced: list[Path] = []
+    try:
+        for path, text in files.items():
+            with temps[path].open("w", newline="", encoding="utf-8") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+        for path, tmp in temps.items():
+            os.replace(tmp, path)
+            replaced.append(path)
+    except OSError:
+        left_new = _put_back(replaced, old, temps)
+        if left_new:
+            raise PairWriteError(
+                f"{', '.join(left_new)} was replaced and could not be put back; "
+                "the other files of the group are the old ones"
+            ) from None
+        raise
+    finally:
+        for tmp in temps.values():
+            tmp.unlink(missing_ok=True)
+    for directory in {p.parent for p in files}:
+        with contextlib.suppress(
+            OSError
+        ):  # the files are in place; only the rename's durability is open
+            _fsync_dir(directory)
 
 
 def require_unique(keys: Sequence[str], what: str) -> None:

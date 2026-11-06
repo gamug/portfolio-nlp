@@ -13,7 +13,8 @@ D30, D32, D33).
 * ``faithfulness``: the share of faithful texts per extractor (``faithfulness_to_tag.csv`` with
   ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
 
-``label-check --gold --out gold`` reads the tracked file instead (it keeps the year). ``faithfulness --partial MIN``
+``label-check --gold --out gold`` reads the tracked file instead (it keeps the year);
+``faithfulness --gold --out gold`` reads ``faithfulness_gold.csv`` and ``faithfulness_coverage.csv``. ``faithfulness --partial MIN``
 reports a file the owner has not finished, if its first MIN rows or more are marked in order (PLAN D32).
 
 A file that is not completely and correctly marked stops the run, naming the rows. Nothing is
@@ -42,8 +43,8 @@ FAITHFUL_BAR = 0.80  # D32 extractor
 SCOPE_BAR = 0.90  # D20 overall agreement (reported for the rules, gated for the classifier)
 RECALL_BAR = 0.80  # D20, only for a scope with MIN_GOLD bodies (D33)
 MIN_GOLD = 40
-COVERAGE_NAME = "faithfulness_coverage.csv"
-KNOWN_EXTRACTORS = ("baseline", "model")
+COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+KNOWN_EXTRACTORS = gold_metrics.KNOWN_EXTRACTORS
 
 
 def scope_report(out: Path) -> list[str]:
@@ -302,22 +303,32 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         [k for k in ids if partial is None or int(k) <= len(tagged)],
         "faithfulness_to_tag.csv",
     )
-    coverage_path = out / COVERAGE_NAME
-    if not coverage_path.exists():
-        raise MarkedFileError(
-            f"{COVERAGE_NAME} not found: it lists the companies an extractor left without a text, "
-            "which the shares and the gain count as unfaithful. Draw the file again."
-        )
+    coverage = gold_metrics.read_coverage(out / COVERAGE_NAME, hint=". Draw the file again.")
     drawn = {r["article_id"] for r in extra._read(out / "faithfulness_bodies.csv")}
-    coverage = extra._read(coverage_path)
-    foreign = sorted(
-        {c["article_id"] for c in coverage if c["article_id"] not in drawn}
-        | {c["extractor"] for c in coverage if c["extractor"] not in KNOWN_EXTRACTORS}
-    )
+    foreign = sorted({c["article_id"] for c in coverage if c["article_id"] not in drawn})
     if foreign:
-        raise MarkedFileError(
-            f"{COVERAGE_NAME} has bodies or extractors the draw does not have: {foreign[:5]}"
-        )
+        raise MarkedFileError(f"{COVERAGE_NAME} has bodies the draw does not have: {foreign[:5]}")
+    marks: dict[str, bool] = {}
+    owners: dict[str, list[str]] = {}
+    dates: dict[str, dict[str, str]] = {}
+    for r in tagged:
+        row = ids[r["review_order"]]
+        marks[row["key"]] = r["faithful"] == "yes"
+        owners[row["key"]] = row["extractors"].split("|")
+        dates[row["key"]] = row
+    return _faithfulness_lines(note, marks, owners, dates, coverage)
+
+
+def _faithfulness_lines(
+    note: list[str],
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    dates: dict[str, dict[str, str]],
+    coverage: list[dict[str, str]],
+) -> list[str]:
+    """The figures from marks by text key, who wrote each text, the row (with ``pub_date``) of
+    each key and the companies an extractor left without a text. Shared by the owner's file and
+    the tracked gold, so both give the same figures."""
     omitted: dict[str, list[str]] = {}
     omitted_late: dict[str, list[str]] = {}
     for c in coverage:
@@ -325,16 +336,12 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         omitted.setdefault(c["extractor"], []).append(pair)
         if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR:
             omitted_late.setdefault(c["extractor"], []).append(pair)
-    marks: dict[str, bool] = {}
-    owners: dict[str, list[str]] = {}
-    late: set[str] = set()
-    for r in tagged:
-        row = ids[r["review_order"]]
-        marks[row["key"]] = r["faithful"] == "yes"
-        owners[row["key"]] = row["extractors"].split("|")
-        if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR:
-            late.add(row["key"])
-    undated = sum(gold_metrics.year_of(ids[r["review_order"]]) is None for r in tagged)
+    late = {
+        k
+        for k, row in dates.items()
+        if (gold_metrics.year_of(row) or 0) >= gold_metrics.LATE_FROM_YEAR
+    }
+    undated = sum(gold_metrics.year_of(row) is None for row in dates.values())
     lines = [*note, "the intervals are a bootstrap over bodies, not over texts (D32)"]
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
@@ -346,6 +353,36 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         omitted_late,
     )
     return lines
+
+
+def faithfulness_gold_report(out: Path) -> list[str]:
+    """The same figures from the tracked ``faithfulness_gold.csv`` and ``faithfulness_coverage.csv``
+    in *out* (``--gold --out gold``): they need neither the git-ignored ``data/`` nor the draw."""
+    rows = gold_metrics.read_marked(
+        out / "faithfulness_gold.csv",
+        "faithful",
+        ("yes", "no"),
+        required=("key", "article_id", "ticker", "extractors", "pub_date"),
+    )
+    gold_metrics.require_unique([r["key"] for r in rows], "faithfulness_gold.csv")
+    coverage = gold_metrics.read_coverage(out / COVERAGE_NAME)
+    owned = sorted({n for r in rows for n in r["extractors"].split("|")} - set(KNOWN_EXTRACTORS))
+    if owned:
+        raise MarkedFileError(
+            f"faithfulness_gold.csv has extractors the draw does not have: {owned}"
+        )
+    gold_metrics.check_coverage_against_draw(
+        coverage,
+        drawn_bodies=None,  # the list of bodies is not tracked: a body with no text has no row
+        texts=[(r["article_id"], r["ticker"], r["extractors"].split("|")) for r in rows],
+    )
+    marks = {r["key"]: r["faithful"] == "yes" for r in rows}
+    owners = {r["key"]: r["extractors"].split("|") for r in rows}
+    note = [
+        f"from the tracked gold: {len(rows)} texts, {len(coverage)} companies left without a text "
+        f"({COVERAGE_NAME})"
+    ]
+    return _faithfulness_lines(note, marks, owners, {r["key"]: r for r in rows}, coverage)
 
 
 COMMANDS: dict[str, Callable[[Path], list[str]]] = {
@@ -368,7 +405,9 @@ def main() -> None:
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument(
-        "--gold", action="store_true", help="label-check: read gold/segment_check_gold.csv in --out"
+        "--gold",
+        action="store_true",
+        help="label-check / faithfulness: read the tracked gold/ files in --out",
     )
     parser.add_argument(
         "--partial",
@@ -377,15 +416,21 @@ def main() -> None:
         help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
     )
     args = parser.parse_args()
-    if args.gold and args.command != "label-check":
-        parser.error("--gold is for label-check only")
+    if args.gold and args.command not in ("label-check", "faithfulness"):
+        parser.error("--gold is for label-check and faithfulness only")
+    if args.gold and args.partial is not None:
+        parser.error("--partial reads the owner's file in progress: not with --gold")
     if args.partial is not None and args.command != "faithfulness":
         parser.error("--partial is for faithfulness only")
     command = COMMANDS[args.command]
     if args.command == "label-check":
         command = functools.partial(label_check_report, gold=args.gold)
     elif args.command == "faithfulness":
-        command = functools.partial(faithfulness_report, partial=args.partial)
+        command = (
+            faithfulness_gold_report
+            if args.gold
+            else functools.partial(faithfulness_report, partial=args.partial)
+        )
     try:
         print("\n".join(command(args.out)))
     except MarkedFileError as exc:
