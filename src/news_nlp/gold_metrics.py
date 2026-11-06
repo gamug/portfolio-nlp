@@ -26,6 +26,9 @@ RESAMPLES = 2000
 LATE_FROM_YEAR = 2022  # the backtest window (D34)
 CONTINUATION_BAR = 0.80  # D27: at most this share right -> train on `lead` only
 SENTIMENT_CLASSES = ("positive", "negative", "neutral")
+#: Texts the sentiment draw takes per predicted class, by part (``draw_sentiment_gold``: 40 of the
+#: summaries and structured company texts, 20 of the extractor's texts): 180 in all.
+SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
 KNOWN_EXTRACTORS = ("baseline", "model")
@@ -426,6 +429,52 @@ def write_pair_atomically(files: Mapping[Path, str]) -> None:
             OSError
         ):  # the files are in place; only the rename's durability is open
             _fsync_dir(directory)
+
+
+def _check_sentiment_row(r: Mapping[str, str], design: Mapping[str, int]) -> None:
+    if r["part"] not in design:
+        raise MarkedFileError(f"{r['key']}: part {r['part']!r} is not one of {list(design)}")
+    if r["predicted"] not in SENTIMENT_CLASSES:
+        raise MarkedFileError(f"{r['key']}: predicted {r['predicted']!r} is not a class")
+    if r["stratum"] != f"{r['part']}/{r['predicted']}":
+        raise MarkedFileError(
+            f"{r['key']}: stratum {r['stratum']!r} is not {r['part']}/{r['predicted']}"
+        )
+
+
+def check_sentiment_design(
+    rows: Sequence[Mapping[str, str]], design: Mapping[str, int] | None = None
+) -> dict[str, int]:
+    """The sentiment draw's rows (``key``, ``part``, ``predicted``, ``stratum``, ``population``) are
+    the sample the figures assume: a known part, a predicted class, the stratum named
+    ``<part>/<predicted>``, one whole-number size per stratum, and in every stratum of every part the
+    number the draw takes (all of them when the stratum is smaller). Returns the size of each
+    stratum; raises :class:`MarkedFileError` naming what is off, so a short or edited file never gives
+    a figure."""
+    design = SENTIMENT_DESIGN if design is None else design
+    sizes: dict[str, set[str]] = {}
+    drawn: Counter[str] = Counter()
+    for r in rows:
+        _check_sentiment_row(r, design)
+        sizes.setdefault(r["stratum"], set()).add(r["population"])
+        drawn[r["stratum"]] += 1
+    split = sorted(s for s, v in sizes.items() if len(v) > 1)
+    if split:
+        raise MarkedFileError(f"the stratum size is not the same on every row of {split}")
+    try:
+        population = {s: int(next(iter(v))) for s, v in sizes.items()}
+    except ValueError:
+        raise MarkedFileError("population is not a whole number on every row") from None
+    off = []
+    for part, per_class in design.items():
+        for label in SENTIMENT_CLASSES:
+            stratum = f"{part}/{label}"
+            want = min(per_class, population.get(stratum, per_class))
+            if drawn[stratum] != want:
+                off.append(f"{stratum}: {drawn[stratum]} rows, the draw takes {want}")
+    if off:
+        raise MarkedFileError(f"the sample is not the one drawn: {'; '.join(off)}")
+    return population
 
 
 def require_unique(keys: Sequence[str], what: str) -> None:

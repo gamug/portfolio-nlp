@@ -14,6 +14,7 @@ D30, D32, D33).
   ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
 
 ``label-check --gold --out gold`` reads the tracked file instead (it keeps the year);
+``sentiment --gold --out gold`` reads ``sentiment_gold.csv`` (the marks and the draw's weights);
 ``faithfulness --gold --out gold`` reads ``faithfulness_gold.csv`` and ``faithfulness_coverage.csv``. ``faithfulness --partial MIN``
 reports a file the owner has not finished, if its first MIN rows or more are marked in order (PLAN D32).
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 import argparse
 import functools
 import sys
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -134,6 +136,49 @@ def _period_lines(rows: list[dict[str, str]]) -> list[str]:
     return lines
 
 
+def _confusion_lines(rows: list[dict[str, str]], populations: dict[str, int]) -> list[str]:
+    """Where the model and the owner part: a row per class the model predicted, a column per class
+    the owner marked. Raw counts of the sample, then the same rows as shares re-weighted by stratum
+    size (the sample draws the same number per class, the corpus does not), and per part."""
+    classes = gold_metrics.SENTIMENT_CLASSES
+    counts = Counter((r["predicted"], r["gold"]) for r in rows)
+    lines = ["[all] model (rows) against owner (columns), raw counts: " + " | ".join(classes)]
+    for predicted in classes:
+        cells = " | ".join(f"{counts[(predicted, gold)]:>3}" for gold in classes)
+        lines.append(f"[all]   {predicted:>8}: {cells}")
+    size = Counter(r["stratum"] for r in rows)
+    weighted: Counter[tuple[str, str]] = Counter()
+    for r in rows:
+        weighted[(r["predicted"], r["gold"])] += populations[r["stratum"]] / size[r["stratum"]]
+    lines.append("[all] the same rows re-weighted by stratum size (share of each predicted class)")
+    for predicted in classes:
+        total = sum(weighted[(predicted, gold)] for gold in classes)
+        cells = " | ".join(
+            f"{100 * weighted[(predicted, gold)] / total:5.1f}%" if total else "  n/a "
+            for gold in classes
+        )
+        lines.append(f"[all]   {predicted:>8}: {cells}")
+    for part in sorted({r["part"] for r in rows}):
+        mine = Counter((r["predicted"], r["gold"]) for r in rows if r["part"] == part)
+        for predicted in classes:
+            cells = " | ".join(f"{mine[(predicted, gold)]:>3}" for gold in classes)
+            lines.append(f"[{part}]   {predicted:>8}: {cells}")
+    return lines
+
+
+def _shared_text_note(rows: list[dict[str, str]]) -> str:
+    """The intervals treat every row as independent; a text two companies of one article share is
+    the same words marked twice."""
+    hashes = Counter(r["text_hash"] for r in rows if r.get("text_hash"))
+    shared = sum(n for n in hashes.values() if n > 1)
+    return (
+        f"{shared} of {len(rows)} texts are shared by two companies or more of one article, so "
+        "the intervals are a little narrow."
+        if shared
+        else "no text is shared by two companies."
+    )
+
+
 def _sentiment_block(
     label: str, rows: list[dict[str, str]], populations: dict[str, int]
 ) -> list[str]:
@@ -150,7 +195,7 @@ def _sentiment_block(
     ]
 
 
-def sentiment_report(out: Path) -> list[str]:
+def _sentiment_rows_from_data(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
     tagged = gold_metrics.read_marked(
         out / "sentiment_gold_to_tag.csv", "sentiment", gold_metrics.SENTIMENT_CLASSES
     )
@@ -173,15 +218,49 @@ def sentiment_report(out: Path) -> list[str]:
                 "part": row.get("part") or "checked",
                 "gold": r["sentiment"],
                 "pub_date": r.get("pub_date", ""),
+                "text_hash": row.get("text_hash", ""),
             }
         )
     populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
+    return rows, populations
+
+
+def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
+    """From the tracked ``sentiment_gold.csv`` in *out*: the marks and the draw's weights, no
+    ``data/``. The sample must be the one the draw took (``gold_metrics.check_sentiment_design``)."""
+    path = out / "sentiment_gold.csv"
+    tagged = gold_metrics.read_marked(
+        path,
+        "sentiment",
+        gold_metrics.SENTIMENT_CLASSES,
+        required=("key", "part", "stratum", "predicted", "population", "text_hash", "pub_date"),
+    )
+    gold_metrics.require_unique([r["key"] for r in tagged], path.name)
+    populations = gold_metrics.check_sentiment_design(tagged)
+    rows = [
+        {
+            "predicted": r["predicted"],
+            "stratum": r["stratum"],
+            "part": r["part"],
+            "gold": r["sentiment"],
+            "pub_date": r["pub_date"],
+            "text_hash": r["text_hash"],
+        }
+        for r in tagged
+    ]
+    return rows, populations
+
+
+def sentiment_report(out: Path, gold: bool = False) -> list[str]:
+    """From the owner's files in *out*, or with *gold* from the tracked ``gold/sentiment_gold.csv``."""
+    rows, populations = _sentiment_rows_from_gold(out) if gold else _sentiment_rows_from_data(out)
     lines = [
         "weights: the size of each stratum in the pool of the owner's tagged bodies "
         "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
     ]
     lines += _period_lines(rows)
     lines += _sentiment_block("all", rows, populations)
+    lines += _confusion_lines(rows, populations)
     parts = sorted({r["part"] for r in rows})
     if len(parts) > 1:
         for part in parts:
@@ -194,8 +273,8 @@ def sentiment_report(out: Path) -> list[str]:
         )
     lines.append(
         "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
-        "interval printed (D34). The intervals resample texts inside each stratum: the company "
-        "texts of one body are not independent, so they are a little narrow."
+        "interval printed (D34). The intervals resample texts inside each stratum, as if each were "
+        "independent: " + _shared_text_note(rows)
     )
     return lines
 
@@ -407,7 +486,7 @@ def main() -> None:
     parser.add_argument(
         "--gold",
         action="store_true",
-        help="label-check / faithfulness: read the tracked gold/ files in --out",
+        help="label-check / sentiment / faithfulness: read the tracked gold/ files in --out",
     )
     parser.add_argument(
         "--partial",
@@ -416,8 +495,8 @@ def main() -> None:
         help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
     )
     args = parser.parse_args()
-    if args.gold and args.command not in ("label-check", "faithfulness"):
-        parser.error("--gold is for label-check and faithfulness only")
+    if args.gold and args.command not in ("label-check", "sentiment", "faithfulness"):
+        parser.error("--gold is for label-check, sentiment and faithfulness only")
     if args.gold and args.partial is not None:
         parser.error("--partial reads the owner's file in progress: not with --gold")
     if args.partial is not None and args.command != "faithfulness":
@@ -425,6 +504,8 @@ def main() -> None:
     command = COMMANDS[args.command]
     if args.command == "label-check":
         command = functools.partial(label_check_report, gold=args.gold)
+    elif args.command == "sentiment":
+        command = functools.partial(sentiment_report, gold=args.gold)
     elif args.command == "faithfulness":
         command = (
             faithfulness_gold_report

@@ -2331,7 +2331,7 @@ above, it says so; nothing else above is touched.
   re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is **passed** when the
   whole 95% interval is at or above it, **failed** when the whole interval is below it, and "not decided"
   otherwise (the interval straddles the bar, or only touches it from below); the point estimate is
-  always printed and never decides alone (`Figure.judge`, edges tested). Faithfulness is judged the same way, for all
+  always printed and never decides alone (`Figure.judge`, edges tested). **Sentiment result (2026-11-06, the 180 texts marked, `report_wi18 sentiment --gold --out gold` reproduces it from the tracked files): overall agreement 60.4% [52.8, 67.6] (raw 57.2%), so it FAILS the 80% bar; negative precision 78.7% [67.3, 89.3] and recall 77.7% [69.4, 86.8], both not decided against 70%. The largest error is a text the model calls neutral: re-weighted, 54.8% of them are positive for the owner (34 of the 60 drawn). This meets D26's condition (the model is fine-tuned on summaries only if it misses the D32 bar); the decision between fine-tuning (T-148c) and sending the cut with the sentiment layer marked failed is the owner's and is open.** Faithfulness is judged the same way, for all
   texts and for the bodies from 2022 on apart; **its point is the share of faithful texts, and its interval is a
   bootstrap over the bodies** (about 30), not over the texts, because the company texts of one body stand or fall
   together (`faithfulness_report`, `paired_difference` with clusters) (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
@@ -2380,7 +2380,7 @@ above, it says so; nothing else above is touched.
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
   notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**
   (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
-  cut: it goes with the point estimate and the interval printed; (b) if the attribution model is not
+  cut: it goes with the point estimate and the interval printed; **(open, owner: this rule does not cover a figure that FAILS its bar, as overall sentiment agreement does since 2026-11-06; does the cut go with the layer marked failed, or wait for T-148c's fine-tuning?)** (b) if the attribution model is not
   ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
   is on the baseline (**result 2026-11-06, 190 texts of the 30 bodies marked: baseline 60.5% faithful, interval 45.2 to 73.8, so it fails the 80% bar; 2022+ 60.6% [27.6, 86.1], not decided; of the texts it wrote 60.5% [53.4, 67.2]; no company was left without a text (`gold/faithfulness_coverage.csv` is empty), and `report_wi18 faithfulness --gold --out gold` reproduces these figures from the tracked files; one body of 21 texts has 4 faithful. Unless the model (T-148b3) passes, narrative multi bodies are left out of the cut and counted**): the cut uses it for narrative bodies if it is at least 80% faithful (D32 reading: of the companies named),
   otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
