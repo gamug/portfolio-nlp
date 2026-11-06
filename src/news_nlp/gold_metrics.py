@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import math
 import random
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -236,6 +237,24 @@ def read_marked(
     return rows
 
 
+def require_unique(keys: Sequence[str], what: str) -> None:
+    """Stop when a key repeats: a repeated key would give two rows one weight and one mark."""
+    repeated = sorted(k for k, n in Counter(keys).items() if n > 1)
+    if repeated:
+        raise MarkedFileError(f"{what}: repeated keys {repeated[:5]}")
+
+
+def require_same_keys(found: Sequence[str], expected: Sequence[str], what: str) -> None:
+    """Stop when the owner's file does not hold exactly the rows of the draw. A deleted row would
+    silently change the weights (``population / rows tagged``) or drop a text from a share."""
+    missing = sorted(set(expected) - set(found))
+    if missing:
+        raise MarkedFileError(
+            f"{what}: {len(missing)} rows of the draw are not in the tagged file "
+            f"(first: {missing[:5]})"
+        )
+
+
 def year_of(row: Mapping[str, str]) -> int | None:
     """The publication year of a row (``pub_date`` as ``YYYY-...``), ``None`` when it has none."""
     head = (row.get("pub_date") or "").strip()[:4]
@@ -277,10 +296,11 @@ def train_on_lead_only(report: Mapping[str, Figure]) -> bool:
 
 def gain_verdict(gain: Figure) -> str:
     """D32: the extractor is ``better`` than the baseline when the whole interval of its gain is
-    above 0, ``not better`` when the whole interval is at or below 0, else ``not decided``."""
+    above 0, ``not better`` when the whole interval is below 0, else ``not decided``. The edges
+    are those of :meth:`Figure.judge`: an interval that only touches 0 decides nothing."""
     if gain.low > 0:
         return "better"
-    if gain.high <= 0:
+    if gain.high < 0:
         return "not better"
     return "not decided"
 
@@ -295,19 +315,25 @@ def faithfulness_report(
     extractors_of: Mapping[str, Sequence[str]],
     *,
     cluster_of: Callable[[str], str] = body_of_key,
+    omitted: Mapping[str, Sequence[str]] | None = None,
     seed: int = 20261106,
     resamples: int = RESAMPLES,
 ) -> dict[str, Figure]:
     """Share of faithful texts per extractor. *marks* is the owner's yes / no by text key and
     *extractors_of* says which extractors produced each text (one text can be both's). The point
     is the share of texts; the interval is a bootstrap over bodies (*cluster_of*), because the
-    company texts of one body are not independent (D32)."""
-    names = sorted({e for v in extractors_of.values() for e in v})
+    company texts of one body are not independent (D32). *omitted* maps an extractor to the keys
+    of the companies it named but wrote no text for; each counts as an unfaithful text, so an
+    extractor cannot raise its share by leaving the hard companies out."""
+    omitted = omitted or {}
+    names = sorted({e for v in extractors_of.values() for e in v} | set(omitted))
     out: dict[str, Figure] = {}
     for name in names:
         grouped: dict[str, list[int]] = {}
         for key, owners in extractors_of.items():
             if name in owners:
                 grouped.setdefault(cluster_of(key), []).append(int(marks[key]))
+        for key in omitted.get(name, ()):
+            grouped.setdefault(cluster_of(key), []).append(0)
         out[name] = _cluster_ratio([(sum(v), len(v)) for v in grouped.values()], seed, resamples)
     return out

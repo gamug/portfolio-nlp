@@ -2336,15 +2336,23 @@ above, it says so; nothing else above is touched.
   bootstrap over the bodies** (about 30), not over the texts, because the company texts of one body stand or fall
   together (`faithfulness_report`, `paired_difference` with clusters) (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
   baseline** (model minus baseline on the same company texts, paired bootstrap) is `better` when the whole
-  interval is above 0, `not better` when it is at or below 0, `not decided` otherwise (`gain_verdict`); it is
-  also printed for 2022+ apart. A file or id the report cannot place stops the run naming the rows. The result "not decided" is reported as such,
+  interval is above 0, `not better` when it is below 0, `not decided` otherwise (`gain_verdict`; the edges are those of
+  `Figure.judge`: an interval that only touches the bar, or 0, decides nothing); it is
+  also printed for 2022+ apart. **A company an extractor names but writes no text for counts as an unfaithful
+  text**, in the share and in the gain, so an extractor cannot gain by leaving the hard companies out
+  (`faithfulness_coverage.csv`, written by the draw, printed by the report). A file or id the report cannot place
+  stops the run naming the rows, and so does a tagged file that lacks rows of the draw or repeats a key. The result "not decided" is reported as such,
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
   company texts of structured multi bodies (120) and the texts the extractor writes for narrative
   multi bodies (60: the baseline, or the model if it is ready on 2026-11-10); the two parts are reported
   apart, and the figures of the second part are the ones that say whether the cut's per-company
   sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
-  stratum, so for the company texts of one body they are a little narrow. The model is fine-tuned on summaries only if it misses the bar.
+  stratum, so for the company texts of one body they are a little narrow. **The stratum sizes are those of the pool of the owner's tagged bodies**
+  (`gold/category_gold_v2.csv`: the 240-body gate and the 44 sector bodies, built on the tuning sets), **not of the corpus
+  or of the 2022+ window**: the sentiment figures are weighted to that pool, they are not corpus figures (owner,
+  2026-11-06: relabelled, the draw is kept). The report prints the texts drawn from 2022 on in each stratum. A stratum with fewer
+  texts than the draw takes stops the draw (`--allow-short` draws what there is). The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
   (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
@@ -2356,7 +2364,7 @@ above, it says so; nothing else above is touched.
   bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, up to 7
   hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
   the 180-text gold (D32; the 60 extractor texts cover narrative multi bodies, and a row's
-  `sentiment_checked` says whether its kind of text was in the gold). **Output (owner, 2026-11-06):**
+  `sentiment_checked` says whether its kind of text was in the gold, whose figures are weighted to the tagged-body pool, D32). **Output (owner, 2026-11-06):**
   files, not tables: chunks under `data/cut/` (git-ignored, they hold news text), one row per
   (body, company) with the approved columns of T-152, written chunk by chunk so a stopped run resumes
   from the last chunk; no schema change. **Coverage:** the stored corpus, which ends 2026-08-12; the

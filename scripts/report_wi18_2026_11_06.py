@@ -38,6 +38,7 @@ FAITHFUL_BAR = 0.80  # D32 extractor
 SCOPE_BAR = 0.90  # D20 overall agreement (reported for the rules, gated for the classifier)
 RECALL_BAR = 0.80  # D20, only for a scope with MIN_GOLD bodies (D33)
 MIN_GOLD = 40
+COVERAGE_NAME = "faithfulness_coverage.csv"
 
 
 def scope_report(out: Path) -> list[str]:
@@ -48,6 +49,10 @@ def scope_report(out: Path) -> list[str]:
     unknown = sorted(r["article_id"] for r in tagged if r["article_id"] not in stratum_of)
     if unknown:
         raise MarkedFileError(f"heldout_to_tag.csv has ids not in heldout_ids.csv: {unknown[:5]}")
+    gold_metrics.require_unique([r["article_id"] for r in tagged], "heldout_to_tag.csv")
+    gold_metrics.require_same_keys(
+        [r["article_id"] for r in tagged], list(stratum_of), "heldout_to_tag.csv"
+    )
     populations = {r["stratum"]: int(r["frame"]) for r in extra._read(out / "heldout_strata.csv")}
     rows = [
         {
@@ -104,6 +109,21 @@ def label_check_report(out: Path) -> list[str]:
     return lines
 
 
+def _period_lines(rows: list[dict[str, str]]) -> list[str]:
+    """Per stratum: the texts drawn and how many are from 2022 on (the window of the cut, D34)."""
+    lines = []
+    for stratum in sorted({r["stratum"] for r in rows}):
+        mine = [r for r in rows if r["stratum"] == stratum]
+        late = sum((gold_metrics.year_of(r) or 0) >= gold_metrics.LATE_FROM_YEAR for r in mine)
+        lines.append(
+            f"  {stratum}: {len(mine)} drawn, {late} from {gold_metrics.LATE_FROM_YEAR} on"
+        )
+    undated = gold_metrics.rows_without_year(rows)
+    if undated:
+        lines.append(f"  {undated} texts have no usable pub_date")
+    return lines
+
+
 def _sentiment_block(
     label: str, rows: list[dict[str, str]], populations: dict[str, int]
 ) -> list[str]:
@@ -123,12 +143,17 @@ def sentiment_report(out: Path) -> list[str]:
     tagged = gold_metrics.read_marked(
         out / "sentiment_gold_to_tag.csv", "sentiment", gold_metrics.SENTIMENT_CLASSES
     )
-    ids = {r["key"]: r for r in extra._read(out / "sentiment_gold_ids.csv")}
-    rows = []
-    for r in tagged:
-        key = f"{r['article_id']}#{r['ticker'] or r['kind']}"
+    drawn = extra._read(out / "sentiment_gold_ids.csv")
+    gold_metrics.require_unique([r["key"] for r in drawn], "sentiment_gold_ids.csv")
+    ids = {r["key"]: r for r in drawn}
+    keys = [f"{r['article_id']}#{r['ticker'] or r['kind']}" for r in tagged]
+    gold_metrics.require_unique(keys, "sentiment_gold_to_tag.csv")
+    for key in keys:
         if key not in ids:
             raise MarkedFileError(f"{key} is not in sentiment_gold_ids.csv")
+    gold_metrics.require_same_keys(keys, list(ids), "sentiment_gold_to_tag.csv")
+    rows = []
+    for key, r in zip(keys, tagged, strict=True):
         row = ids[key]
         rows.append(
             {
@@ -136,10 +161,16 @@ def sentiment_report(out: Path) -> list[str]:
                 "stratum": row.get("stratum") or row["predicted"],
                 "part": row.get("part") or "checked",
                 "gold": r["sentiment"],
+                "pub_date": r.get("pub_date", ""),
             }
         )
     populations = {(r.get("stratum") or r["predicted"]): int(r["population"]) for r in ids.values()}
-    lines = _sentiment_block("all", rows, populations)
+    lines = [
+        "weights: the size of each stratum in the pool of the owner's tagged bodies "
+        "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
+    ]
+    lines += _period_lines(rows)
+    lines += _sentiment_block("all", rows, populations)
     parts = sorted({r["part"] for r in rows})
     if len(parts) > 1:
         for part in parts:
@@ -159,21 +190,34 @@ def sentiment_report(out: Path) -> list[str]:
 
 
 def _faithfulness_block(
-    label: str, marks: dict[str, bool], owners: dict[str, list[str]]
+    label: str,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
 ) -> list[str]:
-    """The per-extractor shares and the gain over the baseline for one set of texts."""
-    if not marks:
+    """The per-extractor shares and the gain over the baseline for one set of texts. *omitted* is,
+    per extractor, the companies (``<article>#<ticker>``) it named but wrote no text for: each
+    counts as an unfaithful text, in the share and in the gain."""
+    if not marks and not any(omitted.values()):
         return [f"[{label}] no texts"]
-    report = gold_metrics.faithfulness_report(marks, owners)
+    report = gold_metrics.faithfulness_report(marks, owners, omitted=omitted)
     lines = [
         f"[{label}] {name:>10}: {fig} -> {fig.judge(FAITHFUL_BAR)}" for name, fig in report.items()
     ]
+    if any(omitted.values()):
+        lines.append(
+            f"[{label}] companies named but left without a text (counted unfaithful): "
+            f"{ {n: len(v) for n, v in sorted(omitted.items())} }"
+        )
     if {"model", "baseline"} <= set(report):
         pairs: dict[str, dict[str, bool]] = {}
         for key, names in owners.items():
             pair = key.rsplit("#", 1)[0]
             for name in names:
                 pairs.setdefault(pair, {})[name] = marks[key]
+        for name, pair_keys in omitted.items():
+            for pair in pair_keys:
+                pairs.setdefault(pair, {})[name] = False
         both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
         if both:
             gain = gold_metrics.paired_difference(
@@ -201,6 +245,23 @@ def faithfulness_report(out: Path) -> list[str]:
         raise MarkedFileError(
             f"faithfulness_to_tag.csv has rows not in the ids file: {unknown[:5]}"
         )
+    gold_metrics.require_unique([r["review_order"] for r in tagged], "faithfulness_to_tag.csv")
+    gold_metrics.require_same_keys(
+        [r["review_order"] for r in tagged], list(ids), "faithfulness_to_tag.csv"
+    )
+    coverage_path = out / COVERAGE_NAME
+    if not coverage_path.exists():
+        raise MarkedFileError(
+            f"{COVERAGE_NAME} not found: it lists the companies an extractor left without a text, "
+            "which the shares and the gain count as unfaithful. Draw the file again."
+        )
+    omitted: dict[str, list[str]] = {}
+    omitted_late: dict[str, list[str]] = {}
+    for c in extra._read(coverage_path):
+        pair = f"{c['article_id']}#{c['ticker']}"
+        omitted.setdefault(c["extractor"], []).append(pair)
+        if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR:
+            omitted_late.setdefault(c["extractor"], []).append(pair)
     marks: dict[str, bool] = {}
     owners: dict[str, list[str]] = {}
     late: set[str] = set()
@@ -214,11 +275,12 @@ def faithfulness_report(out: Path) -> list[str]:
     lines = ["the intervals are a bootstrap over bodies, not over texts (D32)"]
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
-    lines += _faithfulness_block("all", marks, owners)
+    lines += _faithfulness_block("all", marks, owners, omitted)
     lines += _faithfulness_block(
         "2022+",
         {k: v for k, v in marks.items() if k in late},
         {k: v for k, v in owners.items() if k in late},
+        omitted_late,
     )
     return lines
 

@@ -93,12 +93,17 @@ IDS_FIELDS = (
 
 
 def tagged_bodies(out: Path) -> list[dict[str, str]]:
-    """The owner's scope tags, with the text of the tagging files, minus ``unrelated``."""
+    """The owner's scope tags, with the text of the tagging files, minus ``unrelated``. A tagged
+    body that is also a held-out body (under any article id: twins share a body) stops the run."""
     tags = [r for r in extra._read(GOLD) if r["scope"] and r["scope"] != "unrelated"]
-    held = {r["article_id"] for r in extra._read(out / "heldout_ids.csv")}
-    clash = held & {r["article_id"] for r in tags}
+    conn = db.connect_pipeline()
+    held = extra.excluded_hashes(
+        conn, {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
+    )
+    tagged = extra.excluded_hashes(conn, {int(r["article_id"]) for r in tags})
+    clash = held & tagged
     if clash:
-        sys.exit(f"held-out articles among the tagged bodies: {sorted(clash)[:5]}")
+        sys.exit(f"{len(clash)} held-out bodies are among the tagged bodies")
     return tags
 
 
@@ -250,7 +255,24 @@ def draw(
     rng.shuffle(chosen)  # the order must not reveal the predicted class
     for t in chosen:
         t["key"] = f"{t['article_id']}#{t['ticker'] or t['kind']}"
+    repeated = sorted(k for k, n in Counter(t["key"] for t in chosen).items() if n > 1)
+    if repeated:
+        raise ValueError(f"two drawn texts share the key {repeated[:5]}")
     return chosen
+
+
+def shortfalls(
+    pool: dict[str, int], per_class: int, per_class_extractor: int
+) -> dict[str, tuple[int, int]]:
+    """Strata (``<part>/<class>``) whose pool is smaller than the number to draw: ``(pool, target)``.
+    A short stratum widens the interval D32 quotes (about +/-13 points for 60 texts)."""
+    short = {}
+    for part, target in (("checked", per_class), ("extractor", per_class_extractor)):
+        for label in CLASSES:
+            have = pool.get(f"{part}/{label}", 0)
+            if have < target:
+                short[f"{part}/{label}"] = (have, target)
+    return short
 
 
 def source_meta(ids: list[str]) -> dict[str, dict[str, str]]:
@@ -300,6 +322,7 @@ def main() -> None:
     parser.add_argument("--per-class-extractor", type=int, default=20)
     parser.add_argument("--extractor", choices=sorted(EXTRACTORS), default="baseline")
     parser.add_argument("--seed", type=int, default=20261105)
+    parser.add_argument("--allow-short", action="store_true", help="draw a stratum that is short")
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     args = parser.parse_args()
@@ -322,6 +345,16 @@ def main() -> None:
             json.dumps({"left_out": dict(skipped), "pool": pool}, indent=2), encoding="utf-8"
         )
         chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
+        short = shortfalls(
+            Counter(f"{t['part']}/{t['predicted']}" for t in texts),
+            args.per_class,
+            args.per_class_extractor,
+        )
+        if short and not args.allow_short:
+            sys.exit(
+                f"strata with fewer texts than the draw takes (pool, target): {short}. The pool "
+                f"is in {out / POOL_NAME}. Nothing is drawn; --allow-short draws what there is."
+            )
         with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
             writer.writeheader()
