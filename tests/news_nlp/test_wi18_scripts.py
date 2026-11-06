@@ -6,15 +6,17 @@ import ast
 import csv
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
+import types
 from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-from news_nlp import retag
+from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -34,6 +36,7 @@ BUILD = _script("build_company_segments_2026_11_05")
 SENTIMENT = _script("draw_sentiment_gold_2026_11_05")
 CHECK = _script("draw_segment_check_2026_11_05")
 FAITH = _script("draw_faithfulness_2026_11_06")
+SEGGOLD = _script("build_segment_check_gold_2026_11_06")
 REPORT = _script("report_wi18_2026_11_06")
 BUILD_GOLD = _script("build_gold_2026_11_05")
 
@@ -95,7 +98,13 @@ def test_building_stops_and_names_the_local_files_a_clean_clone_lacks(tmp_path: 
 def _texts() -> list[dict[str, str]]:
     labels = ["positive"] * 8 + ["negative"] * 5 + ["neutral"] * 20
     return [
-        {"article_id": str(i), "ticker": "T" if i % 2 else "", "kind": "summary", "predicted": p}
+        {
+            "article_id": str(i),
+            "ticker": "T" if i % 2 else "",
+            "kind": "summary",
+            "predicted": p,
+            "text": f"text {i}",
+        }
         for i, p in enumerate(labels)
     ]
 
@@ -391,6 +400,8 @@ def _build_test_set(
     gold = tmp_path / "category_gold_v2_test.csv"
     _csv(gold, [{"article_id": str(i), "session": "heldout"} for i in fixed])
     rows = [{"article_id": str(i), "ticker": "AAPL", "notes": ""} for i in tagged]
+    _csv(out / "heldout_ids.csv", [{"article_id": str(i), "stratum": "single"} for i in fixed])
+    _csv(out / "heldout_strata.csv", [{"stratum": "single", "frame": "514"}])
     monkeypatch.setattr(BUILD_GOLD.retag_cli, "load_universe", lambda: None)
     monkeypatch.setattr(retag, "read_tag_file", lambda _path: rows)
     report = retag.Report([_gold(i) for i in tagged], {}, 0, [], [], [])
@@ -420,6 +431,9 @@ def test_the_pull_of_the_test_set_writes_the_tags_of_exactly_the_fixed_articles(
         ("2", "heldout", "single"),
         ("3", "heldout", "single"),
     ]
+    assert tuple(written[0]) == retag.TEST_GOLD_COLUMNS
+    # the weight is the stratum's size in the whole sample (``frame``), so gold/ alone re-weights a rate
+    assert {(r["stratum"], r["frame"]) for r in written} == {("single", "514")}
 
 
 def test_the_pull_of_the_test_set_refuses_other_articles_and_keeps_the_file(
@@ -464,7 +478,15 @@ def _mixed_pool() -> list[dict[str, str]]:
     for i in range(60):
         kind = "extractor_text" if i % 3 == 0 else "summary"
         predicted = ("positive", "negative", "neutral")[i % 5 % 3]
-        pool.append({"article_id": str(i), "ticker": f"T{i}", "kind": kind, "predicted": predicted})
+        pool.append(
+            {
+                "article_id": str(i),
+                "ticker": f"T{i}",
+                "kind": kind,
+                "predicted": predicted,
+                "text": f"text {i}",
+            }
+        )
     return pool
 
 
@@ -612,8 +634,14 @@ def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
         "extractor/negative": (0, 20),
     }
     twins = [
-        {"article_id": "1", "ticker": "T", "kind": "summary", "predicted": "positive"},
-        {"article_id": "1", "ticker": "T", "kind": "company_text", "predicted": "positive"},
+        {"article_id": "1", "ticker": "T", "kind": "summary", "predicted": "positive", "text": "a"},
+        {
+            "article_id": "1",
+            "ticker": "T",
+            "kind": "company_text",
+            "predicted": "positive",
+            "text": "b",
+        },
     ]
     with pytest.raises(ValueError, match="share the key"):
         SENTIMENT.draw(twins, 2, 1)
@@ -712,6 +740,7 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _source(monkeypatch, {1: "Body."})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@abc")
     monkeypatch.setitem(FAITH.EXTRACTORS, "skipper", lambda body, resolver: {"T": "Text of T."})
     monkeypatch.setitem(
         FAITH.EXTRACTORS, "writer", lambda body, resolver: {"T": "Text of T.", "U": "Text of U."}
@@ -725,11 +754,16 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
         {"article_id": "1", "ticker": "U", "extractor": "skipper", "pub_date": "2023-01-01"}
     ]
     assert {i["ticker"] for i in items} == {"T", "U"}
+    assert {i["revisions"] for i in items} == {
+        "extractor:skipper@abc|extractor:writer@abc",
+        "extractor:writer@abc",
+    }
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(retag, "extractor_revision", lambda name: f"extractor:{name}@abc")
     _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
     config = tmp_path / "models.json"
     models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
@@ -775,3 +809,629 @@ def test_the_report_names_the_missing_file_and_marks_a_census(
     _csv(tmp_path / "sentiment_gold_ids.csv", ids)
     _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
     assert "(census, not resampled" in "\n".join(REPORT.sentiment_report(tmp_path))
+
+
+def test_a_header_only_scaffold_is_not_the_owners_tagging_file(tmp_path: Path) -> None:
+    extra = _script("draw_sector_extra_2026_11_05")
+    path = tmp_path / "sentiment_gold_to_tag.csv"
+    assert not extra.has_rows(path)  # no file
+    path.write_text("﻿review_order,article_id,sentiment\n", encoding="utf-8")
+    assert not extra.has_rows(path)  # the scaffold: columns, no rows
+    _csv(path, [{"review_order": "1", "article_id": "7", "sentiment": ""}])
+    assert extra.has_rows(path)  # one row is the owner's work, even untagged
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_the_committed_gold_files_have_the_columns_the_code_defines() -> None:
+    expected = {
+        "category_gold_v2.csv": retag.GOLD_COLUMNS,
+        "category_gold_v2_test.csv": retag.TEST_GOLD_COLUMNS,
+        "sentiment_gold.csv": retag.SENTIMENT_GOLD_COLUMNS,
+        "faithfulness_gold.csv": retag.FAITHFULNESS_GOLD_COLUMNS,
+        "segment_check_gold.csv": retag.SEGMENT_CHECK_GOLD_COLUMNS,
+    }
+    for name, columns in expected.items():
+        with (ROOT / "gold" / name).open(encoding="utf-8-sig", newline="") as fh:
+            assert tuple(next(csv.reader(fh))) == columns, name
+
+
+def test_the_scaffold_writes_the_draw_columns_and_never_touches_a_file(tmp_path: Path) -> None:
+    scaffold = _script("scaffold_gold_sets_2026_11_06")
+    out, gold = tmp_path / "data", tmp_path / "gold"
+    out.mkdir()
+    (out / "sentiment_gold_to_tag.csv").write_text("owner,work\n1,2\n", encoding="utf-8")
+    for work, work_cols, gold_name, gold_cols in scaffold.SETS.values():
+        for path, cols in ((out / work, work_cols), (gold / gold_name, gold_cols)):
+            scaffold.scaffold(path, cols)
+    assert (out / "sentiment_gold_to_tag.csv").read_text(encoding="utf-8") == "owner,work\n1,2\n"
+    with (out / "faithfulness_to_tag.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert tuple(next(csv.reader(fh))) == retag.FAITHFULNESS_COLUMNS
+    with (gold / "segment_check_gold.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert tuple(next(csv.reader(fh))) == retag.SEGMENT_CHECK_GOLD_COLUMNS
+
+
+class _Reached(Exception):
+    """The draw went past the check on the owner's file."""
+
+
+@pytest.mark.parametrize(
+    ("script", "step"),
+    [
+        ("draw_sentiment_gold_2026_11_05", "build_texts"),
+        ("draw_faithfulness_2026_11_06", "candidate_bodies"),
+        ("draw_segment_check_2026_11_05", "pick"),
+    ],
+)
+def test_a_draw_fills_a_header_only_file_and_stops_at_one_with_rows(
+    script: str, step: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _script(script)
+    names = {
+        "draw_sentiment_gold_2026_11_05": "sentiment_gold_to_tag.csv",
+        "draw_faithfulness_2026_11_06": "faithfulness_to_tag.csv",
+        "draw_segment_check_2026_11_05": "segment_check_to_tag.csv",
+    }
+    target = tmp_path / names[script]
+    if script == "draw_segment_check_2026_11_05":
+        _csv(tmp_path / "gold.csv", [{"article_id": "1", "split": "train", "kind": "lead"}])
+        monkeypatch.setattr(module, "GOLD", tmp_path / "gold.csv")
+    if script == "draw_faithfulness_2026_11_06":
+        monkeypatch.setattr(module.retag_cli, "companies", lambda: [])
+        monkeypatch.setattr(module, "CompanyResolver", lambda _u: None)
+
+    def reached(*_a: object, **_k: object) -> None:
+        raise _Reached
+
+    monkeypatch.setattr(module, step, reached)
+    argv = [script, "--out", str(tmp_path)]
+    if script == "draw_faithfulness_2026_11_06":
+        argv += ["--extractors", "baseline"]  # the model does not exist until T-148b3
+    monkeypatch.setattr(sys, "argv", argv)
+    target.write_text(",".join(retag.TAGGING_COLUMNS) + "\n", encoding="utf-8-sig")
+    with pytest.raises(_Reached):  # the scaffold is not the owner's work
+        module.main()
+    _csv(target, [{"article_id": "1", "scope": "single"}])
+    with pytest.raises(SystemExit, match="is your tagging file"):
+        module.main()
+
+
+def test_an_interrupted_write_leaves_the_target_untouched_and_no_temporary_file(
+    tmp_path: Path,
+) -> None:
+    extra = _script("draw_sector_extra_2026_11_05")
+    target = tmp_path / "x_to_tag.csv"
+    target.write_text("a\n1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not in fieldnames"):  # the second row has another key
+        extra._write(target, [{"a": "2"}, {"b": "bad key"}])
+    assert target.read_text(encoding="utf-8") == "a\n1\n"
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_text_hash_ignores_outer_whitespace_and_tells_texts_apart() -> None:
+    assert retag.text_hash(" One.\n") == retag.text_hash("One.")
+    assert retag.text_hash("One.") != retag.text_hash("Two.")
+    assert len(retag.text_hash("One.")) == 64
+
+
+def test_the_sentiment_draw_writes_the_hash_of_each_text() -> None:
+    got = SENTIMENT.draw(_texts(), 2, 1)
+    assert all(t["text_hash"] == retag.text_hash(t["text"]) for t in got)
+    assert {"text_hash", "revision"} <= set(SENTIMENT.IDS_FIELDS)
+    assert {"text_hash", "revision"} <= set(retag.SENTIMENT_GOLD_COLUMNS)
+
+
+def test_the_faithfulness_ids_carry_the_hash_the_gold_is_keyed_by() -> None:
+    assert "text_hash" in FAITH.IDS_FIELDS
+    assert {"article_id", "ticker", "text_hash"} <= set(retag.FAITHFULNESS_GOLD_COLUMNS)
+
+
+def test_the_pull_of_the_test_set_names_a_stratum_without_a_frame_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _build_test_set(tmp_path, monkeypatch, tagged=[1, 2], fixed=[1, 2])
+    _csv(tmp_path / "data" / "heldout_strata.csv", [{"stratum": "multi", "frame": "93"}])
+    with pytest.raises(SystemExit, match="lacks the frame size"):
+        BUILD_GOLD.main()
+
+
+def test_a_rerun_after_an_interrupted_draw_reuses_the_ids_and_fills_the_empty_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _script("draw_segment_check_2026_11_05")
+    _csv(tmp_path / module.IDS_NAME, [{f: "1" for f in module.IDS_FIELDS}])  # drawn, then stopped
+    (tmp_path / module.TO_TAG_NAME).write_text(
+        ",".join(retag.SEGMENT_CHECK_COLUMNS) + "\n", encoding="utf-8-sig"
+    )
+
+    def stop(*_a: object, **_k: object) -> None:
+        raise _Reached
+
+    monkeypatch.setattr(module, "texts_to_translate", stop)
+    monkeypatch.setattr(sys, "argv", ["draw", "--out", str(tmp_path)])
+    with pytest.raises(_Reached):  # it read the ids it had and went on to the translation
+        module.main()
+
+
+def test_a_scored_pool_read_back_keeps_the_revision_of_each_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    text = {
+        "article_id": "1",
+        "kind": "summary",
+        "extractor": "",
+        "revision": "org/c_summary@r1",
+        "scope": "single",
+        "ticker": "T",
+        "company": "T Inc",
+        "title": "t",
+        "text": "a summary",
+    }
+    monkeypatch.setattr(SENTIMENT, "build_texts", lambda *_a: ([{**text}], Counter()))
+    monkeypatch.setattr(
+        SENTIMENT, "predict", lambda texts: [{**t, "predicted": "positive"} for t in texts]
+    )
+    SENTIMENT.scored_pool(tmp_path, "baseline")  # scored and written
+    again = SENTIMENT.scored_pool(tmp_path, "baseline")  # read back
+    assert again[0]["revision"] == "org/c_summary@r1"
+
+
+def _fake_module(tmp_path: Path, name: str, source: str) -> types.ModuleType:
+    path = tmp_path / f"{name}.py"
+    path.write_text(source, encoding="utf-8")
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    return module
+
+
+def test_a_code_revision_is_stable_ignores_order_and_changes_with_any_module(
+    tmp_path: Path,
+) -> None:
+    one = _fake_module(tmp_path, "one", "A = 1\n")
+    two = _fake_module(tmp_path, "two", "B = 1\n")
+    first = retag.code_revision(one, two)
+    assert len(first) == 12 and first == retag.code_revision(one, two)
+    assert first == retag.code_revision(two, one)  # by module name, not by position
+    Path(str(two.__file__)).write_text("B = 2\n", encoding="utf-8")  # a dependency changes
+    assert retag.code_revision(one, two) != first
+    assert retag.code_revision(one) != retag.code_revision(one, two)
+
+
+def test_the_real_revisions_are_stable_and_twelve_hex_digits() -> None:
+    for value in (retag.parser_revision(), retag.extractor_revision("baseline")):
+        assert re.fullmatch(r"(company_texts|extractor:baseline)@[0-9a-f]{12}", value)
+    assert retag.parser_revision() == retag.parser_revision()
+    with pytest.raises(ValueError, match="only 'baseline' exists"):
+        retag.extractor_revision("model")
+
+
+def test_each_kind_of_sentiment_text_names_how_it_was_made() -> None:
+    summariser = {"model": "org/sum", "revision": "r9"}
+    assert SENTIMENT.text_revision("summary", "baseline", summariser) == "org/sum@r9"
+    assert (
+        SENTIMENT.text_revision("company_text", "baseline", summariser) == retag.parser_revision()
+    )
+    assert SENTIMENT.text_revision(
+        "extractor_text", "baseline", summariser
+    ) == retag.extractor_revision("baseline")
+
+
+def test_a_pool_is_refused_only_for_a_kind_whose_code_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary = {"article_id": "1", "kind": "summary", "revision": "org/c_summary@r1"}
+    company = {
+        "article_id": "2",
+        "kind": "company_text",
+        "revision": retag.parser_revision(),
+    }
+    assert SENTIMENT.stale_kinds([summary, company], "baseline") == {}
+    monkeypatch.setattr(retag, "parser_revision", lambda: "company_texts@000000000000")
+    stale = SENTIMENT.stale_kinds([summary, company], "baseline")
+    assert list(stale) == ["company_text"]  # the summary does not depend on the parser
+    assert SENTIMENT.stale_kinds([summary], "baseline") == {}  # no such kind in the pool: fine
+
+
+def test_scored_pool_stops_when_the_parser_changed_since_it_was_scored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    _csv(
+        tmp_path / SENTIMENT.POOL_CSV_NAME,
+        [{"article_id": "1", "kind": "company_text", "revision": retag.parser_revision()}],
+    )
+    (tmp_path / SENTIMENT.POOL_META_NAME).write_text(
+        json.dumps(SENTIMENT.pool_conditions("baseline")), encoding="utf-8"
+    )
+    assert SENTIMENT.scored_pool(tmp_path, "baseline")  # same code: read back
+    monkeypatch.setattr(retag, "parser_revision", lambda: "company_texts@000000000000")
+    with pytest.raises(SystemExit, match="company_text"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+
+
+def test_the_faithfulness_ids_and_gold_carry_the_revision_of_each_extractor() -> None:
+    assert "revisions" in FAITH.IDS_FIELDS
+    assert "revisions" in retag.FAITHFULNESS_GOLD_COLUMNS
+
+
+def test_the_label_check_gold_keeps_the_year_for_the_2022_split() -> None:
+    assert "year" in retag.SEGMENT_CHECK_GOLD_COLUMNS
+    assert "year" in _script("draw_segment_check_2026_11_05").IDS_FIELDS
+
+
+def _ids_row(order: int, key: str, text_hash: str, names: str = "baseline") -> dict[str, str]:
+    article, ticker, _n = key.rsplit("#", 2)
+    return {
+        "review_order": str(order),
+        "key": key,
+        "article_id": article,
+        "ticker": ticker,
+        "text_hash": text_hash,
+        "extractors": names,
+        "revisions": "|".join(f"extractor:{n}@r" for n in names.split("|")),
+        "pub_date": "2023-01-01",
+    }
+
+
+def _item(article: str, ticker: str, text: str, name: str = "model") -> dict[str, str]:
+    return {
+        **_ids_row(0, f"{article}#{ticker}#1", retag.text_hash(text), name),
+        "title": "t",
+        "text": text,
+        "source_domain": "d",
+        "body": "b",
+    }
+
+
+def test_adding_an_extractor_marks_identical_texts_and_appends_the_others() -> None:
+    ids = [
+        _ids_row(1, "1#T#1", retag.text_hash("Same.")),
+        _ids_row(2, "1#U#1", retag.text_hash("Own.")),
+    ]
+    items = [
+        _item("1", "T", "Same."),
+        _item("1", "U", "Different."),
+        _item("2", "T", "Other body."),
+    ]
+    merged, new = FAITH.merge_new_extractor(ids, items, seed=1)
+    assert merged[0]["extractors"] == "baseline|model"
+    assert merged[0]["revisions"] == "extractor:baseline@r|extractor:model@r"
+    assert merged[1]["extractors"] == "baseline"  # its text was not written by the model
+    assert [r["review_order"] for r in merged[:2]] == ["1", "2"]  # earlier rows are not moved
+    assert sorted(i["review_order"] for i in new) == ["3", "4"]
+    keys = {i["key"] for i in new}
+    assert keys == {"1#U#2", "2#T#1"}  # past the numbers in use for the same article and company
+    assert {r["extractors"] for r in merged[2:]} == {"model"}
+
+
+def test_adding_an_extractor_keeps_every_mark_and_saves_a_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        },
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "2",
+            "article_id": "1",
+            "ticker": "U",
+            "faithful": "no",
+        },
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(
+        out / FAITH.IDS_NAME,
+        [_ids_row(1, "1#T#1", retag.text_hash("Same.")), _ids_row(2, "1#U#1", "h2")],
+    )
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(
+        FAITH,
+        "collect_items",
+        lambda *_a: ([_item("1", "T", "Same."), _item("1", "T", "A new text.")], []),
+    )
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    FAITH.main()
+    rows = list(csv.DictReader((out / FAITH.TO_TAG_NAME).open(encoding="utf-8-sig", newline="")))
+    assert [(r["review_order"], r["faithful"]) for r in rows] == [
+        ("1", "yes"),
+        ("2", "no"),
+        ("3", ""),
+    ]
+    assert rows[2]["text"] == "A new text."
+    backup = out / "faithfulness_to_tag.before_model.csv"
+    assert [r["faithful"] for r in csv.DictReader(backup.open(encoding="utf-8-sig"))] == [
+        "yes",
+        "no",
+    ]
+    ids = list(csv.DictReader((out / FAITH.IDS_NAME).open(encoding="utf-8-sig", newline="")))
+    assert [r["extractors"] for r in ids] == ["baseline|model", "baseline", "model"]
+    with pytest.raises(SystemExit, match="interrupted"):  # a second run does not overwrite the copy
+        FAITH.main()
+
+
+def test_a_failed_add_leaves_the_three_files_as_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        }
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    before = {
+        n: (out / n).read_bytes() for n in (FAITH.TO_TAG_NAME, FAITH.IDS_NAME, FAITH.COVERAGE_NAME)
+    }
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(FAITH, "collect_items", lambda *_a: ([_item("1", "T", "A new text.")], []))
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+
+    real_write = FAITH.write_coverage
+    calls: list[int] = []
+
+    def locked_once(*a: Path | list[dict[str, str]]) -> None:
+        calls.append(1)
+        if len(calls) == 1:  # the forward write fails, the undo goes through
+            raise PermissionError("coverage is open in Excel")
+        real_write(*a)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(FAITH, "write_coverage", locked_once)
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="nothing was added"):
+        FAITH.main()
+    assert {n: (out / n).read_bytes() for n in before} == before
+    assert not (out / "faithfulness_to_tag.before_model.csv").exists()
+
+
+def test_an_add_that_cannot_undo_keeps_the_copy_and_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path
+    cols = list(retag.FAITHFULNESS_COLUMNS)
+    owner = [
+        {
+            **dict.fromkeys(cols, "x"),
+            "review_order": "1",
+            "article_id": "1",
+            "ticker": "T",
+            "faithful": "yes",
+        }
+    ]
+    _csv(out / FAITH.TO_TAG_NAME, owner)
+    _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
+    _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
+    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "CompanyResolver", lambda _u: None)
+    monkeypatch.setattr(FAITH, "collect_items", lambda *_a: ([_item("1", "T", "A new text.")], []))
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", lambda: None)
+    monkeypatch.setattr(
+        FAITH.retag_cli,
+        "add_spanish",
+        lambda _c, texts, *_a, **_k: [
+            {"article_id": t["article_id"], "spanish_title": "es", "spanish_text": "es"}
+            for t in texts
+        ],
+    )
+
+    def locked(*_a: object) -> None:
+        raise PermissionError("coverage is open in Excel")
+
+    monkeypatch.setattr(FAITH, "write_coverage", locked)
+    real_copy = FAITH.shutil.copy2
+    copies: list[int] = []
+
+    def copy_once(src: Path, dst: Path) -> object:
+        copies.append(1)
+        if len(copies) > 1:  # the first copy is the backup; restoring it fails
+            raise PermissionError("target is open in Excel")
+        return real_copy(src, dst)
+
+    monkeypatch.setattr(FAITH.shutil, "copy2", copy_once)
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="could not undo"):
+        FAITH.main()
+    assert (out / "faithfulness_to_tag.before_model.csv").exists()
+
+
+def test_adding_an_extractor_needs_a_first_draw_and_an_extractor_that_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["d", "--out", str(tmp_path), "--add-extractor", "model"])
+    with pytest.raises(SystemExit, match="no extractor 'model'"):
+        FAITH.main()
+    monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
+    with pytest.raises(SystemExit, match=r"needs faithfulness_to_tag\.csv"):
+        FAITH.main()
+
+
+def _segment_files(out: Path, correct: tuple[str, str] = ("yes", "no")) -> None:
+    ids = [
+        {
+            "key": "1#2",
+            "article_id": "1",
+            "segment_index": "2",
+            "ticker": "T",
+            "kind": "lead",
+            "year": "2020",
+        },
+        {
+            "key": "1#5",
+            "article_id": "1",
+            "segment_index": "5",
+            "ticker": "T",
+            "kind": "lead",
+            "year": "2020",
+        },
+    ]
+    _csv(out / SEGGOLD.IDS_NAME, ids)
+    marks = [
+        {
+            "review_order": str(i),
+            "article_id": "1",
+            "ticker": "T",
+            "kind": "lead",
+            "pub_date": "2020-01-01",
+            "correct": c,
+            "notes": "",
+        }
+        for i, c in enumerate(correct, 1)
+    ]
+    _csv(out / SEGGOLD.TO_TAG_NAME, marks)
+
+
+def test_segment_check_gold_pairs_two_paragraphs_of_one_article_and_company(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _segment_files(tmp_path)
+    gold = tmp_path / "gold.csv"
+    monkeypatch.setattr(sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(gold)])
+    SEGGOLD.main()
+    rows = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert tuple(rows[0]) == retag.SEGMENT_CHECK_GOLD_COLUMNS
+    assert [(r["key"], r["segment_index"], r["correct"]) for r in rows] == [
+        ("1#2", "2", "yes"),
+        ("1#5", "5", "no"),
+    ]
+
+
+def test_segment_check_gold_refuses_unmarked_rows_and_other_paragraphs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _segment_files(tmp_path, ("yes", ""))
+    monkeypatch.setattr(
+        sys, "argv", ["b", "--out", str(tmp_path), "--gold", str(tmp_path / "g.csv")]
+    )
+    with pytest.raises(SystemExit, match="without correct"):
+        SEGGOLD.main()
+    assert not (tmp_path / "g.csv").exists()
+    _segment_files(tmp_path)
+    ids = list(csv.DictReader((tmp_path / SEGGOLD.IDS_NAME).open(encoding="utf-8-sig")))
+    ids[1]["ticker"] = "U"
+    _csv(tmp_path / SEGGOLD.IDS_NAME, ids)
+    with pytest.raises(SystemExit, match="ticker"):
+        SEGGOLD.main()
+
+
+def _partial_faith_files(tmp_path: Path, marked: list[int]) -> None:
+    ids, tags = [], []
+    for order in range(1, 31):
+        ids.append(
+            {
+                "review_order": str(order),
+                "key": f"{order % 10}#T#{order}",
+                "extractors": "baseline",
+                "pub_date": "2023-01-01",
+            }
+        )
+        tags.append(
+            {
+                "article_id": str(order % 10),
+                "review_order": str(order),
+                "faithful": "yes" if order in marked else "",
+            }
+        )
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    _bodies(tmp_path)
+    _csv(tmp_path / "faithfulness_coverage.csv", [], FAITH.COVERAGE_FIELDS)
+
+
+def test_a_partial_faithfulness_report_needs_the_first_rows_marked_in_order(
+    tmp_path: Path,
+) -> None:
+    _partial_faith_files(tmp_path, list(range(1, 21)))
+    with pytest.raises(MarkedFileError, match="without faithful"):
+        REPORT.faithfulness_report(tmp_path)  # the full report still refuses a half-marked file
+    text = "\n".join(REPORT.faithfulness_report(tmp_path, partial=15))
+    assert "PARTIAL: 20 of 30 texts marked" in text
+    with pytest.raises(MarkedFileError, match="the rule needs 25"):
+        REPORT.faithfulness_report(tmp_path, partial=25)
+    _partial_faith_files(tmp_path, [*range(1, 11), *range(15, 25)])  # a gap: not a random sample
+    with pytest.raises(MarkedFileError, match="in order"):
+        REPORT.faithfulness_report(tmp_path, partial=15)
+
+
+def test_the_label_check_report_reads_the_committed_gold_file() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    text = "\n".join(REPORT.label_check_report(gold, gold=True))
+    assert "train on `lead` only" in text
+    rows = list(csv.DictReader((gold / "segment_check_gold.csv").open(encoding="utf-8")))
+    figures = gold_metrics.label_check_report(rows)
+    assert (figures["lead"].point, figures["continuation"].point) == (0.88, 0.38)
+    assert figures["continuation 2022+"].point == pytest.approx(0.552, abs=0.001)
+    assert Counter((r["kind"], r["correct"]) for r in rows) == {
+        ("lead", "yes"): 88,
+        ("lead", "no"): 12,
+        ("continuation", "yes"): 38,
+        ("continuation", "no"): 62,
+    }  # the figures of PLAN D27 and the page
+
+
+def test_partial_report_edge_cases(tmp_path: Path) -> None:
+    _partial_faith_files(tmp_path, list(range(1, 31)))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path, partial=5))
+    assert "PARTIAL" not in text  # every row is marked: it is the full report
+    with pytest.raises(MarkedFileError, match="at least 1"):
+        REPORT.faithfulness_report(tmp_path, partial=0)
+    _partial_faith_files(tmp_path, list(range(1, 11)))
+    rows = list(csv.DictReader((tmp_path / "faithfulness_to_tag.csv").open(encoding="utf-8-sig")))
+    rows[0]["review_order"] = "uno"
+    _csv(tmp_path / "faithfulness_to_tag.csv", rows)
+    with pytest.raises(MarkedFileError, match="whole number"):
+        REPORT.faithfulness_report(tmp_path, partial=5)

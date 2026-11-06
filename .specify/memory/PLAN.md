@@ -2271,7 +2271,7 @@ above, it says so; nothing else above is touched.
   mix, so the model is also reported on the 2022+ bodies apart (the backtest window). The labels are
   automatic and unchecked: the owner reads 100 `lead` and 100 `continuation` paragraphs
   (`scripts/draw_segment_check_2026_11_05.py`, T-148b2) before the model trains, and the measured
-  precision of each kind is recorded here. **Rule fixed before the figure is seen (owner,
+  precision of each kind is recorded here (**read 2026-11-06, 200 paragraphs marked: `lead` 88.0% [80.2, 93.0], `continuation` 38.0% [29.1, 47.8], 2022+ `continuation` 55.2% [37.5, 71.6]; the rule below gives: train on `lead` only**; of the 12 wrong `lead` labels, 5 are paragraphs about two or more companies, 3 a different entity with a similar name (a ticker or a person) and 4 are not text about a company: market-mover intros, a table row, a cross-reference). **Rule fixed before the figure is seen (owner,
   2026-11-06):** if at most 80% of the `continuation` paragraphs are right they are dropped from
   training (train on `lead` only); otherwise both kinds are used. With 100 paragraphs each
   precision has an interval of about +/-8 to 10 points, and it is reported for 2022+ apart. **The rule is on
@@ -2301,7 +2301,7 @@ above, it says so; nothing else above is touched.
   rules-versus-gold figure on it is slightly optimistic. **Weights:** the bodies that share an article
   with the 720 or the 44 were left out of the draw and were not a random part of the sample (the 720
   were stratified), so a rate is re-weighted to the corpus with the size of each rule scope in the whole
-  1,000-body sample (`frame` in `data/heldout_strata.csv`), not with the bodies left to draw from. The frame (`data/heldout_strata.csv`, written by the draw
+  1,000-body sample (`frame` in `data/heldout_strata.csv`, also copied to the `frame` column of `gold/category_gold_v2_test.csv` when the tags are pulled, so a rate can be re-weighted from `gold/` alone; not the `population` column of `heldout_ids.csv`, which counts the bodies left to draw from), not with the bodies left to draw from. The frame (`data/heldout_strata.csv`, written by the draw
   script on every run from the 720 and the 44 only) is: single 514, multi_dominated 245, roundup 108,
   multi 93, sector 18, no_company 12, economy 5, market 5 (1,000 bodies; 7 left out for sharing an
   article with the 720 or the 44, so the weights barely move).
@@ -2320,8 +2320,8 @@ above, it says so; nothing else above is touched.
   for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
   redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
 - **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
-  least **80% of the companies named in the owner's ~30 narrative multi bodies with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
-  and better than the mention-and-recency baseline on the same 30, reported apart for bodies from
+  least **80% of the companies named in the owner's 30 narrative multi bodies (190 company texts today) with a faithful text** (a named company the extractor writes no text for counts as not faithful; the share of the texts it did write is printed beside it, owner 2026-11-06),
+  and better than the mention-and-recency baseline on the same 30 (**if the owner has not finished the 190 by 2026-11-09, proposed and to be confirmed by the owner before any figure is read: the first 120 or more rows marked in `review_order` order decide, `report_wi18 faithfulness --partial 120`; with fewer, the baseline is kept and the model is reported as not evaluated**), reported apart for bodies from
   2022 on. Sentiment on the 180-text gold (60 per class **of the model's predicted class**):
   **overall agreement >= 80%, and precision and recall each >= 70% for the negative class** (the one
   the backtest counts). Because the draw is balanced by prediction, every figure is re-weighted by the
@@ -2345,7 +2345,7 @@ above, it says so; nothing else above is touched.
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
   company texts of structured multi bodies (120) and the texts the extractor writes for narrative
-  multi bodies (60: the baseline, or the model if it is ready on 2026-11-10); the two parts are reported
+  multi bodies (60: the baseline, or the model if it is ready on 2026-11-09, the date of D34 rule (b)); the two parts are reported
   apart, and the figures of the second part are the ones that say whether the cut's per-company
   sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
   stratum, so for the company texts of one body they are a little narrow. **The stratum sizes are those of the pool of the owner's tagged bodies**
@@ -2375,7 +2375,7 @@ above, it says so; nothing else above is touched.
   90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
   snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
   2026-11-12**: if the owner's tagging (the held-out 200, 200 label-check paragraphs, the 30
-  faithfulness texts and the 180 sentiment texts: 610 items) is done and the extractor passes D32,
+  190 faithfulness texts (30 bodies; 2026-11-06 the draw gave 190, not the 30 assumed) and the 180 sentiment texts: 770 items, 200 of them marked) is done and the extractor passes D32 (**owner call 2026-11-06: tag all 190 faithfulness texts**),
   the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
   notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**
@@ -2388,7 +2388,7 @@ above, it says so; nothing else above is touched.
   the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
   one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
   model trains on 2026-11-08 on the same GPU after them; NER, step 4 and sentiment run after the
-  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Non-atomic writes and concurrent draws stay accepted: single-owner tooling.
+  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Concurrent draws stay accepted (single-owner tooling).
 
 **Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
 - *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*

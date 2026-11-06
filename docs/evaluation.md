@@ -9,6 +9,9 @@ against the source article text, and the aggregate metrics + per-row verdicts go
 to MLflow and to a handful of run-log tables in the RESULTS store (see
 "Where results go" below).
 
+The gold sets of Work item 18 (scope train and test, label check, extractor sample, sentiment) are described in
+`docs/gold_datasets.md`: what each is for, where its files live and the order to tag them.
+
 ## Architecture: the eval module reuses the pipeline's own inference classes
 
 `news_nlp/eval/` does not load models independently. Each stage's own FTI

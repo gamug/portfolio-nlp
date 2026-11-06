@@ -87,6 +87,7 @@ POOL_FIELDS = (
     "article_id",
     "kind",
     "extractor",
+    "revision",
     "scope",
     "ticker",
     "company",
@@ -99,6 +100,8 @@ IDS_FIELDS = (
     "article_id",
     "kind",
     "part",
+    "text_hash",
+    "revision",
     "stratum",
     "extractor",
     "scope",
@@ -138,6 +141,16 @@ def subject_of(row: dict[str, str], book: NameBook, names: dict[str, str]) -> tu
     return "", SUBJECT[scope]
 
 
+def text_revision(kind: str, extractor: str, summariser: dict[str, str]) -> str:
+    """How a text was made, for the ``revision`` column: the summariser ``model@revision``, the
+    parser's, or the extractor's (``retag.code_revision`` of the code it runs)."""
+    if kind == "summary":
+        return f"{summariser['model']}@{summariser['revision']}"
+    if kind == "extractor_text":
+        return retag.extractor_revision(extractor)
+    return retag.parser_revision()
+
+
 def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counter[str]]:
     conn = db.connect_pipeline()
     universe = retag_cli.companies()
@@ -147,6 +160,7 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
     texts: list[dict[str, str]] = []
     to_summarise: list[tuple[dict[str, str], str]] = []
     skipped = Counter()
+    summariser = _models()["c_summary"]
     for row in tagged_bodies(out):
         src = conn.execute(
             "SELECT title, body_text FROM source.articles WHERE id = ?", (int(row["article_id"]),)
@@ -157,7 +171,13 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
             ticker, company = subject_of(row, book, names)
             to_summarise.append(
                 (
-                    {**base, "kind": "summary", "ticker": ticker, "company": company},
+                    {
+                        **base,
+                        "kind": "summary",
+                        "revision": text_revision("summary", extractor, summariser),
+                        "ticker": ticker,
+                        "company": company,
+                    },
                     f"Title-{title}\nBody-{body}",
                 )
             )
@@ -179,6 +199,7 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
                             **base,
                             "kind": kind,
                             "extractor": extractor if kind == "extractor_text" else "",
+                            "revision": text_revision(kind, extractor, summariser),
                             "ticker": ticker,
                             "company": names.get(ticker, ticker),
                             "text": text,
@@ -274,6 +295,7 @@ def draw(
     rng.shuffle(chosen)  # the order must not reveal the predicted class
     for t in chosen:
         t["key"] = f"{t['article_id']}#{t['ticker'] or t['kind']}"
+        t["text_hash"] = retag.text_hash(t["text"])
     repeated = sorted(k for k, n in Counter(t["key"] for t in chosen).items() if n > 1)
     if repeated:
         raise ValueError(f"two drawn texts share the key {repeated[:5]}")
@@ -303,6 +325,23 @@ def pool_conditions(extractor: str) -> dict[str, str]:
     }
 
 
+def stale_kinds(texts: list[dict[str, str]], extractor: str) -> dict[str, tuple[str, str]]:
+    """For each kind of text in the pool that code (not a pinned model) wrote, ``(kept, now)``
+    when its revision is no longer the current one. Summaries are not checked here: their model
+    revision is in ``pool_conditions``. Any edit to the modules a revision covers, a comment
+    included, makes the kind stale."""
+    current = {
+        "company_text": retag.parser_revision(),
+        "extractor_text": retag.extractor_revision(extractor),
+    }
+    stale = {}
+    for kind, now in current.items():
+        kept = {t["revision"] for t in texts if t["kind"] == kind}
+        if kept and kept != {now}:
+            stale[kind] = (", ".join(sorted(kept)), now)
+    return stale
+
+
 def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
     """The texts with the current model's label. Summaries and scoring are slow, so they are kept
     in ``<out>/sentiment_gold_pool.csv`` (news text: git-ignored) with the conditions they were
@@ -319,8 +358,15 @@ def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
                 f"{path} was scored under other conditions (kept, now): {differ}. Delete "
                 f"{path.name} and {meta_path.name} to score the pool again."
             )
+        texts = extra._read(path)
+        stale = stale_kinds(texts, extractor)
+        if stale:
+            sys.exit(
+                f"{path} holds texts made by code that has changed since: {stale}. Delete "
+                f"{path.name} and {meta_path.name} to score the pool again."
+            )
         print(f"{path} exists: the pool is not scored again")
-        return extra._read(path)
+        return texts
     texts, skipped = build_texts(out, extractor)
     texts = predict(texts)
     pool = {
@@ -406,7 +452,7 @@ def main() -> None:
     args = parser.parse_args()
     out: Path = args.out
     ids_path, target = out / IDS_NAME, out / TO_TAG_NAME
-    if target.exists():
+    if extra.has_rows(target):
         sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     if ids_path.exists():
         chosen = extra._read(ids_path)
@@ -429,10 +475,7 @@ def main() -> None:
         if args.pool_only:
             return
         chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
-        with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(chosen)
+        extra._write(ids_path, [{f: t.get(f, "") for f in IDS_FIELDS} for t in chosen])
         print(f"{len(chosen)} drawn:", dict(Counter(t["predicted"] for t in chosen)))
         print("by kind:", dict(Counter(t["kind"] for t in chosen)))
     cache = out / CACHE_DIR

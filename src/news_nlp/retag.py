@@ -18,6 +18,8 @@ names the owner typed are converted first by :mod:`news_nlp.company_names` (``no
 from __future__ import annotations
 
 import csv
+import functools
+import hashlib
 import io
 import random
 import re
@@ -25,6 +27,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 from news_nlp.company_names import split_list
 from news_nlp.gics_codes import SUB_INDUSTRY_CODES
@@ -658,6 +661,93 @@ GOLD_COLUMNS = (
     "company_labels",
     "mentions",
     "sub_industry",
+    "notes",
+)
+
+
+#: The held-out gold also carries the weight of its draw (``stratum``, and ``frame``: the size of that
+#: stratum in the whole corpus sample, D30), so a rate can be re-weighted from ``gold/`` alone. It is
+#: not ``population`` of ``heldout_ids.csv``, which counts the bodies left to draw from.
+TEST_GOLD_COLUMNS = (*GOLD_COLUMNS, "stratum", "frame")
+
+
+def code_revision(*modules: ModuleType) -> str:
+    """A version of code that is not pinned like a model: 12 hex digits of the SHA-256 of the source
+    of the given modules (by module name, so the order does not matter). It changes whenever one of
+    them is edited, so a mark made on a text written by one version is not read as made on another.
+    It covers the code of those modules only, not the company universe or the data they read."""
+    digest = hashlib.sha256()
+    for module in sorted(modules, key=lambda m: m.__name__):
+        digest.update(module.__name__.encode() + b"\0")
+        digest.update(Path(str(module.__file__)).read_bytes())
+    return digest.hexdigest()[:12]
+
+
+@functools.cache
+def parser_revision() -> str:
+    """The revision of the one-segment-per-company parser (``company_texts``) and what it uses."""
+    from news_nlp import company_texts, triage  # noqa: PLC0415 -- only a draw needs the modules
+
+    return f"company_texts@{code_revision(company_texts, triage)}"
+
+
+@functools.cache
+def extractor_revision(name: str) -> str:
+    """The revision of the extractor *name* that writes the company texts of narrative bodies. Only
+    the baseline exists; the trained model (T-148b3) will be ``name@<checkpoint revision>``."""
+    if name != "baseline":
+        raise ValueError(f"no extractor {name!r}: only 'baseline' exists until T-148b3")
+    import chunking  # noqa: PLC0415 -- only a draw needs the modules
+    from news_nlp import attribution_baseline, triage  # noqa: PLC0415
+
+    return f"extractor:baseline@{code_revision(attribution_baseline, triage, chunking)}"
+
+
+def text_hash(text: str) -> str:
+    """The identity of a text a mark belongs to: SHA-256 (hex) of the text with the outer
+    whitespace stripped, UTF-8. Computed once by the draw and written to its ids file; a gold
+    builder copies it from there and never recomputes it (the tagging file may carry the text
+    with a spreadsheet-safe apostrophe)."""
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+#: The tracked files of the sets that are not scope tags (``docs/gold_datasets.md``): the owner's
+#: marks and the ids of the draw, never the text. The draw's weights travel with each row, so the
+#: figures of D32 can be computed from ``gold/`` alone.
+SENTIMENT_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "ticker",
+    "kind",
+    "part",
+    "text_hash",
+    "revision",
+    "stratum",
+    "extractor",
+    "predicted",
+    "population",
+    "sentiment",
+    "notes",
+)
+FAITHFULNESS_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "ticker",
+    "text_hash",
+    "extractors",
+    "revisions",
+    "pub_date",
+    "faithful",
+    "notes",
+)
+SEGMENT_CHECK_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "segment_index",
+    "ticker",
+    "kind",
+    "year",
+    "correct",
     "notes",
 )
 

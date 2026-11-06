@@ -135,7 +135,7 @@ def main() -> None:
     args = parser.parse_args()
     out: Path = args.out
     ids_path, target = out / IDS_NAME, out / TO_TAG_NAME
-    if target.exists():
+    if extra.has_rows(target):
         sys.exit(f"{target} exists: it is your tagging file and is not overwritten")
     if ids_path.exists():
         chosen = extra._read(ids_path)
@@ -143,10 +143,7 @@ def main() -> None:
     else:
         with GOLD.open(encoding="utf-8", newline="") as fh:
             chosen = pick(list(csv.DictReader(fh)), args.per_kind, args.seed)
-        with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(chosen)
+        extra._write(ids_path, [{f: t.get(f, "") for f in IDS_FIELDS} for t in chosen])
         print(f"{len(chosen)} drawn:", dict(Counter(r["kind"] for r in chosen)))
         print(
             "by period:",
