@@ -22,7 +22,8 @@ how many (``--overwrite-marks`` to accept). Adding the model's texts (``extracto
 ``faithfulness_coverage.csv`` (the companies an extractor named and wrote no text for, which the D32
 share counts as unfaithful) is copied next to the gold file, so ``report_wi18 faithfulness --gold``
 needs nothing from ``data/``. It must exist: an empty one (header only) says that none was left out.
-Both files are written together (temporary files, then replaced), and a tracked coverage entry the new
+``faithfulness_bodies.csv`` (the drawn bodies) must be there: a coverage entry for another body, or for a
+company that the same extractor wrote a text for, stops the run. Both files are written together (temporary files, then replaced), and a tracked coverage entry the new
 file lacks stops the run like a changed mark.
 """
 
@@ -30,7 +31,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import sys
 from pathlib import Path
 
@@ -40,6 +40,7 @@ from news_nlp import gold_metrics, retag
 
 TO_TAG_NAME = "faithfulness_to_tag.csv"
 IDS_NAME = "faithfulness_ids.csv"
+BODIES_NAME = "faithfulness_bodies.csv"
 COVERAGE_NAME = gold_metrics.COVERAGE_NAME
 COVERAGE_COLUMNS = gold_metrics.COVERAGE_COLUMNS
 
@@ -112,12 +113,32 @@ def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[s
     return out
 
 
-def render(fields: tuple[str, ...], rows: list[dict[str, str]]) -> str:
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator="\n")
-    writer.writeheader()
-    writer.writerows(rows)
-    return buffer.getvalue()
+def reference_problems(
+    gold: Path,
+    coverage_path: Path,
+    rows: list[dict[str, str]],
+    coverage: list[dict[str, str]],
+) -> list[str]:
+    """What the new files would take from the tracked ones (marks, text hashes, rows, coverage)."""
+    problems = []
+    if gold.exists():
+        with gold.open(encoding="utf-8-sig", newline="") as fh:
+            moved = changed_marks(list(csv.DictReader(fh)), rows)
+        if moved:
+            problems.append(
+                f"{len(moved)} rows of {gold} would change or go missing (first {moved[0]})"
+            )
+    if coverage_path.exists():
+        try:
+            gone = lost_coverage(gold_metrics.read_coverage(coverage_path), coverage)
+        except gold_metrics.MarkedFileError as exc:
+            sys.exit(f"the tracked {coverage_path} is not usable: {exc}")
+        if gone:
+            problems.append(
+                f"{len(gone)} companies without a text in {coverage_path} would go missing "
+                f"(first {gone[0]})"
+            )
+    return problems
 
 
 def main() -> None:
@@ -141,28 +162,16 @@ def main() -> None:
             ids = list(csv.DictReader(fh))
         rows = build(marks, ids)
         coverage = read_coverage(args.out / COVERAGE_NAME)
+        gold_metrics.check_coverage_against_draw(
+            coverage,
+            drawn_bodies={r["article_id"] for r in gold_metrics.read_rows(args.out / BODIES_NAME)},
+            texts=[(r["article_id"], r["ticker"], r["extractors"].split("|")) for r in rows],
+        )
     except gold_metrics.MarkedFileError as exc:
         sys.exit(str(exc))
     coverage_path = args.gold.with_name(COVERAGE_NAME)
     if not args.overwrite_marks:
-        problems = []
-        if args.gold.exists():
-            with args.gold.open(encoding="utf-8-sig", newline="") as fh:
-                moved = changed_marks(list(csv.DictReader(fh)), rows)
-            if moved:
-                problems.append(
-                    f"{len(moved)} rows of {args.gold} would change or go missing (first {moved[0]})"
-                )
-        if coverage_path.exists():
-            try:
-                gone = lost_coverage(gold_metrics.read_coverage(coverage_path), coverage)
-            except gold_metrics.MarkedFileError as exc:
-                sys.exit(f"the tracked {coverage_path} is not usable: {exc}")
-            if gone:
-                problems.append(
-                    f"{len(gone)} companies without a text in {coverage_path} would go missing "
-                    f"(first {gone[0]})"
-                )
+        problems = reference_problems(args.gold, coverage_path, rows, coverage)
         if problems:
             sys.exit(
                 "; ".join(problems)
@@ -172,9 +181,15 @@ def main() -> None:
     try:
         gold_metrics.write_pair_atomically(
             {
-                args.gold: render(retag.FAITHFULNESS_GOLD_COLUMNS, retag.spreadsheet_safe(rows)),
-                coverage_path: render(COVERAGE_COLUMNS, coverage),
+                args.gold: gold_metrics.render_csv(
+                    retag.FAITHFULNESS_GOLD_COLUMNS, retag.spreadsheet_safe(rows)
+                ),
+                coverage_path: gold_metrics.render_csv(COVERAGE_COLUMNS, coverage),
             }
+        )
+    except gold_metrics.PairWriteError as exc:
+        sys.exit(
+            f"cannot write {args.gold} or {coverage_path}: {exc}. Run again before committing."
         )
     except OSError as exc:
         sys.exit(f"cannot write {args.gold} or {coverage_path} ({exc}); both are as they were")

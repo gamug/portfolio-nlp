@@ -26,7 +26,6 @@ translation of the same engine; nothing is bought without ``--yes``. Its cache i
 from __future__ import annotations
 
 import argparse
-import csv
 import random
 import shutil
 import sys
@@ -173,10 +172,7 @@ def to_translate(items: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def write_coverage(path: Path, omissions: list[dict[str, str]]) -> None:
     """The companies left without a text, also when there are none (the report needs the file)."""
-    with path.open("w", newline="", encoding="utf-8-sig") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(COVERAGE_FIELDS))
-        writer.writeheader()
-        writer.writerows(omissions)
+    gold_metrics.write_pair_atomically({path: gold_metrics.render_csv(COVERAGE_FIELDS, omissions)})
 
 
 def tag_rows(
@@ -283,8 +279,12 @@ def add_extractor(args: argparse.Namespace) -> None:
     names_of = {c.ticker: c.name for c in universe}
     added = tag_rows(new, {r["article_id"]: r for r in done}, names_of)
     coverage_path = out / COVERAGE_NAME
-    old_ids, old_coverage = extra._read(ids_path), extra._read(coverage_path)
-    known = {tuple(r.values()) for r in old_coverage}
+    try:
+        old_coverage = gold_metrics.read_coverage(coverage_path)
+    except gold_metrics.MarkedFileError as exc:
+        sys.exit(str(exc))
+    old_ids = extra._read(ids_path)
+    known = {tuple(r[k] for k in COVERAGE_FIELDS) for r in old_coverage}
     coverage = old_coverage + [
         o for o in omissions if tuple(o[k] for k in COVERAGE_FIELDS) not in known
     ]

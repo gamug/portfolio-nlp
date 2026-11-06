@@ -371,6 +371,11 @@ def faithfulness_gold_report(out: Path) -> list[str]:
         raise MarkedFileError(
             f"faithfulness_gold.csv has extractors the draw does not have: {owned}"
         )
+    gold_metrics.check_coverage_against_draw(
+        coverage,
+        drawn_bodies=None,  # the list of bodies is not tracked: a body with no text has no row
+        texts=[(r["article_id"], r["ticker"], r["extractors"].split("|")) for r in rows],
+    )
     marks = {r["key"]: r["faithful"] == "yes" for r in rows}
     owners = {r["key"]: r["extractors"].split("|") for r in rows}
     note = [

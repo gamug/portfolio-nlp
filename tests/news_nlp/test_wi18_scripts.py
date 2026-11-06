@@ -1147,7 +1147,7 @@ def test_adding_an_extractor_keeps_every_mark_and_saves_a_copy(
         [_ids_row(1, "1#T#1", retag.text_hash("Same.")), _ids_row(2, "1#U#1", "h2")],
     )
     _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
-    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    _csv(out / FAITH.COVERAGE_NAME, [], FAITH.COVERAGE_FIELDS)
     monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
     monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
     monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
@@ -1203,7 +1203,7 @@ def test_a_failed_add_leaves_the_three_files_as_they_were(
     _csv(out / FAITH.TO_TAG_NAME, owner)
     _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
     _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
-    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    _csv(out / FAITH.COVERAGE_NAME, [], FAITH.COVERAGE_FIELDS)
     before = {
         n: (out / n).read_bytes() for n in (FAITH.TO_TAG_NAME, FAITH.IDS_NAME, FAITH.COVERAGE_NAME)
     }
@@ -1235,7 +1235,14 @@ def test_a_failed_add_leaves_the_three_files_as_they_were(
     monkeypatch.setattr(sys, "argv", ["d", "--out", str(out), "--add-extractor", "model"])
     with pytest.raises(SystemExit, match="nothing was added"):
         FAITH.main()
-    assert {n: (out / n).read_bytes() for n in before} == before
+    after = {n: (out / n).read_bytes() for n in before}
+    assert {n: b for n, b in after.items() if n != FAITH.COVERAGE_NAME} == {
+        n: b for n, b in before.items() if n != FAITH.COVERAGE_NAME
+    }
+    # the undo writes the coverage file in the one form the reader and the builder use (no BOM, LF)
+    assert after[FAITH.COVERAGE_NAME].decode("utf-8-sig").split() == (
+        before[FAITH.COVERAGE_NAME].decode("utf-8-sig").split()
+    )
     assert not (out / "faithfulness_to_tag.before_model.csv").exists()
 
 
@@ -1256,7 +1263,7 @@ def test_an_add_that_cannot_undo_keeps_the_copy_and_says_so(
     _csv(out / FAITH.TO_TAG_NAME, owner)
     _csv(out / FAITH.IDS_NAME, [_ids_row(1, "1#T#1", "h1")])
     _csv(out / FAITH.BODIES_NAME, [{"article_id": "1", "segments": "1"}])
-    _csv(out / FAITH.COVERAGE_NAME, [dict.fromkeys(FAITH.COVERAGE_FIELDS, "")])
+    _csv(out / FAITH.COVERAGE_NAME, [], FAITH.COVERAGE_FIELDS)
     monkeypatch.setitem(FAITH.EXTRACTORS, "model", lambda body, resolver: {})
     monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@r")
     monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
@@ -1471,6 +1478,7 @@ def _faithfulness_gold_files(out: Path, marks: tuple[str, str] = ("yes", "no")) 
     (out / FAITHGOLD.COVERAGE_NAME).write_text(
         ",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n", encoding="utf-8"
     )  # header only: no company was left without a text
+    (out / FAITHGOLD.BODIES_NAME).write_text("article_id\n1\n2\n3\n", encoding="utf-8")
 
 
 def test_faithfulness_gold_copies_the_draws_ids_and_keeps_only_marks(
@@ -1669,3 +1677,95 @@ def test_a_failed_write_leaves_the_gold_and_the_coverage_as_they_were(
     with pytest.raises(SystemExit, match="both are as they were"):
         _run_faithfulness_gold(monkeypatch, tmp_path, gold, "--overwrite-marks")
     assert {p.name: p.read_bytes() for p in gold.parent.iterdir()} == old  # no temp file either
+
+
+def _write_coverage(out: Path, *rows: str) -> None:
+    header = ",".join(FAITHGOLD.COVERAGE_COLUMNS)
+    (out / FAITHGOLD.COVERAGE_NAME).write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+
+
+def test_faithfulness_gold_refuses_a_coverage_that_is_not_tied_to_the_draw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = tmp_path / "gold" / "faithfulness_gold.csv"
+    _faithfulness_gold_files(tmp_path)
+    _write_coverage(tmp_path, "77,T,baseline,2026-01-01")  # a body that was never drawn
+    with pytest.raises(SystemExit, match="bodies the draw does not have"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    _write_coverage(tmp_path, "1,T,baseline,2026-01-01")  # a company that has a text from baseline
+    with pytest.raises(SystemExit, match="wrote a text"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    _write_coverage(tmp_path, "3,T,baseline,2026-01-01")  # a drawn body with no text: allowed
+    _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+    (tmp_path / FAITHGOLD.BODIES_NAME).unlink()
+    with pytest.raises(SystemExit, match=r"faithfulness_bodies\.csv not found"):
+        _run_faithfulness_gold(monkeypatch, tmp_path, gold)
+
+
+def test_the_gold_report_refuses_a_company_left_without_a_text_that_has_one(
+    tmp_path: Path,
+) -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv"
+    shutil.copy(gold, tmp_path)
+    first = next(iter(csv.DictReader(gold.open(encoding="utf-8"))))
+    _write_coverage(tmp_path, f"{first['article_id']},{first['ticker']},baseline,2026-01-01")
+    with pytest.raises(MarkedFileError, match="wrote a text"):
+        REPORT.faithfulness_gold_report(tmp_path)
+    _write_coverage(tmp_path, "999999999,ZZZ,baseline,2026-01-01")  # body with no text: no row
+    assert "1 companies left without a text" in "\n".join(REPORT.faithfulness_gold_report(tmp_path))
+
+
+def test_a_replace_that_fails_after_the_first_puts_the_first_file_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    a.write_text("old a")
+    b.write_text("old b")
+    real, count = os.replace, []
+
+    def fail_on_second(src: object, dst: object) -> None:
+        count.append(dst)
+        if len(count) == 2:
+            raise PermissionError("open in Excel")
+        real(str(src), str(dst))
+
+    monkeypatch.setattr(os, "replace", fail_on_second)
+    with pytest.raises(PermissionError):
+        gold_metrics.write_pair_atomically({a: "new a", b: "new b"})
+    assert (a.read_text(), b.read_text()) == ("old a", "old b")  # "as they were" is true
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a.csv", "b.csv"]
+
+
+def test_when_the_first_file_cannot_be_put_back_the_error_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    a.write_text("old a")
+    b.write_text("old b")
+    real, count = os.replace, []
+
+    def fail_from_second(src: object, dst: object) -> None:
+        count.append(dst)
+        if len(count) >= 2:
+            raise PermissionError("open in Excel")
+        real(str(src), str(dst))
+
+    monkeypatch.setattr(os, "replace", fail_from_second)
+    with pytest.raises(gold_metrics.PairWriteError, match=r"a\.csv was replaced"):
+        gold_metrics.write_pair_atomically({a: "new a", b: "new b"})
+    assert b.read_text() == "old b"
+
+
+def test_a_pair_write_deletes_the_temporary_files_of_a_killed_run(tmp_path: Path) -> None:
+    a = tmp_path / "a.csv"
+    (tmp_path / "a.csv.4242.tmp").write_text("half")
+    gold_metrics.write_pair_atomically({a: "new"})
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["a.csv"]
+
+
+def test_the_draw_refuses_an_old_coverage_file_it_cannot_trust(tmp_path: Path) -> None:
+    _write_coverage(tmp_path, "1,T,gpt,2026-01-01")
+    with pytest.raises(MarkedFileError, match="extractors the draw does not have"):
+        gold_metrics.read_coverage(tmp_path / FAITHGOLD.COVERAGE_NAME)
+    FAITH.write_coverage(tmp_path / "c.csv", [])
+    assert (tmp_path / "c.csv").read_text() == ",".join(FAITHGOLD.COVERAGE_COLUMNS) + "\n"

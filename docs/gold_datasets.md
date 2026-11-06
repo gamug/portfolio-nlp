@@ -145,7 +145,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   figures from the two tracked files alone (baseline 60.5% [45.2, 73.8], 2022+ 60.6% [27.6, 86.1]); nothing from
   the git-ignored `data/` is needed. A test pins these figures.
 - **Rebuilding:** the builder rewrites the file from `data/`, but this file is the reference: if a mark, a text hash or a row
-  would change or go missing the run stops (`--overwrite-marks` to accept). Adding the model only adds names to
+  would change or go missing the run stops (`--overwrite-marks` to accept). The tracked coverage is protected the same way (a company without a text it lists cannot disappear), it must belong to a body in `faithfulness_bodies.csv` and not to a company the same extractor wrote a text for, and the gold file and the coverage file are written together: if the second cannot be written the first is put back, and if that fails the message names the file that is new. Adding the model only adds names to
   `extractors` and `revisions` and new rows, and goes through.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
   bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
