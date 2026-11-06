@@ -30,7 +30,8 @@ of each stratum.
 
 A company text over ``MAX_COMPANY_CHARS`` is left out of the pool and counted in
 ``<out>/sentiment_gold_pool.json`` with the pool sizes. The scored pool is kept in
-``<out>/sentiment_gold_pool.csv`` and read back by the next run (delete it to score again);
+``<out>/sentiment_gold_pool.csv`` with its conditions (``sentiment_gold_pool_meta.json``) and read
+back by the next run, which stops if the extractor, the tagged bodies or the model revisions differ;
 ``--pool-only`` scores it and prints the sizes without drawing, to see a short stratum before the
 draw day. A stratum with fewer texts than the draw takes is drawn whole (owner, D34): the others are
 unchanged, and the real counts are in the ids file and the report.
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import sys
@@ -67,6 +69,7 @@ IDS_NAME = "sentiment_gold_ids.csv"
 TO_TAG_NAME = "sentiment_gold_to_tag.csv"
 POOL_NAME = "sentiment_gold_pool.json"
 POOL_CSV_NAME = "sentiment_gold_pool.csv"
+POOL_META_NAME = "sentiment_gold_pool_meta.json"
 CACHE_DIR = "sentiment_gold"
 GOLD = Path("gold/category_gold_v2.csv")
 CONFIG = Path("config/pipeline_models.json")
@@ -281,12 +284,41 @@ def part_of(text: dict[str, str]) -> str:
     return "extractor" if text["kind"] == "extractor_text" else "checked"
 
 
+def pool_conditions(extractor: str) -> dict[str, str]:
+    """What a scored pool depends on: who wrote the narrative multi texts, the tagged bodies (and
+    their scopes) it was built from, and the pinned summary and sentiment models (AI #1)."""
+    tags = sorted(
+        f"{r['article_id']}:{r['scope']}"
+        for r in extra._read(GOLD)
+        if r["scope"] and r["scope"] != "unrelated"
+    )
+    models = _models()
+    return {
+        "extractor": extractor,
+        "gold_bodies": hashlib.sha256("\n".join(tags).encode()).hexdigest()[:16],
+        **{
+            stage: f"{models[stage]['model']}@{models[stage]['revision']}"
+            for stage in ("sentiment", "c_summary")
+        },
+    }
+
+
 def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
     """The texts with the current model's label. Summaries and scoring are slow, so they are kept
-    in ``<out>/sentiment_gold_pool.csv`` (news text: git-ignored) and read back on the next run;
-    delete the file to score again (for instance once the trained extractor exists)."""
-    path = out / POOL_CSV_NAME
+    in ``<out>/sentiment_gold_pool.csv`` (news text: git-ignored) with the conditions they were
+    made under (``pool_conditions``) and read back on the next run. A run whose conditions differ
+    (another extractor, other tagged bodies, other model revisions) stops and names the difference:
+    delete both files to score again."""
+    path, meta_path = out / POOL_CSV_NAME, out / POOL_META_NAME
+    now = pool_conditions(extractor)
     if path.exists():
+        before = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+        differ = {k: (before.get(k), now[k]) for k in now if before.get(k) != now[k]}
+        if differ:
+            sys.exit(
+                f"{path} was scored under other conditions (kept, now): {differ}. Delete "
+                f"{path.name} and {meta_path.name} to score the pool again."
+            )
         print(f"{path} exists: the pool is not scored again")
         return extra._read(path)
     texts, skipped = build_texts(out, extractor)
@@ -301,6 +333,7 @@ def scored_pool(out: Path, extractor: str) -> list[dict[str, str]]:
         writer = csv.DictWriter(fh, fieldnames=list(POOL_FIELDS), extrasaction="ignore")
         writer.writeheader()
         writer.writerows(texts)
+    meta_path.write_text(json.dumps(now, indent=2), encoding="utf-8")
     return texts
 
 

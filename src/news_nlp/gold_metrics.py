@@ -68,12 +68,15 @@ def _bootstrap(
     statistic: Callable[[Mapping[str, list[Mapping[str, str]]]], float],
     seed: int,
     resamples: int,
+    fixed: frozenset[str] = frozenset(),
 ) -> Figure:
+    """Seeded percentile interval of *statistic*, resampling inside each stratum. A stratum in
+    *fixed* was drawn whole (a census): it has no sampling error and is not resampled."""
     point = statistic(strata)
     rng = random.Random(seed)  # noqa: S311 -- a reproducible interval, not security
     draws: list[float] = []
     for _ in range(resamples):
-        sample = {k: [rng.choice(v) for _ in v] for k, v in strata.items()}
+        sample = {k: v if k in fixed else [rng.choice(v) for _ in v] for k, v in strata.items()}
         value = statistic(sample)
         if not math.isnan(value):
             draws.append(value)
@@ -89,6 +92,7 @@ class SentimentReport:
     negative_recall: Figure
     raw_agreement: Figure  # not re-weighted: for comparison only
     drawn: dict[str, int]
+    census: tuple[str, ...] = ()  # strata drawn whole: held fixed in the bootstrap
 
 
 def sentiment_report(
@@ -105,7 +109,7 @@ def sentiment_report(
     r = stratified_report(
         rows, populations, label="negative", stratum_key=key, seed=seed, resamples=resamples
     )
-    return SentimentReport(r.agreement, r.precision, r.recall, r.raw_agreement, r.drawn)
+    return SentimentReport(r.agreement, r.precision, r.recall, r.raw_agreement, r.drawn, r.census)
 
 
 @dataclass(frozen=True)
@@ -116,6 +120,7 @@ class StratifiedReport:
     raw_agreement: Figure
     drawn: dict[str, int]
     gold_count: int  # rows the owner calls *label* in the sample (D33: under 40, not gated)
+    census: tuple[str, ...] = ()  # strata drawn whole (drawn >= population): not resampled
 
 
 def stratified_report(
@@ -129,7 +134,8 @@ def stratified_report(
 ) -> StratifiedReport:
     """Agreement and the precision / recall of *label* of a draw stratified on *stratum_key*, each
     row weighing ``population / drawn`` of its stratum; the intervals are a seeded bootstrap that
-    resamples inside each stratum. *rows* carry ``predicted`` and ``gold``."""
+    resamples inside each stratum, except a stratum drawn whole (a census: no sampling error there).
+    *rows* carry ``predicted`` and ``gold``."""
     strata: dict[str, list[Mapping[str, str]]] = {}
     for row in rows:
         strata.setdefault(row[stratum_key], []).append(row)
@@ -157,13 +163,15 @@ def stratified_report(
         return hit / actual if actual else math.nan
 
     raw = wilson(sum(r["gold"] == r["predicted"] for r in rows), len(rows))
+    census = frozenset(k for k, v in strata.items() if len(v) >= populations[k])
     return StratifiedReport(
-        agreement=_bootstrap(strata, agreement, seed, resamples),
-        precision=_bootstrap(strata, precision, seed + 1, resamples),
-        recall=_bootstrap(strata, recall, seed + 2, resamples),
+        agreement=_bootstrap(strata, agreement, seed, resamples, census),
+        precision=_bootstrap(strata, precision, seed + 1, resamples, census),
+        recall=_bootstrap(strata, recall, seed + 2, resamples, census),
         raw_agreement=raw,
         drawn={k: len(v) for k, v in strata.items()},
         gold_count=sum(r["gold"] == label for r in rows),
+        census=tuple(sorted(census)),
     )
 
 

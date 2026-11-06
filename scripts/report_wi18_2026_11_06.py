@@ -71,6 +71,8 @@ def scope_report(out: Path) -> list[str]:
         f"agreement, weighted to the corpus: {overall.agreement} "
         f"(raw {overall.raw_agreement}; bar {SCOPE_BAR:.0%} is the classifier's, reported here)"
     )
+    if overall.census:
+        lines.append(f"(census, not resampled: {list(overall.census)})")
     for scope in triage.GOLD_SCOPES:
         r = gold_metrics.stratified_report(rows, populations, label=scope, stratum_key="stratum")
         gated = r.gold_count >= MIN_GOLD
@@ -130,7 +132,8 @@ def _sentiment_block(
 ) -> list[str]:
     rep = gold_metrics.sentiment_report(rows, populations)
     return [
-        f"[{label}] drawn per stratum: {rep.drawn}",
+        f"[{label}] drawn per stratum: {rep.drawn}"
+        + (f" | (census, not resampled): {list(rep.census)}" if rep.census else ""),
         f"[{label}] overall agreement (weighted): {rep.agreement} -> "
         f"{rep.agreement.judge(AGREEMENT_BAR)} (raw {rep.raw_agreement})",
         f"[{label}] negative precision: {rep.negative_precision} -> "
@@ -336,6 +339,11 @@ def main() -> None:
         print("\n".join(COMMANDS[args.command](args.out)))
     except MarkedFileError as exc:
         sys.exit(str(exc))
+    except FileNotFoundError as exc:
+        sys.exit(
+            f"{exc.filename} not found: it is written by the draw script of that set "
+            "(scripts/draw_*; see the docstring of this script) or is the owner's tagged file"
+        )
 
 
 if __name__ == "__main__":

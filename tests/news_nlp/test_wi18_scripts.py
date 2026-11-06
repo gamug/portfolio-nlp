@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import csv
 import importlib.util
+import json
 import sqlite3
 import sys
 from collections import Counter
@@ -724,3 +725,53 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
         {"article_id": "1", "ticker": "U", "extractor": "skipper", "pub_date": "2023-01-01"}
     ]
     assert {i["ticker"] for i in items} == {"T", "U"}
+
+
+def test_a_scored_pool_is_refused_under_other_conditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    _csv(
+        tmp_path / SENTIMENT.POOL_CSV_NAME,
+        [{"article_id": "1", "kind": "summary", "predicted": "positive"}],
+    )
+    (tmp_path / SENTIMENT.POOL_META_NAME).write_text(
+        json.dumps(SENTIMENT.pool_conditions("baseline")), encoding="utf-8"
+    )
+    assert SENTIMENT.scored_pool(tmp_path, "baseline")[0]["kind"] == "summary"
+    with pytest.raises(SystemExit, match="other conditions"):
+        SENTIMENT.scored_pool(tmp_path, "model")
+    models["sentiment"]["revision"] = "r2"
+    config.write_text(json.dumps(models), encoding="utf-8")
+    with pytest.raises(SystemExit, match="sentiment"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+    (tmp_path / SENTIMENT.POOL_META_NAME).unlink()
+    with pytest.raises(SystemExit, match="other conditions"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+
+
+def test_the_report_names_the_missing_file_and_marks_a_census(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["report", "scope", "--out", str(tmp_path)])
+    with pytest.raises(SystemExit, match=r"heldout_to_tag\.csv not found"):
+        REPORT.main()
+    ids = [{"key": f"{i}#T", "predicted": "negative", "population": "3"} for i in range(3)]
+    tags = [
+        {
+            "article_id": str(i),
+            "ticker": "T",
+            "kind": "summary",
+            "sentiment": "negative",
+            "pub_date": "2023-01-01",
+        }
+        for i in range(3)
+    ]
+    _csv(tmp_path / "sentiment_gold_ids.csv", ids)
+    _csv(tmp_path / "sentiment_gold_to_tag.csv", tags)
+    assert "(census, not resampled" in "\n".join(REPORT.sentiment_report(tmp_path))

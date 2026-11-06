@@ -1110,7 +1110,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       measured figures (rules' scope agreement on the held-out 200, extractor faithfulness, sentiment
       agreement on the 180) next to it. **Schedule (owner, 2026-11-06):**
       - *11-07:* the baseline (done) and the exports: the label check (200 paragraphs, translation with `--yes`)
-        and, from the baseline, the faithfulness file; T-148a code (the summary run over the window's non-multi
+        and, from the baseline, the faithfulness file, and `draw_sentiment_gold --pool-only` (scores the pool and shows a short stratum four days before the draw; D34 (d)); T-148a code (the summary run over the window's non-multi
         bodies, scope from the rules) and its start in the evening (about 7 GPU hours overnight; it does not
         depend on the tagging; wasted only on a no-go); the T-153 reply is drafted for the owner.
       - *11-07 to 11-08:* the owner tags the label check first, then the held-out 200.

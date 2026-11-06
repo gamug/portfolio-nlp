@@ -214,3 +214,24 @@ def test_the_guards_name_duplicate_and_missing_rows() -> None:
     with pytest.raises(MarkedFileError, match=r"2 rows of the draw are not in the tagged file"):
         gold_metrics.require_same_keys(["a"], ["a", "b", "c"], "f.csv")
     gold_metrics.require_same_keys(["a", "b"], ["a", "b"], "f.csv")
+
+
+def test_a_stratum_drawn_whole_is_not_resampled() -> None:
+    rows = [{"predicted": "negative", "gold": "negative", "stratum": "a"} for _ in range(5)]
+    rows += [
+        {"predicted": "neutral", "gold": "neutral" if i % 2 else "negative", "stratum": "b"}
+        for i in range(10)
+    ]
+    whole = gold_metrics.stratified_report(
+        rows, {"a": 5, "b": 100}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert whole.census == ("a",)
+    sampled = gold_metrics.stratified_report(
+        rows, {"a": 50, "b": 100}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert sampled.census == ()
+    # with every stratum drawn whole there is no sampling error at all
+    every = gold_metrics.stratified_report(
+        rows, {"a": 5, "b": 10}, label="negative", stratum_key="stratum", resamples=300
+    )
+    assert every.agreement.low == every.agreement.high == every.agreement.point
