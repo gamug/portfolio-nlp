@@ -53,7 +53,6 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
-from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -142,11 +141,14 @@ def subject_of(row: dict[str, str], book: NameBook, names: dict[str, str]) -> tu
     return "", SUBJECT[scope]
 
 
-def code_revision(module: ModuleType) -> str:
-    """A version of code that is not pinned like a model: 12 hex digits of the SHA-256 of the
-    module's source file. It changes whenever the module does, so a mark made on a text written by
-    one version is never read as made on another."""
-    return hashlib.sha256(Path(str(module.__file__)).read_bytes()).hexdigest()[:12]
+def text_revision(kind: str, extractor: str, summariser: dict[str, str]) -> str:
+    """How a text was made, for the ``revision`` column: the summariser ``model@revision``, the
+    parser's, or the extractor's (``retag.code_revision`` of the code it runs)."""
+    if kind == "summary":
+        return f"{summariser['model']}@{summariser['revision']}"
+    if kind == "extractor_text":
+        return retag.extractor_revision(extractor)
+    return retag.parser_revision()
 
 
 def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counter[str]]:
@@ -159,8 +161,6 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
     to_summarise: list[tuple[dict[str, str], str]] = []
     skipped = Counter()
     summariser = _models()["c_summary"]
-    parser_revision = code_revision(company_texts)
-    extractor_revision = f"extractor:{extractor}@{code_revision(attribution_baseline)}"
     for row in tagged_bodies(out):
         src = conn.execute(
             "SELECT title, body_text FROM source.articles WHERE id = ?", (int(row["article_id"]),)
@@ -174,7 +174,7 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
                     {
                         **base,
                         "kind": "summary",
-                        "revision": f"{summariser['model']}@{summariser['revision']}",
+                        "revision": text_revision("summary", extractor, summariser),
                         "ticker": ticker,
                         "company": company,
                     },
@@ -199,9 +199,7 @@ def build_texts(out: Path, extractor: str) -> tuple[list[dict[str, str]], Counte
                             **base,
                             "kind": kind,
                             "extractor": extractor if kind == "extractor_text" else "",
-                            "revision": extractor_revision
-                            if kind == "extractor_text"
-                            else f"company_texts@{parser_revision}",
+                            "revision": text_revision(kind, extractor, summariser),
                             "ticker": ticker,
                             "company": names.get(ticker, ticker),
                             "text": text,
@@ -320,6 +318,8 @@ def pool_conditions(extractor: str) -> dict[str, str]:
     return {
         "extractor": extractor,
         "gold_bodies": hashlib.sha256("\n".join(tags).encode()).hexdigest()[:16],
+        "parser": retag.parser_revision(),
+        "extractor_code": retag.extractor_revision(extractor),
         **{
             stage: f"{models[stage]['model']}@{models[stage]['revision']}"
             for stage in ("sentiment", "c_summary")

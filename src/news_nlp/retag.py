@@ -18,6 +18,7 @@ names the owner typed are converted first by :mod:`news_nlp.company_names` (``no
 from __future__ import annotations
 
 import csv
+import functools
 import hashlib
 import io
 import random
@@ -26,6 +27,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 
 from news_nlp.company_names import split_list
 from news_nlp.gics_codes import SUB_INDUSTRY_CODES
@@ -669,6 +671,38 @@ GOLD_COLUMNS = (
 TEST_GOLD_COLUMNS = (*GOLD_COLUMNS, "stratum", "frame")
 
 
+def code_revision(*modules: ModuleType) -> str:
+    """A version of code that is not pinned like a model: 12 hex digits of the SHA-256 of the source
+    of the given modules (by module name, so the order does not matter). It changes whenever one of
+    them is edited, so a mark made on a text written by one version is not read as made on another.
+    It covers the code of those modules only, not the company universe or the data they read."""
+    digest = hashlib.sha256()
+    for module in sorted(modules, key=lambda m: m.__name__):
+        digest.update(module.__name__.encode() + b"\0")
+        digest.update(Path(str(module.__file__)).read_bytes())
+    return digest.hexdigest()[:12]
+
+
+@functools.cache
+def parser_revision() -> str:
+    """The revision of the one-segment-per-company parser (``company_texts``) and what it uses."""
+    from news_nlp import company_texts, triage  # noqa: PLC0415 -- only a draw needs the modules
+
+    return f"company_texts@{code_revision(company_texts, triage)}"
+
+
+@functools.cache
+def extractor_revision(name: str) -> str:
+    """The revision of the extractor *name* that writes the company texts of narrative bodies. Only
+    the baseline exists; the trained model (T-148b3) will be ``name@<checkpoint revision>``."""
+    if name != "baseline":
+        raise ValueError(f"no extractor {name!r}: only 'baseline' exists until T-148b3")
+    import chunking  # noqa: PLC0415 -- only a draw needs the modules
+    from news_nlp import attribution_baseline, triage  # noqa: PLC0415
+
+    return f"extractor:baseline@{code_revision(attribution_baseline, triage, chunking)}"
+
+
 def text_hash(text: str) -> str:
     """The identity of a text a mark belongs to: SHA-256 (hex) of the text with the outer
     whitespace stripped, UTF-8. Computed once by the draw and written to its ids file; a gold
@@ -701,6 +735,7 @@ FAITHFULNESS_GOLD_COLUMNS = (
     "ticker",
     "text_hash",
     "extractors",
+    "revisions",
     "pub_date",
     "faithful",
     "notes",

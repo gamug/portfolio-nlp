@@ -6,8 +6,10 @@ import ast
 import csv
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
+import types
 from collections import Counter
 from pathlib import Path
 from types import ModuleType
@@ -737,6 +739,7 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _source(monkeypatch, {1: "Body."})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@abc")
     monkeypatch.setitem(FAITH.EXTRACTORS, "skipper", lambda body, resolver: {"T": "Text of T."})
     monkeypatch.setitem(
         FAITH.EXTRACTORS, "writer", lambda body, resolver: {"T": "Text of T.", "U": "Text of U."}
@@ -750,11 +753,16 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
         {"article_id": "1", "ticker": "U", "extractor": "skipper", "pub_date": "2023-01-01"}
     ]
     assert {i["ticker"] for i in items} == {"T", "U"}
+    assert {i["revisions"] for i in items} == {
+        "extractor:skipper@abc|extractor:writer@abc",
+        "extractor:writer@abc",
+    }
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(retag, "extractor_revision", lambda name: f"extractor:{name}@abc")
     _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
     config = tmp_path / "models.json"
     models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
@@ -975,18 +983,68 @@ def test_a_scored_pool_read_back_keeps_the_revision_of_each_text(
     assert again[0]["revision"] == "org/c_summary@r1"
 
 
-def test_a_code_revision_changes_with_the_module_and_is_twelve_digits(tmp_path: Path) -> None:
-    import types  # noqa: PLC0415
+def _fake_module(tmp_path: Path, name: str, source: str) -> types.ModuleType:
+    path = tmp_path / f"{name}.py"
+    path.write_text(source, encoding="utf-8")
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    return module
 
-    one = tmp_path / "one.py"
-    one.write_text("A = 1\n", encoding="utf-8")
-    module = types.ModuleType("one")
-    module.__file__ = str(one)
-    first = SENTIMENT.code_revision(module)
-    assert len(first) == 12 and first == SENTIMENT.code_revision(module)
-    one.write_text("A = 2\n", encoding="utf-8")
-    assert SENTIMENT.code_revision(module) != first
-    assert SENTIMENT.code_revision(SENTIMENT.attribution_baseline) != first
+
+def test_a_code_revision_is_stable_ignores_order_and_changes_with_any_module(
+    tmp_path: Path,
+) -> None:
+    one = _fake_module(tmp_path, "one", "A = 1\n")
+    two = _fake_module(tmp_path, "two", "B = 1\n")
+    first = retag.code_revision(one, two)
+    assert len(first) == 12 and first == retag.code_revision(one, two)
+    assert first == retag.code_revision(two, one)  # by module name, not by position
+    Path(str(two.__file__)).write_text("B = 2\n", encoding="utf-8")  # a dependency changes
+    assert retag.code_revision(one, two) != first
+    assert retag.code_revision(one) != retag.code_revision(one, two)
+
+
+def test_the_real_revisions_are_stable_and_twelve_hex_digits() -> None:
+    for value in (retag.parser_revision(), retag.extractor_revision("baseline")):
+        assert re.fullmatch(r"(company_texts|extractor:baseline)@[0-9a-f]{12}", value)
+    assert retag.parser_revision() == retag.parser_revision()
+    with pytest.raises(ValueError, match="only 'baseline' exists"):
+        retag.extractor_revision("model")
+
+
+def test_each_kind_of_sentiment_text_names_how_it_was_made() -> None:
+    summariser = {"model": "org/sum", "revision": "r9"}
+    assert SENTIMENT.text_revision("summary", "baseline", summariser) == "org/sum@r9"
+    assert (
+        SENTIMENT.text_revision("company_text", "baseline", summariser) == retag.parser_revision()
+    )
+    assert SENTIMENT.text_revision(
+        "extractor_text", "baseline", summariser
+    ) == retag.extractor_revision("baseline")
+
+
+def test_a_pool_scored_under_other_code_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "gold.csv", [{"article_id": "1", "scope": "multi"}])
+    config = tmp_path / "models.json"
+    models = {s: {"model": f"org/{s}", "revision": "r1"} for s in ("sentiment", "c_summary", "ner")}
+    config.write_text(json.dumps(models), encoding="utf-8")
+    monkeypatch.setattr(SENTIMENT, "GOLD", tmp_path / "gold.csv")
+    monkeypatch.setattr(SENTIMENT, "CONFIG", config)
+    _csv(tmp_path / SENTIMENT.POOL_CSV_NAME, [{"article_id": "1", "kind": "summary"}])
+    (tmp_path / SENTIMENT.POOL_META_NAME).write_text(
+        json.dumps(SENTIMENT.pool_conditions("baseline")), encoding="utf-8"
+    )
+    assert SENTIMENT.scored_pool(tmp_path, "baseline")  # same code: read back
+    monkeypatch.setattr(retag, "parser_revision", lambda: "company_texts@000000000000")
+    with pytest.raises(SystemExit, match="parser"):
+        SENTIMENT.scored_pool(tmp_path, "baseline")
+
+
+def test_the_faithfulness_ids_and_gold_carry_the_revision_of_each_extractor() -> None:
+    assert "revisions" in FAITH.IDS_FIELDS
+    assert "revisions" in retag.FAITHFULNESS_GOLD_COLUMNS
 
 
 def test_the_label_check_gold_keeps_the_year_for_the_2022_split() -> None:

@@ -57,10 +57,12 @@ IDS_FIELDS = (
     "ticker",
     "text_hash",
     "extractors",
+    "revisions",
     "pub_date",
 )
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
+extractor_revision = retag.extractor_revision  # a model extractor will bring its own (T-148b3)
 
 
 def draw_bodies(candidates: list[dict[str, str]], n: int, seed: int) -> list[dict[str, str]]:
@@ -145,6 +147,7 @@ def collect_items(
                         "ticker": ticker,
                         "text_hash": retag.text_hash(text[: extra.TEXT_CAP]),
                         "extractors": "|".join(extractors),
+                        "revisions": "|".join(extractor_revision(e) for e in extractors),
                         "title": src["title"] or "",
                         "text": text[: extra.TEXT_CAP],
                         "pub_date": src["pub_date"] or "",
