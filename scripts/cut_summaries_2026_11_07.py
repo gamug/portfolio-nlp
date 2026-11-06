@@ -35,8 +35,12 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
   refused; ``--accept-new-spans`` resumes and keeps the chunks made (every row carries ``spans``),
   recording the old value in the manifest. ``--break-lock`` removes ``run.lock`` first (a pid reused
   after a restart).
-* A row's ``status`` is ``summarised``, ``no_summary_by_scope`` or ``summary_empty`` (a body whose
-  scope asks for a summary that came back empty twice: never silent, counted by ``--status``).
+* A row's ``status`` is ``summarised``, ``no_summary_by_scope``, ``summary_empty`` (a summary that
+  came back empty twice) or ``summary_failed`` (the model raised for that body alone; ``error`` says
+  what): never silent, counted by ``--status``. One bad body never stops the job. The chunk file is
+  fsynced before its name appears, and a chunk with a missing summary and no such status is refused.
+* The manifest also holds the torch / transformers versions and the device; a change refuses, and
+  ``--accept-environment-change`` keeps the chunks made.
 * ``read_cut_summaries(out)`` is the one way to read a cut (manifest, pinned summariser, index and
   chunks all checked). Columns: ``body_hash``, ``article_ids``, ``rule_scope``, ``gold_scope``,
   ``spans``, ``status``, ``summary``, ``num_chunks``.
@@ -53,6 +57,7 @@ import argparse
 import contextlib
 import csv
 import hashlib
+import importlib.metadata
 import json
 import os
 import signal
@@ -84,9 +89,15 @@ CHUNK_FIELDS = (
     "status",
     "summary",
     "num_chunks",
+    "error",
 )
 #: ``status`` of a row: what became of its summary.
-SUMMARISED, BY_SCOPE, EMPTY = "summarised", "no_summary_by_scope", "summary_empty"
+SUMMARISED, BY_SCOPE, EMPTY, FAILED = (
+    "summarised",
+    "no_summary_by_scope",
+    "summary_empty",
+    "summary_failed",
+)
 #: Keys of the manifest that are bookkeeping, not conditions of the job.
 BOOKKEEPING = ("ner_newest_id", "ner_spans_history")
 LOCK_NAME = "run.lock"
@@ -130,7 +141,15 @@ def atomic_write(path: Path, fields: Sequence[str], rows: Iterable[Row]) -> None
         writer = csv.DictWriter(fh, fieldnames=list(fields), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
+        fh.flush()
+        os.fsync(fh.fileno())  # the content is on disk before the name appears
     os.replace(tmp, path)
+    with contextlib.suppress(OSError):  # a directory cannot be synced on every file system
+        dir_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 def read_rows(path: Path) -> list[Row]:
@@ -159,6 +178,15 @@ def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
+def environment() -> str:
+    """The versions and device the summaries are made with: beam search over padded batches can
+    differ between GPU and CPU and between releases, so a change is a condition of the job."""
+    import torch  # noqa: PLC0415 -- only to read the device
+
+    versions = ", ".join(f"{p} {importlib.metadata.version(p)}" for p in ("torch", "transformers"))
+    return f"{versions}, {'cuda' if torch.cuda.is_available() else 'cpu'}"
+
+
 def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dict[str, Any]:
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
     return {
@@ -169,6 +197,7 @@ def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dic
         "index": file_digest(index_path),
         "rules": retag.code_revision(triage, size_triage),
         "ner_spans": entities,
+        "environment": environment(),
     }
 
 
@@ -190,13 +219,16 @@ def check_manifest(
     newest: str = "",
     *,
     accept_new_spans: bool = False,
+    accept_environment_change: bool = False,
     chunks_done: int = 0,
 ) -> None:
     """Write the manifest of a new job, or stop when an existing job was made under other
     conditions. ``ner_newest_id`` moves when NER works on other articles and is refreshed, not
-    compared. If only the window's NER spans changed, ``accept_new_spans`` keeps the chunks already
-    made (their rows carry ``spans``) and records the old value and how many chunks were made under
-    it in ``ner_spans_history``; every other change refuses (summaries of two kinds in one cut)."""
+    compared. Two conditions may be accepted by the owner, and only when nothing else changed: the
+    window's NER spans (D25 runs NER on the window) and the environment (versions, device). The
+    chunks made are kept (every row carries ``spans``), and the old value and how many chunks were
+    made under it go to ``ner_spans_history``; every other change refuses (summaries of two kinds
+    in one cut)."""
     if not path.exists():
         path.write_text(json.dumps({**now, "ner_newest_id": newest}, indent=2), encoding="utf-8")
         return
@@ -205,16 +237,27 @@ def check_manifest(
     core = {k: v for k, v in before.items() if k not in BOOKKEEPING}
     if core != now:
         changed = {k: (core.get(k), now.get(k)) for k in now if core.get(k) != now.get(k)}
-        if accept_new_spans and set(changed) == {"ner_spans"}:
+        allowed = {
+            key
+            for key, ok in (
+                ("ner_spans", accept_new_spans),
+                ("environment", accept_environment_change),
+            )
+            if ok
+        }
+        if set(changed) <= allowed:
             history = [
                 *history,
-                {"ner_spans": core["ner_spans"], "chunks_made_under_it": chunks_done},
+                {**{k: core.get(k) for k in changed}, "chunks_made_under_it": chunks_done},
             ]
         else:
+            flags = {
+                "ner_spans": "--accept-new-spans",
+                "environment": "--accept-environment-change",
+            }
             hint = (
-                " The NER spans of the window changed: --accept-new-spans keeps the chunks made "
-                "and records the change."
-                if set(changed) == {"ner_spans"}
+                f" Only {' and '.join(flags[k] for k in changed)} would keep the chunks made."
+                if set(changed) <= set(flags)
                 else ""
             )
             sys.exit(
@@ -229,6 +272,15 @@ def check_manifest(
     )
 
 
+def row_is_sound(row: Row) -> bool:
+    """A row whose scope asks for a summary has one, or says why not; any other row has none."""
+    if row["rule_scope"] in SUMMARY_RULE_SCOPES:
+        if row["status"] == SUMMARISED:
+            return bool(row["summary"])
+        return row["status"] in (EMPTY, FAILED)
+    return row["status"] == BY_SCOPE and not row["summary"]
+
+
 def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
     """The numbers (from 1) of the chunks already written; stops if one is not its slice of the
     index."""
@@ -237,9 +289,16 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
         path = out / chunk_name(number)
         if not path.exists():
             continue
-        found = [r["body_hash"] for r in read_rows(path)]
-        if found != [r["body_hash"] for r in part]:
+        rows = read_rows(path)
+        if [r["body_hash"] for r in rows] != [r["body_hash"] for r in part]:
             sys.exit(f"{path} does not hold the bodies of its slice of {INDEX_NAME}: look at it")
+        broken = [r["body_hash"] for r in rows if not row_is_sound(r)]
+        if broken:
+            sys.exit(
+                f"{path}: {len(broken)} rows are not sound (a summary missing without "
+                f"{EMPTY} / {FAILED}, or a summary on a scope that gets none; first {broken[0]}): "
+                "the file is damaged; delete it to make the chunk again"
+            )
         done.add(number)
     return done
 
@@ -343,12 +402,14 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
     summarised = 0
     no_spans = 0
     empty = 0
+    failed = 0
     for number in done:
         for r in read_rows(out / chunk_name(number)):
             scopes[r["rule_scope"]] += 1
             summarised += bool(r["summary"])
             no_spans += r["spans"] == "0"
             empty += r["status"] == EMPTY
+            failed += r["status"] == FAILED
     bodies = sum(len(parts[n - 1]) for n in done)
     return [
         f"{len(done)} of {len(parts)} chunks done ({bodies:,} of {sum(map(len, parts)):,} bodies)",
@@ -356,7 +417,7 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
         f"summaries so far: {summarised:,}; without a summary by design (rules' scope): "
         f"{ {k: v for k, v in scopes.items() if k not in SUMMARY_RULE_SCOPES} }",
         f"bodies with no stored NER span (scope read from the text alone): {no_spans:,}",
-        f"rows whose scope asks for a summary but came back empty: {empty:,}",
+        f"rows whose scope asks for a summary but came back empty: {empty:,}; failed: {failed:,}",
     ]
 
 
@@ -374,20 +435,37 @@ def load_summariser() -> Summariser:
     print(f"summariser {cfg['model']}@{cfg['revision'][:8]} on {device.type}", flush=True)
 
     def summarise(texts: list[str]) -> list[tuple[str, int]]:
-        return hierarchical_summarize_batch(
-            texts, tokenizer, model, device, batch_size=int(cfg["batch_size"])
-        )
+        try:
+            return hierarchical_summarize_batch(
+                texts, tokenizer, model, device, batch_size=int(cfg["batch_size"])
+            )
+        except RuntimeError:  # an out-of-memory leaves blocks cached: free them for the retry
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
+            raise
 
     return summarise
 
 
-def summarise_with_retry(summarise: Summariser, texts: list[str]) -> list[tuple[str, int]]:
-    """Summarise *texts*; the ones that come back empty are tried once more together."""
-    done = summarise(texts)
-    again = [i for i, (summary, _) in enumerate(done) if not summary]
+def summarise_with_retry(summarise: Summariser, texts: list[str]) -> list[tuple[str, int, str]]:
+    """Summarise *texts*; returns ``(summary, leaf chunks, error)`` for each. The ones that come
+    back empty are tried once more together. If the model raises for the batch, every text is tried
+    on its own, so one bad body costs only itself: it gets an empty summary and the error text
+    (``Exception`` only: a Ctrl-C or ``sys.exit`` is never swallowed)."""
+    try:
+        done = [(s, n, "") for s, n in summarise(texts)]
+    except Exception:
+        done = []
+        for text in texts:
+            try:
+                ((summary, n),) = summarise([text])
+                done.append((summary, n, ""))
+            except Exception as exc:
+                done.append(("", 0, f"{type(exc).__name__}: {str(exc)[:160]}"))
+    again = [i for i, (summary, _, error) in enumerate(done) if not summary and not error]
     if again:
-        for i, result in zip(again, summarise([texts[i] for i in again]), strict=True):
-            done[i] = result
+        for i, (summary, n) in zip(again, summarise([texts[i] for i in again]), strict=True):
+            done[i] = (summary, n, "")
     return done
 
 
@@ -424,6 +502,7 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
                     "status": SUMMARISED if scope.scope in SUMMARY_RULE_SCOPES else BY_SCOPE,
                     "summary": "",
                     "num_chunks": "",
+                    "error": "",
                 }
             )
             if scope.scope in SUMMARY_RULE_SCOPES:
@@ -434,11 +513,14 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
             if "run" not in state:
                 state["run"] = load_summariser()
             done = summarise_with_retry(state["run"], [text for _, text in to_summarise])
-            for (position, _), (summary, n_chunks) in zip(to_summarise, done, strict=True):
+            for (position, _), (summary, n_chunks, error) in zip(to_summarise, done, strict=True):
                 rows[position]["summary"] = summary
-                rows[position]["num_chunks"] = str(n_chunks)
-                if not summary:
-                    rows[position]["status"] = EMPTY  # never silent: counted by --status
+                rows[position]["num_chunks"] = str(n_chunks) if summary else ""
+                rows[position]["error"] = error
+                if error:
+                    rows[position]["status"] = FAILED  # never silent: counted by --status
+                elif not summary:
+                    rows[position]["status"] = EMPTY
         return rows
 
     return process
@@ -545,6 +627,11 @@ def main() -> None:
         help="resume although the window's stored NER spans changed (the old chunks are kept)",
     )
     parser.add_argument(
+        "--accept-environment-change",
+        action="store_true",
+        help="resume although torch / transformers / the device changed (the chunks are kept)",
+    )
+    parser.add_argument(
         "--break-lock",
         action="store_true",
         help="remove run.lock first (a pid reused after a restart)",
@@ -562,6 +649,7 @@ def main() -> None:
         conditions(args, index_path, entities),
         newest,
         accept_new_spans=args.accept_new_spans,
+        accept_environment_change=args.accept_environment_change,
         chunks_done=len(done_chunks(out, parts)),
     )
     if args.status:

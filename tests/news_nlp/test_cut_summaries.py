@@ -29,6 +29,12 @@ def _script(name: str) -> ModuleType:
 CUT = _script("cut_summaries_2026_11_07")
 
 
+@pytest.fixture(autouse=True)
+def _fixed_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The versions and device are read from the machine; the tests fix them."""
+    monkeypatch.setattr(CUT, "environment", lambda: "torch 1, transformers 1, cuda")
+
+
 def _index(n: int) -> list[dict[str, str]]:
     return [{"body_hash": f"h{i}", "article_ids": str(i)} for i in range(n)]
 
@@ -42,8 +48,10 @@ def _processor(calls: list[str]) -> Callable[[Sequence[dict[str, str]]], list[di
                 "article_ids": r["article_ids"],
                 "rule_scope": "single",
                 "gold_scope": "single",
+                "status": CUT.SUMMARISED,
                 "summary": f"summary of {r['body_hash']}",
                 "num_chunks": "1",
+                "error": "",
             }
             for r in part
         ]
@@ -330,7 +338,7 @@ def test_an_empty_summary_is_retried_once_and_then_marked_never_silent(
         calls.append(texts)
         return [("" if t.endswith("bad") and len(calls) == 1 else "ok", 1) for t in texts]
 
-    assert CUT.summarise_with_retry(flaky, ["a", "b bad"]) == [("ok", 1), ("ok", 1)]
+    assert CUT.summarise_with_retry(flaky, ["a", "b bad"]) == [("ok", 1, ""), ("ok", 1, "")]
     assert calls == [["a", "b bad"], ["b bad"]]
     process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
     monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
@@ -370,3 +378,141 @@ def test_read_cut_summaries_checks_the_cut_before_it_returns_rows(
         CUT.read_cut_summaries(tmp_path, allow_partial=True)
     with pytest.raises(CUT.CutSummariesError, match="not found"):
         CUT.read_cut_summaries(tmp_path / "nowhere")
+
+
+def test_one_bad_body_costs_only_itself_and_is_recorded() -> None:
+    def breaks_on_one(texts: list[str]) -> list[tuple[str, int]]:
+        if any("poison" in x for x in texts):
+            raise RuntimeError("CUDA out of memory " + "x" * 400)
+        return [("ok", 1) for _ in texts]
+
+    done = CUT.summarise_with_retry(breaks_on_one, ["a", "poison body", "b"])
+    assert [d[0] for d in done] == ["ok", "", "ok"]  # the good ones survive the bad batch
+    assert done[1][2].startswith("RuntimeError: CUDA out of memory") and len(done[1][2]) < 200
+
+    def stops(_t: list[str]) -> list[tuple[str, int]]:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):  # a Ctrl-C is never swallowed as a body error
+        CUT.summarise_with_retry(stops, ["a"])
+
+
+def test_a_failed_body_is_written_marked_and_counted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    body = "Acme rose."
+    process, _ = _processor_under_test(monkeypatch, "single", body)
+
+    def always_raises(_texts: list[str]) -> list[tuple[str, int]]:
+        raise RuntimeError("tokenizer error")
+
+    monkeypatch.setattr(CUT, "load_summariser", lambda: always_raises)
+    entry = {"body_hash": triage.body_hash(body), "article_ids": "1"}
+    [row] = process([entry])
+    assert (row["status"], row["summary"], row["error"]) == (
+        CUT.FAILED,
+        "",
+        "RuntimeError: tokenizer error",
+    )
+    parts = [[entry]]
+    CUT.run_chunks(tmp_path, parts, lambda _p: [row], log=lambda _m: None)  # the chunk is written
+    assert any("failed: 1" in line for line in CUT.status(tmp_path, parts))
+
+
+def test_a_chunk_with_a_missing_summary_and_no_reason_is_refused(tmp_path: Path) -> None:
+    parts = CUT.slices(_index(2), 2)
+    CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None)
+    rows = CUT.read_rows(tmp_path / "chunk_00001.csv")
+    rows[1]["summary"] = ""  # the right hashes, but an empty summary that says it is fine
+    CUT.atomic_write(tmp_path / "chunk_00001.csv", CUT.CHUNK_FIELDS, rows)
+    with pytest.raises(SystemExit, match="not sound"):
+        CUT.done_chunks(tmp_path, parts)
+    rows[1]["status"] = CUT.EMPTY  # the same row, honestly marked
+    CUT.atomic_write(tmp_path / "chunk_00001.csv", CUT.CHUNK_FIELDS, rows)
+    assert CUT.done_chunks(tmp_path, parts) == {1}
+
+
+def test_a_chunk_file_is_synced_before_its_name_appears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[int] = []
+    monkeypatch.setattr(CUT.os, "fsync", synced.append)
+    CUT.atomic_write(tmp_path / "chunk_00001.csv", CUT.CHUNK_FIELDS, [])
+    assert len(synced) == 2  # the file, then its directory
+
+
+def test_a_changed_environment_is_refused_unless_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    now = {"environment": "torch 2, transformers 4, cuda", "summariser": "m@r"}
+    CUT.check_manifest(path, now, "1")
+    cpu = {**now, "environment": "torch 2, transformers 4, cpu"}
+    with pytest.raises(SystemExit, match="--accept-environment-change"):
+        CUT.check_manifest(path, cpu, "1")
+    with pytest.raises(SystemExit, match="other conditions"):  # the other flag does not help
+        CUT.check_manifest(path, cpu, "1", accept_new_spans=True)
+    CUT.check_manifest(path, cpu, "1", accept_environment_change=True, chunks_done=4)
+    history = json.loads(path.read_text(encoding="utf-8"))["ner_spans_history"]
+    assert history == [{"environment": "torch 2, transformers 4, cuda", "chunks_made_under_it": 4}]
+
+
+def _wired_main(
+    monkeypatch: pytest.MonkeyPatch, out: Path, *flags: str, spans: str = "1:1"
+) -> list[str]:
+    """``main()`` with the database, the index and the processor replaced; returns the calls."""
+    calls: list[str] = []
+    monkeypatch.setattr(CUT.db, "connect_pipeline", object)
+
+    def fake_index(_conn: object, path: Path, _since: str) -> list[dict[str, str]]:
+        CUT.atomic_write(path, CUT.INDEX_FIELDS, _index(5))
+        return _index(5)
+
+    monkeypatch.setattr(CUT, "load_or_build_index", fake_index)
+    monkeypatch.setattr(CUT, "entities_basis", lambda *_a: (spans, "7"))
+
+    def make(_conn: object) -> Callable[[Sequence[dict[str, str]]], list[dict[str, str]]]:
+        calls.append("make_processor")
+        return _processor(calls)
+
+    monkeypatch.setattr(CUT, "make_processor", make)
+    monkeypatch.setattr(sys, "argv", ["c", "--out", str(out), "--chunk-size", "2", *flags])
+    return calls
+
+
+def test_main_makes_chunks_and_releases_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _wired_main(monkeypatch, tmp_path, "--max-chunks", "2")
+    CUT.main()
+    assert sorted(p.name for p in tmp_path.glob("chunk_*")) == [
+        "chunk_00001.csv",
+        "chunk_00002.csv",
+    ]
+    assert not (tmp_path / CUT.LOCK_NAME).exists()
+    assert "2 chunks made in this run" in capsys.readouterr().out
+    assert calls.count("h0") == 1
+
+
+def test_main_status_loads_no_model_and_takes_no_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _wired_main(monkeypatch, tmp_path, "--status")
+    (tmp_path / CUT.LOCK_NAME).write_text("1", encoding="utf-8")  # another run is "in progress"
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)
+    CUT.main()  # --status is allowed while a run is in progress
+    assert "0 of 3 chunks done" in capsys.readouterr().out
+    assert calls == []  # make_processor was never called
+
+
+def test_main_passes_the_accept_flags_to_the_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1")
+    CUT.main()
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1", spans="9:9")
+    with pytest.raises(SystemExit, match="--accept-new-spans"):
+        CUT.main()
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1", "--accept-new-spans", spans="9:9")
+    CUT.main()
+    manifest = json.loads((tmp_path / CUT.MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["ner_spans"] == "9:9"
+    assert manifest["ner_spans_history"][0]["chunks_made_under_it"] == 1
