@@ -10,8 +10,9 @@ git (news text, public repository); read it back from the SOURCE store by ``arti
 file is rewritten from the two tagging files each time.
 
 ``--set test`` does the same for the held-out set: it reads ``data/heldout_to_tag.csv`` (the 200 the
-owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldout``). The set is
-fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
+owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldout``, with the draw's
+``stratum`` from ``data/heldout_ids.csv`` and ``population`` = the stratum's ``frame`` size from
+``data/heldout_strata.csv``, so a rate can be re-weighted from ``gold/`` alone). The set is fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
 test file.
 """
 
@@ -43,6 +44,11 @@ def fixed_ids(path: Path) -> set[str]:
         return set()
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return {r["article_id"] for r in csv.DictReader(fh)}
+
+
+def _read(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh))
 
 
 def main() -> None:
@@ -78,9 +84,19 @@ def main() -> None:
     fixed = fixed_ids(gold_path) if args.set == "test" else set()
     if fixed and {r["article_id"] for r in out_rows} != fixed:
         sys.exit(f"the tagged articles are not the {len(fixed)} fixed in {gold_path}")
+    columns = retag.GOLD_COLUMNS
+    if args.set == "test":
+        columns = retag.TEST_GOLD_COLUMNS
+        stratum_of = {r["article_id"]: r["stratum"] for r in _read(args.out / "heldout_ids.csv")}
+        frame = {r["stratum"]: r["frame"] for r in _read(args.out / "heldout_strata.csv")}
+        if missing := sorted({r["article_id"] for r in out_rows} - stratum_of.keys()):
+            sys.exit(f"heldout_ids.csv lacks the stratum of {missing[:5]}")
+        for r in out_rows:
+            r["stratum"] = stratum_of[r["article_id"]]
+            r["population"] = frame[r["stratum"]]  # D30: the size in the whole sample, not "free"
     gold_path.parent.mkdir(parents=True, exist_ok=True)
     with gold_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(retag.GOLD_COLUMNS), lineterminator="\n")
+        writer = csv.DictWriter(fh, fieldnames=list(columns), lineterminator="\n")
         writer.writeheader()
         writer.writerows(out_rows)
     print(f"{gold_path}: {len(out_rows)} rows")

@@ -391,6 +391,8 @@ def _build_test_set(
     gold = tmp_path / "category_gold_v2_test.csv"
     _csv(gold, [{"article_id": str(i), "session": "heldout"} for i in fixed])
     rows = [{"article_id": str(i), "ticker": "AAPL", "notes": ""} for i in tagged]
+    _csv(out / "heldout_ids.csv", [{"article_id": str(i), "stratum": "single"} for i in fixed])
+    _csv(out / "heldout_strata.csv", [{"stratum": "single", "frame": "514"}])
     monkeypatch.setattr(BUILD_GOLD.retag_cli, "load_universe", lambda: None)
     monkeypatch.setattr(retag, "read_tag_file", lambda _path: rows)
     report = retag.Report([_gold(i) for i in tagged], {}, 0, [], [], [])
@@ -420,6 +422,9 @@ def test_the_pull_of_the_test_set_writes_the_tags_of_exactly_the_fixed_articles(
         ("2", "heldout", "single"),
         ("3", "heldout", "single"),
     ]
+    assert tuple(written[0]) == retag.TEST_GOLD_COLUMNS
+    # the weight is the stratum's size in the whole sample (``frame``), so gold/ alone re-weights a rate
+    assert {(r["stratum"], r["population"]) for r in written} == {("single", "514")}
 
 
 def test_the_pull_of_the_test_set_refuses_other_articles_and_keeps_the_file(
@@ -785,3 +790,92 @@ def test_a_header_only_scaffold_is_not_the_owners_tagging_file(tmp_path: Path) -
     assert not extra.has_rows(path)  # the scaffold: columns, no rows
     _csv(path, [{"review_order": "1", "article_id": "7", "sentiment": ""}])
     assert extra.has_rows(path)  # one row is the owner's work, even untagged
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_the_committed_gold_files_have_the_columns_the_code_defines() -> None:
+    expected = {
+        "category_gold_v2.csv": retag.GOLD_COLUMNS,
+        "category_gold_v2_test.csv": retag.TEST_GOLD_COLUMNS,
+        "sentiment_gold.csv": retag.SENTIMENT_GOLD_COLUMNS,
+        "faithfulness_gold.csv": retag.FAITHFULNESS_GOLD_COLUMNS,
+        "segment_check_gold.csv": retag.SEGMENT_CHECK_GOLD_COLUMNS,
+    }
+    for name, columns in expected.items():
+        with (ROOT / "gold" / name).open(encoding="utf-8-sig", newline="") as fh:
+            assert tuple(next(csv.reader(fh))) == columns, name
+
+
+def test_the_scaffold_writes_the_draw_columns_and_never_touches_a_file(tmp_path: Path) -> None:
+    scaffold = _script("scaffold_gold_sets_2026_11_06")
+    out, gold = tmp_path / "data", tmp_path / "gold"
+    out.mkdir()
+    (out / "sentiment_gold_to_tag.csv").write_text("owner,work\n1,2\n", encoding="utf-8")
+    for work, work_cols, gold_name, gold_cols in scaffold.SETS.values():
+        for path, cols in ((out / work, work_cols), (gold / gold_name, gold_cols)):
+            scaffold.scaffold(path, cols)
+    assert (out / "sentiment_gold_to_tag.csv").read_text(encoding="utf-8") == "owner,work\n1,2\n"
+    with (out / "faithfulness_to_tag.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert tuple(next(csv.reader(fh))) == retag.FAITHFULNESS_COLUMNS
+    with (gold / "segment_check_gold.csv").open(encoding="utf-8-sig", newline="") as fh:
+        assert tuple(next(csv.reader(fh))) == retag.SEGMENT_CHECK_GOLD_COLUMNS
+
+
+class _Reached(Exception):
+    """The draw went past the check on the owner's file."""
+
+
+@pytest.mark.parametrize(
+    ("script", "step"),
+    [
+        ("draw_sentiment_gold_2026_11_05", "build_texts"),
+        ("draw_faithfulness_2026_11_06", "candidate_bodies"),
+        ("draw_segment_check_2026_11_05", "pick"),
+    ],
+)
+def test_a_draw_fills_a_header_only_file_and_stops_at_one_with_rows(
+    script: str, step: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _script(script)
+    names = {
+        "draw_sentiment_gold_2026_11_05": "sentiment_gold_to_tag.csv",
+        "draw_faithfulness_2026_11_06": "faithfulness_to_tag.csv",
+        "draw_segment_check_2026_11_05": "segment_check_to_tag.csv",
+    }
+    target = tmp_path / names[script]
+    if script == "draw_segment_check_2026_11_05":
+        _csv(tmp_path / "gold.csv", [{"article_id": "1", "split": "train", "kind": "lead"}])
+        monkeypatch.setattr(module, "GOLD", tmp_path / "gold.csv")
+    if script == "draw_faithfulness_2026_11_06":
+        monkeypatch.setattr(module.retag_cli, "companies", lambda: [])
+        monkeypatch.setattr(module, "CompanyResolver", lambda _u: None)
+
+    def reached(*_a: object, **_k: object) -> None:
+        raise _Reached
+
+    monkeypatch.setattr(module, step, reached)
+    argv = [script, "--out", str(tmp_path)]
+    if script == "draw_faithfulness_2026_11_06":
+        argv += ["--extractors", "baseline"]  # the model does not exist until T-148b3
+    monkeypatch.setattr(sys, "argv", argv)
+    target.write_text(",".join(retag.TAGGING_COLUMNS) + "\n", encoding="utf-8-sig")
+    with pytest.raises(_Reached):  # the scaffold is not the owner's work
+        module.main()
+    _csv(target, [{"article_id": "1", "scope": "single"}])
+    with pytest.raises(SystemExit, match="is your tagging file"):
+        module.main()
+
+
+def test_an_interrupted_write_leaves_the_target_untouched_and_no_temporary_file(
+    tmp_path: Path,
+) -> None:
+    extra = _script("draw_sector_extra_2026_11_05")
+    target = tmp_path / "x_to_tag.csv"
+    target.write_text("a\n1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not in fieldnames"):  # the second row has another key
+        extra._write(target, [{"a": "2"}, {"b": "bad key"}])
+    assert target.read_text(encoding="utf-8") == "a\n1\n"
+    assert not list(tmp_path.glob("*.tmp"))

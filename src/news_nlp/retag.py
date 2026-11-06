@@ -662,6 +662,47 @@ GOLD_COLUMNS = (
 )
 
 
+#: The held-out gold also carries the weight of its draw (``stratum``, and ``population``: the size of
+#: that stratum in the whole corpus sample), so a rate can be re-weighted from ``gold/`` alone.
+TEST_GOLD_COLUMNS = (*GOLD_COLUMNS, "stratum", "population")
+
+#: The tracked files of the sets that are not scope tags (``docs/gold_datasets.md``): the owner's
+#: marks and the ids of the draw, never the text. The draw's weights travel with each row, so the
+#: figures of D32 can be computed from ``gold/`` alone.
+SENTIMENT_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "ticker",
+    "kind",
+    "part",
+    "stratum",
+    "extractor",
+    "predicted",
+    "population",
+    "sentiment",
+    "notes",
+)
+FAITHFULNESS_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "ticker",
+    "text_hash",
+    "extractors",
+    "pub_date",
+    "faithful",
+    "notes",
+)
+SEGMENT_CHECK_GOLD_COLUMNS = (
+    "key",
+    "article_id",
+    "segment_index",
+    "ticker",
+    "kind",
+    "correct",
+    "notes",
+)
+
+
 def gold_file_rows(
     sessions: Mapping[str, Sequence[Mapping[str, str]]], golds: Mapping[str, Sequence[Gold]]
 ) -> list[dict[str, str]]:

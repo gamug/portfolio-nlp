@@ -1101,6 +1101,14 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       separates analysed from mention-only, D23), question 6 (running the pipeline on a SOURCE they provide: not yet; the cut covers the stored corpus, which ends 2026-08-12, and the bodies they add are not in it), question 8 (the agreement figures travel with the output and are in `PLAN.md` D32), `pub_date` formats (24 and 20 characters and empty, UTC not yet checked),
       the backtest cut (T-154: provisional, delivered about 2026-11-16 if the 2026-11-12 go/no-go holds) and the latest date their runs can use, and the final tables once T-152 is approved. Written for the owner's approval; nothing is sent.
 
+- [ ] **T-155** *(gold sets, `docs/gold_datasets.md`, 2026-11-06)* The builders that move the three sets not drawn yet from
+  `data/` to `gold/`, as `build_gold_2026_11_05.py` does for the scope sets: label check
+  (`gold/segment_check_gold.csv`), extractor sample (`gold/faithfulness_gold.csv`, keyed by article, ticker and text hash, not by
+  `review_order`) and sentiment (`gold/sentiment_gold.csv`, with the draw's `stratum`, `extractor`, `predicted` and `population`).
+  Each refuses unless every row is marked and valid, writes marks and ids only (no news text), and then `report_wi18` reads the
+  `gold/` file, so the figures of D27 and D32 no longer need `data/`. `scripts/scaffold_gold_sets_2026_11_06.py` writes the empty
+  files (tracked in `gold/`, local in `data/`); the draw scripts fill a header-only working file. Do it when the owner has tagged
+  each set; the order to tag is on the page.
 - [ ] **T-154** *(backtest cut, D34; the full plan continues around it)* A provisional output for the
       bodies of the backtest window (published 2021-12-31 or later) by about 2026-11-16: scope from the
       rules, NER for single and multi bodies, summaries (T-148a), company texts (T-148b), sentiment

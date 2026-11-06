@@ -429,10 +429,7 @@ def main() -> None:
         if args.pool_only:
             return
         chosen = draw(texts, args.per_class, args.seed, args.per_class_extractor)
-        with ids_path.open("w", newline="", encoding="utf-8-sig") as fh:
-            writer = csv.DictWriter(fh, fieldnames=list(IDS_FIELDS), extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(chosen)
+        extra._write(ids_path, [{f: t.get(f, "") for f in IDS_FIELDS} for t in chosen])
         print(f"{len(chosen)} drawn:", dict(Counter(t["predicted"] for t in chosen)))
         print("by kind:", dict(Counter(t["kind"] for t in chosen)))
     cache = out / CACHE_DIR

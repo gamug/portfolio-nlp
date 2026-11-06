@@ -2345,7 +2345,7 @@ above, it says so; nothing else above is touched.
   the backtest team is told so and the owner decides whether to fine-tune (default written by the
   developer, for the owner to confirm or change). **Coverage:** the 180 hold the summaries and the
   company texts of structured multi bodies (120) and the texts the extractor writes for narrative
-  multi bodies (60: the baseline, or the model if it is ready on 2026-11-10); the two parts are reported
+  multi bodies (60: the baseline, or the model if it is ready on 2026-11-09, the date of D34 rule (b)); the two parts are reported
   apart, and the figures of the second part are the ones that say whether the cut's per-company
   sentiment of narrative multi bodies can be trusted. The sentiment intervals resample texts inside each
   stratum, so for the company texts of one body they are a little narrow. **The stratum sizes are those of the pool of the owner's tagged bodies**
