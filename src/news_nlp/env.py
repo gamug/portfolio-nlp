@@ -81,6 +81,6 @@ def missing_source_message(path: str | os.PathLike[str] | None = None) -> str:
         else (f"{target} does not exist")
     )
     return (
-        f"{SOURCE_DB_ENV_VAR} is not set: not in the shell, and {where}. Set it to the crawl "
+        f"{SOURCE_DB_ENV_VAR} is not set: empty or unset in the shell, and {where}. Set it to the crawl "
         "database that has articles.body_text (an absolute path); see .env.example."
     )

@@ -2156,17 +2156,81 @@ def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
         REPORT.sentiment_report(gold.parent, gold=True)
 
 
+_OPENS = ("connect_pipeline", "connect_two_store")
+_LOADS = ("load_env_file", "load_dotenv")
+
+
+def _called(node: ast.AST) -> list[tuple[int, str]]:
+    """(line, name) of every call under *node*, ``a.b.name(...)`` and ``name(...)`` alike."""
+    found = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            found.append((sub.lineno, name))
+    return found
+
+
+def _scripts_that_never_load_the_env_file(sources: dict[str, str]) -> list[str]:
+    """A script that opens the database must read ``.env`` for real: import ``pipeline`` (which
+    loads it) or call ``load_env_file`` / ``load_dotenv`` at module level, or in ``main`` before
+    its first connect. A name in a comment, a docstring or a function that only some commands
+    reach does not count."""
+    bad = []
+    for name, text in sources.items():
+        tree = ast.parse(text)
+        if not any(call in _OPENS for _, call in _called(tree)):
+            continue
+        top = [n for n in tree.body if not isinstance(n, ast.FunctionDef | ast.ClassDef)]
+        imports_pipeline = any(
+            (isinstance(n, ast.Import) and any(a.name == "pipeline" for a in n.names))
+            or (isinstance(n, ast.ImportFrom) and n.module == "pipeline")
+            for n in tree.body
+        )
+        loads_at_top = any(call in _LOADS for n in top for _, call in _called(n))
+        main = next(
+            (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main"), None
+        )
+        loads_in_main = False
+        if main is not None:
+            calls = sorted(_called(main))
+            first_load = next((ln for ln, c in calls if c in _LOADS), None)
+            first_open = next((ln for ln, c in calls if c in _OPENS), None)
+            loads_in_main = first_load is not None and (
+                first_open is None or first_load < first_open
+            )
+        if not (imports_pipeline or loads_at_top or loads_in_main):
+            bad.append(name)
+    return bad
+
+
 def test_every_script_that_opens_the_database_loads_the_env_file() -> None:
-    """A script that connects without importing ``pipeline`` never reads ``.env`` (the first real
-    run of the summaries cut failed on it): each one calls ``load_env_file`` (or ``load_dotenv``)."""
+    """The first real run of the summaries cut failed because it connected without reading
+    ``.env``: every script that connects must load it, as a call and before it connects."""
     scripts = Path(__file__).resolve().parents[2] / "scripts"
-    loads_env = ("load_env_file", "load_dotenv", "import pipeline", "from pipeline")
-    opens = ("connect_pipeline", "connect_two_store")
-    missing = [
-        path.name
-        for path in sorted(scripts.glob("*.py"))
-        if (text := path.read_text(encoding="utf-8"))
-        and any(call in text for call in opens)
-        and not any(load in text for load in loads_env)
-    ]
+    sources = {p.name: p.read_text(encoding="utf-8") for p in sorted(scripts.glob("*.py"))}
+    missing = _scripts_that_never_load_the_env_file(sources)
     assert not missing, f"these scripts connect but never load .env: {missing}"
+
+
+def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> None:
+    mention = '"""load_env_file."""\nimport news_nlp as db\n\ndef main():\n    # load_dotenv()\n    db.connect_pipeline()\n'
+    late = "import news_nlp as db\n\ndef main():\n    db.connect_pipeline()\n    db.env.load_env_file()\n"
+    only_in_a_helper = (
+        "import news_nlp as db\nfrom dotenv import load_dotenv\n\n"
+        "def helper():\n    load_dotenv()\n\ndef main():\n    db.connect_pipeline()\n"
+    )
+    good_main = "import news_nlp as db\n\ndef main():\n    db.env.load_env_file()\n    db.connect_pipeline()\n"
+    good_top = "import news_nlp as db\nfrom dotenv import load_dotenv\nload_dotenv()\ndb.connect_pipeline()\n"
+    good_pipeline = "import pipeline\nimport news_nlp as db\ndb.connect_pipeline()\n"
+    no_db = "def main():\n    pass\n"
+    sources = {
+        "mention.py": mention,
+        "late.py": late,
+        "helper.py": only_in_a_helper,
+        "good_main.py": good_main,
+        "good_top.py": good_top,
+        "good_pipeline.py": good_pipeline,
+        "no_db.py": no_db,
+    }
+    assert _scripts_that_never_load_the_env_file(sources) == ["mention.py", "late.py", "helper.py"]

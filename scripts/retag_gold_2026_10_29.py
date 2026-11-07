@@ -48,9 +48,6 @@ def _read(path: Path) -> list[dict[str, str]]:
 
 
 def _translator() -> translate.LLMTranslator:
-    from dotenv import load_dotenv  # noqa: PLC0415 -- only the translating commands need it
-
-    load_dotenv()
     return translate.LLMTranslator.from_env()
 
 
