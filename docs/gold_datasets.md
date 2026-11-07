@@ -218,7 +218,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **Files:** `data/sentiment_train_ids.csv` (the draw and **the only copy of the texts the owner read**: back it up;
   the summaries are also in the cut's chunks by body hash), `data/sentiment_train_to_tag.csv` (the owner's file,
   Spanish columns after `text`), `gold/sentiment_train.csv` (the marks and ids, no news text; written by
-  `scripts/build_sentiment_train_2026_11_07.py`).
+  `scripts/build_sentiment_train_2026_11_07.py`, which arrives with T-148c1, PR #137).
 - **Label:** the same as set 5: the price impact on the company an investor would read.
 
 ## Roadmap: what each set unlocks and the order to tag
