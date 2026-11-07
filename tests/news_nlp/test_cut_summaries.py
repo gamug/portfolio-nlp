@@ -9,8 +9,10 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from types import ModuleType
+from typing import Any, ClassVar
 
 import pytest
+import torch
 
 from news_nlp import triage
 
@@ -32,7 +34,9 @@ CUT = _script("cut_summaries_2026_11_07")
 @pytest.fixture(autouse=True)
 def _fixed_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """The versions and device are read from the machine; the tests fix them."""
-    monkeypatch.setattr(CUT, "environment", lambda: "torch 1, transformers 1, cuda")
+    monkeypatch.setattr(
+        CUT, "environment", lambda d=None: f"torch 1, transformers 1, {d or 'cuda'}"
+    )
 
 
 def _index(n: int) -> list[dict[str, str]]:
@@ -218,7 +222,7 @@ def _processor_under_test(
 
     monkeypatch.setattr(CUT.size_triage, "classify", classify)
 
-    def load() -> Callable[[list[str]], list[tuple[str, int]]]:
+    def load(_device: str | None = None) -> Callable[[list[str]], list[tuple[str, int]]]:
         seen["loaded"] = int(seen["loaded"]) + 1  # type: ignore[call-overload]
 
         def summarise(texts: list[str]) -> list[tuple[str, int]]:
@@ -341,9 +345,13 @@ def test_an_empty_summary_is_retried_once_and_then_marked_never_silent(
     assert CUT.summarise_with_retry(flaky, ["a", "b bad"]) == [("ok", 1, ""), ("ok", 1, "")]
     assert calls == [["a", "b bad"], ["b bad"]]
     process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
-    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    monkeypatch.setattr(
+        CUT, "load_summariser", lambda _d=None: lambda texts: [("", 0)] * len(texts)
+    )
     process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
-    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    monkeypatch.setattr(
+        CUT, "load_summariser", lambda _d=None: lambda texts: [("", 0)] * len(texts)
+    )
     entry = {"body_hash": triage.body_hash("Acme rose."), "article_ids": "1"}
     [row] = process([entry])
     assert row["status"] == CUT.EMPTY and row["summary"] == ""
@@ -406,7 +414,7 @@ def test_a_failed_body_is_written_marked_and_counted(
     def always_raises(_texts: list[str]) -> list[tuple[str, int]]:
         raise RuntimeError("tokenizer error")
 
-    monkeypatch.setattr(CUT, "load_summariser", lambda: always_raises)
+    monkeypatch.setattr(CUT, "load_summariser", lambda _d=None: always_raises)
     entry = {"body_hash": triage.body_hash(body), "article_ids": "1"}
     [row] = process([entry])
     assert (row["status"], row["summary"], row["error"]) == (
@@ -455,6 +463,9 @@ def test_a_changed_environment_is_refused_unless_accepted(tmp_path: Path) -> Non
     assert history == [{"environment": "torch 2, transformers 4, cuda", "chunks_made_under_it": 4}]
 
 
+DEVICES: list[str | None] = []
+
+
 def _wired_main(
     monkeypatch: pytest.MonkeyPatch, out: Path, *flags: str, spans: str = "1:1"
 ) -> list[str]:
@@ -469,8 +480,11 @@ def _wired_main(
     monkeypatch.setattr(CUT, "load_or_build_index", fake_index)
     monkeypatch.setattr(CUT, "entities_basis", lambda *_a: (spans, "7"))
 
-    def make(_conn: object) -> Callable[[Sequence[dict[str, str]]], list[dict[str, str]]]:
+    def make(
+        _conn: object, device: str | None = None
+    ) -> Callable[[Sequence[dict[str, str]]], list[dict[str, str]]]:
         calls.append("make_processor")
+        DEVICES.append(device)
         return _processor(calls)
 
     monkeypatch.setattr(CUT, "make_processor", make)
@@ -726,3 +740,113 @@ def test_main_stops_when_chunks_exist_and_the_manifest_or_the_index_is_lost(
     with pytest.raises(SystemExit, match="Nothing was changed"):
         CUT.main()
     assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+class _FakeBar:
+    """Stands in for ``tqdm`` and records what the bar was told."""
+
+    made: ClassVar[list[_FakeBar]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.updates: list[int] = []
+        self.closed = False
+        _FakeBar.made.append(self)
+
+    def update(self, n: int) -> None:
+        self.updates.append(n)
+
+    def close(self) -> None:
+        self.closed = True
+
+    @staticmethod
+    def write(_message: str) -> None:
+        return None
+
+
+def test_the_bar_counts_bodies_starts_after_the_chunks_on_disk_and_shows_the_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "tqdm", _FakeBar)
+    _FakeBar.made.clear()
+    parts = CUT.slices(_index(10), 3)  # chunks of 3, 3, 3, 1 bodies
+    CUT.run_chunks(
+        tmp_path, parts, _processor([]), max_chunks=1, log=lambda _m: None, device_label="cuda"
+    )
+    CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None, device_label="cuda")
+    first, second = _FakeBar.made
+    assert first.kwargs["total"] == 10 and first.kwargs["initial"] == 0
+    assert first.kwargs["postfix"] == {"device": "cuda"}
+    assert first.updates == [3] and first.closed
+    assert second.kwargs["initial"] == 3  # the chunk already on disk counts as done
+    assert second.updates == [3, 3, 1] and second.closed
+
+
+def test_the_bar_is_closed_when_a_chunk_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "tqdm", _FakeBar)
+    _FakeBar.made.clear()
+
+    def dies(_part: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        CUT.run_chunks(tmp_path, CUT.slices(_index(3), 3), dies, log=lambda _m: None)
+    assert _FakeBar.made[0].closed
+
+
+def _fake_torch(monkeypatch: pytest.MonkeyPatch, *, cuda: bool) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _i=0: "Fake RTX 9000")
+
+
+def test_the_banner_says_cuda_or_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_torch(monkeypatch, cuda=True)
+    has_cuda, line = CUT.device_banner()
+    assert has_cuda and line.startswith("device: CUDA (Fake RTX 9000")
+    _fake_torch(monkeypatch, cuda=False)
+    has_cuda, line = CUT.device_banner()
+    assert not has_cuda and line.startswith("device: CPU, no CUDA")
+
+
+def test_main_prints_the_device_and_require_cuda_stops_a_cpu_run_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_torch(monkeypatch, cuda=False)
+    out = tmp_path / "cut"  # not made yet
+    calls = _wired_main(monkeypatch, out, "--require-cuda")
+    with pytest.raises(SystemExit, match="CUDA is not available"):
+        CUT.main()
+    assert "device: CPU, no CUDA" in capsys.readouterr().out
+    assert calls == [] and not out.exists()  # not even the folder
+    _wired_main(monkeypatch, out, "--max-chunks", "1")  # without the flag a CPU run goes on
+    DEVICES.clear()
+    CUT.main()
+    assert "device: CPU, no CUDA" in capsys.readouterr().out
+    assert DEVICES == ["cpu"]  # the model is told the device the banner printed
+    _fake_torch(monkeypatch, cuda=True)
+    _wired_main(monkeypatch, tmp_path / "gpu", "--max-chunks", "1")
+    DEVICES.clear()
+    CUT.main()
+    assert DEVICES == ["cuda"]
+
+
+def test_the_real_bar_is_off_without_a_terminal_and_the_default_log_does_not_need_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    CUT.run_chunks(tmp_path, CUT.slices(_index(4), 2), _processor([]), device_label="cuda")
+    captured = capsys.readouterr()
+    assert "summaries" not in captured.err  # stderr is not a tty here: no bar
+    assert "chunk 2/2 written" in captured.out  # the default log (tqdm.write) still prints
+
+
+def test_the_manifest_records_the_device_main_decided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_torch(monkeypatch, cuda=True)  # torch says cuda, the decision says cpu: the decision wins
+    args = argparse.Namespace(since="2021-12-31", chunk_size=2)
+    index = tmp_path / CUT.INDEX_NAME
+    CUT.atomic_write(index, CUT.INDEX_FIELDS, _index(2))
+    assert CUT.conditions(args, index, "1:1", "cpu")["environment"].endswith(", cpu")
+    assert CUT.conditions(args, index, "1:1")["environment"].endswith(", cuda")
