@@ -772,6 +772,22 @@ SEGMENT_CHECK_GOLD_COLUMNS = (
 )
 
 
+#: ``gold/sentiment_gold_scoring_log.csv`` (D35, T-148c2): one row per run of a candidate model on
+#: the 180-text gold, appended by ``scripts/score_sentiment_gold_2026_11_07.py``. No news text.
+SENTIMENT_SCORING_LOG_COLUMNS = (
+    "run",
+    "time",
+    "label",
+    "model",
+    "revision",
+    "agreement",
+    "agreement_judgement",
+    "negative_precision",
+    "negative_recall",
+    "texts",
+)
+
+
 def gold_file_rows(
     sessions: Mapping[str, Sequence[Mapping[str, str]]], golds: Mapping[str, Sequence[Gold]]
 ) -> list[dict[str, str]]:

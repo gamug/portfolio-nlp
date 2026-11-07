@@ -39,18 +39,7 @@ import report_wi18_2026_11_06 as report
 from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
-LOG_FIELDS = (
-    "run",
-    "time",
-    "label",
-    "model",
-    "revision",
-    "agreement",
-    "agreement_judgement",
-    "negative_precision",
-    "negative_recall",
-    "texts",
-)
+LOG_FIELDS = retag.SENTIMENT_SCORING_LOG_COLUMNS
 
 
 def texts_of_the_gold(

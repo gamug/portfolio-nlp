@@ -834,6 +834,7 @@ def test_the_committed_gold_files_have_the_columns_the_code_defines() -> None:
         "category_gold_v2.csv": retag.GOLD_COLUMNS,
         "category_gold_v2_test.csv": retag.TEST_GOLD_COLUMNS,
         "sentiment_gold.csv": retag.SENTIMENT_GOLD_COLUMNS,
+        "sentiment_gold_scoring_log.csv": retag.SENTIMENT_SCORING_LOG_COLUMNS,
         "faithfulness_gold.csv": retag.FAITHFULNESS_GOLD_COLUMNS,
         "segment_check_gold.csv": retag.SEGMENT_CHECK_GOLD_COLUMNS,
     }
