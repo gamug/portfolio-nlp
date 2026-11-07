@@ -15,7 +15,8 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
 ``<out>/chunk_NNNNN.csv``, one row per body.
 
 **Settings.** ``SOURCE_DATABASE_URL`` (the crawl DB with ``articles.body_text``) and ``DATABASE_URL`` come
-from the repo's ``.env`` or from the shell (the shell wins); see ``.env.example``.
+from the repo's ``.env`` or from the shell (the shell wins); see ``.env.example``. Write absolute
+paths there: a relative one resolves against the folder the command is run from, not the repo.
 
 **What you see.** The first line says whether the summariser will use CUDA (the GPU's name) or the CPU;
 ``--require-cuda`` stops before anything is written if there is no CUDA. A progress bar counts the
@@ -85,7 +86,6 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -806,18 +806,8 @@ def load_or_build_index(
     return index
 
 
-ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
-
-
-def load_environment(env_file: Path = ENV_FILE) -> None:
-    """``SOURCE_DATABASE_URL`` / ``DATABASE_URL`` from the repo's ``.env``, as every other entrypoint
-    gets them (``pipeline`` loads it at import; this script does not import ``pipeline``). A
-    variable already set in the shell wins."""
-    load_dotenv(env_file, override=False)
-
-
 def main() -> None:
-    load_environment()
+    db.env.load_env_file()  # .env: this script does not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data/cut/summaries"))
     parser.add_argument("--since", default="2021-12-31")
@@ -876,6 +866,8 @@ def main() -> None:
     print(banner, flush=True)
     if args.require_cuda and not has_cuda:  # before the folder is made: nothing is written
         sys.exit("--require-cuda: CUDA is not available here, nothing was written")
+    if db.env.source_db_path() is None:  # before the folder is made, not as a traceback later
+        sys.exit(db.env.missing_source_message())
     device_name = "cuda" if has_cuda else "cpu"  # the one decision: banner, bar and model
     out.mkdir(parents=True, exist_ok=True)
     with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it

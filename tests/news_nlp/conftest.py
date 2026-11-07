@@ -353,3 +353,13 @@ def two_tier_client(
     pipeline_status.reset()
     yield TestClient(app)
     pipeline_status.reset()
+
+
+REAL_LOAD_ENV_FILE = db_module.env.load_env_file
+
+
+@pytest.fixture(autouse=True)
+def _never_the_developers_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The scripts' ``main`` calls ``news_nlp.env.load_env_file()``; a test must not pick up the
+    ``.env`` of whoever runs it. The tests of the loader use ``REAL_LOAD_ENV_FILE``."""
+    monkeypatch.setattr(db_module.env, "load_env_file", lambda path=None: None)

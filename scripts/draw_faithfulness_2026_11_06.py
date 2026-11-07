@@ -369,6 +369,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
     if args.add_extractor:
         add_extractor(args)

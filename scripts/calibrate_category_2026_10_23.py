@@ -165,6 +165,7 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )

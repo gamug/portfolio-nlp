@@ -293,6 +293,7 @@ def tag_rows(chosen: list[dict[str, object]]) -> list[dict[str, str]]:
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--per-sector", type=int, default=4)
