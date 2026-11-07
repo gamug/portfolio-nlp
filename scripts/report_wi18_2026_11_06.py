@@ -321,8 +321,9 @@ def _faithfulness_block(
                 f"[{label}] {name:>10}: of the texts it wrote, {only} (informative; omissions not "
                 "counted)"
             )
-    if {"model", "baseline"} <= set(report):
-        lines += _gain_lines(label, marks, owners, omitted)
+    for challenger, reference in (("model", "baseline"), ("units", "baseline"), ("units", "model")):
+        if {challenger, reference} <= set(report):
+            lines += _gain_lines(label, marks, owners, omitted, challenger, reference)
     return lines
 
 
@@ -331,8 +332,10 @@ def _gain_lines(
     marks: dict[str, bool],
     owners: dict[str, list[str]],
     omitted: dict[str, list[str]],
+    challenger: str = "model",
+    reference: str = "baseline",
 ) -> list[str]:
-    """Model minus baseline on the companies at least one of them wrote a text for; a company one
+    """*challenger* minus *reference* (model minus baseline) on the companies at least one of them wrote a text for; a company one
     skipped counts as unfaithful for it, and a company both skipped says nothing on which is
     better (it stays in the shares only)."""
     pairs: dict[str, dict[str, bool]] = {}
@@ -345,17 +348,17 @@ def _gain_lines(
         for pair in pair_keys:
             if pair in written:
                 pairs[pair][name] = False
-    both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
+    both = {p: v for p, v in pairs.items() if {challenger, reference} <= set(v)}
     if not both:
         return []
     gain = gold_metrics.paired_difference(
-        [v["model"] for v in both.values()],
-        [v["baseline"] for v in both.values()],
+        [v[challenger] for v in both.values()],
+        [v[reference] for v in both.values()],
         clusters=[gold_metrics.body_of_key(p) for p in both],
     )
     bodies = len({gold_metrics.body_of_key(p) for p in both})
     return [
-        f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
+        f"[{label}] {challenger} minus {reference} on {len(both)} company texts of {bodies} "
         f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
     ]
 

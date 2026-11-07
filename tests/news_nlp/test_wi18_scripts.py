@@ -765,6 +765,28 @@ def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
     }
 
 
+def test_the_units_extractor_is_not_asked_for_a_company_named_only_in_the_footer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Footer:
+        def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
+            return {"T"} | ({"U"} if "Disclosures" in body else set())
+
+    story = "Company T had a good quarter and said so in a long statement to the press. " * 4
+    _source(monkeypatch, {1: story + "\nDisclosures:\nCortes owns U"})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@abc")
+    monkeypatch.setitem(FAITH.EXTRACTORS, "units", lambda body, resolver: {"T": "Text of T."})
+    monkeypatch.setitem(
+        FAITH.EXTRACTORS, "other", lambda body, resolver: {"T": "Text of T.", "U": "Disclosures"}
+    )
+    _, omissions = FAITH.collect_items(
+        [{"article_id": "1", "segments": "1"}],
+        ["units", "other"],
+        Footer(),  # type: ignore[arg-type]
+    )
+    assert omissions == []  # U is in the footer only: no omission for units, and "other" wrote one
+
+
 def test_a_scored_pool_is_refused_under_other_conditions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

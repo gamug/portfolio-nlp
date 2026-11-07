@@ -22,6 +22,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, NamedTuple, Protocol
 
 from chunking import split_sentences
+from news_nlp import attribution_units
 from news_nlp.company_texts import SegmentLabel, segments
 from news_nlp.triage import CompanyResolver
 
@@ -144,10 +145,18 @@ def attribute_sentences(
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
 ) -> list[tuple[str, tuple[str, ...]]]:
     """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
-    and none reaches *threshold*."""
-    sentences = [s for s, _, _ in split_sentences(body)]
+    and none reaches *threshold*. With *units* the pieces are those of
+    :func:`attribution_units.attribution_units` (footer removed; lines, bullets and clauses cut)
+    instead of the splitter's sentences."""
+    sentences = (
+        attribution_units.attribution_units(body, resolver)
+        if units
+        else [s for s, _, _ in split_sentences(body)]
+    )
     candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
     named = [tuple(sorted(resolver.resolve(s, skip_attribution=False))) for s in sentences]
     pairs: list[Pair] = []
@@ -180,12 +189,16 @@ def model_company_texts(
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
 ) -> dict[str, str]:
     """``{ticker: text}`` in order of first appearance, as ``baseline_company_texts``: a company the
     body names always gets the sentence that names it; the sentences that name none go to the
     company the model chooses, or to nobody."""
     groups: dict[str, list[str]] = {}
-    for sentence, tickers in attribute_sentences(body, resolver, names, scorer, threshold):
+    for sentence, tickers in attribute_sentences(
+        body, resolver, names, scorer, threshold, units=units
+    ):
         for ticker in tickers:
             groups.setdefault(ticker, []).append(sentence)
     return {ticker: " ".join(sentences) for ticker, sentences in groups.items()}
