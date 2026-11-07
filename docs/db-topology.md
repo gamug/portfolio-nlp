@@ -251,11 +251,11 @@ repo needs a second shared read.
 - **The summaries cut's run lock on Windows (found 2026-11-07).** `os.kill(pid, 0)` is not
   a "does it exist" probe on Windows (Python calls `TerminateProcess`), so a resume after an
   interrupted run crashed with `WinError 11` and could have killed a process that held the pid.
-  `scripts/cut_summaries_2026_11_07.py` now asks `OpenProcess` + `WaitForSingleObject`; PR #134.
+  `scripts/cut_summaries_2026_11_07.py` now asks `OpenProcess` + `WaitForSingleObject` and answers "dead" only when the OS says so (an error reads as alive); PR #134.
   Verified: dispatch and the stale-file scenario on Linux/CI. Not verified until run on the
   Windows machine: the ctypes branch itself (a `win32`-only test covers it there). The lock is
   a hard link, so the output folder must be on NTFS (exFAT or a network share now stops with a
-  message). The lock stores only a pid, so a reused pid looks like a live run: `--break-lock`.
+  message). The lock stores the pid and the process start time, so a pid Windows hands out again is not taken for the run that left the lock (an old pid-only lock still works, and `--break-lock` remains). Ctrl-Break stops like Ctrl-C; closing the console window cannot be caught and leaves a lock the next start takes over.
 - **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
   single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
   clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the
