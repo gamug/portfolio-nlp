@@ -842,6 +842,17 @@ def test_the_committed_gold_files_have_the_columns_the_code_defines() -> None:
             assert tuple(next(csv.reader(fh))) == columns, name
 
 
+def test_the_training_file_has_its_columns_once_it_is_committed() -> None:
+    """``gold/sentiment_train.csv`` (D35) is written by the builder after the owner's marks, so it
+    is not there before them; when it is, its columns are the ones ``retag`` defines. It is not
+    scaffolded: it has a draw and the builder creates it."""
+    path = ROOT / "gold" / "sentiment_train.csv"
+    if not path.exists():
+        pytest.skip("the owner's marks are not built into gold/ yet")
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        assert tuple(next(csv.reader(fh))) == retag.SENTIMENT_TRAIN_COLUMNS
+
+
 def test_the_scaffold_writes_the_draw_columns_and_never_touches_a_file(tmp_path: Path) -> None:
     scaffold = _script("scaffold_gold_sets_2026_11_06")
     out, gold = tmp_path / "data", tmp_path / "gold"

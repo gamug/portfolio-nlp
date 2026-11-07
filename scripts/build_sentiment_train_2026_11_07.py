@@ -5,22 +5,32 @@
 
 Reads ``data/sentiment_train_to_tag.csv`` (the marks the owner wrote) and
 ``data/sentiment_train_ids.csv`` (the draw: the texts, the model's prediction, the block, the batch
-and the slice) and writes ``gold/sentiment_train.csv``: the mark and the ids only, no news text.
-The two files are paired by key (``<article_id>#summary``). The run stops unless
+and the slice) and writes ``gold/sentiment_train.csv`` (``retag.SENTIMENT_TRAIN_COLUMNS``): the mark
+and the ids only, no news text. The two files are paired by key (``<article_id>#summary``). The run
+stops unless
 
-* every row is marked positive / negative / neutral and the marked file holds exactly the texts of
-  the draw, once each;
+* the marked file holds exactly the texts of the draw, once each;
+* every row is marked positive / negative / neutral;
 * each pair agrees on the article and the kind, and the text the owner read is the text the draw
   recorded (its hash; a text that a spreadsheet made safe with a leading apostrophe is compared
   without it, and the escaped text is never what is kept);
-* the sample is the one drawn (``check_design``): the same number of each predicted class, blocks of
-  ``BLOCK`` rows with the same number of each, and every batch and slice what D35 says (the last
-  ``VALIDATION_BLOCKS`` blocks of a batch are the validation slice).
+* ``pub_date`` is an ISO date;
+* the sample is the one drawn (``check_design``): the same number of each predicted class, blocks
+  of ``sentiment_train.BLOCK`` rows with the same number of each, and every batch and slice what D35
+  says.
+
+**Every problem is reported at once** (a spreadsheet round trip fails in the same way on many rows:
+an encoding change in the text, a date in another format): the error names each kind of problem
+with its count, the first keys, and for a text that differs the position of the first difference
+and whether it looks like an encoding change. Warnings (printed, nothing stops): a class under
+``MIN_CLASS_SHARE`` of the training slice, and ``MAX_RUN`` or more rows in a row with the same
+mark (a fill-down in the spreadsheet); the rows are shuffled by block, so a long run is not natural.
 
 ``text_hash``, the block, the batch and the slice are copied from the ids, never recomputed;
 ``pub_date`` is the one in the file the owner tagged. A gold file that already exists is the
 reference: if a mark or a column the training depends on (``PROTECTED``) would change, or a row would
-go missing, the run stops (``--overwrite-marks`` to accept). The file is replaced as a whole.
+go missing, the run stops (``--overwrite-marks`` to accept: how a corrected mark gets in). The file
+is replaced as a whole.
 
 The training reads the marks from here and the texts from ``data/sentiment_train_ids.csv`` (by key,
 checked by ``text_hash``): that file is the only copy of the texts the owner read, and a summary is
@@ -37,35 +47,17 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import draw_sentiment_train_2026_11_07 as draw
+from news_nlp import gold_metrics, retag, sentiment_train
 
-from news_nlp import gold_metrics, retag
-
-TO_TAG_NAME = draw.TO_TAG_NAME
-IDS_NAME = draw.IDS_NAME
+TO_TAG_NAME = "sentiment_train_to_tag.csv"
+IDS_NAME = "sentiment_train_ids.csv"
 CLASSES = gold_metrics.SENTIMENT_CLASSES
-#: The columns of ``gold/sentiment_train.csv``: no news text.
-TRAIN_COLUMNS = (
-    "key",
-    "article_id",
-    "body_hash",
-    "rule_scope",
-    "revision",
-    "predicted",
-    "pool_class_size",
-    "block",
-    "batch",
-    "slice",
-    "text_hash",
-    "pub_date",
-    "sentiment",
-    "notes",
-)
+TRAIN_COLUMNS = retag.SENTIMENT_TRAIN_COLUMNS
 NEEDED_FROM_THE_DRAW = tuple(
     c for c in TRAIN_COLUMNS if c not in ("pub_date", "sentiment", "notes")
 )
+NEEDED_FROM_THE_OWNER = ("article_id", "kind", "text", "pub_date", "sentiment", "notes")
 #: What a rebuild may not change in a tracked row without ``--overwrite-marks``.
 PROTECTED = (
     "sentiment",
@@ -77,6 +69,11 @@ PROTECTED = (
     "slice",
     "pub_date",
 )
+SHOWN = 5  # keys named per kind of problem
+MIN_CLASS_SHARE = 0.10
+MAX_RUN = 20
+#: Text a UTF-8 file turns into when it is read or saved in a Windows code page.
+MOJIBAKE = ("Ã", "â€", "Â", "�")
 
 
 def key_of(row: dict[str, str]) -> str:
@@ -96,7 +93,7 @@ def changed_marks(before: list[dict[str, str]], after: list[dict[str, str]]) -> 
 def check_design(rows: list[dict[str, str]]) -> None:
     """The sample is the one ``draw_sentiment_train`` makes: equal predicted classes, blocks that hold
     the same number of each, and the batch and slice of every block as D35 says."""
-    per_block = draw.BLOCK // len(CLASSES)
+    per_block = sentiment_train.BLOCK // len(CLASSES)
     counts = Counter(r["predicted"] for r in rows)
     if set(counts) != set(CLASSES) or len(set(counts.values())) != 1:
         raise gold_metrics.MarkedFileError(f"the predicted classes are not equal: {dict(counts)}")
@@ -109,14 +106,10 @@ def check_design(rows: list[dict[str, str]]) -> None:
                 f"{r['key']}: block {r['block']!r} is not a number"
             ) from None
         blocks.setdefault(number, Counter())[r["predicted"]] += 1
-        in_batch = (number - 1) % draw.BLOCKS_PER_BATCH + 1
-        want_slice = (
-            "validation" if in_batch > draw.BLOCKS_PER_BATCH - draw.VALIDATION_BLOCKS else "train"
-        )
-        want_batch = str((number - 1) // draw.BLOCKS_PER_BATCH + 1)
-        if (r["batch"], r["slice"]) != (want_batch, want_slice):
+        want = (str(sentiment_train.batch_of(number)), sentiment_train.slice_of(number))
+        if (r["batch"], r["slice"]) != want:
             raise gold_metrics.MarkedFileError(
-                f"{r['key']}: block {number} is batch {want_batch}, {want_slice}; the file says "
+                f"{r['key']}: block {number} is batch {want[0]}, {want[1]}; the file says "
                 f"batch {r['batch']}, {r['slice']}"
             )
     if sorted(blocks) != list(range(1, len(blocks) + 1)):
@@ -136,9 +129,47 @@ def read_the_same_text(marked: str, drawn_hash: str) -> bool:
     )
 
 
+def looks_like_an_encoding_change(drawn: str, marked: str) -> bool:
+    """The marked text has the marks of UTF-8 read as a Windows code page (or replacement
+    characters) that the drawn text does not have, or lost non-ASCII characters to ``?``."""
+    if any(m in marked and m not in drawn for m in MOJIBAKE):
+        return True
+    return marked.count("?") > drawn.count("?") and not drawn.isascii()
+
+
+def first_difference(drawn: str, marked: str) -> str:
+    """Where two texts part: the position and a few characters of each."""
+    drawn, marked = drawn.strip(), marked.strip()
+    at = next((i for i, (a, b) in enumerate(zip(drawn, marked, strict=False)) if a != b), None)
+    if at is None:
+        at = min(len(drawn), len(marked))
+    return f"at character {at}: drawn {drawn[at : at + 12]!r}, marked {marked[at : at + 12]!r}"
+
+
+class Problems:
+    """What is wrong with the owner's file, by kind, so that one error names all of it."""
+
+    def __init__(self) -> None:
+        self.found: dict[str, list[str]] = {}
+        self.notes: dict[str, str] = {}
+
+    def add(self, kind: str, key: str, note: str = "") -> None:
+        self.found.setdefault(kind, []).append(key)
+        if note:
+            self.notes.setdefault(kind, note)
+
+    def lines(self) -> list[str]:
+        return [
+            f"{len(keys)} rows {kind} (first: {keys[:SHOWN]})"
+            + (f"; {self.notes[kind]}" if kind in self.notes else "")
+            for kind, keys in self.found.items()
+        ]
+
+
 def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[str, str]]:
     """The rows of ``gold/sentiment_train.csv``, in the order of the draw. Raises
-    ``MarkedFileError`` when the marks and the draw are not the same texts."""
+    ``MarkedFileError`` naming every problem found when the marks and the draw are not the same
+    texts."""
     gold_metrics.require_unique([r["key"] for r in ids], IDS_NAME)
     keys = [key_of(r) for r in marks]
     gold_metrics.require_unique(keys, TO_TAG_NAME)
@@ -146,48 +177,85 @@ def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[s
         keys, [r["key"] for r in ids], f"{TO_TAG_NAME} against {IDS_NAME}"
     )
     by_key = dict(zip(keys, marks, strict=True))
+    problems = Problems()
     out = []
     for drawn in ids:
-        empty = [f for f in NEEDED_FROM_THE_DRAW if not (drawn.get(f) or "").strip()]
-        if empty:
-            raise gold_metrics.MarkedFileError(f"{drawn['key']}: {IDS_NAME} has no {empty}")
-        marked = by_key[drawn["key"]]
-        for field in ("article_id", "kind"):
-            if marked[field] != drawn[field]:
-                raise gold_metrics.MarkedFileError(
-                    f"{drawn['key']}: {field} is {marked[field]!r} in {TO_TAG_NAME} and "
-                    f"{drawn[field]!r} in {IDS_NAME}"
-                )
+        key = drawn["key"]
+        if empty := [f for f in NEEDED_FROM_THE_DRAW if not (drawn.get(f) or "").strip()]:
+            problems.add(f"of {IDS_NAME} without {empty}", key)
+            continue
+        marked = by_key[key]
+        mark = (marked["sentiment"] or "").strip().lower()
+        if not mark:
+            problems.add("without a mark", key)
+        elif mark not in CLASSES:
+            problems.add(f"with a mark outside {list(CLASSES)}", key, f"for example {mark!r}")
+        if any(marked[f] != drawn[f] for f in ("article_id", "kind")):
+            problems.add("whose article or kind is not the drawn one", key)
         if not read_the_same_text(marked["text"], drawn["text_hash"]):
-            raise gold_metrics.MarkedFileError(
-                f"{drawn['key']}: the text in {TO_TAG_NAME} is not the text the draw recorded (it "
-                "was edited after the draw); the mark would belong to another text"
+            problems.add(
+                "whose text is not the text the draw recorded (edited, or saved in another "
+                "encoding)",
+                key,
+                first_difference(drawn["text"], marked["text"])
+                + (
+                    "; it looks like an encoding change: save the file as CSV UTF-8"
+                    if looks_like_an_encoding_change(drawn["text"], marked["text"])
+                    else ""
+                ),
             )
         pub_date = (marked.get("pub_date") or "").strip()
         try:
             date.fromisoformat(pub_date[:10])
         except ValueError:
-            raise gold_metrics.MarkedFileError(
-                f"{drawn['key']}: pub_date {pub_date!r} in {TO_TAG_NAME} is not an ISO date "
-                "(YYYY-MM-DD...); a spreadsheet may have rewritten it"
-            ) from None
+            problems.add(
+                "with a pub_date that is not ISO (YYYY-MM-DD...); a spreadsheet may have "
+                "rewritten it",
+                key,
+                f"for example {pub_date!r}",
+            )
         out.append(
             {
                 **{f: drawn[f] for f in TRAIN_COLUMNS if f in drawn},
                 "pub_date": pub_date,
-                "sentiment": marked["sentiment"],
+                "sentiment": mark,
                 "notes": marked["notes"],
             }
         )
+    if problems.found:
+        raise gold_metrics.MarkedFileError(f"{TO_TAG_NAME}:\n  " + "\n  ".join(problems.lines()))
     check_design(out)
     return out
+
+
+def warnings(rows: list[dict[str, str]]) -> list[str]:
+    """What looks wrong in the marks without making the build fail: a class that is almost
+    absent from the training slice, and a long run of the same mark in the order of the file."""
+    found = []
+    train = [r for r in rows if r["slice"] == sentiment_train.TRAIN]
+    for mark, n in sorted(Counter(r["sentiment"] for r in train).items()):
+        if n < MIN_CLASS_SHARE * len(train):
+            found.append(f"only {n} of {len(train)} training marks are {mark}")
+    run, longest, at = 0, 0, 0
+    for i, r in enumerate(rows):
+        run = run + 1 if i and r["sentiment"] == rows[i - 1]["sentiment"] else 1
+        if run > longest:
+            longest, at = run, i
+    if longest >= MAX_RUN:
+        found.append(
+            f"{longest} rows in a row (to row {at + 1}) have the mark {rows[at]['sentiment']}: "
+            "a fill-down in the spreadsheet?"
+        )
+    for kind in sorted({"positive", "negative", "neutral"} - {r["sentiment"] for r in train}):
+        found.append(f"no training mark is {kind}")
+    return found
 
 
 def summary(rows: list[dict[str, str]]) -> list[str]:
     """What the owner marked, by slice, and the model that balanced the draw against the owner (a
     row per predicted class, a column per mark): context for the training, not a figure."""
     lines = []
-    for kind in ("train", "validation"):
+    for kind in (sentiment_train.TRAIN, sentiment_train.VALIDATION):
         mine = [r for r in rows if r["slice"] == kind]
         lines.append(
             f"{kind}: {len(mine)} texts, marks {dict(Counter(r['sentiment'] for r in mine))}"
@@ -198,10 +266,19 @@ def summary(rows: list[dict[str, str]]) -> list[str]:
         + " | ".join(CLASSES)
     )
     for predicted in CLASSES:
-        lines.append(
-            f"  {predicted:>8}: " + " | ".join(f"{both[(predicted, m)]:>3}" for m in CLASSES)
-        )
+        cells = " | ".join(f"{both[(predicted, m)]:>3}" for m in CLASSES)
+        lines.append(f"  {predicted:>8}: {cells}")
     return lines
+
+
+def read_marks(path: Path) -> list[dict[str, str]]:
+    """The rows of the owner's file, which must have the columns the build reads."""
+    marks = gold_metrics.read_rows(path)
+    missing = [c for c in NEEDED_FROM_THE_OWNER if marks and c not in marks[0]]
+    if not marks or missing:
+        why = "has no rows" if not marks else f"lacks the columns {missing}"
+        raise gold_metrics.MarkedFileError(f"{path.name} {why}")
+    return marks
 
 
 def main() -> None:
@@ -215,12 +292,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     try:
-        marks = gold_metrics.read_marked(
-            args.out / TO_TAG_NAME,
-            "sentiment",
-            CLASSES,
-            required=("article_id", "kind", "text", "pub_date"),
-        )
+        marks = read_marks(args.out / TO_TAG_NAME)
         rows = build(marks, gold_metrics.read_rows(args.out / IDS_NAME))
     except gold_metrics.MarkedFileError as exc:
         sys.exit(str(exc))
@@ -241,6 +313,8 @@ def main() -> None:
         sys.exit(f"cannot write {args.gold} ({exc}); it is as it was")
     print(f"{args.gold}: {len(rows)} rows")
     print("\n".join(summary(rows)))
+    for line in warnings(rows):
+        print(f"warning: {line}")
 
 
 if __name__ == "__main__":
