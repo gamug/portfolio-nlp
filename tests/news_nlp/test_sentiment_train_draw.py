@@ -13,6 +13,7 @@ from types import ModuleType
 import pytest
 
 import news_nlp as db
+from news_nlp import sentiment_train
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
@@ -199,3 +200,26 @@ def test_an_empty_ids_file_stops_the_run(tmp_path: Path) -> None:
     (tmp_path / "ids.csv").write_text("key,block\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="no rows"):
         TRAIN.read_ids(tmp_path / "ids.csv", seed=1)
+
+
+def test_the_shape_of_the_set_is_written_once() -> None:
+    assert [sentiment_train.batch_of(b) for b in (1, 10, 11, 20, 21, 30)] == [1, 1, 2, 2, 3, 3]
+    assert [sentiment_train.slice_of(b) for b in (1, 8, 9, 10, 11, 18, 19, 20)] == [
+        "train",
+        "train",
+        "validation",
+        "validation",
+        "train",
+        "train",
+        "validation",
+        "validation",
+    ]
+    ordered = TRAIN.in_blocks(_drawn(150), seed=1)  # the draw uses the same rule
+    assert all(
+        (t["batch"], t["slice"])
+        == (
+            str(sentiment_train.batch_of(int(t["block"]))),
+            sentiment_train.slice_of(int(t["block"])),
+        )
+        for t in ordered
+    )

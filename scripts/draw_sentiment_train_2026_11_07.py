@@ -60,7 +60,7 @@ import retag_gold_2026_10_29 as retag_cli
 import size_triage_2026_10_28 as size_triage
 
 import news_nlp as db
-from news_nlp import retag, triage
+from news_nlp import retag, sentiment_train, triage
 
 IDS_NAME = "sentiment_train_ids.csv"
 TO_TAG_NAME = "sentiment_train_to_tag.csv"
@@ -69,9 +69,6 @@ GOLD = Path("gold/sentiment_gold.csv")
 CUT_DIR = Path("data/cut/summaries")
 MIN_TEXT_CHARS = gold_draw.MIN_TEXT_CHARS
 MAX_TEXT_CHARS = gold_draw.MAX_COMPANY_CHARS  # what the owner can read in a cell
-BLOCK = 15  # rows per block: BLOCK / 3 of each predicted class
-BLOCKS_PER_BATCH = 10  # 150 rows
-VALIDATION_BLOCKS = 2  # the last blocks of every batch
 MIN_TITLE_CHARS = 12  # a shorter headline ("Market update") is not a copy of anything
 IDS_FIELDS = (
     "key",
@@ -149,13 +146,13 @@ def draw(
 
 
 def in_blocks(chosen: list[dict[str, str]], seed: int) -> list[dict[str, str]]:
-    """The rows in the order of the tagging file: blocks of ``BLOCK`` rows with the same number of
+    """The rows in the order of the tagging file: blocks of ``sentiment_train.BLOCK`` rows with the same number of
     each predicted class, shuffled inside the block, so any whole number of blocks is balanced and
     the order does not reveal the class. Sets ``block``, ``batch`` and ``slice`` (``validation`` for
-    the last ``VALIDATION_BLOCKS`` blocks of a batch, else ``train``)."""
+    the last ``sentiment_train.VALIDATION_BLOCKS`` blocks of a batch, else ``train``)."""
     rng = random.Random(seed)  # noqa: S311 -- a reproducible order, not security
     by_class = {c: [t for t in chosen if t["predicted"] == c] for c in gold_draw.CLASSES}
-    per_block = BLOCK // len(gold_draw.CLASSES)
+    per_block = sentiment_train.BLOCK // len(gold_draw.CLASSES)
     sizes = {len(rows) for rows in by_class.values()}
     if len(sizes) != 1 or sizes.pop() % per_block:
         sys.exit(
@@ -171,10 +168,8 @@ def in_blocks(chosen: list[dict[str, str]], seed: int) -> list[dict[str, str]]:
         ordered += [{**t, "block": str(number + 1)} for t in block]
     for t in ordered:
         number = int(t["block"])
-        t["batch"] = str((number - 1) // BLOCKS_PER_BATCH + 1)
-        in_batch = (number - 1) % BLOCKS_PER_BATCH + 1
-        validation = in_batch > BLOCKS_PER_BATCH - VALIDATION_BLOCKS
-        t["slice"] = "validation" if validation else "train"
+        t["batch"] = str(sentiment_train.batch_of(number))
+        t["slice"] = sentiment_train.slice_of(number)
     return ordered
 
 
