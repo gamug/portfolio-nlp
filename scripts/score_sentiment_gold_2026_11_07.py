@@ -15,8 +15,12 @@ candidate. Then, apart, the agreement for 2022 on and for before (D35: the train
 and later, the gold is not), raw and not re-weighted, with Wilson intervals.
 
 **Every run is listed (D35).** The gold is not a tuning set: each run appends a row to ``--log``
-(tracked, no news text): the run number, the time, the label, the model and revision, the
-agreement with its interval and what the bar says, the negative precision and recall. The report
+(tracked, no news text): the run number, the time, the label, the model and what identifies it (the
+revision, or for a local path the hash of its weight files), the hash of the gold file that was
+scored, the labels the model uses and the device, then the agreement with its interval (as text and as
+numbers) and what the bar says, and the negative precision and recall. A run is logged only when
+every output exists, and a model whose labels are not the three classes stops the run before
+anything is written. The report
 that quotes a figure lists every run made, not only the best. A run of the pinned model reproduces
 the stored predictions (the script says how many differ), which checks the scorer itself.
 """
@@ -25,7 +29,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
 import sys
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -40,6 +47,7 @@ from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
 LOG_FIELDS = retag.SENTIMENT_SCORING_LOG_COLUMNS
+PLANNED_RUNS = 2  # D35: the baseline and the final run
 
 
 def texts_of_the_gold(
@@ -61,15 +69,61 @@ def texts_of_the_gold(
     return items
 
 
-def score(items: list[dict[str, str]], cfg: dict[str, str] | None = None) -> dict[str, str]:
-    """key -> the model's class, for every text (a text the stage cannot chunk stops the run:
-    the figures need all 180)."""
+def score(
+    items: list[dict[str, str]], cfg: dict[str, str] | None = None, id2label: str = ""
+) -> dict[str, str]:
+    """key -> the model's class, for every text. A text the stage cannot chunk stops the run (the
+    figures need all 180), and so does a model that answers with anything but the three classes (a
+    head whose ``id2label`` was never set says ``label_0``: every text would disagree and the run
+    would be logged as 0%)."""
     scored = gold_draw.predict([dict(i) for i in items], cfg)
     predictions = {t["key"]: t["predicted"] for t in scored}
     missing = [i["key"] for i in items if i["key"] not in predictions]
     if missing:
         raise MarkedFileError(f"{len(missing)} texts have no chunk to score: {missing[:3]}")
+    answers = Counter(predictions.values())
+    if outside := sorted(set(answers) - set(gold_metrics.SENTIMENT_CLASSES)):
+        raise MarkedFileError(
+            f"the model answers {outside}, not {list(gold_metrics.SENTIMENT_CLASSES)} "
+            f"(its id2label: {id2label or 'unknown'}): nothing was scored or logged; set "
+            "id2label on the checkpoint (as train_sentiment does) and score again"
+        )
     return predictions
+
+
+def weights_hash(path: Path) -> str:
+    """SHA-256 over the weight files of a local checkpoint (name and content), so a log row can be
+    tied to the weights later; empty when *path* is not a directory with weights (a Hub id)."""
+    if not path.is_dir():
+        return ""
+    files = sorted(
+        p
+        for p in path.glob("*")
+        if p.suffix == ".safetensors" or (p.name.startswith("pytorch_model") and p.suffix == ".bin")
+    )
+    if not files:
+        return ""
+    digest = hashlib.sha256()
+    for file in files:
+        digest.update(file.name.encode())
+        with file.open("rb") as fh:
+            while chunk := fh.read(1 << 20):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def describe_model(model: str, revision: str) -> dict[str, str]:
+    """What identifies the model that is scored: the hash of its weights (a local path), its labels
+    and the device it runs on."""
+    import torch  # noqa: PLC0415 -- only a run needs the model
+    from transformers import AutoConfig  # noqa: PLC0415
+
+    labels = AutoConfig.from_pretrained(model, revision=revision or None).id2label
+    return {
+        "weights_sha256": weights_hash(Path(model)),
+        "id2label": json.dumps({str(k): v for k, v in labels.items()}),
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+    }
 
 
 def period_lines(rows: list[dict[str, str]]) -> list[str]:
@@ -93,10 +147,21 @@ def period_lines(rows: list[dict[str, str]]) -> list[str]:
     return lines
 
 
+def previous_runs(path: Path) -> list[dict[str, str]]:
+    """The rows of the log, which must have the columns this script writes."""
+    if not path.exists():
+        return []
+    rows = extra._read(path)
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        header = tuple(next(csv.reader(fh), ()))
+    if header != tuple(LOG_FIELDS):
+        raise MarkedFileError(f"{path} does not have the columns this script writes: {header}")
+    return rows
+
+
 def log_run(path: Path, row: dict[str, str]) -> int:
     """Append the run to the log (created with its header) and return its number."""
-    before = extra._read(path) if path.exists() else []
-    number = len(before) + 1
+    number = len(previous_runs(path)) + 1
     path.parent.mkdir(parents=True, exist_ok=True)
     fresh = not path.exists()
     with path.open("a", newline="", encoding="utf-8") as fh:
@@ -105,6 +170,53 @@ def log_run(path: Path, row: dict[str, str]) -> int:
             writer.writeheader()
         writer.writerow({**row, "run": str(number)})
     return number
+
+
+def figure_columns(name: str, figure: gold_metrics.Figure) -> dict[str, str]:
+    """A figure as the log keeps it: the text of the report and its three numbers."""
+    return {
+        name: str(figure),
+        f"{name}_point": f"{figure.point:.4f}",
+        f"{name}_low": f"{figure.low:.4f}",
+        f"{name}_high": f"{figure.high:.4f}",
+    }
+
+
+def log_row(
+    args: argparse.Namespace,
+    identity: dict[str, str],
+    gold_sha: str,
+    rep: gold_metrics.SentimentReport,
+    texts: int,
+) -> dict[str, str]:
+    return {
+        "time": datetime.now(UTC).isoformat(timespec="seconds"),
+        "label": args.label,
+        "model": args.model,
+        "revision": args.revision,
+        "weights_sha256": identity["weights_sha256"],
+        "gold_sha256": gold_sha,
+        "id2label": identity["id2label"],
+        "device": identity["device"],
+        **figure_columns("agreement", rep.agreement),
+        "agreement_judgement": rep.agreement.judge(report.AGREEMENT_BAR),
+        **figure_columns("negative_precision", rep.negative_precision),
+        **figure_columns("negative_recall", rep.negative_recall),
+        "texts": str(texts),
+    }
+
+
+def earlier_lines(earlier: list[dict[str, str]]) -> list[str]:
+    """The runs already on the gold, and a warning past the two D35 plans (the baseline and the
+    final run): the log is the count of looks at the exam."""
+    lines = [f"earlier runs on the gold: {len(earlier)}"]
+    lines += [f"  run {r['run']} {r['label']}: {r['agreement']}" for r in earlier]
+    if len(earlier) + 1 > PLANNED_RUNS:
+        lines.append(
+            f"warning: this is run {len(earlier) + 1}; D35 plans the baseline and the final run, "
+            "and the report that quotes a figure lists every run"
+        )
+    return lines
 
 
 def main() -> None:
@@ -116,40 +228,37 @@ def main() -> None:
     parser.add_argument("--texts", type=Path, default=Path("data/sentiment_gold_ids.csv"))
     parser.add_argument("--log", type=Path, default=Path("gold/sentiment_gold_scoring_log.csv"))
     args = parser.parse_args()
+    gold_file = args.gold / "sentiment_gold.csv"
     try:
         tagged = gold_metrics.read_marked(
-            args.gold / "sentiment_gold.csv",
+            gold_file,
             "sentiment",
             gold_metrics.SENTIMENT_CLASSES,
             required=("key", "part", "stratum", "predicted", "population", "text_hash", "pub_date"),
         )
         items = texts_of_the_gold(tagged, extra._read(args.texts))
-        predictions = score(items, {"model": args.model, "revision": args.revision})
+        earlier = previous_runs(args.log)
+        identity = describe_model(args.model, args.revision)
+        cfg = {"model": args.model, "revision": args.revision}
+        predictions = score(items, cfg, identity["id2label"])
         rows, populations = report._sentiment_rows_from_gold(args.gold, predictions)
+        lines = report.sentiment_report(args.gold, gold=True, predictions=predictions)
     except MarkedFileError as exc:
         sys.exit(str(exc))
     stored = {r["key"]: r["predicted"] for r in tagged}
     moved = sum(predictions[k] != stored[k] for k in stored)
     rep = gold_metrics.sentiment_report(rows, populations)
-    number = log_run(
-        args.log,
-        {
-            "time": datetime.now(UTC).isoformat(timespec="seconds"),
-            "label": args.label,
-            "model": args.model,
-            "revision": args.revision,
-            "agreement": str(rep.agreement),
-            "agreement_judgement": rep.agreement.judge(report.AGREEMENT_BAR),
-            "negative_precision": str(rep.negative_precision),
-            "negative_recall": str(rep.negative_recall),
-            "texts": str(len(rows)),
-        },
-    )
+    gold_sha = hashlib.sha256(gold_file.read_bytes()).hexdigest()
+    output = [
+        *earlier_lines(earlier),
+        f"model {args.model} {args.revision}: {moved} of {len(stored)} predictions differ from",
+        "the model the sample was drawn by (0 for the pinned model: the scorer is the same)",
+        *lines,
+        *period_lines(rows),
+    ]
+    number = log_run(args.log, log_row(args, identity, gold_sha, rep, len(rows)))  # last: all built
     print(f"run {number} on the gold ({args.log}): every run is listed (D35)")
-    print(f"model {args.model} {args.revision}: {moved} of {len(stored)} predictions differ from")
-    print("the model the sample was drawn by (0 for the pinned model: the scorer is the same)")
-    print("\n".join(report.sentiment_report(args.gold, gold=True, predictions=predictions)))
-    print("\n".join(period_lines(rows)))
+    print("\n".join(output))
 
 
 if __name__ == "__main__":

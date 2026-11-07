@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -140,3 +141,123 @@ def test_a_text_with_no_chunk_stops_the_run(monkeypatch: pytest.MonkeyPatch) -> 
     )
     with pytest.raises(gold_metrics.MarkedFileError, match="no chunk to score"):
         SCORE.score([{"key": "a", "text": "x"}, {"key": "b", "text": "y"}])
+
+
+def _fake_predict(
+    answer: dict[str, str] | str,
+) -> Callable[..., list[dict[str, str]]]:
+    def predict(
+        texts: list[dict[str, str]], cfg: dict[str, str] | None = None
+    ) -> list[dict[str, str]]:
+        return [
+            {**t, "predicted": answer if isinstance(answer, str) else answer[t["key"]]}
+            for t in texts
+        ]
+
+    return predict
+
+
+IDENTITY = {"weights_sha256": "w" * 8, "id2label": '{"0": "positive"}', "device": "cpu"}
+
+
+def _run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: dict[str, str] | str,
+    *,
+    edit_text: bool = False,
+) -> Path:
+    """A temporary gold, ids and log, a fake model, and ``main`` run on them; returns the log."""
+    rows = _gold()
+    for i, r in enumerate(rows):
+        r["sentiment"] = gold_metrics.SENTIMENT_CLASSES[i % 3]
+    gold = tmp_path / "gold"
+    gold.mkdir(exist_ok=True)
+    _write(gold / "sentiment_gold.csv", rows)
+    ids = _ids(rows)
+    if edit_text:
+        ids[2]["text"] += " edited"
+    _write(tmp_path / "ids.csv", ids)
+    monkeypatch.setattr(SCORE.gold_draw, "predict", _fake_predict(answer))
+    monkeypatch.setattr(SCORE, "describe_model", lambda model, revision: IDENTITY)
+    log = gold / "log.csv"
+    argv = ["score", "--model", "m", "--gold", str(gold), "--texts", str(tmp_path / "ids.csv")]
+    monkeypatch.setattr(sys, "argv", [*argv, "--log", str(log), "--label", "t"])
+    SCORE.main()
+    return log
+
+
+def _marks_as_answers() -> dict[str, str]:
+    return {r["key"]: gold_metrics.SENTIMENT_CLASSES[i % 3] for i, r in enumerate(_gold())}
+
+
+def test_main_scores_prints_the_report_and_logs_the_run_with_what_identifies_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log = _run(tmp_path, monkeypatch, _marks_as_answers())
+    out = capsys.readouterr().out
+    assert "run 1 on the gold" in out and "earlier runs on the gold: 0" in out
+    assert "overall agreement (weighted): 100.0%" in out and "agreement by period" in out
+    with log.open(encoding="utf-8", newline="") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert list(row) == list(SCORE.LOG_FIELDS)
+    assert row["weights_sha256"] == "w" * 8 and row["device"] == "cpu" and row["texts"] == "180"
+    assert (
+        row["gold_sha256"]
+        == SCORE.hashlib.sha256((tmp_path / "gold" / "sentiment_gold.csv").read_bytes()).hexdigest()
+    )
+    assert (float(row["agreement_point"]), row["agreement_judgement"]) == (1.0, "pass")
+    assert float(row["agreement_low"]) <= 1.0 <= float(row["agreement_high"]) + 1e-9
+
+
+def test_a_second_run_lists_the_first_and_a_third_is_warned_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for _ in range(3):
+        _run(tmp_path, monkeypatch, _marks_as_answers())
+    out = capsys.readouterr().out
+    assert "earlier runs on the gold: 2" in out and "  run 2 t: 100.0%" in out
+    assert "warning: this is run 3; D35 plans the baseline and the final run" in out
+    assert out.count("warning: this is run") == 1  # runs 1 and 2 are the planned ones
+
+
+def test_a_model_that_does_not_answer_with_the_three_classes_is_never_logged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(SystemExit, match="label_0"):
+        _run(tmp_path, monkeypatch, "label_0")
+    assert not (tmp_path / "gold" / "log.csv").exists()
+
+
+def test_an_edited_text_stops_the_run_before_any_scoring_or_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(SystemExit, match="not the text the owner marked"):
+        _run(tmp_path, monkeypatch, "neutral", edit_text=True)
+    assert not (tmp_path / "gold" / "log.csv").exists()
+
+
+def test_a_log_with_other_columns_is_not_appended_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = tmp_path / "gold" / "log.csv"
+    log.parent.mkdir()
+    log.write_text("run,time,label\n1,x,old\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="does not have the columns this script writes"):
+        _run(tmp_path, monkeypatch, "neutral")
+    assert log.read_text(encoding="utf-8") == "run,time,label\n1,x,old\n"
+
+
+def test_the_weights_of_a_local_checkpoint_are_hashed_and_a_hub_id_has_none(
+    tmp_path: Path,
+) -> None:
+    model = tmp_path / "ckpt"
+    model.mkdir()
+    (model / "model.safetensors").write_bytes(b"weights-1")
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    first = SCORE.weights_hash(model)
+    assert len(first) == 64
+    (model / "model.safetensors").write_bytes(b"weights-2")
+    assert SCORE.weights_hash(model) != first  # a replaced checkpoint is a different run
+    assert SCORE.weights_hash(Path("gamug/FinBERT-financial-news")) == ""
+    assert SCORE.weights_hash(tmp_path / "empty-dir-without-weights") == ""
