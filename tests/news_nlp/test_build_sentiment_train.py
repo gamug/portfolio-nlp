@@ -383,3 +383,19 @@ def test_a_missing_tagged_file_says_where_to_save_the_owners_copy(tmp_path: Path
     assert "save your tagged copy at" in str(caught.value)
     assert "writes only the untagged one" in str(caught.value)
     assert "draw script of that set" not in str(caught.value)
+
+
+def test_marks_in_spanish_are_refused_with_the_english_words_named() -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    for m, word in zip(marks[:3], ("positivo", "negativo", "neutro"), strict=True):
+        m["sentiment"] = word
+    with pytest.raises(gold_metrics.MarkedFileError) as caught:
+        BUILD.build(marks, ids)
+    text = str(caught.value)
+    assert "3 rows with a mark outside" in text and "'positivo'" in text
+    assert "write the English word: positive, negative or neutral" in text
+    marks[0]["sentiment"] = "bullish"  # a first refused word that is not a Spanish class: no hint
+    with pytest.raises(gold_metrics.MarkedFileError) as other:
+        BUILD.build(marks, ids)
+    assert "write the English word" not in str(other.value)
