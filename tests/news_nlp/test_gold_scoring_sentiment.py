@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -215,15 +216,108 @@ def test_main_scores_prints_the_report_and_logs_the_run_with_what_identifies_it(
     assert float(row["agreement_low"]) <= 1.0 <= float(row["agreement_high"]) + 1e-9
 
 
-def test_a_second_run_lists_the_first_and_a_third_is_warned_about(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("roles", "warnings"),
+    [
+        (["baseline", "final"], 0),  # the plan: no warning
+        (["baseline", "other", "final"], 1),  # the extra look warns, the planned final does not
+        (["other", "other"], 2),
+    ],
+)
+def test_only_an_extra_look_is_warned_about_not_a_planned_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    roles: list[str],
+    warnings: int,
 ) -> None:
-    for _ in range(3):
-        _run(tmp_path, monkeypatch, _marks_as_answers())
+    for role in roles:
+        _run(tmp_path, monkeypatch, _marks_as_answers(), extra=("--role", role))
     out = capsys.readouterr().out
-    assert "earlier runs on the gold: 2" in out and "  run 2 t: 100.0%" in out
-    assert "warning: this is run 3; D35 plans the baseline and the final run" in out
-    assert out.count("warning: this is run") == 1  # runs 1 and 2 are the planned ones
+    assert out.count("warning: this is an extra look at the gold") == warnings
+
+
+def test_the_warning_counts_the_looks_beyond_the_plan_so_far() -> None:
+    earlier = [
+        {"run": "1", "label": "b", "agreement": "x", "role": "baseline"},
+        {"run": "2", "label": "t", "agreement": "x", "role": "other"},
+        {"run": "3", "label": "f", "agreement": "x", "role": "final"},
+        {"run": "4", "label": "f2", "agreement": "x", "role": "final"},  # a redo
+    ]
+    assert SCORE.looks_beyond_the_plan(earlier) == 2
+    text = "\n".join(SCORE.earlier_lines(earlier, "other", False))
+    assert "looks beyond the plan so far: 2, with this one 3" in text
+    assert SCORE.earlier_lines(earlier[:1], "final", False) == [
+        "earlier runs on the gold: 1",
+        "  run 1 b: x",
+    ]
+
+
+def test_the_report_quotes_the_last_final_row() -> None:
+    rows = [
+        {"run": "1", "role": "final", "revision": "old"},
+        {"run": "2", "role": "other", "revision": "x"},
+        {"run": "3", "role": "final", "revision": "new"},
+    ]
+    last = SCORE.last_final_run(rows)
+    assert last is not None and last["revision"] == "new"
+    assert SCORE.last_final_run(rows[1:2]) is None
+
+
+def _final_matches_the_pin(log: Path, config: Path) -> bool | None:
+    """Whether the last ``final`` row of the log names the model and revision pinned for sentiment;
+    ``None`` when the log has no ``final`` row yet."""
+    with log.open(encoding="utf-8", newline="") as fh:
+        final = SCORE.last_final_run(list(csv.DictReader(fh)))
+    if final is None:
+        return None
+    pinned = json.loads(config.read_text(encoding="utf-8"))["sentiment"]
+    return (final["model"], final["revision"]) == (pinned["model"], pinned["revision"])
+
+
+def test_the_pinned_sentiment_model_is_the_one_scored_as_final() -> None:
+    """The figure that counts (D35) is the last ``final`` row; the model the cut uses is the one
+    pinned in ``config/pipeline_models.json``. They must be the same model and revision, so the pin
+    cannot move to a model that was not scored. The final run is of the *published* model (a Hub id
+    and a revision), not of a local checkpoint."""
+    root = Path(__file__).resolve().parents[2]
+    matches = _final_matches_the_pin(
+        root / "gold" / "sentiment_gold_scoring_log.csv", root / "config" / "pipeline_models.json"
+    )
+    if matches is None:
+        pytest.skip("no final run on the gold yet (T-148c4 scores the published model as final)")
+    assert matches, "score the pinned (published) model as the final run, or pin the model scored"
+
+
+def test_the_pin_check_fails_when_the_final_run_is_not_the_pinned_model(tmp_path: Path) -> None:
+    config = tmp_path / "models.json"
+    config.write_text(
+        json.dumps({"sentiment": {"model": "org/model", "revision": "abc"}}), encoding="utf-8"
+    )
+    log = tmp_path / "log.csv"
+    fields = ["run", "role", "model", "revision"]
+
+    def write(rows: list[dict[str, str]]) -> None:
+        with log.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    write([{"run": "1", "role": "baseline", "model": "org/model", "revision": "abc"}])
+    assert _final_matches_the_pin(log, config) is None  # a baseline is not the figure
+    write([{"run": "1", "role": "final", "model": "org/model", "revision": "abc"}])
+    assert _final_matches_the_pin(log, config) is True
+    write([{"run": "1", "role": "final", "model": "org/model", "revision": "other"}])
+    assert _final_matches_the_pin(log, config) is False  # the pin moved to a model not scored
+    write([{"run": "1", "role": "final", "model": "./ckpt", "revision": ""}])
+    assert _final_matches_the_pin(log, config) is False  # a local checkpoint is not the pin
+    write(
+        [
+            {"run": "1", "role": "final", "model": "org/model", "revision": "old"},
+            {"run": "2", "role": "final", "model": "org/model", "revision": "abc"},
+        ]
+    )
+    assert _final_matches_the_pin(log, config) is True  # the last final row counts
 
 
 def test_a_model_that_does_not_answer_with_the_three_classes_is_never_logged(

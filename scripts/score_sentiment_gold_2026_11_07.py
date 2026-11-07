@@ -18,7 +18,7 @@ and later, the gold is not), raw and not re-weighted, with Wilson intervals.
 (tracked, no news text): the run number, the time, the label, the model and what identifies it (the
 revision, or for a local path the hash of its weight files), the digest of the scoring code, the
 hash of the gold file that was scored, the role of the run (``--role``: ``baseline``, ``final`` or
-``other``; the first two are one each unless ``--redo-role``: the report quotes the ``final`` row), the labels the model uses and the device, then the agreement with its interval (as text and as
+``other``; the first two are one each unless ``--redo-role``: the report quotes the last ``final`` row, and an earlier one stays as a record), the labels the model uses and the device, then the agreement with its interval (as text and as
 numbers) and what the bar says, and the negative precision and recall. A run is logged only when
 every output exists, and a model whose labels are not the three classes stops the run before
 anything is written. The report
@@ -50,7 +50,6 @@ from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
 LOG_FIELDS = retag.SENTIMENT_SCORING_LOG_COLUMNS
-PLANNED_RUNS = 2  # D35: the baseline and the final run
 ROLES = ("baseline", "final", "other")
 ONCE_ONLY = ("baseline", "final")  # a second one needs --redo-role
 
@@ -265,15 +264,31 @@ def log_row(
     }
 
 
-def earlier_lines(earlier: list[dict[str, str]]) -> list[str]:
-    """The runs already on the gold, and a warning past the two D35 plans (the baseline and the
-    final run): the log is the count of looks at the exam."""
+def looks_beyond_the_plan(earlier: list[dict[str, str]]) -> int:
+    """How many runs on the gold are not the one baseline and the one final run D35 plans: every
+    ``other`` run, and every baseline or final run past the first of its role (a ``--redo-role``)."""
+    roles = Counter(r.get("role", "other") for r in earlier)
+    return roles["other"] + sum(max(roles[role] - 1, 0) for role in ONCE_ONLY)
+
+
+def last_final_run(rows: list[dict[str, str]]) -> dict[str, str] | None:
+    """The row the report quotes: the last run with role ``final``. An earlier ``final`` row (after a
+    ``--redo-role``) stays in the log as a record and is not the figure."""
+    finals = [r for r in rows if r.get("role") == "final"]
+    return finals[-1] if finals else None
+
+
+def earlier_lines(earlier: list[dict[str, str]], role: str, redo: bool) -> list[str]:
+    """The runs already on the gold, and a warning when this one is an extra look at the exam (a run
+    that is not the planned baseline or final run): the log is the count of looks."""
     lines = [f"earlier runs on the gold: {len(earlier)}"]
     lines += [f"  run {r['run']} {r['label']}: {r['agreement']}" for r in earlier]
-    if len(earlier) + 1 > PLANNED_RUNS:
+    if role == "other" or redo:
+        so_far = looks_beyond_the_plan(earlier)
         lines.append(
-            f"warning: this is run {len(earlier) + 1}; D35 plans the baseline and the final run, "
-            "and the report that quotes a figure lists every run"
+            f"warning: this is an extra look at the gold (role {role}{', redo' if redo else ''}); "
+            f"looks beyond the plan so far: {so_far}, with this one {so_far + 1}. D35 plans the "
+            "baseline and the final run, and the report that quotes a figure lists every run"
         )
     return lines
 
@@ -322,7 +337,7 @@ def main() -> None:
     rep = gold_metrics.sentiment_report(rows, populations)
     gold_sha = hashlib.sha256(gold_file.read_bytes()).hexdigest()
     output = [
-        *earlier_lines(earlier),
+        *earlier_lines(earlier, args.role, args.redo_role),
         f"model {args.model} {args.revision}: {moved} of {len(stored)} predictions differ from",
         "the model the sample was drawn by (0 for the pinned model: the scorer is the same)",
         *lines,
