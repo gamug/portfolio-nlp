@@ -16,8 +16,9 @@ and later, the gold is not), raw and not re-weighted, with Wilson intervals.
 
 **Every run is listed (D35).** The gold is not a tuning set: each run appends a row to ``--log``
 (tracked, no news text): the run number, the time, the label, the model and what identifies it (the
-revision, or for a local path the hash of its weight files), the hash of the gold file that was
-scored, the labels the model uses and the device, then the agreement with its interval (as text and as
+revision, or for a local path the hash of its weight files), the digest of the scoring code, the
+hash of the gold file that was scored, the role of the run (``--role``: ``baseline``, ``final`` or
+``other``; the first two are one each unless ``--redo-role``: the report quotes the ``final`` row), the labels the model uses and the device, then the agreement with its interval (as text and as
 numbers) and what the bar says, and the negative precision and recall. A run is logged only when
 every output exists, and a model whose labels are not the three classes stops the run before
 anything is written. The report
@@ -32,6 +33,7 @@ import csv
 import hashlib
 import json
 import sys
+import types
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,11 +45,14 @@ import draw_sector_extra_2026_11_05 as extra
 import draw_sentiment_gold_2026_11_05 as gold_draw
 import report_wi18_2026_11_06 as report
 
+import chunking
 from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
 LOG_FIELDS = retag.SENTIMENT_SCORING_LOG_COLUMNS
 PLANNED_RUNS = 2  # D35: the baseline and the final run
+ROLES = ("baseline", "final", "other")
+ONCE_ONLY = ("baseline", "final")  # a second one needs --redo-role
 
 
 def texts_of_the_gold(
@@ -126,10 +131,10 @@ def describe_model(model: str, revision: str) -> dict[str, str]:
     }
 
 
-def period_lines(rows: list[dict[str, str]]) -> list[str]:
+def period_figures(rows: list[dict[str, str]]) -> dict[str, tuple[int, gold_metrics.Figure]]:
     """Agreement with the owner for 2022 on and before, raw (not re-weighted: the strata are of the
     whole gold) with Wilson intervals, so a model trained on 2022-on texts is not read as one
-    figure."""
+    figure. Keyed ``2022 on`` and ``before 2022``; a text with no usable date is in neither."""
     late_from = gold_metrics.LATE_FROM_YEAR
     groups = {
         f"{late_from} on": [r for r in rows if (gold_metrics.year_of(r) or 0) >= late_from],
@@ -137,14 +142,51 @@ def period_lines(rows: list[dict[str, str]]) -> list[str]:
             r for r in rows if (gold_metrics.year_of(r) or late_from) < late_from
         ],
     }
+    return {
+        name: (
+            len(mine),
+            gold_metrics.wilson(sum(r["predicted"] == r["gold"] for r in mine), len(mine)),
+        )
+        for name, mine in groups.items()
+    }
+
+
+def period_lines(rows: list[dict[str, str]]) -> list[str]:
     lines = ["agreement by period (raw, not re-weighted; D35):"]
-    for name, mine in groups.items():
-        right = sum(r["predicted"] == r["gold"] for r in mine)
-        lines.append(f"  {name}: {len(mine)} texts, {gold_metrics.wilson(right, len(mine))}")
+    for name, (n, figure) in period_figures(rows).items():
+        lines.append(f"  {name}: {n} texts, {figure}")
     undated = gold_metrics.rows_without_year(rows)
     if undated:
         lines.append(f"  {undated} texts have no usable pub_date (in neither)")
     return lines
+
+
+def scoring_code_revision() -> str:
+    """The version of the code that reads a text and builds the figures: the chunking, the draw's
+    ``predict``, the report and this script (``retag.code_revision``). A change to any of them
+    changes figures, and the log row says which version made them."""
+    this = types.ModuleType("score_sentiment_gold")
+    this.__file__ = __file__
+    return retag.code_revision(chunking, gold_draw, report, this)
+
+
+def require_pinned(model: str, revision: str) -> None:
+    """A Hub model needs a revision, as the pipeline pins every model: without one the run scores
+    whatever the repository points to that day and the row cannot say which model it was."""
+    if not Path(model).is_dir() and not revision:
+        raise MarkedFileError(
+            f"{model} is not a local directory, so it needs --revision (a commit of the Hub "
+            "repository): every model is pinned, and a row without a revision identifies nothing"
+        )
+
+
+def check_role(role: str, earlier: list[dict[str, str]], redo: bool) -> None:
+    """The baseline and the final run are one each (D35): a second needs ``--redo-role``."""
+    if role in ONCE_ONLY and not redo and any(r.get("role") == role for r in earlier):
+        raise MarkedFileError(
+            f"the log already has a {role} run: D35 has one, and the report quotes it; run with "
+            "--redo-role if this is meant to replace it as the one that counts"
+        )
 
 
 def previous_runs(path: Path) -> list[dict[str, str]]:
@@ -187,22 +229,39 @@ def log_row(
     identity: dict[str, str],
     gold_sha: str,
     rep: gold_metrics.SentimentReport,
-    texts: int,
+    rows: list[dict[str, str]],
 ) -> dict[str, str]:
+    by_period = period_figures(rows)
+    late, early = (
+        by_period[f"{gold_metrics.LATE_FROM_YEAR} on"],
+        by_period[f"before {gold_metrics.LATE_FROM_YEAR}"],
+    )
     return {
         "time": datetime.now(UTC).isoformat(timespec="seconds"),
         "label": args.label,
+        "role": args.role,
         "model": args.model,
         "revision": args.revision,
         "weights_sha256": identity["weights_sha256"],
+        "code_revision": scoring_code_revision(),
         "gold_sha256": gold_sha,
         "id2label": identity["id2label"],
         "device": identity["device"],
         **figure_columns("agreement", rep.agreement),
         "agreement_judgement": rep.agreement.judge(report.AGREEMENT_BAR),
+        "agreement_2022_on": f"{late[1].point:.4f}",
+        "agreement_2022_on_low": f"{late[1].low:.4f}",
+        "agreement_2022_on_high": f"{late[1].high:.4f}",
+        "texts_2022_on": str(late[0]),
+        "agreement_before_2022": f"{early[1].point:.4f}",
+        "agreement_before_2022_low": f"{early[1].low:.4f}",
+        "agreement_before_2022_high": f"{early[1].high:.4f}",
+        "texts_before_2022": str(early[0]),
         **figure_columns("negative_precision", rep.negative_precision),
+        "negative_precision_judgement": rep.negative_precision.judge(report.NEGATIVE_BAR),
         **figure_columns("negative_recall", rep.negative_recall),
-        "texts": str(texts),
+        "negative_recall_judgement": rep.negative_recall.judge(report.NEGATIVE_BAR),
+        "texts": str(len(rows)),
     }
 
 
@@ -224,6 +283,17 @@ def main() -> None:
     parser.add_argument("--model", required=True, help="a local path or a Hub id")
     parser.add_argument("--revision", default="", help="a Hub revision (none for a local path)")
     parser.add_argument("--label", default="candidate", help="a name for the log")
+    parser.add_argument(
+        "--role",
+        choices=ROLES,
+        default="other",
+        help="which run this is (D35): the baseline and the final run are the ones that count",
+    )
+    parser.add_argument(
+        "--redo-role",
+        action="store_true",
+        help="accept a second baseline or final run in the log",
+    )
     parser.add_argument("--gold", type=Path, default=Path("gold"))
     parser.add_argument("--texts", type=Path, default=Path("data/sentiment_gold_ids.csv"))
     parser.add_argument("--log", type=Path, default=Path("gold/sentiment_gold_scoring_log.csv"))
@@ -237,7 +307,9 @@ def main() -> None:
             required=("key", "part", "stratum", "predicted", "population", "text_hash", "pub_date"),
         )
         items = texts_of_the_gold(tagged, extra._read(args.texts))
+        require_pinned(args.model, args.revision)
         earlier = previous_runs(args.log)
+        check_role(args.role, earlier, args.redo_role)
         identity = describe_model(args.model, args.revision)
         cfg = {"model": args.model, "revision": args.revision}
         predictions = score(items, cfg, identity["id2label"])
@@ -256,7 +328,7 @@ def main() -> None:
         *lines,
         *period_lines(rows),
     ]
-    number = log_run(args.log, log_row(args, identity, gold_sha, rep, len(rows)))  # last: all built
+    number = log_run(args.log, log_row(args, identity, gold_sha, rep, rows))  # last: all built
     print(f"run {number} on the gold ({args.log}): every run is listed (D35)")
     print("\n".join(output))
 

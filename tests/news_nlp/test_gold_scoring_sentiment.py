@@ -166,6 +166,9 @@ def _run(
     answer: dict[str, str] | str,
     *,
     edit_text: bool = False,
+    extra: tuple[str, ...] = (),
+    model: str = "m",
+    revision: str = "r",
 ) -> Path:
     """A temporary gold, ids and log, a fake model, and ``main`` run on them; returns the log."""
     rows = _gold()
@@ -181,8 +184,10 @@ def _run(
     monkeypatch.setattr(SCORE.gold_draw, "predict", _fake_predict(answer))
     monkeypatch.setattr(SCORE, "describe_model", lambda model, revision: IDENTITY)
     log = gold / "log.csv"
-    argv = ["score", "--model", "m", "--gold", str(gold), "--texts", str(tmp_path / "ids.csv")]
-    monkeypatch.setattr(sys, "argv", [*argv, "--log", str(log), "--label", "t"])
+    argv = ["score", "--model", model, "--gold", str(gold), "--texts", str(tmp_path / "ids.csv")]
+    if revision:
+        argv += ["--revision", revision]
+    monkeypatch.setattr(sys, "argv", [*argv, "--log", str(log), "--label", "t", *extra])
     SCORE.main()
     return log
 
@@ -261,3 +266,45 @@ def test_the_weights_of_a_local_checkpoint_are_hashed_and_a_hub_id_has_none(
     assert SCORE.weights_hash(model) != first  # a replaced checkpoint is a different run
     assert SCORE.weights_hash(Path("gamug/FinBERT-financial-news")) == ""
     assert SCORE.weights_hash(tmp_path / "empty-dir-without-weights") == ""
+
+
+def test_a_hub_model_without_a_revision_is_refused_and_a_local_directory_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(SystemExit, match="needs --revision"):
+        _run(tmp_path, monkeypatch, "neutral", model="gamug/some-model", revision="")
+    assert not (tmp_path / "gold" / "log.csv").exists()
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    log = _run(tmp_path, monkeypatch, "neutral", model=str(checkpoint), revision="")  # no revision
+    assert log.exists()
+
+
+def test_the_row_carries_the_code_the_periods_and_every_judgement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = _run(tmp_path, monkeypatch, _marks_as_answers(), extra=("--role", "baseline"))
+    with log.open(encoding="utf-8", newline="") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert row["role"] == "baseline"
+    assert len(row["code_revision"]) == 12 and row["code_revision"] == SCORE.scoring_code_revision()
+    assert (row["texts_2022_on"], row["texts_before_2022"]) == ("90", "90")  # half of each, _gold
+    assert float(row["agreement_2022_on"]) == float(row["agreement_before_2022"]) == 1.0
+    assert row["negative_precision_judgement"] in {"pass", "fail", "not decided"}
+    assert row["negative_recall_judgement"] in {"pass", "fail", "not decided"}
+
+
+def test_a_second_baseline_or_final_run_needs_redo_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answers = _marks_as_answers()
+    _run(tmp_path, monkeypatch, answers, extra=("--role", "final"))
+    with pytest.raises(SystemExit, match="already has a final run"):
+        _run(tmp_path, monkeypatch, answers, extra=("--role", "final"))
+    _run(tmp_path, monkeypatch, answers)  # another role is not limited
+    _run(tmp_path, monkeypatch, answers, extra=("--role", "baseline"))
+    with pytest.raises(SystemExit, match="already has a baseline run"):
+        _run(tmp_path, monkeypatch, answers, extra=("--role", "baseline"))
+    _run(tmp_path, monkeypatch, answers, extra=("--role", "final", "--redo-role"))
+    with (tmp_path / "gold" / "log.csv").open(encoding="utf-8", newline="") as fh:
+        assert [r["role"] for r in csv.DictReader(fh)] == ["final", "other", "baseline", "final"]
