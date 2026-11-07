@@ -4,21 +4,22 @@ owner marks (Work item 18, T-148b2, D27, D32).
     uv run scripts/draw_faithfulness_2026_11_06.py [--out data] [--n 30] [--seed 20261106]
         [--extractors baseline,model] [--yes]
     uv run scripts/draw_faithfulness_2026_11_06.py --add-extractor model [--out data] [--yes]
+        --attribution-model data/models/attribution_2026_11_08   # or a Hub id with --attribution-revision
 
 The bodies are the ones the owner tagged ``multi`` (``gold/category_gold_v2.csv``) that the
 one-segment-per-company parser cannot split (``company_texts.split_company_texts`` is ``None``),
 minus the held-out set; ``--n`` of them are drawn once (``<out>/faithfulness_bodies.csv``, never
 drawn again, so the baseline and the model are judged on the same bodies).
 
-Each extractor (``attribution_baseline.baseline_company_texts`` or, once T-148b3 exists, the trained
-model) writes the text each company named in the body gets. The owner reads each text with its
+Each extractor (``attribution_baseline.baseline_company_texts`` or the trained model of T-148b3,
+``news_nlp.attribution_model``, named by ``--attribution-model``) writes the text each company named in the body gets. The owner reads each text with its
 article and marks ``faithful`` yes or no (``retag.FAITHFULNESS_COLUMNS``, the Spanish pair right
 after ``text``, and the Spanish version of the article). The file is **blind to the extractor**: the
 rows are shuffled, and a text two extractors wrote identically is one row. Which extractor wrote
 which row (by ``review_order``) is in ``<out>/faithfulness_ids.csv``, to compute the figures with ``report_wi18``.
 
 ``--extractors baseline`` alone writes the file for the baseline only (the decision on the baseline,
-D34); nothing is written for ``model`` until it is trained. The Spanish aid is the approved paid
+D34); nothing is written for ``model`` without ``--attribution-model``. The Spanish aid is the approved paid
 translation of the same engine; nothing is bought without ``--yes``. Its cache is
 ``<out>/faithfulness/``.
 """
@@ -26,6 +27,7 @@ translation of the same engine; nothing is bought without ``--yes``. Its cache i
 from __future__ import annotations
 
 import argparse
+import hashlib
 import random
 import shutil
 import sys
@@ -39,8 +41,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_sector_extra_2026_11_05 as extra
 import retag_gold_2026_10_29 as retag_cli
 
+import chunking
 import news_nlp as db
-from news_nlp import attribution_baseline, company_texts, gold_metrics, retag, triage
+from news_nlp import (
+    attribution_baseline,
+    attribution_model,
+    company_texts,
+    gold_metrics,
+    retag,
+    triage,
+)
 from news_nlp.triage import CompanyResolver
 
 BODIES_NAME = "faithfulness_bodies.csv"
@@ -63,7 +73,43 @@ IDS_FIELDS = (
 )
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
-extractor_revision = retag.extractor_revision  # a model extractor will bring its own (T-148b3)
+MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_model
+
+
+def extractor_revision(name: str) -> str:
+    """The revision of extractor *name*: the baseline's code, or the trained model's identity (the
+    Hub id and revision, or a local directory's weights hash) with its code."""
+    if name != "model":
+        return retag.extractor_revision(name)
+    if not MODEL_IDENTITY:
+        raise ValueError("the model extractor is not registered: pass --attribution-model")
+    code = retag.code_revision(attribution_model, triage, chunking)
+    return f"extractor:model@{MODEL_IDENTITY[0]}@{code}"
+
+
+def model_extractor(scorer: attribution_model.Scorer, names: dict[str, str]) -> Extractor:
+    """The trained model as an extractor: the baseline's signature, the model behind *scorer*."""
+
+    def extract(body: str, resolver: CompanyResolver) -> dict[str, str]:
+        return attribution_model.model_company_texts(body, resolver, names, scorer)
+
+    return extract
+
+
+def register_model(model: str, revision: str | None, names: dict[str, str]) -> None:
+    """Make ``model`` an extractor. A Hub id needs a *revision* (every model is pinned); a local
+    directory is identified by the hash of its weights."""
+    if not Path(model).is_dir() and not revision:
+        sys.exit(f"{model} is not a local directory: it needs a revision (every model is pinned)")
+    if Path(model).is_dir():
+        weights = Path(model) / "model.safetensors"
+        identity = f"local:{hashlib.sha256(weights.read_bytes()).hexdigest()[:16]}"
+    else:
+        identity = f"{model}@{revision}"
+    MODEL_IDENTITY[:] = [identity]
+    EXTRACTORS["model"] = model_extractor(
+        attribution_model.TransformerScorer(model, revision), names
+    )
 
 
 def draw_bodies(candidates: list[dict[str, str]], n: int, seed: int) -> list[dict[str, str]]:
@@ -277,7 +323,9 @@ def add_extractor(args: argparse.Namespace) -> None:
     out: Path = args.out
     name: str = args.add_extractor
     if name not in EXTRACTORS:
-        sys.exit(f"no extractor {name!r}: only {sorted(EXTRACTORS)} exist today (T-148b3).")
+        sys.exit(
+            f"no extractor {name!r}: only {sorted(EXTRACTORS)} exist now (the model needs --attribution-model)."
+        )
     target, ids_path, bodies_path = out / TO_TAG_NAME, out / IDS_NAME, out / BODIES_NAME
     if not (extra.has_rows(target) and ids_path.exists() and bodies_path.exists()):
         sys.exit(
@@ -363,6 +411,13 @@ def parse_args() -> argparse.Namespace:
         metavar="NAME",
         help="add this extractor's texts to the file already being marked (no mark is touched)",
     )
+    parser.add_argument(
+        "--attribution-model",
+        metavar="DIR_OR_ID",
+        help="the trained attribution model (T-148b3): a local directory, or a Hub id with "
+        "--attribution-revision; without it only the baseline exists",
+    )
+    parser.add_argument("--attribution-revision", metavar="SHA")
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     return parser.parse_args()
@@ -371,6 +426,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
+    if args.attribution_model:
+        register_model(
+            args.attribution_model,
+            args.attribution_revision,
+            {c.ticker: c.name for c in retag_cli.companies()},
+        )
     if args.add_extractor:
         add_extractor(args)
         return
@@ -379,8 +440,9 @@ def main() -> None:
     missing = [e for e in names if e not in EXTRACTORS]
     if missing:
         sys.exit(
-            f"no extractor {missing}: only {sorted(EXTRACTORS)} exist today. The trained model "
-            "is T-148b3; use --extractors baseline for the decision on the baseline (D34)."
+            f"no extractor {missing}: only {sorted(EXTRACTORS)} exist now. The trained model "
+            "(T-148b3) needs --attribution-model; use --extractors baseline for the decision "
+            "on the baseline (D34)."
         )
     target = out / TO_TAG_NAME
     if extra.has_rows(target):

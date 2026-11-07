@@ -45,6 +45,7 @@ TOPICS: dict[str, frozenset[str]] = {
     # Work item 18: gold, tagging, triage, step-4 texts, the owner's files and their figures
     "wi18": frozenset(
         {
+            "test_attribution_model.py",
             "test_build_sentiment_train.py",
             "test_company_names.py",
             "test_company_texts.py",
