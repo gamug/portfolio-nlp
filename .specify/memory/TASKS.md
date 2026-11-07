@@ -1147,15 +1147,15 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
         bodies, scope from the rules) and its start in the evening (about 7 GPU hours overnight; it does not
         depend on the tagging; wasted only on a no-go); the T-153 reply is drafted for the owner.
       - *11-07 to 11-08:* the owner tags the label check first, then the held-out 200.
-      - *11-08:* `report_wi18 label-check` applies the rule of T-148b2; the attribution model trains (GPU, after the summaries).
+      - *11-08:* `report_wi18 label-check` applies the rule of T-148b2; the attribution model trains (GPU, after the summaries; **order set in D35, GPU: open for the owner; the sentiment retraining takes about 20 minutes of the GPU**).
       - *11-09:* the faithfulness texts (190 for the baseline, plus the model's) are exported (one blind file); T-153 is sent
         after the owner's approval, so the backtest team plans before the decision.
-      - *11-09 to 11-10:* the owner tags the 30. *11-10:* the 180 sentiment texts are drawn; the owner tags them 11-11.
+      - *11-09 to 11-10:* the owner tags the 30. *(the 180 sentiment texts were drawn, tagged and scored on 2026-11-06, 60.4%, PR #131; the 450 summaries for the retraining are tagged on 2026-11-07, D35.)*
       - *11-12:* decision, from `report_wi18 scope|sentiment|faithfulness`. After a go: NER, step 4 and sentiment over
         the window 11-12 to 11-14, hand-over about 11-16.
       **Checkpoint 11-09 (end of day):** the tagging of the label check and the held-out 200 (400 items) must be
       back, and the faithfulness file exported. If the held-out 200 is not back, the scope figure is reported as
-      "not evaluated" and the cut still goes if the other three pass; if the faithfulness or sentiment marks are not
+      "not evaluated" and the cut still goes if the other three pass; if the faithfulness marks (the sentiment marks of the 180 are in; the retraining's dates are T-148c3/c4, fallback 2026-11-11) are not
       back by 11-11 evening, the decision on 11-12 is no-go and the backtest team is told (the week's notice). The
       developer reports the count of marked rows per file on 11-09, 11-10 and 11-11 (`report_wi18` refuses a half-marked
       file and names the missing rows).
