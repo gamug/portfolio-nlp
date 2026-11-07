@@ -14,13 +14,16 @@ owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldo
 ``stratum`` from ``data/heldout_ids.csv`` and ``frame`` = the stratum's size from
 ``data/heldout_strata.csv``, so a rate can be re-weighted from ``gold/`` alone). The set is fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
 test file. A tag already in that file is protected: a rebuild that would change one stops and names
-the ids (``--overwrite-marks`` to accept); the rows of the shell, still untagged, are filled in freely.
+the ids (``--overwrite-marks`` to accept, printing the ids that change; the reference is the file as
+committed, ``git show HEAD:``, not a local edit); the rows of the shell, still untagged, are filled in freely.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import io
+import subprocess
 import sys
 from pathlib import Path
 
@@ -59,10 +62,30 @@ def changed_tags(old: list[dict[str, str]], new: list[dict[str, str]]) -> list[s
     ]
 
 
-def protect_tags(gold_path: Path, out_rows: list[dict[str, str]]) -> None:
-    """Stop if rebuilding *gold_path* from *out_rows* would change a tag it already holds."""
-    moved = changed_tags(_read(gold_path), out_rows) if gold_path.exists() else []
-    if moved:
+def reference_rows(gold_path: Path) -> list[dict[str, str]]:
+    """The tags a rebuild is compared with: the file as committed (``git show HEAD:``), so a local
+    edit of the file is not the reference; the file on disk when it is not in a repository."""
+    if gold_path.exists():
+        shown = subprocess.run(  # noqa: S603
+            ["git", "-C", str(gold_path.parent), "show", f"HEAD:./{gold_path.name}"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if shown.returncode == 0:
+            return list(csv.DictReader(io.StringIO(shown.stdout.lstrip("\ufeff"), newline="")))
+        return _read(gold_path)
+    return []
+
+
+def protect_tags(gold_path: Path, out_rows: list[dict[str, str]], accept: bool = False) -> None:
+    """Stop if rebuilding *gold_path* from *out_rows* would change a tag it already holds; with
+    *accept* (``--overwrite-marks``) say which ones change instead."""
+    moved = changed_tags(reference_rows(gold_path), out_rows)
+    if moved and accept:
+        print(f"--overwrite-marks: {len(moved)} tags of {gold_path} change (ids {moved})")
+    elif moved:
         sys.exit(
             f"{len(moved)} tags of {gold_path} would change (first ids {moved[:5]}): the held-out "
             "set is fixed (D30); run with --overwrite-marks if this is intended"
@@ -129,8 +152,8 @@ def main() -> None:
     if args.set == "test":
         columns = retag.TEST_GOLD_COLUMNS
         add_draw_weights(out_rows, args.out)
-    if args.set == "test" and not args.overwrite_marks:
-        protect_tags(gold_path, out_rows)
+    if args.set == "test":
+        protect_tags(gold_path, out_rows, args.overwrite_marks)
     gold_path.parent.mkdir(parents=True, exist_ok=True)
     with gold_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(columns), lineterminator="\n")

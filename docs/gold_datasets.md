@@ -97,11 +97,14 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   other four scopes not gated (9, 11, 8 and 7 gold bodies, D33). The working-file command gives the same lines
   (both sort by article id; the intervals of the first report, 61.4 / 74.3 / 63.8, are superseded).
 - **Rebuilding:** the set is fixed (D30). A rebuild stops if it would change or drop a tag already in the file
-  (`--overwrite-marks` to accept); only an untagged row of the shell is filled in freely. A test pins the file:
-  the scope counts, the shape of every row, the GICS codes offline and a digest of the tags. It cannot check the
-  tickers (the SOURCE universe is not in the repo; the builder does), and a change to the digest is a decision
-  made in the test. The tracked `frame` is the only copy of the weights in `gold/`; a test compares it with
-  `data/heldout_strata.csv` when that file is present.
+  (`--overwrite-marks` accepts it and prints the ids that change); only an untagged row of the shell is filled in
+  freely. The reference is the file as committed (`git show HEAD:`), so a local edit is not the reference (outside
+  a repository, the file on disk is). Tests pin the file: the scope counts, the shape of every row, the GICS codes
+  offline, the weights summing to the 1,000-body sample, and a hash per row over every column
+  (`tests/news_nlp/heldout_gold_row_hashes.csv`; a failure names the ids that differ, and a deliberate change
+  updates that file in the same PR); `main()` is run end to end on a tiny set. They cannot check the tickers (the
+  SOURCE universe is not in the repo; the builder does). The tracked `frame` is the only copy of the weights in
+  `gold/`; a further test compares it with `data/heldout_strata.csv`, only where that file exists (not on CI).
 
 ### 3. Label check — `gold/segment_check_gold.csv`
 

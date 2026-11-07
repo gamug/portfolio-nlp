@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from collections import Counter
@@ -2291,7 +2292,7 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
     ]
 
 
-HELDOUT_TAGS_SHA256 = "e7e3746b77a86e5b4602f80c8128cfdb49b9904d607eccbb4f7509d39731edcf"
+HELDOUT_ROW_HASHES = Path(__file__).resolve().parent / "heldout_gold_row_hashes.csv"
 HELDOUT_GOLD = Path(__file__).resolve().parents[2] / "gold" / "category_gold_v2_test.csv"
 
 
@@ -2318,19 +2319,24 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
     gics = retag.Universe({}, {n.lower(): n for n in SUB_INDUSTRY_CODES.values()})
     codes = {c.strip() for r in rows for c in r["sub_industry"].split(",") if c.strip()}
     assert not [c for c in codes if gics.resolve_sub_industry(c)[0] is None]
-    # the tags themselves: a changed scope, label, mention or code changes this digest, so a change
-    # is a decision to make in this test (the held-out set is fixed, D30), not a side effect
-    tags = "\n".join(
-        "\t".join(
-            r[c] for c in ("article_id", "scope", "company_labels", "mentions", "sub_industry")
-        )
-        for r in sorted(rows, key=lambda r: int(r["article_id"]))
-    )
-    assert hashlib.sha256(tags.encode()).hexdigest() == HELDOUT_TAGS_SHA256
+    # every column of every row: a changed tag, ticker, session or weight is a decision to make in
+    # this test (the held-out set is fixed, D30), and the failure names the rows that differ
+    with HELDOUT_ROW_HASHES.open(encoding="utf-8", newline="") as fh:
+        expected = {r["article_id"]: r["sha256_16"] for r in csv.DictReader(fh)}
+    found = {
+        r["article_id"]: hashlib.sha256(
+            "\t".join(r[c] for c in retag.TEST_GOLD_COLUMNS).encode()
+        ).hexdigest()[:16]
+        for r in rows
+    }
+    differ = sorted(i for i in expected.keys() | found.keys() if expected.get(i) != found.get(i))
+    assert not differ, f"rows of the held-out gold that changed or went missing: {differ[:20]}"
     frames: dict[str, set[str]] = {}
     for r in rows:
         frames.setdefault(r["stratum"], set()).add(r["frame"])
     assert all(len(sizes) == 1 for sizes in frames.values())  # one weight per stratum
+    # the weights are the sizes of the strata of the 1,000-body sample (D30): no data/ needed
+    assert sum(int(next(iter(sizes))) for sizes in frames.values()) == 1000
 
 
 def test_the_scope_report_reads_the_tracked_gold_with_the_figures_of_the_working_file(
@@ -2423,3 +2429,102 @@ def test_the_heldout_rebuild_stops_on_a_changed_tag_and_accepts_the_same_rows(
     build.protect_tags(target, [dict(r) for r in rows])  # the same tags: nothing happens
     with pytest.raises(SystemExit, match=r"1 tags .* would change .*--overwrite-marks"):
         build.protect_tags(target, [{**rows[0], "scope": "multi"}])
+
+
+def _heldout_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> ModuleType:
+    """A tiny held-out set in *tmp_path* and ``build_gold_2026_11_05.main`` set up to rebuild it."""
+    build = _script("build_gold_2026_11_05")
+    monkeypatch.setattr(build.retag_cli, "load_universe", lambda: None)
+    tag = ("article_id", "ticker", "scope", "company_labels", "mentions", "sub_industry", "notes")
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [
+            {
+                "article_id": "1",
+                "ticker": "AAPL",
+                "scope": "single",
+                "company_labels": "Apple:earnings_performance",
+                "mentions": "",
+                "sub_industry": "",
+                "notes": "",
+            }
+        ],
+        tag,
+    )
+    _csv(tmp_path / "heldout_ids.csv", [{"article_id": "1", "stratum": "single"}])
+    _csv(tmp_path / "heldout_strata.csv", [{"stratum": "single", "frame": "514"}])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build",
+            "--set",
+            "test",
+            "--out",
+            str(tmp_path),
+            "--gold",
+            str(tmp_path / "g.csv"),
+            *args,
+        ],
+    )
+    return build
+
+
+def _heldout_gold(tmp_path: Path, scope: str, labels: str) -> None:
+    _csv(
+        tmp_path / "g.csv",
+        [
+            {
+                "article_id": "1",
+                "session": "heldout",
+                "ticker": "AAPL",
+                "scope": scope,
+                "company_labels": labels,
+                "mentions": "",
+                "sub_industry": "",
+                "notes": "",
+                "stratum": "single",
+                "frame": "514",
+            }
+        ],
+    )
+
+
+def test_the_heldout_build_runs_through_main_with_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "", "")  # the shell: untagged, filled in freely
+    build.main()
+    written = (tmp_path / "g.csv").read_text(encoding="utf-8")
+    assert "single" in written and "514" in written
+    build.main()  # the same tags again: accepted
+    _heldout_gold(
+        tmp_path, "multi", "APPLE:earnings_performance"
+    )  # a tag the file holds, different
+    with pytest.raises(
+        SystemExit, match=r"1 tags .* would change .*first ids \['1'\].*--overwrite-marks"
+    ):
+        build.main()
+    assert "multi" in (tmp_path / "g.csv").read_text(encoding="utf-8")  # nothing was rewritten
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
+    capsys.readouterr()
+    build.main()
+    out = capsys.readouterr().out
+    assert "--overwrite-marks: 1 tags" in out and "ids ['1']" in out
+    assert "single" in (tmp_path / "g.csv").read_text(encoding="utf-8")
+
+
+def test_the_heldout_guard_compares_with_the_committed_file_not_a_local_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "single", "APPLE:earnings_performance")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(tmp_path)]
+    for command in (["init", "-q"], ["add", "g.csv"], ["commit", "-q", "-m", "tags"]):
+        subprocess.run([*git, *command], check=True, capture_output=True)  # noqa: S603
+    _heldout_gold(
+        tmp_path, "multi", "APPLE:earnings_performance"
+    )  # a local edit of the tracked file
+    build.main()  # the rebuild gives back the committed tags: not a change against HEAD
+    assert "single" in (tmp_path / "g.csv").read_text(encoding="utf-8")
