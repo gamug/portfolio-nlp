@@ -76,6 +76,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
+import errno
 import hashlib
 import importlib.metadata
 import json
@@ -486,6 +487,24 @@ def _holds(text: str) -> bool:
     return True  # also when the start time could not be read: a reused pid cannot be ruled out
 
 
+NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EXDEV})
+ERROR_INVALID_FUNCTION = 1  # Windows: the file system has no hard links (FAT, exFAT, some shares)
+
+
+def _cannot_lock(out: Path, exc: OSError) -> str:
+    """The message for an ``os.link`` that failed: the NTFS cause only when the error says the
+    folder cannot hold hard links; otherwise something holds the file for a moment."""
+    if exc.errno in NO_HARD_LINKS or getattr(exc, "winerror", None) == ERROR_INVALID_FUNCTION:
+        return (
+            f"cannot lock {out}: {exc}. The lock is a hard link, which needs a local NTFS (or "
+            "POSIX) folder, not exFAT/FAT or a network share; use --out on one."
+        )
+    return (
+        f"cannot lock {out}: {exc}. Run again; if it repeats, something holds the file "
+        f"(antivirus, an indexer, an editor): close it."
+    )
+
+
 @contextlib.contextmanager
 def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
     """One run at a time in *out*: ``run.lock`` holds the pid (and start time) of the run in
@@ -526,10 +545,7 @@ def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
                 path.unlink(missing_ok=True)  # left by a process that is gone
                 continue
             except OSError as exc:
-                sys.exit(
-                    f"cannot lock {out}: {exc}. The lock is a hard link, which needs a local "
-                    "NTFS (or POSIX) folder, not exFAT/FAT or a network share; use --out on one."
-                )
+                sys.exit(_cannot_lock(out, exc))
             break
         else:
             sys.exit(f"could not take {path}")

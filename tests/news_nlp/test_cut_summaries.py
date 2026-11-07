@@ -205,16 +205,45 @@ def test_a_stale_pid_file_and_its_lock_are_cleared_in_one_start(
     assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))
 
 
-def test_a_folder_that_cannot_hold_a_hard_link_is_named_not_a_traceback(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (OSError(1, "Operation not permitted"), "NTFS"),  # EPERM: no hard links here
+        (OSError(18, "Invalid cross-device link"), "NTFS"),  # EXDEV
+        (PermissionError(13, "Access is denied"), "something holds the file"),  # EACCES
+        (OSError(5, "I/O error"), "something holds the file"),
+    ],
+)
+def test_a_failed_hard_link_names_the_cause_that_the_error_tells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError, message: str
 ) -> None:
     def no_link(*_a: object) -> None:
-        raise OSError(1, "Operation not permitted")
+        raise error
 
     monkeypatch.setattr(CUT.os, "link", no_link)
-    with pytest.raises(SystemExit, match="NTFS"), CUT.locked(tmp_path):
+    with pytest.raises(SystemExit, match=message), CUT.locked(tmp_path):
         pass
     assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))  # the private file is removed
+
+
+def test_the_windows_error_for_a_file_system_without_hard_links_names_ntfs() -> None:
+    exc = OSError(22, "Incorrect function")
+    exc.winerror = 1  # type: ignore[attr-defined]
+    assert "NTFS" in CUT._cannot_lock(Path("x"), exc)
+
+
+def test_a_stale_private_file_is_judged_by_its_start_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)
+    monkeypatch.setattr(CUT, "_started", lambda pid: "222" if pid != os.getpid() else "1")
+    reused = tmp_path / f"{CUT.LOCK_NAME}.41956"
+    mine_still = tmp_path / f"{CUT.LOCK_NAME}.41957"
+    reused.write_text("41956 111", encoding="utf-8")  # another process holds that pid now
+    mine_still.write_text("41957 222", encoding="utf-8")  # the process that wrote it
+    with CUT.locked(tmp_path):
+        assert not reused.exists()
+        assert mine_still.exists()
 
 
 def test_on_windows_the_pid_is_never_probed_with_os_kill(
