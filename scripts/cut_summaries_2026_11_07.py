@@ -14,6 +14,9 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
 ``multi`` body, a round-up or a body with no company gets its scope and no summary. The chunk goes to
 ``<out>/chunk_NNNNN.csv``, one row per body.
 
+**Settings.** ``SOURCE_DATABASE_URL`` (the crawl DB with ``articles.body_text``) and ``DATABASE_URL`` come
+from the repo's ``.env`` or from the shell (the shell wins); see ``.env.example``.
+
 **What you see.** The first line says whether the summariser will use CUDA (the GPU's name) or the CPU;
 ``--require-cuda`` stops before anything is written if there is no CUDA. A progress bar counts the
 bodies of the whole cut (chunks already on disk count as done) and moves when a chunk is saved, with
@@ -82,6 +85,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -802,7 +806,18 @@ def load_or_build_index(
     return index
 
 
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
+
+def load_environment(env_file: Path = ENV_FILE) -> None:
+    """``SOURCE_DATABASE_URL`` / ``DATABASE_URL`` from the repo's ``.env``, as every other entrypoint
+    gets them (``pipeline`` loads it at import; this script does not import ``pipeline``). A
+    variable already set in the shell wins."""
+    load_dotenv(env_file, override=False)
+
+
 def main() -> None:
+    load_environment()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=Path("data/cut/summaries"))
     parser.add_argument("--since", default="2021-12-31")

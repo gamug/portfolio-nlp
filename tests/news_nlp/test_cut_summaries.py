@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -488,6 +489,7 @@ def _wired_main(
         return _processor(calls)
 
     monkeypatch.setattr(CUT, "make_processor", make)
+    monkeypatch.setattr(CUT, "load_environment", lambda: None)  # never the developer's own .env
     monkeypatch.setattr(sys, "argv", ["c", "--out", str(out), "--chunk-size", "2", *flags])
     return calls
 
@@ -850,3 +852,17 @@ def test_the_manifest_records_the_device_main_decided(
     CUT.atomic_write(index, CUT.INDEX_FIELDS, _index(2))
     assert CUT.conditions(args, index, "1:1", "cpu")["environment"].endswith(", cpu")
     assert CUT.conditions(args, index, "1:1")["environment"].endswith(", cuda")
+
+
+def test_the_script_reads_the_database_urls_from_the_env_file_and_the_shell_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("SOURCE_DATABASE_URL", "DATABASE_URL"):  # recorded, so the test leaves no trace
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+    env = tmp_path / ".env"
+    env.write_text("SOURCE_DATABASE_URL=D:/urls.db\nDATABASE_URL=D:/nlp.db\n", encoding="utf-8")
+    monkeypatch.setenv("DATABASE_URL", "from-the-shell")
+    CUT.load_environment(env)
+    assert os.environ["SOURCE_DATABASE_URL"] == "D:/urls.db"
+    assert os.environ["DATABASE_URL"] == "from-the-shell"
