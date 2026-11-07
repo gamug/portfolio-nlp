@@ -235,3 +235,14 @@ def test_a_stratum_drawn_whole_is_not_resampled() -> None:
         rows, {"a": 5, "b": 10}, label="negative", stratum_key="stratum", resamples=300
     )
     assert every.agreement.low == every.agreement.high == every.agreement.point
+
+
+def test_a_figure_with_no_interval_is_undefined_not_undecided() -> None:
+    """A precision with no text predicted is NaN: it is not an interval that straddles the bar
+    (that goes to the cut, D34), it is a figure that does not exist."""
+    nan = math.nan
+    assert Figure(nan, nan, nan).judge(0.7) == "undefined"
+    assert Figure(0.6, nan, nan).judge(0.7) == "undefined"  # a point, but no interval to judge by
+    assert Figure(0.6, 0.5, nan).judge(0.7) == "undefined"
+    assert gold_metrics.gain_verdict(Figure(nan, nan, nan)) == "undefined"
+    assert gold_metrics.gain_verdict(Figure(0.0, -0.1, 0.1)) == "not decided"  # unchanged

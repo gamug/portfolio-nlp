@@ -225,9 +225,13 @@ def _sentiment_rows_from_data(out: Path) -> tuple[list[dict[str, str]], dict[str
     return rows, populations
 
 
-def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str, int]]:
+def _sentiment_rows_from_gold(
+    out: Path, predictions: dict[str, str] | None = None
+) -> tuple[list[dict[str, str]], dict[str, int]]:
     """From the tracked ``sentiment_gold.csv`` in *out*: the marks and the draw's weights, no
-    ``data/``. The sample must be the one the draw took (``gold_metrics.check_sentiment_design``)."""
+    ``data/``. The sample must be the one the draw took (``gold_metrics.check_sentiment_design``).
+    With *predictions* (key -> class) the model compared with the owner is that one, not the one
+    the sample was drawn by: the strata (the weights) stay those of the draw."""
     path = out / "sentiment_gold.csv"
     tagged = gold_metrics.read_marked(
         path,
@@ -237,9 +241,13 @@ def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str
     )
     gold_metrics.require_unique([r["key"] for r in tagged], path.name)
     populations = gold_metrics.check_sentiment_design(tagged)
+    if predictions is not None:
+        unscored = [r["key"] for r in tagged if r["key"] not in predictions]
+        if unscored:
+            raise MarkedFileError(f"{len(unscored)} gold texts have no prediction: {unscored[:3]}")
     rows = [
         {
-            "predicted": r["predicted"],
+            "predicted": r["predicted"] if predictions is None else predictions[r["key"]],
             "stratum": r["stratum"],
             "part": r["part"],
             "gold": r["sentiment"],
@@ -251,9 +259,14 @@ def _sentiment_rows_from_gold(out: Path) -> tuple[list[dict[str, str]], dict[str
     return rows, populations
 
 
-def sentiment_report(out: Path, gold: bool = False) -> list[str]:
-    """From the owner's files in *out*, or with *gold* from the tracked ``gold/sentiment_gold.csv``."""
-    rows, populations = _sentiment_rows_from_gold(out) if gold else _sentiment_rows_from_data(out)
+def sentiment_report(
+    out: Path, gold: bool = False, predictions: dict[str, str] | None = None
+) -> list[str]:
+    """From the owner's files in *out*, or with *gold* from the tracked ``gold/sentiment_gold.csv``
+    (with *predictions*, of another model than the one the sample was drawn by)."""
+    rows, populations = (
+        _sentiment_rows_from_gold(out, predictions) if gold else _sentiment_rows_from_data(out)
+    )
     lines = [
         "weights: the size of each stratum in the pool of the owner's tagged bodies "
         "(gold/category_gold_v2.csv), not in the corpus or in the 2022+ window (D32)"
@@ -273,7 +286,8 @@ def sentiment_report(out: Path, gold: bool = False) -> list[str]:
         )
     lines.append(
         "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
-        "interval printed (D34). The intervals resample texts inside each stratum, as if each were "
+        "interval printed (D34); 'undefined' is a figure that does not exist (nothing was "
+        "predicted), not an interval that straddles the bar. The intervals resample texts inside each stratum, as if each were "
         "independent: " + _shared_text_note(rows)
     )
     return lines

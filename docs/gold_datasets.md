@@ -36,7 +36,7 @@ or a training set of ids and positions (`company_segments_train.csv`; and the ow
 train and test files (#123), the three files of sets 3, 4 and 5 (added here at the owner's request of
 2026-11-06, one gold file per described set) and `company_segments_train.csv`. The earlier call that
 `gold/` holds only the train and the test file (2026-11-05) is superseded by this one. Anything with
-text, a cache or a translation stays in `data/`.
+text, a cache or a translation stays in `data/`. The one file there that is neither a tag nor a draw is `sentiment_gold_scoring_log.csv` (T-148c2, D35): one row per run of a candidate model on set 5, with its figures, no text; its columns are `retag.SENTIMENT_SCORING_LOG_COLUMNS` and the test of the committed gold files checks them.
 
 ## Empty files of the sets without a draw
 
@@ -158,6 +158,11 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   the extractor writes for narrative multi bodies (`part=extractor`, 60). Drawn by
   `scripts/draw_sentiment_gold_2026_11_05.py`; the current model's prediction picks the sample and is
   never shown to the owner.
+- **Scoring another model (T-148c2, D35):** `scripts/score_sentiment_gold_2026_11_07.py --model <path or Hub id>` runs a candidate
+  over the 180 texts (from `data/sentiment_gold_ids.csv`, each checked against its `text_hash`) and prints the report of
+  `report_wi18 sentiment --gold` for that model, with the strata of the draw, plus the agreement for 2022 on and before. The gold is
+  not a tuning set: **every run is appended to `gold/sentiment_gold_scoring_log.csv`** and the report that quotes a figure lists
+  them all. Run 1 is the pinned model, which reproduces the figures above (0 of 180 predictions differ). Each row identifies what was scored (the Hub revision, which a Hub model must have, or for a local checkpoint the hash of its weight files; the digest of the scoring code; the hash of `sentiment_gold.csv`; the model's labels; the device) and keeps the figures as text and as numbers, with 2022 on and before apart and the judgement of every bar (`pass`, `fail`, `not decided`, or `undefined` when the figure has no interval, PLAN D32). `--role` says which run counts (D35): `baseline` and `final` are one each unless `--redo-role`, and the report that quotes a figure takes the **last** `final` row (an earlier one stays in the log as a record, not as the figure); a test keeps that row equal to the model pinned in `config/pipeline_models.json`; a model that does not answer with the three classes stops the run before anything is logged, and any run that is not the planned baseline or final run (role `other`, or a `--redo-role`) prints a warning with the count of extra looks (D35).
 - **Scope:** the label is the **price impact on the company** an investor would read (on the sector or
   the market for a sector or market text): `positive`, `negative`, `neutral`. Gold columns: `key`,
   `article_id`, `ticker`, `kind`, `part`, `text_hash`, `revision`, `stratum`, `extractor`, `predicted`,

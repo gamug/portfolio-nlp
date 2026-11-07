@@ -50,7 +50,12 @@ class Figure:
         """``pass`` when the whole interval clears *bar* (its low end is at or above it), ``fail``
         when the whole interval is below it, else ``not decided``: an interval that straddles the
         bar or only touches it from below (``high == bar``) is not a pass or a fail. The point
-        estimate decides nothing alone (D32: reported with the interval, the cut still goes, D34)."""
+        estimate decides nothing alone (D32: reported with the interval, the cut still goes, D34).
+        ``undefined`` when the interval does not exist (NaN: a precision with no text predicted, a
+        share of no texts): that is not an interval that straddles the bar, and it must not read
+        as "not decided", which still goes to the cut."""
+        if math.isnan(self.low) or math.isnan(self.high):
+            return "undefined"
         if self.low >= bar:
             return "pass"
         if self.high < bar:
@@ -538,7 +543,10 @@ def train_on_lead_only(report: Mapping[str, Figure]) -> bool:
 def gain_verdict(gain: Figure) -> str:
     """D32: the extractor is ``better`` than the baseline when the whole interval of its gain is
     above 0, ``not better`` when the whole interval is below 0, else ``not decided``. The edges
-    are those of :meth:`Figure.judge`: an interval that only touches 0 decides nothing."""
+    are those of :meth:`Figure.judge`: an interval that only touches 0 decides nothing; ``undefined``
+    when the interval does not exist (NaN)."""
+    if math.isnan(gain.low) or math.isnan(gain.high):
+        return "undefined"
     if gain.low > 0:
         return "better"
     if gain.high < 0:

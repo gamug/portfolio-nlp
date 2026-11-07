@@ -772,6 +772,51 @@ SEGMENT_CHECK_GOLD_COLUMNS = (
 )
 
 
+#: ``gold/sentiment_gold_scoring_log.csv`` (D35, T-148c2): one row per run of a candidate model on
+#: the 180-text gold, appended by ``scripts/score_sentiment_gold_2026_11_07.py``. No news text. What
+#: was scored is identified: the model (its revision, or for a local path the hash of its weight
+#: files), the digest of the scoring code, the hash of the gold file (which marks), the labels the
+#: model uses and the device; ``role`` says which run counts (D35: ``baseline``, ``final``, ``other``);
+#: the figure for 2022 on and before apart and the judgement of every bar are in the row.
+SENTIMENT_SCORING_LOG_COLUMNS = (
+    "run",
+    "time",
+    "label",
+    "role",
+    "model",
+    "revision",
+    "weights_sha256",
+    "code_revision",
+    "gold_sha256",
+    "id2label",
+    "device",
+    "agreement",
+    "agreement_point",
+    "agreement_low",
+    "agreement_high",
+    "agreement_judgement",
+    "agreement_2022_on",
+    "agreement_2022_on_low",
+    "agreement_2022_on_high",
+    "texts_2022_on",
+    "agreement_before_2022",
+    "agreement_before_2022_low",
+    "agreement_before_2022_high",
+    "texts_before_2022",
+    "negative_precision",
+    "negative_precision_point",
+    "negative_precision_low",
+    "negative_precision_high",
+    "negative_precision_judgement",
+    "negative_recall",
+    "negative_recall_point",
+    "negative_recall_low",
+    "negative_recall_high",
+    "negative_recall_judgement",
+    "texts",
+)
+
+
 def gold_file_rows(
     sessions: Mapping[str, Sequence[Mapping[str, str]]], golds: Mapping[str, Sequence[Gold]]
 ) -> list[dict[str, str]]:

@@ -238,20 +238,20 @@ def predicted_label(chunk_probs: list[list[float]], id2label: dict[int, str]) ->
     return id2label[max(range(len(mean)), key=mean.__getitem__)]
 
 
-def predict(texts: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Add the current sentiment model's label to each text (to choose the sample only), read as
-    the pipeline's stage reads a text. Returns the texts that have at least one chunk."""
+def predict(texts: list[dict[str, str]], cfg: dict[str, str] | None = None) -> list[dict[str, str]]:
+    """Add the sentiment model's label to each text (the pinned one, or *cfg*'s ``model`` and
+    ``revision``), read as the pipeline's stage reads a text. Returns the texts that have at least
+    one chunk."""
     import torch  # noqa: PLC0415
     from transformers import AutoModelForSequenceClassification, AutoTokenizer  # noqa: PLC0415
 
     from chunking import chunk_text  # noqa: PLC0415
 
-    cfg = _models()["sentiment"]
+    cfg = cfg or _models()["sentiment"]
+    revision = cfg.get("revision") or None  # a local path has none
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tok = AutoTokenizer.from_pretrained(cfg["model"], revision=cfg["revision"])
-    model = AutoModelForSequenceClassification.from_pretrained(
-        cfg["model"], revision=cfg["revision"]
-    )
+    tok = AutoTokenizer.from_pretrained(cfg["model"], revision=revision)
+    model = AutoModelForSequenceClassification.from_pretrained(cfg["model"], revision=revision)
     model = model.to(device).eval()
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
     kept: list[dict[str, str]] = []
