@@ -91,6 +91,17 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   `data/heldout_strata.csv` holds the stratum sizes (`frame`) that re-weight a rate to the corpus.
 - **Working file:** `heldout_to_tag.csv`. Migrated by `scripts/build_gold_2026_11_05.py --set test`,
   which refuses a tagged article that is not already in the tracked shell.
+- **Reading it:** `uv run scripts/report_wi18_2026_11_06.py scope --gold --out gold` gives the figures from the
+  tracked file alone (its `stratum` and `frame` are the weights): the rules' agreement 68.0% [61.3, 74.5]
+  weighted to the corpus, single recall 91.0% [87.1, 94.4] pass, multi recall 52.5% [42.8, 63.5] fail, the
+  other four scopes not gated (9, 11, 8 and 7 gold bodies, D33). The working-file command gives the same lines
+  (both sort by article id; the intervals of the first report, 61.4 / 74.3 / 63.8, are superseded).
+- **Rebuilding:** the set is fixed (D30). A rebuild stops if it would change or drop a tag already in the file
+  (`--overwrite-marks` to accept); only an untagged row of the shell is filled in freely. A test pins the file:
+  the scope counts, the shape of every row, the GICS codes offline and a digest of the tags. It cannot check the
+  tickers (the SOURCE universe is not in the repo; the builder does), and a change to the digest is a decision
+  made in the test. The tracked `frame` is the only copy of the weights in `gold/`; a test compares it with
+  `data/heldout_strata.csv` when that file is present.
 
 ### 3. Label check — `gold/segment_check_gold.csv`
 
@@ -271,7 +282,7 @@ on a hard kill. A leftover `*.tmp` next to a tagging file is not the owner's wor
 1. The owner marks the `data/` file and runs `scripts/report_wi18_2026_11_06.py <scope|label-check|faithfulness|sentiment>`,
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
-   (exist; the test file also takes `stratum` and `frame` from the draw's record); set 3 by
+   (exist; the test file also takes `stratum` and `frame` from the draw's record, and refuses to change a tracked tag without `--overwrite-marks`; `report_wi18 scope --gold --out gold` reproduces its figures); set 3 by
    `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`);
    set 4 by `build_faithfulness_gold_2026_11_06.py` (190 rows and the coverage file); set 5 by
    `build_sentiment_gold_2026_11_06.py` (180 rows; pairs by the draw's `key`, checks the hash of the text the owner

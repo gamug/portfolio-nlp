@@ -13,7 +13,8 @@ file is rewritten from the two tagging files each time.
 owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldout``, with the draw's
 ``stratum`` from ``data/heldout_ids.csv`` and ``frame`` = the stratum's size from
 ``data/heldout_strata.csv``, so a rate can be re-weighted from ``gold/`` alone). The set is fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
-test file.
+test file. A tag already in that file is protected: a rebuild that would change one stops and names
+the ids (``--overwrite-marks`` to accept); the rows of the shell, still untagged, are filled in freely.
 """
 
 from __future__ import annotations
@@ -46,6 +47,41 @@ def fixed_ids(path: Path) -> set[str]:
         return {r["article_id"] for r in csv.DictReader(fh)}
 
 
+def changed_tags(old: list[dict[str, str]], new: list[dict[str, str]]) -> list[str]:
+    """The ids of tracked rows that already carry a tag and that *new* changes (any column) or
+    drops. An untagged row (the shell of the draw) may be filled in."""
+    fresh = {r["article_id"]: r for r in new}
+    return [
+        r["article_id"]
+        for r in old
+        if (r.get("scope") or "").strip()
+        and any(fresh.get(r["article_id"], {}).get(c) != r[c] for c in r)
+    ]
+
+
+def protect_tags(gold_path: Path, out_rows: list[dict[str, str]]) -> None:
+    """Stop if rebuilding *gold_path* from *out_rows* would change a tag it already holds."""
+    moved = changed_tags(_read(gold_path), out_rows) if gold_path.exists() else []
+    if moved:
+        sys.exit(
+            f"{len(moved)} tags of {gold_path} would change (first ids {moved[:5]}): the held-out "
+            "set is fixed (D30); run with --overwrite-marks if this is intended"
+        )
+
+
+def add_draw_weights(out_rows: list[dict[str, str]], out: Path) -> None:
+    """Give each held-out row the draw's ``stratum`` and ``frame`` (the stratum's size)."""
+    stratum_of = {r["article_id"]: r["stratum"] for r in _read(out / "heldout_ids.csv")}
+    frame = {r["stratum"]: r["frame"] for r in _read(out / "heldout_strata.csv")}
+    if missing := sorted({r["article_id"] for r in out_rows} - stratum_of.keys()):
+        sys.exit(f"heldout_ids.csv lacks the stratum of {missing[:5]}")
+    if unsized := sorted({stratum_of[r["article_id"]] for r in out_rows} - frame.keys()):
+        sys.exit(f"heldout_strata.csv lacks the frame size of the strata {unsized}")
+    for r in out_rows:
+        r["stratum"] = stratum_of[r["article_id"]]
+        r["frame"] = frame[r["stratum"]]  # D30: the size in the whole sample, not "free"
+
+
 def _read(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -56,6 +92,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("data"))
     parser.add_argument("--set", choices=sorted(SETS), default="train")
     parser.add_argument("--gold", type=Path, default=None)
+    parser.add_argument(
+        "--overwrite-marks",
+        action="store_true",
+        help="--set test: accept a change to a tag already in the tracked held-out file",
+    )
     args = parser.parse_args()
     sessions_files, default_gold = SETS[args.set]
     gold_path: Path = args.gold or default_gold
@@ -87,15 +128,9 @@ def main() -> None:
     columns = retag.GOLD_COLUMNS
     if args.set == "test":
         columns = retag.TEST_GOLD_COLUMNS
-        stratum_of = {r["article_id"]: r["stratum"] for r in _read(args.out / "heldout_ids.csv")}
-        frame = {r["stratum"]: r["frame"] for r in _read(args.out / "heldout_strata.csv")}
-        if missing := sorted({r["article_id"] for r in out_rows} - stratum_of.keys()):
-            sys.exit(f"heldout_ids.csv lacks the stratum of {missing[:5]}")
-        if unsized := sorted({stratum_of[r["article_id"]] for r in out_rows} - frame.keys()):
-            sys.exit(f"heldout_strata.csv lacks the frame size of the strata {unsized}")
-        for r in out_rows:
-            r["stratum"] = stratum_of[r["article_id"]]
-            r["frame"] = frame[r["stratum"]]  # D30: the size in the whole sample, not "free"
+        add_draw_weights(out_rows, args.out)
+    if args.set == "test" and not args.overwrite_marks:
+        protect_tags(gold_path, out_rows)
     gold_path.parent.mkdir(parents=True, exist_ok=True)
     with gold_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(columns), lineterminator="\n")

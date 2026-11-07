@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -20,6 +21,7 @@ from types import ModuleType
 import pytest
 
 from news_nlp import gold_metrics, retag
+from news_nlp.gics_codes import SUB_INDUSTRY_CODES
 from news_nlp.gold_metrics import MarkedFileError
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -2289,6 +2291,7 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
     ]
 
 
+HELDOUT_TAGS_SHA256 = "e7e3746b77a86e5b4602f80c8128cfdb49b9904d607eccbb4f7509d39731edcf"
 HELDOUT_GOLD = Path(__file__).resolve().parents[2] / "gold" / "category_gold_v2_test.csv"
 
 
@@ -2310,7 +2313,20 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
     bad = {r["article_id"]: errors for r in rows if (errors := retag.check_row(r)[1])}
     assert (
         not bad
-    )  # every row is a valid tag, as the builder checked (check_row without a universe)
+    )  # the shape of every tag; the tickers need the SOURCE universe (the builder has it)
+    # the GICS codes are checked offline: a spreadsheet's `25,104,530` would be three invalid codes
+    gics = retag.Universe({}, {n.lower(): n for n in SUB_INDUSTRY_CODES.values()})
+    codes = {c.strip() for r in rows for c in r["sub_industry"].split(",") if c.strip()}
+    assert not [c for c in codes if gics.resolve_sub_industry(c)[0] is None]
+    # the tags themselves: a changed scope, label, mention or code changes this digest, so a change
+    # is a decision to make in this test (the held-out set is fixed, D30), not a side effect
+    tags = "\n".join(
+        "\t".join(
+            r[c] for c in ("article_id", "scope", "company_labels", "mentions", "sub_industry")
+        )
+        for r in sorted(rows, key=lambda r: int(r["article_id"]))
+    )
+    assert hashlib.sha256(tags.encode()).hexdigest() == HELDOUT_TAGS_SHA256
     frames: dict[str, set[str]] = {}
     for r in rows:
         frames.setdefault(r["stratum"], set()).add(r["frame"])
@@ -2318,7 +2334,7 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
 
 
 def test_the_scope_report_reads_the_tracked_gold_with_the_figures_of_the_working_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     gold = [
         {
@@ -2350,6 +2366,13 @@ def test_the_scope_report_reads_the_tracked_gold_with_the_figures_of_the_working
     assert from_gold[1:] == REPORT.scope_report(tmp_path)  # also when the file's order differs
     monkeypatch.setattr(sys, "argv", ["report", "scope", "--gold", "--out", str(tmp_path)])
     REPORT.main()
+    assert capsys.readouterr().out.splitlines()[0] == "from the tracked gold: 60 bodies"
+    # the same rows in the opposite order give the same lines on the working-file path
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [{"article_id": g["article_id"], "scope": g["scope"]} for g in gold],
+    )
+    assert REPORT.scope_report(tmp_path) == from_gold[1:]
 
 
 def test_the_scope_gold_report_refuses_two_weights_for_one_stratum(tmp_path: Path) -> None:
@@ -2360,3 +2383,43 @@ def test_the_scope_gold_report_refuses_two_weights_for_one_stratum(tmp_path: Pat
     _csv(tmp_path / "category_gold_v2_test.csv", rows)
     with pytest.raises(MarkedFileError, match="two frame sizes"):
         REPORT.scope_gold_report(tmp_path)
+
+
+def test_the_tracked_weights_are_the_draws_when_the_draw_is_at_hand() -> None:
+    strata = Path(__file__).resolve().parents[2] / "data" / "heldout_strata.csv"
+    if not strata.exists():
+        pytest.skip("the draw's strata sizes are local (git-ignored data/)")
+    with strata.open(encoding="utf-8-sig", newline="") as fh:
+        frame = {r["stratum"]: r["frame"] for r in csv.DictReader(fh)}
+    with HELDOUT_GOLD.open(encoding="utf-8", newline="") as fh:
+        tracked = {(r["stratum"], r["frame"]) for r in csv.DictReader(fh)}
+    assert tracked == set(frame.items())
+
+
+def test_a_rebuild_may_fill_the_shell_but_not_change_a_tag_of_the_heldout_gold() -> None:
+    build = _script("build_gold_2026_11_05")
+    old = [
+        {"article_id": "1", "scope": "single", "company_labels": "A:x", "frame": "9"},
+        {"article_id": "2", "scope": "", "company_labels": "", "frame": "9"},
+        {"article_id": "3", "scope": "multi", "company_labels": "A:x, B:y", "frame": "9"},
+    ]
+    new = [
+        {"article_id": "1", "scope": "single", "company_labels": "A:x", "frame": "9"},
+        {"article_id": "2", "scope": "single", "company_labels": "B:y", "frame": "9"},
+        {"article_id": "3", "scope": "multi", "company_labels": "A:x", "frame": "9"},
+    ]
+    assert build.changed_tags(old, new) == ["3"]  # the shell row 2 is filled in; row 3 changes
+    assert build.changed_tags(old, new[:2]) == ["3"]  # a dropped tagged row counts
+    assert build.changed_tags(new, new) == []
+
+
+def test_the_heldout_rebuild_stops_on_a_changed_tag_and_accepts_the_same_rows(
+    tmp_path: Path,
+) -> None:
+    build = _script("build_gold_2026_11_05")
+    rows = [{"article_id": "1", "scope": "single", "company_labels": "A:x"}]
+    target = tmp_path / "gold.csv"
+    _csv(target, rows)
+    build.protect_tags(target, [dict(r) for r in rows])  # the same tags: nothing happens
+    with pytest.raises(SystemExit, match=r"1 tags .* would change .*--overwrite-marks"):
+        build.protect_tags(target, [{**rows[0], "scope": "multi"}])
