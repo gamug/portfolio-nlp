@@ -2154,3 +2154,19 @@ def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
     gold.write_text(full.replace(",90,", ",91,", 1), encoding="utf-8")
     with pytest.raises(MarkedFileError, match="stratum size"):
         REPORT.sentiment_report(gold.parent, gold=True)
+
+
+def test_every_script_that_opens_the_database_loads_the_env_file() -> None:
+    """A script that connects without importing ``pipeline`` never reads ``.env`` (the first real
+    run of the summaries cut failed on it): each one calls ``load_env_file`` (or ``load_dotenv``)."""
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    loads_env = ("load_env_file", "load_dotenv", "import pipeline", "from pipeline")
+    opens = ("connect_pipeline", "connect_two_store")
+    missing = [
+        path.name
+        for path in sorted(scripts.glob("*.py"))
+        if (text := path.read_text(encoding="utf-8"))
+        and any(call in text for call in opens)
+        and not any(load in text for load in loads_env)
+    ]
+    assert not missing, f"these scripts connect but never load .env: {missing}"

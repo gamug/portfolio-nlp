@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from news_nlp import company_names, retag, translate
+from news_nlp.env import load_env_file
 from news_nlp.gold_review import TaggedFileError, tagged_rows, write_review_files
 from news_nlp.triage import Company
 
@@ -410,6 +411,7 @@ def cmd_check(
 
 
 def main() -> None:
+    load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
