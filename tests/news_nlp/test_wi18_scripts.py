@@ -2166,7 +2166,7 @@ _OPENS = (
     "SOURCE_DATABASE_URL",
     "DATABASE_URL",
 )
-_LOADS = ("load_env_file", "load_dotenv")
+_LOADS = ("load_env_file", "load_dotenv", "EvalSettings.load")
 
 
 def _called(node: ast.AST) -> list[tuple[int, str]]:
@@ -2179,6 +2179,8 @@ def _called(node: ast.AST) -> list[tuple[int, str]]:
         if isinstance(sub, ast.Call):
             fn = sub.func
             name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name == "load" and isinstance(fn, ast.Attribute):  # the evaluation settings load it
+                name = f"{getattr(fn.value, 'id', '')}.load"
             found.append((sub.lineno, name))
     return found
 
@@ -2219,8 +2221,12 @@ def _scripts_that_never_load_the_env_file(sources: dict[str, str]) -> list[str]:
 def test_every_script_that_opens_the_database_loads_the_env_file() -> None:
     """The first real run of the summaries cut failed because it connected without reading
     ``.env``: every script that connects must load it, as a call and before it connects."""
-    scripts = Path(__file__).resolve().parents[2] / "scripts"
-    sources = {p.name: p.read_text(encoding="utf-8") for p in sorted(scripts.glob("*.py"))}
+    root = Path(__file__).resolve().parents[2]
+    sources = {
+        f"{folder}/{p.name}": p.read_text(encoding="utf-8")
+        for folder in ("scripts", "cli", "apps")
+        for p in sorted((root / folder).glob("*.py"))
+    }
     missing = _scripts_that_never_load_the_env_file(sources)
     assert not missing, f"these scripts connect but never load .env: {missing}"
 
@@ -2244,7 +2250,14 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "import os\nfrom news_nlp.env import load_env_file\n\ndef main():\n"
         "    load_env_file()\n    return os.environ.get('SOURCE_DATABASE_URL')\n"
     )
+    good_settings = (
+        "import news_nlp as db\nfrom news_nlp.eval.config import EvalSettings\n\n"
+        "def main():\n    EvalSettings.load()\n    db.connect_pipeline()\n"
+    )
+    other_load = "import news_nlp as db\n\ndef main():\n    x.load()\n    db.connect_pipeline()\n"
     sources = {
+        "good_settings.py": good_settings,
+        "other_load.py": other_load,
         "reads_the_variable.py": reads_the_variable,
         "good_reads.py": good_reads,
         "mention.py": mention,
@@ -2256,6 +2269,7 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "no_db.py": no_db,
     }
     assert _scripts_that_never_load_the_env_file(sources) == [
+        "other_load.py",
         "reads_the_variable.py",
         "mention.py",
         "late.py",
