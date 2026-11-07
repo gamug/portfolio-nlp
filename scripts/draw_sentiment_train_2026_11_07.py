@@ -266,6 +266,23 @@ def models() -> dict[str, dict[str, str]]:
     return json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))
 
 
+def read_ids(path: Path, seed: int) -> tuple[list[dict[str, str]], bool]:
+    """The ids file of a set already drawn, brought to the current columns: ``population`` is
+    ``pool_class_size``, and a file without blocks is put in blocks (the same texts). Also whether
+    anything changed, so the caller rewrites the file."""
+    rows = extra._read(path)
+    if not rows:
+        sys.exit(f"{path} has no rows: delete it to draw again")
+    changed = False
+    for t in rows:
+        if "population" in t:
+            t["pool_class_size"] = t.pop("population")
+            changed = True
+    if "block" not in rows[0]:
+        rows, changed = in_blocks(rows, seed), True
+    return rows, changed
+
+
 def draw_new(
     conn: db.NewsNlpDatabase, args: argparse.Namespace, never: set[str], never_titles: set[str]
 ) -> list[dict[str, str]]:
@@ -308,15 +325,10 @@ def main() -> None:
     held_ids = {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
     never, never_titles = exam_keys(conn, gold_ids | held_ids)
     if ids_path.exists():
-        chosen = extra._read(ids_path)
-        for t in chosen:  # an ids file from before the column was renamed
-            t.setdefault("pool_class_size", t.pop("population", ""))
-        if "block" not in chosen[0]:
-            chosen = in_blocks(chosen, args.seed)
+        chosen, changed = read_ids(ids_path, args.seed)
+        if changed:
             extra._write(ids_path, [{f: t.get(f, "") for f in IDS_FIELDS} for t in chosen])
-            print(f"{ids_path} exists: the same set, put in blocks")
-        else:
-            print(f"{ids_path} exists: the set is not drawn again")
+        print(f"{ids_path} exists: the set is not drawn again" + (" (updated)" if changed else ""))
     else:
         chosen = draw_new(conn, args, never, never_titles)
         extra._write(ids_path, [{f: t.get(f, "") for f in IDS_FIELDS} for t in chosen])

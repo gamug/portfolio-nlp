@@ -170,3 +170,32 @@ def test_the_exam_keys_and_the_syndicated_copies_come_from_the_source(
     assert TRAIN.without_title_copies(conn, pool, keys) == [{"article_ids": "3"}]  # 2 is a copy
     db.detach_source(conn)
     conn.close()
+
+
+def _ids_file(path: Path, rows: list[dict[str, str]]) -> None:
+    TRAIN.extra._write(path, rows)
+
+
+def test_an_ids_file_from_before_the_columns_is_renamed_and_put_in_blocks(tmp_path: Path) -> None:
+    old = [{**t, "population": "99"} for t in _drawn(30)]
+    _ids_file(tmp_path / "ids.csv", old)
+    rows, changed = TRAIN.read_ids(tmp_path / "ids.csv", seed=3)
+    assert changed
+    assert {r["pool_class_size"] for r in rows} == {"99"}
+    assert all("population" not in r for r in rows)
+    assert {r["block"] for r in rows} == {str(n) for n in range(1, 7)}
+    assert sorted(r["key"] for r in rows) == sorted(t["key"] for t in old)  # the same texts
+
+
+def test_an_ids_file_with_blocks_is_read_back_unchanged(tmp_path: Path) -> None:
+    ordered = TRAIN.in_blocks(_drawn(30), seed=3)
+    _ids_file(tmp_path / "ids.csv", [{**t, "pool_class_size": "5"} for t in ordered])
+    rows, changed = TRAIN.read_ids(tmp_path / "ids.csv", seed=99)
+    assert not changed
+    assert [r["key"] for r in rows] == [t["key"] for t in ordered]  # the seed does not reorder
+
+
+def test_an_empty_ids_file_stops_the_run(tmp_path: Path) -> None:
+    (tmp_path / "ids.csv").write_text("key,block\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="no rows"):
+        TRAIN.read_ids(tmp_path / "ids.csv", seed=1)
