@@ -4,20 +4,28 @@
         [--epochs 2] [--max-pairs 80000] [--seed 20261108] [--limit-bodies N]
     uv run scripts/train_attribution_2026_11_08.py --eval-only data/models/attribution_2026_11_08
 
-(The date in the names is the one the run was planned for; the code and the first model were built on
-2026-11-07.) Paths are relative to the repository root, wherever the script is run from.
+(The date in the names is the one the run was planned for; the code and the first model were
+built on 2026-11-07.) Paths are relative to the repository root, wherever the script is run from.
 
-The training set is ``gold/company_segments_train.csv`` (positions and tickers; the text is rebuilt
-from SOURCE and each body's hash is checked). **Trains on the ``lead`` paragraphs only** (D27): the
-run stops unless the owner's label check (``gold/segment_check_gold.csv``) gives
-``gold_metrics.train_on_lead_only`` true, so the rule is applied, not remembered. The rows used are
-counted and printed. ``val`` bodies (1 in 10, by hash) are never trained on; the model is reported
-there against the mention-and-recency baseline (the candidate mentioned in the previous sentence, read
-by the resolver; also the weaker exact legal name) on the same pairs, for 2022 on and before apart, for
-the first sentence of a paragraph (where the company changes) apart, and for the sentences that name no
-universe company (the only ones scored at run time, and without the ``[COMPANY]`` mask). A ``val`` body
-whose first 200 characters equal a train body's is left out (syndicated copies).
-``--eval-only DIR`` scores an already trained model on ``val`` and trains nothing. The figure that decides is the owner's faithfulness check, not this one.
+The training set is ``gold/company_segments_train.csv`` (positions and tickers; the text is
+rebuilt from SOURCE and each body's hash is checked). **Trains on the ``lead`` paragraphs only**
+(D27): the run stops unless the owner's label check (``gold/segment_check_gold.csv``) gives
+``gold_metrics.train_on_lead_only`` true, so the rule is applied, not remembered. The rows used
+are counted and printed. ``val`` bodies (1 in 10, by hash) are never trained on. The model is
+reported there on pairs (a sentence's right company against one wrong one) against the
+mention-and-recency baseline (the candidate mentioned in the previous sentence, read by the
+resolver; also the weaker exact legal name): all pairs, 2022 on and before apart, first sentences
+of a paragraph (where the company changes) apart, and the sentences that name no universe company
+(the only ones scored at run time, and without the ``[COMPANY]`` mask). It is also reported on
+the run-time decision for those sentences: every company of the body as candidate, the share
+given to the right company, to a wrong one and to nobody, against the baseline's.
+
+A ``val`` body that starts or ends with the same 200 letters and digits as a train body is left
+out (syndicated copies). A copy with another headline and another ending is not caught.
+
+``--eval-only DIR`` scores an already trained model on ``val`` and trains nothing; it keeps the
+training-time report in ``metrics.json`` and adds the evaluation, with the hash of the files it
+scored. The figure that decides is the owner's faithfulness check, not this one.
 
 Writes the model and ``metrics.json`` in ``--out``. It publishes nothing and pins nothing.
 """
@@ -65,9 +73,11 @@ def require_lead_only(check: Path = CHECK) -> float:
     return report["continuation"].point
 
 
-def body_key(body: str) -> str:
-    """The first 200 letters and digits of a body: two syndicated copies of a story share it."""
-    return re.sub(r"[^a-z0-9]+", "", body.lower())[:200]
+def body_keys(body: str) -> set[str]:
+    """The first and the last 200 letters and digits of a body: syndicated copies of a story
+    usually share one of them."""
+    plain = re.sub(r"[^a-z0-9]+", "", body.lower())
+    return {plain[:200], plain[-200:]}
 
 
 def read_rows(path: Path = GOLD) -> dict[int, list[dict[str, str]]]:
@@ -86,9 +96,11 @@ def examples_of(
     seed: int,
     limit: int | None,
     keys: set[str],
+    runtime: list[am.Decision] | None = None,
 ) -> tuple[list[am.Example], dict[str, int]]:
-    """The examples of the bodies of *split*. *keys* are the :func:`body_key` of the train bodies:
-    a train body adds its own, a ``val`` body that has one is left out and counted."""
+    """The examples of the bodies of *split*; with *runtime*, the run-time decisions of those
+    bodies are appended to it (:func:`news_nlp.attribution_model.decisions`). *keys* are the :func:`body_keys` of the train bodies: a train body adds its own, a ``val``
+    body that has one is left out and counted."""
     conn = db.connect_pipeline()
     rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
     out: list[am.Example] = []
@@ -106,10 +118,10 @@ def examples_of(
         if triage.body_hash(body) != rows[0]["body_hash"]:
             counts["hash mismatch"] += 1
             continue
-        key = body_key(body)
+        own = body_keys(body)
         if split == "train":
-            keys.add(key)
-        elif key in keys:
+            keys |= own
+        elif own & keys:
             counts["near-duplicate"] += 1
             continue
         labels = [
@@ -127,6 +139,8 @@ def examples_of(
             names=names,
             rng=rng,
         )
+        if runtime is not None:
+            runtime += am.decisions(body, labels, resolver=resolver, names=names)
     return out, counts
 
 
@@ -169,6 +183,44 @@ def provenance(continuation: float) -> dict[str, object]:
             "train_on_lead_only": True,
         },
     }
+
+
+def runtime_decision(scorer: am.Scorer, runtime: list[am.Decision]) -> dict[str, float]:
+    """The run-time decision on the unnamed sentences of ``val``, printed and returned."""
+    flat = scorer.score([p for d in runtime for p in d.pairs])
+    rows: list[list[float]] = []
+    at = 0
+    for d in runtime:
+        rows.append(flat[at : at + len(d.pairs)])
+        at += len(d.pairs)
+    decision = am.decision_report(runtime, rows)
+    print("run-time decision on the unnamed sentences of val:")
+    for name, value in decision.items():
+        print(f"{name:>30}: {value:.3f}")
+    return decision
+
+
+def add_evaluation(
+    out: Path,
+    vcount: dict[str, int],
+    report: dict[str, dict[str, float]],
+    decision: dict[str, float],
+    continuation: float,
+) -> None:
+    """Keep the training-time figures of ``metrics.json`` and add this evaluation, tied to the
+    hash of the model files it scored."""
+    path = out / "metrics.json"
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    saved.setdefault("report_at_training", {"val": saved["val"], "report": saved["report"]})
+    saved["eval"] = {
+        "model_files": am.directory_identity(out),
+        "val": vcount,
+        "report": report,
+        "decision": decision,
+        "provenance": provenance(continuation),
+    }
+    path.write_text(json.dumps(saved, indent=2), encoding="utf-8")
+    print("evaluation added to", path)
 
 
 def fit(
@@ -251,8 +303,9 @@ def main() -> None:
     train, tcount = examples_of(
         by_article, "train", resolver, names, args.seed, args.limit_bodies, keys
     )
+    runtime: list[am.Decision] = []
     val, vcount = examples_of(
-        by_article, "val", resolver, names, args.seed + 1, args.limit_bodies, keys
+        by_article, "val", resolver, names, args.seed + 1, args.limit_bodies, keys, runtime
     )
     if tcount["hash mismatch"] or vcount["hash mismatch"]:
         sys.exit(f"bodies whose text changed since the set was built: {tcount}, {vcount}")
@@ -278,13 +331,12 @@ def main() -> None:
     report = evaluate(val, scores, resolver)
     for name, figures in report.items():
         print(
-            f"{name:>30}: ranking {figures['ranking']:.3f}  at 0.5 {figures['threshold']:.3f}  ({int(figures['pairs'])} pairs)"
+            f"{name:>30}: ranking {figures['ranking']:.3f}  at 0.5 {figures['threshold']:.3f}  "
+            f"({int(figures['pairs'])} pairs)"
         )
+    decision = runtime_decision(scorer, runtime)
     if args.eval_only:
-        saved = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
-        saved.update({"val": vcount, "report": report, "evaluated_again": provenance(continuation)})
-        (out / "metrics.json").write_text(json.dumps(saved, indent=2), encoding="utf-8")
-        print("val figures rewritten in", out / "metrics.json")
+        add_evaluation(out, vcount, report, decision, continuation)
         return
     out.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(out)
@@ -298,6 +350,8 @@ def main() -> None:
                 "pairs_used": len(train),
                 "val": vcount,
                 "report": report,
+                "decision": decision,
+                "model_files": am.directory_identity(out),
                 "seconds": round(elapsed),
                 "provenance": provenance(continuation),
             },

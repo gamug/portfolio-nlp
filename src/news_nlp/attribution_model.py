@@ -17,8 +17,10 @@ by default. The output has the baseline's shape, so the faithfulness check reads
 
 from __future__ import annotations
 
+import hashlib
 import random
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from chunking import split_sentences
@@ -117,6 +119,86 @@ def exact_name_in_context(pair: Pair) -> float:
     """1 when the candidate's name, as given to the model (the legal name), is in the previous
     sentence. Prose rarely writes the legal name, so this is a weak floor, kept to show it."""
     return float(bool(pair.candidate) and pair.candidate.lower() in pair.context.lower())
+
+
+class Decision(NamedTuple):
+    """One sentence as run time sees it: scored against every company of the body."""
+
+    true: str  # the company of the paragraph the sentence is in
+    candidates: tuple[str, ...]  # the companies the body names (all of them are asked about)
+    pairs: tuple[Pair, ...]  # one per candidate, in the same order
+    recent: str  # the company mentioned last in the previous sentence ("" if none)
+
+
+def decisions(
+    body: str,
+    labels: Sequence[SegmentLabel],
+    *,
+    resolver: CompanyResolver,
+    names: Mapping[str, str],
+) -> list[Decision]:
+    """The run-time task on the ``lead`` paragraphs of one body: the sentences that name no
+    universe company (the only ones the model decides), each with every company the body names as
+    candidate, as :func:`attribute_sentences` builds them."""
+    parts = segments(body)
+    candidates = tuple(
+        sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
+    )
+    out: list[Decision] = []
+    for label in labels:
+        if label.kind != "lead" or label.ticker not in candidates or label.position >= len(parts):
+            continue
+        sentences = sentences_of(parts[label.position])
+        previous = sentences_of(parts[label.position - 1])[-1:] if label.position > 0 else []
+        for index, sentence in enumerate(sentences):
+            if resolver.mention_spans(sentence):
+                continue
+            context = sentences[index - 1] if index else (previous or [""])[0]
+            seen = [t for _, _, t in resolver.mention_spans(context)]
+            pairs = tuple(Pair(names[t], context, sentence) for t in candidates)
+            out.append(Decision(label.ticker, candidates, pairs, seen[-1] if seen else ""))
+    return out
+
+
+def decision_report(
+    items: Sequence[Decision], scores: Sequence[Sequence[float]], threshold: float = THRESHOLD
+) -> dict[str, float]:
+    """On the sentences of *items*, what run time does: the share the model gives to the right
+    company, to a wrong one and to nobody (no score reaches *threshold*), and the baseline's (the
+    company mentioned last in the previous sentence, else nobody)."""
+    right = wrong = 0
+    base_right = base_wrong = 0
+    for item, row in zip(items, scores, strict=True):
+        best = max(range(len(row)), key=row.__getitem__)
+        if row[best] >= threshold:
+            if item.candidates[best] == item.true:
+                right += 1
+            else:
+                wrong += 1
+        if item.recent in item.candidates:
+            if item.recent == item.true:
+                base_right += 1
+            else:
+                base_wrong += 1
+    n = len(items) or float("nan")
+    return {
+        "sentences": float(len(items)),
+        "model right": right / n,
+        "model wrong": wrong / n,
+        "model nobody": (len(items) - right - wrong) / n,
+        "baseline right": base_right / n,
+        "baseline wrong": base_wrong / n,
+        "baseline nobody": (len(items) - base_right - base_wrong) / n,
+    }
+
+
+def directory_identity(directory: Path) -> str:
+    """A hash of every file of a model directory (weights, config, tokenizer), by name, except
+    ``metrics.json``, which the trainer rewrites: what identifies a local model."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in directory.iterdir() if p.is_file() and p.name != "metrics.json"):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def named_in_context(pair: Pair, resolver: CompanyResolver) -> float:

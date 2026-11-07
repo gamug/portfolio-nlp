@@ -4,7 +4,8 @@ owner marks (Work item 18, T-148b2, D27, D32).
     uv run scripts/draw_faithfulness_2026_11_06.py [--out data] [--n 30] [--seed 20261106]
         [--extractors baseline[,model]] [--attribution-model DIR_OR_ID] [--yes]
     uv run scripts/draw_faithfulness_2026_11_06.py --add-extractor model [--out data] [--yes]
-        --attribution-model data/models/attribution_2026_11_08   # or a Hub id with --attribution-revision
+        --attribution-model data/models/attribution_2026_11_08
+        (or a Hub id with --attribution-revision)
 
 The bodies are the ones the owner tagged ``multi`` (``gold/category_gold_v2.csv``) that the
 one-segment-per-company parser cannot split (``company_texts.split_company_texts`` is ``None``),
@@ -12,15 +13,17 @@ minus the held-out set; ``--n`` of them are drawn once (``<out>/faithfulness_bod
 drawn again, so the baseline and the model are judged on the same bodies).
 
 Each extractor (``attribution_baseline.baseline_company_texts`` or the trained model of T-148b3,
-``news_nlp.attribution_model``, named by ``--attribution-model``) writes the text each company named
-in the body gets. The owner reads each text with its article and marks ``faithful`` yes or no (``retag.FAITHFULNESS_COLUMNS``, the Spanish pair right
-after ``text``, and the Spanish version of the article). The file is **blind to the extractor**: the
-rows are shuffled, and a text two extractors wrote identically is one row. Which extractor wrote
-which row (by ``review_order``) is in ``<out>/faithfulness_ids.csv``, to compute the figures with ``report_wi18``.
+``news_nlp.attribution_model``, named by ``--attribution-model``) writes the text each company
+named in the body gets. The owner reads each text with its article and marks ``faithful`` yes or
+no (``retag.FAITHFULNESS_COLUMNS``, the Spanish pair right after ``text``, and the Spanish version
+of the article). The file is **blind to the extractor**: the rows are shuffled, and a text two
+extractors wrote identically is one row. Which extractor wrote which row (by ``review_order``) is
+in ``<out>/faithfulness_ids.csv``, to compute the figures with ``report_wi18``.
 
-``--extractors baseline`` alone writes the file for the baseline only (the decision on the baseline,
-D34); nothing is written for ``model`` without ``--attribution-model``, which is loaded only when
-``model`` is among the extractors used. The Spanish aid is the approved paid translation of the same engine; nothing is bought without ``--yes``. Its cache is
+``--extractors baseline`` alone writes the file for the baseline only (the decision on the
+baseline, D34); nothing is written for ``model`` without ``--attribution-model``, which is loaded
+only when ``model`` is among the extractors used. The Spanish aid is the approved paid
+translation of the same engine; nothing is bought without ``--yes``. Its cache is
 ``<out>/faithfulness/``.
 """
 
@@ -97,25 +100,11 @@ def model_extractor(scorer: attribution_model.Scorer, names: dict[str, str]) -> 
     return extract
 
 
-LOCAL_FILES = (
-    "model.safetensors",
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "vocab.txt",
-    "special_tokens_map.json",
-)
-
-
 def local_identity(directory: Path) -> str:
-    """A hash of the weights and of the files that read them (config, tokenizer)."""
+    """A hash of every file of the model directory (weights, config, tokenizer)."""
     if not (directory / "model.safetensors").is_file():
         sys.exit(f"{directory} has no model.safetensors: it is not a trained model directory")
-    digest = hashlib.sha256()
-    for name in LOCAL_FILES:
-        if (directory / name).is_file():
-            digest.update(name.encode() + b"\0" + (directory / name).read_bytes())
-    return f"local:{digest.hexdigest()[:16]}"
+    return f"local:{attribution_model.directory_identity(directory)}"
 
 
 def register_model(model: str, revision: str | None, names: dict[str, str]) -> None:

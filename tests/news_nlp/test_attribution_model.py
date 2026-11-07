@@ -5,6 +5,7 @@ negatives and the extractor's rules are what is tested."""
 from __future__ import annotations
 
 import importlib.util
+import math
 import random
 from collections.abc import Sequence
 from pathlib import Path
@@ -272,6 +273,7 @@ def test_the_trainer_refuses_to_run_unless_the_label_check_says_lead_only(
 
 
 def _draw(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """The draw script, with its model registry replaced by fresh ones for the test."""
     scripts = Path(__file__).resolve().parents[2] / "scripts"
     monkeypatch.syspath_prepend(str(scripts))
     spec = importlib.util.spec_from_file_location(
@@ -280,6 +282,8 @@ def _draw(monkeypatch: pytest.MonkeyPatch) -> Any:
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "MODEL_IDENTITY", [])
+    monkeypatch.setattr(module, "EXTRACTORS", dict(module.EXTRACTORS))
     return module
 
 
@@ -296,14 +300,12 @@ def test_the_model_extractor_needs_registering_and_a_pinned_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     draw = _draw(monkeypatch)
-    draw.MODEL_IDENTITY.clear()
     with pytest.raises(ValueError, match="not registered"):
         draw.extractor_revision("model")
     with pytest.raises(SystemExit):  # a Hub id without a revision is refused before any download
         draw.register_model("org/attribution", None, NAMES)
     draw.MODEL_IDENTITY[:] = ["org/attribution@abc"]
     assert draw.extractor_revision("model").startswith("extractor:model@org/attribution@abc@")
-    draw.MODEL_IDENTITY.clear()
 
 
 def test_evaluate_reports_every_view_and_a_view_without_pairs_is_nan(
@@ -319,9 +321,17 @@ def test_evaluate_reports_every_view_and_a_view_without_pairs_is_nan(
     assert report["all model"]["ranking"] == 1.0
     assert report["unnamed sentences model"]["pairs"] == 1
     assert report["before 2022 model"]["pairs"] == 0
-    assert report["before 2022 model"]["ranking"] != report["before 2022 model"]["ranking"]  # nan
+    assert math.isnan(report["before 2022 model"]["ranking"])
     assert report["all baseline"]["ranking"] == 0.5  # the previous sentence names Apple for both
     assert report["all exact name"]["ranking"] == 0.5  # the legal name is never written: a tie
+
+
+class FakeCursor:
+    def __init__(self, row: dict[str, str] | None) -> None:
+        self.row = row
+
+    def fetchone(self) -> dict[str, str] | None:
+        return self.row
 
 
 class FakeConn:
@@ -330,9 +340,7 @@ class FakeConn:
 
     def execute(self, _sql: str, params: tuple[int]) -> Any:
         body = self.bodies.get(params[0])
-        return type(
-            "Cursor", (), {"fetchone": lambda _self: {"body_text": body} if body else None}
-        )()
+        return FakeCursor({"body_text": body} if body else None)
 
 
 def _rows(article_id: int, split: str, body: str) -> list[dict[str, str]]:
@@ -398,15 +406,65 @@ def test_the_local_model_identity_covers_weights_and_tokenizer_and_the_names(
     with pytest.raises(SystemExit, match=r"no model\.safetensors"):
         draw.local_identity(tmp_path)
     (tmp_path / "model.safetensors").write_bytes(b"w")
-    (tmp_path / "vocab.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "merges.txt").write_text("a", encoding="utf-8")  # a file no list would name
     first = draw.local_identity(tmp_path)
-    (tmp_path / "vocab.txt").write_text("b", encoding="utf-8")
-    assert draw.local_identity(tmp_path) != first  # the tokenizer is part of the model
+    (tmp_path / "merges.txt").write_text("b", encoding="utf-8")
+    assert draw.local_identity(tmp_path) != first  # every file of the directory is the model
+    (tmp_path / "metrics.json").write_text("{}", encoding="utf-8")  # rewritten by --eval-only
+    assert draw.local_identity(tmp_path) == f"local:{am.directory_identity(tmp_path)}"
+    again = draw.local_identity(tmp_path)
+    (tmp_path / "metrics.json").write_text('{"x": 1}', encoding="utf-8")
+    assert draw.local_identity(tmp_path) == again
     monkeypatch.setattr(draw.attribution_model, "TransformerScorer", lambda *_a, **_k: FakeScorer())
     draw.register_model(str(tmp_path), None, NAMES)
     one = draw.MODEL_IDENTITY[0]
     draw.register_model(str(tmp_path), None, {**NAMES, "ORCL": "Oracle"})
     assert one.startswith("local:") and draw.MODEL_IDENTITY[0] != one  # other names: other texts
     assert f"@t{am.THRESHOLD}" in one
-    draw.MODEL_IDENTITY.clear()
-    draw.EXTRACTORS.pop("model", None)
+
+
+def test_body_keys_catch_copies_that_start_or_end_alike(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = _script(monkeypatch)
+    body = "Alpha " * 100 + "middle " * 50 + "Omega " * 100
+    other_head = "Another headline. " * 30 + "middle " * 50 + "Omega " * 100
+    other_end = "Alpha " * 100 + "middle " * 50 + "A different ending. " * 30
+    unrelated = "Something else entirely. " * 80
+    assert script.body_keys(body) & script.body_keys(other_head)  # same ending
+    assert script.body_keys(body) & script.body_keys(other_end)  # same start
+    assert not script.body_keys(body) & script.body_keys(unrelated)
+
+
+RUNTIME_BODY = (
+    "Stocks making the biggest moves midday:\n"
+    "Apple said so today. Sales rose in the quarter for the maker.\n"
+    "Microsoft grew its cloud unit. Azure demand stayed strong this quarter.\n"
+    "Oracle announced a new contract. It also raised its outlook for the year."
+)
+
+
+def _decisions() -> list[am.Decision]:
+    labels = [
+        company_texts.SegmentLabel(1, "AAPL", "lead"),
+        company_texts.SegmentLabel(2, "MSFT", "lead"),
+        company_texts.SegmentLabel(3, "ORCL", "lead"),
+    ]
+    return am.decisions(RUNTIME_BODY, labels, resolver=RESOLVER, names=NAMES)
+
+
+def test_decisions_are_the_unnamed_sentences_asked_about_every_company_of_the_body() -> None:
+    items = _decisions()
+    assert [d.true for d in items] == ["AAPL", "MSFT", "ORCL"]  # one unnamed sentence each
+    assert all(d.candidates == ("AAPL", "MSFT", "ORCL") for d in items)
+    assert all(len(d.pairs) == 3 for d in items)
+    assert [d.recent for d in items] == ["AAPL", "MSFT", "ORCL"]  # the previous sentence names it
+
+
+def test_decision_report_counts_right_wrong_and_nobody_for_the_model_and_the_baseline() -> None:
+    items = _decisions()
+    scores = [[0.9, 0.1, 0.1], [0.1, 0.2, 0.3], [0.8, 0.1, 0.1]]  # right, nobody, wrong
+    report = am.decision_report(items, scores)
+    assert report["sentences"] == 3
+    assert report["model right"] == pytest.approx(1 / 3)
+    assert report["model nobody"] == pytest.approx(1 / 3)
+    assert report["model wrong"] == pytest.approx(1 / 3)
+    assert report["baseline right"] == 1.0 and report["baseline nobody"] == 0.0
