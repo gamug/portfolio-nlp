@@ -237,12 +237,21 @@ class _FakeWin32:
     the wait result and the creation time."""
 
     def __init__(
-        self, handle: int = 1, error: int = 0, wait: int = 0x102, created: int | None = 5
+        self,
+        handle: int = 1,
+        error: int = 0,
+        wait: int = 0x102,
+        created: int | None = 5,
+        sync_denied: bool = False,
     ) -> None:
         self.handle, self.error, self.wait_result, self.created_at = handle, error, wait, created
+        self.sync_denied = sync_denied  # a protected process: refuses the wait right only
         self.closed: list[int] = []
 
-    def open(self, _pid: int) -> int:
+    def open(self, _pid: int, *, wait: bool = False) -> int:
+        if wait and self.sync_denied:
+            self.error = 5
+            return 0
         return self.handle
 
     def last_error(self) -> int:
@@ -274,6 +283,30 @@ def test_the_windows_probe_answers_dead_only_when_the_os_says_so(
 ) -> None:
     assert CUT._alive_windows(1234, api) is alive  # type: ignore[arg-type]
     assert api.closed == ([api.handle] if api.handle else [])  # the handle is always closed
+
+
+def test_a_protected_process_still_gives_its_start_time_without_the_wait_right(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _FakeWin32(sync_denied=True, created=99)
+    monkeypatch.setattr(CUT.sys, "platform", "win32")
+    assert CUT._alive_windows(4, api)  # type: ignore[arg-type]  # access denied: exists
+    assert CUT._started(4, api) == "99"  # type: ignore[arg-type]  # read with the query right alone
+
+
+def test_a_truncated_proc_stat_gives_no_start_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stat = tmp_path / "stat"
+    stat.write_text("1 (cut) S 0 1", encoding="utf-8")
+    real_read = Path.read_text
+    monkeypatch.setattr(CUT.sys, "platform", "linux")
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, *a, **k: real_read(stat if "/proc/" in str(self) else self, *a, **k),
+    )
+    assert CUT._started(1) == ""
 
 
 def test_the_windows_start_time_is_empty_when_it_cannot_be_read(

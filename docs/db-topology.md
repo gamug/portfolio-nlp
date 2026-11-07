@@ -255,7 +255,7 @@ repo needs a second shared read.
   Verified: dispatch and the stale-file scenario on Linux/CI. Not verified until run on the
   Windows machine: the ctypes branch itself (a `win32`-only test covers it there). The lock is
   a hard link, so the output folder must be on NTFS (exFAT or a network share now stops with a
-  message). The lock stores the pid and the process start time, so a pid Windows hands out again is not taken for the run that left the lock (an old pid-only lock still works, and `--break-lock` remains). Ctrl-Break stops like Ctrl-C; closing the console window cannot be caught and leaves a lock the next start takes over.
+  message). The lock stores the pid and the process start time, so a pid Windows hands out again is not taken for the run that left the lock (an old pid-only lock still works, and `--break-lock` remains). Ctrl-Break stops like Ctrl-C; closing the console window cannot be caught and leaves a lock the next start takes over. The start time is read with the query right alone (protected processes refuse the wait right). The takeover is not atomic: two starts at the same instant can both run, at the cost of duplicated work. An older script reads the new lock format as stale and deletes it: do not share an output folder between checkouts of different versions.
 - **`SOURCE_DATABASE_URL` is required** for the text-reading stages. The old
   single-file recipe of pointing `DATABASE_URL` at `urls.db` now errors with a
   clear message until `SOURCE_DATABASE_URL` is set (or both vars point at the

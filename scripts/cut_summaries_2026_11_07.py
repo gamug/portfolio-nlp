@@ -397,9 +397,11 @@ class _Win32:
         k.CloseHandle.argtypes = [wintypes.HANDLE]
         k.CloseHandle.restype = wintypes.BOOL
 
-    def open(self, pid: int) -> int:
-        # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE (the latter to wait on the handle)
-        return int(self._k.OpenProcess(0x1000 | 0x00100000, False, pid) or 0)
+    def open(self, pid: int, *, wait: bool = False) -> int:
+        """PROCESS_QUERY_LIMITED_INFORMATION, which almost every process grants; ``wait`` adds
+        SYNCHRONIZE, which protected, elevated and other-session processes refuse."""
+        rights = 0x1000 | (0x00100000 if wait else 0)
+        return int(self._k.OpenProcess(rights, False, pid) or 0)
 
     def last_error(self) -> int:
         return int(self._ctypes.get_last_error())  # type: ignore[attr-defined]
@@ -426,7 +428,7 @@ def _alive_windows(pid: int, api: _Win32 | None = None) -> bool:
     A wrong "dead" deletes a live run's lock, a wrong "alive" only asks the user to wait or break
     the lock: so only "no such pid" and "the process has ended" answer dead; any error is alive."""
     api = api or _Win32()
-    handle = api.open(pid)
+    handle = api.open(pid, wait=True)
     if not handle:
         return api.last_error() != ERROR_INVALID_PARAMETER
     try:
@@ -465,7 +467,9 @@ def _started(pid: int, api: _Win32 | None = None) -> str:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     except OSError:
         return ""
-    return stat.rpartition(")")[2].split()[19]  # field 22, start time in clock ticks since boot
+    fields = stat.rpartition(")")[2].split()
+    start_field = 19  # field 22 of proc(5), the start time in clock ticks since boot
+    return fields[start_field] if len(fields) > start_field else ""
 
 
 def _holds(text: str) -> bool:
@@ -479,14 +483,16 @@ def _holds(text: str) -> bool:
         now = _started(int(parts[0]))
         if now and now != parts[1]:
             return False  # the pid was reused by another process
-    return True
+    return True  # also when the start time could not be read: a reused pid cannot be ruled out
 
 
 @contextlib.contextmanager
 def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
     """One run at a time in *out*: ``run.lock`` holds the pid (and start time) of the run in
     progress. A second start while that process is alive stops; a lock left by a dead process, or
-    by one whose pid another process now holds, is taken over. The text is
+    by one whose pid another process now holds, is taken over. The takeover is not atomic: two
+    starts at the same instant can both take a stale lock and both run (chunk files are written
+    atomically, so the cost is duplicated work, not damage). The text is
     written to a private file that is then hard-linked to ``run.lock``, so the lock never exists
     without its content. ``break_lock`` removes a lock first (a pid reused after a restart)."""
     path = out / LOCK_NAME
@@ -511,9 +517,11 @@ def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
                     continue  # its run released it in this instant: take it
                 if _holds(text):
                     sys.exit(
-                        f"another run (pid {text.split()[0]}) holds {path}. After Ctrl-C it still finishes "
-                        f"its chunk: wait for it to end, then run again. If you are sure none is "
-                        f"running (a pid reused after a restart), run with --break-lock."
+                        f"another run (pid {text.split()[0]}) holds {path}. After Ctrl-C it still "
+                        f"finishes its chunk: wait for it to end, then run again. If you are sure "
+                        f"none is running (the lock's start time is missing or could not be read, "
+                        f"so a pid reused after a restart cannot be ruled out), run with "
+                        f"--break-lock."
                     )
                 path.unlink(missing_ok=True)  # left by a process that is gone
                 continue
