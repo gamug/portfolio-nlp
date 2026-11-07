@@ -32,7 +32,7 @@ computed from `data/`, and the draw's record is **required**, not optional:
 ## What may sit in `gold/`
 
 Only files with no news text: the owner's tags or marks, the ids of a draw and the weights they need,
-or (the one exception) a training set of ids and positions. In the order of the repository: the scope
+or a training set of ids and positions (`company_segments_train.csv`; and the owner's marks on the sentiment training summaries, `sentiment_train.csv`, set 6: not a gold, never mixed with set 5; written by its builder, so not scaffolded empty). In the order of the repository: the scope
 train and test files (#123), the three files of sets 3, 4 and 5 (added here at the owner's request of
 2026-11-06, one gold file per described set) and `company_segments_train.csv`. The earlier call that
 `gold/` holds only the train and the test file (2026-11-05) is superseded by this one. Anything with
