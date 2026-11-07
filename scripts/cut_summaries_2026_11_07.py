@@ -371,21 +371,27 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
 def _alive_windows(pid: int) -> bool:
     """Whether *pid* is a running process, asked of the OS without touching it. ``os.kill(pid, 0)``
     is not a probe on Windows: Python turns it into ``TerminateProcess`` (it can kill the process
-    that holds the pid, or fail with a WinError)."""
+    that holds the pid, or fail with a WinError). The state is read with ``WaitForSingleObject``
+    (a zero wait), not the exit code: a process that exited with 259 (``STILL_ACTIVE``) is gone."""
     import ctypes  # noqa: PLC0415 -- only Windows needs it
     from ctypes import wintypes  # noqa: PLC0415
 
-    query_limited, still_active, access_denied = 0x1000, 259, 5
+    query_limited_information = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION
+    synchronize = 0x00100000  # SYNCHRONIZE, needed to wait on the handle
+    access_denied, wait_timeout = 5, 0x102
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    # argtypes: a handle is pointer-sized, ctypes would pass a plain int as a 32-bit one
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenProcess.restype = wintypes.HANDLE
-    handle = kernel32.OpenProcess(query_limited, False, pid)
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(query_limited_information | synchronize, False, pid)
     if not handle:
         return ctypes.get_last_error() == access_denied  # exists, not ours to open
     try:
-        code = wintypes.DWORD()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return True
-        return code.value == still_active
+        return bool(kernel32.WaitForSingleObject(handle, 0) == wait_timeout)
     finally:
         kernel32.CloseHandle(handle)
 
@@ -431,6 +437,11 @@ def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
                     )
                 path.unlink(missing_ok=True)  # left by a process that is gone
                 continue
+            except OSError as exc:
+                sys.exit(
+                    f"cannot lock {out}: {exc}. The lock is a hard link, which needs a local "
+                    "NTFS (or POSIX) folder, not exFAT/FAT or a network share; use --out on one."
+                )
             break
         else:
             sys.exit(f"could not take {path}")

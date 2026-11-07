@@ -179,7 +179,41 @@ def test_alive_tells_a_running_process_from_a_finished_one() -> None:
     assert CUT._alive(os.getpid())
     done = subprocess.Popen([sys.executable, "-c", "pass"])
     done.wait()
-    assert not CUT._alive(done.pid)
+    assert not CUT._alive(done.pid)  # a pid is not reused within this instant
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows probe runs only on Windows")
+def test_the_windows_probe_itself_on_a_live_and_a_finished_process() -> None:
+    assert CUT._alive_windows(os.getpid())
+    exit_259 = subprocess.Popen([sys.executable, "-c", "raise SystemExit(259)"])  # STILL_ACTIVE
+    exit_259.wait()
+    assert not CUT._alive_windows(exit_259.pid)
+    assert not CUT._alive_windows(0x7FFFFFF0)  # no such pid
+
+
+def test_a_stale_pid_file_and_its_lock_are_cleared_in_one_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the crash was: ``run.lock`` and ``run.lock.<pid>`` of a killed run, then a resume."""
+    (tmp_path / CUT.LOCK_NAME).write_text("41956", encoding="utf-8")
+    (tmp_path / f"{CUT.LOCK_NAME}.41956").write_text("41956", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: False)
+    with CUT.locked(tmp_path):
+        assert (tmp_path / CUT.LOCK_NAME).read_text(encoding="utf-8") == str(os.getpid())
+        assert not (tmp_path / f"{CUT.LOCK_NAME}.41956").exists()
+    assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))
+
+
+def test_a_folder_that_cannot_hold_a_hard_link_is_named_not_a_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_link(*_a: object) -> None:
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(CUT.os, "link", no_link)
+    with pytest.raises(SystemExit, match="NTFS"), CUT.locked(tmp_path):
+        pass
+    assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))  # the private file is removed
 
 
 def test_on_windows_the_pid_is_never_probed_with_os_kill(
