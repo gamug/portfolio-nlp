@@ -52,7 +52,7 @@ overwrites a file, with rows or without.
 
 ## The sets
 
-| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-06 |
+| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-07 |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; **tagged by the owner and migrated 2026-11-07** (200 of 200 valid: 118 single, 47 multi, 11 market_economy, 9 sector, 8 unrelated, 7 investing_general); the `gold/` file carries the tags with the draw's weights |

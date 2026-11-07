@@ -2287,3 +2287,76 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "late.py",
         "helper.py",
     ]
+
+
+HELDOUT_GOLD = Path(__file__).resolve().parents[2] / "gold" / "category_gold_v2_test.csv"
+
+
+def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
+    with HELDOUT_GOLD.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        assert tuple(reader.fieldnames or ()) == retag.TEST_GOLD_COLUMNS
+        rows = list(reader)
+    assert len(rows) == 200 and len({r["article_id"] for r in rows}) == 200
+    assert {r["session"] for r in rows} == {"heldout"}
+    assert Counter(r["scope"] for r in rows) == {
+        "single": 118,
+        "multi": 47,
+        "market_economy": 11,
+        "sector": 9,
+        "unrelated": 8,
+        "investing_general": 7,
+    }
+    bad = {r["article_id"]: errors for r in rows if (errors := retag.check_row(r)[1])}
+    assert (
+        not bad
+    )  # every row is a valid tag, as the builder checked (check_row without a universe)
+    frames: dict[str, set[str]] = {}
+    for r in rows:
+        frames.setdefault(r["stratum"], set()).add(r["frame"])
+    assert all(len(sizes) == 1 for sizes in frames.values())  # one weight per stratum
+
+
+def test_the_scope_report_reads_the_tracked_gold_with_the_figures_of_the_working_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gold = [
+        {
+            "article_id": str(i),
+            "scope": ("single", "multi", "sector")[i % 3] if i % 7 else "single",
+            "stratum": ("single", "multi", "sector")[i % 3],
+            "frame": ("800", "150", "50")[i % 3],
+        }
+        for i in range(60)
+    ]
+    _csv(tmp_path / "category_gold_v2_test.csv", gold)
+    _csv(
+        tmp_path / "heldout_strata.csv",
+        [
+            {"stratum": s, "frame": f}
+            for s, f in (("single", "800"), ("multi", "150"), ("sector", "50"))
+        ],
+    )
+    _csv(
+        tmp_path / "heldout_ids.csv",
+        [{"article_id": g["article_id"], "stratum": g["stratum"]} for g in gold],
+    )
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [{"article_id": g["article_id"], "scope": g["scope"]} for g in reversed(gold)],
+    )
+    from_gold = REPORT.scope_gold_report(tmp_path)
+    assert from_gold[0] == "from the tracked gold: 60 bodies"
+    assert from_gold[1:] == REPORT.scope_report(tmp_path)  # also when the file's order differs
+    monkeypatch.setattr(sys, "argv", ["report", "scope", "--gold", "--out", str(tmp_path)])
+    REPORT.main()
+
+
+def test_the_scope_gold_report_refuses_two_weights_for_one_stratum(tmp_path: Path) -> None:
+    rows = [
+        {"article_id": "1", "scope": "single", "stratum": "single", "frame": "10"},
+        {"article_id": "2", "scope": "single", "stratum": "single", "frame": "11"},
+    ]
+    _csv(tmp_path / "category_gold_v2_test.csv", rows)
+    with pytest.raises(MarkedFileError, match="two frame sizes"):
+        REPORT.scope_gold_report(tmp_path)
