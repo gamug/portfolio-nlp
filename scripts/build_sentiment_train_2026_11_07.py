@@ -166,58 +166,80 @@ class Problems:
         ]
 
 
+def check_keys(
+    problems: Problems,
+    keys: list[str],
+    by_key: dict[str, dict[str, str]],
+    ids: list[dict[str, str]],
+) -> None:
+    """The owner's file holds the drawn texts, each once: a repeated key, a drawn text that is not
+    in the file and a row that is not in the draw are named, not stopped on."""
+    for key in sorted(k for k, n in Counter(keys).items() if n > 1):
+        problems.add("whose key is repeated in the tagged file", key)
+    for key in (r["key"] for r in ids if r["key"] not in by_key):
+        problems.add("of the draw missing from the tagged file", key)
+    for key in sorted(set(by_key) - {r["key"] for r in ids}):
+        problems.add("of the tagged file missing from the draw", key)
+
+
+def check_row(problems: Problems, drawn: dict[str, str], marked: dict[str, str]) -> str:
+    """One pair: what is wrong with the mark, the ids, the text and the date goes to *problems*;
+    returns the mark (normalised) and leaves the date to the caller."""
+    key = drawn["key"]
+    mark = (marked["sentiment"] or "").strip().lower()
+    if not mark:
+        problems.add("without a mark", key)
+    elif mark not in CLASSES:
+        problems.add(f"with a mark outside {list(CLASSES)}", key, f"for example {mark!r}")
+    if any(marked[f] != drawn[f] for f in ("article_id", "kind")):
+        problems.add("whose article or kind is not the drawn one", key)
+    if not read_the_same_text(marked["text"], drawn["text_hash"]):
+        hint = (
+            "; it looks like an encoding change: save the file as CSV UTF-8"
+            if looks_like_an_encoding_change(drawn["text"], marked["text"])
+            else ""
+        )
+        problems.add(
+            "whose text is not the text the draw recorded (edited, or saved in another encoding)",
+            key,
+            first_difference(drawn["text"], marked["text"]) + hint,
+        )
+    pub_date = (marked.get("pub_date") or "").strip()
+    try:
+        date.fromisoformat(pub_date[:10])
+    except ValueError:
+        problems.add(
+            "with a pub_date that is not ISO (YYYY-MM-DD...); a spreadsheet may have rewritten it",
+            key,
+            f"for example {pub_date!r}",
+        )
+    return mark
+
+
 def build(marks: list[dict[str, str]], ids: list[dict[str, str]]) -> list[dict[str, str]]:
     """The rows of ``gold/sentiment_train.csv``, in the order of the draw. Raises
-    ``MarkedFileError`` naming every problem found when the marks and the draw are not the same
-    texts."""
-    gold_metrics.require_unique([r["key"] for r in ids], IDS_NAME)
+    ``MarkedFileError`` naming every problem found (the rows missing or repeated included, and the
+    problems of the rows that are there) when the marks and the draw are not the same texts."""
+    gold_metrics.require_unique([r["key"] for r in ids], IDS_NAME)  # the draw's own file
     keys = [key_of(r) for r in marks]
-    gold_metrics.require_unique(keys, TO_TAG_NAME)
-    gold_metrics.require_same_keys(
-        keys, [r["key"] for r in ids], f"{TO_TAG_NAME} against {IDS_NAME}"
-    )
-    by_key = dict(zip(keys, marks, strict=True))
+    by_key: dict[str, dict[str, str]] = {}
+    for key, row in zip(keys, marks, strict=True):
+        by_key.setdefault(key, row)  # a repeated key is reported; its first row is checked
     problems = Problems()
+    check_keys(problems, keys, by_key, ids)
     out = []
     for drawn in ids:
-        key = drawn["key"]
+        marked = by_key.get(drawn["key"])
+        if marked is None:
+            continue  # reported above
         if empty := [f for f in NEEDED_FROM_THE_DRAW if not (drawn.get(f) or "").strip()]:
-            problems.add(f"of {IDS_NAME} without {empty}", key)
+            problems.add(f"of {IDS_NAME} without {empty}", drawn["key"])
             continue
-        marked = by_key[key]
-        mark = (marked["sentiment"] or "").strip().lower()
-        if not mark:
-            problems.add("without a mark", key)
-        elif mark not in CLASSES:
-            problems.add(f"with a mark outside {list(CLASSES)}", key, f"for example {mark!r}")
-        if any(marked[f] != drawn[f] for f in ("article_id", "kind")):
-            problems.add("whose article or kind is not the drawn one", key)
-        if not read_the_same_text(marked["text"], drawn["text_hash"]):
-            problems.add(
-                "whose text is not the text the draw recorded (edited, or saved in another "
-                "encoding)",
-                key,
-                first_difference(drawn["text"], marked["text"])
-                + (
-                    "; it looks like an encoding change: save the file as CSV UTF-8"
-                    if looks_like_an_encoding_change(drawn["text"], marked["text"])
-                    else ""
-                ),
-            )
-        pub_date = (marked.get("pub_date") or "").strip()
-        try:
-            date.fromisoformat(pub_date[:10])
-        except ValueError:
-            problems.add(
-                "with a pub_date that is not ISO (YYYY-MM-DD...); a spreadsheet may have "
-                "rewritten it",
-                key,
-                f"for example {pub_date!r}",
-            )
+        mark = check_row(problems, drawn, marked)
         out.append(
             {
                 **{f: drawn[f] for f in TRAIN_COLUMNS if f in drawn},
-                "pub_date": pub_date,
+                "pub_date": (marked.get("pub_date") or "").strip(),
                 "sentiment": mark,
                 "notes": marked["notes"],
             }
@@ -276,21 +298,26 @@ def read_marks(path: Path) -> list[dict[str, str]]:
     file in a Windows code page (Excel's plain "CSV") and one separated by ``;`` (a Spanish-locale
     Excel) each get a message that says what to do, not a traceback or a list of "missing"
     columns that are there."""
-    if path.exists():
-        data = path.read_bytes()
-        try:
-            data.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise gold_metrics.MarkedFileError(
-                f"{path.name} is not UTF-8 (the first byte that is not: line "
-                f"{data[: exc.start].count(b'\n') + 1}, byte {exc.start}): save it again as "
-                "CSV UTF-8 (in Excel: Save as, CSV UTF-8)"
-            ) from None
+    if not path.exists():
+        raise gold_metrics.MarkedFileError(
+            f"{path.name} not found: save your tagged copy at {path} (CSV UTF-8, comma-separated); "
+            "the draw writes only the untagged one"
+        )
+    data = path.read_bytes()
+    try:
+        data.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise gold_metrics.MarkedFileError(
+            f"{path.name} is not UTF-8 (the first byte that is not: line "
+            f"{data[: exc.start].count(b'\n') + 1}, byte {exc.start}): save it again as "
+            "CSV UTF-8 (in Excel: Save as, CSV UTF-8)"
+        ) from None
     marks = gold_metrics.read_rows(path)
     missing = [c for c in NEEDED_FROM_THE_OWNER if marks and c not in marks[0]]
     if not marks or missing:
         # the header line itself: the rows may hold commas (a text), which would add fields
-        header = path.read_text(encoding="utf-8-sig").splitlines()[0]
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+        header = lines[0] if lines else ""  # an empty file has none
         separator = next((s for s in (";", "\t") if "," not in header and s in header), None)
         if separator:
             name = "a semicolon" if separator == ";" else "a tab"
