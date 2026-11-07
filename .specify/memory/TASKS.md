@@ -1110,6 +1110,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
     cause (NTFS only when the error says no hard links); the `win32`-only test in `tests/news_nlp/test_cut_summaries.py`.
   - Decision: no Windows CI job (it would need the torch wheel, which that test file imports); the Windows branch is
     verified when the cut is resumed on the Windows machine.
+  - Closes when: the owner has resumed the cut once on Windows with a leftover lock and got no refusal.
   - Open: the takeover of a stale lock is not atomic (two starts at the same instant can both run: duplicated work, chunk
     files are atomic); a lock written by this version is read as stale by an older script (do not share an output folder
     across versions); closing the console window cannot be caught (the next start takes the lock over).

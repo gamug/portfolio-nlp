@@ -488,13 +488,14 @@ def _holds(text: str) -> bool:
 
 
 NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EXDEV})
-ERROR_INVALID_FUNCTION = 1  # Windows: the file system has no hard links (FAT, exFAT, some shares)
+# Windows: the file system has no hard links (1: FAT, exFAT; 50: some network shares)
+NO_HARD_LINKS_WINERROR = frozenset({1, 50})
 
 
 def _cannot_lock(out: Path, exc: OSError) -> str:
     """The message for an ``os.link`` that failed: the NTFS cause only when the error says the
     folder cannot hold hard links; otherwise something holds the file for a moment."""
-    if exc.errno in NO_HARD_LINKS or getattr(exc, "winerror", None) == ERROR_INVALID_FUNCTION:
+    if exc.errno in NO_HARD_LINKS or getattr(exc, "winerror", None) in NO_HARD_LINKS_WINERROR:
         return (
             f"cannot lock {out}: {exc}. The lock is a hard link, which needs a local NTFS (or "
             "POSIX) folder, not exFAT/FAT or a network share; use --out on one."

@@ -226,9 +226,10 @@ def test_a_failed_hard_link_names_the_cause_that_the_error_tells(
     assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))  # the private file is removed
 
 
-def test_the_windows_error_for_a_file_system_without_hard_links_names_ntfs() -> None:
+@pytest.mark.parametrize("winerror", [1, 50])  # INVALID_FUNCTION, NOT_SUPPORTED
+def test_the_windows_error_for_a_file_system_without_hard_links_names_ntfs(winerror: int) -> None:
     exc = OSError(22, "Incorrect function")
-    exc.winerror = 1  # type: ignore[attr-defined]
+    exc.winerror = winerror  # type: ignore[attr-defined]
     assert "NTFS" in CUT._cannot_lock(Path("x"), exc)
 
 
@@ -333,7 +334,7 @@ def test_a_truncated_proc_stat_gives_no_start_time(
     monkeypatch.setattr(
         Path,
         "read_text",
-        lambda self, *a, **k: real_read(stat if "/proc/" in str(self) else self, *a, **k),
+        lambda self, *a, **k: real_read(stat if "/proc/" in self.as_posix() else self, *a, **k),
     )
     assert CUT._started(1) == ""
 
