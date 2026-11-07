@@ -59,6 +59,7 @@ overwrites a file, with rows or without.
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | drawn, marked and migrated 2026-11-06: 82 positive, 65 negative, 33 neutral; overall agreement 60.4% (interval 52.8 to 67.6), under the D32 bar of 80%; negative precision 78.7% (67.3 to 89.3) and recall 77.7% (69.4 to 86.8), not decided against 70%; `gold/` file built (180 rows, `build_sentiment_gold_2026_11_06.py`) |
+| 6 | **Sentiment training set** (not a gold: it trains, never exams) | 450 summaries | `sentiment_train_to_tag.csv` | `sentiment_train.csv` | drawn and translated 2026-11-07 (`draw_sentiment_train_2026_11_07.py`); the owner tags all 450 on 2026-11-07; builder and trainer are T-148c1 and T-148c3 |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.
@@ -203,6 +204,22 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   neutral; 164613 JNJ neutral and AMZN positive), which is allowed: the label is the impact on that company.
   The intervals count them as independent, so they are a little narrow; the report prints the number.
 - **Dates:** 49 of the 180 texts are from 2022 on (`pub_date`, carried from the file the owner tagged).
+
+### 6. Sentiment training set — `gold/sentiment_train.csv` (D35)
+
+- **What:** the 450 summaries the owner tags to fine-tune the sentiment model on summaries (T-148c, after the
+  model missed the D32 bar on set 5). It is **not a gold**: it trains the model, and **it is never mixed with set 5**,
+  the 180-text exam. Nothing in it may be an article (by body hash, or under the same headline) of set 5 or of the
+  held-out set 2; the draw and the builder check it.
+- **Draw:** `scripts/draw_sentiment_train_2026_11_07.py` takes 150 of each class the current model predicts from the
+  summaries of the cut (the prediction only balances the draw and is never shown), in 30 blocks of 15 (5 of each
+  class). A batch of 150 is 10 blocks, and the last 2 blocks of a batch are the **validation slice** (90 in all: it
+  picks the settings, never trains); the other 360 train. Only summaries: the texts of multi bodies do not exist yet.
+- **Files:** `data/sentiment_train_ids.csv` (the draw and **the only copy of the texts the owner read**: back it up;
+  the summaries are also in the cut's chunks by body hash), `data/sentiment_train_to_tag.csv` (the owner's file,
+  Spanish columns after `text`), `gold/sentiment_train.csv` (the marks and ids, no news text; written by
+  `scripts/build_sentiment_train_2026_11_07.py`, which arrives with T-148c1, PR #137).
+- **Label:** the same as set 5: the price impact on the company an investor would read.
 
 ## Roadmap: what each set unlocks and the order to tag
 

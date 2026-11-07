@@ -53,6 +53,7 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_gold_review.py",
             "test_labelling_spec.py",
             "test_retag.py",
+            "test_sentiment_train_draw.py",
             "test_translate.py",
             "test_triage.py",
             "test_wi18_scripts.py",
