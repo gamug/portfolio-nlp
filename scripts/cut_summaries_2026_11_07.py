@@ -368,7 +368,31 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
     return done
 
 
+def _alive_windows(pid: int) -> bool:
+    """Whether *pid* is a running process, asked of the OS without touching it. ``os.kill(pid, 0)``
+    is not a probe on Windows: Python turns it into ``TerminateProcess`` (it can kill the process
+    that holds the pid, or fail with a WinError)."""
+    import ctypes  # noqa: PLC0415 -- only Windows needs it
+    from ctypes import wintypes  # noqa: PLC0415
+
+    query_limited, still_active, access_denied = 0x1000, 259, 5
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    handle = kernel32.OpenProcess(query_limited, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == access_denied  # exists, not ours to open
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        return _alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

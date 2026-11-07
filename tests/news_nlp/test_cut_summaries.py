@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -172,6 +173,28 @@ def test_a_second_run_while_the_first_is_alive_stops_and_a_dead_lock_is_taken_ov
     assert CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None) == 1
     assert not (tmp_path / CUT.LOCK_NAME).exists()  # released at the end
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_alive_tells_a_running_process_from_a_finished_one() -> None:
+    assert CUT._alive(os.getpid())
+    done = subprocess.Popen([sys.executable, "-c", "pass"])
+    done.wait()
+    assert not CUT._alive(done.pid)
+
+
+def test_on_windows_the_pid_is_never_probed_with_os_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``os.kill(pid, 0)`` terminates the process on Windows (and raised WinError 11 in a real run)."""
+
+    def boom(*_a: object) -> None:
+        raise AssertionError("os.kill must not be called on Windows")
+
+    monkeypatch.setattr(CUT.sys, "platform", "win32")
+    monkeypatch.setattr(CUT.os, "kill", boom)
+    monkeypatch.setattr(CUT, "_alive_windows", lambda pid: pid == 7)
+    assert CUT._alive(7)
+    assert not CUT._alive(8)
 
 
 def test_the_lock_is_released_when_a_chunk_fails(tmp_path: Path) -> None:
