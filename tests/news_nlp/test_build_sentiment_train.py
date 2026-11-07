@@ -334,6 +334,9 @@ def test_a_semicolon_file_is_called_by_its_separator_not_by_missing_columns(
     tmp_path: Path,
 ) -> None:
     marks = _marks(_ids())
+    marks[0]["text"] = (
+        "Sales rose, costs fell, and margins grew."  # commas in a text, as in the real file
+    )
     path = tmp_path / "sentiment_train_to_tag.csv"
     with path.open("w", newline="", encoding="utf-8-sig") as fh:  # a Spanish-locale Excel
         writer = csv.DictWriter(fh, fieldnames=list(marks[0]), delimiter=";")

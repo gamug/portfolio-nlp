@@ -289,8 +289,9 @@ def read_marks(path: Path) -> list[dict[str, str]]:
     marks = gold_metrics.read_rows(path)
     missing = [c for c in NEEDED_FROM_THE_OWNER if marks and c not in marks[0]]
     if not marks or missing:
-        header = list(marks[0]) if marks else []
-        separator = next((s for s in (";", "\t") if len(header) == 1 and s in header[0]), None)
+        # the header line itself: the rows may hold commas (a text), which would add fields
+        header = path.read_text(encoding="utf-8-sig").splitlines()[0]
+        separator = next((s for s in (";", "\t") if "," not in header and s in header), None)
         if separator:
             name = "a semicolon" if separator == ";" else "a tab"
             raise gold_metrics.MarkedFileError(
