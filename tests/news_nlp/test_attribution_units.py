@@ -180,3 +180,23 @@ def test_units2_gives_a_header_line_to_its_names_and_ignores_a_common_word() -> 
     assert "NSC" in one and "NSC" not in two  # the line is about Canadian Pacific, not Norfolk
     assert "BE" in one and "BE" not in two  # "Bloom" is a person
     assert two["AAPL"].startswith("Apple \u2014 Shares rose after Michael Bloom said so.")
+
+
+def test_units3_gives_a_header_line_also_to_the_companies_its_text_names() -> None:
+    body = (
+        "Apple — Shares rose. Microsoft added 2% and Oracle fell 3%.\n"
+        "Canadian Pacific — Its chief met with Norfolk Southern CEO.\n" + STORY
+    )
+    two = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units2")
+    three = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units3")
+    sentence = "Microsoft added 2% and Oracle fell 3%."
+    assert "ORCL" not in two  # units2: the line is Apple's alone
+    assert three["ORCL"] == sentence and sentence in three["MSFT"]
+    assert sentence in three["AAPL"] and three["AAPL"].startswith("Apple \u2014 Shares rose.")
+    assert "NSC" not in three  # a line headed by somebody else is still about nobody
+
+
+def test_units3_pieces_carry_the_header_and_the_companies_they_name() -> None:
+    body = "Apple — Shares rose. Microsoft added 2%."
+    pieces = au.attribution_pieces(body, RESOLVER, headers=True, named_after=True)
+    assert [p.owners for p in pieces] == [("AAPL",), ("AAPL", "MSFT")]

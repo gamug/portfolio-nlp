@@ -80,12 +80,12 @@ MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_
 def extractor_revision(name: str) -> str:
     """The revision of extractor *name*: the baseline's code, or the trained model's identity (the
     Hub id and revision, or a local directory's weights hash) with its code."""
-    if name not in ("model", "units", "units2"):
+    if name not in ("model", "units", "units2", "units3"):
         return retag.extractor_revision(name)
     if not MODEL_IDENTITY:
         raise ValueError("the model extractor is not registered: pass --attribution-model")
     modules = (attribution_model, triage, chunking)
-    if name in ("units", "units2"):
+    if name in ("units", "units2", "units3"):
         modules = (*modules, attribution_units)
     code = retag.code_revision(*modules)
     return f"extractor:{name}@{MODEL_IDENTITY[0]}@{code}"
@@ -97,7 +97,8 @@ def model_extractor(
     """The trained model as an extractor: the baseline's signature, the model behind *scorer*. With
     *reading* ``units`` the body is read without its footer and cut at lines, bullets and clauses
     (``news_nlp.attribution_units``, T-148b4); ``units2`` also with the guarded resolver and the
-    lines headed by names (T-148b5)."""
+    lines headed by names (T-148b5); ``units3`` also gives such a line to the companies its text
+    names (T-148b6)."""
 
     def extract(body: str, resolver: CompanyResolver) -> dict[str, str]:
         return attribution_model.model_company_texts(body, resolver, names, scorer, reading=reading)
@@ -120,6 +121,7 @@ def register_model(model: str, revision: str | None, names: dict[str, str]) -> N
     EXTRACTORS["model"] = model_extractor(scorer, names)
     EXTRACTORS["units"] = model_extractor(scorer, names, reading="units")
     EXTRACTORS["units2"] = model_extractor(scorer, names, reading="units2")
+    EXTRACTORS["units3"] = model_extractor(scorer, names, reading="units3")
 
 
 def draw_bodies(candidates: list[dict[str, str]], n: int, seed: int) -> list[dict[str, str]]:
@@ -190,7 +192,7 @@ def collect_items(
         in_story = resolver.resolve(story, skip_attribution=False)
         guarded = (
             attribution_units.GuardedResolver(resolver, story).resolve(story)
-            if "units2" in names
+            if {"units2", "units3"} & set(names)
             else {}
         )
         for ticker in sorted(resolver.resolve(body, skip_attribution=False)):
@@ -205,7 +207,7 @@ def collect_items(
                 for n in names
                 if not per[n]["text"].strip()
                 and (n != "units" or ticker in in_story)
-                and (n != "units2" or ticker in guarded)
+                and (n not in ("units2", "units3") or ticker in guarded)
             ]
             for number, (text, extractors) in enumerate(merge_texts(per), 1):
                 items.append(

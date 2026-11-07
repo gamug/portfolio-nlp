@@ -327,6 +327,8 @@ def _faithfulness_block(
         ("units", "model"),
         ("units2", "units"),
         ("units2", "baseline"),
+        ("units3", "units2"),
+        ("units3", "units"),
     ):
         if {challenger, reference} <= set(report):
             lines += _gain_lines(label, marks, owners, omitted, challenger, reference)

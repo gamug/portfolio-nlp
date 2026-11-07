@@ -149,9 +149,12 @@ def _pieces(
     if reading == "sentences":
         sentences = [s for s, _, _ in split_sentences(body)]
         return resolver, sentences, [None] * len(sentences)
-    if reading == "units2" and isinstance(resolver, CompanyResolver):
+    guarded = reading in ("units2", "units3")
+    if guarded and isinstance(resolver, CompanyResolver):
         resolver = attribution_units.GuardedResolver(resolver, attribution_units.strip_footer(body))
-    pieces = attribution_units.attribution_pieces(body, resolver, headers=reading == "units2")
+    pieces = attribution_units.attribution_pieces(
+        body, resolver, headers=guarded, named_after=reading == "units3"
+    )
     return resolver, [p.text for p in pieces], [p.owners for p in pieces]
 
 
@@ -169,7 +172,8 @@ def attribute_sentences(
     pieces of :func:`attribution_units.attribution_pieces`: footer removed; lines, bullets and
     clauses cut) or ``units2`` (``units`` with the guarded resolver, which does not take the first
     word of a name for a company, and with the lines headed by a list of names given to those
-    names)."""
+    names) or ``units3`` (``units2`` where such a line also belongs to the universe companies its
+    text names)."""
     resolver, sentences, owners = _pieces(body, resolver, reading)
     candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
     named: list[tuple[str, ...]] = [

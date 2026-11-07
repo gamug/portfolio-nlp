@@ -134,12 +134,16 @@ def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
     return tuple(sorted({ticker for _, _, ticker in resolver.mention_spans(head)}))
 
 
-def attribution_pieces(body: str, resolver: Mentions, *, headers: bool = False) -> list[Unit]:
+def attribution_pieces(
+    body: str, resolver: Mentions, *, headers: bool = False, named_after: bool = False
+) -> list[Unit]:
     """The pieces of *body* (footer removed) that are attributed one by one: a line, a bullet, a
     sentence, a part between semicolons, and a sentence that names several companies cut where one
     ends and the next begins. In reading order; nothing is dropped but the footer and the bullets.
     With *headers* a line that opens with a list of names and a dash belongs to those names alone
-    (its pieces carry them as ``owners``)."""
+    (its pieces carry them as ``owners``). With *named_after* a piece of a line headed by universe
+    companies also belongs to the universe companies it names itself (a roundup line that lists
+    several, T-148b6); a line headed by somebody else still belongs to nobody."""
     units: list[Unit] = []
     for raw in strip_footer(body).split("\n"):
         line = _BULLET.sub("", raw.strip())
@@ -150,8 +154,13 @@ def attribution_pieces(body: str, resolver: Mentions, *, headers: bool = False) 
             for piece in _PIECE_BREAK.split(sentence):
                 if not piece.strip():
                     continue
-                texts = [piece.strip()] if owners is not None else _clauses(piece.strip(), resolver)
-                units += [Unit(text, owners) for text in texts]
+                if owners is None:
+                    units += [Unit(text) for text in _clauses(piece.strip(), resolver)]
+                    continue
+                named = {t for _, _, t in resolver.mention_spans(piece)} if named_after else set()
+                units.append(
+                    Unit(piece.strip(), tuple(sorted(set(owners) | named) if owners else ()))
+                )
     return units
 
 
