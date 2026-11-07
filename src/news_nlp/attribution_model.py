@@ -139,30 +139,47 @@ def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[
     }
 
 
+def _pieces(
+    body: str, resolver: CompanyResolver | attribution_units.GuardedResolver, reading: str
+) -> tuple[
+    CompanyResolver | attribution_units.GuardedResolver, list[str], list[tuple[str, ...] | None]
+]:
+    """The resolver to use, the pieces of *body* and the owners the lines give them (``None``: the
+    attribution decides) for the *reading* of :func:`attribute_sentences`."""
+    if reading == "sentences":
+        sentences = [s for s, _, _ in split_sentences(body)]
+        return resolver, sentences, [None] * len(sentences)
+    if reading == "units2" and isinstance(resolver, CompanyResolver):
+        resolver = attribution_units.GuardedResolver(resolver, attribution_units.strip_footer(body))
+    pieces = attribution_units.attribution_pieces(body, resolver, headers=reading == "units2")
+    return resolver, [p.text for p in pieces], [p.owners for p in pieces]
+
+
 def attribute_sentences(
     body: str,
-    resolver: CompanyResolver,
+    resolver: CompanyResolver | attribution_units.GuardedResolver,
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
     *,
-    units: bool = False,
+    reading: str = "sentences",
 ) -> list[tuple[str, tuple[str, ...]]]:
-    """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
-    and none reaches *threshold*. With *units* the pieces are those of
-    :func:`attribution_units.attribution_units` (footer removed; lines, bullets and clauses cut)
-    instead of the splitter's sentences."""
-    sentences = (
-        attribution_units.attribution_units(body, resolver)
-        if units
-        else [s for s, _, _ in split_sentences(body)]
-    )
+    """``(sentence, tickers)`` for each piece of *body*; ``()`` when no company is named in it and
+    none reaches *threshold*. *reading* is ``sentences`` (the splitter's sentences), ``units`` (the
+    pieces of :func:`attribution_units.attribution_pieces`: footer removed; lines, bullets and
+    clauses cut) or ``units2`` (``units`` with the guarded resolver, which does not take the first
+    word of a name for a company, and with the lines headed by a list of names given to those
+    names)."""
+    resolver, sentences, owners = _pieces(body, resolver, reading)
     candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
-    named = [tuple(sorted(resolver.resolve(s, skip_attribution=False))) for s in sentences]
+    named: list[tuple[str, ...]] = [
+        mine if mine is not None else tuple(sorted(resolver.resolve(s, skip_attribution=False)))
+        for s, mine in zip(sentences, owners, strict=True)
+    ]
     pairs: list[Pair] = []
     where: list[tuple[int, str]] = []
     for index, sentence in enumerate(sentences):
-        if named[index]:
+        if named[index] or owners[index] is not None:
             continue
         context = sentences[index - 1] if index else ""
         for ticker in candidates:
@@ -185,19 +202,19 @@ def attribute_sentences(
 
 def model_company_texts(
     body: str,
-    resolver: CompanyResolver,
+    resolver: CompanyResolver | attribution_units.GuardedResolver,
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
     *,
-    units: bool = False,
+    reading: str = "sentences",
 ) -> dict[str, str]:
     """``{ticker: text}`` in order of first appearance, as ``baseline_company_texts``: a company the
     body names always gets the sentence that names it; the sentences that name none go to the
     company the model chooses, or to nobody."""
     groups: dict[str, list[str]] = {}
     for sentence, tickers in attribute_sentences(
-        body, resolver, names, scorer, threshold, units=units
+        body, resolver, names, scorer, threshold, reading=reading
     ):
         for ticker in tickers:
             groups.setdefault(ticker, []).append(sentence)

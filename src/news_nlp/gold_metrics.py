@@ -31,7 +31,7 @@ SENTIMENT_CLASSES = ("positive", "negative", "neutral")
 SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
-KNOWN_EXTRACTORS = ("baseline", "model", "units")
+KNOWN_EXTRACTORS = ("baseline", "model", "units", "units2")
 
 
 class MarkedFileError(ValueError):

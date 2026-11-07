@@ -787,6 +787,25 @@ def test_the_units_extractor_is_not_asked_for_a_company_named_only_in_the_footer
     assert omissions == []  # U is in the footer only: no omission for units, and "other" wrote one
 
 
+def test_the_units2_extractor_is_not_asked_for_a_company_named_only_by_a_common_word(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from news_nlp.triage import Company, CompanyResolver  # noqa: PLC0415
+
+    resolver = CompanyResolver(
+        [
+            Company("AAPL", "Apple Inc.", "Information Technology", "Hardware"),
+            Company("BE", "Bloom Energy", "Industrials", "Electrical Equipment"),
+        ]
+    )
+    story = "Apple had a good quarter, and CNBC's Michael Bloom said so in a long note. " * 4
+    _source(monkeypatch, {1: story})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@abc")
+    monkeypatch.setitem(FAITH.EXTRACTORS, "units2", lambda body, resolver: {"AAPL": "Apple text."})
+    _, omissions = FAITH.collect_items([{"article_id": "1", "segments": "1"}], ["units2"], resolver)
+    assert omissions == []  # "Bloom" is a person here: Bloom Energy is not a company of this story
+
+
 def test_a_scored_pool_is_refused_under_other_conditions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

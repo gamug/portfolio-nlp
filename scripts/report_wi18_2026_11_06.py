@@ -321,7 +321,13 @@ def _faithfulness_block(
                 f"[{label}] {name:>10}: of the texts it wrote, {only} (informative; omissions not "
                 "counted)"
             )
-    for challenger, reference in (("model", "baseline"), ("units", "baseline"), ("units", "model")):
+    for challenger, reference in (
+        ("model", "baseline"),
+        ("units", "baseline"),
+        ("units", "model"),
+        ("units2", "units"),
+        ("units2", "baseline"),
+    ):
         if {challenger, reference} <= set(report):
             lines += _gain_lines(label, marks, owners, omitted, challenger, reference)
     return lines
