@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+import news_nlp as db
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
@@ -65,7 +68,7 @@ def test_the_draw_takes_the_same_number_of_each_predicted_class_or_all_of_a_shor
     chosen, population = TRAIN.draw(scored, per_class=10, seed=3)
     assert Counter(t["predicted"] for t in chosen) == {"neutral": 10, "positive": 10, "negative": 4}
     assert population == {"neutral": 30, "positive": 30, "negative": 4}
-    assert {t["population"] for t in chosen if t["predicted"] == "negative"} == {"4"}
+    assert {t["pool_class_size"] for t in chosen if t["predicted"] == "negative"} == {"4"}
     assert all(t["text_hash"] for t in chosen)
     assert len({t["body_hash"] for t in chosen}) == len(chosen)
 
@@ -91,3 +94,79 @@ def test_only_summarised_rows_with_a_summary_are_read(tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerows(rows)
     assert [r["body_hash"] for r in TRAIN.cut_rows(tmp_path)] == ["h0001"]
+
+
+def _drawn(per_class: int = 30) -> list[dict[str, str]]:
+    return [
+        {**_row(i + 1000 * n), "predicted": label, "key": f"{i + 1000 * n}#summary"}
+        for n, label in enumerate(("neutral", "positive", "negative"))
+        for i in range(per_class)
+    ]
+
+
+def test_blocks_hold_the_same_number_of_each_class_and_mark_the_validation_slice() -> None:
+    ordered = TRAIN.in_blocks(_drawn(150), seed=5)
+    assert len(ordered) == 450
+    for rows in range(15, 451, 15):  # every whole block prefix is balanced
+        assert set(Counter(t["predicted"] for t in ordered[:rows]).values()) == {rows // 3}
+    batch_one = [t for t in ordered if t["batch"] == "1"]
+    assert len(batch_one) == 150
+    assert Counter(t["predicted"] for t in batch_one) == {
+        "neutral": 50,
+        "positive": 50,
+        "negative": 50,
+    }
+    assert Counter((t["batch"], t["slice"]) for t in ordered) == {
+        (batch, kind): n for batch in "123" for kind, n in (("train", 120), ("validation", 30))
+    }
+    validation = [t for t in ordered if t["slice"] == "validation"]
+    assert set(Counter(t["predicted"] for t in validation).values()) == {30}  # 10 per batch x 3
+    assert {t["block"] for t in validation if t["batch"] == "1"} == {"9", "10"}
+
+
+def test_the_order_is_seeded_and_does_not_reveal_the_class() -> None:
+    first = TRAIN.in_blocks(_drawn(30), seed=5)
+    assert [t["key"] for t in first] == [t["key"] for t in TRAIN.in_blocks(_drawn(30), seed=5)]
+    assert [t["key"] for t in first] != [t["key"] for t in TRAIN.in_blocks(_drawn(30), seed=6)]
+    classes = [t["predicted"] for t in first[:15]]
+    assert classes != sorted(classes)  # shuffled inside the block
+
+
+def test_blocks_stop_on_classes_of_different_sizes() -> None:
+    with pytest.raises(SystemExit, match="same number of each"):
+        TRAIN.in_blocks(_drawn(30)[:-3], seed=1)
+
+
+def test_check_draw_stops_on_a_gold_body_a_gold_headline_or_a_repeat() -> None:
+    chosen = [{**_row(i), "key": f"{i}#summary", "title": f"Headline number {i}"} for i in range(5)]
+    TRAIN.check_draw(chosen, {"h9999"}, {"some other headline"})  # clean
+    with pytest.raises(SystemExit, match="gold or held-out bodies"):
+        TRAIN.check_draw(chosen, {"h0002"}, set())
+    with pytest.raises(SystemExit, match="under a headline"):
+        TRAIN.check_draw(chosen, set(), {"headline number 3"})
+    with pytest.raises(SystemExit, match="share a key or a body"):
+        TRAIN.check_draw([*chosen, chosen[0]], set(), set())
+
+
+def test_title_keys_compare_words_not_punctuation_or_case() -> None:
+    assert TRAIN.title_key("  Apple, Inc.: Q4 EARNINGS beat! ") == "apple inc q4 earnings beat"
+
+
+def test_the_exam_keys_and_the_syndicated_copies_come_from_the_source(
+    source_db_path: Path, results_db_path: Path
+) -> None:
+    titles = {1: "Acme raises its annual outlook", 2: "ACME raises its annual outlook!", 3: "Short"}
+    raw = sqlite3.connect(source_db_path)
+    raw.execute("CREATE TABLE discovered_urls (id INTEGER PRIMARY KEY, url TEXT)")
+    for article_id, title in titles.items():
+        raw.execute("UPDATE articles SET title = ? WHERE id = ?", (title, article_id))
+    raw.commit()
+    raw.close()
+    conn = db.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+    hashes, keys = TRAIN.exam_keys(conn, {1, 3})
+    assert len(hashes) == 2
+    assert keys == {"acme raises its annual outlook"}  # "Short" is too short to mean anything
+    pool = [{"article_ids": "2"}, {"article_ids": "3"}]
+    assert TRAIN.without_title_copies(conn, pool, keys) == [{"article_ids": "3"}]  # 2 is a copy
+    db.detach_source(conn)
+    conn.close()
