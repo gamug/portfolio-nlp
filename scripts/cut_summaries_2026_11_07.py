@@ -18,6 +18,9 @@ step 3 names: single (also the single-company-dominated ones), sector, market an
 ``--require-cuda`` stops before anything is written if there is no CUDA. A progress bar counts the
 bodies of the whole cut (chunks already on disk count as done) and moves when a chunk is saved, with
 the device beside it; it is off when stderr is not a terminal, and the per-chunk lines still print.
+The model is loaded inside the first chunk (download included), so the bar does not move until that
+chunk is saved, several minutes in: that is not a hang. The device line, the bar, the model and the
+manifest all take the one decision ``main`` makes.
 
 **It can be stopped at any moment and run again with the same command.**
 
@@ -219,13 +222,15 @@ def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
-def environment() -> str:
+def environment(device_name: str | None = None) -> str:
     """The versions and device the summaries are made with: beam search over padded batches can
-    differ between GPU and CPU and between releases, so a change is a condition of the job."""
+    differ between GPU and CPU and between releases, so a change is a condition of the job.
+    *device_name* is the one ``main`` printed and gave the model; ``None`` reads it from torch."""
     import torch  # noqa: PLC0415 -- only to read the device
 
     versions = ", ".join(f"{p} {importlib.metadata.version(p)}" for p in ("torch", "transformers"))
-    return f"{versions}, {'cuda' if torch.cuda.is_available() else 'cpu'}"
+    device = device_name or ("cuda" if torch.cuda.is_available() else "cpu")
+    return f"{versions}, {device}"
 
 
 def device_banner() -> tuple[bool, str]:
@@ -243,7 +248,9 @@ def device_banner() -> tuple[bool, str]:
     )
 
 
-def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dict[str, Any]:
+def conditions(
+    args: argparse.Namespace, index_path: Path, entities: str, device_name: str | None = None
+) -> dict[str, Any]:
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
     return {
         "since": args.since,
@@ -253,7 +260,7 @@ def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dic
         "index": file_digest(index_path),
         "rules": retag.code_revision(triage, size_triage),
         "ner_spans": entities,
-        "environment": environment(),
+        "environment": environment(device_name),
     }
 
 
@@ -869,7 +876,7 @@ def main() -> None:
         parts = slices(index, args.chunk_size)
         check_manifest(
             out / MANIFEST_NAME,
-            conditions(args, index_path, entities),
+            conditions(args, index_path, entities, device_name),
             newest,
             accept_new_spans=args.accept_new_spans,
             accept_environment_change=args.accept_environment_change,

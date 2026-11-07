@@ -34,7 +34,9 @@ CUT = _script("cut_summaries_2026_11_07")
 @pytest.fixture(autouse=True)
 def _fixed_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """The versions and device are read from the machine; the tests fix them."""
-    monkeypatch.setattr(CUT, "environment", lambda: "torch 1, transformers 1, cuda")
+    monkeypatch.setattr(
+        CUT, "environment", lambda d=None: f"torch 1, transformers 1, {d or 'cuda'}"
+    )
 
 
 def _index(n: int) -> list[dict[str, str]]:
@@ -837,3 +839,14 @@ def test_the_real_bar_is_off_without_a_terminal_and_the_default_log_does_not_nee
     captured = capsys.readouterr()
     assert "summaries" not in captured.err  # stderr is not a tty here: no bar
     assert "chunk 2/2 written" in captured.out  # the default log (tqdm.write) still prints
+
+
+def test_the_manifest_records_the_device_main_decided(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_torch(monkeypatch, cuda=True)  # torch says cuda, the decision says cpu: the decision wins
+    args = argparse.Namespace(since="2021-12-31", chunk_size=2)
+    index = tmp_path / CUT.INDEX_NAME
+    CUT.atomic_write(index, CUT.INDEX_FIELDS, _index(2))
+    assert CUT.conditions(args, index, "1:1", "cpu")["environment"].endswith(", cpu")
+    assert CUT.conditions(args, index, "1:1")["environment"].endswith(", cuda")
