@@ -297,6 +297,7 @@ def cmd_size(args: argparse.Namespace) -> None:  # noqa: PLR0915 -- a linear rep
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )

@@ -114,6 +114,7 @@ def version_ner_table(results_db: Path) -> None:
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
     version_ner_table(args.results_db)
 

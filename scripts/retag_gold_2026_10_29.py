@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from news_nlp import company_names, retag, translate
+from news_nlp.env import load_env_file
 from news_nlp.gold_review import TaggedFileError, tagged_rows, write_review_files
 from news_nlp.triage import Company
 
@@ -47,9 +48,6 @@ def _read(path: Path) -> list[dict[str, str]]:
 
 
 def _translator() -> translate.LLMTranslator:
-    from dotenv import load_dotenv  # noqa: PLC0415 -- only the translating commands need it
-
-    load_dotenv()
     return translate.LLMTranslator.from_env()
 
 
@@ -410,6 +408,7 @@ def cmd_check(
 
 
 def main() -> None:
+    load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )

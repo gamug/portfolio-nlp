@@ -39,6 +39,16 @@ Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
 working directory. Unset → `results_db_path()` falls back to `data/nlp.db`,
 `source_db_path()` → `None`.
 
+**Where the variables come from.** `news_nlp.env` reads only real environment
+variables. The entry points that import `pipeline` (the API, the CLI,
+`python -m pipeline`) load `<repo>/.env` first; the scripts under `scripts/`
+call `news_nlp.env.load_env_file()` first thing in `main` (a test fails for a
+script that connects and does not). A variable already set in the shell wins
+over the file. Write **absolute** paths in `.env`: a relative one resolves
+against the folder the command is run from, not the repo. When
+`SOURCE_DATABASE_URL` is missing the scripts that need it say whether the shell
+and `<repo>/.env` were looked at.
+
 ## Upgrading from the single-`DATABASE_URL` setup
 
 Before the two-tier contract there was one knob: you pointed `DATABASE_URL` at

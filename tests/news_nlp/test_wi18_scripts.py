@@ -2154,3 +2154,124 @@ def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
     gold.write_text(full.replace(",90,", ",91,", 1), encoding="utf-8")
     with pytest.raises(MarkedFileError, match="stratum size"):
         REPORT.sentiment_report(gold.parent, gold=True)
+
+
+# What shows that a script reaches the databases: a connect, a path helper, or the variable's name
+# as a string (``os.environ.get("SOURCE_DATABASE_URL")``, an argparse default built from it).
+_OPENS = (
+    "connect_pipeline",
+    "connect_two_store",
+    "source_db_path",
+    "results_db_path",
+    "SOURCE_DATABASE_URL",
+    "DATABASE_URL",
+)
+_LOADS = ("load_env_file", "load_dotenv", "EvalSettings.load")
+
+
+def _called(node: ast.AST) -> list[tuple[int, str]]:
+    """(line, name) of every call under *node*, ``a.b.name(...)`` and ``name(...)`` alike, and of
+    every string constant that is exactly the name of a database variable."""
+    found = []
+    for sub in ast.walk(node):
+        if isinstance(sub, ast.Constant) and sub.value in ("SOURCE_DATABASE_URL", "DATABASE_URL"):
+            found.append((sub.lineno, sub.value))
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name == "load" and isinstance(fn, ast.Attribute):  # the evaluation settings load it
+                name = f"{getattr(fn.value, 'id', '')}.load"
+            found.append((sub.lineno, name))
+    return found
+
+
+def _scripts_that_never_load_the_env_file(sources: dict[str, str]) -> list[str]:
+    """A script that opens the database must read ``.env`` for real: import ``pipeline`` (which
+    loads it) or call ``load_env_file`` / ``load_dotenv`` at module level, or in ``main`` before
+    its first connect. A name in a comment, a docstring or a function that only some commands
+    reach does not count."""
+    bad = []
+    for name, text in sources.items():
+        tree = ast.parse(text)
+        if not any(call in _OPENS for _, call in _called(tree)):
+            continue
+        top = [n for n in tree.body if not isinstance(n, ast.FunctionDef | ast.ClassDef)]
+        imports_pipeline = any(
+            (isinstance(n, ast.Import) and any(a.name == "pipeline" for a in n.names))
+            or (isinstance(n, ast.ImportFrom) and n.module == "pipeline")
+            for n in tree.body
+        )
+        loads_at_top = any(call in _LOADS for n in top for _, call in _called(n))
+        main = next(
+            (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main"), None
+        )
+        loads_in_main = False
+        if main is not None:
+            calls = sorted(_called(main))
+            first_load = next((ln for ln, c in calls if c in _LOADS), None)
+            first_open = next((ln for ln, c in calls if c in _OPENS), None)
+            loads_in_main = first_load is not None and (
+                first_open is None or first_load < first_open
+            )
+        if not (imports_pipeline or loads_at_top or loads_in_main):
+            bad.append(name)
+    return bad
+
+
+def test_every_script_that_opens_the_database_loads_the_env_file() -> None:
+    """The first real run of the summaries cut failed because it connected without reading
+    ``.env``: every script that connects must load it, as a call and before it connects."""
+    root = Path(__file__).resolve().parents[2]
+    sources = {
+        f"{folder}/{p.name}": p.read_text(encoding="utf-8")
+        for folder in ("scripts", "cli", "apps")
+        for p in sorted((root / folder).glob("*.py"))
+    }
+    missing = _scripts_that_never_load_the_env_file(sources)
+    assert not missing, f"these scripts connect but never load .env: {missing}"
+
+
+def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> None:
+    mention = '"""load_env_file."""\nimport news_nlp as db\n\ndef main():\n    # load_dotenv()\n    db.connect_pipeline()\n'
+    late = "import news_nlp as db\n\ndef main():\n    db.connect_pipeline()\n    db.env.load_env_file()\n"
+    only_in_a_helper = (
+        "import news_nlp as db\nfrom dotenv import load_dotenv\n\n"
+        "def helper():\n    load_dotenv()\n\ndef main():\n    db.connect_pipeline()\n"
+    )
+    good_main = "import news_nlp as db\n\ndef main():\n    db.env.load_env_file()\n    db.connect_pipeline()\n"
+    good_top = "import news_nlp as db\nfrom dotenv import load_dotenv\nload_dotenv()\ndb.connect_pipeline()\n"
+    good_pipeline = "import pipeline\nimport news_nlp as db\ndb.connect_pipeline()\n"
+    no_db = "def main():\n    pass\n"
+    reads_the_variable = (
+        "import os\n\ndef main():\n    path = os.environ.get('SOURCE_DATABASE_URL')\n"
+        "    return path\n"
+    )
+    good_reads = (
+        "import os\nfrom news_nlp.env import load_env_file\n\ndef main():\n"
+        "    load_env_file()\n    return os.environ.get('SOURCE_DATABASE_URL')\n"
+    )
+    good_settings = (
+        "import news_nlp as db\nfrom news_nlp.eval.config import EvalSettings\n\n"
+        "def main():\n    EvalSettings.load()\n    db.connect_pipeline()\n"
+    )
+    other_load = "import news_nlp as db\n\ndef main():\n    x.load()\n    db.connect_pipeline()\n"
+    sources = {
+        "good_settings.py": good_settings,
+        "other_load.py": other_load,
+        "reads_the_variable.py": reads_the_variable,
+        "good_reads.py": good_reads,
+        "mention.py": mention,
+        "late.py": late,
+        "helper.py": only_in_a_helper,
+        "good_main.py": good_main,
+        "good_top.py": good_top,
+        "good_pipeline.py": good_pipeline,
+        "no_db.py": no_db,
+    }
+    assert _scripts_that_never_load_the_env_file(sources) == [
+        "other_load.py",
+        "reads_the_variable.py",
+        "mention.py",
+        "late.py",
+        "helper.py",
+    ]

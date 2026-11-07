@@ -30,6 +30,7 @@ from news_nlp import triage
 
 
 def main() -> None:
+    db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--from", dest="since", default="2026-03-01")

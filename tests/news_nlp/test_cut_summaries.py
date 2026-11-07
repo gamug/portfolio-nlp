@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any, ClassVar
 
 import pytest
 import torch
+from conftest import REAL_LOAD_ENV_FILE
 
 from news_nlp import triage
 
@@ -488,6 +490,7 @@ def _wired_main(
         return _processor(calls)
 
     monkeypatch.setattr(CUT, "make_processor", make)
+    monkeypatch.setenv("SOURCE_DATABASE_URL", "/crawl/urls.db")  # the run asks for it up front
     monkeypatch.setattr(sys, "argv", ["c", "--out", str(out), "--chunk-size", "2", *flags])
     return calls
 
@@ -736,6 +739,7 @@ def test_main_stops_when_chunks_exist_and_the_manifest_or_the_index_is_lost(
     (tmp_path / (CUT.MANIFEST_NAME if lost == "manifest" else CUT.INDEX_NAME)).unlink()
     before = sorted(p.name for p in tmp_path.rglob("*"))
     monkeypatch.setattr(CUT.db, "connect_pipeline", object)
+    monkeypatch.setenv("SOURCE_DATABASE_URL", "/crawl/urls.db")
     monkeypatch.setattr(sys, "argv", ["c", "--out", str(tmp_path), "--chunk-size", "2"])
     with pytest.raises(SystemExit, match="Nothing was changed"):
         CUT.main()
@@ -850,3 +854,43 @@ def test_the_manifest_records_the_device_main_decided(
     CUT.atomic_write(index, CUT.INDEX_FIELDS, _index(2))
     assert CUT.conditions(args, index, "1:1", "cpu")["environment"].endswith(", cpu")
     assert CUT.conditions(args, index, "1:1")["environment"].endswith(", cuda")
+
+
+def test_main_loads_the_env_file_and_stops_early_without_a_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("SOURCE_DATABASE_URL", "DATABASE_URL"):  # recorded, so the test leaves no trace
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+    out = tmp_path / "cut"
+    _wired_main(monkeypatch, out, "--max-chunks", "1")
+    monkeypatch.delenv("SOURCE_DATABASE_URL")  # _wired_main set it: this test starts without
+    _fake_torch(monkeypatch, cuda=False)
+    monkeypatch.setattr(CUT.db.env, "load_env_file", REAL_LOAD_ENV_FILE)
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(CUT.db.env, "DEFAULT_ENV_FILE", env_file)
+    with pytest.raises(SystemExit, match=r"SOURCE_DATABASE_URL is not set.*does not exist"):
+        CUT.main()  # no .env, no variable: one line, and no folder
+    assert not out.exists()
+    env_file.write_text("DATABASE_URL=/x\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match=r"exists but has no SOURCE_DATABASE_URL"):
+        CUT.main()
+    env_file.write_text("SOURCE_DATABASE_URL=/crawl/urls.db\n", encoding="utf-8")
+    DEVICES.clear()
+    CUT.main()  # main itself read the file
+    assert os.environ["SOURCE_DATABASE_URL"] == "/crawl/urls.db" and DEVICES == ["cpu"]
+
+
+def test_the_env_file_loader_fills_what_is_unset_and_the_shell_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("SOURCE_DATABASE_URL", "DATABASE_URL"):
+        monkeypatch.setenv(name, "x")
+        monkeypatch.delenv(name)
+    env = tmp_path / ".env"
+    assert REAL_LOAD_ENV_FILE(env) is None  # no file: nothing happens
+    env.write_text("SOURCE_DATABASE_URL=D:/urls.db\nDATABASE_URL=D:/nlp.db\n", encoding="utf-8")
+    monkeypatch.setenv("DATABASE_URL", "from-the-shell")
+    assert REAL_LOAD_ENV_FILE(env) == env
+    assert os.environ["SOURCE_DATABASE_URL"] == "D:/urls.db"
+    assert os.environ["DATABASE_URL"] == "from-the-shell"
