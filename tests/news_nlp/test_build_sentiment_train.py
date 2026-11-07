@@ -348,3 +348,38 @@ def test_a_semicolon_file_is_called_by_its_separator_not_by_missing_columns(
     plain.write_text("article_id,kind,text\n1,summary,x\n", encoding="utf-8")
     with pytest.raises(gold_metrics.MarkedFileError, match="lacks the columns"):
         BUILD.read_marks(plain)  # a comma file with columns missing is still said that way
+
+
+def test_missing_repeated_and_extra_rows_are_named_together_with_the_row_problems() -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    extra_row = dict(marks[0], article_id="999999")
+    marks[20]["pub_date"] = "7/5/23"
+    marks[21]["pub_date"] = "7/5/23"
+    marks[22]["pub_date"] = "7/5/23"
+    marks = [*marks[:80], *marks[90:], marks[3], extra_row]  # 10 rows missing, one repeated
+    with pytest.raises(gold_metrics.MarkedFileError) as caught:
+        BUILD.build(marks, ids)
+    text = str(caught.value)
+    assert "10 rows of the draw missing from the tagged file" in text
+    assert "1 row whose key is repeated in the tagged file" in text
+    assert "1 row of the tagged file missing from the draw" in text
+    assert "3 rows with a pub_date that is not ISO" in text
+
+
+def test_an_empty_and_a_header_only_file_say_they_have_no_rows(tmp_path: Path) -> None:
+    path = tmp_path / "sentiment_train_to_tag.csv"
+    path.write_bytes(b"")
+    with pytest.raises(gold_metrics.MarkedFileError, match="has no rows"):
+        BUILD.read_marks(path)
+    path.write_text(",".join(BUILD.NEEDED_FROM_THE_OWNER) + "\n", encoding="utf-8")
+    with pytest.raises(gold_metrics.MarkedFileError, match="has no rows"):
+        BUILD.read_marks(path)
+
+
+def test_a_missing_tagged_file_says_where_to_save_the_owners_copy(tmp_path: Path) -> None:
+    with pytest.raises(gold_metrics.MarkedFileError) as caught:
+        BUILD.read_marks(tmp_path / "sentiment_train_to_tag.csv")
+    assert "save your tagged copy at" in str(caught.value)
+    assert "writes only the untagged one" in str(caught.value)
+    assert "draw script of that set" not in str(caught.value)
