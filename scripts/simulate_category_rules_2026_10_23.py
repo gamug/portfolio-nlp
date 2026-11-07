@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from news_nlp.env import load_env_file
 from news_nlp.eval.calibration import (
     BAND_NAMES,
     BASELINE,
@@ -655,6 +656,7 @@ def default_path(env: str) -> Path | None:
 
 
 def main() -> int:
+    load_env_file()  # .env: the defaults below read the variables, and this script does not import pipeline
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--source-db", type=Path, default=default_path("SOURCE_DATABASE_URL"))
     ap.add_argument("--results-db", type=Path, default=default_path("DATABASE_URL"))

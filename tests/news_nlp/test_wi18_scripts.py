@@ -2156,14 +2156,26 @@ def test_sentiment_report_from_gold_refuses_a_short_or_altered_file(
         REPORT.sentiment_report(gold.parent, gold=True)
 
 
-_OPENS = ("connect_pipeline", "connect_two_store")
+# What shows that a script reaches the databases: a connect, a path helper, or the variable's name
+# as a string (``os.environ.get("SOURCE_DATABASE_URL")``, an argparse default built from it).
+_OPENS = (
+    "connect_pipeline",
+    "connect_two_store",
+    "source_db_path",
+    "results_db_path",
+    "SOURCE_DATABASE_URL",
+    "DATABASE_URL",
+)
 _LOADS = ("load_env_file", "load_dotenv")
 
 
 def _called(node: ast.AST) -> list[tuple[int, str]]:
-    """(line, name) of every call under *node*, ``a.b.name(...)`` and ``name(...)`` alike."""
+    """(line, name) of every call under *node*, ``a.b.name(...)`` and ``name(...)`` alike, and of
+    every string constant that is exactly the name of a database variable."""
     found = []
     for sub in ast.walk(node):
+        if isinstance(sub, ast.Constant) and sub.value in ("SOURCE_DATABASE_URL", "DATABASE_URL"):
+            found.append((sub.lineno, sub.value))
         if isinstance(sub, ast.Call):
             fn = sub.func
             name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
@@ -2224,7 +2236,17 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
     good_top = "import news_nlp as db\nfrom dotenv import load_dotenv\nload_dotenv()\ndb.connect_pipeline()\n"
     good_pipeline = "import pipeline\nimport news_nlp as db\ndb.connect_pipeline()\n"
     no_db = "def main():\n    pass\n"
+    reads_the_variable = (
+        "import os\n\ndef main():\n    path = os.environ.get('SOURCE_DATABASE_URL')\n"
+        "    return path\n"
+    )
+    good_reads = (
+        "import os\nfrom news_nlp.env import load_env_file\n\ndef main():\n"
+        "    load_env_file()\n    return os.environ.get('SOURCE_DATABASE_URL')\n"
+    )
     sources = {
+        "reads_the_variable.py": reads_the_variable,
+        "good_reads.py": good_reads,
         "mention.py": mention,
         "late.py": late,
         "helper.py": only_in_a_helper,
@@ -2233,4 +2255,9 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "good_pipeline.py": good_pipeline,
         "no_db.py": no_db,
     }
-    assert _scripts_that_never_load_the_env_file(sources) == ["mention.py", "late.py", "helper.py"]
+    assert _scripts_that_never_load_the_env_file(sources) == [
+        "reads_the_variable.py",
+        "mention.py",
+        "late.py",
+        "helper.py",
+    ]

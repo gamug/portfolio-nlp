@@ -65,6 +65,7 @@ from pathlib import Path
 # `news_nlp.taxonomy` module is read (no model, no torch).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from news_nlp.db import SourceSchemaError, check_schema
+from news_nlp.env import load_env_file
 from news_nlp.eval.partition import (
     bootstrap_interval,
     judge_label_counts,
@@ -506,6 +507,7 @@ def default_path(env: str) -> Path | None:
 
 
 def main() -> int:
+    load_env_file()  # .env: the defaults below read the variables, and this script does not import pipeline
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--source-db", type=Path, default=default_path("SOURCE_DATABASE_URL"))
     parser.add_argument("--results-db", type=Path, default=default_path("DATABASE_URL"))
