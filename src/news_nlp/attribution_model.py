@@ -45,6 +45,7 @@ class Example(NamedTuple):
     key: str  # ``<article>#<paragraph>#<sentence>``: which sentence, so a positive and its negatives group
     first: bool  # the first sentence of its paragraph (the company changes there)
     year: int
+    named: bool = False  # the sentence named a universe company (run time scores the others)
 
 
 class Scorer(Protocol):
@@ -93,9 +94,12 @@ def training_examples(
         for index, sentence in enumerate(sentences):
             context = sentences[index - 1] if index else (previous or [""])[0]
             masked = mask_company(sentence, resolver, label.ticker)
+            named = bool(resolver.mention_spans(sentence))
             key = f"{article_id}#{label.position}#{index}"
             first = index == 0
-            out.append(Example(Pair(names[label.ticker], context, masked), 1, key, first, year))
+            out.append(
+                Example(Pair(names[label.ticker], context, masked), 1, key, first, year, named)
+            )
             wrong = [t for t in tickers if t != label.ticker]
             hard = (
                 [before.ticker] if first and before is not None and before.ticker in wrong else []
@@ -103,14 +107,24 @@ def training_examples(
             rest = [t for t in wrong if t not in hard]
             rng.shuffle(rest)
             for ticker in (hard + rest)[:NEGATIVES]:
-                out.append(Example(Pair(names[ticker], context, masked), 0, key, first, year))
+                out.append(
+                    Example(Pair(names[ticker], context, masked), 0, key, first, year, named)
+                )
     return out
 
 
-def named_in_context(pair: Pair) -> float:
-    """The mention-and-recency baseline as a score on a pair: 1 when the candidate's name is in the
-    previous sentence (recency), else 0. What the model has to beat on the same pairs."""
+def exact_name_in_context(pair: Pair) -> float:
+    """1 when the candidate's name, as given to the model (the legal name), is in the previous
+    sentence. Prose rarely writes the legal name, so this is a weak floor, kept to show it."""
     return float(bool(pair.candidate) and pair.candidate.lower() in pair.context.lower())
+
+
+def named_in_context(pair: Pair, resolver: CompanyResolver) -> float:
+    """The mention-and-recency baseline as a score on a pair: 1 when the previous sentence mentions
+    the candidate the way the resolver reads mentions (short names, tickers), else 0. What the model
+    has to beat on the same pairs."""
+    wanted = set(resolver.resolve(pair.candidate, skip_attribution=False))
+    return float(bool(wanted & {t for _, _, t in resolver.mention_spans(pair.context)}))
 
 
 def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[str, float]:

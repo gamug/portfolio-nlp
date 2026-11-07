@@ -2,7 +2,7 @@
 owner marks (Work item 18, T-148b2, D27, D32).
 
     uv run scripts/draw_faithfulness_2026_11_06.py [--out data] [--n 30] [--seed 20261106]
-        [--extractors baseline,model] [--yes]
+        [--extractors baseline[,model]] [--attribution-model DIR_OR_ID] [--yes]
     uv run scripts/draw_faithfulness_2026_11_06.py --add-extractor model [--out data] [--yes]
         --attribution-model data/models/attribution_2026_11_08   # or a Hub id with --attribution-revision
 
@@ -12,15 +12,15 @@ minus the held-out set; ``--n`` of them are drawn once (``<out>/faithfulness_bod
 drawn again, so the baseline and the model are judged on the same bodies).
 
 Each extractor (``attribution_baseline.baseline_company_texts`` or the trained model of T-148b3,
-``news_nlp.attribution_model``, named by ``--attribution-model``) writes the text each company named in the body gets. The owner reads each text with its
-article and marks ``faithful`` yes or no (``retag.FAITHFULNESS_COLUMNS``, the Spanish pair right
+``news_nlp.attribution_model``, named by ``--attribution-model``) writes the text each company named
+in the body gets. The owner reads each text with its article and marks ``faithful`` yes or no (``retag.FAITHFULNESS_COLUMNS``, the Spanish pair right
 after ``text``, and the Spanish version of the article). The file is **blind to the extractor**: the
 rows are shuffled, and a text two extractors wrote identically is one row. Which extractor wrote
 which row (by ``review_order``) is in ``<out>/faithfulness_ids.csv``, to compute the figures with ``report_wi18``.
 
 ``--extractors baseline`` alone writes the file for the baseline only (the decision on the baseline,
-D34); nothing is written for ``model`` without ``--attribution-model``. The Spanish aid is the approved paid
-translation of the same engine; nothing is bought without ``--yes``. Its cache is
+D34); nothing is written for ``model`` without ``--attribution-model``, which is loaded only when
+``model`` is among the extractors used. The Spanish aid is the approved paid translation of the same engine; nothing is bought without ``--yes``. Its cache is
 ``<out>/faithfulness/``.
 """
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import random
 import shutil
 import sys
@@ -96,17 +97,37 @@ def model_extractor(scorer: attribution_model.Scorer, names: dict[str, str]) -> 
     return extract
 
 
+LOCAL_FILES = (
+    "model.safetensors",
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "vocab.txt",
+    "special_tokens_map.json",
+)
+
+
+def local_identity(directory: Path) -> str:
+    """A hash of the weights and of the files that read them (config, tokenizer)."""
+    if not (directory / "model.safetensors").is_file():
+        sys.exit(f"{directory} has no model.safetensors: it is not a trained model directory")
+    digest = hashlib.sha256()
+    for name in LOCAL_FILES:
+        if (directory / name).is_file():
+            digest.update(name.encode() + b"\0" + (directory / name).read_bytes())
+    return f"local:{digest.hexdigest()[:16]}"
+
+
 def register_model(model: str, revision: str | None, names: dict[str, str]) -> None:
     """Make ``model`` an extractor. A Hub id needs a *revision* (every model is pinned); a local
-    directory is identified by the hash of its weights."""
-    if not Path(model).is_dir() and not revision:
+    directory is identified by the hash of its weights and tokenizer. The identity also carries the
+    company names the model is asked about and the threshold, which change the texts too."""
+    local = Path(model).is_dir()
+    if not local and not revision:
         sys.exit(f"{model} is not a local directory: it needs a revision (every model is pinned)")
-    if Path(model).is_dir():
-        weights = Path(model) / "model.safetensors"
-        identity = f"local:{hashlib.sha256(weights.read_bytes()).hexdigest()[:16]}"
-    else:
-        identity = f"{model}@{revision}"
-    MODEL_IDENTITY[:] = [identity]
+    base = local_identity(Path(model)) if local else f"{model}@{revision}"
+    names_hash = hashlib.sha256(json.dumps(sorted(names.items())).encode()).hexdigest()[:8]
+    MODEL_IDENTITY[:] = [f"{base}@names:{names_hash}@t{attribution_model.THRESHOLD}"]
     EXTRACTORS["model"] = model_extractor(
         attribution_model.TransformerScorer(model, revision), names
     )
@@ -324,7 +345,8 @@ def add_extractor(args: argparse.Namespace) -> None:
     name: str = args.add_extractor
     if name not in EXTRACTORS:
         sys.exit(
-            f"no extractor {name!r}: only {sorted(EXTRACTORS)} exist now (the model needs --attribution-model)."
+            f"no extractor {name!r}: only {sorted(EXTRACTORS)} exist now "
+            "(the model needs --attribution-model)."
         )
     target, ids_path, bodies_path = out / TO_TAG_NAME, out / IDS_NAME, out / BODIES_NAME
     if not (extra.has_rows(target) and ids_path.exists() and bodies_path.exists()):
@@ -426,7 +448,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
-    if args.attribution_model:
+    wanted = {args.add_extractor} if args.add_extractor else set(args.extractors.split(","))
+    if args.attribution_model and "model" in {w.strip() for w in wanted}:
         register_model(
             args.attribution_model,
             args.attribution_revision,

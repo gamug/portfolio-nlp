@@ -2,15 +2,22 @@
 
     uv run scripts/train_attribution_2026_11_08.py [--out data/models/attribution_2026_11_08]
         [--epochs 2] [--max-pairs 80000] [--seed 20261108] [--limit-bodies N]
+    uv run scripts/train_attribution_2026_11_08.py --eval-only data/models/attribution_2026_11_08
+
+(The date in the names is the one the run was planned for; the code and the first model were built on
+2026-11-07.) Paths are relative to the repository root, wherever the script is run from.
 
 The training set is ``gold/company_segments_train.csv`` (positions and tickers; the text is rebuilt
 from SOURCE and each body's hash is checked). **Trains on the ``lead`` paragraphs only** (D27): the
 run stops unless the owner's label check (``gold/segment_check_gold.csv``) gives
 ``gold_metrics.train_on_lead_only`` true, so the rule is applied, not remembered. The rows used are
 counted and printed. ``val`` bodies (1 in 10, by hash) are never trained on; the model is reported
-there against the mention-and-recency baseline (the candidate's name in the previous sentence) on
-the same pairs, for 2022 on and before apart, and for the first sentence of a paragraph (where the
-company changes) apart. The figure that decides is the owner's faithfulness check, not this one.
+there against the mention-and-recency baseline (the candidate mentioned in the previous sentence, read
+by the resolver; also the weaker exact legal name) on the same pairs, for 2022 on and before apart, for
+the first sentence of a paragraph (where the company changes) apart, and for the sentences that name no
+universe company (the only ones scored at run time, and without the ``[COMPANY]`` mask). A ``val`` body
+whose first 200 characters equal a train body's is left out (syndicated copies).
+``--eval-only DIR`` scores an already trained model on ``val`` and trains nothing. The figure that decides is the owner's faithfulness check, not this one.
 
 Writes the model and ``metrics.json`` in ``--out``. It publishes nothing and pins nothing.
 """
@@ -19,8 +26,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
+import re
 import sys
 import time
 from collections import defaultdict
@@ -33,23 +42,32 @@ import retag_gold_2026_10_29 as retag_cli
 
 import news_nlp as db
 from news_nlp import attribution_model as am
-from news_nlp import company_texts, gold_metrics, triage
+from news_nlp import company_texts, gold_metrics, retag, triage
 from news_nlp.triage import CompanyResolver
 
-GOLD = Path("gold/company_segments_train.csv")
-CHECK = Path("gold/segment_check_gold.csv")
+ROOT = Path(__file__).resolve().parents[1]
+GOLD = ROOT / "gold/company_segments_train.csv"
+CHECK = ROOT / "gold/segment_check_gold.csv"
+PIPELINE_MODELS = ROOT / "config/pipeline_models.json"
 LATE_FROM = 2022
 
 
-def require_lead_only(check: Path = CHECK) -> None:
-    """D27's rule as a condition of the run."""
+def require_lead_only(check: Path = CHECK) -> float:
+    """D27's rule as a condition of the run; the share of ``continuation`` labels right."""
     rows = gold_metrics.read_marked(
         check, "correct", ("yes", "no"), required=("article_id", "year", "kind")
     )
-    if not gold_metrics.train_on_lead_only(gold_metrics.label_check_report(rows)):
+    report = gold_metrics.label_check_report(rows)
+    if not gold_metrics.train_on_lead_only(report):
         sys.exit(
             "the label check does not give 'train on lead only' (D27): this script trains on lead rows only"
         )
+    return report["continuation"].point
+
+
+def body_key(body: str) -> str:
+    """The first 200 letters and digits of a body: two syndicated copies of a story share it."""
+    return re.sub(r"[^a-z0-9]+", "", body.lower())[:200]
 
 
 def read_rows(path: Path = GOLD) -> dict[int, list[dict[str, str]]]:
@@ -67,11 +85,14 @@ def examples_of(
     names: dict[str, str],
     seed: int,
     limit: int | None,
+    keys: set[str],
 ) -> tuple[list[am.Example], dict[str, int]]:
+    """The examples of the bodies of *split*. *keys* are the :func:`body_key` of the train bodies:
+    a train body adds its own, a ``val`` body that has one is left out and counted."""
     conn = db.connect_pipeline()
     rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
     out: list[am.Example] = []
-    counts = {"bodies": 0, "lead paragraphs": 0, "hash mismatch": 0}
+    counts = {"bodies": 0, "lead paragraphs": 0, "hash mismatch": 0, "near-duplicate": 0}
     for article_id in sorted(by_article):
         rows = by_article[article_id]
         if rows[0]["split"] != split:
@@ -84,6 +105,12 @@ def examples_of(
         body = (src["body_text"] if src else "") or ""
         if triage.body_hash(body) != rows[0]["body_hash"]:
             counts["hash mismatch"] += 1
+            continue
+        key = body_key(body)
+        if split == "train":
+            keys.add(key)
+        elif key in keys:
+            counts["near-duplicate"] += 1
             continue
         labels = [
             company_texts.SegmentLabel(int(r["segment_index"]), r["ticker"], r["kind"])
@@ -103,23 +130,45 @@ def examples_of(
     return out, counts
 
 
-def evaluate(examples: list[am.Example], scores: list[float]) -> dict[str, dict[str, float]]:
-    """The model and the baseline on the same pairs: all, 2022 on, before 2022, first sentences."""
-    base = [am.named_in_context(e.pair) for e in examples]
+def evaluate(
+    examples: list[am.Example], scores: list[float], resolver: CompanyResolver
+) -> dict[str, dict[str, float]]:
+    """The model and two baselines on the same pairs: all, 2022 on, before 2022, first sentences,
+    and the sentences that name no universe company (the run-time population)."""
+    base = [am.named_in_context(e.pair, resolver) for e in examples]
+    exact = [am.exact_name_in_context(e.pair) for e in examples]
     views = {
         "all": lambda e: True,
         "2022+": lambda e: e.year >= LATE_FROM,
         "before 2022": lambda e: e.year < LATE_FROM,
         "first sentences": lambda e: e.first,
+        "unnamed sentences": lambda e: not e.named,
     }
     out: dict[str, dict[str, float]] = {}
     for name, keep in views.items():
         idx = [i for i, e in enumerate(examples) if keep(e)]
         sub = [examples[i] for i in idx]
-        for who, values in (("model", scores), ("baseline", base)):
+        for who, values in (("model", scores), ("baseline", base), ("exact name", exact)):
             for metric, value in am.pair_accuracy(sub, [values[i] for i in idx]).items():
                 out.setdefault(f"{name} {who}", {})[metric] = value
     return out
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def provenance(continuation: float) -> dict[str, object]:
+    """What a pinned model needs to be reproduced: the code, the training set, the label check."""
+    return {
+        "code": retag.code_revision(am, triage, company_texts),
+        "training_set": digest(GOLD),
+        "label_check": {
+            "file": digest(CHECK),
+            "continuation": continuation,
+            "train_on_lead_only": True,
+        },
+    }
 
 
 def fit(
@@ -182,7 +231,8 @@ def fit(
 def main() -> None:
     db.env.load_env_file()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("data/models/attribution_2026_11_08"))
+    parser.add_argument("--out", type=Path, default=ROOT / "data/models/attribution_2026_11_08")
+    parser.add_argument("--eval-only", type=Path, metavar="DIR", help="score this trained model")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--max-pairs", type=int, default=80_000)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -190,17 +240,20 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261108)
     parser.add_argument("--limit-bodies", type=int, default=None)
     args = parser.parse_args()
-    require_lead_only()
+    continuation = require_lead_only()
 
-    config = json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))[
-        "sentiment"
-    ]
+    config = json.loads(PIPELINE_MODELS.read_text(encoding="utf-8"))["sentiment"]
     companies = retag_cli.companies()
     resolver = CompanyResolver(companies)
     names = {c.ticker: c.name for c in companies}
     by_article = read_rows()
-    train, tcount = examples_of(by_article, "train", resolver, names, args.seed, args.limit_bodies)
-    val, vcount = examples_of(by_article, "val", resolver, names, args.seed + 1, args.limit_bodies)
+    keys: set[str] = set()
+    train, tcount = examples_of(
+        by_article, "train", resolver, names, args.seed, args.limit_bodies, keys
+    )
+    val, vcount = examples_of(
+        by_article, "val", resolver, names, args.seed + 1, args.limit_bodies, keys
+    )
     if tcount["hash mismatch"] or vcount["hash mismatch"]:
         sys.exit(f"bodies whose text changed since the set was built: {tcount}, {vcount}")
     random.Random(args.seed).shuffle(train)  # noqa: S311
@@ -210,20 +263,33 @@ def main() -> None:
         f"train: {tcount['bodies']} bodies, {tcount['lead paragraphs']} lead paragraphs (continuation rows are not used, D27)"
     )
     print(
-        f"       {total} pairs, {len(train)} used (--max-pairs); val: {vcount['bodies']} bodies, {len(val)} pairs"
+        f"       {total} pairs, {len(train)} used (--max-pairs); val: {vcount['bodies']} bodies, "
+        f"{len(val)} pairs, {vcount['near-duplicate']} bodies left out as near-duplicates of train"
     )
 
-    scorer, tok, model, elapsed = fit(train, config, args)
+    if args.eval_only:
+        out = args.eval_only if args.eval_only.is_absolute() else ROOT / args.eval_only
+        scorer = am.TransformerScorer(str(out))
+        elapsed = 0.0
+    else:
+        out = args.out
+        scorer, tok, model, elapsed = fit(train, config, args)
     scores = scorer.score([e.pair for e in val])
-    report = evaluate(val, scores)
+    report = evaluate(val, scores, resolver)
     for name, figures in report.items():
         print(
-            f"{name:>28}: ranking {figures['ranking']:.3f}  at 0.5 {figures['threshold']:.3f}  ({int(figures['pairs'])} pairs)"
+            f"{name:>30}: ranking {figures['ranking']:.3f}  at 0.5 {figures['threshold']:.3f}  ({int(figures['pairs'])} pairs)"
         )
-    args.out.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(args.out)
-    tok.save_pretrained(args.out)
-    (args.out / "metrics.json").write_text(
+    if args.eval_only:
+        saved = json.loads((out / "metrics.json").read_text(encoding="utf-8"))
+        saved.update({"val": vcount, "report": report, "evaluated_again": provenance(continuation)})
+        (out / "metrics.json").write_text(json.dumps(saved, indent=2), encoding="utf-8")
+        print("val figures rewritten in", out / "metrics.json")
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(out)
+    tok.save_pretrained(out)
+    (out / "metrics.json").write_text(
         json.dumps(
             {
                 "base": config,
@@ -233,12 +299,13 @@ def main() -> None:
                 "val": vcount,
                 "report": report,
                 "seconds": round(elapsed),
+                "provenance": provenance(continuation),
             },
             indent=2,
         ),
         encoding="utf-8",
     )
-    print("model and metrics.json written to", args.out)
+    print("model and metrics.json written to", out)
 
 
 if __name__ == "__main__":
