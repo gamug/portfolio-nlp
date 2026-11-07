@@ -9,8 +9,10 @@ import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from types import ModuleType
+from typing import Any, ClassVar
 
 import pytest
+import torch
 
 from news_nlp import triage
 
@@ -726,3 +728,86 @@ def test_main_stops_when_chunks_exist_and_the_manifest_or_the_index_is_lost(
     with pytest.raises(SystemExit, match="Nothing was changed"):
         CUT.main()
     assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+class _FakeBar:
+    """Stands in for ``tqdm`` and records what the bar was told."""
+
+    made: ClassVar[list[_FakeBar]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.updates: list[int] = []
+        self.closed = False
+        _FakeBar.made.append(self)
+
+    def update(self, n: int) -> None:
+        self.updates.append(n)
+
+    def close(self) -> None:
+        self.closed = True
+
+    @staticmethod
+    def write(_message: str) -> None:
+        return None
+
+
+def test_the_bar_counts_bodies_starts_after_the_chunks_on_disk_and_shows_the_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "tqdm", _FakeBar)
+    _FakeBar.made.clear()
+    parts = CUT.slices(_index(10), 3)  # chunks of 3, 3, 3, 1 bodies
+    CUT.run_chunks(
+        tmp_path, parts, _processor([]), max_chunks=1, log=lambda _m: None, device_label="cuda"
+    )
+    CUT.run_chunks(tmp_path, parts, _processor([]), log=lambda _m: None, device_label="cuda")
+    first, second = _FakeBar.made
+    assert first.kwargs["total"] == 10 and first.kwargs["initial"] == 0
+    assert first.kwargs["postfix"] == {"device": "cuda"}
+    assert first.updates == [3] and first.closed
+    assert second.kwargs["initial"] == 3  # the chunk already on disk counts as done
+    assert second.updates == [3, 3, 1] and second.closed
+
+
+def test_the_bar_is_closed_when_a_chunk_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "tqdm", _FakeBar)
+    _FakeBar.made.clear()
+
+    def dies(_part: Sequence[dict[str, str]]) -> list[dict[str, str]]:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        CUT.run_chunks(tmp_path, CUT.slices(_index(3), 3), dies, log=lambda _m: None)
+    assert _FakeBar.made[0].closed
+
+
+def _fake_torch(monkeypatch: pytest.MonkeyPatch, *, cuda: bool) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda _i=0: "Fake RTX 9000")
+
+
+def test_the_banner_says_cuda_or_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_torch(monkeypatch, cuda=True)
+    has_cuda, line = CUT.device_banner()
+    assert has_cuda and line.startswith("device: CUDA (Fake RTX 9000")
+    _fake_torch(monkeypatch, cuda=False)
+    has_cuda, line = CUT.device_banner()
+    assert not has_cuda and line.startswith("device: CPU, no CUDA")
+
+
+def test_main_prints_the_device_and_require_cuda_stops_a_cpu_run_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _fake_torch(monkeypatch, cuda=False)
+    calls = _wired_main(monkeypatch, tmp_path, "--require-cuda")
+    with pytest.raises(SystemExit, match="CUDA is not available"):
+        CUT.main()
+    assert "device: CPU, no CUDA" in capsys.readouterr().out
+    assert calls == [] and not (tmp_path / CUT.MANIFEST_NAME).exists()
+    assert not (tmp_path / CUT.LOCK_NAME).exists()
+    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1")  # without the flag a CPU run goes on
+    CUT.main()
+    assert "device: CPU, no CUDA" in capsys.readouterr().out

@@ -2,7 +2,7 @@
 step 3, D34).
 
     uv run scripts/cut_summaries_2026_11_07.py [--out data/cut/summaries] [--since 2021-12-31]
-        [--chunk-size 250] [--max-chunks N] [--status]
+        [--chunk-size 250] [--max-chunks N] [--require-cuda] [--status]
 
 Over the stored corpus (``fetch_status = 'ok'``, published ``--since`` or later) the unique bodies
 (``triage.body_hash``) are listed once, in order of their first article id, in ``<out>/index.csv``.
@@ -13,6 +13,11 @@ summariser (``config/pipeline_models.json`` ``c_summary``) summarises the bodies
 step 3 names: single (also the single-company-dominated ones), sector, market and economy. A
 ``multi`` body, a round-up or a body with no company gets its scope and no summary. The chunk goes to
 ``<out>/chunk_NNNNN.csv``, one row per body.
+
+**What you see.** The first line says whether the summariser will use CUDA (the GPU's name) or the CPU;
+``--require-cuda`` stops before anything is written if there is no CUDA. A progress bar counts the
+bodies of the whole cut (chunks already on disk count as done) and moves when a chunk is saved, with
+the device beside it; it is off when stderr is not a terminal, and the per-chunk lines still print.
 
 **It can be stopped at any moment and run again with the same command.**
 
@@ -73,6 +78,8 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
+
+from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -219,6 +226,21 @@ def environment() -> str:
 
     versions = ", ".join(f"{p} {importlib.metadata.version(p)}" for p in ("torch", "transformers"))
     return f"{versions}, {'cuda' if torch.cuda.is_available() else 'cpu'}"
+
+
+def device_banner() -> tuple[bool, str]:
+    """Whether the summariser will run on CUDA, and the line that says so (printed before anything
+    slow starts, and shown beside the progress bar). The summariser picks its device the same way
+    (``torch.cuda.is_available()``), so this is what it will use."""
+    import torch  # noqa: PLC0415 -- only to read the device
+
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0)
+        return True, f"device: CUDA ({name}, CUDA {torch.version.cuda}, torch {torch.__version__})"
+    return False, (
+        f"device: CPU, no CUDA (torch {torch.__version__}): about 0.84 s per body is the GPU "
+        "figure; the CPU is far slower. --require-cuda stops instead of running on it"
+    )
 
 
 def conditions(args: argparse.Namespace, index_path: Path, entities: str) -> dict[str, Any]:
@@ -392,20 +414,25 @@ def run_chunks(
     *,
     max_chunks: int | None = None,
     should_stop: Callable[[], bool] = lambda: False,
-    log: Callable[[str], None] = print,
+    log: Callable[[str], None] = tqdm.write,  # does not break the bar
     break_lock: bool = False,
     hold_lock: bool = True,
     redo_failed: bool = False,
+    device_label: str = "",
 ) -> int:
     """Make every chunk that has no file, in order, and return how many were made. Stops after
     *max_chunks* or when *should_stop* says so, always between two chunks. The lock is taken here
     unless the caller already holds it (``hold_lock=False``: ``main`` locks before the manifest).
     With *redo_failed* the chunks that hold a failed or empty summary are moved to ``redo/`` first
-    and made again."""
+    and made again. *device_label* (``cuda`` / ``cpu``) is shown on the progress bar."""
     if not hold_lock:
-        return _make_chunks(out, parts, process, max_chunks, should_stop, log, redo_failed)
+        return _make_chunks(
+            out, parts, process, max_chunks, should_stop, log, redo_failed, device_label
+        )
     with locked(out, break_lock=break_lock):
-        return _make_chunks(out, parts, process, max_chunks, should_stop, log, redo_failed)
+        return _make_chunks(
+            out, parts, process, max_chunks, should_stop, log, redo_failed, device_label
+        )
 
 
 def set_aside_failed(out: Path, parts: Sequence[Sequence[Row]], log: Callable[[str], None]) -> int:
@@ -434,6 +461,7 @@ def _make_chunks(
     should_stop: Callable[[], bool],
     log: Callable[[str], None],
     redo_failed: bool = False,
+    device_label: str = "",
 ) -> int:
     for leftover in out.glob("*.tmp"):  # safe: the lock says no other run is writing
         leftover.unlink()
@@ -444,20 +472,34 @@ def _make_chunks(
     log(f"{len(done)} of {len(parts)} chunks done, {len(pending)} to make")
     made = 0
     started = time.monotonic()
-    for number in pending:
-        if (max_chunks is not None and made >= max_chunks) or should_stop():
-            log("stopped between chunks; run the same command to resume")
-            break
-        rows = _remake(out, number, parts[number - 1], process)
-        atomic_write(out / chunk_name(number), CHUNK_FIELDS, rows)
-        (out / "redo" / chunk_name(number)).unlink(missing_ok=True)  # the new file replaces it
-        made += 1
-        rate = (time.monotonic() - started) / made
-        log(
-            f"chunk {number}/{len(parts)} written ({len(rows)} bodies, "
-            f"{rate / max(len(rows), 1):.2f} s per body); about "
-            f"{rate * (len(pending) - made):.0f} s left"
-        )
+    # one bar over the bodies of the whole cut, counting the chunks already on disk; it moves when a
+    # chunk is written (a chunk is the unit that is saved), and is off when stderr is not a terminal
+    bar = tqdm(
+        total=sum(len(part) for part in parts),
+        initial=sum(len(parts[n - 1]) for n in done),
+        desc="summaries",
+        unit="body",
+        disable=None,
+        postfix={"device": device_label} if device_label else None,
+    )
+    try:
+        for number in pending:
+            if (max_chunks is not None and made >= max_chunks) or should_stop():
+                log("stopped between chunks; run the same command to resume")
+                break
+            rows = _remake(out, number, parts[number - 1], process)
+            atomic_write(out / chunk_name(number), CHUNK_FIELDS, rows)
+            (out / "redo" / chunk_name(number)).unlink(missing_ok=True)  # the new file replaces it
+            made += 1
+            bar.update(len(parts[number - 1]))
+            rate = (time.monotonic() - started) / made
+            log(
+                f"chunk {number}/{len(parts)} written ({len(rows)} bodies, "
+                f"{rate / max(len(rows), 1):.2f} s per body); about "
+                f"{rate * (len(pending) - made):.0f} s left"
+            )
+    finally:
+        bar.close()
     return made
 
 
@@ -522,7 +564,7 @@ def load_summariser() -> Summariser:
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = AutoModelForSeq2SeqLM.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = model.to(device).eval()
-    print(f"summariser {cfg['model']}@{cfg['revision'][:8]} on {device.type}", flush=True)
+    tqdm.write(f"summariser {cfg['model']}@{cfg['revision'][:8]} loaded on {device.type}")
 
     def summarise(texts: list[str]) -> list[tuple[str, int]]:
         try:
@@ -767,6 +809,12 @@ def main() -> None:
         help="resume although torch / transformers / the device changed (the chunks are kept)",
     )
     parser.add_argument(
+        "--require-cuda",
+        action="store_true",
+        help="stop before anything is written if CUDA is not available (the device is a condition "
+        "of the job: a first run on the CPU would fix the cut to it)",
+    )
+    parser.add_argument(
         "--break-lock",
         action="store_true",
         help="remove run.lock first (a pid reused after a restart)",
@@ -794,12 +842,15 @@ def main() -> None:
         stop["now"] = True
         for sig in (signal.SIGINT, signal.SIGTERM):
             signal.signal(sig, signal.SIG_DFL)  # a second signal aborts at once
-        print(
+        tqdm.write(
             f"signal {signum}: finishing the chunk in progress, then stopping "
-            "(send it again to abort now)",
-            flush=True,
+            "(send it again to abort now)"
         )
 
+    has_cuda, banner = device_banner()
+    print(banner, flush=True)
+    if args.require_cuda and not has_cuda:
+        sys.exit("--require-cuda: CUDA is not available here, nothing was written")
     with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it
         conn = db.connect_pipeline()
         index = load_or_build_index(
@@ -829,6 +880,7 @@ def main() -> None:
             should_stop=lambda: stop["now"],
             hold_lock=False,
             redo_failed=args.redo_failed,
+            device_label="cuda" if has_cuda else "cpu",
         )
     print("\n".join(status(out, parts)))
     print(f"{made} chunks made in this run")
