@@ -6,6 +6,7 @@ import argparse
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -174,6 +175,224 @@ def test_a_second_run_while_the_first_is_alive_stops_and_a_dead_lock_is_taken_ov
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_alive_tells_a_running_process_from_a_finished_one() -> None:
+    assert CUT._alive(os.getpid())
+    done = subprocess.Popen([sys.executable, "-c", "pass"])
+    done.wait()
+    assert not CUT._alive(done.pid)  # a pid is not reused within this instant
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows probe runs only on Windows")
+def test_the_windows_probe_itself_on_a_live_and_a_finished_process() -> None:
+    assert CUT._alive_windows(os.getpid())
+    exit_259 = subprocess.Popen([sys.executable, "-c", "raise SystemExit(259)"])  # STILL_ACTIVE
+    exit_259.wait()
+    assert not CUT._alive_windows(exit_259.pid)
+    assert not CUT._alive_windows(0x7FFFFFF0)  # no such pid
+    assert CUT._started(os.getpid()) != ""
+
+
+def test_a_stale_pid_file_and_its_lock_are_cleared_in_one_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the crash was: ``run.lock`` and ``run.lock.<pid>`` of a killed run, then a resume."""
+    (tmp_path / CUT.LOCK_NAME).write_text("41956", encoding="utf-8")
+    (tmp_path / f"{CUT.LOCK_NAME}.41956").write_text("41956", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: False)
+    with CUT.locked(tmp_path):
+        assert (tmp_path / CUT.LOCK_NAME).read_text(encoding="utf-8").split()[0] == str(os.getpid())
+        assert not (tmp_path / f"{CUT.LOCK_NAME}.41956").exists()
+    assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (OSError(1, "Operation not permitted"), "NTFS"),  # EPERM: no hard links here
+        (OSError(18, "Invalid cross-device link"), "NTFS"),  # EXDEV
+        (PermissionError(13, "Access is denied"), "something holds the file"),  # EACCES
+        (OSError(5, "I/O error"), "something holds the file"),
+    ],
+)
+def test_a_failed_hard_link_names_the_cause_that_the_error_tells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError, message: str
+) -> None:
+    def no_link(*_a: object) -> None:
+        raise error
+
+    monkeypatch.setattr(CUT.os, "link", no_link)
+    with pytest.raises(SystemExit, match=message), CUT.locked(tmp_path):
+        pass
+    assert not list(tmp_path.glob(f"{CUT.LOCK_NAME}*"))  # the private file is removed
+
+
+@pytest.mark.parametrize("winerror", [1, 50])  # INVALID_FUNCTION, NOT_SUPPORTED
+def test_the_windows_error_for_a_file_system_without_hard_links_names_ntfs(winerror: int) -> None:
+    exc = OSError(22, "Incorrect function")
+    exc.winerror = winerror  # type: ignore[attr-defined]
+    assert "NTFS" in CUT._cannot_lock(Path("x"), exc)
+
+
+def test_a_stale_private_file_is_judged_by_its_start_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)
+    monkeypatch.setattr(CUT, "_started", lambda pid: "222" if pid != os.getpid() else "1")
+    reused = tmp_path / f"{CUT.LOCK_NAME}.41956"
+    mine_still = tmp_path / f"{CUT.LOCK_NAME}.41957"
+    reused.write_text("41956 111", encoding="utf-8")  # another process holds that pid now
+    mine_still.write_text("41957 222", encoding="utf-8")  # the process that wrote it
+    with CUT.locked(tmp_path):
+        assert not reused.exists()
+        assert mine_still.exists()
+
+
+def test_on_windows_the_pid_is_never_probed_with_os_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``os.kill(pid, 0)`` terminates the process on Windows (and raised WinError 11 in a real run)."""
+
+    def boom(*_a: object) -> None:
+        raise AssertionError("os.kill must not be called on Windows")
+
+    monkeypatch.setattr(CUT.sys, "platform", "win32")
+    monkeypatch.setattr(CUT.os, "kill", boom)
+    monkeypatch.setattr(CUT, "_alive_windows", lambda pid: pid == 7)
+    assert CUT._alive(7)
+    assert not CUT._alive(8)
+
+
+class _FakeWin32:
+    """What ``_Win32`` answers, set per test: the handle (0 = OpenProcess failed), the last error,
+    the wait result and the creation time."""
+
+    def __init__(
+        self,
+        handle: int = 1,
+        error: int = 0,
+        wait: int = 0x102,
+        created: int | None = 5,
+        sync_denied: bool = False,
+    ) -> None:
+        self.handle, self.error, self.wait_result, self.created_at = handle, error, wait, created
+        self.sync_denied = sync_denied  # a protected process: refuses the wait right only
+        self.closed: list[int] = []
+
+    def open(self, _pid: int, *, wait: bool = False) -> int:
+        if wait and self.sync_denied:
+            self.error = 5
+            return 0
+        return self.handle
+
+    def last_error(self) -> int:
+        return self.error
+
+    def wait(self, _handle: int) -> int:
+        return self.wait_result
+
+    def created(self, _handle: int) -> int | None:
+        return self.created_at
+
+    def close(self, handle: int) -> None:
+        self.closed.append(handle)
+
+
+@pytest.mark.parametrize(
+    ("api", "alive"),
+    [
+        (_FakeWin32(wait=0x102), True),  # WAIT_TIMEOUT: running
+        (_FakeWin32(wait=0), False),  # WAIT_OBJECT_0: ended
+        (_FakeWin32(wait=0xFFFFFFFF), True),  # WAIT_FAILED: unknown, so alive
+        (_FakeWin32(handle=0, error=87), False),  # no such pid
+        (_FakeWin32(handle=0, error=5), True),  # access denied: exists
+        (_FakeWin32(handle=0, error=31), True),  # any other error: unknown, so alive
+    ],
+)
+def test_the_windows_probe_answers_dead_only_when_the_os_says_so(
+    api: _FakeWin32, alive: bool
+) -> None:
+    assert CUT._alive_windows(1234, api) is alive  # type: ignore[arg-type]
+    assert api.closed == ([api.handle] if api.handle else [])  # the handle is always closed
+
+
+def test_a_protected_process_still_gives_its_start_time_without_the_wait_right(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _FakeWin32(sync_denied=True, created=99)
+    monkeypatch.setattr(CUT.sys, "platform", "win32")
+    assert CUT._alive_windows(4, api)  # type: ignore[arg-type]  # access denied: exists
+    assert CUT._started(4, api) == "99"  # type: ignore[arg-type]  # read with the query right alone
+
+
+def test_a_truncated_proc_stat_gives_no_start_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    stat = tmp_path / "stat"
+    stat.write_text("1 (cut) S 0 1", encoding="utf-8")
+    real_read = Path.read_text
+    monkeypatch.setattr(CUT.sys, "platform", "linux")
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, *a, **k: real_read(stat if "/proc/" in self.as_posix() else self, *a, **k),
+    )
+    assert CUT._started(1) == ""
+
+
+def test_the_windows_start_time_is_empty_when_it_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(CUT.sys, "platform", "win32")
+    assert CUT._started(1, _FakeWin32(created=77)) == "77"  # type: ignore[arg-type]
+    assert CUT._started(1, _FakeWin32(created=None)) == ""  # type: ignore[arg-type]
+    assert CUT._started(1, _FakeWin32(handle=0)) == ""  # type: ignore[arg-type]
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc")
+def test_the_start_time_of_a_running_process_is_stable() -> None:
+    assert CUT._started(os.getpid()) != ""
+    assert CUT._started(os.getpid()) == CUT._started(os.getpid())
+
+
+def test_a_pid_another_process_now_holds_does_not_keep_the_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / CUT.LOCK_NAME).write_text("41956 111", encoding="utf-8")
+    monkeypatch.setattr(CUT, "_alive", lambda pid: True)  # some program has that pid now
+    monkeypatch.setattr(CUT, "_started", lambda pid: "222")  # ... but it started later
+    with CUT.locked(tmp_path):
+        pass
+    (tmp_path / CUT.LOCK_NAME).write_text("41956 222", encoding="utf-8")  # the same process
+    with pytest.raises(SystemExit, match=r"another run \(pid 41956"), CUT.locked(tmp_path):
+        pass
+    (tmp_path / CUT.LOCK_NAME).write_text("41956", encoding="utf-8")  # old format: pid only
+    with pytest.raises(SystemExit, match=r"another run \(pid 41956"), CUT.locked(tmp_path):
+        pass
+
+
+def test_a_lock_released_between_the_link_and_the_read_is_taken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / CUT.LOCK_NAME).write_text("41956", encoding="utf-8")
+    real_read = Path.read_text
+
+    def vanishing(self: Path, *a: Any, **k: Any) -> str:
+        if self.name == CUT.LOCK_NAME:
+            self.unlink()  # the other run lets go right now
+            raise FileNotFoundError(str(self))
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", vanishing)
+    with CUT.locked(tmp_path):
+        assert (tmp_path / CUT.LOCK_NAME).exists()
+
+
+def test_ctrl_break_stops_like_ctrl_c_where_it_exists() -> None:
+    assert {CUT.signal.SIGINT, CUT.signal.SIGTERM} <= set(CUT.STOP_SIGNALS)
+    if hasattr(CUT.signal, "SIGBREAK"):  # Windows
+        assert CUT.signal.SIGBREAK in CUT.STOP_SIGNALS
+
+
 def test_the_lock_is_released_when_a_chunk_fails(tmp_path: Path) -> None:
     def dies(_part: Sequence[dict[str, str]]) -> list[dict[str, str]]:
         raise RuntimeError("model error")
@@ -324,7 +543,7 @@ def test_the_lock_always_has_its_pid_and_can_be_broken(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with CUT.locked(tmp_path):
-        assert (tmp_path / CUT.LOCK_NAME).read_text(encoding="utf-8").isdigit()
+        assert (tmp_path / CUT.LOCK_NAME).read_text(encoding="utf-8").split()[0].isdigit()
         assert not list(tmp_path.glob("run.lock.*"))  # the private file is gone
     (tmp_path / CUT.LOCK_NAME).write_text("424242", encoding="utf-8")
     monkeypatch.setattr(CUT, "_alive", lambda pid: True)

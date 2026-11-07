@@ -31,7 +31,9 @@ manifest all take the one decision ``main`` makes.
 * A chunk file is written to a temporary name and renamed when complete, so a file that exists is a
   whole chunk; a leftover temporary file is deleted at the start. A kill loses at most the chunk
   being made (``--chunk-size`` bodies: about 3.5 minutes at 0.84 s per body).
-* ``Ctrl-C`` (or ``SIGTERM``) finishes the chunk in progress, then stops.
+* ``Ctrl-C`` (``Ctrl-Break`` on Windows, or ``SIGTERM``) finishes the chunk in progress, then
+  stops. Closing the console window cannot be caught: the run dies and leaves its lock, which the
+  next start takes over (the pid is gone or was reused).
 * A run skips every chunk that exists, so running again never summarises a body twice and a
   finished job does nothing. A chunk whose bodies are not the ones of its slice of the index stops
   the run.
@@ -74,6 +76,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import csv
+import errno
 import hashlib
 import importlib.metadata
 import json
@@ -368,7 +371,76 @@ def done_chunks(out: Path, parts: Sequence[Sequence[Row]]) -> set[int]:
     return done
 
 
+# Ctrl-C, SIGTERM, and Ctrl-Break where it exists (Windows)
+STOP_SIGNALS = tuple(
+    s for s in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGBREAK", None)) if s is not None
+)
+ERROR_INVALID_PARAMETER = 87  # OpenProcess on a pid that does not exist
+WAIT_OBJECT_0 = 0  # the process has ended
+
+
+class _Win32:
+    """The few kernel32 calls the lock needs. ``argtypes`` are declared because a handle is
+    pointer-sized and ctypes would pass a plain int as a 32-bit one. Tests replace this class."""
+
+    def __init__(self) -> None:
+        import ctypes  # noqa: PLC0415 -- only Windows needs it
+        from ctypes import wintypes  # noqa: PLC0415
+
+        self._ctypes, self._wintypes = ctypes, wintypes
+        k = self._k = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        k.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        k.WaitForSingleObject.restype = wintypes.DWORD
+        k.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        k.GetProcessTimes.restype = wintypes.BOOL
+        k.CloseHandle.argtypes = [wintypes.HANDLE]
+        k.CloseHandle.restype = wintypes.BOOL
+
+    def open(self, pid: int, *, wait: bool = False) -> int:
+        """PROCESS_QUERY_LIMITED_INFORMATION, which almost every process grants; ``wait`` adds
+        SYNCHRONIZE, which protected, elevated and other-session processes refuse."""
+        rights = 0x1000 | (0x00100000 if wait else 0)
+        return int(self._k.OpenProcess(rights, False, pid) or 0)
+
+    def last_error(self) -> int:
+        return int(self._ctypes.get_last_error())  # type: ignore[attr-defined]
+
+    def wait(self, handle: int) -> int:
+        return int(self._k.WaitForSingleObject(handle, 0))
+
+    def created(self, handle: int) -> int | None:
+        times = [self._wintypes.FILETIME() for _ in range(4)]
+        refs = [self._ctypes.byref(t) for t in times]
+        if not self._k.GetProcessTimes(handle, *refs):
+            return None
+        return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+
+    def close(self, handle: int) -> None:
+        self._k.CloseHandle(handle)
+
+
+def _alive_windows(pid: int, api: _Win32 | None = None) -> bool:
+    """Whether *pid* is a running process, asked of the OS without touching it. ``os.kill(pid, 0)``
+    is not a probe on Windows: Python turns it into ``TerminateProcess`` (it can kill the process
+    that holds the pid, or fail with a WinError). The state is read with ``WaitForSingleObject``
+    (a zero wait), not the exit code: a process that exited with 259 (``STILL_ACTIVE``) is gone.
+    A wrong "dead" deletes a live run's lock, a wrong "alive" only asks the user to wait or break
+    the lock: so only "no such pid" and "the process has ended" answer dead; any error is alive."""
+    api = api or _Win32()
+    handle = api.open(pid, wait=True)
+    if not handle:
+        return api.last_error() != ERROR_INVALID_PARAMETER
+    try:
+        return api.wait(handle) != WAIT_OBJECT_0
+    finally:
+        api.close(handle)
+
+
 def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        return _alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -378,19 +450,80 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _started(pid: int, api: _Win32 | None = None) -> str:
+    """When *pid* started, as an opaque string; ``""`` when it cannot be read. Written next to the
+    pid in the lock so a pid the OS handed out again (Windows does it within hours) is not taken
+    for the run that left the lock."""
+    if sys.platform == "win32":
+        api = api or _Win32()
+        handle = api.open(pid)
+        if not handle:
+            return ""
+        try:
+            created = api.created(handle)
+        finally:
+            api.close(handle)
+        return "" if created is None else str(created)
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    fields = stat.rpartition(")")[2].split()
+    start_field = 19  # field 22 of proc(5), the start time in clock ticks since boot
+    return fields[start_field] if len(fields) > start_field else ""
+
+
+def _holds(text: str) -> bool:
+    """Whether the lock text (``<pid>`` or ``<pid> <start>``) names a run that is still going."""
+    parts = text.split()
+    if not parts or not parts[0].isdigit() or int(parts[0]) == os.getpid():
+        return False
+    if not _alive(int(parts[0])):
+        return False
+    if len(parts) > 1:
+        now = _started(int(parts[0]))
+        if now and now != parts[1]:
+            return False  # the pid was reused by another process
+    return True  # also when the start time could not be read: a reused pid cannot be ruled out
+
+
+NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EXDEV})
+# Windows: the file system has no hard links (1: FAT, exFAT; 50: some network shares)
+NO_HARD_LINKS_WINERROR = frozenset({1, 50})
+
+
+def _cannot_lock(out: Path, exc: OSError) -> str:
+    """The message for an ``os.link`` that failed: the NTFS cause only when the error says the
+    folder cannot hold hard links; otherwise something holds the file for a moment."""
+    if exc.errno in NO_HARD_LINKS or getattr(exc, "winerror", None) in NO_HARD_LINKS_WINERROR:
+        return (
+            f"cannot lock {out}: {exc}. The lock is a hard link, which needs a local NTFS (or "
+            "POSIX) folder, not exFAT/FAT or a network share; use --out on one."
+        )
+    return (
+        f"cannot lock {out}: {exc}. Run again; if it repeats, something holds the file "
+        f"(antivirus, an indexer, an editor): close it."
+    )
+
+
 @contextlib.contextmanager
 def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
-    """One run at a time in *out*: ``run.lock`` holds the pid of the run in progress. A second
-    start while that process is alive stops; a lock left by a dead process is taken over. The pid is
+    """One run at a time in *out*: ``run.lock`` holds the pid (and start time) of the run in
+    progress. A second start while that process is alive stops; a lock left by a dead process, or
+    by one whose pid another process now holds, is taken over. The takeover is not atomic: two
+    starts at the same instant can both take a stale lock and both run (chunk files are written
+    atomically, so the cost is duplicated work, not damage). The text is
     written to a private file that is then hard-linked to ``run.lock``, so the lock never exists
     without its content. ``break_lock`` removes a lock first (a pid reused after a restart)."""
     path = out / LOCK_NAME
     private = out / f"{LOCK_NAME}.{os.getpid()}"
     for stale in out.glob(f"{LOCK_NAME}.*"):  # left by a run killed between write and unlink
         suffix = stale.name.rsplit(".", 1)[1]
-        if suffix.isdigit() and int(suffix) != os.getpid() and not _alive(int(suffix)):
-            stale.unlink(missing_ok=True)
-    private.write_text(str(os.getpid()), encoding="utf-8")
+        if suffix.isdigit() and int(suffix) != os.getpid():
+            with contextlib.suppress(OSError):
+                if not _holds(stale.read_text(encoding="utf-8").strip() or suffix):
+                    stale.unlink(missing_ok=True)
+    private.write_text(f"{os.getpid()} {_started(os.getpid())}".strip(), encoding="utf-8")
     try:
         if break_lock:
             path.unlink(missing_ok=True)
@@ -398,15 +531,22 @@ def locked(out: Path, *, break_lock: bool = False) -> Iterator[None]:
             try:
                 os.link(private, path)
             except FileExistsError:
-                text = path.read_text(encoding="utf-8").strip()
-                if text.isdigit() and _alive(int(text)) and int(text) != os.getpid():
+                try:
+                    text = path.read_text(encoding="utf-8").strip()
+                except FileNotFoundError:
+                    continue  # its run released it in this instant: take it
+                if _holds(text):
                     sys.exit(
-                        f"another run (pid {text}) holds {path}. After Ctrl-C it still finishes "
-                        f"its chunk: wait for it to end, then run again. If you are sure none is "
-                        f"running (a pid reused after a restart), run with --break-lock."
+                        f"another run (pid {text.split()[0]}) holds {path}. After Ctrl-C it still "
+                        f"finishes its chunk: wait for it to end, then run again. If you are sure "
+                        f"none is running (the lock's start time is missing or could not be read, "
+                        f"so a pid reused after a restart cannot be ruled out), run with "
+                        f"--break-lock."
                     )
                 path.unlink(missing_ok=True)  # left by a process that is gone
                 continue
+            except OSError as exc:
+                sys.exit(_cannot_lock(out, exc))
             break
         else:
             sys.exit(f"could not take {path}")
@@ -855,7 +995,7 @@ def main() -> None:
 
     def ask_stop(signum: int, _frame: object) -> None:
         stop["now"] = True
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        for sig in STOP_SIGNALS:
             signal.signal(sig, signal.SIG_DFL)  # a second signal aborts at once
         tqdm.write(
             f"signal {signum}: finishing the chunk in progress, then stopping "
@@ -889,8 +1029,8 @@ def main() -> None:
             accept_environment_change=args.accept_environment_change,
             chunks_done=len(done_chunks(out, parts)),
         )
-        signal.signal(signal.SIGINT, ask_stop)
-        signal.signal(signal.SIGTERM, ask_stop)
+        for sig in STOP_SIGNALS:
+            signal.signal(sig, ask_stop)
         made = run_chunks(
             out,
             parts,
