@@ -160,7 +160,7 @@ class Problems:
 
     def lines(self) -> list[str]:
         return [
-            f"{len(keys)} rows {kind} (first: {keys[:SHOWN]})"
+            f"{len(keys)} {'row' if len(keys) == 1 else 'rows'} {kind} (first: {keys[:SHOWN]})"
             + (f"; {self.notes[kind]}" if kind in self.notes else "")
             for kind, keys in self.found.items()
         ]
@@ -272,10 +272,31 @@ def summary(rows: list[dict[str, str]]) -> list[str]:
 
 
 def read_marks(path: Path) -> list[dict[str, str]]:
-    """The rows of the owner's file, which must have the columns the build reads."""
+    """The rows of the owner's file, which must be UTF-8 and have the columns the build reads. A
+    file in a Windows code page (Excel's plain "CSV") and one separated by ``;`` (a Spanish-locale
+    Excel) each get a message that says what to do, not a traceback or a list of "missing"
+    columns that are there."""
+    if path.exists():
+        data = path.read_bytes()
+        try:
+            data.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise gold_metrics.MarkedFileError(
+                f"{path.name} is not UTF-8 (the first byte that is not: line "
+                f"{data[: exc.start].count(b'\n') + 1}, byte {exc.start}): save it again as "
+                "CSV UTF-8 (in Excel: Save as, CSV UTF-8)"
+            ) from None
     marks = gold_metrics.read_rows(path)
     missing = [c for c in NEEDED_FROM_THE_OWNER if marks and c not in marks[0]]
     if not marks or missing:
+        header = list(marks[0]) if marks else []
+        separator = next((s for s in (";", "\t") if len(header) == 1 and s in header[0]), None)
+        if separator:
+            name = "a semicolon" if separator == ";" else "a tab"
+            raise gold_metrics.MarkedFileError(
+                f"{path.name} looks separated by {name}, not a comma: save it again with commas "
+                "(in Excel: Save as, CSV UTF-8)"
+            )
         why = "has no rows" if not marks else f"lacks the columns {missing}"
         raise gold_metrics.MarkedFileError(f"{path.name} {why}")
     return marks

@@ -220,8 +220,8 @@ def test_every_problem_is_named_at_once_with_its_count_and_where_the_text_parts(
     assert "20 rows whose text is not the text the draw recorded" in text
     assert "at character 8" in text and "looks like an encoding change" in text
     assert "3 rows with a pub_date that is not ISO" in text and "'7/5/23 10:00'" in text
-    assert "1 rows without a mark" in text
-    assert "1 rows with a mark outside" in text and "'bullish'" in text
+    assert "1 row without a mark" in text
+    assert "1 row with a mark outside" in text and "'bullish'" in text
     assert len(ids[0]["key"]) > 0 and ids[0]["key"] in text  # the first keys are named
 
 
@@ -314,3 +314,34 @@ def test_a_text_that_changed_since_the_first_build_is_never_accepted_silently(
     _files(tmp_path, marks, ids)
     with pytest.raises(SystemExit, match="would change or go missing"):
         BUILD.main()
+
+
+def test_a_file_in_a_windows_code_page_is_explained_not_a_traceback(tmp_path: Path) -> None:
+    marks = _marks(_ids())
+    marks[7]["notes"] = "caída fuerte"  # a non-ASCII character
+    path = tmp_path / "sentiment_train_to_tag.csv"
+    with path.open("w", newline="", encoding="cp1252") as fh:  # Excel's plain "CSV" on Windows
+        writer = csv.DictWriter(fh, fieldnames=list(marks[0]))
+        writer.writeheader()
+        writer.writerows(marks)
+    with pytest.raises(gold_metrics.MarkedFileError, match="is not UTF-8") as caught:
+        BUILD.read_marks(path)
+    assert "line 9" in str(caught.value)  # the header and 7 rows come first
+    assert "CSV UTF-8" in str(caught.value)
+
+
+def test_a_semicolon_file_is_called_by_its_separator_not_by_missing_columns(
+    tmp_path: Path,
+) -> None:
+    marks = _marks(_ids())
+    path = tmp_path / "sentiment_train_to_tag.csv"
+    with path.open("w", newline="", encoding="utf-8-sig") as fh:  # a Spanish-locale Excel
+        writer = csv.DictWriter(fh, fieldnames=list(marks[0]), delimiter=";")
+        writer.writeheader()
+        writer.writerows(marks)
+    with pytest.raises(gold_metrics.MarkedFileError, match="separated by a semicolon"):
+        BUILD.read_marks(path)
+    plain = tmp_path / "plain.csv"
+    plain.write_text("article_id,kind,text\n1,summary,x\n", encoding="utf-8")
+    with pytest.raises(gold_metrics.MarkedFileError, match="lacks the columns"):
+        BUILD.read_marks(plain)  # a comma file with columns missing is still said that way
