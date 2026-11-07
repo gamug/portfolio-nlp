@@ -2330,13 +2330,16 @@ above, it says so; nothing else above is touched.
   points); negative **recall** needs the true negatives hidden in the other two strata, so it is a
   re-weighted ratio with a wider interval than +/-13, reported as it comes. A bar is **passed** when the
   whole 95% interval is at or above it, **failed** when the whole interval is below it, and "not decided"
-  otherwise (the interval straddles the bar, or only touches it from below); the point estimate is
+  otherwise (the interval straddles the bar, or only touches it from below); **`undefined` when the
+  figure has no interval** (nothing was predicted, or no text is in the group: a negative precision of a
+  model that says negative for no text): it is not a pass, and it is not an interval that straddles the
+  bar, so it is not "not decided" (`Figure.judge`, 2026-11-07); the point estimate is
   always printed and never decides alone (`Figure.judge`, edges tested). **Sentiment result (2026-11-06, the 180 texts marked, `report_wi18 sentiment --gold --out gold` reproduces it from the tracked files): overall agreement 60.4% [52.8, 67.6] (raw 57.2%), so it FAILS the 80% bar; negative precision 78.7% [67.3, 89.3] and recall 77.7% [69.4, 86.8], both not decided against 70%. The largest error is a text the model calls neutral: re-weighted, 54.8% of them are positive for the owner (34 of the 60 drawn). This meets D26's condition (the model is fine-tuned on summaries only if it misses the D32 bar); the decision between fine-tuning (T-148c) and sending the cut with the sentiment layer marked failed is the owner's and is open.** Faithfulness is judged the same way, for all
   texts and for the bodies from 2022 on apart; **its point is the share of faithful texts, and its interval is a
   bootstrap over the bodies** (about 30), not over the texts, because the company texts of one body stand or fall
   together (`faithfulness_report`, `paired_difference` with clusters) (`faithfulness_ids.csv` carries `pub_date`). **The gain over the
   baseline** (model minus baseline on the same company texts, paired bootstrap) is `better` when the whole
-  interval is above 0, `not better` when it is below 0, `not decided` otherwise (`gain_verdict`; the edges are those of
+  interval is above 0, `not better` when it is below 0, `undefined` when the gain has no interval (NaN), `not decided` otherwise (`gain_verdict`; the edges are those of
   `Figure.judge`: an interval that only touches the bar, or 0, decides nothing); it is
   also printed for 2022+ apart. **A company an extractor names but writes no text for counts as an unfaithful
   text**, in the share and in the gain, so an extractor cannot gain by leaving the hard companies out
@@ -2380,7 +2383,7 @@ above, it says so; nothing else above is touched.
   for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
   notice, to report the layer as not evaluated. **Rules fixed beforehand (owner, 2026-11-06):**
   (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
-  cut: it goes with the point estimate and the interval printed; **(owner, 2026-11-07: a figure that FAILS its bar, as overall sentiment agreement does since 2026-11-06, is answered by fine-tuning on summaries: D35; a figure whose interval then straddles the bar is "not decided" and this rule applies)** (b) if the attribution model is not
+  cut: it goes with the point estimate and the interval printed; **(owner, 2026-11-07: a figure that FAILS its bar, as overall sentiment agreement does since 2026-11-06, is answered by fine-tuning on summaries: D35; a figure whose interval then straddles the bar is "not decided" and this rule applies); **(open, owner: an `undefined` bar, D32, is not "not decided" and this rule does not cover it; proposed until the owner answers: it counts as not passed, and the cut goes only with the sentiment layer marked as measured, as in D35's fallback, never as "not decided")** (b) if the attribution model is not
   ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
   is on the baseline (**result 2026-11-06, 190 texts of the 30 bodies marked: baseline 60.5% faithful, interval 45.2 to 73.8, so it fails the 80% bar; 2022+ 60.6% [27.6, 86.1], not decided; of the texts it wrote 60.5% [53.4, 67.2]; no company was left without a text (`gold/faithfulness_coverage.csv` is empty), and `report_wi18 faithfulness --gold --out gold` reproduces these figures from the tracked files; one body of 21 texts has 4 faithful. Unless the model (T-148b3) passes, narrative multi bodies are left out of the cut and counted**): the cut uses it for narrative bodies if it is at least 80% faithful (D32 reading: of the companies named),
   otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
