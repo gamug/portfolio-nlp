@@ -5,6 +5,7 @@ negatives and the extractor's rules are what is tested."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import random
 from collections.abc import Sequence
@@ -371,7 +372,7 @@ def test_examples_of_leaves_out_changed_bodies_and_val_copies_of_train_bodies(
         2: _rows(2, "val", copy),
         3: _rows(3, "val", body),  # the SOURCE text is no longer the one hashed
     }
-    keys: set[str] = set()
+    keys: list[set[int]] = []
     train, tcount = script.examples_of(by_article, "train", RESOLVER, NAMES, 1, None, keys)
     val, vcount = script.examples_of(by_article, "val", RESOLVER, NAMES, 1, None, keys)
     assert tcount["bodies"] == 1 and train
@@ -406,6 +407,9 @@ def test_the_local_model_identity_covers_weights_and_tokenizer_and_the_names(
     with pytest.raises(SystemExit, match=r"no model\.safetensors"):
         draw.local_identity(tmp_path)
     (tmp_path / "model.safetensors").write_bytes(b"w")
+    with pytest.raises(SystemExit, match=r"no config\.json"):
+        draw.local_identity(tmp_path)
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
     (tmp_path / "merges.txt").write_text("a", encoding="utf-8")  # a file no list would name
     first = draw.local_identity(tmp_path)
     (tmp_path / "merges.txt").write_text("b", encoding="utf-8")
@@ -423,15 +427,27 @@ def test_the_local_model_identity_covers_weights_and_tokenizer_and_the_names(
     assert f"@t{am.THRESHOLD}" in one
 
 
-def test_body_keys_catch_copies_that_start_or_end_alike(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_copy_is_caught_wherever_it_differs_and_a_shared_footer_is_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     script = _script(monkeypatch)
-    body = "Alpha " * 100 + "middle " * 50 + "Omega " * 100
-    other_head = "Another headline. " * 30 + "middle " * 50 + "Omega " * 100
-    other_end = "Alpha " * 100 + "middle " * 50 + "A different ending. " * 30
-    unrelated = "Something else entirely. " * 80
-    assert script.body_keys(body) & script.body_keys(other_head)  # same ending
-    assert script.body_keys(body) & script.body_keys(other_end)  # same start
-    assert not script.body_keys(body) & script.body_keys(unrelated)
+    story = " ".join(f"word{i} filler{i % 7}" for i in range(300))
+    footer = "Disclosure: the trader is long these stocks and may trade them at any time. " * 3
+    train = [script.shingles(story + footer)]
+    other_head = "A brand new headline about nothing. " * 5 + story + footer
+    other_end = story + " A different ending follows here. " * 6
+    other_story = " ".join(f"other{i} thing{i % 5}" for i in range(300)) + footer
+    assert script.is_copy(script.shingles(other_head), train)
+    assert script.is_copy(script.shingles(other_end), train)
+    assert not script.is_copy(script.shingles(other_story), train)  # only the footer is shared
+    assert not script.is_copy(set(), train)
+    # a template shared by many bodies is not a copy of any one of them
+    template = " ".join(f"shared{i} phrase{i % 3}" for i in range(120))
+    parts = [template + " " + " ".join(f"own{n}x{i}" for i in range(120)) for n in range(4)]
+    sets = [script.shingles(p) for p in parts]
+    assert not script.is_copy(
+        script.shingles(template + " " + " ".join(f"new{i}y{i % 4}" for i in range(400))), sets
+    )
 
 
 RUNTIME_BODY = (
@@ -468,3 +484,86 @@ def test_decision_report_counts_right_wrong_and_nobody_for_the_model_and_the_bas
     assert report["model nobody"] == pytest.approx(1 / 3)
     assert report["model wrong"] == pytest.approx(1 / 3)
     assert report["baseline right"] == 1.0 and report["baseline nobody"] == 0.0
+
+
+def test_a_tie_for_the_best_score_is_nobody_not_the_first_company() -> None:
+    items = _decisions()
+    report = am.decision_report(items, [[0.7, 0.7, 0.7]] * 3)
+    assert report["model right"] == 0 and report["model wrong"] == 0
+    assert report["model nobody"] == 1.0
+
+
+def test_the_training_record_and_the_extractor_revision_read_the_same_code() -> None:
+    names = {m.__name__ for m in am.CODE_MODULES}
+    assert names == {
+        "news_nlp.attribution_model",
+        "chunking",
+        "news_nlp.company_texts",
+        "news_nlp.triage",
+    }
+
+
+class PositionScorer:
+    """Scores a pair by the position it is asked at, so a wrong slicing shows."""
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def score(self, pairs: Sequence[am.Pair]) -> list[float]:
+        out = [(self.asked + i) / 100 for i in range(len(pairs))]
+        self.asked += len(pairs)
+        return out
+
+
+def test_runtime_decision_gives_each_sentence_its_own_candidates_scores(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script(monkeypatch)
+    items = _decisions()  # three sentences, three candidates each
+    scorer = PositionScorer()
+    seen: list[Sequence[float]] = []
+    real = am.decision_report
+
+    def spy(i: Sequence[am.Decision], rows: Sequence[Sequence[float]]) -> dict[str, float]:
+        seen.extend(rows)
+        return real(i, rows)
+
+    monkeypatch.setattr(script.am, "decision_report", spy)
+    script.runtime_decision(scorer, items)
+    assert seen == [[0.0, 0.01, 0.02], [0.03, 0.04, 0.05], [0.06, 0.07, 0.08]]
+
+
+def test_add_evaluation_keeps_the_training_report_and_ties_the_eval_to_the_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _script(monkeypatch)
+    for name in ("model.safetensors", "config.json"):
+        (tmp_path / name).write_bytes(b"x")
+    metrics = tmp_path / "metrics.json"
+    metrics.write_text(json.dumps({"val": {"bodies": 1}, "report": {"all model": {}}}), "utf-8")
+    monkeypatch.setattr(script, "provenance", lambda _c: {"code": "abc"})
+    script.add_evaluation(tmp_path, {"bodies": 2}, {"all model": {"ranking": 1.0}}, {"x": 1.0}, 0.3)
+    script.add_evaluation(tmp_path, {"bodies": 3}, {"all model": {"ranking": 0.5}}, {"x": 2.0}, 0.3)
+    saved = json.loads(metrics.read_text("utf-8"))
+    assert saved["report_at_training"] == {"val": {"bodies": 1}, "report": {"all model": {}}}
+    assert saved["eval"]["val"] == {"bodies": 3}  # the second evaluation replaces the first
+    assert saved["eval"]["model_files"] == am.directory_identity(tmp_path)
+
+
+def test_provenance_names_the_code_the_training_set_and_the_label_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _script(monkeypatch)
+    gold, check = tmp_path / "gold.csv", tmp_path / "check.csv"
+    gold.write_text("a", "utf-8")
+    check.write_text("b", "utf-8")
+    monkeypatch.setattr(script, "GOLD", gold)
+    monkeypatch.setattr(script, "CHECK", check)
+    record = script.provenance(0.38)
+    assert record["code"] == script.retag.code_revision(*am.CODE_MODULES)
+    assert record["training_set"] == script.digest(gold) != script.digest(check)
+    assert record["label_check"] == {
+        "file": script.digest(check),
+        "continuation": 0.38,
+        "train_on_lead_only": True,
+    }

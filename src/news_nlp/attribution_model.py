@@ -19,13 +19,20 @@ from __future__ import annotations
 
 import hashlib
 import random
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
+import chunking
 from chunking import split_sentences
+from news_nlp import company_texts, triage
 from news_nlp.company_texts import SegmentLabel, segments
 from news_nlp.triage import CompanyResolver
+
+# The code the training pairs and the run-time texts depend on: one list for the training record
+# and for the extractor's revision, so a change in any of them is seen by both.
+CODE_MODULES = (sys.modules[__name__], chunking, company_texts, triage)
 
 MASK = "[COMPANY]"
 MAX_LENGTH = 160  # a sentence and the one before it: well under 160 word pieces
@@ -164,13 +171,15 @@ def decision_report(
     items: Sequence[Decision], scores: Sequence[Sequence[float]], threshold: float = THRESHOLD
 ) -> dict[str, float]:
     """On the sentences of *items*, what run time does: the share the model gives to the right
-    company, to a wrong one and to nobody (no score reaches *threshold*), and the baseline's (the
+    company, to a wrong one and to nobody (no score reaches *threshold*, or two companies tie for
+    the best), and the baseline's (the
     company mentioned last in the previous sentence, else nobody)."""
     right = wrong = 0
     base_right = base_wrong = 0
     for item, row in zip(items, scores, strict=True):
         best = max(range(len(row)), key=row.__getitem__)
-        if row[best] >= threshold:
+        tied = row.count(row[best]) > 1  # no best company: nobody, not the first in alphabet
+        if row[best] >= threshold and not tied:
             if item.candidates[best] == item.true:
                 right += 1
             else:
@@ -193,8 +202,13 @@ def decision_report(
 
 
 def directory_identity(directory: Path) -> str:
-    """A hash of every file of a model directory (weights, config, tokenizer), by name, except
-    ``metrics.json``, which the trainer rewrites: what identifies a local model."""
+    """A hash of every top-level file of a model directory (weights, config, tokenizer), by name,
+    except ``metrics.json``, which the trainer rewrites: what identifies a local model. A file of
+    any kind counts (an editor backup changes the identity: the safe side); subdirectories
+    (checkpoints) are not read. A directory without weights or ``config.json`` is not a model."""
+    for needed in ("model.safetensors", "config.json"):
+        if not (directory / needed).is_file():
+            raise ValueError(f"{directory} has no {needed}: it is not a trained model directory")
     digest = hashlib.sha256()
     for path in sorted(p for p in directory.iterdir() if p.is_file() and p.name != "metrics.json"):
         digest.update(path.name.encode() + b"\0" + path.read_bytes())

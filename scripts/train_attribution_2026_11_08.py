@@ -20,8 +20,11 @@ of a paragraph (where the company changes) apart, and the sentences that name no
 the run-time decision for those sentences: every company of the body as candidate, the share
 given to the right company, to a wrong one and to nobody, against the baseline's.
 
-A ``val`` body that starts or ends with the same 200 letters and digits as a train body is left
-out (syndicated copies). A copy with another headline and another ending is not caught.
+A ``val`` body is left out when 80% of a sample of its 8-word shingles are in one train body
+(copies of a story, wherever the headline or the ending differ). A copy rewritten throughout is
+not caught. A key on the start and the end of a body was tried first, then 30% of the shingles
+of all the train bodies together: what they matched were footers, a shared closing paragraph and
+stories of one template (a Zacks earnings note, a "Fast Money" disclosure), not copies.
 
 ``--eval-only DIR`` scores an already trained model on ``val`` and trains nothing; it keeps the
 training-time report in ``metrics.json`` and adds the evaluation, with the hash of the files it
@@ -40,6 +43,7 @@ import random
 import re
 import sys
 import time
+import zlib
 from collections import defaultdict
 from pathlib import Path
 
@@ -73,11 +77,27 @@ def require_lead_only(check: Path = CHECK) -> float:
     return report["continuation"].point
 
 
-def body_keys(body: str) -> set[str]:
-    """The first and the last 200 letters and digits of a body: syndicated copies of a story
-    usually share one of them."""
-    plain = re.sub(r"[^a-z0-9]+", "", body.lower())
-    return {plain[:200], plain[-200:]}
+SHINGLE = 8  # words
+SAMPLE = 8  # one shingle in this many is kept
+COPY_SHARE = 0.8  # of a body's kept shingles found in ONE train body: a copy
+
+
+def shingles(body: str) -> set[int]:
+    """A sample of the 8-word shingles of a body (by hash, so the same ones are kept in every
+    body): two copies of a story share most of them wherever the headline or the ending differ,
+    and boilerplate that two stories share (a footer, a disclosure) is a few of many."""
+    words = re.sub(r"[^a-z0-9 ]+", " ", body.lower()).split()
+    hashes = (
+        zlib.crc32(" ".join(words[i : i + SHINGLE]).encode()) for i in range(len(words) - SHINGLE)
+    )
+    return {h for h in hashes if h % SAMPLE == 0}
+
+
+def is_copy(own: set[int], train: list[set[int]]) -> bool:
+    """Whether :data:`COPY_SHARE` of the sampled shingles of a body are in a single train body.
+    One body, not all of them together: stories of one template (a market wrap, a Zacks earnings
+    note, a trader's disclosure) share a third of their shingles with the union of many."""
+    return bool(own) and any(len(own & other) / len(own) >= COPY_SHARE for other in train)
 
 
 def read_rows(path: Path = GOLD) -> dict[int, list[dict[str, str]]]:
@@ -95,12 +115,12 @@ def examples_of(
     names: dict[str, str],
     seed: int,
     limit: int | None,
-    keys: set[str],
+    keys: list[set[int]],
     runtime: list[am.Decision] | None = None,
 ) -> tuple[list[am.Example], dict[str, int]]:
     """The examples of the bodies of *split*; with *runtime*, the run-time decisions of those
-    bodies are appended to it (:func:`news_nlp.attribution_model.decisions`). *keys* are the :func:`body_keys` of the train bodies: a train body adds its own, a ``val``
-    body that has one is left out and counted."""
+    bodies are appended to it (:func:`news_nlp.attribution_model.decisions`). *keys* are the :func:`shingles` of each train body: a train body adds its own, a ``val``
+    body that :func:`is_copy` of them is left out and counted."""
     conn = db.connect_pipeline()
     rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
     out: list[am.Example] = []
@@ -118,10 +138,10 @@ def examples_of(
         if triage.body_hash(body) != rows[0]["body_hash"]:
             counts["hash mismatch"] += 1
             continue
-        own = body_keys(body)
+        own = shingles(body)
         if split == "train":
-            keys |= own
-        elif own & keys:
+            keys.append(own)
+        elif is_copy(own, keys):
             counts["near-duplicate"] += 1
             continue
         labels = [
@@ -175,7 +195,7 @@ def digest(path: Path) -> str:
 def provenance(continuation: float) -> dict[str, object]:
     """What a pinned model needs to be reproduced: the code, the training set, the label check."""
     return {
-        "code": retag.code_revision(am, triage, company_texts),
+        "code": retag.code_revision(*am.CODE_MODULES),
         "training_set": digest(GOLD),
         "label_check": {
             "file": digest(CHECK),
@@ -299,7 +319,7 @@ def main() -> None:
     resolver = CompanyResolver(companies)
     names = {c.ticker: c.name for c in companies}
     by_article = read_rows()
-    keys: set[str] = set()
+    keys: list[set[int]] = []
     train, tcount = examples_of(
         by_article, "train", resolver, names, args.seed, args.limit_bodies, keys
     )

@@ -45,7 +45,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import draw_sector_extra_2026_11_05 as extra
 import retag_gold_2026_10_29 as retag_cli
 
-import chunking
 import news_nlp as db
 from news_nlp import (
     attribution_baseline,
@@ -87,7 +86,7 @@ def extractor_revision(name: str) -> str:
         return retag.extractor_revision(name)
     if not MODEL_IDENTITY:
         raise ValueError("the model extractor is not registered: pass --attribution-model")
-    code = retag.code_revision(attribution_model, triage, chunking)
+    code = retag.code_revision(*attribution_model.CODE_MODULES)
     return f"extractor:model@{MODEL_IDENTITY[0]}@{code}"
 
 
@@ -101,10 +100,11 @@ def model_extractor(scorer: attribution_model.Scorer, names: dict[str, str]) -> 
 
 
 def local_identity(directory: Path) -> str:
-    """A hash of every file of the model directory (weights, config, tokenizer)."""
-    if not (directory / "model.safetensors").is_file():
-        sys.exit(f"{directory} has no model.safetensors: it is not a trained model directory")
-    return f"local:{attribution_model.directory_identity(directory)}"
+    """A hash of every top-level file of the model directory (weights, config, tokenizer)."""
+    try:
+        return f"local:{attribution_model.directory_identity(directory)}"
+    except ValueError as error:
+        sys.exit(str(error))
 
 
 def register_model(model: str, revision: str | None, names: dict[str, str]) -> None:

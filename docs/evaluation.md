@@ -3097,3 +3097,32 @@ Same engine and purpose as above, for `data/sector_extra_to_tag.csv`: 44 bodies 
 bodies of the 240. Outside the D18 labelling budget, paid, logged here. **Spend: 44 articles = 44
 paid calls, 0 failures; 37,940 prompt + 45,359 completion tokens (retries and rejected replies
 included); well under 1 USD at list prices (estimate).**
+
+### Follow-up (2026-11-07): how the attribution model is evaluated (Work item 18, T-148b3)
+
+Three readings, in rising order of weight; only the last decides (PLAN D27, D32).
+
+1. **Pairs on `val`** (`scripts/train_attribution_2026_11_08.py`; 270 bodies, 7,644 pairs, never
+   trained on): the right company against one wrong one, ranked right 90.1% of the time against 63.7%
+   for the mention-and-recency baseline (the previous sentence mentions the candidate, read by the
+   resolver; 59.0% with the legal name only). Also by period, for the first sentence of a paragraph,
+   and for the sentences that name no universe company (94.4% against 86.6%), which are the only
+   ones scored at run time and carry no `[COMPANY]` mask.
+2. **The run-time task on `val`** (the 1,153 sentences that name no company; every company of the body
+   a candidate; threshold 0.5; a tie for the best score is nobody): the model gives the sentence to
+   the right company 86.4% of the time, a wrong one 11.8%, nobody 1.8%; the baseline (the company
+   mentioned last in the previous sentence) 70.8%, 6.4% and 22.8%. The labels are the parser's
+   (88% of the `lead` ones right in the owner's check), so part of the "wrong" is label noise.
+3. **The owner's faithfulness reading** of the 30 narrative bodies (D32). Abstention is not in `val`
+   (every sentence there has a right company); on the 30 bodies, of the 421 sentences that name no
+   company the model gives 145 (34%) to nobody and 276 to one company, the baseline 19 to nobody,
+   281 to one company and 121 to several. The threshold keeps boilerplate away only in part: the
+   model gave a disclaimer ("Nothing herein should be construed as an offer ...") to a company by the
+   0.5 rule, and kept real narrative ("He also thinks that ... Tupperware ...") from anyone; the
+   footer and cut handling of the `units` readings (#143) is what addresses the first.
+
+A `val` body is left out as a copy when 80% of a sample of its 8-word shingles are in one train
+body (none was); an earlier key on the start and the end of a body, and then 30% of all the train
+shingles together, matched footers, a shared closing paragraph and stories of one template, not
+copies. `--eval-only` keeps `report_at_training` in `metrics.json` and adds an `eval` block tied to
+the hash of the model files it scored.
