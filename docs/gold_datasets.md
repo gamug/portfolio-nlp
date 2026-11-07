@@ -52,10 +52,10 @@ overwrites a file, with rows or without.
 
 ## The sets
 
-| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-06 |
+| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-07 |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
-| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
+| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; **tagged by the owner and migrated 2026-11-07** (200 of 200 valid: 118 single, 47 multi, 11 market_economy, 9 sector, 8 unrelated, 7 investing_general); the `gold/` file carries the tags with the draw's weights |
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | drawn, marked and migrated 2026-11-06: 82 positive, 65 negative, 33 neutral; overall agreement 60.4% (interval 52.8 to 67.6), under the D32 bar of 80%; negative precision 78.7% (67.3 to 89.3) and recall 77.7% (69.4 to 86.8), not decided against 70%; `gold/` file built (180 rows, `build_sentiment_gold_2026_11_06.py`) |
@@ -85,12 +85,25 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **What:** the 200 held-out bodies (D30): all 39 the rules call no-company, sector, market or economy,
   the rest a seeded random draw from the 1,000-body corpus sample, none sharing a body with the 720
   or the 44. Drawn once; the set is fixed.
-- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns are empty until the owner finishes.
+- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns hold the owner's tags (migrated 2026-11-07).
 - **Used for:** the **only** measure of the scope: the rules' and later the classifier's agreement with
   the owner (>= 90% corpus-weighted, D20/D33) and the D24 category target. Never trained on (Q3).
   `data/heldout_strata.csv` holds the stratum sizes (`frame`) that re-weight a rate to the corpus.
 - **Working file:** `heldout_to_tag.csv`. Migrated by `scripts/build_gold_2026_11_05.py --set test`,
   which refuses a tagged article that is not already in the tracked shell.
+- **Reading it:** `uv run scripts/report_wi18_2026_11_06.py scope --gold --out gold` gives the figures from the
+  tracked file alone (its `stratum` and `frame` are the weights): the rules' agreement 68.0% [61.3, 74.5]
+  weighted to the corpus, single recall 91.0% [87.1, 94.4] pass, multi recall 52.5% [42.8, 63.5] fail, the
+  other four scopes not gated (9, 11, 8 and 7 gold bodies, D33). The working-file command gives the same lines
+  (both sort by article id; the intervals of the first report, 61.4 / 74.3 / 63.8, are superseded).
+- **Rebuilding:** the set is fixed (D30). A rebuild stops if it would change or drop a tag already in the file
+  (`--overwrite-marks` accepts it and prints the ids that change); only an untagged row of the shell is filled in
+  freely. The reference is the file as committed (`git show HEAD:`), so a local edit is not the reference (without git or outside a repository, the file on disk; the run prints which one it used). Tests pin the file: the scope counts, the shape of every row, the GICS codes
+  offline, the weights summing to the 1,000-body sample, and a hash per row over every column
+  (`tests/news_nlp/heldout_gold_row_hashes.csv`; a failure names the ids that differ, and a deliberate change
+  is made with `build_gold_2026_11_05.py --set test --overwrite-marks --write-hashes`, which renews that file, in the same PR); `main()` is run end to end on a tiny set. They cannot check the tickers (the
+  SOURCE universe is not in the repo; the builder does). The tracked `frame` is the only copy of the weights in
+  `gold/`; a further test compares it with `data/heldout_strata.csv`, only where that file exists (not on CI).
 
 ### 3. Label check — `gold/segment_check_gold.csv`
 
@@ -271,7 +284,7 @@ on a hard kill. A leftover `*.tmp` next to a tagging file is not the owner's wor
 1. The owner marks the `data/` file and runs `scripts/report_wi18_2026_11_06.py <scope|label-check|faithfulness|sentiment>`,
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
-   (exist; the test file also takes `stratum` and `frame` from the draw's record); set 3 by
+   (exist; the test file also takes `stratum` and `frame` from the draw's record, and refuses to change a tracked tag without `--overwrite-marks`; `report_wi18 scope --gold --out gold` reproduces its figures); set 3 by
    `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`);
    set 4 by `build_faithfulness_gold_2026_11_06.py` (190 rows and the coverage file); set 5 by
    `build_sentiment_gold_2026_11_06.py` (180 rows; pairs by the draw's `key`, checks the hash of the text the owner
