@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import csv
-import hashlib
 import importlib.util
 import json
 import os
@@ -2323,12 +2322,7 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
     # this test (the held-out set is fixed, D30), and the failure names the rows that differ
     with HELDOUT_ROW_HASHES.open(encoding="utf-8", newline="") as fh:
         expected = {r["article_id"]: r["sha256_16"] for r in csv.DictReader(fh)}
-    found = {
-        r["article_id"]: hashlib.sha256(
-            "\t".join(r[c] for c in retag.TEST_GOLD_COLUMNS).encode()
-        ).hexdigest()[:16]
-        for r in rows
-    }
+    found = {r["article_id"]: _script("build_gold_2026_11_05").row_hash(r) for r in rows}
     differ = sorted(i for i in expected.keys() | found.keys() if expected.get(i) != found.get(i))
     assert not differ, f"rows of the held-out gold that changed or went missing: {differ[:20]}"
     frames: dict[str, set[str]] = {}
@@ -2516,7 +2510,7 @@ def test_the_heldout_build_runs_through_main_with_the_guard(
 
 
 def test_the_heldout_guard_compares_with_the_committed_file_not_a_local_edit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build = _heldout_build(tmp_path, monkeypatch)
     _heldout_gold(tmp_path, "single", "APPLE:earnings_performance")
@@ -2526,5 +2520,42 @@ def test_the_heldout_guard_compares_with_the_committed_file_not_a_local_edit(
     _heldout_gold(
         tmp_path, "multi", "APPLE:earnings_performance"
     )  # a local edit of the tracked file
-    build.main()  # the rebuild gives back the committed tags: not a change against HEAD
+    with (tmp_path / "g.csv").open("a", encoding="utf-8") as fh:
+        fh.write(
+            "2,heldout,MSFT,single,MICROSOFT:earnings_performance,,,,single,514\n"
+        )  # an extra row
+    build.main()  # the rebuild gives back the committed tags and set: not a change against HEAD
+    assert "reference tags: HEAD" in capsys.readouterr().out
     assert "single" in (tmp_path / "g.csv").read_text(encoding="utf-8")
+
+
+def test_the_heldout_guard_falls_back_to_the_file_on_disk_without_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "single", "APPLE:earnings_performance")
+
+    def no_git(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(build.subprocess, "run", no_git)
+    build.main()  # the disk file has the same tags: accepted, and the log says which reference
+    assert "reference tags: disk" in capsys.readouterr().out
+    _heldout_gold(tmp_path, "multi", "APPLE:earnings_performance")
+    with pytest.raises(SystemExit, match="would change"):
+        build.main()
+
+
+def test_write_hashes_renews_the_row_hashes_only_with_overwrite_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch, "--write-hashes")
+    monkeypatch.setattr(build, "HASHES", tmp_path / "hashes.csv")
+    _heldout_gold(tmp_path, "", "")
+    build.main()  # no hash file yet: written
+    written = (tmp_path / "hashes.csv").read_text(encoding="utf-8")
+    assert written.startswith("article_id,sha256_16\n1,") and len(written.splitlines()) == 2
+    with pytest.raises(SystemExit):  # it exists: replacing it needs --overwrite-marks
+        build.main()
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
+    build.main()

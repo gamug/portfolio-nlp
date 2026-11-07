@@ -14,7 +14,8 @@ owner tags) and writes ``gold/category_gold_v2_test.csv`` (``session`` = ``heldo
 ``stratum`` from ``data/heldout_ids.csv`` and ``frame`` = the stratum's size from
 ``data/heldout_strata.csv``, so a rate can be re-weighted from ``gold/`` alone). The set is fixed, so the run is refused unless the tagged articles are exactly the ones already in the tracked
 test file. A tag already in that file is protected: a rebuild that would change one stops and names
-the ids (``--overwrite-marks`` to accept, printing the ids that change; the reference is the file as
+the ids (``--overwrite-marks`` to accept, printing the ids that change, and ``--write-hashes`` to renew the
+row hashes the test compares with; the reference is the file as
 committed, ``git show HEAD:``, not a local edit); the rows of the shell, still untagged, are filled in freely.
 """
 
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import subprocess
 import sys
@@ -42,12 +44,22 @@ SETS = {
 }
 
 
-def fixed_ids(path: Path) -> set[str]:
-    """The article ids already in a tracked gold file (empty when it does not exist)."""
-    if not path.exists():
-        return set()
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        return {r["article_id"] for r in csv.DictReader(fh)}
+HASHES = Path("tests/news_nlp/heldout_gold_row_hashes.csv")
+
+
+def row_hash(row: dict[str, str]) -> str:
+    """16 hex digits over every column of a held-out gold row (what the test pins)."""
+    text = "\t".join(row[c] for c in retag.TEST_GOLD_COLUMNS)
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def write_hashes(rows: list[dict[str, str]], path: Path | None = None) -> None:
+    """Write the per-row hashes the held-out gold test compares with, sorted by article id."""
+    with (path or HASHES).open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(["article_id", "sha256_16"])
+        for r in sorted(rows, key=lambda r: int(r["article_id"])):
+            writer.writerow([r["article_id"], row_hash(r)])
 
 
 def changed_tags(old: list[dict[str, str]], new: list[dict[str, str]]) -> list[str]:
@@ -62,10 +74,14 @@ def changed_tags(old: list[dict[str, str]], new: list[dict[str, str]]) -> list[s
     ]
 
 
-def reference_rows(gold_path: Path) -> list[dict[str, str]]:
-    """The tags a rebuild is compared with: the file as committed (``git show HEAD:``), so a local
-    edit of the file is not the reference; the file on disk when it is not in a repository."""
-    if gold_path.exists():
+def reference_rows(gold_path: Path) -> tuple[list[dict[str, str]], str]:
+    """The tags a rebuild is compared with and where they came from: the file as committed
+    (``git show HEAD:``, ``"HEAD"``), so a local edit is not the reference; the file on disk
+    (``"disk"``) when git is missing or the file is not in HEAD; nothing (``"none"``) when there is
+    no file."""
+    if not gold_path.exists():
+        return [], "none"
+    try:
         shown = subprocess.run(  # noqa: S603
             ["git", "-C", str(gold_path.parent), "show", f"HEAD:./{gold_path.name}"],  # noqa: S607
             capture_output=True,
@@ -73,16 +89,20 @@ def reference_rows(gold_path: Path) -> list[dict[str, str]]:
             encoding="utf-8",
             check=False,
         )
-        if shown.returncode == 0:
-            return list(csv.DictReader(io.StringIO(shown.stdout.lstrip("\ufeff"), newline="")))
-        return _read(gold_path)
-    return []
+    except OSError:  # git is not installed
+        return _read(gold_path), "disk"
+    if shown.returncode == 0:
+        text = shown.stdout.lstrip("\ufeff")
+        return list(csv.DictReader(io.StringIO(text, newline=""))), "HEAD"
+    return _read(gold_path), "disk"
 
 
 def protect_tags(gold_path: Path, out_rows: list[dict[str, str]], accept: bool = False) -> None:
     """Stop if rebuilding *gold_path* from *out_rows* would change a tag it already holds; with
     *accept* (``--overwrite-marks``) say which ones change instead."""
-    moved = changed_tags(reference_rows(gold_path), out_rows)
+    reference, source = reference_rows(gold_path)
+    print(f"reference tags: {source} ({gold_path})")
+    moved = changed_tags(reference, out_rows)
     if moved and accept:
         print(f"--overwrite-marks: {len(moved)} tags of {gold_path} change (ids {moved})")
     elif moved:
@@ -120,7 +140,15 @@ def main() -> None:
         action="store_true",
         help="--set test: accept a change to a tag already in the tracked held-out file",
     )
+    parser.add_argument(
+        "--write-hashes",
+        action="store_true",
+        help=f"--set test: also rewrite {HASHES}, which the held-out gold test compares with; "
+        "with --overwrite-marks when the file exists (a deliberate change of the tags)",
+    )
     args = parser.parse_args()
+    if args.write_hashes and (args.set != "test" or (HASHES.exists() and not args.overwrite_marks)):
+        parser.error("--write-hashes is for --set test, and needs --overwrite-marks to replace")
     sessions_files, default_gold = SETS[args.set]
     gold_path: Path = args.gold or default_gold
     universe = retag_cli.load_universe()
@@ -145,7 +173,7 @@ def main() -> None:
         out_rows = retag.gold_file_rows(sessions, golds)
     except retag.TagFileError as exc:
         sys.exit(str(exc))
-    fixed = fixed_ids(gold_path) if args.set == "test" else set()
+    fixed = {r["article_id"] for r in reference_rows(gold_path)[0]} if args.set == "test" else set()
     if fixed and {r["article_id"] for r in out_rows} != fixed:
         sys.exit(f"the tagged articles are not the {len(fixed)} fixed in {gold_path}")
     columns = retag.GOLD_COLUMNS
@@ -160,6 +188,9 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(out_rows)
     print(f"{gold_path}: {len(out_rows)} rows")
+    if args.write_hashes:
+        write_hashes(out_rows)
+        print(f"{HASHES}: {len(out_rows)} hashes")
 
 
 if __name__ == "__main__":
