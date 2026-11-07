@@ -384,7 +384,7 @@ def test_the_row_carries_the_code_the_periods_and_every_judgement(
     assert len(row["code_revision"]) == 12 and row["code_revision"] == SCORE.scoring_code_revision()
     assert (row["texts_2022_on"], row["texts_before_2022"]) == ("90", "90")  # half of each, _gold
     assert float(row["agreement_2022_on"]) == float(row["agreement_before_2022"]) == 1.0
-    assert row["negative_precision_judgement"] in {"pass", "fail", "not decided"}
+    assert row["negative_precision_judgement"] in {"pass", "fail", "not decided", "undefined"}
     assert row["negative_recall_judgement"] in {"pass", "fail", "not decided"}
 
 
@@ -402,3 +402,14 @@ def test_a_second_baseline_or_final_run_needs_redo_role(
     _run(tmp_path, monkeypatch, answers, extra=("--role", "final", "--redo-role"))
     with (tmp_path / "gold" / "log.csv").open(encoding="utf-8", newline="") as fh:
         assert [r["role"] for r in csv.DictReader(fh)] == ["final", "other", "baseline", "final"]
+
+
+def test_a_model_that_never_says_negative_has_an_undefined_precision_in_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    log = _run(tmp_path, monkeypatch, "neutral")
+    with log.open(encoding="utf-8", newline="") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert row["negative_precision_judgement"] == "undefined"  # nothing predicted: no figure
+    assert row["negative_recall_judgement"] == "fail"  # and none of the negatives is found
+    assert row["negative_precision_point"] == "nan"

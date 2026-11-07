@@ -286,7 +286,8 @@ def sentiment_report(
         )
     lines.append(
         "bars are judged on the whole interval; 'not decided' still goes to the cut with the "
-        "interval printed (D34). The intervals resample texts inside each stratum, as if each were "
+        "interval printed (D34); 'undefined' is a figure that does not exist (nothing was "
+        "predicted), not an interval that straddles the bar. The intervals resample texts inside each stratum, as if each were "
         "independent: " + _shared_text_note(rows)
     )
     return lines
