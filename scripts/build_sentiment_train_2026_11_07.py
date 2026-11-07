@@ -72,6 +72,9 @@ PROTECTED = (
 SHOWN = 5  # keys named per kind of problem
 MIN_CLASS_SHARE = 0.10
 MAX_RUN = 20
+#: What the owner is likeliest to type instead of a class (the builder does not translate); the
+#: hint is given when the first refused mark is one of these.
+SPANISH_MARKS = frozenset({"positivo", "negativo", "neutro", "positiva", "negativa"})
 #: Text a UTF-8 file turns into when it is read or saved in a Windows code page.
 MOJIBAKE = ("Ã", "â€", "Â", "�")
 
@@ -190,7 +193,13 @@ def check_row(problems: Problems, drawn: dict[str, str], marked: dict[str, str])
     if not mark:
         problems.add("without a mark", key)
     elif mark not in CLASSES:
-        problems.add(f"with a mark outside {list(CLASSES)}", key, f"for example {mark!r}")
+        hint = (
+            "; write the English word: positive, negative or neutral (the builder does not "
+            "translate)"
+            if mark in SPANISH_MARKS
+            else ""
+        )
+        problems.add(f"with a mark outside {list(CLASSES)}", key, f"for example {mark!r}{hint}")
     if any(marked[f] != drawn[f] for f in ("article_id", "kind")):
         problems.add("whose article or kind is not the drawn one", key)
     if not read_the_same_text(marked["text"], drawn["text_hash"]):
