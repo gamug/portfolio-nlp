@@ -3,6 +3,7 @@
     uv run scripts/train_attribution_2026_11_08.py [--out data/models/attribution_2026_11_08]
         [--epochs 2] [--max-pairs 80000] [--seed 20261108] [--limit-bodies N]
     uv run scripts/train_attribution_2026_11_08.py --eval-only data/models/attribution_2026_11_08
+    uv run scripts/train_attribution_2026_11_08.py --abstention data/models/attribution_2026_11_08
 
 (The date in the names is the one the run was planned for; the code and the first model were
 built on 2026-11-07.) Paths are relative to the repository root, wherever the script is run from.
@@ -26,6 +27,9 @@ not caught. A key on the start and the end of a body was tried first, then 30% o
 of all the train bodies together: what they matched were footers, a shared closing paragraph and
 stories of one template (a Zacks earnings note, a "Fast Money" disclosure), not copies.
 
+``--abstention DIR`` (no training, no ``val``) runs the model and the baseline over the 30
+faithfulness bodies (``--bodies``) and prints, for the sentences that name no universe company,
+how many each gives to nobody, one company or several, with a seeded sample of the model's choices.
 ``--eval-only DIR`` scores an already trained model on ``val`` and trains nothing; it keeps the
 training-time report in ``metrics.json`` and adds the evaluation, with the hash of the files it
 scored. The figure that decides is the owner's faithfulness check, not this one.
@@ -53,8 +57,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retag_gold_2026_10_29 as retag_cli
 
 import news_nlp as db
+from news_nlp import attribution_baseline, company_texts, gold_metrics, retag, triage
 from news_nlp import attribution_model as am
-from news_nlp import company_texts, gold_metrics, retag, triage
 from news_nlp.triage import CompanyResolver
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,10 +89,12 @@ COPY_SHARE = 0.8  # of a body's kept shingles found in ONE train body: a copy
 def shingles(body: str) -> set[int]:
     """A sample of the 8-word shingles of a body (by hash, so the same ones are kept in every
     body): two copies of a story share most of them wherever the headline or the ending differ,
-    and boilerplate that two stories share (a footer, a disclosure) is a few of many."""
+    and boilerplate that two stories share (a footer, a disclosure) is a few of many. A body of
+    fewer than :data:`SHINGLE` words has none, so it is never taken for a copy."""
     words = re.sub(r"[^a-z0-9 ]+", " ", body.lower()).split()
     hashes = (
-        zlib.crc32(" ".join(words[i : i + SHINGLE]).encode()) for i in range(len(words) - SHINGLE)
+        zlib.crc32(" ".join(words[i : i + SHINGLE]).encode())
+        for i in range(len(words) - SHINGLE + 1)
     )
     return {h for h in hashes if h % SAMPLE == 0}
 
@@ -243,6 +249,76 @@ def add_evaluation(
     print("evaluation added to", path)
 
 
+def abstention(
+    bodies: dict[int, str],
+    resolver: CompanyResolver,
+    names: dict[str, str],
+    scorer: am.Scorer,
+    seed: int = 1,
+    sample: int = 5,
+) -> dict[str, object]:
+    """Who each extractor gives the sentences that name no universe company to, on *bodies* (the
+    faithfulness bodies): counts of sentences given to nobody, one company or several, for the
+    baseline and the model, and a seeded sample of the model's choices (``article``, ``sentence``,
+    the previous sentence and the companies it chose or the body names)."""
+    counts = {f"{who} {k}": 0 for who in ("baseline", "model") for k in ("none", "one", "several")}
+    counts["sentences"] = counts["named"] = 0
+    nobody: list[dict[str, object]] = []
+    given: list[dict[str, object]] = []
+
+    def kind(tickers: tuple[str, ...]) -> str:
+        return "none" if not tickers else "one" if len(tickers) == 1 else "several"
+
+    for article, body in sorted(bodies.items()):
+        base = attribution_baseline.attribute_sentences(body, resolver)
+        model = am.attribute_sentences(body, resolver, names, scorer)
+        companies = sorted(resolver.resolve(body, skip_attribution=False))
+        for at, ((sentence, from_base), (_, chosen)) in enumerate(zip(base, model, strict=True)):
+            counts["sentences"] += 1
+            if resolver.resolve(sentence, skip_attribution=False):
+                counts["named"] += 1
+                continue
+            counts[f"baseline {kind(from_base)}"] += 1
+            counts[f"model {kind(chosen)}"] += 1
+            row = {
+                "article": article,
+                "sentence": sentence,
+                "previous": base[at - 1][0] if at else "",
+                "chosen": chosen,
+                "body names": companies,
+            }
+            (given if chosen else nobody).append(row)
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible sample
+    return {
+        "counts": counts,
+        "nobody": rng.sample(nobody, min(sample, len(nobody))),
+        "given": rng.sample(given, min(sample, len(given))),
+    }
+
+
+def run_abstention(args: argparse.Namespace) -> None:
+    """``--abstention DIR``: print :func:`abstention` for a trained model on the faithfulness bodies."""
+    companies = retag_cli.companies()
+    names = {c.ticker: c.name for c in companies}
+    ids = [
+        int(row["article_id"])
+        for row in csv.DictReader(args.bodies.open(encoding="utf-8-sig", newline=""))
+    ]
+    conn = db.connect_pipeline()
+    bodies = {}
+    for article in ids:
+        src = conn.execute("SELECT body_text FROM source.articles WHERE id = ?", (article,))
+        row = src.fetchone()
+        bodies[article] = (row["body_text"] if row else "") or ""
+    scorer = am.TransformerScorer(str(args.abstention))
+    result = abstention(bodies, CompanyResolver(companies), names, scorer, args.seed)
+    print(json.dumps(result["counts"], indent=2))
+    for label in ("nobody", "given"):
+        print(f"--- a sample of the sentences the model gave to: {label}")
+        for item in result[label]:  # type: ignore[attr-defined]
+            print(json.dumps(item, ensure_ascii=False))
+
+
 def fit(
     train: list[am.Example], config: dict[str, str], args: argparse.Namespace
 ) -> tuple[am.TransformerScorer, object, object, float]:
@@ -305,6 +381,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=ROOT / "data/models/attribution_2026_11_08")
     parser.add_argument("--eval-only", type=Path, metavar="DIR", help="score this trained model")
+    parser.add_argument(
+        "--abstention",
+        type=Path,
+        metavar="DIR",
+        help="who the model gives the unnamed sentences of",
+    )
+    parser.add_argument("--bodies", type=Path, default=ROOT / "data/faithfulness_bodies.csv")
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--max-pairs", type=int, default=80_000)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -312,6 +395,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261108)
     parser.add_argument("--limit-bodies", type=int, default=None)
     args = parser.parse_args()
+    if args.abstention:
+        run_abstention(args)
+        return
     continuation = require_lead_only()
 
     config = json.loads(PIPELINE_MODELS.read_text(encoding="utf-8"))["sentiment"]

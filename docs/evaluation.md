@@ -3114,12 +3114,19 @@ Three readings, in rising order of weight; only the last decides (PLAN D27, D32)
    mentioned last in the previous sentence) 70.8%, 6.4% and 22.8%. The labels are the parser's
    (88% of the `lead` ones right in the owner's check), so part of the "wrong" is label noise.
 3. **The owner's faithfulness reading** of the 30 narrative bodies (D32). Abstention is not in `val`
-   (every sentence there has a right company); on the 30 bodies, of the 421 sentences that name no
-   company the model gives 145 (34%) to nobody and 276 to one company, the baseline 19 to nobody,
-   281 to one company and 121 to several. The threshold keeps boilerplate away only in part: the
-   model gave a disclaimer ("Nothing herein should be construed as an offer ...") to a company by the
-   0.5 rule, and kept real narrative ("He also thinks that ... Tupperware ...") from anyone; the
-   footer and cut handling of the `units` readings (#143) is what addresses the first.
+   (every sentence there has a right company); `train_attribution_2026_11_08.py --abstention DIR`
+   measures it on the 30 bodies: of the 421 sentences that name no company the model gives 145 (34%)
+   to nobody and 276 to one company, the baseline 19 to nobody, 281 to one company and 121 to
+   several. A seeded sample read by the developer (not the owner's reading; 5 and 5, so only a
+   direction): of the 5 given to nobody, 4 are right (the company is not in the universe: Nextracker,
+   Macy's and Gap, Staples, Nikola) and 1 is wrong ("JPMorgan said in the note ...": the resolver
+   does not read the one-word "JPMorgan", a name-matcher gap, T-148b7); of the 5 given to a
+   company by the 0.5 rule, none is right (a venture investment given to Comcast because the previous
+   sentence is Comcast's disclosure, a market index to EQR, Motorola's president's quote to Apple,
+   Boeing's next chief to Amazon, a start-up's partners to BSX). The model was trained only on
+   sentences that belong to one of the body's companies, so it has not learned to answer "none of
+   these"; a sentence about a company outside the universe is given to the nearest one when the score
+   reaches 0.5. The threshold is the owner's to decide after reading the texts; none is proposed.
 
 A `val` body is left out as a copy when 80% of a sample of its 8-word shingles are in one train
 body (none was); an earlier key on the start and the end of a body, and then 30% of all the train

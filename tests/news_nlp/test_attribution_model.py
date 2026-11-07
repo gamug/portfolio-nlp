@@ -306,7 +306,9 @@ def test_the_model_extractor_needs_registering_and_a_pinned_revision(
     with pytest.raises(SystemExit):  # a Hub id without a revision is refused before any download
         draw.register_model("org/attribution", None, NAMES)
     draw.MODEL_IDENTITY[:] = ["org/attribution@abc"]
-    assert draw.extractor_revision("model").startswith("extractor:model@org/attribution@abc@")
+    revision = draw.extractor_revision("model")
+    assert revision.startswith("extractor:model@org/attribution@abc@")
+    assert revision.endswith("@" + draw.retag.code_revision(*am.CODE_MODULES))  # the one list
 
 
 def test_evaluate_reports_every_view_and_a_view_without_pairs_is_nan(
@@ -567,3 +569,32 @@ def test_provenance_names_the_code_the_training_set_and_the_label_check(
         "continuation": 0.38,
         "train_on_lead_only": True,
     }
+
+
+def test_a_short_body_has_no_shingles_and_the_last_shingle_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script(monkeypatch)
+    assert script.shingles("only seven words in this short body") == set()
+    exactly = " ".join(f"w{i}" for i in range(script.SHINGLE))  # one shingle, the last one too
+    one = script.shingles(exactly)
+    assert len(one) <= 1  # a sample of one: kept or not, never an error
+    longer = " ".join(f"w{i}" for i in range(script.SHINGLE + 40))
+    assert script.shingles(longer) >= one
+
+
+def test_abstention_counts_who_gets_the_unnamed_sentences_and_samples_the_models_choices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script(monkeypatch)
+    scorer = FakeScorer({("Apple Inc.", "The iPhone maker also grew its buyback."): 0.9})
+    result = script.abstention({7: BODY}, RESOLVER, NAMES, scorer, seed=1, sample=5)
+    counts = result["counts"]
+    assert counts["sentences"] == 4 and counts["named"] == 2  # Apple ... / Microsoft ... named
+    assert counts["model one"] == 1 and counts["model none"] == 1 and counts["model several"] == 0
+    assert counts["baseline one"] + counts["baseline none"] + counts["baseline several"] == 2
+    given, nobody = result["given"], result["nobody"]
+    assert [g["sentence"] for g in given] == ["The iPhone maker also grew its buyback."]
+    assert given[0]["chosen"] == ("AAPL",) and given[0]["previous"].startswith("Apple raised")
+    assert [n["sentence"] for n in nobody] == ["Azure demand cooled in the quarter."]
+    assert nobody[0]["body names"] == ["AAPL", "MSFT"]
