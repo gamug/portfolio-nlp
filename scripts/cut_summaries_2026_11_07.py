@@ -553,14 +553,16 @@ def status(out: Path, parts: Sequence[Sequence[Row]]) -> list[str]:
     ]
 
 
-def load_summariser() -> Summariser:
+def load_summariser(device_name: str | None = None) -> Summariser:
+    """The summariser on *device_name* (``cuda`` / ``cpu``: the one ``main`` printed and put on the
+    bar); ``None`` picks CUDA when it is there."""
     import torch  # noqa: PLC0415 -- the model is only needed to summarise
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer  # noqa: PLC0415
 
     from summary_stage import hierarchical_summarize_batch  # noqa: PLC0415
 
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))["c_summary"]
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(device_name or ("cuda" if torch.cuda.is_available() else "cpu"))
     tokenizer = AutoTokenizer.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = AutoModelForSeq2SeqLM.from_pretrained(cfg["model"], revision=cfg["revision"])
     model = model.to(device).eval()
@@ -601,7 +603,9 @@ def summarise_with_retry(summarise: Summariser, texts: list[str]) -> list[tuple[
     return done
 
 
-def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[Row]]:
+def make_processor(
+    conn: db.NewsNlpDatabase, device_name: str | None = None
+) -> Callable[[Sequence[Row]], list[Row]]:
     """The function that turns a slice of the index into chunk rows: scope by the rules, a summary
     where D25 step 3 asks for one. The model is loaded the first time a chunk needs it."""
     universe = size_triage.load_universe(conn)
@@ -643,7 +647,7 @@ def make_processor(conn: db.NewsNlpDatabase) -> Callable[[Sequence[Row]], list[R
                 )
         if to_summarise:
             if "run" not in state:
-                state["run"] = load_summariser()
+                state["run"] = load_summariser(device_name)
             done = summarise_with_retry(state["run"], [text for _, text in to_summarise])
             for (position, _), (summary, n_chunks, error) in zip(to_summarise, done, strict=True):
                 rows[position]["summary"] = summary
@@ -826,7 +830,6 @@ def main() -> None:
     )
     args = parser.parse_args()
     out: Path = args.out
-    out.mkdir(parents=True, exist_ok=True)
     index_path = out / INDEX_NAME
     if args.status:  # reads only: no lock, no manifest, no index built
         if not index_path.exists():
@@ -849,8 +852,10 @@ def main() -> None:
 
     has_cuda, banner = device_banner()
     print(banner, flush=True)
-    if args.require_cuda and not has_cuda:
+    if args.require_cuda and not has_cuda:  # before the folder is made: nothing is written
         sys.exit("--require-cuda: CUDA is not available here, nothing was written")
+    device_name = "cuda" if has_cuda else "cpu"  # the one decision: banner, bar and model
+    out.mkdir(parents=True, exist_ok=True)
     with locked(out, break_lock=args.break_lock):  # everything that changes the cut is under it
         conn = db.connect_pipeline()
         index = load_or_build_index(
@@ -875,12 +880,12 @@ def main() -> None:
         made = run_chunks(
             out,
             parts,
-            make_processor(conn),
+            make_processor(conn, device_name),
             max_chunks=args.max_chunks,
             should_stop=lambda: stop["now"],
             hold_lock=False,
             redo_failed=args.redo_failed,
-            device_label="cuda" if has_cuda else "cpu",
+            device_label=device_name,
         )
     print("\n".join(status(out, parts)))
     print(f"{made} chunks made in this run")

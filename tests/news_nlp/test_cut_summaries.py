@@ -220,7 +220,7 @@ def _processor_under_test(
 
     monkeypatch.setattr(CUT.size_triage, "classify", classify)
 
-    def load() -> Callable[[list[str]], list[tuple[str, int]]]:
+    def load(_device: str | None = None) -> Callable[[list[str]], list[tuple[str, int]]]:
         seen["loaded"] = int(seen["loaded"]) + 1  # type: ignore[call-overload]
 
         def summarise(texts: list[str]) -> list[tuple[str, int]]:
@@ -343,9 +343,13 @@ def test_an_empty_summary_is_retried_once_and_then_marked_never_silent(
     assert CUT.summarise_with_retry(flaky, ["a", "b bad"]) == [("ok", 1, ""), ("ok", 1, "")]
     assert calls == [["a", "b bad"], ["b bad"]]
     process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
-    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    monkeypatch.setattr(
+        CUT, "load_summariser", lambda _d=None: lambda texts: [("", 0)] * len(texts)
+    )
     process, _ = _processor_under_test(monkeypatch, "single", "Acme rose.")
-    monkeypatch.setattr(CUT, "load_summariser", lambda: lambda texts: [("", 0)] * len(texts))
+    monkeypatch.setattr(
+        CUT, "load_summariser", lambda _d=None: lambda texts: [("", 0)] * len(texts)
+    )
     entry = {"body_hash": triage.body_hash("Acme rose."), "article_ids": "1"}
     [row] = process([entry])
     assert row["status"] == CUT.EMPTY and row["summary"] == ""
@@ -408,7 +412,7 @@ def test_a_failed_body_is_written_marked_and_counted(
     def always_raises(_texts: list[str]) -> list[tuple[str, int]]:
         raise RuntimeError("tokenizer error")
 
-    monkeypatch.setattr(CUT, "load_summariser", lambda: always_raises)
+    monkeypatch.setattr(CUT, "load_summariser", lambda _d=None: always_raises)
     entry = {"body_hash": triage.body_hash(body), "article_ids": "1"}
     [row] = process([entry])
     assert (row["status"], row["summary"], row["error"]) == (
@@ -457,6 +461,9 @@ def test_a_changed_environment_is_refused_unless_accepted(tmp_path: Path) -> Non
     assert history == [{"environment": "torch 2, transformers 4, cuda", "chunks_made_under_it": 4}]
 
 
+DEVICES: list[str | None] = []
+
+
 def _wired_main(
     monkeypatch: pytest.MonkeyPatch, out: Path, *flags: str, spans: str = "1:1"
 ) -> list[str]:
@@ -471,8 +478,11 @@ def _wired_main(
     monkeypatch.setattr(CUT, "load_or_build_index", fake_index)
     monkeypatch.setattr(CUT, "entities_basis", lambda *_a: (spans, "7"))
 
-    def make(_conn: object) -> Callable[[Sequence[dict[str, str]]], list[dict[str, str]]]:
+    def make(
+        _conn: object, device: str | None = None
+    ) -> Callable[[Sequence[dict[str, str]]], list[dict[str, str]]]:
         calls.append("make_processor")
+        DEVICES.append(device)
         return _processor(calls)
 
     monkeypatch.setattr(CUT, "make_processor", make)
@@ -802,12 +812,28 @@ def test_main_prints_the_device_and_require_cuda_stops_a_cpu_run_before_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _fake_torch(monkeypatch, cuda=False)
-    calls = _wired_main(monkeypatch, tmp_path, "--require-cuda")
+    out = tmp_path / "cut"  # not made yet
+    calls = _wired_main(monkeypatch, out, "--require-cuda")
     with pytest.raises(SystemExit, match="CUDA is not available"):
         CUT.main()
     assert "device: CPU, no CUDA" in capsys.readouterr().out
-    assert calls == [] and not (tmp_path / CUT.MANIFEST_NAME).exists()
-    assert not (tmp_path / CUT.LOCK_NAME).exists()
-    _wired_main(monkeypatch, tmp_path, "--max-chunks", "1")  # without the flag a CPU run goes on
+    assert calls == [] and not out.exists()  # not even the folder
+    _wired_main(monkeypatch, out, "--max-chunks", "1")  # without the flag a CPU run goes on
+    DEVICES.clear()
     CUT.main()
     assert "device: CPU, no CUDA" in capsys.readouterr().out
+    assert DEVICES == ["cpu"]  # the model is told the device the banner printed
+    _fake_torch(monkeypatch, cuda=True)
+    _wired_main(monkeypatch, tmp_path / "gpu", "--max-chunks", "1")
+    DEVICES.clear()
+    CUT.main()
+    assert DEVICES == ["cuda"]
+
+
+def test_the_real_bar_is_off_without_a_terminal_and_the_default_log_does_not_need_one(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    CUT.run_chunks(tmp_path, CUT.slices(_index(4), 2), _processor([]), device_label="cuda")
+    captured = capsys.readouterr()
+    assert "summaries" not in captured.err  # stderr is not a tty here: no bar
+    assert "chunk 2/2 written" in captured.out  # the default log (tqdm.write) still prints
