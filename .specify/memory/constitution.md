@@ -83,9 +83,15 @@ component; every rule below assumes the stack actually pinned in
    `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI`, plus an optional
    `HF_TOKEN` (Hub downloads rate limit; write scope for
    `scripts/publish_*.py`); `.env.example` is the committed template —
-   keep it in sync with every env var a new feature reads. `pipeline.py`
-   calling `load_dotenv()` at import is the single place `.env` gets
-   loaded; don't add a second `load_dotenv()` call elsewhere.
+   keep it in sync with every env var a new feature reads. `.env` is
+   loaded by the entrypoint, never by a library module: `pipeline.py`
+   calls `load_dotenv()` at import (so everything that imports it is
+   covered), `news_nlp.eval.config.EvalSettings.load` loads it for the
+   evaluation CLIs (it takes an `env_file` argument), and a script that
+   does neither calls `news_nlp.env.load_env_file()` first thing in
+   `main` (the shell wins over the file). Don't add another loader;
+   `tests/news_nlp/test_wi18_scripts.py` fails for a script, CLI or app
+   that reaches the databases without one.
 7. **Naming**: modules and functions describe the pipeline stage or DB
    concern they implement — match the stage/table pairing (sentiment ->
    `article_sentiment`, NER -> `article_entities`, category ->
@@ -380,4 +386,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.9.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-10-08
+**Version**: 2.10.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-07
