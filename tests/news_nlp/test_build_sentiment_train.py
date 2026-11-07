@@ -123,14 +123,14 @@ def test_a_pub_date_a_spreadsheet_rewrote_stops_the_build() -> None:
     ids = _ids()
     marks = _marks(ids)
     marks[1]["pub_date"] = "7/5/23 10:00"
-    with pytest.raises(gold_metrics.MarkedFileError, match="not an ISO date"):
+    with pytest.raises(gold_metrics.MarkedFileError, match="pub_date that is not ISO"):
         BUILD.build(marks, ids)
 
 
 def test_the_draw_must_have_what_the_training_needs() -> None:
     ids = _ids()
     ids[7]["text_hash"] = ""
-    with pytest.raises(gold_metrics.MarkedFileError, match="has no"):
+    with pytest.raises(gold_metrics.MarkedFileError, match="without"):
         BUILD.build(_marks(ids), ids)
 
 
@@ -201,5 +201,116 @@ def test_main_writes_the_file_and_refuses_to_move_a_mark(
         writer = csv.DictWriter(fh, fieldnames=list(marks[0]))
         writer.writeheader()
         writer.writerows(marks)
+    with pytest.raises(SystemExit, match="would change or go missing"):
+        BUILD.main()
+
+
+def test_every_problem_is_named_at_once_with_its_count_and_where_the_text_parts() -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    for m, d in zip(marks[:20], ids[:20], strict=True):
+        m["text"] = d["text"].replace("summary", "summarÃ­")  # UTF-8 read as a code page
+    for m in marks[20:23]:
+        m["pub_date"] = "7/5/23 10:00"
+    marks[30]["sentiment"] = ""
+    marks[31]["sentiment"] = "bullish"
+    with pytest.raises(gold_metrics.MarkedFileError) as caught:
+        BUILD.build(marks, ids)
+    text = str(caught.value)
+    assert "20 rows whose text is not the text the draw recorded" in text
+    assert "at character 8" in text and "looks like an encoding change" in text
+    assert "3 rows with a pub_date that is not ISO" in text and "'7/5/23 10:00'" in text
+    assert "1 rows without a mark" in text
+    assert "1 rows with a mark outside" in text and "'bullish'" in text
+    assert len(ids[0]["key"]) > 0 and ids[0]["key"] in text  # the first keys are named
+
+
+def test_the_marks_are_normalised_but_a_missing_column_is_named(tmp_path: Path) -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    marks[0]["sentiment"] = "  Positive "
+    assert BUILD.build(marks, ids)[0]["sentiment"] == "positive"
+    path = tmp_path / "t.csv"
+    path.write_text("article_id,kind,text\n1,summary,x\n", encoding="utf-8")
+    with pytest.raises(gold_metrics.MarkedFileError, match="lacks the columns"):
+        BUILD.read_marks(path)
+
+
+def test_an_encoding_change_and_the_first_difference_are_recognised() -> None:
+    assert BUILD.looks_like_an_encoding_change("Café opens", "CafÃ© opens")
+    assert BUILD.looks_like_an_encoding_change("Café opens", "Caf? opens")
+    assert not BUILD.looks_like_an_encoding_change("Café opens", "Café opened")
+    assert (
+        BUILD.first_difference("abcdef", "abXdef") == "at character 2: drawn 'cdef', marked 'Xdef'"
+    )
+    assert BUILD.first_difference("abc", "abcd").startswith("at character 3")
+
+
+def test_a_fill_down_and_a_missing_class_are_warned_about_not_stopped() -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    rows = BUILD.build(marks, ids)
+    assert BUILD.warnings(rows) == []
+    for m in marks[:25]:  # a fill-down over the first 25 rows
+        m["sentiment"] = "neutral"
+    filled = BUILD.build(marks, ids)  # builds all the same
+    found = "\n".join(BUILD.warnings(filled))
+    assert "rows in a row" in found and "fill-down" in found
+    for m in marks:
+        m["sentiment"] = "positive" if m["sentiment"] != "negative" else "negative"
+    for m in marks[:2]:
+        m["sentiment"] = "negative"
+    few = BUILD.warnings(BUILD.build(marks, ids))
+    assert any("no training mark is neutral" in line for line in few)
+
+
+def _files(tmp_path: Path, marks: list[dict[str, str]], ids: list[dict[str, str]]) -> Path:
+    out = tmp_path / "data"
+    out.mkdir(exist_ok=True)
+    for name, rows in ((BUILD.IDS_NAME, ids), (BUILD.TO_TAG_NAME, marks)):
+        with (out / name).open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+    return out
+
+
+def test_a_corrected_mark_gets_in_only_with_overwrite_marks_and_keeps_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    out = _files(tmp_path, marks, ids)
+    gold = tmp_path / "gold" / "sentiment_train.csv"
+    base = ["build", "--out", str(out), "--gold", str(gold)]
+    monkeypatch.setattr(sys, "argv", base)
+    BUILD.main()
+    before = list(csv.DictReader(gold.open(encoding="utf-8")))
+    marks[3]["sentiment"] = "negative" if marks[3]["sentiment"] != "negative" else "neutral"
+    _files(tmp_path, marks, ids)
+    with pytest.raises(SystemExit, match="would change or go missing"):
+        BUILD.main()
+    assert list(csv.DictReader(gold.open(encoding="utf-8"))) == before  # untouched
+    monkeypatch.setattr(sys, "argv", [*base, "--overwrite-marks"])
+    BUILD.main()
+    after = list(csv.DictReader(gold.open(encoding="utf-8")))
+    assert [r["key"] for r in after] == [r["key"] for r in before]  # the same order and rows
+    assert [r["key"] for r in after if r != before[after.index(r)]] == [before[3]["key"]]
+    assert after[3]["sentiment"] == marks[3]["sentiment"]
+
+
+def test_a_text_that_changed_since_the_first_build_is_never_accepted_silently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = _ids()
+    marks = _marks(ids)
+    out = _files(tmp_path, marks, ids)
+    gold = tmp_path / "gold" / "sentiment_train.csv"
+    monkeypatch.setattr(sys, "argv", ["build", "--out", str(out), "--gold", str(gold)])
+    BUILD.main()
+    ids[5]["text"] = "A different summary."  # the draw was redone: another text under that key
+    ids[5]["text_hash"] = retag.text_hash(ids[5]["text"])
+    marks[5]["text"] = ids[5]["text"]
+    _files(tmp_path, marks, ids)
     with pytest.raises(SystemExit, match="would change or go missing"):
         BUILD.main()

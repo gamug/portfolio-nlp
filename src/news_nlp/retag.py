@@ -730,6 +730,25 @@ SENTIMENT_GOLD_COLUMNS = (
     "sentiment",
     "notes",
 )
+#: ``gold/sentiment_train.csv`` (D35): the owner's marks on the 450 training summaries and the ids of
+#: the draw, no news text (the texts are in ``data/sentiment_train_ids.csv``, by ``key`` and
+#: ``text_hash``). Not a gold: it trains, and is never mixed with ``sentiment_gold.csv``.
+SENTIMENT_TRAIN_COLUMNS = (
+    "key",
+    "article_id",
+    "body_hash",
+    "rule_scope",
+    "revision",
+    "predicted",
+    "pool_class_size",
+    "block",
+    "batch",
+    "slice",
+    "text_hash",
+    "pub_date",
+    "sentiment",
+    "notes",
+)
 FAITHFULNESS_GOLD_COLUMNS = (
     "key",
     "article_id",
