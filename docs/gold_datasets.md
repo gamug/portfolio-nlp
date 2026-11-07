@@ -158,6 +158,11 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   the extractor writes for narrative multi bodies (`part=extractor`, 60). Drawn by
   `scripts/draw_sentiment_gold_2026_11_05.py`; the current model's prediction picks the sample and is
   never shown to the owner.
+- **Scoring another model (T-148c2, D35):** `scripts/score_sentiment_gold_2026_11_07.py --model <path or Hub id>` runs a candidate
+  over the 180 texts (from `data/sentiment_gold_ids.csv`, each checked against its `text_hash`) and prints the report of
+  `report_wi18 sentiment --gold` for that model, with the strata of the draw, plus the agreement for 2022 on and before. The gold is
+  not a tuning set: **every run is appended to `gold/sentiment_gold_scoring_log.csv`** and the report that quotes a figure lists
+  them all. Run 1 is the pinned model, which reproduces the figures above (0 of 180 predictions differ).
 - **Scope:** the label is the **price impact on the company** an investor would read (on the sector or
   the market for a sector or market text): `positive`, `negative`, `neutral`. Gold columns: `key`,
   `article_id`, `ticker`, `kind`, `part`, `text_hash`, `revision`, `stratum`, `extractor`, `predicted`,

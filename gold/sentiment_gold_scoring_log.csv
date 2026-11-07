@@ -1,0 +1,2 @@
+run,time,label,model,revision,agreement,agreement_judgement,negative_precision,negative_recall,texts
+1,2026-11-07T12:11:03+00:00,"baseline (pinned model, reproduces D32)",gamug/FinBERT-financial-news,93863fcb7252874e7c0339081b34f691f9e17ff6,"60.4% [52.8%, 67.6%]",fail,"78.7% [67.3%, 89.3%]","77.7% [69.4%, 86.8%]",180
