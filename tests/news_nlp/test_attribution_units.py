@@ -353,8 +353,8 @@ def test_a_dash_inside_a_sentence_and_a_speaker_label_are_not_headers() -> None:
     assert au.starts_a_sentence("Shares rose 3%.") and au.starts_a_sentence(
         '"Shares rose," he said'
     )
-    assert au.starts_a_sentence("3M raised its outlook.") and not au.starts_a_sentence(
-        "as in New York"
-    )
+    assert au.starts_a_sentence("3M raised its outlook.")
+    assert not au.starts_a_sentence("as in New York")
+    assert not au.starts_a_sentence("") and not au.starts_a_sentence("   ")  # nothing starts
     # a header whose text starts with a capital is still a header
     assert au.header_owners("Apple \u2014 Shares rose after the report.", RESOLVER) == ("AAPL",)

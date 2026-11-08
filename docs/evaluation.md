@@ -3198,7 +3198,7 @@ The figures above are development figures. The confirmation is a second set of n
 used before: `uv run scripts/draw_faithfulness_2026_11_06.py --out data/faithfulness_confirmation
 --exclude-from data --extractors baseline,units --attribution-model data/models/attribution_2026_11_08
 --n 30 --seed 20261109 --yes` (`--exclude-from` leaves out the bodies of the first draw, twins by body hash
-included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. The
+included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. **The draw cannot be repeated:** the bodies file is never drawn again by design, so the same command a second time draws nothing and a different `--seed` does not redraw either; the confirmation set is this one, and a different set needs a different `--out` (and fewer bodies are left to draw). The
 owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. **For the result to be comparable
 with the first reading the owner also has to mark the non-companies:** `draw_faithfulness --exempt --out
 data/faithfulness_confirmation` (free) writes `faithfulness_exempt.json` and

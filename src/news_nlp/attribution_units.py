@@ -152,6 +152,8 @@ def starts_a_sentence(text: str) -> bool:
     """Whether *text* starts like the text of a line (a capital, a digit, a quote or a bracket) and
     not like the middle of a sentence ("Miami Beach - as in New York ...")."""
     first = text.lstrip()[:1]
+    if not first:  # empty or blank: it starts nothing ("" is "in" every string)
+        return False
     return first.isupper() or first.isdigit() or first in "\"'\u201c\u2018(["
 
 
