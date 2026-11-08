@@ -588,8 +588,8 @@ treating a related FR/NR as done:
     **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions
     D11–D35 in `PLAN.md` Work item 18). **The `multi` flag above is superseded
     (2026-11-05):** a multi body gets the text of each company (D27) and one snapshot row per
-    (body, company) (D28), so no flag is added to the existing result tables; T-138 is superseded
-    in place. No FR is added until a behaviour ships.
+    (body, company) (D28), so no flag is added to the existing result tables; T-138 was superseded
+    (moved to `CHANGELOG.md`). No FR is added until a behaviour ships.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

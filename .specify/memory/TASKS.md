@@ -11,8 +11,9 @@ see constitution AI behavior #15. This file carries only open work: done tasks o
 `CHANGELOG.md` ("Tasks closed while their work item is still open"), and the long history of an open task is in
 `.specify/memory/archive/`. An entry is a status, the decision, what is open and a pointer (`.specify/memory/INDEX.md`).
 
-Task IDs are stable, same rule as `SPEC.md`'s `FR-0xx`/`NR-0xx`: don't
-renumber; mark a cancelled/superseded task in place instead.
+Task IDs are stable, same rule as `SPEC.md`'s `FR-0xx`/`NR-0xx`: never renumbered or
+reused. A cancelled or superseded task is checked, its closure noted, and moved to
+`CHANGELOG.md` (constitution AI behavior #15).
 
 ## Work item 2 — Make the regression gate runnable (ops, blocked on maintainer)
 
@@ -154,7 +155,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 
 - [ ] **T-138b** **Re-pointed 2026-10-28: closes with Work item 18's close-out (T-150).** Close-out of Work item 17: annotate `SPEC.md` §13 item 21 / §14, reconcile
       both architecture artifacts (never rename; AI behavior #11), then move the work item
-      to `CHANGELOG.md` (AI behavior #15). T-137's sizing was absorbed by T-144 and T-138 is superseded in place (2026-11-05), so it closes with T-150 and waits on nothing else.
+      to `CHANGELOG.md` (AI behavior #15). T-137's sizing was absorbed by T-144 and T-138 was superseded (2026-11-05; moved to `CHANGELOG.md`), so it closes with T-150 and waits on nothing else.
 
 ## Work item 18 — Triage-first pipeline: unique bodies, subject scope, per-company and sector news (re-scoped from Work items 15 and 17, 2026-10-28)
 
@@ -255,7 +256,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 
 ## Status
 
-**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 are superseded in place (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
+**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 were superseded (moved to `CHANGELOG.md`) (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
 
 **Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (D11–D24 are recorded in `PLAN.md` Work item 18).
 T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded (their entries were moved out of this file, 2026-11-08), and

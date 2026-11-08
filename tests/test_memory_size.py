@@ -23,7 +23,9 @@ MAX_LINE = 5_000
 #: One open task entry: its line plus the indented lines under it.
 MAX_TASK_ENTRY = 4_000
 
-_TASK = re.compile(r"^(\s*)- \[[ x]\] ")
+#: A task is recognised by the shape of its line (`- [ ]` / `- [x]` / `- [X]`), not by where it is: a
+#: checkbox line inside a fenced block or a table cell would count as one.
+_TASK = re.compile(r"^(\s*)- \[[ xX]\] ")
 
 
 def _text(name: str) -> str:
@@ -85,7 +87,9 @@ def _task_id(line: str) -> str:
 
 def test_tasks_holds_no_checked_task() -> None:
     checked = [
-        _task_id(line) for line in _text("TASKS.md").split("\n") if re.match(r"^\s*- \[x\] ", line)
+        _task_id(line)
+        for line in _text("TASKS.md").split("\n")
+        if re.match(r"^\s*- \[[xX]\] ", line)
     ]
     assert not checked, (
         f"checked tasks in TASKS.md: {', '.join(checked)}; a done or superseded task moves verbatim "
