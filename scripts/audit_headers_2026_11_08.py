@@ -43,6 +43,8 @@ def audit(
 ) -> dict[str, object]:
     """Counts and a seeded *sample* of the lines described in the module docstring."""
     headers = 0
+    lower = 0
+    lower_lines: list[tuple[int, str]] = []
     nobody: list[tuple[int, str]] = []
     short_form = 0
     dotted: list[tuple[int, str]] = []
@@ -55,6 +57,9 @@ def audit(
             if owners is not None:
                 headers += 1
                 match = au._HEADER.match(line)
+                if match and not au.starts_a_sentence(match["rest"]):
+                    lower += 1
+                    lower_lines.append((article, line))
                 if owners == () and match and guarded.mention_spans(match["rest"]):
                     nobody.append((article, line))
                     short_form += bool(resolver.mention_spans(match["head"]))
@@ -68,11 +73,13 @@ def audit(
     return {
         "bodies": len(bodies),
         "header lines": headers,
+        "header lines whose text after the dash does not start a sentence": lower,
         "headers of nobody that name a company after the dash": len(nobody),
         "of those, the part before the dash names a company by a short form only": short_form,
         "headers missed for a full stop in the first part": len(dotted),
         "nobody": rng.sample(nobody, min(sample, len(nobody))),
         "dotted": rng.sample(dotted, min(sample, len(dotted))),
+        "lower": rng.sample(lower_lines, min(sample, len(lower_lines))),
     }
 
 
@@ -96,9 +103,9 @@ def main() -> None:
         for a in picked
     }
     result = audit(bodies, CompanyResolver(retag_cli.companies()), args.seed, args.sample)
-    for key in list(result)[:5]:
+    for key in list(result)[:6]:
         print(f"{key}: {result[key]}")
-    for label in ("nobody", "dotted"):
+    for label in ("nobody", "dotted", "lower"):
         print(f"--- a sample of the lines, {label}:")
         for article, line in result[label]:  # type: ignore[attr-defined]
             print(f"[{article}] {line[:300]!r}")

@@ -759,6 +759,28 @@ def test_the_bar_is_also_given_on_every_company_named_and_on_the_real_ones(tmp_p
     assert "the other readings of the bar are skipped" in other and "[all]   baseline:" in other
 
 
+def test_a_not_a_company_mark_applies_when_only_other_extractors_were_not_asked_about_it(
+    tmp_path: Path,
+) -> None:
+    """A confirmation draw has baseline and units only; the guard-rejected companies are exempt rows
+    of units2 and units3, which did not run. The owner's "no" is about the company: it must leave
+    the shares of the extractors that did run."""
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    rows = [{**_skip(3, "units2"), "ticker": "T"}, {**_skip(4, "units3"), "ticker": "T"}]
+    _exempt_file(tmp_path, rows)
+    _read_file(tmp_path, {3: "no", 4: "yes"}, tickers={3: "T", 4: "T"})
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 of the 2 exempt companies are not companies" in text
+    real = [line for line in text.splitlines() if line.startswith("[all, real]")]
+    for name in ("baseline", "units"):
+        line = next(x for x in real if f"{name}:" in x and "of the texts" not in x)
+        assert "5 faithful of 5 texts" in line, line  # 3#T#1 is out of both shares, 4#T#1 stays
+    _read_file(tmp_path, {3: "", 4: "yes"}, tickers={3: "T", 4: "T"})
+    assert "1 of 2 exempt companies are not yet read" in "\n".join(
+        REPORT.faithfulness_report(tmp_path)
+    )
+
+
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
     tmp_path: Path,
 ) -> None:

@@ -3178,8 +3178,9 @@ confirmation on bodies not used before is proposed in TASKS T-148b8.
 
 **The owner's reading of the 37 (2026-11-08)** settles the denominator: 23 of them are not companies
 ("Bloom" the person, "Equity markets", "Union Square"), 14 are. With the 23 out of every extractor's
-share, the texts the others wrote about them included, all extractors are on the same 167 real
-companies: baseline 68.9% [53.6, 82.1], `model` 86.2% [71.7, 97.5], `units` **94.0% [87.0, 99.2], pass**,
+share, the texts the others wrote about them included, all extractors are on the same 167
+companies (190 named, minus the 23 read and found not to be companies; the other 167 were not read one
+by one): baseline 68.9% [53.6, 82.1], `model` 86.2% [71.7, 97.5], `units` **94.0% [87.0, 99.2], pass**,
 `units2` 77.8% [64.1, 92.9], `units3` 84.4% [76.4, 93.3] (not decided); `units3` minus `units` -9.6
 [-16.5, -1.6] (not better). The guard removes a distortion (names that are not companies counted
 against `units`) and loses 13 real companies, mostly lines headed by a short form. The decision on
@@ -3190,4 +3191,27 @@ line that names each of the 37 exempt companies (no article body), the approved 
 --exempt --yes`: 37 articles = 37 paid calls, 0 failures; 8,848 prompt and 4,910 completion tokens (retries and
 rejected replies included). The file is merged, never replaced: a spreadsheet may reorder its columns, the
 owner's marks and values stay, and only empty Spanish cells are bought.
+
+### Follow-up (2026-11-08): the confirmation draw and how to read it (Work item 18, T-148b10)
+
+The figures above are development figures. The confirmation is a second set of narrative multi bodies not
+used before: `uv run scripts/draw_faithfulness_2026_11_06.py --out data/faithfulness_confirmation
+--exclude-from data --extractors baseline,units --attribution-model data/models/attribution_2026_11_08
+--n 30 --seed 20261109 --yes` (`--exclude-from` leaves out the bodies of the first draw, twins by body hash
+included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. The
+owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. **For the result to be comparable
+with the first reading the owner also has to mark the non-companies:** `draw_faithfulness --exempt --out
+data/faithfulness_confirmation` (free) writes `faithfulness_exempt.json` and
+`faithfulness_exempt_to_read.csv` (the companies the plain resolver names that the guard would reject, or
+the footer holds, with the line that names each; `--yes` pays for the Spanish of its empty cells), and
+`real_company` yes or no on those rows takes the non-companies out of every extractor's share. Then
+`uv run scripts/report_wi18_2026_11_06.py faithfulness --out data/faithfulness_confirmation`. Without that
+reading `units` is measured with the plain resolver's non-companies counted against it, as it was before the
+owner's reading of the 37. `faithfulness_exempt.json` is derived from the code of five modules and is free to
+rebuild: if it is rebuilt after an edit the owner's marks (by article and company) are kept; the report skips
+the readings that need it, with a line, while it was written by other code.
+
+**Spend (2026-11-08, approved by the owner): the confirmation set, baseline and `units`.** 30 bodies, 357 texts
+and 30 bodies translated: 387 articles = 387 paid calls, 0 failures; 150,259 prompt and 134,950 completion
+tokens (retries and rejected replies included). Files: `data/faithfulness_confirmation/`.
 

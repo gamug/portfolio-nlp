@@ -148,15 +148,25 @@ class Unit(NamedTuple):
     owners: tuple[str, ...] | None = None
 
 
+def starts_a_sentence(text: str) -> bool:
+    """Whether *text* starts like the text of a line (a capital, a digit, a quote or a bracket) and
+    not like the middle of a sentence ("Miami Beach - as in New York ...")."""
+    first = text.lstrip()[:1]
+    return first.isupper() or first.isdigit() or first in "\"'\u201c\u2018(["
+
+
 def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
     """The companies a "NAMES - text" line belongs to: the universe companies named before the
     dash, when what comes before it is a short list of capitalised names. ``()`` when the names
     are of no company of the universe (the line is about somebody else); ``None`` when the line
-    has no such header, or when what comes before the dash is written in capitals and names no
-    company of the universe (a dateline such as "DETROIT" or a label such as "REFINING")."""
+    has no such header, when what comes before the dash is written in capitals and names no company
+    of the universe (a dateline such as "DETROIT" or a label such as "REFINING"), or when what
+    follows the dash does not start like a sentence (a dash inside a sentence)."""
     match = _HEADER.match(line)
     if not match:
         return None
+    if not starts_a_sentence(match["rest"]):
+        return None  # a dash inside a sentence ("Volkswagen - synonymous with ... - has spawned")
     head = match["head"].strip()
     words = [w for w in re.split(r"[\s,]+", head) if w]
     if len(words) > MAX_HEAD_WORDS or not all(

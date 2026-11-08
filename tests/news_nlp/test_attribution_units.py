@@ -198,7 +198,7 @@ def test_a_line_headed_by_names_belongs_to_them_alone() -> None:
     assert au.header_owners(line, RESOLVER) == ()  # a company outside the universe heads it
     line = "Apple, Microsoft \u2014 Evercore downgraded the stocks; Oracle was cut as well."
     assert au.header_owners(line, RESOLVER) == ("AAPL", "MSFT")
-    assert au.header_owners("Apple - shares rose after Oracle fell.", RESOLVER) == ("AAPL",)
+    assert au.header_owners("Apple - Shares rose after Oracle fell.", RESOLVER) == ("AAPL",)
 
 
 def test_a_sentence_is_not_taken_for_a_header() -> None:
@@ -328,7 +328,7 @@ def test_a_dateline_or_a_label_in_capitals_is_not_a_header_that_takes_the_line_a
     ):
         assert au.header_owners(line, RESOLVER) is None, line
     # a company in capitals is still a header, and a company outside the universe in mixed case
-    assert au.header_owners("AAPL - shares rose after the report.", RESOLVER) == ("AAPL",)
+    assert au.header_owners("AAPL - Shares rose after the report.", RESOLVER) == ("AAPL",)
     assert au.header_owners("Canadian Pacific — Its chief met a rival.", RESOLVER) == ()
     body = "DETROIT — Apple sold more phones.\n" + STORY
     texts = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units3")
@@ -340,3 +340,21 @@ def test_a_reading_that_is_not_one_of_the_four_is_an_error() -> None:
         am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading="unit3")  # type: ignore[arg-type]
     for reading in am.READINGS:
         am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading=reading)  # type: ignore[arg-type]
+
+
+def test_a_dash_inside_a_sentence_and_a_speaker_label_are_not_headers() -> None:
+    for line in (
+        "In Miami Beach \u2014 as in New York and San Diego \u2014 rentals are limited.",
+        "Today, Apple \u2014 like the industry itself \u2014 is challenged by cheap rivals.",
+        "Enter Prime Air \u2014 the air cargo service Apple introduced last summer.",
+        "Volkswagen - synonymous with the classic camper - has spawned a sub-industry.",
+    ):
+        assert au.header_owners(line, RESOLVER) is None, line
+    assert au.starts_a_sentence("Shares rose 3%.") and au.starts_a_sentence(
+        '"Shares rose," he said'
+    )
+    assert au.starts_a_sentence("3M raised its outlook.") and not au.starts_a_sentence(
+        "as in New York"
+    )
+    # a header whose text starts with a capital is still a header
+    assert au.header_owners("Apple \u2014 Shares rose after the report.", RESOLVER) == ("AAPL",)

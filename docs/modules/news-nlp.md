@@ -343,7 +343,8 @@ lean `articles` rows itself.
   aliases=False)` is opt-in and the scope rules keep the resolver they were measured with);
   `header_owners` gives a "NAMES - text" line to the universe companies among the names, to nobody
   when the names are of a company outside the universe, and does not take a dateline or a label in
-  capitals ("DETROIT - ...") for a header; `units3` also gives the piece of such a line to the
+  capitals ("DETROIT - ..."), nor a dash inside a sentence (the text after it does not start with a capital, a
+  digit or a quote), for a header; `units3` also gives the piece of such a line to the
   universe companies it names itself. **Known loss:** a company named only by a short form has no
   text, and is not counted as an omission; `draw_faithfulness --exempt` lists those companies (and
   the footer-only ones) in `faithfulness_exempt.json` and, for the owner to read, in

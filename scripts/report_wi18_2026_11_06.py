@@ -467,9 +467,10 @@ def _exempt_lines(
             f"asked about counted as unfaithful (the bar on every company named): {fig} -> "
             f"{fig.judge(FAITHFUL_BAR)}"
         )
-    pairs = sorted(
-        {f"{c['article_id']}#{c['ticker']}" for c in exempt if c["extractor"] in present}
-    )
+    # The owner's mark is about a company, not about an extractor: every exempt company counts here,
+    # also the ones only an extractor that did not run (units2, units3: the guard) is not asked about
+    # (a confirmation draw of baseline and units still needs the non-companies out of both shares).
+    pairs = sorted({f"{c['article_id']}#{c['ticker']}" for c in exempt})
     marked = [read.get(p, "") for p in pairs]
     if not read or not any(marked):
         return lines
