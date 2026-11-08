@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -49,7 +50,7 @@ def _ids(per_class: int = 30) -> list[dict[str, str]]:
                     "text_hash": retag.text_hash(text),
                     "title": f"Title {number}",
                     "ticker": "",
-                    "company": "",
+                    "company": f"Company {number}",
                     "text": text,
                 }
             )
@@ -425,6 +426,42 @@ def test_the_committed_sentiment_train_marks_are_the_owners_450() -> None:
     assert all(r["sentiment"] in gold_metrics.SENTIMENT_CLASSES for r in rows)
     assert all(len(r["text_hash"]) == 64 and len(r["body_hash"]) == 64 for r in rows)
     assert not {"text", "title", "spanish_text"} & set(rows[0])  # the marks and ids, no news text
+
+
+def test_the_committed_marks_say_which_company_each_is_about() -> None:
+    """The label is anchored to the company of the row (D35), so the file carries it: a company on every
+    row, and a blank ticker only where the row is a sector or market text (a bracketed placeholder)."""
+    rows = _committed_rows()
+    assert {"ticker", "company"} <= set(rows[0])
+    assert all(r["company"].strip() for r in rows)
+    blank = [r for r in rows if not r["ticker"].strip()]
+    assert len(blank) == 26
+    assert all(r["company"].startswith("[") and r["rule_scope"] != "single" for r in blank)
+    # the dates are the ones of the source, kept as tagged (a protected column): three forms, all ISO
+    assert all(
+        re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]{8}(\.\d{3})?(Z|\+0000)", r["pub_date"]) for r in rows
+    )
+
+
+def test_a_row_without_a_company_stops_the_build_and_a_blank_ticker_does_not() -> None:
+    ids = _ids()
+    rows = BUILD.build(_marks(ids), ids)
+    assert rows[0]["ticker"] == "" and rows[0]["company"].startswith("Company ")
+    ids[3]["company"] = " "
+    with pytest.raises(gold_metrics.MarkedFileError, match=r"without .*company"):
+        BUILD.build(_marks(ids), ids)
+
+
+def test_the_company_of_a_row_is_protected_once_the_file_has_it() -> None:
+    ids = _ids()
+    rows = BUILD.build(_marks(ids), ids)
+    before = [dict(r) for r in rows]
+    assert BUILD.changed_marks(before, rows) == []
+    after = [dict(r) for r in rows]
+    after[1]["company"] = "Another company"
+    assert BUILD.changed_marks(before, after) == [rows[1]["key"]]
+    old = [{k: v for k, v in r.items() if k not in ("ticker", "company")} for r in rows]
+    assert BUILD.changed_marks(old, after) == []  # the file of 2026-11-08 had neither column
 
 
 def test_the_committed_training_set_shares_no_article_with_the_two_exams() -> None:

@@ -6,7 +6,8 @@
 Reads ``data/sentiment_train_to_tag.csv`` (the marks the owner wrote) and
 ``data/sentiment_train_ids.csv`` (the draw: the texts, the model's prediction, the block, the batch
 and the slice) and writes ``gold/sentiment_train.csv`` (``retag.SENTIMENT_TRAIN_COLUMNS``): the mark
-and the ids only, no news text. The two files are paired by key (``<article_id>#summary``). The run
+and the ids only, no news text; the ``ticker`` and ``company`` of the row are in it because the mark is
+about that company (D35). The two files are paired by key (``<article_id>#summary``). The run
 stops unless
 
 * the marked file holds exactly the texts of the draw, once each;
@@ -54,10 +55,14 @@ TO_TAG_NAME = "sentiment_train_to_tag.csv"
 IDS_NAME = "sentiment_train_ids.csv"
 CLASSES = gold_metrics.SENTIMENT_CLASSES
 TRAIN_COLUMNS = retag.SENTIMENT_TRAIN_COLUMNS
+#: A ticker may be blank (26 of the 450 rows: the company has none the draw knew); the company may not,
+#: it is what the mark is about.
 NEEDED_FROM_THE_DRAW = tuple(
-    c for c in TRAIN_COLUMNS if c not in ("pub_date", "sentiment", "notes")
+    c for c in TRAIN_COLUMNS if c not in ("pub_date", "sentiment", "notes", "ticker")
 )
 NEEDED_FROM_THE_OWNER = ("article_id", "kind", "text", "pub_date", "sentiment", "notes")
+#: The company the mark is about (the label is anchored to it, D35) and its ticker.
+COMPANY_COLUMNS = ("ticker", "company")
 #: What a rebuild may not change in a tracked row without ``--overwrite-marks``.
 PROTECTED = (
     "sentiment",
@@ -86,10 +91,12 @@ def key_of(row: dict[str, str]) -> str:
 def changed_marks(before: list[dict[str, str]], after: list[dict[str, str]]) -> list[str]:
     """Keys of the existing file that the new rows would change (a ``PROTECTED`` column) or drop."""
     now = {r["key"]: r for r in after}
+    # the company and ticker are protected once the file has them (the file of 2026-11-08 first did not)
+    protected = PROTECTED + tuple(c for c in COMPANY_COLUMNS if before and c in before[0])
     return [
         r["key"]
         for r in before
-        if r["key"] not in now or any(now[r["key"]].get(c) != r.get(c) for c in PROTECTED)
+        if r["key"] not in now or any(now[r["key"]].get(c) != r.get(c) for c in protected)
     ]
 
 
