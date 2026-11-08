@@ -3176,3 +3176,9 @@ counted as unfaithful `units3` is 74.2% [66.0, 81.5], `units2` 68.4% [57.9, 80.3
 were designed on the failures of these same 30 bodies, so the figures are development figures; a
 confirmation on bodies not used before is proposed in TASKS T-148b8.
 
+**Spend (2026-11-08, approved by the owner): Spanish for `faithfulness_exempt_to_read.csv`.** The title and the
+line that names each of the 37 exempt companies (no article body), the approved engine, `draw_faithfulness
+--exempt --yes`: 37 articles = 37 paid calls, 0 failures; 8,848 prompt and 4,910 completion tokens (retries and
+rejected replies included). The file is merged, never replaced: a spreadsheet may reorder its columns, the
+owner's marks and values stay, and only empty Spanish cells are bought.
+

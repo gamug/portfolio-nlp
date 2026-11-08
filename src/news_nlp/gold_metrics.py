@@ -377,7 +377,7 @@ def read_exempt_marks(path: Path) -> dict[str, str]:
         return {}
     with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
-        if tuple(reader.fieldnames or ()) != EXEMPT_READ_COLUMNS:
+        if set(reader.fieldnames or ()) != set(EXEMPT_READ_COLUMNS):  # a spreadsheet may reorder
             raise MarkedFileError(f"{path.name} must have the columns {EXEMPT_READ_COLUMNS}")
         rows = list(reader)
     marks: dict[str, str] = {}

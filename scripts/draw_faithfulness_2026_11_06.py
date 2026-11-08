@@ -30,6 +30,7 @@ translation of the same engine; nothing is bought without ``--yes``. Its cache i
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import random
@@ -225,26 +226,67 @@ def exempt_rules() -> str:
     return retag.code_revision(*attribution_model.UNITS_CODE_MODULES)
 
 
-def write_exempt(out: Path) -> None:
+def _read_reading(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """The reading file as the owner's spreadsheet left it: its columns in its order, and its rows."""
+    if not path.exists():
+        return [], []
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = list(reader.fieldnames or [])
+        if set(header) != set(gold_metrics.EXEMPT_READ_COLUMNS):
+            sys.exit(f"{path.name} must have the columns {gold_metrics.EXEMPT_READ_COLUMNS}")
+        return header, list(reader)
+
+
+def write_exempt(out: Path, *, yes: bool = False, max_new: int = retag_cli.DEFAULT_MAX_NEW) -> None:
     """``--exempt``: write ``faithfulness_exempt.json`` (the companies each drawn body names that
     the ``units`` extractors are not asked about, with the revision of the rules that found them)
-    and, if it holds no reading of the owner's yet, ``faithfulness_exempt_to_read.csv``: one row per
-    company with the line that names it, for the owner to mark ``real_company`` yes or no. The
-    Spanish columns are left empty: the paid translation needs the owner's approval."""
+    and ``faithfulness_exempt_to_read.csv``: one row per company with the line that names it, for
+    the owner to mark ``real_company`` yes or no. **The owner's file is merged, never replaced:**
+    its columns stay in the order the spreadsheet left them, its rows stay, ``real_company`` and
+    every other value is untouched; only a company not in the file is appended, and only empty
+    Spanish cells are filled. The Spanish is the approved paid translation of the title and the
+    line (no body), bought only with ``--yes``; one already in the file is not bought again."""
     rows, reading = exempt_rows(
         extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies())
     )
     document = {"rules": exempt_rules(), "companies": rows}
-    files = {out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n"}
     read_path = out / EXEMPT_READ_NAME
-    if gold_metrics.read_exempt_marks(read_path) and any(
-        gold_metrics.read_exempt_marks(read_path).values()
-    ):
-        print(f"{read_path.name} holds the owner's marks: it is not rewritten")
-    else:
-        safe = retag.spreadsheet_safe(reading, tag_columns=("real_company",))
-        files[read_path] = gold_metrics.render_csv(gold_metrics.EXEMPT_READ_COLUMNS, safe)
-    gold_metrics.write_pair_atomically(files)
+    header, have = _read_reading(read_path)
+    known = {(r["article_id"], r["ticker"]) for r in have}
+    table = have + [r for r in reading if (r["article_id"], r["ticker"]) not in known]
+    todo = [r for r in table if not r["spanish_text"]]
+    if yes and todo:
+        cache = out / CACHE_DIR
+        cache.mkdir(exist_ok=True)
+        asked = [
+            {
+                "article_id": f"{r['article_id']}#{r['ticker']}",
+                "title": r["title"],
+                "text": r["text"],
+            }
+            for r in todo
+        ]
+        done = {
+            r["article_id"]: r
+            for r in retag_cli.add_spanish(
+                cache, asked, retag_cli._translator(), yes=True, max_new=max_new
+            )
+        }
+        for row in todo:
+            got = done[f"{row['article_id']}#{row['ticker']}"]
+            row["spanish_title"], row["spanish_text"] = got["spanish_title"], got["spanish_text"]
+    elif todo:
+        print(f"{len(todo)} rows without Spanish: --yes pays for the translation")
+    safe = retag.spreadsheet_safe(table, tag_columns=("real_company",))
+    gold_metrics.write_pair_atomically(
+        {
+            out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n",
+            read_path: gold_metrics.render_csv(
+                tuple(header or gold_metrics.EXEMPT_READ_COLUMNS), safe
+            ),
+        }
+    )
     pairs = {(r["article_id"], r["ticker"]) for r in rows}
     print(
         f"{len(pairs)} companies exempt for at least one extractor written to {out / EXEMPT_NAME}"
@@ -661,7 +703,8 @@ def parse_args() -> argparse.Namespace:
         dest="exempt",
         action="store_true",
         help="write the companies each drawn body names that the units extractors are not asked "
-        "about (footer, guard) and the file for the owner to read (free, no translation)",
+        "about (footer, guard) and merge them into the file for the owner to read; --yes pays for "
+        "the Spanish of its empty cells",
     )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
@@ -691,7 +734,7 @@ def main() -> None:
     if args.stale:
         sys.exit(run_stale(args))
     if args.exempt:
-        write_exempt(out)
+        write_exempt(out, yes=args.yes, max_new=args.max_new)
         return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]

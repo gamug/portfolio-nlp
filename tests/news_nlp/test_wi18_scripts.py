@@ -2641,3 +2641,83 @@ def test_the_new_texts_of_an_entry_include_the_ones_other_extractors_also_write(
     assert saved["units"]["new"] == ["1#T#2 (baseline|units)"]  # not the units2 text
     assert saved["baseline"]["new"] == ["1#T#2 (baseline|units)"]
     assert saved["units2"]["new"] == ["1#T#3 (units2)"]
+
+
+def _read_row(path: Path) -> dict[str, str]:
+    return next(csv.DictReader(path.open(encoding="utf-8-sig")))
+
+
+def test_the_exempt_reading_file_gets_its_spanish_only_with_yes_and_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    reading = [
+        {
+            "article_id": "1",
+            "ticker": "BE",
+            "company": "Bloom Energy",
+            "why": "guard",
+            "extractors": "units2|units3",
+            "title": "A title",
+            "text": "Michael Bloom said so.",
+            "spanish_title": "",
+            "spanish_text": "",
+            "real_company": "",
+        }
+    ]
+    rows = [{"article_id": "1", "ticker": "BE", "extractor": "units2", "pub_date": "2023-01-01"}]
+    monkeypatch.setattr(
+        FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(r) for r in reading])
+    )
+    paid: list[list[dict[str, str]]] = []
+
+    def fake_add_spanish(cache, asked, translator, *, yes, max_new):  # type: ignore[no-untyped-def]
+        assert yes is True
+        paid.append(asked)
+        return [
+            {**a, "spanish_title": "Un titulo", "spanish_text": "Michael Bloom lo dijo."}
+            for a in asked
+        ]
+
+    monkeypatch.setattr(FAITH.retag_cli, "add_spanish", fake_add_spanish)
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", object)
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME
+
+    FAITH.write_exempt(tmp_path)  # without --yes: nothing is bought, the columns stay empty
+    assert not paid and _read_row(path)["spanish_text"] == ""
+    FAITH.write_exempt(tmp_path, yes=True)
+    row = _read_row(path)
+    assert paid == [[{"article_id": "1#BE", "title": "A title", "text": "Michael Bloom said so."}]]
+    assert (row["spanish_title"], row["spanish_text"]) == ("Un titulo", "Michael Bloom lo dijo.")
+    header = next(csv.reader(path.open(encoding="utf-8-sig")))
+    assert header.index("spanish_title") == header.index("text") + 1  # right after the text
+    FAITH.write_exempt(
+        tmp_path, yes=True
+    )  # drawn again: what was paid for is kept, not bought again
+    assert len(paid) == 1
+    assert _read_row(path)["spanish_text"] != ""
+    # the owner's spreadsheet reordered the columns and marked a row: both survive a new draw
+    rows_now = list(csv.DictReader(path.open(encoding="utf-8-sig")))
+    rows_now[0]["real_company"] = "yes"
+    rows_now[0]["spanish_text"] = (
+        ""  # and this cell is empty again: it is the only one to be filled
+    )
+    order = ["ticker", "article_id", "company", "why", "extractors", "title", "text"]
+    order += ["spanish_title", "spanish_text", "real_company"]
+    _csv(path, rows_now, tuple(order))
+    extra_row = {**reading[0], "ticker": "HD", "company": "Home Depot"}
+    rows.append({**rows[0], "ticker": "HD"})
+    monkeypatch.setattr(
+        FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(reading[0]), dict(extra_row)])
+    )
+    FAITH.write_exempt(tmp_path, yes=True)
+    merged = list(csv.DictReader(path.open(encoding="utf-8-sig")))
+    assert next(csv.reader(path.open(encoding="utf-8-sig"))) == order  # their column order
+    assert [r["ticker"] for r in merged] == ["BE", "HD"]  # their row first, the new company after
+    assert merged[0]["real_company"] == "yes" and merged[1]["real_company"] == ""
+    assert merged[0]["spanish_text"] and merged[1]["spanish_text"]
+    assert [a["article_id"] for a in paid[-1]] == [
+        "1#BE",
+        "1#HD",
+    ]  # only the empty cells are bought
