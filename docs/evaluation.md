@@ -3182,8 +3182,14 @@ share, the texts the others wrote about them included, all extractors are on the
 companies (190 named, minus the 23 read and found not to be companies; the other 167 were not read one
 by one): baseline 68.9% [53.6, 82.1], `model` 86.2% [71.7, 97.5], `units` **94.0% [87.0, 99.2], pass**,
 `units2` 77.8% [64.1, 92.9], `units3` 84.4% [76.4, 93.3] (not decided); `units3` minus `units` -9.6
-[-16.5, -1.6] (not better). The guard removes a distortion (names that are not companies counted
-against `units`) and loses 13 real companies, mostly lines headed by a short form. The decision on
+[-16.5, -1.6] (not better). **What the 94.0% leaves out:** the 23
+non-companies take 22 of `units`' 185 texts out of its share, and 21 of them were unfaithful (the extractor wrote
+a text for "Home Depot" about "Home smart speakers", for "Franklin Resources" about a person); they are the
+extractor's own errors, not an artefact of the bar, and a cut with `units` ships them (the report prints them
+apart: "N of the M texts it wrote are for a company that is not one"). On every company named `units` is
+83.2% [72.7, 91.0], not decided. The guard (`units3`) writes none of them (0 of 148) and has 7 unfaithful texts
+of 148 against 27 of 185 for `units`, but leaves 19 real companies without a text against 4 for `units`, mostly
+lines headed by a short form. The choice between the two is the owner's trade (PLAN D34 (e), T-148b10). The decision on
 the candidate for the cut stays the owner's (PLAN D34 (e), TASKS T-148b8, T-148b9).
 
 **Spend (2026-11-08, approved by the owner): Spanish for `faithfulness_exempt_to_read.csv`.** The title and the
@@ -3199,7 +3205,10 @@ used before: `uv run scripts/draw_faithfulness_2026_11_06.py --out data/faithful
 --exclude-from data --extractors baseline,units --attribution-model data/models/attribution_2026_11_08
 --n 30 --seed 20261109 --yes` (`--exclude-from` leaves out the bodies of the first draw, twins by body hash
 included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. **The draw cannot be repeated:** the bodies file is never drawn again by design, so the same command a second time draws nothing and a different `--seed` does not redraw either; the confirmation set is this one, and a different set needs a different `--out` (and fewer bodies are left to draw). The
-owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. The owner has decided to read only these 357 texts, so the marking of the non-companies is
+owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. **Before any reading, rebuild
+the derived file: `draw_faithfulness --exempt --out data/faithfulness_confirmation --attribution-model <dir>`
+(free; the owner's file keeps its rows, marks, column order and line endings).** It is written by the rules of
+five modules and goes stale with any edit to them; the report then skips the "every company named" line. The owner has decided to read only these 357 texts, so the marking of the non-companies is
 **optional and was declined**: `draw_faithfulness --exempt --out data/faithfulness_confirmation` (free) would write
 `faithfulness_exempt.json` and `faithfulness_exempt_to_read.csv` (the companies the plain resolver names that
 the guard would reject, or the footer holds; `--yes` pays for the Spanish of its empty cells, and it is not

@@ -288,13 +288,19 @@ def write_exempt(out: Path, *, yes: bool = False, max_new: int = retag_cli.DEFAU
     elif todo:
         print(f"{len(todo)} rows without Spanish: --yes pays for the translation")
     safe = retag.spreadsheet_safe(table, tag_columns=("real_company",))
+    # the spreadsheet saves with CRLF: the file keeps the line endings it was found with
+    crlf = read_path.exists() and b"\r\n" in read_path.read_bytes()
     gold_metrics.write_pair_atomically(
         {
             out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n",
             # with a byte order mark, like the other files the owner opens in a spreadsheet: without
             # it Excel reads the UTF-8 as Windows-1252 and "percepción" shows as "percepciÃ³n"
             read_path: "\ufeff"
-            + gold_metrics.render_csv(tuple(header or gold_metrics.EXEMPT_READ_COLUMNS), safe),
+            + gold_metrics.render_csv(
+                tuple(header or gold_metrics.EXEMPT_READ_COLUMNS),
+                safe,
+                lineterminator="\r\n" if crlf else "\n",
+            ),
         }
     )
     pairs = {(r["article_id"], r["ticker"]) for r in rows}

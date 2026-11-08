@@ -438,9 +438,11 @@ class PairWriteError(OSError):
     """A replace failed after another file of the group was already replaced and could not be put back."""
 
 
-def render_csv(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> str:
+def render_csv(
+    fields: Sequence[str], rows: Sequence[Mapping[str, str]], *, lineterminator: str = "\n"
+) -> str:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator="\n")
+    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator=lineterminator)
     writer.writeheader()
     writer.writerows(rows)
     return buffer.getvalue()

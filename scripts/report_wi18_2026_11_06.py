@@ -494,7 +494,23 @@ def _exempt_lines(
         f"[{label}] real companies: {len(gone)} of the {len(pairs)} exempt companies are not "
         "companies (owner's reading); they are out of every extractor's share, the others count"
     )
+    lines += _texts_for_non_companies(label, owners, gone)
     return [*lines, *_faithfulness_block(f"{label}, real", marks_real, owners_real, omitted_real)]
+
+
+def _texts_for_non_companies(label: str, owners: dict[str, list[str]], gone: set[str]) -> list[str]:
+    """Per extractor, how many of the texts it wrote are for a company the owner read and found not
+    to be one. The bar on real companies takes these texts out of the share; they are the
+    extractor's own errors and a cut with it ships them (informative, from marks already given)."""
+    lines = []
+    for name in sorted({n for names in owners.values() for n in names}):
+        written = [key.rsplit("#", 1)[0] for key, who in owners.items() if name in who]
+        wrong = sum(pair in gone for pair in written)
+        lines.append(
+            f"[{label}] {name}: {wrong} of the {len(written)} texts it wrote are for a company that "
+            "is not one (informative: the bar on real companies leaves them out, a cut ships them)"
+        )
+    return lines
 
 
 STALE_SHOWN = 6  # marked rows named in the one-line staleness note

@@ -753,10 +753,43 @@ def test_the_bar_is_also_given_on_every_company_named_and_on_the_real_ones(tmp_p
     assert "83.3%" in units
     base = next(line for line in real if "baseline:" in line and "of the texts" not in line)
     assert "5 faithful of 5 texts + 0 companies" in base and "100.0%" in base  # also lost 3#T#1
+    # the texts written for the non-company are the extractor's errors, counted apart (informative)
+    for name in ("baseline", "units"):
+        wrote = [x for x in done.splitlines() if x.startswith(f"[all] {name}: 1 of the 6 texts")]
+        assert wrote and "for a company that is not one" in wrote[0], done
     _exempt_file(tmp_path, [_skip(1, "units")], rules="another revision")
     other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
     assert "written by the rules 'another revision'" in other
     assert "the other readings of the bar are skipped" in other and "[all]   baseline:" in other
+
+
+def test_the_exempt_reading_file_keeps_the_line_endings_the_spreadsheet_gave_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    row = {
+        "article_id": "1",
+        "ticker": "BE",
+        "company": "Bloom Energy",
+        "why": "guard",
+        "extractors": "units2",
+        "title": "t",
+        "text": "Michael Bloom said so.",
+        "spanish_title": "x",
+        "spanish_text": "y",
+        "real_company": "no",
+    }
+    rows = [{"article_id": "1", "ticker": "BE", "extractor": "units2", "pub_date": "2023-01-01"}]
+    monkeypatch.setattr(FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(row)]))
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME
+    FAITH.write_exempt(tmp_path)  # a new file: the project's own line ending
+    assert b"\r\n" not in path.read_bytes()
+    text = gold_metrics.render_csv(gold_metrics.EXEMPT_READ_COLUMNS, [row], lineterminator="\r\n")
+    path.write_bytes(b"\xef\xbb\xbf" + text.encode())  # saved by a spreadsheet: CRLF
+    before = path.read_bytes()
+    FAITH.write_exempt(tmp_path)  # drawn again with nothing new: the file is the same bytes
+    assert path.read_bytes() == before
 
 
 def test_a_not_a_company_mark_applies_when_only_other_extractors_were_not_asked_about_it(
