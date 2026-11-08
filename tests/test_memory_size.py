@@ -78,6 +78,22 @@ def test_no_plan_section_or_line_is_over_its_limit() -> None:
         assert not long, f"{name} lines over {MAX_LINE:,} characters: {long[:5]}"
 
 
+def _task_id(line: str) -> str:
+    found = re.search(r"\*\*(T-\w+)\*\*", line)
+    return found.group(1) if found else line[:40]
+
+
+def test_tasks_holds_no_checked_task() -> None:
+    checked = [
+        _task_id(line) for line in _text("TASKS.md").split("\n") if re.match(r"^\s*- \[x\] ", line)
+    ]
+    assert not checked, (
+        f"checked tasks in TASKS.md: {', '.join(checked)}; a done or superseded task moves verbatim "
+        'to CHANGELOG.md, section "Tasks closed while their work item is still open" '
+        "(constitution AI #15)"
+    )
+
+
 def test_index_lists_every_archive_file() -> None:
     index = (MEMORY / "INDEX.md").read_text(encoding="utf-8")
     for path in sorted((MEMORY / "archive").glob("*.md")):

@@ -3,8 +3,9 @@
 Legacy record of **closed** work items, moved here verbatim from
 `.specify/memory/TASKS.md` so that file carries only open work. A work item is
 closed once every task in it is checked, or explicitly superseded/moved elsewhere.
-Task IDs are stable and never reused; `PLAN.md` keeps each work item's plan and
-acceptance criteria. Ordered by work item number; the section "Tasks closed while their work item is still open" at the end is grouped by work item and holds done tasks, not whole items.
+Task IDs are stable and never reused. A closed work item's plan and acceptance
+criteria are in `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`
+(`PLAN.md` keeps its heading and one line). Ordered by work item number; the section "Tasks closed while their work item is still open" at the end is grouped by work item and holds done tasks, not whole items.
 
 ## Work item 1 — Pin HF model checkpoints (resolved 2026-09-14)
 

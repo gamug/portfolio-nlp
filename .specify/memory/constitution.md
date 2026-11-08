@@ -263,9 +263,9 @@ component; every rule below assumes the stack actually pinned in
     the one sanctioned exception to "the same change that closes it".
     **Extension (2026-11-08): the same rule applies below the work-item level
     and to the other planning files, so that they stay readable.** (a) A done
-    task of a work item that is still open moves to `CHANGELOG.md`, under
+    or superseded task (checked `[x]`, with its closure noted) of a work item that is still open moves to `CHANGELOG.md`, under
     "Tasks closed while their work item is still open", verbatim, in the same
-    change that checks it. (b) When a work item closes, its `PLAN.md` section
+    change that checks it; `tests/test_memory_size.py` fails if `TASKS.md` holds a checked task. (b) When a work item closes, its `PLAN.md` section
     moves verbatim to `.specify/memory/archive/`, leaving its heading and one
     line. (c) An open task entry in `TASKS.md` is a status, the decision, what
     is open and a pointer; figures, tables and review history go to `docs/` or
