@@ -59,7 +59,7 @@ overwrites a file, with rows or without.
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | drawn, marked and migrated 2026-11-06: 82 positive, 65 negative, 33 neutral; overall agreement 60.4% (interval 52.8 to 67.6), under the D32 bar of 80%; negative precision 78.7% (67.3 to 89.3) and recall 77.7% (69.4 to 86.8), not decided against 70%; `gold/` file built (180 rows, `build_sentiment_gold_2026_11_06.py`) |
-| 6 | **Sentiment training set** (not a gold: it trains, never exams) | 450 summaries | `sentiment_train_to_tag.csv` | `sentiment_train.csv` | drawn and translated 2026-11-07 (`draw_sentiment_train_2026_11_07.py`); the owner tags all 450 on 2026-11-07; builder and trainer are T-148c1 and T-148c3 |
+| 6 | **Sentiment training set** (not a gold: it trains, never exams) | 450 summaries | `sentiment_train_to_tag.csv` | `sentiment_train.csv` | drawn and translated 2026-11-07 (`draw_sentiment_train_2026_11_07.py`); the owner tagged all 450 and the marks were migrated 2026-11-08 (`build_sentiment_train_2026_11_07.py`, T-148c1: 360 train, 90 validation); the trainer is T-148c3 |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.
@@ -236,8 +236,24 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **Files:** `data/sentiment_train_ids.csv` (the draw and **the only copy of the texts the owner read**: back it up;
   the summaries are also in the cut's chunks by body hash), `data/sentiment_train_to_tag.csv` (the owner's file,
   Spanish columns after `text`), `gold/sentiment_train.csv` (the marks and ids, no news text; written by
-  `scripts/build_sentiment_train_2026_11_07.py`, which arrives with T-148c1, PR #137).
-- **Label:** the same as set 5: the price impact on the company an investor would read.
+  `scripts/build_sentiment_train_2026_11_07.py`, T-148c1, PR #137). Migrated 2026-11-08.
+- **Label: anchored to the tagged company (owner's rule, 2026-11-08; a design feature to preserve).** The
+  mark is what the text says **about the company of the row** (`company`, `ticker`): the price impact an
+  investor would read on that company. If the company is in the facts the text presents, the label is the
+  sentiment about it; if the text does not mention the company, or the part that concerns it is neutral,
+  the label is **neutral**, even when other sentences of the text are positive or negative (a positive
+  sentence about another company, or about the market, does not make the text positive for this row).
+  This is how the company is attached to the sentiment prediction. Reading the figures: a model that
+  scores the sentiment of the text without the company disagrees with these marks **by design**, so the
+  disagreement of the draw's model with the owner (the confusion below) is not an error of the marks.
+- **Marks (2026-11-08):** 450 of 450, 232 positive, 113 negative, 105 neutral (train 180 / 96 / 84,
+  validation 52 / 17 / 21). The model that balanced the draw (rows) against the owner (columns), positive |
+  negative | neutral: positive 120 / 6 / 24; negative 37 / 83 / 30; neutral 75 / 24 / 51.
+- **Integrity (2026-11-08):** the builder stops unless every row is marked, the text the owner read is the
+  drawn text (hash), the ids pair exactly and the design is the one drawn: it passed. Besides: 450 articles
+  and 450 body hashes, all different; no article shared with set 5 (128 articles) or with the held-out set
+  (200); no spreadsheet damage (no encoding change, no fill-down run). `tests/news_nlp/test_build_sentiment_train.py`
+  pins the committed file (counts, design, no news text, no overlap with the two exams).
 
 ## Roadmap: what each set unlocks and the order to tag
 

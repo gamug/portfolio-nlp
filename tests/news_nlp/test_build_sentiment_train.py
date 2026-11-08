@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import sys
+from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
@@ -399,3 +400,44 @@ def test_marks_in_spanish_are_refused_with_the_english_words_named() -> None:
     with pytest.raises(gold_metrics.MarkedFileError) as other:
         BUILD.build(marks, ids)
     assert "write the English word" not in str(other.value)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _committed_rows() -> list[dict[str, str]]:
+    return list(csv.DictReader((ROOT / "gold" / "sentiment_train.csv").open(encoding="utf-8-sig")))
+
+
+def test_the_committed_sentiment_train_marks_are_the_owners_450() -> None:
+    """Pinned like the other committed gold files: changing a mark is a decision that moves these
+    counts (D35: the builder refuses to change a mark without ``--overwrite-marks``)."""
+    rows = _committed_rows()
+    assert tuple(rows[0]) == retag.SENTIMENT_TRAIN_COLUMNS
+    assert len(rows) == 450 and len({r["key"] for r in rows}) == 450
+    assert Counter(r["slice"] for r in rows) == {"train": 360, "validation": 90}
+    by_slice = {
+        s: Counter(r["sentiment"] for r in rows if r["slice"] == s) for s in ("train", "validation")
+    }
+    assert by_slice["train"] == {"positive": 180, "negative": 96, "neutral": 84}
+    assert by_slice["validation"] == {"positive": 52, "neutral": 21, "negative": 17}
+    BUILD.check_design(rows)  # the sample is the one drawn: classes, blocks, batches, slices
+    assert all(r["sentiment"] in gold_metrics.SENTIMENT_CLASSES for r in rows)
+    assert all(len(r["text_hash"]) == 64 and len(r["body_hash"]) == 64 for r in rows)
+    assert not {"text", "title", "spanish_text"} & set(rows[0])  # the marks and ids, no news text
+
+
+def test_the_committed_training_set_shares_no_article_with_the_two_exams() -> None:
+    train = {r["article_id"] for r in _committed_rows()}
+    exam = {
+        r["article_id"]
+        for r in csv.DictReader((ROOT / "gold" / "sentiment_gold.csv").open(encoding="utf-8-sig"))
+    }
+    heldout = {
+        r["article_id"]
+        for r in csv.DictReader(
+            (ROOT / "gold" / "category_gold_v2_test.csv").open(encoding="utf-8-sig")
+        )
+    }
+    assert len(train) == 450  # one summary per article
+    assert not train & exam and not train & heldout  # D35: it trains, never exams
