@@ -259,6 +259,21 @@ component; every rule below assumes the stack actually pinned in
     Work items already closed when this rule was adopted (2026-09-24)
     were backfilled into `CHANGELOG.md` by the change that introduced it —
     the one sanctioned exception to "the same change that closes it".
+    **Extension (2026-11-08): the same rule applies below the work-item level
+    and to the other planning files, so that they stay readable.** (a) A done
+    task of a work item that is still open moves to `CHANGELOG.md`, under
+    "Tasks closed while their work item is still open", verbatim, in the same
+    change that checks it. (b) When a work item closes, its `PLAN.md` section
+    moves verbatim to `.specify/memory/archive/`, leaving its heading and one
+    line. (c) An open task entry in `TASKS.md` is a status, the decision, what
+    is open and a pointer; figures, tables and review history go to `docs/` or
+    the PR, long-form history to `archive/`; a superseded rule is replaced, not
+    annotated. (d) `SPEC.md` §13 keeps one short paragraph per item; a resolved
+    item points to the archive. (e) A session reads `.specify/memory/INDEX.md`
+    first and loads only the sections its task needs, not the whole of
+    `PLAN.md`, `SPEC.md` or `TASKS.md`. (f) `tests/test_memory_size.py` fails
+    when `TASKS.md`, `PLAN.md` or `SPEC.md` pass their size limit or a task
+    entry its length limit; the fix is to move text, not to raise the limit.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
@@ -386,4 +401,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.10.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-07
+**Version**: 2.11.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-08
