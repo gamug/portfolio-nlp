@@ -3,18 +3,18 @@
 The planning files are large. **Read this page, then only the section the task needs** (`grep -n '^## ' <file>`
 lists a file's sections; read that range). Do not load whole files by default.
 
-| File | What it is | Read it when | Size limit (a test keeps it; about 10% above the size on 2026-11-08) |
+| File | What it is | Read it when | Size limit (kept by `tests/test_memory_size.py`, which holds the numbers) |
 |---|---|---|---|
 | `constitution.md` | principles and AI behaviour rules | always, once per session | none |
-| `SPEC.md` | requirements (§2 FR/NR), architecture, risks (§13) | the task touches a stated requirement; §2 and the section of the stage | 72,000 characters |
-| `PLAN.md` | the plan: one `## Work item N` per item, decisions D-numbers inside Work item 18 | the task belongs to an open work item; today **Work item 18** (and 2, 17) | 73,000 characters; a `## Work item` section at most 58,000 |
-| `TASKS.md` | open work only: one entry per open task | looking up a task by ID: `grep -n 'T-148b10' TASKS.md`; **if the ID is not there it was moved: search `CHANGELOG.md`, then `archive/`** | 52,000 characters; an entry at most 4,000 |
+| `SPEC.md` | requirements (§2 FR/NR), architecture, risks (§13) | the task touches a stated requirement; §2 and the section of the stage | capped |
+| `PLAN.md` | the plan: one `## Work item N` per item, decisions D-numbers inside Work item 18 | the task belongs to an open work item; today **Work item 18** (and 2, 17) | capped, and each `## Work item` section |
+| `TASKS.md` | open work only: one entry per open task | looking up a task by ID: `grep -n 'T-148b10' TASKS.md`; **if the ID is not there it was moved: search `CHANGELOG.md`, then `archive/`** | capped, and each entry |
 | `CHANGELOG.md` | done work: closed work items, and "Tasks closed while their work item is still open" | a closed task's history is needed | none (read by search) |
 | `archive/` | verbatim text moved out of the files above (closed plans, long task entries, resolved risks) | the history of one item is needed | none (read by search) |
 
 ## Where things are
 
-- **Current focus:** Work item 18, triage-first pipeline (`PLAN.md`, `TASKS.md`). Decisions D11–D35 are all in `PLAN.md` Work item 18 ("Decision record" for D11–D24, then D25–D35); T-143 and T-151 moved to `CHANGELOG.md`.
+- **Current focus:** Work item 18, triage-first pipeline (`PLAN.md`, `TASKS.md`). Decisions D11–D35 are all in `PLAN.md` Work item 18 ("Decisions" for D11–D24, then D25–D35); T-143 (the original record of D11–D24) and T-151 moved to `CHANGELOG.md`.
 - **Step 4 (company texts):** the extractor `units` was selected on 2026-11-08 (`TASKS.md` T-148b10 (9), `PLAN.md` D34 (e)); datasets, experiments, metrics and results are in `docs/extractor_training.md`; wiring it into the cut is T-148b12 (proposed).
 - **Closed work items:** 1, 5, 6, 8–14, 16 (and 15, superseded by 18). Their plan is in `archive/PLAN-closed-work-items-2026-11-08.md` (grep `## Work item N`), their tasks in `CHANGELOG.md`. **A reference such as "PLAN.md Work item 10 step 3" in a doc or a code comment resolves in that archive file.**
 - **Work items 3, 4, 7:** resolved except T-022, T-032, T-062 (in `TASKS.md`); their plan and **acceptance criteria are only in the archive**.

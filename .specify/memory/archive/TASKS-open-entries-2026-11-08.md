@@ -369,3 +369,9 @@ Dependencies at a glance:
 ## Status paragraph on Work item 15 (replaced 2026-11-08)
 
 **Work item 15's own plan (filed 2026-10-14) is superseded by Work item 18**: T-116, T-117, T-119, T-120, T-122–T-126 and T-130 each say so in place and none is on the roadmap (T-118, T-139 and T-140 are closed decision records, T-121 closed negative). What carries over is the corrected corpus (T-128, done 2026-10-22), the results cleanup (T-131, now the backfill of P6), the alias table (T-132, shrunk) and the close-out (T-129). Work item 16 (schema guard, T-135–T-136) is closed in `CHANGELOG.md`; Work item 17 (multi-company articles) is re-scoped into Work item 18, its sizing absorbed by T-144 and its design superseded by D27–D28.
+
+## Work item 17 preamble
+
+35.9% of the `ok` articles belong to a URL that has pairs for more than one ticker
+(a floor); every stage keys on the pair. Size it before building anything. →
+`PLAN.md` Work item 17. Task order: T-137, then T-138 only if D9 and the sizing say so, then T-138b (close-out).
