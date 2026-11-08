@@ -243,6 +243,12 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   sentiment about it; if the text does not mention the company, or the part that concerns it is neutral,
   the label is **neutral**, even when other sentences of the text are positive or negative (a positive
   sentence about another company, or about the market, does not make the text positive for this row).
+  **The title is context, not ownership (owner's precision, 2026-11-08):** the title may be used to know
+  whether a text speaks about a company, but care is needed not to give a sentence to a company only
+  because the title names it: a sentence belongs to the company when what it says is about that company
+  (the text read with the title as context), not because the headline mentions the company. A title that
+  names the company does not make a sentence about something else, or about another company, that
+  company's.
   This is how the company is attached to the sentiment prediction. Reading the figures: a model that
   scores the sentiment of the text without the company disagrees with these marks **by design**, so the
   disagreement of the draw's model with the owner (the confusion below) is not an error of the marks.
