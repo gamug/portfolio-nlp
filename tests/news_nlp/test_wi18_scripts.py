@@ -652,14 +652,16 @@ def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
         SENTIMENT.draw(twins, 2, 1)
 
 
-def _faith_files(tmp_path: Path, skipped: list[dict[str, str]]) -> None:
+def _faith_files(
+    tmp_path: Path, skipped: list[dict[str, str]], extractors: str = "baseline|model"
+) -> None:
     ids, tags = [], []
     for order, article in enumerate(range(1, 7), 1):
         ids.append(
             {
                 "review_order": str(order),
                 "key": f"{article}#T#1",
-                "extractors": "baseline|model",
+                "extractors": extractors,
                 "pub_date": "2023-01-01",
             }
         )
@@ -684,6 +686,32 @@ def test_the_faithfulness_report_prints_both_readings_of_the_bar(tmp_path: Path)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "6 faithful of 6 texts + 2 companies left without one" in text
     assert "of the texts it wrote, 100.0%" in text
+
+
+def test_the_report_gives_the_three_gains_when_the_three_extractors_wrote_texts(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    for pair in ("model minus baseline", "units minus baseline", "units minus model"):
+        assert f"{pair} on 6 company texts" in text
+    _faith_files(tmp_path, [], extractors="baseline|model")
+    two = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "model minus baseline on 6" in two and "units minus" not in two
+
+
+def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path: Path) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    plain = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "second reading of the bar" not in plain  # no file: nothing to count
+    _csv(
+        tmp_path / "faithfulness_footer_only.csv",
+        [_skip(1, "units"), _skip(2, "units")],
+        FAITH.COVERAGE_FIELDS,
+    )
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "with the 2 companies named only in a footer counted as unfaithful" in text
+    assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(

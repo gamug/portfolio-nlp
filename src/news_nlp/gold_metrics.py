@@ -31,6 +31,9 @@ SENTIMENT_CLASSES = ("positive", "negative", "neutral")
 SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
+# companies a body names only in its footer (T-148b4): the ``units`` reading does not ask for a text
+# of them, so they are not in the coverage; the report counts them in a second reading of the bar
+FOOTER_ONLY_NAME = "faithfulness_footer_only.csv"
 KNOWN_EXTRACTORS = ("baseline", "model", "units")
 
 

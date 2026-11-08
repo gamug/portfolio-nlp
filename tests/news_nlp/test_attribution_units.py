@@ -3,7 +3,11 @@ No model: the splitting, the clauses and the footer rules are what is tested."""
 
 from __future__ import annotations
 
+import importlib.util
 from collections.abc import Sequence
+from pathlib import Path
+
+import pytest
 
 from news_nlp import attribution_model as am
 from news_nlp import attribution_units as au
@@ -83,6 +87,51 @@ def test_read_more_links_are_dropped_wherever_they_are() -> None:
     assert "Read more" not in au.strip_footer(body)
 
 
+def test_a_short_sentence_after_more_from_is_the_story_not_a_link() -> None:
+    body = (
+        STORY
+        + '\nMore From CNBC.com\n- Get Quotes\n- Futures Data\n"We will win," he said.\n'
+        + STORY
+    )
+    kept = au.strip_footer(body)
+    assert "Get Quotes" not in kept and "We will win" in kept
+
+
+@pytest.mark.parametrize(
+    "last",
+    [
+        "Subscribers rose 5% in the quarter, the company said, as the new plan took hold.",
+        "Comments from the company's chief executive suggested that growth would continue.",
+        "Questions remain about the pace of the recovery in the second half of the year.",
+        "Disclaimers in the filing say the figures are unaudited and may change later on.",
+        "Source documents show the deal was agreed last week, according to people familiar.",
+        "Copyrighted material in the archive was removed after the ruling in the case.",
+    ],
+)
+def test_a_story_paragraph_that_starts_like_a_footer_label_is_kept(last: str) -> None:
+    body = STORY + "\n" + last
+    assert au.strip_footer(body).rstrip().endswith(last)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Questions? Comments?",
+        "Disclaimer:",
+        "Subscribe",
+        "Subscribe to our newsletter",
+        "Source: Reuters",
+    ],
+)
+def test_a_label_line_at_the_end_is_dropped(line: str) -> None:
+    assert au.strip_footer(STORY + "\n" + line).strip() == STORY.strip()
+
+
+def test_a_long_line_is_a_paragraph_even_if_it_starts_with_a_label() -> None:
+    long = "Source: " + "the filing says so and the company agreed with it. " * 8
+    assert au.strip_footer(STORY + "\n" + long).rstrip().endswith(long.strip())
+
+
 def test_a_body_that_would_be_left_with_almost_nothing_keeps_its_footer() -> None:
     body = "Short story.\nSubscribe to our newsletter"
     assert au.strip_footer(body) == body
@@ -117,3 +166,43 @@ def test_the_default_reading_is_unchanged() -> None:
     assert am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0)) == am.model_company_texts(
         body, RESOLVER, NAMES, _Scorer(0.0), units=False
     )
+
+
+def test_with_units_a_company_named_only_in_the_footer_is_not_a_candidate() -> None:
+    story = (
+        "Microsoft grew its cloud unit this quarter. Azure demand stayed strong for the third "
+        "quarter in a row, the company said on Tuesday. Analysts expect the trend to continue. "
+    ) * 4
+    body = story + "\nDisclosures:\nThe author owns (ORCL)"
+    scorer = _Scorer(0.9)  # every candidate scores 0.9
+    plain = am.model_company_texts(body, RESOLVER, NAMES, scorer)
+    units = am.model_company_texts(body, RESOLVER, NAMES, scorer, units=True)
+    assert "ORCL" in plain  # the whole body names Oracle in the footer: it is a candidate
+    assert set(units) == {"MSFT"}  # the story names only Microsoft: Oracle is not asked about
+
+
+def _audit_script(monkeypatch: pytest.MonkeyPatch) -> object:
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    monkeypatch.syspath_prepend(str(scripts))
+    spec = importlib.util.spec_from_file_location(
+        "audit_footer_2026_11_08", scripts / "audit_footer_2026_11_08.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_footer_audit_counts_the_changed_bodies_and_shows_what_was_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _audit_script(monkeypatch)
+    unchanged = STORY
+    light = STORY * 4 + "\nQuestions? Comments?"
+    heavy = STORY * 10 + "\nDisclosures:\n" + "Cortes owns (AAPL); Adami owns (MSFT)\n" * 33
+    result = script.audit({1: unchanged, 2: light, 3: heavy}, seed=1, show=5, sample=5)  # type: ignore[attr-defined]
+    assert (result["bodies"], result["changed"], result["lose more than a fifth"]) == (3, 2, 1)
+    assert [a for a, _ in result["heavy"]] == [3] and "Cortes owns" in result["heavy"][0][1]
+    assert [a for a, _ in result["sample"]] == [2] and result["sample"][0][
+        1
+    ] == "Questions? Comments?"

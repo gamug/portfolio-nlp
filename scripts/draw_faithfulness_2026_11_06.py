@@ -64,6 +64,7 @@ CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
 COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+FOOTER_ONLY_NAME = gold_metrics.FOOTER_ONLY_NAME
 COVERAGE_FIELDS = gold_metrics.COVERAGE_COLUMNS
 IDS_FIELDS = (
     "review_order",
@@ -82,7 +83,8 @@ MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_
 
 def extractor_revision(name: str) -> str:
     """The revision of extractor *name*: the baseline's code, or the trained model's identity (the
-    Hub id and revision, or a local directory's weights hash) with its code."""
+    Hub id and revision, or a local directory's files hash) with the code of the extractor:
+    ``model`` the model's modules, ``units`` those and the footer and unit cutting."""
     if name not in ("model", "units"):
         return retag.extractor_revision(name)
     if not MODEL_IDENTITY:
@@ -173,6 +175,33 @@ def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str
                 }
             )
     return found
+
+
+def footer_only_rows(
+    bodies: list[dict[str, str]], resolver: CompanyResolver
+) -> list[dict[str, str]]:
+    """The companies each body names only in its footer (``COVERAGE_FIELDS``, extractor ``units``):
+    the ``units`` reading is not asked for a text of them, and the report counts them as unfaithful
+    in the second reading of the bar."""
+    conn = db.connect_pipeline()
+    rows: list[dict[str, str]] = []
+    for b in bodies:
+        src = conn.execute(
+            "SELECT body_text, pub_date FROM source.articles WHERE id = ?", (int(b["article_id"]),)
+        ).fetchone()
+        body = src["body_text"] or ""
+        story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
+        rows += [
+            {
+                "article_id": b["article_id"],
+                "ticker": ticker,
+                "extractor": "units",
+                "pub_date": src["pub_date"] or "",
+            }
+            for ticker in sorted(resolver.resolve(body, skip_attribution=False))
+            if ticker not in story
+        ]
+    return rows
 
 
 def collect_items(
@@ -440,6 +469,11 @@ def parse_args() -> argparse.Namespace:
         "--attribution-revision; without it only the baseline exists",
     )
     parser.add_argument("--attribution-revision", metavar="SHA")
+    parser.add_argument(
+        "--footer-only",
+        action="store_true",
+        help="write the companies each drawn body names only in its footer (free, no translation)",
+    )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     return parser.parse_args()
@@ -459,6 +493,15 @@ def main() -> None:
         add_extractor(args)
         return
     out: Path = args.out
+    if args.footer_only:
+        rows = footer_only_rows(
+            extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies())
+        )
+        gold_metrics.write_pair_atomically(
+            {out / FOOTER_ONLY_NAME: gold_metrics.render_csv(COVERAGE_FIELDS, rows)}
+        )
+        print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+        return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]
     if missing:

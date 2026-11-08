@@ -28,7 +28,7 @@ import argparse
 import functools
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -335,7 +335,8 @@ def _gain_lines(
     challenger: str = "model",
     reference: str = "baseline",
 ) -> list[str]:
-    """*challenger* minus *reference* (model minus baseline) on the companies at least one of them wrote a text for; a company one
+    """*challenger* minus *reference* (by default model minus baseline) on the companies at least
+    one of them wrote a text for; a company one
     skipped counts as unfaithful for it, and a company both skipped says nothing on which is
     better (it stays in the shares only)."""
     pairs: dict[str, dict[str, bool]] = {}
@@ -412,7 +413,27 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         marks[row["key"]] = r["faithful"] == "yes"
         owners[row["key"]] = row["extractors"].split("|")
         dates[row["key"]] = row
-    return _faithfulness_lines(note, marks, owners, dates, coverage)
+    footer_path = out / gold_metrics.FOOTER_ONLY_NAME
+    footer_only = gold_metrics.read_coverage(footer_path) if footer_path.exists() else []
+    return _faithfulness_lines(note, marks, owners, dates, coverage, footer_only)
+
+
+def _footer_only_lines(
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
+    footer_only: Sequence[dict[str, str]],
+) -> list[str]:
+    """``units`` on the bar with the companies named only in a footer counted as unfaithful."""
+    extra_pairs = [f"{c['article_id']}#{c['ticker']}" for c in footer_only]
+    if not extra_pairs or "units" not in {n for o in owners.values() for n in o}:
+        return []
+    strict = {**omitted, "units": [*omitted.get("units", []), *extra_pairs]}
+    fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)["units"]
+    return [
+        f"[all]      units: with the {len(extra_pairs)} companies named only in a footer counted "
+        f"as unfaithful (second reading of the bar): {fig} -> {fig.judge(FAITHFUL_BAR)}"
+    ]
 
 
 def _faithfulness_lines(
@@ -421,10 +442,13 @@ def _faithfulness_lines(
     owners: dict[str, list[str]],
     dates: dict[str, dict[str, str]],
     coverage: list[dict[str, str]],
+    footer_only: Sequence[dict[str, str]] = (),
 ) -> list[str]:
     """The figures from marks by text key, who wrote each text, the row (with ``pub_date``) of
     each key and the companies an extractor left without a text. Shared by the owner's file and
-    the tracked gold, so both give the same figures."""
+    the tracked gold, so both give the same figures. *footer_only* are the companies a body names
+    only in its footer, which ``units`` is not asked about: a second reading of the bar counts
+    them as unfaithful for ``units`` (the owner decides which reading is the bar's)."""
     omitted: dict[str, list[str]] = {}
     omitted_late: dict[str, list[str]] = {}
     for c in coverage:
@@ -442,6 +466,7 @@ def _faithfulness_lines(
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
     lines += _faithfulness_block("all", marks, owners, omitted)
+    lines += _footer_only_lines(marks, owners, omitted, footer_only)
     lines += _faithfulness_block(
         "2022+",
         {k: v for k, v in marks.items() if k in late},
