@@ -137,8 +137,10 @@ component; every rule below assumes the stack actually pinned in
    import style (`import news_nlp as db`, the `sys.path` bootstrap) rather
    than a generic layout.
 7. **This constitution and `.specify/memory/SPEC.md` are the binding
-   reference for planning and review** — read both before drafting a
-   spec/plan, and resolve any conflict between a request and a stated
+   reference for planning and review** — read the constitution, and the
+   parts of `SPEC.md` the change touches (found through
+   `.specify/memory/INDEX.md`; §2 and the stage's own section at least),
+   before drafting a spec/plan, and resolve any conflict between a request and a stated
    principle or requirement by surfacing it or proposing an amendment, not
    by quietly overriding either. A local, untracked `CLAUDE.md` may carry
    situational/session notes, but it is never authoritative and must not be
@@ -271,9 +273,11 @@ component; every rule below assumes the stack actually pinned in
     annotated. (d) `SPEC.md` §13 keeps one short paragraph per item; a resolved
     item points to the archive. (e) A session reads `.specify/memory/INDEX.md`
     first and loads only the sections its task needs, not the whole of
-    `PLAN.md`, `SPEC.md` or `TASKS.md`. (f) `tests/test_memory_size.py` fails
-    when `TASKS.md`, `PLAN.md` or `SPEC.md` pass their size limit or a task
-    entry its length limit; the fix is to move text, not to raise the limit.
+    `PLAN.md`, `SPEC.md` or `TASKS.md` (this is how behavior #7's "read
+    `SPEC.md`" is met). (f) `tests/test_memory_size.py` fails
+    when `TASKS.md`, `PLAN.md` or `SPEC.md` pass their size limit (about 10%
+    above their size when the rule was adopted), a `## Work item` section of
+    `PLAN.md`, a line, or a task entry passes its length limit; the fix is to move text, not to raise the limit.
 
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:

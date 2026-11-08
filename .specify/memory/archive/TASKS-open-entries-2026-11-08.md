@@ -1,7 +1,7 @@
 # Open-task entries of TASKS.md, as they stood before the condensation of 2026-11-08
 
 Verbatim text of the open tasks that `TASKS.md` now carries in a short form (same task IDs, same status).
-Read only when the history of one of them is needed. Moved by the change that added `.specify/memory/INDEX.md`.
+Read only when the history of one of them is needed. Moved by the change that added `.specify/memory/INDEX.md`; cut from `origin/master` at 8c156f28241d0a3eff36eee46b709662356ac04b (diff against it to see every change).
 
 
 ## T-148b10
@@ -308,3 +308,64 @@ Read only when the history of one of them is needed. Moved by the change that ad
   - Open: the takeover of a stale lock is not atomic (two starts at the same instant can both run: duplicated work, chunk
     files are atomic); a lock written by this version is read as stale by an older script (do not share an output folder
     across versions); closing the console window cannot be caught (the next start takes the lock over).
+
+## Work item 15 preamble and dependency table
+
+
+**Re-scoped 2026-10-28 into Work item 18** (T-143): see the per-task markers below.
+
+`other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
+figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
+suspected it mixes "not about the ticker's company" (ticker symbols that are English
+words hold 39.0% of the corpus, plus companies cut to a generic first word) with "about
+the company, no dimension clears the 0.6 bar". A population check on 2026-10-22,
+stratified by source and period (`docs/evaluation.md`), found wrong tagging explains at
+most about 11% of `other` (rejected articles are 68.8% of the corpus and 70.8% of
+`other`; `other` is 37.9% of confirmed articles and 43.9% of rejected ones). The main
+lever is therefore calibration, which does not wait for the relevance work. Plan:
+calibrate per-slug thresholds and a margin rule offline from stored scores (T-121(a) after
+T-133's partition, then T-121(b)'s judged sample once the owner approves the spend); clean up the results the tagging fix removed (T-131, after a
+pre-purge check); decide the doubtful `review` pairs (T-132); build a relevance gate only
+if what remains justifies one (T-117's rule); then re-evaluate and re-classify (T-123,
+T-124, by a re-label unless T-140 says otherwise).
+→ `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
+
+Tasks are listed in execution order within Work item 15, not ID order (IDs are
+stable; T-130 to T-134, T-139 to T-142 were added after the rest; T-135 to T-138
+belong to Work items 16 (closed, `CHANGELOG.md`) and 17, which is why the numbers skip;
+a letter suffix such as `T-138b` is the close-out of its work item, unlike
+T-121(a)/(b), which are parts of one task). The table below and `PLAN.md`'s Sequencing
+section are the authority for ordering.
+
+Dependencies at a glance:
+
+| Task | Depends on | Blocks | Can start now? |
+|---|---|---|---|
+| T-116 audit | none | none | yes |
+| T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
+| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | **done 2026-10-22** |
+| T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **done 2026-10-22** |
+| T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
+| T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
+| T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (schema guard, done in #109, `CHANGELOG.md`) | T-117 | **yes** |
+| T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
+| T-138 multi-company build | T-137 result, the owner | T-138b | no (conditional) |
+| T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
+| T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
+| T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
+| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **done 2026-10-23** |
+| T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **done 2026-10-23** |
+| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
+| T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
+| T-122 ship the rule | T-121 | T-123 | no |
+| T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
+| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 (decided 2026-10-22, defaults) | T-124 | no |
+| T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **decided 2026-10-22, re-label from stored scores** |
+| T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
+| T-125, T-126 contingent | T-123 result | none | no |
+| T-127 sentiment impact | none (separate PR) | none | yes |
+| T-129 close-out | all of the above | none | no |
+
+## Status paragraph on Work item 15 (replaced 2026-11-08)
+
+**Work item 15's own plan (filed 2026-10-14) is superseded by Work item 18**: T-116, T-117, T-119, T-120, T-122–T-126 and T-130 each say so in place and none is on the roadmap (T-118, T-139 and T-140 are closed decision records, T-121 closed negative). What carries over is the corrected corpus (T-128, done 2026-10-22), the results cleanup (T-131, now the backfill of P6), the alias table (T-132, shrunk) and the close-out (T-129). Work item 16 (schema guard, T-135–T-136) is closed in `CHANGELOG.md`; Work item 17 (multi-company articles) is re-scoped into Work item 18, its sizing absorbed by T-144 and its design superseded by D27–D28.

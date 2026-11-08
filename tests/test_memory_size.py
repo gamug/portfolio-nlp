@@ -7,6 +7,7 @@ or `.specify/memory/archive/` (verbatim, IDs unchanged) instead of raising the l
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,11 @@ import pytest
 MEMORY = Path(__file__).resolve().parents[1] / ".specify" / "memory"
 
 #: Characters (the files are read by a model, so the unit that matters is tokens, about a quarter of it).
-LIMITS = {"TASKS.md": 70_000, "PLAN.md": 80_000, "SPEC.md": 80_000}
+LIMITS = {"TASKS.md": 52_000, "PLAN.md": 73_000, "SPEC.md": 72_000}
+#: One `## Work item N` section of PLAN.md (Work item 18 is the largest, 53 KB on 2026-11-08).
+MAX_PLAN_SECTION = 58_000
+#: One line of PLAN.md or TASKS.md (the longest on 2026-11-08 is 4.4 KB).
+MAX_LINE = 5_000
 #: One open task entry: its line plus the indented lines under it.
 MAX_TASK_ENTRY = 4_000
 
@@ -57,6 +62,20 @@ def test_no_task_entry_is_longer_than_the_limit() -> None:
         f"task entries over {MAX_TASK_ENTRY:,} characters: {', '.join(too_long)}; keep a status, the "
         "decision, what is open and a pointer, and move the history to .specify/memory/archive/"
     )
+
+
+def test_no_plan_section_or_line_is_over_its_limit() -> None:
+    plan = _text("PLAN.md").split("\n")
+    heads = [i for i, line in enumerate(plan) if line.startswith("## ")] + [len(plan)]
+    big = [
+        f"{plan[a][:40]} ({len(chr(10).join(plan[a:b])):,})"
+        for a, b in pairwise(heads)
+        if len(chr(10).join(plan[a:b])) > MAX_PLAN_SECTION
+    ]
+    assert not big, f"PLAN.md sections over {MAX_PLAN_SECTION:,} characters: {big}"
+    for name in ("PLAN.md", "TASKS.md"):
+        long = [i + 1 for i, line in enumerate(_text(name).split("\n")) if len(line) > MAX_LINE]
+        assert not long, f"{name} lines over {MAX_LINE:,} characters: {long[:5]}"
 
 
 def test_index_lists_every_archive_file() -> None:

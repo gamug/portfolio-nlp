@@ -80,11 +80,11 @@ completes it.
 
 ## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
-Resolved. Its only open task, T-022, is in `TASKS.md`. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 3".
+Resolved. Its only open task, T-022, is in `TASKS.md`. The acceptance criteria of this item are now only in the archive. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 3".
 
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
-Resolved. Its only open task, T-032, is in `TASKS.md`. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 4".
+Resolved. Its only open task, T-032, is in `TASKS.md`. The acceptance criteria of this item are now only in the archive. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 4".
 
 ## Work item 5 — Category: hold the line on the hierarchical fix (closed 2026-10-14)
 
@@ -96,7 +96,7 @@ Closed. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-close
 
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
-Resolved. Its only open task, T-062, is in `TASKS.md`. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 7".
+Resolved. Its only open task, T-062, is in `TASKS.md`. The acceptance criteria of this item are now only in the archive. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 7".
 
 ## Work item 8 — Justify each model's selection in the Models evaluation artifact section (done 2026-09-19)
 
@@ -476,6 +476,48 @@ per-company sentiment and category exist for every company a body is about, comp
 summary or company text (D26); company and sector snapshots exist, one row per body (D28); `sector_summary`
 carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
 documented; SPEC gains one FR per behaviour shipped.
+
+### Decision record D11–D24 (verbatim from `TASKS.md` T-143, moved here 2026-11-08)
+
+**T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
+      after hand-tagging the 720 judged articles; current list D11–D24)*
+      **D11** the unit is the unique article body (body hash), its subjects found in the content.
+      **D12** LLMs only label and evaluate; the pipeline stays on local pinned models.
+      **D13** GICS sector + sub-industry. **D14** the knowledge graph keeps per-(asset, day)
+      signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
+      `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
+      `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
+      `other` (company content that fits none of the 13 labels; settled 2026-10-29: the
+      investing news about no company that D15 first named is the scope `investing_general`, D22,
+      and carries no category), `uncertain` (no confident category; a category-level label only,
+      the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
+      skipped by every later stage. **D17** a multi-company body gets sentiment + category per
+      company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
+      logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
+      task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
+      owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
+      iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
+      agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
+      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope *(D30 drew 200; D33: no top-up, no recall floor under 40 gold bodies)*. **D19** full backfill of the
+      **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
+      as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
+      are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
+      owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
+      **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
+      item carries its sampling weight), **and recall >= 80% for each of the six scopes**, both on the point
+      estimate with the 95% interval reported, so a rare scope cannot be ignored. **D21** each
+      training round exports a stratified sample of about 300 low-confidence bodies for the
+      owner's tagging (active learning). **D22** the scope list has six scopes: single company,
+      several companies, sector, market / economy, **`investing_general`** (investing or
+      market-advice content about no company and no sector: the owner's `other` tag; no
+      per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
+      where one company holds more than half of the subject mentions is **single + mentions**:
+      scope single on the dominant company (summary and sentiment for it), the other companies
+      stored as mentions only, with no per-company analysis. (gold v2 defines analysed vs mention by content, `docs/labelling-spec-v2.md`; the >50% count is the rules' feature only). **D24** P4 (per-company category) and
+      P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
+      held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
+      held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
+      a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
 
 ## Sequencing
 

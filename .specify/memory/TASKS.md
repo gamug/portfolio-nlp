@@ -128,59 +128,7 @@ rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 
 *20 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
 
-**Re-scoped 2026-10-28 into Work item 18** (T-143): see the per-task markers below.
-
-`other` is 195,993 of 459,112 articles (42.7%); its precision of 0.474 is a quoted
-figure from a different corpus (see T-123). A read-only investigation (2026-10-14)
-suspected it mixes "not about the ticker's company" (ticker symbols that are English
-words hold 39.0% of the corpus, plus companies cut to a generic first word) with "about
-the company, no dimension clears the 0.6 bar". A population check on 2026-10-22,
-stratified by source and period (`docs/evaluation.md`), found wrong tagging explains at
-most about 11% of `other` (rejected articles are 68.8% of the corpus and 70.8% of
-`other`; `other` is 37.9% of confirmed articles and 43.9% of rejected ones). The main
-lever is therefore calibration, which does not wait for the relevance work. Plan:
-calibrate per-slug thresholds and a margin rule offline from stored scores (T-121(a) after
-T-133's partition, then T-121(b)'s judged sample once the owner approves the spend); clean up the results the tagging fix removed (T-131, after a
-pre-purge check); decide the doubtful `review` pairs (T-132); build a relevance gate only
-if what remains justifies one (T-117's rule); then re-evaluate and re-classify (T-123,
-T-124, by a re-label unless T-140 says otherwise).
-→ `PLAN.md` Work item 15, `SPEC.md` §13 item 19.
-
-Tasks are listed in execution order within Work item 15, not ID order (IDs are
-stable; T-130 to T-134, T-139 to T-142 were added after the rest; T-135 to T-138
-belong to Work items 16 (closed, `CHANGELOG.md`) and 17, which is why the numbers skip;
-a letter suffix such as `T-138b` is the close-out of its work item, unlike
-T-121(a)/(b), which are parts of one task). The table below and `PLAN.md`'s Sequencing
-section are the authority for ordering.
-
-Dependencies at a glance:
-
-| Task | Depends on | Blocks | Can start now? |
-|---|---|---|---|
-| T-116 audit | none | none | yes |
-| T-130 relevance judge | none | T-132 (remainder), T-117 | yes |
-| T-128 upstream hand-off | `portfolio-data-mining` T-055–T-058 | T-132, T-117 onward | **done 2026-10-22** |
-| T-133 clean-subset re-read | none (read-only SOURCE attach, existing) | T-123's baseline, T-117 | **done 2026-10-22** |
-| T-139 decisions D5–D9 | the owner | T-132 (D5, D6), T-117 (D7), WI16 (D8), WI17 (D9) | **decided 2026-10-22, defaults** |
-| T-134 date window (D7) | T-139 | T-117 sampling, T-124 size | **decided 2026-10-22, default** |
-| T-132 quarantined pairs | T-128, T-139 (D5, D6), T-135 (schema guard, done in #109, `CHANGELOG.md`) | T-117 | **yes** |
-| T-137 multi-company sizing (WI17) | T-132 (grouping, ORG-to-ticker), T-139 (D9) | T-138 | no |
-| T-138 multi-company build | T-137 result, the owner | T-138b | no (conditional) |
-| T-138b WI17 close-out | T-137 (T-138 if built) | none | no |
-| T-117 measure R and N | T-128, T-130, T-132 | T-119, T-120 (or their cancellation) | no |
-| T-119, T-120 gate, label | T-117 sign-off | T-123 | no |
-| T-121(a) offline re-simulation on stored verdicts | T-133 (partition of the stored verdicts; done 2026-10-22) | T-121(b) design check | **done 2026-10-23** |
-| T-141 calibration judge + sampler | none (code, hermetic) | T-121(b) | **done 2026-10-23** |
-| T-142 D10 spend for T-121(b) | the owner | T-121(b) | **decided 2026-10-22, cap 3,800** |
-| T-121(b) judged calibration sample | T-121(a), T-141, T-142, LLM credentials | T-122 | no; population = confirmed articles (the gated-in one only if a gate is built) |
-| T-122 ship the rule | T-121 | T-123 | no |
-| T-123 re-evaluate | T-121, T-122 (T-119, T-120 if built) | T-124 | no |
-| T-131 cleanup (D4) | T-128, T-132 (for `review`), D4 (decided 2026-10-22, defaults) | T-124 | no |
-| T-140 D2b mechanism (re-label vs GPU re-inference) | the owner | T-124 | **decided 2026-10-22, re-label from stored scores** |
-| T-124 re-classification | T-123 approved, T-131, T-140 | T-129 | no |
-| T-125, T-126 contingent | T-123 result | none | no |
-| T-127 sentiment impact | none (separate PR) | none | yes |
-| T-129 close-out | all of the above | none | no |
+**Superseded by Work item 18 (2026-10-28); its own plan is in `PLAN.md` (a stub) and the archive.** What continues here is T-131 (the backfill, P6), T-132 (the upstream alias table) and T-129 (close-out). T-116, T-117, T-119–T-127, T-130 and the dependency table of this item were superseded or done; their text is in `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` ("Work item 15 preamble and dependency table") and, for the done ones, in `CHANGELOG.md`.
 
 - [ ] **T-132** **→ Work item 18 P1 and P3.** Body-hash grouping and name/ticker resolution shipped in P1 (`news_nlp.triage`, T-144). Shrunk by the owner 2026-11-05: **only the upstream alias table stays open** (names, aliases and ticker forms, offered by `portfolio-data-mining` as a CSV). The per-pair `review` verdicts, T-130's judge and the block on T-117 are superseded; the quarantined pairs follow D19 (T-131). Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-132.
 - [ ] **T-131** **→ Work item 18 P6: backfill.** *(owner decision D4, 2026-10-22, recommended defaults)* Clean up the existing results of the articles the crawler fix removes.
@@ -200,7 +148,7 @@ Dependencies at a glance:
 
 *2 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
 
-**Re-scoped 2026-10-28 into Work item 18** (T-143): see the per-task markers below.
+**Re-scoped 2026-10-28 into Work item 18** (`PLAN.md`): see the per-task markers below.
 
 35.9% of the `ok` articles belong to a URL that has pairs for more than one ticker
 (a floor); every stage keys on the pair. Size it before building anything. →
@@ -214,48 +162,9 @@ Dependencies at a glance:
 
 *6 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
 
-Plan: `PLAN.md` Work item 18. Decisions D11–D24 (T-143), D25–D30 (T-151). Each phase is its own PR; a schema
+Plan: `PLAN.md` Work item 18. Decisions D11–D24: its "Decision record" subsection (moved there from T-143, 2026-11-08); D25–D30 and D31–D34: the same section and the stage order below it. Each phase is its own PR; a schema
 change is proposed to the owner in the PR that needs it (constitution AI behavior #10).
 
-- [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
-      after hand-tagging the 720 judged articles; current list D11–D24)*
-      **D11** the unit is the unique article body (body hash), its subjects found in the content.
-      **D12** LLMs only label and evaluate; the pipeline stays on local pinned models.
-      **D13** GICS sector + sub-industry. **D14** the knowledge graph keeps per-(asset, day)
-      signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
-      `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
-      `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
-      `other` (company content that fits none of the 13 labels; settled 2026-10-29: the
-      investing news about no company that D15 first named is the scope `investing_general`, D22,
-      and carries no category), `uncertain` (no confident category; a category-level label only,
-      the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
-      skipped by every later stage. **D17** a multi-company body gets sentiment + category per
-      company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
-      logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
-      task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
-      owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
-      iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
-      agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
-      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope *(D30 drew 200; D33: no top-up, no recall floor under 40 gold bodies)*. **D19** full backfill of the
-      **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
-      as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
-      are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
-      owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
-      **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
-      item carries its sampling weight), **and recall >= 80% for each of the six scopes**, both on the point
-      estimate with the 95% interval reported, so a rare scope cannot be ignored. **D21** each
-      training round exports a stratified sample of about 300 low-confidence bodies for the
-      owner's tagging (active learning). **D22** the scope list has six scopes: single company,
-      several companies, sector, market / economy, **`investing_general`** (investing or
-      market-advice content about no company and no sector: the owner's `other` tag; no
-      per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
-      where one company holds more than half of the subject mentions is **single + mentions**:
-      scope single on the dominant company (summary and sentiment for it), the other companies
-      stored as mentions only, with no per-company analysis. (gold v2 defines analysed vs mention by content, `docs/labelling-spec-v2.md`; the >50% count is the rules' feature only). **D24** P4 (per-company category) and
-      P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
-      held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
-      held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
-      a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
 - [ ] **T-146** *(P2; spend D18: hard cap 6,000 calls, logged in `docs/evaluation.md`, counted per task, the run stops at the cap; owner answers 2026-10-29 in PLAN WI18; Q1-Q10 answered)* Split:
 - [ ] **T-146b** *(P2; export/check built 2026-10-29, PR #117, aligned with `docs/labelling-spec-v2.md`)* The re-tag export of the 720 gold bodies for the owner and the importer of the owner's new columns (`scope`, `company_labels`, `mentions`, `sub_industry`, `notes`), protected like `gold_review` (refuses to overwrite a tagged file); gold v2; re-measure the rules' 0.70 on it.
       - Built (`news_nlp.retag`, `scripts/retag_gold_2026_10_29.py export|check|normalise|guide|migrate|translate`): `check` verifies all 720 ids once and tickers/sub-industries against SOURCE; `normalise` turns typed names into tickers; `migrate` converts an old-format file into a new one; `sub_industry` takes the 8-digit GICS code or the name.
@@ -298,7 +207,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 - [ ] **T-148b10** *(owner's decisions, 2026-11-08)* Candidate for step 4's cut, its confirmation and its selection.
       - (1) the candidate is `units`; `units2` and `units3` stay as measured fallbacks. (2) T-148b9 is out of scope. (3) The confirmation draw (30 new bodies, `draw_faithfulness --exclude-from data --out data/faithfulness_confirmation`; the pool is used up, 30 of 32 drawn) is done and tagged. (4) The stack #141, #143, #144 is merged, in that order, by the owner. (5) The sentiment tagging of the 450 summaries is done and its marks are in `gold/` (#145); the retraining (T-148c3) waits for the owner's word.
       - (6), (6b), (7), (8) were rules and schedules proposed before the confirmation was read (the bar on real companies, the bar on every company named, the held cut, the go/no-go schedule); superseded by (9).
-      - **(9) Owner's selection, 2026-11-08: `units` ("units1") is the base model of step 4; the owner judged 80% accuracy enough.** Confirmation set: 86.1% [80.9, 90.7] on every company named (pass) and 95.3% [92.0, 98.2] on real companies; level with the baseline (gain -0.5 [-1.5, 0.0], not decided), so (6b)'s "better" is not met and the selection is the owner's call over it. First set (development): 94.0% [87.0, 99.2] on real companies, 83.2% [72.7, 91.0] on every company named (not decided). `units2` and `units3` are not selected. Not a pin, not a publication. Record: `docs/extractor_training.md`. Follow-ups: T-148b11, T-148b12. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b10.
+      - **(9) Owner's selection, 2026-11-08: `units` ("units1") is the base model of step 4; the owner judged 80% accuracy enough.** Confirmation set: 86.1% [80.9, 90.7] on every company named (pass) and 95.3% [92.0, 98.2] on real companies; level with the baseline (gain -0.5 [-1.5, 0.0], not decided), so the rule proposed as (6b) is not met and the selection is the owner's call over it (that rule: `units` passes if the lower end of its interval is at or above 80% **and** its gain over the baseline on the same bodies is `better`, D32's two criteria, read on every company named). First set (development): 94.0% [87.0, 99.2] on real companies, 83.2% [72.7, 91.0] on every company named (not decided). `units2` and `units3` are not selected. Not a pin, not a publication. Record: `docs/extractor_training.md`. Follow-ups: T-148b11, T-148b12. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b10.
         - [ ] **T-148b11** *(proposed, not built; after the owner has read the confirmation set)* **Migrate the evidence for the cut to `gold/`**, as T-155 did for the first 190 baseline marks and #145 for the sentiment marks. Today `gold/faithfulness_gold.csv` holds the 190 baseline rows only (a test asserts `{"baseline"}`); the owner's marks on the `units` rows (402), `units2`/`units3` (35), the 37 exempt-company readings (`faithfulness_exempt_to_read.csv`) and the confirmation set (357 texts, 30 companies) exist only in the git-ignored `data/`, so the decision recorded in PLAN D34 (e) cannot be re-derived from the repository. The faithfulness-gold builder already lets a row gain an extractor name; it must also carry, with tests that pin them: the counts per extractor and per set (first, confirmation), the exempt readings (`real_company` yes/no by article and company, no news text), the code revision of each extractor's rows, and the text hashes the owner read. Not built before the confirmation is read; the item is here so that it is not forgotten.
         - [ ] **T-148b12** *(proposed, not built, not started; after the owner's selection of `units`, 2026-11-08)* **Wire the selected extractor into step 4.** Today `attribution_model` defaults to `reading="sentences"` (the baseline), `cut_summaries_2026_11_07.py` calls no extractor and only `draw_faithfulness` runs `units`, so the selection of (9) is a record. Needed: a default or a setting naming the extractor (`units`) for the company texts of the cut, the model directory it loads (today the local `data/models/attribution_2026_11_08`, `local:8399ccf003c60143`, git-ignored; publishing and pinning it is the owner's word), and a test that the cut's reading is the selected one. Not started until the owner asks.
 - [ ] **T-148b8** *(manager's review of #144, 2026-11-08; the evidence under `units3` as the candidate)* (a) **The denominator:** the 91.6% of `units3` left out 36 companies the extractors are not asked about; on every company named it is 74.2% [66.0, 81.5] (`units2` 68.4%, `units` 83.2%). `draw_faithfulness --exempt` lists them (`faithfulness_exempt.json`, `faithfulness_exempt_to_read.csv`); the owner read the 37 of the first set (23 not companies, 14 are) and the 30 of the confirmation (25 not companies, 5 are); `report_wi18 faithfulness` gives the bar on real companies. (b) **A confirmation:** done (T-148b10). (c) The header audit (`scripts/audit_headers_2026_11_08.py`): datelines and labels in capitals and a dash inside a sentence are not headers (fixed, no text of the 30 bodies changes); 67 lines given to nobody still name a universe company after the dash (7 behind a short form the guard rejects: T-148b7), 15 headers are missed for a full stop in the first part. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b8.
@@ -320,9 +229,6 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       architecture artifacts (AI #11), then Work items 15, 17 and 18 to `CHANGELOG.md` (AI #15,
       closing T-129 and T-138b). → acceptance.
 
-- [x] **T-151** *(decision record, 2026-11-05, the owner)* **D25–D30**: the order of the stages,
-      sentiment over the summary or company text, step 4 without an LLM, the snapshot tables, category
-      on the same texts, the held-out 200. Full text: `PLAN.md` Work item 18. The four open questions were answered the same day as D31–D34 (all years disclosed; the bars of the extractor and of sentiment; no recall floor under 40 gold bodies; the backtest cut).
 - [ ] **T-152** *(P5)* The company snapshot table (one row per (body, company): text, ticker, D15
       label, sentiment, `pub_date`) and the sector snapshot table (one row per (body, sector): text,
       sentiment), RESULTS, the old tables kept as v1 (D28, D19). **Columns approved by the owner on
@@ -352,8 +258,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 
 **2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30, T-151). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 are superseded in place (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
 
-**Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (T-143 records D11–D24).
-T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded in place, and
+**Work item 18 (2026-10-28): Work items 15 and 17 are re-scoped into it** (D11–D24 are recorded in `PLAN.md` Work item 18).
+T-121 is closed (negative), T-116/T-117/T-119/T-120/T-122–T-126/T-130 are superseded (their entries were moved out of this file, 2026-11-08), and
 T-131, T-132 (shrunk to the alias table, 2026-11-05) and the sizing of T-137 (absorbed by T-144) continue under Work item 18; T-127 and T-138 were superseded on 2026-11-05. T-144 (sizing and the rules' check on the
 720 articles tagged v1) is the first PR; T-145 (Laya) was tried and cancelled.
 
@@ -363,7 +269,7 @@ only open task, T-041, was superseded by Work item 15).
 T-010–T-016 (Work item 2, regression gate) remain blocked on the maintainer's
 infrastructure decision — nothing in that item has started.
 
-**Work item 15's own plan (filed 2026-10-14) is superseded by Work item 18**: T-116, T-117, T-119, T-120, T-122–T-126 and T-130 each say so in place and none is on the roadmap (T-118, T-139 and T-140 are closed decision records, T-121 closed negative). What carries over is the corrected corpus (T-128, done 2026-10-22), the results cleanup (T-131, now the backfill of P6), the alias table (T-132, shrunk) and the close-out (T-129). Work item 16 (schema guard, T-135–T-136) is closed in `CHANGELOG.md`; Work item 17 (multi-company articles) is re-scoped into Work item 18, its sizing absorbed by T-144 and its design superseded by D27–D28.
+**Work item 15's own plan is superseded by Work item 18.** What carries over is the corrected corpus (T-128, done 2026-10-22), the results cleanup (T-131, the backfill of P6), the alias table (T-132, shrunk) and the close-out (T-129). Work item 16 (schema guard) is closed in `CHANGELOG.md`; Work item 17 (multi-company articles) is re-scoped into Work item 18, its sizing absorbed by T-144 and its design superseded by D27–D28. The superseded tasks' entries are in `CHANGELOG.md` and the archive.
 
 **Model performance checking (Work items 3, 4, 7) is resolved except
 non-blocking items:** Work item 3's only open task is T-022 (full-corpus

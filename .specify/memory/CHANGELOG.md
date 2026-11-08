@@ -4,7 +4,7 @@ Legacy record of **closed** work items, moved here verbatim from
 `.specify/memory/TASKS.md` so that file carries only open work. A work item is
 closed once every task in it is checked, or explicitly superseded/moved elsewhere.
 Task IDs are stable and never reused; `PLAN.md` keeps each work item's plan and
-acceptance criteria. Ordered by work item number.
+acceptance criteria. Ordered by work item number; the section "Tasks closed while their work item is still open" at the end is grouped by work item and holds done tasks, not whole items.
 
 ## Work item 1 — Pin HF model checkpoints (resolved 2026-09-14)
 
@@ -2140,3 +2140,51 @@ above does not hold it). Grouped by work item; task IDs unchanged.
         - [x] **T-148c1** (written 2026-11-07: `scripts/build_sentiment_train_2026_11_07.py`, `gold/sentiment_train.csv`; tried on the real files with trial marks; **Data migrated 2026-11-08: `gold/sentiment_train.csv` holds the owner's 450 marks (232 positive, 113 negative, 105 neutral; 360 train, 90 validation), checked by the builder and pinned by a test; the label is anchored to the tagged company (neutral when the company is not in the facts the text presents), see `docs/gold_datasets.md` set 6; round 1 of the review: `ticker` and `company` added to the file and protected by the builder, the date of the rule and the set 5 comparison recorded, agreement by `rule_scope` measured; round 2: counts corrected, the rest of the disagreement recorded as unexplained; round 3: the notes read into four kinds by the builder (no bound claimed), the stale "by design" sentences rewritten, the namesake rows listed, T-148c1b proposed**) Builder of the marks: reads `data/sentiment_train_to_tag.csv` and `data/sentiment_train_ids.csv`, stops unless every row is marked, the text hash is the one drawn and the ids match; writes the marks, the slice and the ids (no news text) to `gold/sentiment_train.csv`. **Today, 2026-11-07** (the owner expects to have all 450 marked today); written and tested on the untagged file.
 
         - [x] **T-148c2** (written 2026-11-07: `scripts/score_sentiment_gold_2026_11_07.py`, every run in `gold/sentiment_gold_scoring_log.csv`; the pinned model reproduces D32) Scorer of a candidate model on the 180-text gold: takes a model path or revision, reads the texts of `data/sentiment_gold_ids.csv`, scores them as the pipeline's stage reads a text, writes the predictions in the format `report_wi18 sentiment --gold` reads, and gives the figures for 2022 on and before apart (D35). **Today, 2026-11-07.**
+
+### Work item 18 — decision records moved from `TASKS.md` (2026-11-08)
+
+T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record"; T-151 is a pointer to D25–D34 there.
+
+- [x] **T-143** *(decision record, 2026-10-28, amended 2026-10-29 with the owner,
+      after hand-tagging the 720 judged articles; current list D11–D24)*
+      **D11** the unit is the unique article body (body hash), its subjects found in the content.
+      **D12** LLMs only label and evaluate; the pipeline stays on local pinned models.
+      **D13** GICS sector + sub-industry. **D14** the knowledge graph keeps per-(asset, day)
+      signals; sector news feeds `sector_summary`; market and economy news become `MARKET` /
+      `ECONOMY` rows there. **D15** the per-(body, company) category taxonomy is the 9 labels +
+      `reputational_harm`, `competitive_actions`, `investor_activity`, `peer_comparison`, with
+      `other` (company content that fits none of the 13 labels; settled 2026-10-29: the
+      investing news about no company that D15 first named is the scope `investing_general`, D22,
+      and carries no category), `uncertain` (no confident category; a category-level label only,
+      the scope never abstains, D20) and `unrelated` (not about the economy). **D16** `unrelated` bodies are flagged and
+      skipped by every later stage. **D17** a multi-company body gets sentiment + category per
+      company. **D18** labelling budget about **6,000** LLM calls, a **hard cap**: spend is
+      logged in `docs/evaluation.md`, counted per task (`calibration_judge.calls_spent(conn,
+      task)`, so it is not mixed with D10's 3,800) and the run stops at the cap; the revised
+      owner re-tags the 720 under the new taxonomy (gold v2; the first tagging is tags v1); the prompt
+      iterates on a fixed stratified 240 (at most 5 iterations, a 6th never without asking) and must
+      agree with the owner's scope on **>= 90%** of the full 720 before silver (at most 4,320 bodies)
+      is bought; the owner tags about 300 held-out gold bodies, at least 40 per scope *(D30 drew 200; D33: no top-up, no recall floor under 40 gold bodies)*. **D19** full backfill of the
+      **81,961 unique `ok` bodies** (not the 459,112 stored rows); the stored rows are moved aside
+      as v1 until the new tables are validated, and the results of the 377,010 quarantined pairs
+      are purged (T-131). **D20** the scope triage is accepted only at **>= 90% agreement with the
+      owner's held-out gold on all bodies** (every body gets a scope, no abstention), as a
+      **corpus-weighted** accuracy (the held-out sample over-samples the rare scopes, so each
+      item carries its sampling weight), **and recall >= 80% for each of the six scopes**, both on the point
+      estimate with the 95% interval reported, so a rare scope cannot be ignored. **D21** each
+      training round exports a stratified sample of about 300 low-confidence bodies for the
+      owner's tagging (active learning). **D22** the scope list has six scopes: single company,
+      several companies, sector, market / economy, **`investing_general`** (investing or
+      market-advice content about no company and no sector: the owner's `other` tag; no
+      per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`. **D23** a body
+      where one company holds more than half of the subject mentions is **single + mentions**:
+      scope single on the dominant company (summary and sentiment for it), the other companies
+      stored as mentions only, with no per-company analysis. (gold v2 defines analysed vs mention by content, `docs/labelling-spec-v2.md`; the >50% count is the rules' feature only). **D24** P4 (per-company category) and
+      P5 (sector sub-industry detection) are each accepted at **>= 80% agreement with the owner's
+      held-out gold** (the owner confirmed on 2026-10-29: at least 80% agreement with the
+      held-out gold, each). Laya (`convaiinnovations/laya`) was to join the main dependencies as
+      a local yes/no checker; tried and dropped on 2026-10-29 (T-145). → PLAN WI18 "Decisions".
+
+- [x] **T-151** *(decision record, 2026-11-05, the owner)* **D25–D30**: the order of the stages,
+      sentiment over the summary or company text, step 4 without an LLM, the snapshot tables, category
+      on the same texts, the held-out 200. Full text: `PLAN.md` Work item 18. The four open questions were answered the same day as D31–D34 (all years disclosed; the bars of the extractor and of sentiment; no recall floor under 40 gold bodies; the backtest cut).
