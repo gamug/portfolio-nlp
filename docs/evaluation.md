@@ -3126,7 +3126,11 @@ Three readings, in rising order of weight; only the last decides (PLAN D27, D32)
    Boeing's next chief to Amazon, a start-up's partners to BSX). The model was trained only on
    sentences that belong to one of the body's companies, so it has not learned to answer "none of
    these"; a sentence about a company outside the universe is given to the nearest one when the score
-   reaches 0.5. The threshold is the owner's to decide after reading the texts; none is proposed.
+   reaches 0.5.
+ The 276 sentences given by the rule have these best scores: 38 from 0.5 to 0.6, 79 from 0.6 to 0.8,
+   159 from 0.8 to 1 (and 102 of the 276 name, in the previous sentence, the company chosen); the five
+   wrong examples scored 0.999, 0.988, 0.997, 0.893 and 0.505. They are confident, not borderline: a
+   higher threshold would not remove them. The threshold is the owner's to decide after reading the texts; none is proposed.
 
 A `val` body is left out as a copy when 80% of a sample of its 8-word shingles are in one train
 body (none was); an earlier key on the start and the end of a body, and then 30% of all the train

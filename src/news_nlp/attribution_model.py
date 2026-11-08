@@ -248,15 +248,17 @@ def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[
     }
 
 
-def attribute_sentences(
+def scored_sentences(
     body: str,
     resolver: CompanyResolver,
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
-) -> list[tuple[str, tuple[str, ...]]]:
-    """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
-    and none reaches *threshold*."""
+) -> list[tuple[str, tuple[str, ...], float | None]]:
+    """``(sentence, tickers, score)`` for each sentence of *body*: the companies it belongs to
+    (``()`` when none is named in it and none reaches *threshold*) and, for a sentence that names
+    none, the best score any candidate got (``None`` when the sentence names a company or the body
+    has no candidate)."""
     sentences = [s for s, _, _ in split_sentences(body)]
     candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
     named = [tuple(sorted(resolver.resolve(s, skip_attribution=False))) for s in sentences]
@@ -273,15 +275,27 @@ def attribute_sentences(
     for (index, ticker), score in zip(where, scorer.score(pairs) if pairs else [], strict=True):
         if index not in best or score > best[index][0]:
             best[index] = (score, ticker)
-    out: list[tuple[str, tuple[str, ...]]] = []
+    out: list[tuple[str, tuple[str, ...], float | None]] = []
     for index, sentence in enumerate(sentences):
         if named[index]:
-            out.append((sentence, named[index]))
+            out.append((sentence, named[index], None))
         elif index in best and best[index][0] >= threshold:
-            out.append((sentence, (best[index][1],)))
+            out.append((sentence, (best[index][1],), best[index][0]))
         else:
-            out.append((sentence, ()))
+            out.append((sentence, (), best[index][0] if index in best else None))
     return out
+
+
+def attribute_sentences(
+    body: str,
+    resolver: CompanyResolver,
+    names: Mapping[str, str],
+    scorer: Scorer,
+    threshold: float = THRESHOLD,
+) -> list[tuple[str, tuple[str, ...]]]:
+    """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
+    and none reaches *threshold*."""
+    return [(s, t) for s, t, _ in scored_sentences(body, resolver, names, scorer, threshold)]
 
 
 def model_company_texts(

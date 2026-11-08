@@ -593,8 +593,34 @@ def test_abstention_counts_who_gets_the_unnamed_sentences_and_samples_the_models
     assert counts["sentences"] == 4 and counts["named"] == 2  # Apple ... / Microsoft ... named
     assert counts["model one"] == 1 and counts["model none"] == 1 and counts["model several"] == 0
     assert counts["baseline one"] + counts["baseline none"] + counts["baseline several"] == 2
+    assert sum(result["scores"].values()) == 2  # the two unnamed sentences, in bands
+    assert result["scores"]["0.8 to 1 (given)"] == 1 and result["scores"]["0.1 to 0.3"] == 1
+    assert result["given, chosen company named in the previous sentence"] == 1  # "Apple raised..."
     given, nobody = result["given"], result["nobody"]
     assert [g["sentence"] for g in given] == ["The iPhone maker also grew its buyback."]
+    assert given[0]["score"] == 0.9 and nobody[0]["score"] == 0.1
     assert given[0]["chosen"] == ("AAPL",) and given[0]["previous"].startswith("Apple raised")
     assert [n["sentence"] for n in nobody] == ["Azure demand cooled in the quarter."]
     assert nobody[0]["body names"] == ["AAPL", "MSFT"]
+
+
+def test_scored_sentences_give_the_best_score_even_when_it_does_not_reach_the_threshold() -> None:
+    scorer = FakeScorer({("Apple Inc.", "Azure demand cooled in the quarter."): 0.4})
+    rows = {s: (t, sc) for s, t, sc in am.scored_sentences(BODY, RESOLVER, NAMES, scorer)}
+    assert rows["Azure demand cooled in the quarter."] == (
+        (),
+        0.4,
+    )  # below 0.5: nobody, with its score
+    assert rows["Apple raised its dividend on Monday."] == (("AAPL",), None)  # named: no score
+    plain = am.attribute_sentences(BODY, RESOLVER, NAMES, scorer)
+    assert plain[-1] == ("Azure demand cooled in the quarter.", ())
+
+
+def test_score_bands_split_nobody_from_the_ones_the_rule_gives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    band = _script(monkeypatch).band
+    assert band(0.05) == "0 to 0.1" and band(0.45) == "0.3 to 0.5 (nobody)"
+    assert band(0.5) == "0.5 to 0.6 (given)"  # the threshold itself is given
+    assert band(0.999) == "0.8 to 1 (given)" and band(1.0) == "0.8 to 1 (given)"
+    assert band(None) == "no candidate"

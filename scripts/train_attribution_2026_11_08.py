@@ -249,6 +249,23 @@ def add_evaluation(
     print("evaluation added to", path)
 
 
+SCORE_BANDS = (
+    (0.1, "0 to 0.1"),
+    (0.3, "0.1 to 0.3"),
+    (0.5, "0.3 to 0.5 (nobody)"),
+    (0.6, "0.5 to 0.6 (given)"),
+    (0.8, "0.6 to 0.8 (given)"),
+    (1.01, "0.8 to 1 (given)"),
+)
+
+
+def band(score: float | None) -> str:
+    """The band of :data:`SCORE_BANDS` a best score falls in."""
+    if score is None:
+        return "no candidate"
+    return next(label for top, label in SCORE_BANDS if score < top)
+
+
 def abstention(
     bodies: dict[int, str],
     resolver: CompanyResolver,
@@ -259,38 +276,53 @@ def abstention(
 ) -> dict[str, object]:
     """Who each extractor gives the sentences that name no universe company to, on *bodies* (the
     faithfulness bodies): counts of sentences given to nobody, one company or several, for the
-    baseline and the model, and a seeded sample of the model's choices (``article``, ``sentence``,
-    the previous sentence and the companies it chose or the body names)."""
+    baseline and the model, the model's best score for those sentences in bands (``scores``) and
+    the share of the ones it gave to a company whose chosen company is named in the previous
+    sentence, and a seeded sample of its choices (``article``, ``sentence``, the previous
+    sentence, the companies it chose, their ``score`` and the companies the body names). The same
+    *seed* gives the same sample; the command's default is the training seed."""
     counts = {f"{who} {k}": 0 for who in ("baseline", "model") for k in ("none", "one", "several")}
     counts["sentences"] = counts["named"] = 0
     nobody: list[dict[str, object]] = []
     given: list[dict[str, object]] = []
+    bands = {label: 0 for _, label in SCORE_BANDS}
+    bands["no candidate"] = 0
+    recent = 0
 
     def kind(tickers: tuple[str, ...]) -> str:
         return "none" if not tickers else "one" if len(tickers) == 1 else "several"
 
     for article, body in sorted(bodies.items()):
         base = attribution_baseline.attribute_sentences(body, resolver)
-        model = am.attribute_sentences(body, resolver, names, scorer)
+        model = am.scored_sentences(body, resolver, names, scorer)
         companies = sorted(resolver.resolve(body, skip_attribution=False))
-        for at, ((sentence, from_base), (_, chosen)) in enumerate(zip(base, model, strict=True)):
+        for at, ((sentence, from_base), (_, chosen, score)) in enumerate(
+            zip(base, model, strict=True)
+        ):
             counts["sentences"] += 1
             if resolver.resolve(sentence, skip_attribution=False):
                 counts["named"] += 1
                 continue
             counts[f"baseline {kind(from_base)}"] += 1
             counts[f"model {kind(chosen)}"] += 1
+            previous = base[at - 1][0] if at else ""
+            bands[band(score)] += 1
+            if chosen and set(chosen) & set(resolver.resolve(previous, skip_attribution=False)):
+                recent += 1
             row = {
                 "article": article,
                 "sentence": sentence,
-                "previous": base[at - 1][0] if at else "",
+                "previous": previous,
                 "chosen": chosen,
+                "score": None if score is None else round(score, 3),
                 "body names": companies,
             }
             (given if chosen else nobody).append(row)
     rng = random.Random(seed)  # noqa: S311 -- a reproducible sample
     return {
         "counts": counts,
+        "scores": bands,
+        "given, chosen company named in the previous sentence": recent,
         "nobody": rng.sample(nobody, min(sample, len(nobody))),
         "given": rng.sample(given, min(sample, len(given))),
     }
@@ -312,7 +344,12 @@ def run_abstention(args: argparse.Namespace) -> None:
         bodies[article] = (row["body_text"] if row else "") or ""
     scorer = am.TransformerScorer(str(args.abstention))
     result = abstention(bodies, CompanyResolver(companies), names, scorer, args.seed)
-    print(json.dumps(result["counts"], indent=2))
+    for key in ("counts", "scores"):
+        print(key, json.dumps(result[key], indent=2))
+    print(
+        "given, chosen company named in the previous sentence:",
+        result["given, chosen company named in the previous sentence"],
+    )
     for label in ("nobody", "given"):
         print(f"--- a sample of the sentences the model gave to: {label}")
         for item in result[label]:  # type: ignore[attr-defined]
