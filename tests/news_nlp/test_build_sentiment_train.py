@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import re
 import sys
+from collections import Counter
 from pathlib import Path
 from types import ModuleType
 
@@ -48,7 +50,7 @@ def _ids(per_class: int = 30) -> list[dict[str, str]]:
                     "text_hash": retag.text_hash(text),
                     "title": f"Title {number}",
                     "ticker": "",
-                    "company": "",
+                    "company": f"Company {number}",
                     "text": text,
                 }
             )
@@ -399,3 +401,125 @@ def test_marks_in_spanish_are_refused_with_the_english_words_named() -> None:
     with pytest.raises(gold_metrics.MarkedFileError) as other:
         BUILD.build(marks, ids)
     assert "write the English word" not in str(other.value)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _committed_rows() -> list[dict[str, str]]:
+    return list(csv.DictReader((ROOT / "gold" / "sentiment_train.csv").open(encoding="utf-8-sig")))
+
+
+def test_the_committed_sentiment_train_marks_are_the_owners_450() -> None:
+    """Pinned like the other committed gold files: changing a mark is a decision that moves these
+    counts (D35: the builder refuses to change a mark without ``--overwrite-marks``)."""
+    rows = _committed_rows()
+    assert tuple(rows[0]) == retag.SENTIMENT_TRAIN_COLUMNS
+    assert len(rows) == 450 and len({r["key"] for r in rows}) == 450
+    assert Counter(r["slice"] for r in rows) == {"train": 360, "validation": 90}
+    by_slice = {
+        s: Counter(r["sentiment"] for r in rows if r["slice"] == s) for s in ("train", "validation")
+    }
+    assert by_slice["train"] == {"positive": 180, "negative": 96, "neutral": 84}
+    assert by_slice["validation"] == {"positive": 52, "neutral": 21, "negative": 17}
+    BUILD.check_design(rows)  # the sample is the one drawn: classes, blocks, batches, slices
+    assert all(r["sentiment"] in gold_metrics.SENTIMENT_CLASSES for r in rows)
+    assert all(len(r["text_hash"]) == 64 and len(r["body_hash"]) == 64 for r in rows)
+    assert not {"text", "title", "spanish_text"} & set(rows[0])  # the marks and ids, no news text
+
+
+def test_the_committed_marks_say_which_company_each_is_about() -> None:
+    """The label is anchored to the company of the row (D35), so the file carries it: a company on every
+    row, and a blank ticker only where the row is a sector or market text (a bracketed placeholder)."""
+    rows = _committed_rows()
+    assert {"ticker", "company"} <= set(rows[0])
+    assert all(r["company"].strip() for r in rows)
+    blank = [r for r in rows if not r["ticker"].strip()]
+    assert len(blank) == 26
+    assert all(r["company"].startswith("[") and r["rule_scope"] != "single" for r in blank)
+    # the dates are the ones of the source, kept as tagged (a protected column): three forms, all ISO
+    assert all(
+        re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]{8}(\.\d{3})?(Z|\+0000)", r["pub_date"]) for r in rows
+    )
+
+
+def test_a_row_without_a_company_stops_the_build_and_a_blank_ticker_does_not() -> None:
+    ids = _ids()
+    rows = BUILD.build(_marks(ids), ids)
+    assert rows[0]["ticker"] == "" and rows[0]["company"].startswith("Company ")
+    ids[3]["company"] = " "
+    with pytest.raises(gold_metrics.MarkedFileError, match=r"without .*company"):
+        BUILD.build(_marks(ids), ids)
+
+
+def test_a_note_is_read_by_its_words_into_one_kind_and_a_missing_column_is_not_an_error() -> None:
+    kind = BUILD.note_kind
+    assert kind("Tesla not in the news") == "absent"
+    assert kind("Nothing relevant about Goldman Sachs") == "nothing relevant"
+    assert (
+        kind("This is not about the company but about the entire market instead") == "other scope"
+    )
+    assert kind("Is not about a sector") == "other scope"
+    assert kind("Baxter comes from a person name, not for the company") == "namesake"
+    assert kind("Investor activity") == "" and kind("") == ""
+    rows = [{"notes": "Oracle not in the text"}, {"notes": ""}, {"sentiment": "neutral"}]
+    assert {k: len(v) for k, v in BUILD.notes_by_kind(rows).items()} == {"absent": 1}
+    lines = BUILD.summary(
+        [{**r, "slice": "train", "predicted": "neutral", "sentiment": "neutral"} for r in rows]
+    )
+    assert any("1 rows have a note; by keyword: absent 1" in ln for ln in lines)
+
+
+def test_the_committed_counts_of_the_notes_and_the_date_forms_are_the_ones_the_docs_quote() -> None:
+    rows = _committed_rows()
+    assert sum(1 for r in rows if r["notes"].strip()) == 49
+    kinds = BUILD.notes_by_kind(rows)
+    assert {k: len(v) for k, v in kinds.items()} == {
+        "absent": 9,
+        "nothing relevant": 4,
+        "other scope": 3,
+        "namesake": 3,
+    }
+    assert all(r["sentiment"] == "neutral" for v in kinds.values() for r in v)
+    assert {r["key"] for r in kinds["namesake"]} == {
+        "91090#summary",
+        "479890#summary",
+        "475332#summary",
+    }
+    forms = Counter(
+        "Z.000"
+        if r["pub_date"].endswith(".000Z")
+        else "Z"
+        if r["pub_date"].endswith("Z")
+        else "+0000"
+        for r in rows
+    )
+    assert forms == {"+0000": 355, "Z": 77, "Z.000": 18}
+
+
+def test_the_company_of_a_row_is_protected_once_the_file_has_it() -> None:
+    ids = _ids()
+    rows = BUILD.build(_marks(ids), ids)
+    before = [dict(r) for r in rows]
+    assert BUILD.changed_marks(before, rows) == []
+    after = [dict(r) for r in rows]
+    after[1]["company"] = "Another company"
+    assert BUILD.changed_marks(before, after) == [rows[1]["key"]]
+    old = [{k: v for k, v in r.items() if k not in ("ticker", "company")} for r in rows]
+    assert BUILD.changed_marks(old, after) == []  # the file of 2026-11-08 had neither column
+
+
+def test_the_committed_training_set_shares_no_article_with_the_two_exams() -> None:
+    train = {r["article_id"] for r in _committed_rows()}
+    exam = {
+        r["article_id"]
+        for r in csv.DictReader((ROOT / "gold" / "sentiment_gold.csv").open(encoding="utf-8-sig"))
+    }
+    heldout = {
+        r["article_id"]
+        for r in csv.DictReader(
+            (ROOT / "gold" / "category_gold_v2_test.csv").open(encoding="utf-8-sig")
+        )
+    }
+    assert len(train) == 450  # one summary per article
+    assert not train & exam and not train & heldout  # D35: it trains, never exams

@@ -1,201 +1,201 @@
 article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,stratum,frame
-155880,heldout,BNY,,,,,,single,514
-140256,heldout,BRK.B,,,,,,multi_dominated,245
-286206,heldout,INTC,,,,,,roundup,108
-479426,heldout,WAT,,,,,,sector,18
-163722,heldout,CCL,,,,,,multi_dominated,245
-328518,heldout,NFLX,,,,,,single,514
-166687,heldout,CVX,,,,,,multi_dominated,245
-341677,heldout,NVDA,,,,,,single,514
-247481,heldout,GE,,,,,,single,514
-1106639,heldout,RDDT,,,,,,multi_dominated,245
-247144,heldout,GE,,,,,,multi_dominated,245
-440126,heldout,SBUX,,,,,,single,514
-302920,heldout,KR,,,,,,multi_dominated,245
-421518,heldout,QCOM,,,,,,multi_dominated,245
-296474,heldout,JPM,,,,,,economy,5
-95823,heldout,AMZN,,,,,,single,514
-296388,heldout,JPM,,,,,,sector,18
-320105,heldout,MSFT,,,,,,multi,93
-229197,heldout,FSLR,,,,,,multi,93
-255762,heldout,GM,,,,,,no_company,12
-439615,heldout,SBUX,,,,,,single,514
-298257,heldout,KEY,,,,,,single,514
-252938,heldout,GM,,,,,,sector,18
-479545,heldout,WFC,,,,,,multi_dominated,245
-297807,heldout,JPM,,,,,,no_company,12
-117129,heldout,AAPL,,,,,,multi_dominated,245
-483240,heldout,WDC,,,,,,multi,93
-121957,heldout,AAPL,,,,,,roundup,108
-315633,heldout,MRK,,,,,,single,514
-1075568,heldout,GOOGL,,,,,,sector,18
-325487,heldout,MS,,,,,,multi,93
-425621,heldout,SNDK,,,,,,multi_dominated,245
-414029,heldout,PFE,,,,,,single,514
-156225,heldout,BA,,,,,,single,514
-322925,heldout,MS,,,,,,multi,93
-114804,heldout,AAPL,,,,,,multi,93
-168374,heldout,CSCO,,,,,,single,514
-477443,heldout,WMT,,,,,,economy,5
-484252,heldout,WYNN,,,,,,multi,93
-169281,heldout,C,,,,,,roundup,108
-179000,heldout,CCI,,,,,,single,514
-252250,heldout,GM,,,,,,sector,18
-341115,heldout,NVDA,,,,,,single,514
-285334,heldout,IBM,,,,,,single,514
-296265,heldout,JPM,,,,,,single,514
-343527,heldout,NVDA,,,,,,single,514
-178761,heldout,CRWD,,,,,,single,514
-93127,heldout,AMZN,,,,,,multi_dominated,245
-252539,heldout,GM,,,,,,single,514
-179104,heldout,CSX,,,,,,multi_dominated,245
-171052,heldout,KO,,,,,,roundup,108
-203089,heldout,DASH,,,,,,multi_dominated,245
-480321,heldout,WFC,,,,,,single,514
-170507,heldout,CME,,,,,,single,514
-479626,heldout,WFC,,,,,,multi_dominated,245
-326586,heldout,MSCI,,,,,,multi_dominated,245
-169825,heldout,C,,,,,,multi_dominated,245
-156054,heldout,BA,,,,,,single,514
-90779,heldout,AMZN,,,,,,multi,93
-247612,heldout,GE,,,,,,economy,5
-1075617,heldout,GOOGL,,,,,,sector,18
-166765,heldout,CVX,,,,,,single,514
-88755,heldout,GOOGL,,,,,,single,514
-296569,heldout,JPM,,,,,,market,5
-297451,heldout,JPM,,,,,,single,514
-247026,heldout,GE,,,,,,sector,18
-295573,heldout,JPM,,,,,,sector,18
-252757,heldout,GM,,,,,,sector,18
-291511,heldout,INTU,,,,,,multi_dominated,245
-165364,heldout,CNP,,,,,,multi_dominated,245
-266467,heldout,GS,,,,,,single,514
-439142,heldout,SBUX,,,,,,multi_dominated,245
-341432,heldout,NVDA,,,,,,multi_dominated,245
-291698,heldout,IVZ,,,,,,single,514
-200622,heldout,DLTR,,,,,,multi_dominated,245
-473776,heldout,UNH,,,,,,multi_dominated,245
-422181,heldout,RL,,,,,,single,514
-320005,heldout,MSFT,,,,,,multi_dominated,245
-155716,heldout,BX,,,,,,multi_dominated,245
-318432,heldout,MSFT,,,,,,multi_dominated,245
-296915,heldout,JPM,,,,,,no_company,12
-117092,heldout,AAPL,,,,,,single,514
-478427,heldout,WBD,,,,,,multi_dominated,245
-343466,heldout,NVDA,,,,,,multi_dominated,245
-341337,heldout,NVDA,,,,,,single,514
-329291,heldout,NFLX,,,,,,multi_dominated,245
-425519,heldout,CRM,,,,,,multi_dominated,245
-255269,heldout,GM,,,,,,sector,18
-343678,heldout,NVDA,,,,,,single,514
-116959,heldout,AAPL,,,,,,single,514
-102623,heldout,AXP,,,,,,multi_dominated,245
-169870,heldout,C,,,,,,single,514
-286410,heldout,INTC,,,,,,roundup,108
-255017,heldout,GM,,,,,,no_company,12
-296647,heldout,JPM,,,,,,sector,18
-440174,heldout,SBUX,,,,,,single,514
-87270,heldout,ALL,,,,,,single,514
-115722,heldout,AAPL,,,,,,multi_dominated,245
-425236,heldout,CRM,,,,,,multi,93
-121050,heldout,AAPL,,,,,,multi_dominated,245
-302476,heldout,KHC,,,,,,multi_dominated,245
-182954,heldout,DAL,,,,,,single,514
-1108073,heldout,SBUX,,,,,,single,514
-414412,heldout,PFE,,,,,,single,514
-341539,heldout,NVDA,,,,,,single,514
-479469,heldout,WAT,,,,,,single,514
-120843,heldout,AAPL,,,,,,multi_dominated,245
-214387,heldout,FICO,,,,,,single,514
-465076,heldout,UBER,,,,,,single,514
-288236,heldout,ICE,,,,,,economy,5
-1075389,heldout,GOOGL,,,,,,sector,18
-1110708,heldout,TSLA,,,,,,single,514
-118980,heldout,AAPL,,,,,,single,514
-95652,heldout,AMZN,,,,,,multi_dominated,245
-297011,heldout,JPM,,,,,,economy,5
-321625,heldout,MRNA,,,,,,multi_dominated,245
-425788,heldout,SLB,,,,,,single,514
-209321,heldout,EFX,,,,,,single,514
-344029,heldout,OXY,,,,,,single,514
-167795,heldout,CHD,,,,,,single,514
-1075003,heldout,GOOGL,,,,,,market,5
-128992,heldout,BAC,,,,,,multi,93
-246663,heldout,GE,,,,,,single,514
-88763,heldout,GOOGL,,,,,,multi_dominated,245
-296116,heldout,JPM,,,,,,roundup,108
-164940,heldout,CAT,,,,,,no_company,12
-106198,heldout,AIG,,,,,,single,514
-118909,heldout,AAPL,,,,,,multi_dominated,245
-170753,heldout,KO,,,,,,single,514
-166584,heldout,CVX,,,,,,single,514
-411199,heldout,ORCL,,,,,,multi_dominated,245
-1110132,heldout,TSLA,,,,,,single,514
-96237,heldout,AMZN,,,,,,single,514
-262799,heldout,GS,,,,,,roundup,108
-123067,heldout,AAPL,,,,,,multi,93
-1075197,heldout,GOOGL,,,,,,sector,18
-144995,heldout,BBY,,,,,,roundup,108
-296909,heldout,JPM,,,,,,market,5
-90140,heldout,MO,,,,,,multi,93
-115832,heldout,AAPL,,,,,,single,514
-251089,heldout,GIS,,,,,,single,514
-329272,heldout,NFLX,,,,,,roundup,108
-254098,heldout,GM,,,,,,no_company,12
-296056,heldout,JPM,,,,,,no_company,12
-285428,heldout,IBM,,,,,,multi,93
-163645,heldout,CCL,,,,,,roundup,108
-1101100,heldout,NDAQ,,,,,,market,5
-247884,heldout,GEV,,,,,,single,514
-254770,heldout,GM,,,,,,single,514
-212252,heldout,EXPE,,,,,,single,514
-61024,heldout,ABNB,,,,,,multi_dominated,245
-176157,heldout,COST,,,,,,multi_dominated,245
-175654,heldout,GLW,,,,,,roundup,108
-252509,heldout,GM,,,,,,single,514
-158997,heldout,BSX,,,,,,single,514
-277600,heldout,HPE,,,,,,single,514
-436322,heldout,LUV,,,,,,single,514
-208754,heldout,EW,,,,,,no_company,12
-156797,heldout,BA,,,,,,multi_dominated,245
-328763,heldout,NFLX,,,,,,single,514
-91359,heldout,AMZN,,,,,,multi,93
-133851,heldout,BAC,,,,,,single,514
-121556,heldout,AAPL,,,,,,single,514
-328054,heldout,NFLX,,,,,,multi_dominated,245
-96524,heldout,AMZN,,,,,,roundup,108
-92603,heldout,AMZN,,,,,,roundup,108
-295239,heldout,JPM,,,,,,single,514
-286966,heldout,INTC,,,,,,sector,18
-416964,heldout,PG,,,,,,no_company,12
-247586,heldout,GE,,,,,,no_company,12
-172113,heldout,CMCSA,,,,,,multi_dominated,245
-320174,heldout,MSFT,,,,,,single,514
-255239,heldout,GM,,,,,,sector,18
-325265,heldout,MS,,,,,,single,514
-179633,heldout,CVS,,,,,,single,514
-247106,heldout,GE,,,,,,single,514
-165918,heldout,SCHW,,,,,,single,514
-311955,heldout,LITE,,,,,,single,514
-414812,heldout,PFE,,,,,,single,514
-327155,heldout,NFLX,,,,,,roundup,108
-120347,heldout,AAPL,,,,,,multi_dominated,245
-131210,heldout,BAC,,,,,,single,514
-209045,heldout,ETR,,,,,,single,514
-120089,heldout,AAPL,,,,,,multi_dominated,245
-476205,heldout,WMT,,,,,,single,514
-296135,heldout,JPM,,,,,,single,514
-287837,heldout,ICE,,,,,,single,514
-263392,heldout,GS,,,,,,multi_dominated,245
-90019,heldout,MO,,,,,,roundup,108
-281011,heldout,HD,,,,,,single,514
-478211,heldout,DIS,,,,,,multi_dominated,245
-1075135,heldout,GOOGL,,,,,,sector,18
-465092,heldout,UBER,,,,,,single,514
-246882,heldout,GE,,,,,,no_company,12
-124204,heldout,AAPL,,,,,,multi,93
-119978,heldout,AAPL,,,,,,multi_dominated,245
-121996,heldout,AAPL,,,,,,single,514
-295247,heldout,JPM,,,,,,market,5
-1075280,heldout,GOOGL,,,,,,sector,18
-247387,heldout,GE,,,,,,no_company,12
+61024,heldout,ABNB,multi,"Expedia:peer_comparison, Airbnb:peer_comparison",,,,multi_dominated,245
+87270,heldout,ALL,single,Allstate:earnings_performance,,,,single,514
+88755,heldout,GOOGL,single,Alphabet:product_innovation,,,,single,514
+88763,heldout,GOOGL,single,Alphabet:leadership_governance,,,,multi_dominated,245
+90019,heldout,MO,multi,"Boeing:reputational_harm, Walt Disney:investor_activity, Fiat Chrysler:legal_regulatory, Wynn Resorts:mergers_acquisitions, Alcon:capital_shareholder_returns, Altria:legal_regulatory, SAP:investor_activity, PerkinElmer:investor_activity, Avaya:capital_shareholder_returns, Zogenix:legal_regulatory, U.S. Steel:investor_activity",,,,roundup,108
+90140,heldout,MO,multi,"LULU:market_analyst_sentiment, KBR:market_analyst_sentiment, Cemex:market_analyst_sentiment, Philip Morris International:market_analyst_sentiment, Arch Coal:market_analyst_sentiment, Richie Bros. Auctioneers:market_analyst_sentiment, Breitburn Energy:market_analyst_sentiment, Monster Worldwide:market_analyst_sentiment, MEMC Electronics:market_analyst_sentiment, AutoNation:market_analyst_sentiment, Comcast:market_analyst_sentiment",,,,multi,93
+90779,heldout,AMZN,multi,"Apple:market_analyst_sentiment, Amazon:market_analyst_sentiment",,,,multi,93
+91359,heldout,AMZN,multi,"Amazon:market_analyst_sentiment, Weyerhaeuser:market_analyst_sentiment, Boeing:market_analyst_sentiment, Chipotle:market_analyst_sentiment, Humana:market_analyst_sentiment, Bath & Body Works:market_analyst_sentiment",,,,multi,93
+92603,heldout,AMZN,multi,"UAL:labor_human_capital, FL:investor_activity, RDFN:investor_activity, WFC:investor_activity, BYND:investor_activity, BNTX:product_innovation, NVDA:investor_activity, AMZN:investor_activity",,,,roundup,108
+93127,heldout,AMZN,single,Amazon:product_innovation,,,,multi_dominated,245
+95652,heldout,AMZN,single,CNBC:product_innovation,,,,multi_dominated,245
+95823,heldout,AMZN,single,Amazon:investor_activity,,,,single,514
+96237,heldout,AMZN,multi,"STMicroelectronics:market_analyst_sentiment, Sodastream:market_analyst_sentiment, Consolidated Edison:market_analyst_sentiment, Amazon:market_analyst_sentiment, General Electric:market_analyst_sentiment, PDL Biopharma:market_analyst_sentiment, Yandex:market_analyst_sentiment, Chart Industries:market_analyst_sentiment, Galena:market_analyst_sentiment",,,,single,514
+96524,heldout,AMZN,multi,"Amazon:competitive_actions, FedEx:competitive_actions, UPS:competitive_actions",,,,roundup,108
+102623,heldout,AXP,multi,"Qualcomm:earnings_performance, American Express:earnings_performance",,,,multi_dominated,245
+106198,heldout,AIG,investing_general,,,,,single,514
+114804,heldout,AAPL,multi,"Nvidia:legal_regulatory, AMD:legal_regulatory",,,,multi,93
+115722,heldout,AAPL,single,Apple:product_innovation,,,,multi_dominated,245
+115832,heldout,AAPL,single,Apple:product_innovation,,,,single,514
+116959,heldout,AAPL,multi,"Apple:reputational_harm, Google:reputational_harm",,,,single,514
+117092,heldout,AAPL,single,Apple:leadership_governance,,,,single,514
+117129,heldout,AAPL,single,Apple:investor_activity,,,,multi_dominated,245
+118909,heldout,AAPL,single,Apple:leadership_governance,,,,multi_dominated,245
+118980,heldout,AAPL,single,Apple:product_innovation,,,,single,514
+119978,heldout,AAPL,single,"Apple:product_innovation, Apple:legal_regulatory",,,,multi_dominated,245
+120089,heldout,AAPL,single,Berkshire:investor_activity,,,,multi_dominated,245
+120347,heldout,AAPL,single,Apple:market_analyst_sentiment,,,,multi_dominated,245
+120843,heldout,AAPL,single,Apple:product_innovation,,,,multi_dominated,245
+121050,heldout,AAPL,single,Apple:market_analyst_sentiment,,,,multi_dominated,245
+121556,heldout,AAPL,single,Apple:product_innovation,,,,single,514
+121957,heldout,AAPL,multi,"Alliance Data Systems:earnings_performance, Apple:product_innovation, Avis Budget Group:capital_shareholder_returns, Delta Air Lines:earnings_performance, Chesapeake Energy:capital_shareholder_returns, Gap:capital_shareholder_returns, Las Vegas Sands:capital_shareholder_returns, Shire:mergers_acquisitions",,,,roundup,108
+121996,heldout,AAPL,unrelated,,,,,single,514
+123067,heldout,AAPL,multi,"Apple:market_analyst_sentiment, Nokia:market_analyst_sentiment, Qualcomm:market_analyst_sentiment",,,,multi,93
+124204,heldout,AAPL,multi,"Apple:market_analyst_sentiment, Microsoft:market_analyst_sentiment",,,,multi,93
+128992,heldout,BAC,single,J.M. Smucker:investor_activity,,,,multi,93
+131210,heldout,BAC,multi,"Bank of America Corp:market_analyst_sentiment, Alcoa Corp:market_analyst_sentiment, Archer Aviation Inc:market_analyst_sentiment",,,,single,514
+133851,heldout,BAC,single,Bank of America:earnings_performance,,,,single,514
+140256,heldout,BRK.B,multi,"Berkshire Hathaway:legal_regulatory, Berkshire Hathaway:leadership_governance, American International Group:legal_regulatory, American International Group:leadership_governance",,,,multi_dominated,245
+144995,heldout,BBY,multi,"Home Depot:earnings_performance, Campbell Soup:earnings_performance, Best Buy:earnings_performance, Nokia:leadership_governance, Office Depot:investor_activity, Medtronic:earnings_performance, JPMorgan Chase:legal_regulatory, Tesla:legal_regulatory, Tesla:reputational_harm, Urban Outfitters:earnings_performance, Salesforce:earnings_performance, Brocade Communications:earnings_performance",,,,roundup,108
+155716,heldout,BX,multi,"Dynegy Energy:mergers_acquisitions, Blackstone:mergers_acquisitions",,,,multi_dominated,245
+155880,heldout,BNY,single,Bank of New York Mellon Corporation:earnings_performance,,,,single,514
+156054,heldout,BA,single,Boeing:reputational_harm,,,,single,514
+156225,heldout,BA,multi,"Boeing:reputational_harm, Virgin Galactic:legal_regulatory",,,,single,514
+156797,heldout,BA,single,"Boeing:product_innovation, Boeing:reputational_harm",,,,multi_dominated,245
+158997,heldout,BSX,single,"Boston Scientific:legal_regulatory, Boston Scientific:product_innovation",,,,single,514
+163645,heldout,CCL,multi,"Carnival:investor_activity, Royal Caribbean:investor_activity, Deere:investor_activity, CNH Industrial:investor_activity, Starbucks:investor_activity, CVS Health:investor_activity, Dell Technologies:investor_activity, Super Micro Computer:investor_activity, Planet Fitness:investor_activity, Rocket Lab:reputational_harm",,,,roundup,108
+163722,heldout,CCL,single,Carnival Cruise Line:partnerships_business_dev,,,,multi_dominated,245
+164940,heldout,CAT,multi,"Caterpillar:uncertain, GE:uncertain",,,,no_company,12
+165364,heldout,CNP,single,INGAA:leadership_governance,,,,multi_dominated,245
+165918,heldout,SCHW,single,"Charles Schwab:capital_shareholder_returns, Charles Schwab:investor_activity",,,,single,514
+166584,heldout,CVX,single,Chevron:investor_activity,,,,single,514
+166687,heldout,CVX,single,Chevron:mergers_acquisitions,,,,multi_dominated,245
+166765,heldout,CVX,single,Chevron:earnings_performance,,,,single,514
+167795,heldout,CHD,single,"Church & Dwight:leadership_governance, Church & Dwight:capital_shareholder_returns",,,,single,514
+168374,heldout,CSCO,single,Cisco:earnings_performance,,,,single,514
+169281,heldout,C,multi,"Citigroup:investor_activity, JP Morgan:investor_activity",,,,roundup,108
+169825,heldout,C,single,Citigroup:leadership_governance,,,,multi_dominated,245
+169870,heldout,C,single,Citigroup:market_analyst_sentiment,,,,single,514
+170507,heldout,CME,single,CME:legal_regulatory,,,,single,514
+170753,heldout,KO,multi,"Coca-Cola:reputational_harm, McDonald's:reputational_harm",,,,single,514
+171052,heldout,KO,multi,"Coca-Cola:earnings_performance, Goldman Sachs:earnings_performance, Johnson & Johnson:earnings_performance, Northern Trust:earnings_performance, Costco Wholesale:investor_activity, Wal-Mart Stores:investor_activity, Target:investor_activity, Sprint Nextel:investor_activity, Microsoft:investor_activity, Netgear:earnings_performance, HCA:earnings_performance, Mack-Cali Realty:capital_shareholder_returns, U.S. Airways:mergers_acquisitions, Forest Laboratories:product_innovation, Macy's:legal_regulatory",,,,roundup,108
+172113,heldout,CMCSA,multi,"Starz:legal_regulatory, Comcast:legal_regulatory",,,,multi_dominated,245
+175654,heldout,GLW,multi,"MGM Mirage:peer_comparison, Wynn Resorts:peer_comparison, MetroPCS:market_analyst_sentiment, Ancestry:market_analyst_sentiment, JPMorgan Chase:market_analyst_sentiment, Owens Corning:market_analyst_sentiment, Fifth Third Bancorp:market_analyst_sentiment, DuPont:leadership_governance, Halliburton:market_analyst_sentiment, China Agritech:market_analyst_sentiment",,,,roundup,108
+176157,heldout,COST,single,Costco:capital_shareholder_returns,,,,multi_dominated,245
+178761,heldout,CRWD,single,CrowdStrike:earnings_performance,,,,single,514
+179000,heldout,CCI,multi,"Crown Castle:partnerships_business_dev, T-Mobile:partnerships_business_dev",,,,single,514
+179104,heldout,CSX,market_economy,,,,,multi_dominated,245
+179633,heldout,CVS,single,CVS:product_innovation,,,,single,514
+182954,heldout,DAL,single,Delta Air:earnings_performance,,,,single,514
+200622,heldout,DLTR,single,Dollar Tree:investor_activity,,,,multi_dominated,245
+203089,heldout,DASH,multi,"DoorDash:partnerships_business_dev, Sam's Club:partnerships_business_dev",,,,multi_dominated,245
+208754,heldout,EW,multi,"Hearst:mergers_acquisitions, TEGNA:mergers_acquisitions, EW Scripps:mergers_acquisitions",,,,no_company,12
+209045,heldout,ETR,single,Entergy:leadership_governance,,,,single,514
+209321,heldout,EFX,single,Equifax:reputational_harm,,,,single,514
+212252,heldout,EXPE,single,Expedia:earnings_performance,,,,single,514
+214387,heldout,FICO,sector,,,4010,,single,514
+229197,heldout,FSLR,multi,"GD:market_analyst_sentiment, UNG:market_analyst_sentiment, FSLR:legal_regulatory, RDN:investor_activity, NVDA:product_innovation, BRCM:investor_activity",,,,multi,93
+246663,heldout,GE,multi,"OpenAI:partnerships_business_dev, GE Vernova:partnerships_business_dev",,,,single,514
+246882,heldout,GE,single,GE:market_analyst_sentiment,,,,no_company,12
+247026,heldout,GE,single,GE:leadership_governance,,,,sector,18
+247106,heldout,GE,multi,"Goldman Sachs:market_analyst_sentiment, General Electric:market_analyst_sentiment",,,,single,514
+247144,heldout,GE,investing_general,,,,,multi_dominated,245
+247387,heldout,GE,single,GE:legal_regulatory,,,,no_company,12
+247481,heldout,GE,single,GE:reputational_harm,,,,single,514
+247586,heldout,GE,single,"GE:labor_human_capital, GE:leadership_governance",,,,no_company,12
+247612,heldout,GE,single,GE:market_analyst_sentiment,,,,economy,5
+247884,heldout,GEV,single,GE:market_analyst_sentiment,,,,single,514
+251089,heldout,GIS,single,GoodBelly Probiotics:investor_activity,,,,single,514
+252250,heldout,GM,single,GM:product_innovation,,,,sector,18
+252509,heldout,GM,single,GM:earnings_performance,,,,single,514
+252539,heldout,GM,single,GM:mergers_acquisitions,,,,single,514
+252757,heldout,GM,single,GM:partnerships_business_dev,,,,sector,18
+252938,heldout,GM,sector,,GM,"2510, 4530",,sector,18
+254098,heldout,GM,single,"GM:product_innovation, GM:reputational_harm",,,,no_company,12
+254770,heldout,GM,single,GM:earnings_performance,,,,single,514
+255017,heldout,GM,single,GM:capital_shareholder_returns,,,,no_company,12
+255239,heldout,GM,single,GM:earnings_performance,,,,sector,18
+255269,heldout,GM,single,GM:partnerships_business_dev,,,,sector,18
+255762,heldout,GM,sector,,GE,2510,,no_company,12
+262799,heldout,GS,multi,"Nvidia:market_analyst_sentiment, Dick's Sporting Goods:market_analyst_sentiment, Wynn Resorts:market_analyst_sentiment, Monster Beverage:market_analyst_sentiment, Genius Sports:market_analyst_sentiment",,,,roundup,108
+263392,heldout,GS,single,Johnson & Johnson:leadership_governance,,,,multi_dominated,245
+266467,heldout,GS,investing_general,,,,,single,514
+277600,heldout,HPE,single,HPE:earnings_performance,,,,single,514
+281011,heldout,HD,market_economy,,Home Depot,,,single,514
+285334,heldout,IBM,investing_general,,,,,single,514
+285428,heldout,IBM,investing_general,,,,,multi,93
+286206,heldout,INTC,multi,"Rackspace:partnerships_business_dev, Advanced Micro Devices:partnerships_business_dev, Mobileye:product_innovation, Southwest Airlines:investor_activity, E.l.f. Beauty:product_innovation, Gilead Sciences:legal_regulatory, Gildan Activewear:investor_activity, SpaceX:investor_activity, Huntsman:mergers_acquisitions, Dave & Buster's:earnings_performance, Robinhood:labor_human_capital, Yum Brands:capital_shareholder_returns",,,,roundup,108
+286410,heldout,INTC,multi,"GameStop:other, Arm Holdings:product_innovation, Nvidia:market_analyst_sentiment, Intel:partnerships_business_dev, Kenvue:investor_activity, Squarespace:leadership_governance, Penn Entertainment:investor_activity, United Airlines:investor_activity, Delta Airlines:investor_activity, American Airlines:investor_activity, SolarEdge:investor_activity, Incyte:capital_shareholder_returns",,,,roundup,108
+286966,heldout,INTC,unrelated,,,,,sector,18
+287837,heldout,ICE,unrelated,,,,,single,514
+288236,heldout,ICE,market_economy,,,,,economy,5
+291511,heldout,INTU,single,INTU:earnings_performance,,,,multi_dominated,245
+291698,heldout,IVZ,market_economy,,,,,single,514
+295239,heldout,JPM,single,JPMorgan Chase:earnings_performance,,,,single,514
+295247,heldout,JPM,market_economy,,,,,market,5
+295573,heldout,JPM,single,Grab Holdings:investor_activity,,,,sector,18
+296056,heldout,JPM,sector,,,402010,,no_company,12
+296116,heldout,JPM,sector,,"NextEra, Sunrun, Cheniere, Shell, Exxon, Marathon Oil","1010, 5510",,roundup,108
+296135,heldout,JPM,single,Procter & Gamble:investor_activity,,,,single,514
+296265,heldout,JPM,single,Domino's Pizza:investor_activity,,,,single,514
+296388,heldout,JPM,single,Bitcoin:market_analyst_sentiment,,,,sector,18
+296474,heldout,JPM,market_economy,,,,,economy,5
+296569,heldout,JPM,investing_general,,,,,market,5
+296647,heldout,JPM,single,JPMorgan Chase:investor_activity,,,,sector,18
+296909,heldout,JPM,market_economy,,,,,market,5
+296915,heldout,JPM,single,Synaptics:investor_activity,,,,no_company,12
+297011,heldout,JPM,single,JPMorgan:market_analyst_sentiment,,,,economy,5
+297451,heldout,JPM,single,"JPMorgan Chase:legal_regulatory, JPMorgan Chase:reputational_harm",,,,single,514
+297807,heldout,JPM,single,JPMorgar Chase:reputational_harm,,,,no_company,12
+298257,heldout,KEY,market_economy,,,,,single,514
+302476,heldout,KHC,multi,"3G Capital:investor_activity, Kraft Heinz:investor_activity",,,,multi_dominated,245
+302920,heldout,KR,single,Krogen:other,,,,multi_dominated,245
+311955,heldout,LITE,single,LITE:earnings_performance,,,,single,514
+315633,heldout,MRK,multi,"GlaxoSmithKline:product_innovation, Merck:product_innovation",,,,single,514
+318432,heldout,MSFT,single,Microsoft:legal_regulatory,,,,multi_dominated,245
+320005,heldout,MSFT,single,Microsoft:product_innovation,,,,multi_dominated,245
+320105,heldout,MSFT,single,Microsoft:earnings_performance,,,,multi,93
+320174,heldout,MSFT,single,Microsoft:market_analyst_sentiment,,,,single,514
+321625,heldout,MRNA,multi,"Moderna:product_innovation, Moderna:peer_comparison, Pfizer:product_innovation, Pfizer:peer_comparison",,,,multi_dominated,245
+322925,heldout,MS,sector,,"Northrop Grumman, RTX, L3Harris Technologies, General Dynamics",201010,,multi,93
+325265,heldout,MS,investing_general,,,,,single,514
+325487,heldout,MS,sector,,,1010,,multi,93
+326586,heldout,MSCI,single,MSCI:earnings_performance,,,,multi_dominated,245
+327155,heldout,NFLX,multi,"NVDA:investor_activity, MPWR:investor_activity, MRVL:investor_activity, AVGO:investor_activity, Ford:market_analyst_sentiment, General Motors:market_analyst_sentiment, Amazon:market_analyst_sentiment, Netflix:investor_activity, DoorDash:investor_activity, ULTA:investor_activity, Lam Research:investor_activity, First Solar:investor_activity, NOVA:investor_activity, Hershey:investor_activity, META:investor_activity, Coca-Cola:investor_activity, Bank of America:investor_activity, BAC:investor_activity, Pure Storage:investor_activity, Shopify:investor_activity, Inspire Medical Systems:investor_activity, Microsoft:investor_activity, DELL:investor_activity",,,,roundup,108
+328054,heldout,NFLX,multi,"Disney:mergers_acquisitions, FOX:capital_shareholder_returns",,,,multi_dominated,245
+328518,heldout,NFLX,single,Netflix:market_analyst_sentiment,,,,single,514
+328763,heldout,NFLX,single,Netflix:labor_human_capital,,,,single,514
+329272,heldout,NFLX,multi,"Target:investor_activity, Athenahealth:investor_activity, JB Hunt Transport:investor_activity, Dollar Tree:investor_activity, Netflix:investor_activity, Research in Motion:investor_activity",,,,roundup,108
+329291,heldout,NFLX,single,Netflix:market_analyst_sentiment,,,,multi_dominated,245
+341115,heldout,NVDA,single,Nvidia:other,,,,single,514
+341337,heldout,NVDA,sector,,"Siemens, Mercedes-Benz Group, Volvo, Schaeffler, Nvidia, Alphabet",4520,,single,514
+341432,heldout,NVDA,single,Nvidia:market_analyst_sentiment,,,,multi_dominated,245
+341539,heldout,NVDA,multi,"Nvidia:mergers_acquisitions, Nokia:capital_shareholder_returns",,,,single,514
+341677,heldout,NVDA,market_economy,,,,,single,514
+343466,heldout,NVDA,single,Nvidia:mergers_acquisitions,,,,multi_dominated,245
+343527,heldout,NVDA,single,Nvidia:market_analyst_sentiment,,,,single,514
+343678,heldout,NVDA,single,Nvidia:earnings_performance,,,,single,514
+344029,heldout,OXY,multi,"Occidental Petroleum:investor_activity, Carl Icahn:investor_activity, Anadarko:capital_shareholder_returns",,,,single,514
+411199,heldout,ORCL,single,"Oracle:earnings_performance, Oracle:capital_shareholder_returns, Oracle:market_analyst_sentiment, Oracle:product_innovation",,,,multi_dominated,245
+414029,heldout,PFE,single,Pfizer:product_innovation,,,,single,514
+414412,heldout,PFE,single,Pfizer:product_innovation,,,,single,514
+414812,heldout,PFE,multi,"Encysive Pharmaceuticals:capital_shareholder_returns, Pfizer:mergers_acquisitions",,,,single,514
+416964,heldout,PG,multi,"Boise Cascade Co:market_analyst_sentiment, Marten Transport Ltd:market_analyst_sentiment, Doximity Inc:market_analyst_sentiment, Olaplex Holdings Inc:market_analyst_sentiment, Idexx Laboratories Inc:market_analyst_sentiment",,,,no_company,12
+421518,heldout,QCOM,single,"Qualcomm:competitive_actions, Qualcomm:legal_regulatory",,,,multi_dominated,245
+422181,heldout,RL,single,Ralph Lauren:earnings_performance,,,,single,514
+425236,heldout,CRM,single,Salesforce:mergers_acquisitions,,,,multi,93
+425519,heldout,CRM,single,Salesforce:earnings_performance,,,,multi_dominated,245
+425621,heldout,SNDK,single,Sandisk:earnings_performance,,,,multi_dominated,245
+425788,heldout,SLB,single,Schlumberger:market_analyst_sentiment,,,,single,514
+436322,heldout,LUV,unrelated,,,,,single,514
+439142,heldout,SBUX,single,"Starbucks:labor_human_capital, Starbucks:legal_regulatory",,,,multi_dominated,245
+439615,heldout,SBUX,multi,"Dunkin’:competitive_actions, Starbucks:competitive_actions",,,,single,514
+440126,heldout,SBUX,single,Starbucks:product_innovation,,,,single,514
+440174,heldout,SBUX,market_economy,,,,,single,514
+465076,heldout,UBER,single,"UBER:leadership_governance, UBER:earnings_performance",,,,single,514
+465092,heldout,UBER,single,UBER:market_analyst_sentiment,,,,single,514
+473776,heldout,UNH,single,UnitedHealth:earnings_performance,,,,multi_dominated,245
+476205,heldout,WMT,single,Walmart:earnings_performance,,,,single,514
+477443,heldout,WMT,single,Walmart:earnings_performance,,,,economy,5
+478211,heldout,DIS,single,Walt Disney World:labor_human_capital,,,,multi_dominated,245
+478427,heldout,WBD,single,Warner Bros Discovery:earnings_performance,,,,multi_dominated,245
+479426,heldout,WAT,unrelated,,,,,sector,18
+479469,heldout,WAT,single,MegaPath:leadership_governance,,,,single,514
+479545,heldout,WFC,sector,,,4020,,multi_dominated,245
+479626,heldout,WFC,single,Nike:investor_activity,,,,multi_dominated,245
+480321,heldout,WFC,single,"Wells Fargo:legal_regulatory, Wells Fargo:reputational_harm",,,,single,514
+483240,heldout,WDC,single,"Western Digital:mergers_acquisitions, Western Digital:legal_regulatory",,,,multi,93
+484252,heldout,WYNN,single,Wynn Resorts:capital_shareholder_returns,,,,multi,93
+1075003,heldout,GOOGL,unrelated,,,,,market,5
+1075135,heldout,GOOGL,unrelated,,,,,sector,18
+1075197,heldout,GOOGL,single,Alibaba:product_innovation,,,,sector,18
+1075280,heldout,GOOGL,multi,"Honor:partnerships_business_dev, Alphabet:partnerships_business_dev",,,,sector,18
+1075389,heldout,GOOGL,single,Alphabet:market_analyst_sentiment,,,,sector,18
+1075568,heldout,GOOGL,single,Alphabet:capital_shareholder_returns,,,,sector,18
+1075617,heldout,GOOGL,unrelated,,,,,sector,18
+1101100,heldout,NDAQ,market_economy,,,,,market,5
+1106639,heldout,RDDT,single,Reddit:partnerships_business_dev,,,,multi_dominated,245
+1108073,heldout,SBUX,single,Starbucks:market_analyst_sentiment,,,,single,514
+1110132,heldout,TSLA,single,"Tesla:product_innovation, Tesla:other",,,,single,514
+1110708,heldout,TSLA,single,Tesla:reputational_harm,,,,single,514
