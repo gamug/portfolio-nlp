@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from collections import Counter
@@ -20,6 +21,7 @@ from types import ModuleType
 import pytest
 
 from news_nlp import gold_metrics, retag
+from news_nlp.gics_codes import SUB_INDUSTRY_CODES
 from news_nlp.gold_metrics import MarkedFileError
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -2818,3 +2820,273 @@ def test_the_exempt_reading_file_gets_its_spanish_only_with_yes_and_keeps_it(
         "1#BE",
         "1#HD",
     ]  # only the empty cells are bought
+
+
+HELDOUT_ROW_HASHES = Path(__file__).resolve().parent / "heldout_gold_row_hashes.csv"
+HELDOUT_GOLD = Path(__file__).resolve().parents[2] / "gold" / "category_gold_v2_test.csv"
+
+
+def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
+    with HELDOUT_GOLD.open(encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        assert tuple(reader.fieldnames or ()) == retag.TEST_GOLD_COLUMNS
+        rows = list(reader)
+    assert len(rows) == 200 and len({r["article_id"] for r in rows}) == 200
+    assert {r["session"] for r in rows} == {"heldout"}
+    assert Counter(r["scope"] for r in rows) == {
+        "single": 118,
+        "multi": 47,
+        "market_economy": 11,
+        "sector": 9,
+        "unrelated": 8,
+        "investing_general": 7,
+    }
+    bad = {r["article_id"]: errors for r in rows if (errors := retag.check_row(r)[1])}
+    assert (
+        not bad
+    )  # the shape of every tag; the tickers need the SOURCE universe (the builder has it)
+    # the GICS codes are checked offline: a spreadsheet's `25,104,530` would be three invalid codes
+    gics = retag.Universe({}, {n.lower(): n for n in SUB_INDUSTRY_CODES.values()})
+    codes = {c.strip() for r in rows for c in r["sub_industry"].split(",") if c.strip()}
+    assert not [c for c in codes if gics.resolve_sub_industry(c)[0] is None]
+    # every column of every row: a changed tag, ticker, session or weight is a decision to make in
+    # this test (the held-out set is fixed, D30), and the failure names the rows that differ
+    with HELDOUT_ROW_HASHES.open(encoding="utf-8", newline="") as fh:
+        expected = {r["article_id"]: r["sha256_16"] for r in csv.DictReader(fh)}
+    found = {r["article_id"]: _script("build_gold_2026_11_05").row_hash(r) for r in rows}
+    differ = sorted(i for i in expected.keys() | found.keys() if expected.get(i) != found.get(i))
+    assert not differ, f"rows of the held-out gold that changed or went missing: {differ[:20]}"
+    frames: dict[str, set[str]] = {}
+    for r in rows:
+        frames.setdefault(r["stratum"], set()).add(r["frame"])
+    assert all(len(sizes) == 1 for sizes in frames.values())  # one weight per stratum
+    # the weights are the sizes of the strata of the 1,000-body sample (D30): no data/ needed
+    assert sum(int(next(iter(sizes))) for sizes in frames.values()) == 1000
+
+
+def test_the_scope_report_reads_the_tracked_gold_with_the_figures_of_the_working_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    gold = [
+        {
+            "article_id": str(i),
+            "scope": ("single", "multi", "sector")[i % 3] if i % 7 else "single",
+            "stratum": ("single", "multi", "sector")[i % 3],
+            "frame": ("800", "150", "50")[i % 3],
+        }
+        for i in range(60)
+    ]
+    _csv(tmp_path / "category_gold_v2_test.csv", gold)
+    _csv(
+        tmp_path / "heldout_strata.csv",
+        [
+            {"stratum": s, "frame": f}
+            for s, f in (("single", "800"), ("multi", "150"), ("sector", "50"))
+        ],
+    )
+    _csv(
+        tmp_path / "heldout_ids.csv",
+        [{"article_id": g["article_id"], "stratum": g["stratum"]} for g in gold],
+    )
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [{"article_id": g["article_id"], "scope": g["scope"]} for g in reversed(gold)],
+    )
+    from_gold = REPORT.scope_gold_report(tmp_path)
+    assert from_gold[0] == "from the tracked gold: 60 bodies"
+    assert from_gold[1:] == REPORT.scope_report(tmp_path)  # also when the file's order differs
+    monkeypatch.setattr(sys, "argv", ["report", "scope", "--gold", "--out", str(tmp_path)])
+    REPORT.main()
+    assert capsys.readouterr().out.splitlines()[0] == "from the tracked gold: 60 bodies"
+    # the same rows in the opposite order give the same lines on the working-file path
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [{"article_id": g["article_id"], "scope": g["scope"]} for g in gold],
+    )
+    assert REPORT.scope_report(tmp_path) == from_gold[1:]
+
+
+def test_the_scope_gold_report_refuses_two_weights_for_one_stratum(tmp_path: Path) -> None:
+    rows = [
+        {"article_id": "1", "scope": "single", "stratum": "single", "frame": "10"},
+        {"article_id": "2", "scope": "single", "stratum": "single", "frame": "11"},
+    ]
+    _csv(tmp_path / "category_gold_v2_test.csv", rows)
+    with pytest.raises(MarkedFileError, match="two frame sizes"):
+        REPORT.scope_gold_report(tmp_path)
+
+
+def test_the_tracked_weights_are_the_draws_when_the_draw_is_at_hand() -> None:
+    strata = Path(__file__).resolve().parents[2] / "data" / "heldout_strata.csv"
+    if not strata.exists():
+        pytest.skip("the draw's strata sizes are local (git-ignored data/)")
+    with strata.open(encoding="utf-8-sig", newline="") as fh:
+        frame = {r["stratum"]: r["frame"] for r in csv.DictReader(fh)}
+    with HELDOUT_GOLD.open(encoding="utf-8", newline="") as fh:
+        tracked = {(r["stratum"], r["frame"]) for r in csv.DictReader(fh)}
+    assert tracked == set(frame.items())
+
+
+def test_a_rebuild_may_fill_the_shell_but_not_change_a_tag_of_the_heldout_gold() -> None:
+    build = _script("build_gold_2026_11_05")
+    old = [
+        {"article_id": "1", "scope": "single", "company_labels": "A:x", "frame": "9"},
+        {"article_id": "2", "scope": "", "company_labels": "", "frame": "9"},
+        {"article_id": "3", "scope": "multi", "company_labels": "A:x, B:y", "frame": "9"},
+    ]
+    new = [
+        {"article_id": "1", "scope": "single", "company_labels": "A:x", "frame": "9"},
+        {"article_id": "2", "scope": "single", "company_labels": "B:y", "frame": "9"},
+        {"article_id": "3", "scope": "multi", "company_labels": "A:x", "frame": "9"},
+    ]
+    assert build.changed_tags(old, new) == ["3"]  # the shell row 2 is filled in; row 3 changes
+    assert build.changed_tags(old, new[:2]) == ["3"]  # a dropped tagged row counts
+    assert build.changed_tags(new, new) == []
+
+
+def test_the_heldout_rebuild_stops_on_a_changed_tag_and_accepts_the_same_rows(
+    tmp_path: Path,
+) -> None:
+    build = _script("build_gold_2026_11_05")
+    rows = [{"article_id": "1", "scope": "single", "company_labels": "A:x"}]
+    target = tmp_path / "gold.csv"
+    _csv(target, rows)
+    build.protect_tags(target, [dict(r) for r in rows])  # the same tags: nothing happens
+    with pytest.raises(SystemExit, match=r"1 tags .* would change .*--overwrite-marks"):
+        build.protect_tags(target, [{**rows[0], "scope": "multi"}])
+
+
+def _heldout_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> ModuleType:
+    """A tiny held-out set in *tmp_path* and ``build_gold_2026_11_05.main`` set up to rebuild it."""
+    build = _script("build_gold_2026_11_05")
+    monkeypatch.setattr(build.retag_cli, "load_universe", lambda: None)
+    tag = ("article_id", "ticker", "scope", "company_labels", "mentions", "sub_industry", "notes")
+    _csv(
+        tmp_path / "heldout_to_tag.csv",
+        [
+            {
+                "article_id": "1",
+                "ticker": "AAPL",
+                "scope": "single",
+                "company_labels": "Apple:earnings_performance",
+                "mentions": "",
+                "sub_industry": "",
+                "notes": "",
+            }
+        ],
+        tag,
+    )
+    _csv(tmp_path / "heldout_ids.csv", [{"article_id": "1", "stratum": "single"}])
+    _csv(tmp_path / "heldout_strata.csv", [{"stratum": "single", "frame": "514"}])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build",
+            "--set",
+            "test",
+            "--out",
+            str(tmp_path),
+            "--gold",
+            str(tmp_path / "g.csv"),
+            *args,
+        ],
+    )
+    return build
+
+
+def _heldout_gold(tmp_path: Path, scope: str, labels: str) -> None:
+    _csv(
+        tmp_path / "g.csv",
+        [
+            {
+                "article_id": "1",
+                "session": "heldout",
+                "ticker": "AAPL",
+                "scope": scope,
+                "company_labels": labels,
+                "mentions": "",
+                "sub_industry": "",
+                "notes": "",
+                "stratum": "single",
+                "frame": "514",
+            }
+        ],
+    )
+
+
+def test_the_heldout_build_runs_through_main_with_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "", "")  # the shell: untagged, filled in freely
+    build.main()
+    written = (tmp_path / "g.csv").read_text(encoding="utf-8")
+    assert "single" in written and "514" in written
+    build.main()  # the same tags again: accepted
+    _heldout_gold(
+        tmp_path, "multi", "APPLE:earnings_performance"
+    )  # a tag the file holds, different
+    with pytest.raises(
+        SystemExit, match=r"1 tags .* would change .*first ids \['1'\].*--overwrite-marks"
+    ):
+        build.main()
+    assert "multi" in (tmp_path / "g.csv").read_text(encoding="utf-8")  # nothing was rewritten
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
+    capsys.readouterr()
+    build.main()
+    out = capsys.readouterr().out
+    assert "--overwrite-marks: 1 tags" in out and "ids ['1']" in out
+    assert "single" in (tmp_path / "g.csv").read_text(encoding="utf-8")
+
+
+def test_the_heldout_guard_compares_with_the_committed_file_not_a_local_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "single", "APPLE:earnings_performance")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(tmp_path)]
+    for command in (["init", "-q"], ["add", "g.csv"], ["commit", "-q", "-m", "tags"]):
+        subprocess.run([*git, *command], check=True, capture_output=True)  # noqa: S603
+    _heldout_gold(
+        tmp_path, "multi", "APPLE:earnings_performance"
+    )  # a local edit of the tracked file
+    with (tmp_path / "g.csv").open("a", encoding="utf-8") as fh:
+        fh.write(
+            "2,heldout,MSFT,single,MICROSOFT:earnings_performance,,,,single,514\n"
+        )  # an extra row
+    build.main()  # the rebuild gives back the committed tags and set: not a change against HEAD
+    assert "reference tags: HEAD" in capsys.readouterr().out
+    assert "single" in (tmp_path / "g.csv").read_text(encoding="utf-8")
+
+
+def test_the_heldout_guard_falls_back_to_the_file_on_disk_without_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch)
+    _heldout_gold(tmp_path, "single", "APPLE:earnings_performance")
+
+    def no_git(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(build.subprocess, "run", no_git)
+    build.main()  # the disk file has the same tags: accepted, and the log says which reference
+    assert "reference tags: disk" in capsys.readouterr().out
+    _heldout_gold(tmp_path, "multi", "APPLE:earnings_performance")
+    with pytest.raises(SystemExit, match="would change"):
+        build.main()
+
+
+def test_write_hashes_renews_the_row_hashes_only_with_overwrite_marks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build = _heldout_build(tmp_path, monkeypatch, "--write-hashes")
+    monkeypatch.setattr(build, "HASHES", tmp_path / "hashes.csv")
+    _heldout_gold(tmp_path, "", "")
+    build.main()  # no hash file yet: written
+    written = (tmp_path / "hashes.csv").read_text(encoding="utf-8")
+    assert written.startswith("article_id,sha256_16\n1,") and len(written.splitlines()) == 2
+    with pytest.raises(SystemExit):  # it exists: replacing it needs --overwrite-marks
+        build.main()
+    monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
+    build.main()

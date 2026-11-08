@@ -52,14 +52,14 @@ overwrites a file, with rows or without.
 
 ## The sets
 
-| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-06 |
+| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-07 |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
-| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; owner tagging; the `gold/` file is the shell with the draw's weights and no tags yet |
+| 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; **tagged by the owner and migrated 2026-11-07** (200 of 200 valid: 118 single, 47 multi, 11 market_economy, 9 sector, 8 unrelated, 7 investing_general); the `gold/` file carries the tags with the draw's weights |
 | 3 | **Label check** (step-4 training labels) | 200 paragraphs | `segment_check_to_tag.csv` | `segment_check_gold.csv` | drawn and marked 2026-11-06: `lead` 88.0% right, `continuation` 38.0%, so the model trains on `lead` only (D27); `gold/` file built 2026-11-06 (200 rows, `build_segment_check_gold_2026_11_06.py`) |
 | 4 | **Extractor sample** (faithfulness) | 30 bodies, 190 texts | `faithfulness_to_tag.csv` | `faithfulness_gold.csv` | drawn, marked and migrated 2026-11-06: 190 texts of 30 bodies, 115 faithful and 75 not; the baseline fails the D32 bar (60.5%, interval 45.2 to 73.8); `gold/` file built (190 rows, `build_faithfulness_gold_2026_11_06.py`) |
 | 5 | **Sentiment** | 180 texts | `sentiment_gold_to_tag.csv` | `sentiment_gold.csv` | drawn, marked and migrated 2026-11-06: 82 positive, 65 negative, 33 neutral; overall agreement 60.4% (interval 52.8 to 67.6), under the D32 bar of 80%; negative precision 78.7% (67.3 to 89.3) and recall 77.7% (69.4 to 86.8), not decided against 70%; `gold/` file built (180 rows, `build_sentiment_gold_2026_11_06.py`) |
-| 6 | **Sentiment training set** (not a gold: it trains, never exams) | 450 summaries | `sentiment_train_to_tag.csv` | `sentiment_train.csv` | drawn and translated 2026-11-07 (`draw_sentiment_train_2026_11_07.py`); the owner tags all 450 on 2026-11-07; builder and trainer are T-148c1 and T-148c3 |
+| 6 | **Sentiment training set** (not a gold: it trains, never exams) | 450 summaries | `sentiment_train_to_tag.csv` | `sentiment_train.csv` | drawn and translated 2026-11-07 (`draw_sentiment_train_2026_11_07.py`); the owner tagged all 450 and the marks were migrated 2026-11-08 (`build_sentiment_train_2026_11_07.py`, T-148c1: 360 train, 90 validation); the trainer is T-148c3 |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.
@@ -85,12 +85,25 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **What:** the 200 held-out bodies (D30): all 39 the rules call no-company, sector, market or economy,
   the rest a seeded random draw from the 1,000-body corpus sample, none sharing a body with the 720
   or the 44. Drawn once; the set is fixed.
-- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns are empty until the owner finishes.
+- **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns hold the owner's tags (migrated 2026-11-07).
 - **Used for:** the **only** measure of the scope: the rules' and later the classifier's agreement with
   the owner (>= 90% corpus-weighted, D20/D33) and the D24 category target. Never trained on (Q3).
   `data/heldout_strata.csv` holds the stratum sizes (`frame`) that re-weight a rate to the corpus.
 - **Working file:** `heldout_to_tag.csv`. Migrated by `scripts/build_gold_2026_11_05.py --set test`,
   which refuses a tagged article that is not already in the tracked shell.
+- **Reading it:** `uv run scripts/report_wi18_2026_11_06.py scope --gold --out gold` gives the figures from the
+  tracked file alone (its `stratum` and `frame` are the weights): the rules' agreement 68.0% [61.3, 74.5]
+  weighted to the corpus, single recall 91.0% [87.1, 94.4] pass, multi recall 52.5% [42.8, 63.5] fail, the
+  other four scopes not gated (9, 11, 8 and 7 gold bodies, D33). The working-file command gives the same lines
+  (both sort by article id; the intervals of the first report, 61.4 / 74.3 / 63.8, are superseded).
+- **Rebuilding:** the set is fixed (D30). A rebuild stops if it would change or drop a tag already in the file
+  (`--overwrite-marks` accepts it and prints the ids that change); only an untagged row of the shell is filled in
+  freely. The reference is the file as committed (`git show HEAD:`), so a local edit is not the reference (without git or outside a repository, the file on disk; the run prints which one it used). Tests pin the file: the scope counts, the shape of every row, the GICS codes
+  offline, the weights summing to the 1,000-body sample, and a hash per row over every column
+  (`tests/news_nlp/heldout_gold_row_hashes.csv`; a failure names the ids that differ, and a deliberate change
+  is made with `build_gold_2026_11_05.py --set test --overwrite-marks --write-hashes`, which renews that file, in the same PR); `main()` is run end to end on a tiny set. They cannot check the tickers (the
+  SOURCE universe is not in the repo; the builder does). The tracked `frame` is the only copy of the weights in
+  `gold/`; a further test compares it with `data/heldout_strata.csv`, only where that file exists (not on CI).
 
 ### 3. Label check — `gold/segment_check_gold.csv`
 
@@ -223,8 +236,37 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
 - **Files:** `data/sentiment_train_ids.csv` (the draw and **the only copy of the texts the owner read**: back it up;
   the summaries are also in the cut's chunks by body hash), `data/sentiment_train_to_tag.csv` (the owner's file,
   Spanish columns after `text`), `gold/sentiment_train.csv` (the marks and ids, no news text; written by
-  `scripts/build_sentiment_train_2026_11_07.py`, which arrives with T-148c1, PR #137).
-- **Label:** the same as set 5: the price impact on the company an investor would read.
+  `scripts/build_sentiment_train_2026_11_07.py`, T-148c1, PR #137). Migrated 2026-11-08. **Columns:** `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, `sentiment`, `notes`. `company` is on every row because the mark is about it (a name is not news text; the owner can ask for it to be dropped); `ticker` is blank on 26 rows, which are sector (19), market (4) and economy (3) texts whose `company` is a bracketed placeholder (`[sector]`, `[market / economy]`). The builder protects both once the file has them. `pub_date` is kept as the owner's file gave it (a protected column) in three ISO forms: `...+0000` (355 rows), `...Z` (77) and `....000Z` (18); a test pins the three counts.
+- **Label: anchored to the tagged company (owner's rule, 2026-11-08; a design feature to preserve).** The
+  mark is what the text says **about the company of the row** (`company`, `ticker`): the price impact an
+  investor would read on that company. If the company is in the facts the text presents, the label is the
+  sentiment about it; if the text does not mention the company, or the part that concerns it is neutral,
+  the label is **neutral**, even when other sentences of the text are positive or negative (a positive
+  sentence about another company, or about the market, does not make the text positive for this row).
+  **The title is context, not ownership (owner's precision, 2026-11-08):** the title may be used to know
+  whether a text speaks about a company, but care is needed not to give a sentence to a company only
+  because the title names it: a sentence belongs to the company when what it says is about that company
+  (the text read with the title as context), not because the headline mentions the company. A title that
+  names the company does not make a sentence about something else, or about another company, that
+  company's.
+  This is how the company is attached to the sentiment prediction. Reading the figures: a model that
+  scores the sentiment of the text without the company is expected to disagree with these marks on the
+  rows where the company is absent or irrelevant, which is not an error of the marks. **How much of the
+  disagreement of the draw's model with the owner (the confusion below) that explains is small by the
+  notes and most of it is unexplained** (see "Where the disagreement is").
+- **When the rule was given (recorded, not inferred):** the owner gave it on 2026-11-08. The repo dates the tagging earlier: TASKS T-148c1 (written 2026-11-07) says the owner expected to have all 450 marked that day, and the marks were migrated in commit `9c59620` of 2026-11-08. That is the developer's reading of those two dates, which the owner can correct. Whether the rule was in the owner's head during the tagging is not recorded, and nothing in the repo can show it. What the file shows: 49 of 450 rows carry a note and 19 of them say something about the company by keyword (9 that it is absent, e.g. "Tesla not in the news"; see below), so the rule was applied at least there; the label mix is the same in the three batches (neutral 35 / 35 / 35, positive 76 / 80 / 76, negative 39 / 35 / 39). The rule is therefore written as **what the marks mean, as the owner states it**, not as a procedure known to have been followed on every row. 46 of the 105 neutral rows have no note, so "neutral because the company is absent" and "neutral because nothing financial" cannot be told apart in the file; no more notes are asked.
+- **Set 5 against set 6 (the same definition?):** set 5's scope line says the price impact on the company an investor would read. Its notes (31 of 180 rows, all read: 25 say the text is not about the company or gives no relevant fact, set 5's own section) show the same practice: neutral with "The company is not mentioned in the news", "Company is not in the sentences", "This is not about the company Amazon", "Even when Apple is mentioned, the article doesn't say any financial fact about the company". So the exam and the training set follow the same reading as far as the notes show; the 149 rows without a note are not checked and this is **not proven** for them. **The two sets differ on the rows the notes mark, and the cause is not known:** in set 5 the 25 company-irrelevant rows agree with the model on 14 of 25 (56%), against 57.4% on the other 155; in set 6 the 19 rows with a note about the company agree on 3 of 19 (16%), against 251 of 431 (58.2%) on the rest and 254 of 450 (56.4%) overall. Either the rule was applied differently, or the notes of the two sets cover a different mix of rows; nothing here tells which. Informative, nothing retagged.
+- **Marks (2026-11-08):** 450 of 450, 232 positive, 113 negative, 105 neutral (train 180 / 96 / 84,
+  validation 52 / 17 / 21). The model that balanced the draw (rows) against the owner (columns), positive |
+  negative | neutral: positive 120 / 6 / 24; negative 37 / 83 / 30; neutral 75 / 24 / 51.
+- **Where the disagreement is (informative, no decision; the model that balanced the draw against the owner):** by `rule_scope`, `single` 287 rows, agreement 55.4%; `multi_dominated` 137 rows, 62.8%; sector, market and economy 26 rows, 34.6%. The draw is balanced on the prediction, so these are not the model's accuracy. The difference `multi_dominated` minus `single` is +7.4 points, bootstrap 95% over rows [-2.7, 17.1]: it straddles zero, so the data do not tell the two scopes apart and nothing is concluded from it. **The only measure of the company anchor is the notes:** 49 rows have a note, and by keyword (`NOTE_KINDS` in the builder, which prints the counts; approximate in both directions, no bound) 19 of them say something about the company: the company is absent 9, the company is there but nothing relevant is said about it 4, the row is about something else than a company (a sector, the market) 3, the company is a namesake 3. All 19 are marked neutral, and the model called 16 of them non-neutral. So by the notes the anchor accounts for few of the 450 rows, the notes cover only 49, and **the rest of the disagreement is not explained**. T-148c3's own scoring is the place to look; it is the owner's.
+- **Rows whose company is probably a namesake (known issues of the draw, recorded, not fixed, nothing retagged):** by the owner's notes, `91090#summary` (Amazon: "Amazon forest, not for the company"), `479890#summary` (Baxter International: "comes from a person name"), `475332#summary` (Visa Inc.: "the legal document, not the company"), and `1082641#summary` (Block, Inc.: "No mentions to the company Block", which reads as absent or as a namesake). On these the `company` column is the company the resolver found, not one the text is about; training on them teaches neutral for a mention that is not the company. It is the failure family PR #144 found in the faithfulness file (first-word and namesake matches). **Proposed, not started (TASKS T-148c1b):** measure how many of the 450 rows carry a namesake company with the resolver the draw used; what to do with them is the owner's.
+- **Validation shares companies with train (a risk for T-148c3, recorded, the slices are D35's design and unchanged):** the slices are disjoint by article, not by company. Of the 83 validation rows with a named company, 64 (77%) have a company that is also in train; ten companies are 36.6% of all rows (Tesla 26, Amazon 24, Apple 23, Microsoft 18, Nvidia 16, Goldman Sachs 12, Boeing 10, Bank of America 9, Berkshire Hathaway 9, Morgan Stanley 8), and a company's marks lean (Tesla 14 negative of 26, Apple 16 positive of 23). A validation score can reward remembering a company's usual label. The exam (set 5) has 101 of its 180 rows (46 of its 81 tickers) with a ticker that is in train. **Proposed, the owner's to accept (T-148c3 done-when):** report validation agreement, and the exam's, split by companies seen in train and unseen, so a gain that is memorisation is visible.
+- **Integrity (2026-11-08):** the builder stops unless every row is marked, the text the owner read is the
+  drawn text (hash), the ids pair exactly and the design is the one drawn: it passed. Besides: 450 articles
+  and 450 body hashes, all different; no article shared with set 5 (128 articles) or with the held-out set
+  (200); no spreadsheet damage (no encoding change, no fill-down run). `tests/news_nlp/test_build_sentiment_train.py`
+  pins the committed file (counts, design, no news text, no overlap with the two exams).
 
 ## Roadmap: what each set unlocks and the order to tag
 
@@ -271,7 +313,7 @@ on a hard kill. A leftover `*.tmp` next to a tagging file is not the owner's wor
 1. The owner marks the `data/` file and runs `scripts/report_wi18_2026_11_06.py <scope|label-check|faithfulness|sentiment>`,
    which refuses a file with unmarked or invalid rows (nothing is read as "no").
 2. The set is migrated to its `gold/` file: set 1 and 2 by `build_gold_2026_11_05.py --set train|test`
-   (exist; the test file also takes `stratum` and `frame` from the draw's record); set 3 by
+   (exist; the test file also takes `stratum` and `frame` from the draw's record, and refuses to change a tracked tag without `--overwrite-marks`; `report_wi18 scope --gold --out gold` reproduces its figures); set 3 by
    `build_segment_check_gold_2026_11_06.py` (exists: 200 rows, pairs each mark with the draw by `review_order`);
    set 4 by `build_faithfulness_gold_2026_11_06.py` (190 rows and the coverage file); set 5 by
    `build_sentiment_gold_2026_11_06.py` (180 rows; pairs by the draw's `key`, checks the hash of the text the owner

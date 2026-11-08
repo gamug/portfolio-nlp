@@ -736,6 +736,8 @@ SENTIMENT_GOLD_COLUMNS = (
 SENTIMENT_TRAIN_COLUMNS = (
     "key",
     "article_id",
+    "ticker",
+    "company",
     "body_hash",
     "rule_scope",
     "revision",

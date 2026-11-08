@@ -6,7 +6,8 @@
 Reads ``data/sentiment_train_to_tag.csv`` (the marks the owner wrote) and
 ``data/sentiment_train_ids.csv`` (the draw: the texts, the model's prediction, the block, the batch
 and the slice) and writes ``gold/sentiment_train.csv`` (``retag.SENTIMENT_TRAIN_COLUMNS``): the mark
-and the ids only, no news text. The two files are paired by key (``<article_id>#summary``). The run
+and the ids only, no news text; the ``ticker`` and ``company`` of the row are in it because the mark is
+about that company (D35). The two files are paired by key (``<article_id>#summary``). The run
 stops unless
 
 * the marked file holds exactly the texts of the draw, once each;
@@ -54,10 +55,14 @@ TO_TAG_NAME = "sentiment_train_to_tag.csv"
 IDS_NAME = "sentiment_train_ids.csv"
 CLASSES = gold_metrics.SENTIMENT_CLASSES
 TRAIN_COLUMNS = retag.SENTIMENT_TRAIN_COLUMNS
+#: A ticker may be blank (26 of the 450 rows: the company has none the draw knew); the company may not,
+#: it is what the mark is about.
 NEEDED_FROM_THE_DRAW = tuple(
-    c for c in TRAIN_COLUMNS if c not in ("pub_date", "sentiment", "notes")
+    c for c in TRAIN_COLUMNS if c not in ("pub_date", "sentiment", "notes", "ticker")
 )
 NEEDED_FROM_THE_OWNER = ("article_id", "kind", "text", "pub_date", "sentiment", "notes")
+#: The company the mark is about (the label is anchored to it, D35) and its ticker.
+COMPANY_COLUMNS = ("ticker", "company")
 #: What a rebuild may not change in a tracked row without ``--overwrite-marks``.
 PROTECTED = (
     "sentiment",
@@ -86,10 +91,12 @@ def key_of(row: dict[str, str]) -> str:
 def changed_marks(before: list[dict[str, str]], after: list[dict[str, str]]) -> list[str]:
     """Keys of the existing file that the new rows would change (a ``PROTECTED`` column) or drop."""
     now = {r["key"]: r for r in after}
+    # the company and ticker are protected once the file has them (the file of 2026-11-08 first did not)
+    protected = PROTECTED + tuple(c for c in COMPANY_COLUMNS if before and c in before[0])
     return [
         r["key"]
         for r in before
-        if r["key"] not in now or any(now[r["key"]].get(c) != r.get(c) for c in PROTECTED)
+        if r["key"] not in now or any(now[r["key"]].get(c) != r.get(c) for c in protected)
     ]
 
 
@@ -282,6 +289,32 @@ def warnings(rows: list[dict[str, str]]) -> list[str]:
     return found
 
 
+#: What the owner's notes say about the company of a row, by the words they use; the first kind that
+#: matches wins. A keyword match: a note worded otherwise is not counted, a note can be misread, so the
+#: counts are approximate in both directions (no bound). Only the notes are read; most rows have none.
+NOTE_KINDS = {
+    "namesake": ("person name", "forest", "legal document", "not for the company"),
+    "other scope": ("about a sector", "about any sector", "entire market"),
+    "nothing relevant": ("nothing relevant", "anything financial"),
+    "absent": ("not mention", "not in the", "no mention", "not about"),
+}
+
+
+def note_kind(note: str) -> str:
+    """The kind of what a note says about the company (``NOTE_KINDS``), or an empty string."""
+    low = note.lower()
+    return next((k for k, words in NOTE_KINDS.items() if any(w in low for w in words)), "")
+
+
+def notes_by_kind(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    """The rows whose note matches a kind of ``NOTE_KINDS``, by kind."""
+    found: dict[str, list[dict[str, str]]] = {}
+    for r in rows:
+        if kind := note_kind(r.get("notes", "")):
+            found.setdefault(kind, []).append(r)
+    return found
+
+
 def summary(rows: list[dict[str, str]]) -> list[str]:
     """What the owner marked, by slice, and the model that balanced the draw against the owner (a
     row per predicted class, a column per mark): context for the training, not a figure."""
@@ -291,6 +324,12 @@ def summary(rows: list[dict[str, str]]) -> list[str]:
         lines.append(
             f"{kind}: {len(mine)} texts, marks {dict(Counter(r['sentiment'] for r in mine))}"
         )
+    kinds = notes_by_kind(rows)
+    lines.append(
+        f"{sum(1 for r in rows if r.get('notes', '').strip())} rows have a note; by keyword: "
+        + ", ".join(f"{k} {len(v)}" for k, v in kinds.items())
+        + " (approximate, no bound)"
+    )
     both = Counter((r["predicted"], r["sentiment"]) for r in rows)
     lines.append(
         "the model that balanced the draw (rows) against the owner (columns): "
