@@ -223,6 +223,11 @@ def write_footer_only(out: Path) -> None:
     print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
 
 
+def label_extractors(label: str) -> set[str]:
+    """The extractors named in a ``<key> (<a>|<b>)`` label of :func:`stale_report`."""
+    return set(label.rsplit("(", 1)[1].rstrip(")").split("|"))
+
+
 def run_stale(args: argparse.Namespace) -> int:
     """``--stale``: free and read-only (it writes ``faithfulness_stale.json``, the result the report
     quotes); run the registered extractors (``--only`` limits them) over the drawn bodies and say
@@ -266,7 +271,7 @@ def run_stale(args: argparse.Namespace) -> int:
             date=date.today().isoformat(),
             revision=revisions[n],
             stale=[r for r in result["stale"] if r.endswith(f"({n})")],
-            new=[r for r in result["new"] if f"({n}" in r],
+            new=[r for r in result["new"] if n in label_extractors(r)],
         )
         for n in names
     }

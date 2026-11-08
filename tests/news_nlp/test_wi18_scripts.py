@@ -2552,3 +2552,28 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "late.py",
         "helper.py",
     ]
+
+
+def test_the_new_texts_of_an_entry_include_the_ones_other_extractors_also_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert FAITH.label_extractors("1#T#2 (baseline|units)") == {"baseline", "units"}
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    _csv(tmp_path / "faithfulness_ids.csv", _stale_ids(("1#T#1", "text", "baseline", "r1")))
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"rev-{name}")
+    registered: dict[str, Callable[[str, object], dict[str, str]]] = {
+        n: (lambda body, resolver: {}) for n in ("baseline", "units", "units2")
+    }
+    monkeypatch.setattr(FAITH, "EXTRACTORS", registered)
+    written = [
+        _stale_item("1#T#1", "text", "baseline"),
+        _stale_item("1#T#2", "fresh", "baseline|units"),  # a new text two extractors write
+        _stale_item("1#T#3", "fresh two", "units2"),  # one only units2 writes
+    ]
+    monkeypatch.setattr(FAITH, "collect_items", lambda bodies, names, resolver: (written, []))
+    FAITH.run_stale(types.SimpleNamespace(out=tmp_path, only=None))
+    saved = gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
+    assert saved["units"]["new"] == ["1#T#2 (baseline|units)"]  # not the units2 text
+    assert saved["baseline"]["new"] == ["1#T#2 (baseline|units)"]
+    assert saved["units2"]["new"] == ["1#T#3 (units2)"]
