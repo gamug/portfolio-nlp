@@ -37,6 +37,7 @@ import shutil
 import sys
 from collections import Counter
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -222,16 +223,25 @@ def write_footer_only(out: Path) -> None:
     print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
 
 
-def run_stale(args: argparse.Namespace) -> None:
-    """``--stale``: free and read-only; run every registered extractor over the drawn bodies and
-    say which marked rows the code no longer reproduces."""
+def run_stale(args: argparse.Namespace) -> int:
+    """``--stale``: free and read-only (it writes ``faithfulness_stale.json``, the result the report
+    quotes); run every registered extractor over the drawn bodies and say which marked rows the
+    code no longer reproduces. Returns the exit code: 0 all checked and none stale, 1 some stale,
+    2 some extractor of the ids was not run (the model needs ``--attribution-model``)."""
     out: Path = args.out
     resolver = CompanyResolver(retag_cli.companies())
     names = sorted(EXTRACTORS)
     items, _ = collect_items(extra._read(out / BODIES_NAME), names, resolver)
     revisions = {n: extractor_revision(n) for n in names}
-    result = stale_report(extra._read(out / IDS_NAME), items, names, revisions)
+    ids = extra._read(out / IDS_NAME)
+    result = stale_report(ids, items, names, revisions)
+    unchecked = sorted({n for row in ids for n in row["extractors"].split("|")} - set(names))
     print("extractors run:", ", ".join(names))
+    if unchecked:
+        print(
+            f"not checked: {', '.join(unchecked)} (model and units need --attribution-model; an "
+            "extractor this branch does not define cannot be checked here)"
+        )
     for label, rows in result.items():
         print(f"{label}: {len(rows)}")
         if label == "revision":  # the text is the same: only the record is old, so a count each
@@ -240,6 +250,18 @@ def run_stale(args: argparse.Namespace) -> None:
             continue
         for row in rows[:40]:
             print("  ", row)
+    document = {
+        "date": date.today().isoformat(),
+        "revisions": revisions,
+        "checked": names,
+        "unchecked": unchecked,
+        "stale": result["stale"],
+        "new": result["new"],
+    }
+    gold_metrics.write_pair_atomically(
+        {out / gold_metrics.STALE_NAME: json.dumps(document, indent=1) + "\n"}
+    )
+    return 2 if unchecked else 1 if result["stale"] else 0
 
 
 def footer_only_rows(
@@ -537,7 +559,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stale",
         action="store_true",
-        help="free, read-only: which marked rows the code no longer writes (needs --attribution-model)",
+        help="which marked rows the code no longer writes; exit 1 if any, 2 if an extractor of the "
+        "ids was not run (needs --attribution-model for model and units); writes faithfulness_stale.json",
     )
     parser.add_argument(
         "--footer-only",
@@ -570,8 +593,7 @@ def main() -> None:
         return
     out: Path = args.out
     if args.stale:
-        run_stale(args)
-        return
+        sys.exit(run_stale(args))
     if args.footer_only:
         write_footer_only(out)
         return

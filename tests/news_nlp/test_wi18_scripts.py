@@ -715,8 +715,10 @@ def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path
     assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
     document["rules"] = "another revision"
     (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
-    with pytest.raises(MarkedFileError, match="written by the footer rules"):
-        REPORT.faithfulness_report(tmp_path)
+    other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
+    assert "written by the footer rules 'another revision'" in other
+    assert "the second reading of the bar is skipped" in other
+    assert "second reading of the bar):" not in other and "[all]   baseline:" in other
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
@@ -905,17 +907,69 @@ def test_stale_ignores_extractors_that_were_not_run() -> None:
     assert got == {"stale": [], "new": [], "revision": []}
 
 
-def test_the_report_warns_when_the_rows_of_an_extractor_have_several_revisions(
-    tmp_path: Path,
-) -> None:
+def _stale_file(path: Path, **changes: object) -> None:
+    document: dict[str, object] = {
+        "date": "2026-11-08",
+        "revisions": {"baseline": retag.extractor_revision("baseline")},
+        "checked": ["baseline"],
+        "unchecked": [],
+        "stale": [],
+        "new": [],
+    }
+    document.update(changes)
+    (path / gold_metrics.STALE_NAME).write_text(json.dumps(document), encoding="utf-8")
+
+
+def test_the_report_says_in_one_line_what_the_staleness_check_found(tmp_path: Path) -> None:
     _faith_files(tmp_path, [], extractors="baseline|units")
-    ids = list(csv.DictReader((tmp_path / "faithfulness_ids.csv").open(encoding="utf-8-sig")))
-    for i, row in enumerate(ids):
-        row["revisions"] = f"{retag.extractor_revision('baseline')}|u{i % 2}"
-    _csv(tmp_path / "faithfulness_ids.csv", ids)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "warning: the units rows were written by 2 revisions of the code" in text
-    assert "baseline rows were written" not in text  # the baseline is the current one
+    assert "no staleness check recorded: run draw_faithfulness --stale" in text
+    _stale_file(tmp_path)
+    assert "no marked row is on a text the current code no longer writes" in "\n".join(
+        REPORT.faithfulness_report(tmp_path)
+    )
+    rows = [f"{n}#T#1 (units)" for n in range(8)]
+    _stale_file(tmp_path, stale=rows, unchecked=["model"])
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "8 marked rows are on texts the current code no longer writes" in text
+    assert "0#T#1 (units), 1#T#1 (units)" in text and ", ...)" in text  # six shown
+    assert "the figures include their marks" in text and "not checked: model" in text
+    _stale_file(tmp_path, revisions={"baseline": "extractor:baseline@old"})
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "warning: the staleness check (2026-11-08) was made against baseline" in text
+
+
+def test_stale_exits_with_what_it_could_and_could_not_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    ids = _stale_ids(
+        ("1#T#1", "text", "baseline", "r1"),
+        ("1#U#1", "other", "baseline|model", "r1|r2"),
+    )
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"rev-{name}")
+    monkeypatch.setattr(FAITH, "EXTRACTORS", {"baseline": lambda body, resolver: {}})
+    args = types.SimpleNamespace(out=tmp_path)
+
+    def collect(writes: list[dict[str, str]]):  # type: ignore[no-untyped-def]
+        return lambda bodies, names, resolver: (writes, [])
+
+    monkeypatch.setattr(FAITH, "collect_items", collect([_stale_item("1#T#1", "text", "baseline")]))
+    # the baseline writes the text of T and nothing for U: one row stale; the model row unchecked
+    assert FAITH.run_stale(args) == 2
+    saved = json.loads((tmp_path / gold_metrics.STALE_NAME).read_text(encoding="utf-8"))
+    assert saved["unchecked"] == ["model"] and saved["stale"] == ["1#U#1 (baseline)"]
+    both = [_stale_item("1#T#1", "text", "baseline"), _stale_item("1#U#1", "other", "baseline")]
+    monkeypatch.setattr(FAITH, "collect_items", collect(both))
+    _csv(
+        tmp_path / "faithfulness_ids.csv",
+        _stale_ids(("1#T#1", "text", "baseline", "r1"), ("1#U#1", "other", "baseline", "r1")),
+    )
+    assert FAITH.run_stale(args) == 0  # all checked, nothing stale
+    monkeypatch.setattr(FAITH, "collect_items", collect([both[0]]))
+    assert FAITH.run_stale(args) == 1  # U is no longer written
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(
@@ -1723,7 +1777,10 @@ def test_faithfulness_gold_copies_the_coverage_and_the_report_reads_the_tracked_
     # the owner's file with the draw and the coverage, copied into the draw's names, gives the same
     (tmp_path / "faithfulness_bodies.csv").write_text("article_id\n1\n2\n3\n", encoding="utf-8")
     from_data = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert from_data.splitlines() == from_gold.splitlines()[1:]  # but for the gold's first line
+    working_only = [  # the staleness note is about the working files, not the tracked gold
+        line for line in from_data.splitlines() if "staleness check" not in line
+    ]
+    assert working_only == from_gold.splitlines()[1:]  # but for the gold's first line
 
 
 def test_the_report_reads_the_committed_gold_and_gives_the_figures_of_the_decision() -> None:

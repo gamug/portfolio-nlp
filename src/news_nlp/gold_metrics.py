@@ -37,6 +37,8 @@ COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
 # The file is ``{"rules": <revision of the footer rules>, "companies": [<coverage rows>]}``: the
 # companies depend on the rules, so the report refuses a file written by other rules.
 FOOTER_ONLY_NAME = "faithfulness_footer_only.json"
+# what ``draw_faithfulness --stale`` found: the marked rows the current code no longer writes
+STALE_NAME = "faithfulness_stale.json"
 KNOWN_EXTRACTORS = ("baseline", "model", "units")
 
 
@@ -328,6 +330,10 @@ def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
     return rows
 
 
+class FooterRulesChanged(MarkedFileError):
+    """The footer-only file was written by other footer rules than the current ones."""
+
+
 def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
     """The companies each body names only in its footer, from the file the draw wrote with
     ``--footer-only``. Refused when it was written by other footer *rules* (their revision): the
@@ -336,7 +342,7 @@ def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("rules") != rules:
-        raise MarkedFileError(
+        raise FooterRulesChanged(
             f"{path.name} was written by the footer rules {data.get('rules')!r}, not the current "
             f"{rules!r}: draw it again (--footer-only)"
         )
@@ -344,6 +350,17 @@ def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
     if any(tuple(r) != COVERAGE_COLUMNS for r in rows):
         raise MarkedFileError(f"{path.name} rows must have the columns {COVERAGE_COLUMNS}")
     return rows
+
+
+def read_stale(path: Path) -> dict[str, object] | None:
+    """The result of the last ``draw_faithfulness --stale`` (``None`` if it was never run)."""
+    if not path.exists():
+        return None
+    data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
+    missing = {"date", "revisions", "checked", "unchecked", "stale"} - set(data)
+    if missing:
+        raise MarkedFileError(f"{path.name} lacks {sorted(missing)}: run --stale again")
+    return data
 
 
 class PairWriteError(OSError):

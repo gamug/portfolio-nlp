@@ -413,10 +413,16 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         marks[row["key"]] = r["faithful"] == "yes"
         owners[row["key"]] = row["extractors"].split("|")
         dates[row["key"]] = row
-    footer_only = gold_metrics.read_footer_only(
-        out / gold_metrics.FOOTER_ONLY_NAME, retag.code_revision(attribution_units)
-    )
-    return _faithfulness_lines(note, marks, owners, dates, coverage, footer_only)
+    notes = list(note)
+    try:
+        footer_only = gold_metrics.read_footer_only(
+            out / gold_metrics.FOOTER_ONLY_NAME, retag.code_revision(attribution_units)
+        )
+    except gold_metrics.FooterRulesChanged as changed:
+        footer_only = []
+        notes.append(f"{changed}; the second reading of the bar is skipped")
+    notes += _stale_lines(out)
+    return _faithfulness_lines(notes, marks, owners, dates, coverage, footer_only)
 
 
 def _footer_only_lines(
@@ -438,30 +444,38 @@ def _footer_only_lines(
     ]
 
 
-def _revision_lines(dates: dict[str, dict[str, str]]) -> list[str]:
-    """A warning for each extractor whose marked rows were written by more than one revision of
-    the code (a partial re-run), or, for the baseline, by one that is not the current one. The
-    model's and ``units``'s current revision needs the model: ``draw_faithfulness --stale``."""
-    seen: dict[str, set[str]] = {}
-    for row in dates.values():
-        if "extractors" in row and "revisions" in row:
-            for name, revision in zip(
-                row["extractors"].split("|"), row["revisions"].split("|"), strict=False
-            ):
-                seen.setdefault(name, set()).add(revision)
-    lines = [
-        f"warning: the {name} rows were written by {len(revisions)} revisions of the code "
-        f"({', '.join(sorted(revisions))}); run draw_faithfulness --stale"
-        for name, revisions in sorted(seen.items())
-        if len(revisions) > 1
-    ]
+STALE_SHOWN = 6  # marked rows named in the one-line staleness note
+
+
+def _stale_lines(out: Path) -> list[str]:
+    """What ``draw_faithfulness --stale`` last found, in one line: the marked rows that are on
+    texts the current code no longer writes (the figures above include those marks), and the
+    extractors it could not check. A check made against another baseline revision than the current
+    one, or none at all, is said so: the check needs the model, the report cannot redo it."""
+    stale = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
+    if stale is None:
+        return ["no staleness check recorded: run draw_faithfulness --stale (needs the model)"]
+    revisions: dict[str, str] = stale["revisions"]  # type: ignore[assignment]
+    rows: list[str] = stale["stale"]  # type: ignore[assignment]
+    unchecked: list[str] = stale["unchecked"]  # type: ignore[assignment]
+    lines = []
     current = retag.extractor_revision("baseline")
-    if seen.get("baseline") and seen["baseline"] != {current}:
+    if revisions.get("baseline") != current:
         lines.append(
-            f"warning: the baseline rows were written by {', '.join(sorted(seen['baseline']))}, "
-            f"the current baseline is {current}"
+            f"warning: the staleness check ({stale['date']}) was made against baseline "
+            f"{revisions.get('baseline')}, the current one is {current}: run it again"
         )
-    return lines
+    said = f"staleness check ({stale['date']}): "
+    if rows:
+        shown = ", ".join(rows[:STALE_SHOWN]) + (", ..." if len(rows) > STALE_SHOWN else "")
+        said += f"{len(rows)} marked rows are on texts the current code no longer writes "
+        said += f"({shown}); "
+        said += "the figures include their marks"
+    else:
+        said += "no marked row is on a text the current code no longer writes"
+    if unchecked:
+        said += f"; not checked: {', '.join(unchecked)}"
+    return [*lines, said]
 
 
 def _faithfulness_lines(
@@ -493,7 +507,6 @@ def _faithfulness_lines(
     lines = [*note, "the intervals are a bootstrap over bodies, not over texts (D32)"]
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
-    lines += _revision_lines(dates)
     lines += _faithfulness_block("all", marks, owners, omitted)
     lines += _footer_only_lines("all", marks, owners, omitted, footer_only)
     late_marks = {k: v for k, v in marks.items() if k in late}

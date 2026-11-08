@@ -3137,3 +3137,22 @@ body (none was); an earlier key on the start and the end of a body, and then 30%
 shingles together, matched footers, a shared closing paragraph and stories of one template, not
 copies. `--eval-only` keeps `report_at_training` in `metrics.json` and adds an `eval` block tied to
 the hash of the model files it scored.
+
+### Follow-up (2026-11-08): the `units` extractor and the guards on the owner's marks (Work item 18, T-148b4)
+
+`units` reads the body without its footer and cut at lines, bullets, semicolons and clauses, so a
+list with one line per company is not one sentence that every company receives whole, and a
+disclosure block does not attach to the companies whose tickers are in it. The owner's reading
+(2026-11-07, 402 rows): 85.4% faithful [76.5, 92.2] on 185 texts, "not decided" against the 80% bar;
++24.3 over the baseline (`better`), +8.6 over the model (`not decided`). Figures and the failures
+left (first-word names) are in PLAN D27 and TASKS T-148b4.
+
+Two things about reading that figure. First, `units` is not asked for a text of a company the body
+names only in its footer, so its bar share is on fewer companies than the baseline's; the report
+prints a second reading with those companies counted as unfaithful (`draw_faithfulness --footer-only`
+writes them with the revision of the footer rules; the report skips the reading, and says so, when
+the rules changed). Second, the marks are on texts: `draw_faithfulness --stale` (free, read-only, with
+`--attribution-model`) re-runs the extractors over the 30 bodies and lists the marked rows the code
+no longer writes (today the Apple and Amazon rows of body 122960), the new texts and the rows
+written by another revision of the code (the text is the same: the mark stands); the report quotes
+its last result in one line and says when none was recorded.
