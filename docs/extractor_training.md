@@ -10,6 +10,9 @@ the commands are in `docs/evaluation.md`; the tagged files are described one by 
 
 **The owner selected `units` (called "units1" in conversation) as the base model of step 4.** The reason,
 in the owner's words: the accuracy does not need to be higher than 80%, and `units` clears it.
+"Clears it" means: on the confirmation set, the figures to trust, 86.1% [80.9, 90.7] on every company named
+(pass) and 95.3% [92.0, 98.2] on real companies (pass); on the first set (development figures) it passes on
+real companies, 94.0% [87.0, 99.2], and is *not decided* on every company named, 83.2% [72.7, 91.0].
 
 What the selection is, and what it is not:
 
@@ -21,6 +24,43 @@ What the selection is, and what it is not:
 
 Publishing and pinning the trained model still need the owner's explicit word (constitution AI #1, #7,
 #12). Nothing here publishes or pins it.
+
+### Why `units` and not the baseline (the reasons, with their figures)
+
+The faithfulness figure does not separate them on the confirmation set, so the selection rests on
+other things. They are the reasons that can be read in this page; the choice is the owner's.
+
+1. **Shorter texts for the same faithful share.** 570 characters on average against 952 (the baseline
+   writes 385 more per company, [+248, +540]); both pass the bar there (86.5% and 86.6%).
+2. **Less text of other companies.** The share of a text's sentences that name the company and another is
+   6.1 points lower [+0.1, +12.4] on the confirmation set and 7.3 [-1.8, +16.4] on the first. A lean, not
+   a firm gap.
+3. **It did better on the set it was built on** (+24.3 points [12.9, 39.4], `better`), which did *not*
+   repeat on new bodies (-0.5 [-1.5, 0.0], not decided). Read it as: not worse, not shown better.
+
+What the evidence does not cover:
+- **The margin on the strict reading is one to three marks.** The lower end of `units` is 80.9%.
+  Flipping one `yes` of the 193 texts to `no` (three random choices) gave a lower end of 80.0, 80.4 and
+  79.9; flipping two gave 79.5, 80.0 and 79.5; three always gave a verdict of *not decided*. "Pass" holds on
+  the owner's reading as it stands and is not safe against a second reader.
+- **2022+, the period that will be processed, cannot be decided**: `units` is *not decided* on the
+  strict reading in both sets (87.9% [68.8, 100.0] on 7 bodies; 88.1% [75.8, 95.3] on 9 bodies). On real
+  companies it passes both (100.0% and 96.4%), on the same few bodies.
+- **Nothing in the code uses the selection yet** and **the model it needs is a local checkpoint**: see
+  "What is not done" below.
+
+### What is not done
+
+- **The selection is a record, not a code change.** `attribution_model` still defaults to
+  `reading="sentences"` (the baseline), and the cut script (`cut_summaries_2026_11_07.py`) calls no
+  extractor; only the draw script (`draw_faithfulness`) runs `units`. Wiring `units` into step 4 (a
+  default or a setting, and the cut that calls it) is T-148b12, **proposed, not built, not started**.
+- **The checkpoint is not published or pinned.** The model every `units` figure here was measured with is
+  the local directory `data/models/attribution_2026_11_08` (git-ignored), identified by the draw as
+  `local:8399ccf003c60143` (a hash of its files), trained by `scripts/train_attribution_2026_11_08.py`
+  (see "Experiments", 2). The extractor revisions recorded with the marks are in
+  `data/faithfulness_stale.json`. Until the owner decides on the Hub publication, the figures belong to
+  that directory; if it is lost, they cannot be reproduced.
 
 ## What the extractor does, in one paragraph
 
@@ -117,7 +157,7 @@ Everything is computed by `uv run scripts/report_wi18_2026_11_06.py faithfulness
   interval ("units minus baseline").
 - **2022+:** only bodies from 2022 on (the period that will be processed). Only 9 bodies per set, so it
   is informative and cannot decide.
-- **Text measures** (added 2026-11-08, scratch scripts, not in the repository; every figure in Appendix B): average characters per
+- **Text measures** (added 2026-11-08, `scripts/text_measures_2026_11_08.py`; every figure in Appendix B): average characters per
   text, and the share of sentences that name this company **and** another. They count names the resolver
   finds; a nameless sentence that belongs to someone else is invisible to them.
 
@@ -139,6 +179,16 @@ On the 167 real companies (the 23 non-companies removed):
 
 On every company named, `units` was 83.2% [72.7, 91.0] (not decided) and the baseline 60.5% [45.2, 73.8].
 
+**Staleness caveat (re-checked 2026-11-08, round 8, with the model `local:8399ccf003c60143`):** 8 marked
+rows of the first set are on texts the current code no longer writes: for `units` the two texts of body
+122960 (Apple and Amazon; the Apple text is 32 characters longer now), and the same two plus the Amazon
+text of body 88621 (which `units2` and `units3` no longer write at all) for `units2` and `units3`. The
+code of the cut changed after the owner read them (rounds 1 and 2 of this PR, dash and dateline rules);
+I did not isolate which commit changed which text. The marks were `yes` for the `units` texts, so the effect
+is small: counting those 2 of `units`' 185 texts as unfaithful, it would be 82.1% on every company named
+(156 of 190) instead of 83.2%, and 92.8% on real companies (155 of 167) instead of 94.0%. The other 183
+rows of `units`, and every row of the confirmation set, are current (0 stale there).
+
 ### Confirmation set (30 new bodies, the figures to trust)
 
 | | `baseline` | `units` | `units2` | `units3` |
@@ -151,10 +201,15 @@ On every company named, `units` was 83.2% [72.7, 91.0] (not decided) and the bas
 Gains on real companies: `units` minus `baseline` -0.6 [-1.7, 0.0] (not decided); `units3` minus `units`
 -3.6 [-7.6, -0.6] (not better); `units2` minus `units` -5.3 [-10.5, -1.2] (not better).
 
+2022+ (informative, 9 bodies): `units` 88.1% [75.8, 95.3] on every company named (not decided), 96.4%
+[90.9, 100.0] on real companies (pass); the baseline 89.6% [76.2, 96.1] and 98.2% [92.3, 100.0] on the texts
+it wrote (it left no company without one).
+
 ### What the results say
 
-1. **`units` passes the 80% bar on both sets**, on the strict reading and on real companies. This is the
-   basis of the selection.
+1. **`units` passes the 80% bar on the confirmation set**, on the strict reading and on real companies.
+   On the first set it passes on real companies and is *not decided* on the strict reading (83.2%
+   [72.7, 91.0]). This is the basis of the selection.
 2. **The margin on the strict reading is thin** (the interval's lower end is 80.9%). It is a pass, not a
    comfortable one.
 3. **`units` is not better than the baseline on the confirmation set**; they are level. On the first set
@@ -179,7 +234,11 @@ Gains on real companies: `units` minus `baseline` -0.6 [-1.7, 0.0] (not decided)
 
 The baseline writes texts 1.7 times longer than `units` (385 characters more per company, [+248, +540]),
 mostly sentences that do not name the company. Yet the faithfulness verdicts of the two agree on 192 of
-193 shared companies, so length alone did not buy the baseline extra `yes` marks. `units` reaches the
+193 shared companies (30 of them have the *same* text from both extractors, which agree by construction;
+of the 163 with different texts, 162 agree: 140 `yes`/`yes`, 22 `no`/`no`, 1 baseline `yes` and `units`
+`no`), so length alone did not buy the baseline extra `yes` marks. On the first set it did differ:
+of the 140 companies with different texts, the baseline had 45 `no` where `units` had `yes`, and none the
+other way; that is where the first-set gain came from. `units` reaches the
 same faithful share with about 40% less text.
 
 ### Known limits of `units` (so nobody is surprised later)
@@ -201,21 +260,22 @@ the owner said the tagging on this front is finished, so options that need more 
 
 | # | Option | Expected gain | Needs |
 |---|---|---|---|
-| 1 | **Drop the texts for names the guard rejects, keep everything else of `units`** (a hybrid of `units` and `units3`) | removes most of the 18 non-company errors without the 7 to 12 missing real companies | code and a free re-score on the texts already tagged (the hybrid writes a subset of `units`' texts) |
-| 2 | **Header rule for `units`** ("A — text" lines belong to A) | fixes digest lines like the Steel Dynamics text | code; the `units2` rule exists and could be taken alone |
-| 3 | **A length cap or a trim** for very long texts (16 notes "huge") | shorter, purer texts | code; the effect on faithfulness is not measurable without a new reading |
-| 4 | **A purity measure** that checks how much of a text names another company, validated on a read sample | a metric that sees what the faithful rule lets through | a small sample read by the owner, or a decision to use the name count as is |
-| 5 | **A stricter second reading of the same texts** ("only this company's content") | would show whether `units` is really cleaner than the baseline | tagging; not asked |
-| 6 | **Abstention threshold** (0.5 today; see T-148b3) | fewer wrong high-confidence assignments | the owner's decision |
-| 7 | **Match one-word names** ("JPMorgan") and header names with the plain resolver (T-148b9, out of scope so far) | fewer missed companies | code |
-| 8 | **More data for the model**: the `continuation` labels (38% right) are out; a cleaner way to use them, or more `lead` bodies | a better model | training time on the GPU; the exam sets must not be trained on |
-| 9 | **A larger 2022+ sample** (9 bodies per set cannot decide) | a verdict for the period that matters | new bodies and tagging; no pool is left in the drawn sets |
-| 10 | **Run the staleness check** (`draw_faithfulness --stale`, free, needs the model) | confirms the tagged texts are still what the code writes | a run |
-| 11 | **Migrate the evidence to `gold/`** (T-148b11: the `units*` marks and the readings of the exempt names exist only in the git-ignored `data/`) | the figures can be reproduced from a clean checkout | the owner's word |
-| 12 | **Publish the model to the Hub and pin its revision** | the cut and the report run from a pinned checkpoint | the owner's explicit word |
+| 1 | ~~**Run the staleness check**~~ **done 2026-11-08 (round 8)**: confirmation set 0 stale; first set 8 stale rows (see "Results") | the tagged texts are what the code writes | done |
+| 2 | **Migrate the evidence to `gold/`, before relying on the figures** (T-148b11: the `units*` marks and the readings of the exempt names exist only in the git-ignored `data/`) | the figures can be reproduced from a clean checkout | the owner's word |
+| 3 | **Wire `units` into step 4** (T-148b12: a default or setting, and the cut that calls it) | the selection takes effect | code, when the owner asks |
+| 4 | **Drop the texts for names the guard rejects, keep everything else of `units`** (a hybrid of `units` and `units3`) | removes most of the 18 non-company errors without the 7 to 12 missing real companies | code and a free re-score on the texts already tagged (the hybrid writes a subset of `units`' texts) |
+| 5 | **Header rule for `units`** ("A — text" lines belong to A) | fixes digest lines like the Steel Dynamics text | code; the `units2` rule exists and could be taken alone |
+| 6 | **A length cap or a trim** for very long texts (16 notes "huge") | shorter, purer texts | code; the effect on faithfulness is not measurable without a new reading |
+| 7 | **A purity measure** that checks how much of a text names another company, validated on a read sample | a metric that sees what the faithful rule lets through | a small sample read by the owner, or a decision to use the name count as is |
+| 8 | **A stricter second reading of the same texts** ("only this company's content") | would show whether `units` is really cleaner than the baseline | tagging; not asked |
+| 9 | **Abstention threshold** (0.5 today; see T-148b3) | fewer wrong high-confidence assignments | the owner's decision |
+| 10 | **Match one-word names** ("JPMorgan") and header names with the plain resolver (T-148b9, out of scope so far) | fewer missed companies | code |
+| 11 | **More data for the model**: the `continuation` labels (38% right) are out; a cleaner way to use them, or more `lead` bodies | a better model | training time on the GPU; the exam sets must not be trained on |
+| 12 | **A larger 2022+ sample** (9 bodies per set cannot decide) | a verdict for the period that matters | new bodies and tagging; no pool is left in the drawn sets |
+| 13 | **Publish the model to the Hub and pin its revision** | the cut and the report run from a pinned checkpoint, not a local directory | the owner's explicit word |
 
-A reasonable order, as a proposal only: 11 (so the evidence is not lost), 1, 2, then a free re-score of
-what is already tagged; 12 when the owner wants the model fixed.
+A reasonable order, as a proposal only: 2 (so the evidence is not
+lost), 4 and 5, then a free re-score of what is already tagged; 3 and 13 when the owner wants the selection to take effect and the model fixed.
 
 ## Where this is tracked
 
@@ -234,15 +294,13 @@ line "the bar on every company named" is the strict reading.
 
 ### A.1 First set (30 bodies, 437 texts, `data/`)
 
-The first lines are the report's own warning: 8 marked texts of the first set are on texts the current
-code no longer writes (the staleness check of 2026-11-08, `units` rows of bodies 122960 and 88621), so
-the first-set figures are development figures read with that caveat. The confirmation set has no such
-warning, and its staleness check has not been run (it needs the model).
+The first line is the report's own staleness line, from the check re-run on 2026-11-08 (round 8) with
+the current code and the model `local:8399ccf003c60143`: **8 marked rows are on texts the code no longer
+writes** (rows 351 and 388 for `units`, `units2` and `units3`, and row 431 for `units2` and `units3`; bodies
+122960 and 88621), so the first-set figures are development figures read with that caveat. They are 8 of the
+rows of `units`, `units2` and `units3` (2 of 185 for `units`); the cause is in "Results".
 
 ```
-warning: the staleness check of units (2026-11-08) was made with other code than the current one: run it again
-warning: the staleness check of units2 (2026-11-08) was made with other code than the current one: run it again
-warning: the staleness check of units3 (2026-11-08) was made with other code than the current one: run it again
 staleness check (baseline 2026-11-08, model 2026-11-08, units 2026-11-08, units2 2026-11-08, units3 2026-11-08): 8 marked rows are on texts the current code no longer writes (122960#AAPL#3 (units), 122960#AMZN#3 (units), 122960#AAPL#3 (units2), 122960#AMZN#3 (units2), 88621#AMZN#3 (units2), 122960#AAPL#3 (units3), ...); the figures include their marks
 the intervals are a bootstrap over bodies, not over texts (D32)
 [all]   baseline: 60.5% [45.2%, 73.8%] -> fail (the bar: of the companies named, those with a faithful text; 115 faithful of 190 texts + 0 companies left without one)
@@ -261,6 +319,11 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 [all] units2: the 36 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 68.4% [57.9%, 80.3%] -> not decided
 [all] units3: the 36 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 74.2% [66.0%, 81.5%] -> not decided
 [all] real companies: 23 of the 37 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[all] baseline: 23 of the 190 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] model: 23 of the 190 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units: 22 of the 185 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units2: 0 of the 135 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units3: 0 of the 148 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [all, real]   baseline: 68.9% [53.6%, 82.1%] -> not decided (the bar: of the companies named, those with a faithful text; 115 faithful of 167 texts + 0 companies left without one)
 [all, real]      model: 86.2% [71.7%, 97.5%] -> not decided (the bar: of the companies named, those with a faithful text; 144 faithful of 167 texts + 0 companies left without one)
 [all, real]      units: 94.0% [87.0%, 99.2%] -> pass (the bar: of the companies named, those with a faithful text; 157 faithful of 163 texts + 4 companies left without one)
@@ -288,6 +351,11 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 [2022+] units2: the 4 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 87.9% [69.2%, 100.0%] -> not decided
 [2022+] units3: the 4 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 87.9% [69.2%, 100.0%] -> not decided
 [2022+] real companies: 4 of the 4 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[2022+] baseline: 4 of the 33 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] model: 4 of the 33 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units: 4 of the 33 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units2: 0 of the 29 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units3: 0 of the 29 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [2022+, real]   baseline: 69.0% [34.8%, 90.9%] -> not decided (the bar: of the companies named, those with a faithful text; 20 faithful of 29 texts + 0 companies left without one)
 [2022+, real]      model: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
 [2022+, real]      units: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
@@ -304,8 +372,14 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 
 ### A.2 Confirmation set (30 other bodies, 395 texts, `data/faithfulness_confirmation/`)
 
+The staleness check was run on 2026-11-08 (round 8) with the current code and the model
+`local:8399ccf003c60143`: **no marked row is on a text the code no longer writes** (0 stale for `baseline`,
+`units`, `units2` and `units3`). The 193 rows of `units` carry an older code revision in their record, with
+the same text, so the marks stand. (The check also listed 81 "new" texts of `model`, which this draw did not
+include; they are not rows to read.)
+
 ```
-no staleness check recorded: run draw_faithfulness --stale (needs the model)
+staleness check (baseline 2026-11-08, model 2026-11-08, units 2026-11-08, units2 2026-11-08, units3 2026-11-08): no marked row is on a text the current code no longer writes
 the intervals are a bootstrap over bodies, not over texts (D32)
 [all]   baseline: 86.6% [80.7%, 91.3%] -> pass (the bar: of the companies named, those with a faithful text; 168 faithful of 194 texts + 0 companies left without one)
 [all]      units: 86.5% [81.3%, 91.1%] -> pass (the bar: of the companies named, those with a faithful text; 167 faithful of 193 texts + 0 companies left without one)
@@ -320,6 +394,10 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 [all] units2: the 30 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 78.4% [72.5%, 83.7%] -> not decided
 [all] units3: the 30 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 79.9% [74.0%, 85.1%] -> not decided
 [all] real companies: 25 of the 30 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[all] baseline: 25 of the 194 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units: 24 of the 193 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units2: 0 of the 157 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[all] units3: 0 of the 162 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [all, real]   baseline: 95.9% [92.2%, 98.7%] -> pass (the bar: of the companies named, those with a faithful text; 162 faithful of 169 texts + 0 companies left without one)
 [all, real]      units: 95.3% [92.0%, 98.2%] -> pass (the bar: of the companies named, those with a faithful text; 161 faithful of 169 texts + 0 companies left without one)
 [all, real]     units2: 89.9% [85.1%, 94.5%] -> pass (the bar: of the companies named, those with a faithful text; 152 faithful of 157 texts + 12 companies left without one)
@@ -342,6 +420,10 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 [2022+] units2: the 12 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 74.6% [61.7%, 83.1%] -> not decided
 [2022+] units3: the 12 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 79.1% [67.3%, 87.9%] -> not decided
 [2022+] real companies: 11 of the 12 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[2022+] baseline: 11 of the 67 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units: 10 of the 66 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units2: 0 of the 52 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[2022+] units3: 0 of the 55 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [2022+, real]   baseline: 98.2% [92.3%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 55 faithful of 56 texts + 0 companies left without one)
 [2022+, real]      units: 96.4% [90.9%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 54 faithful of 56 texts + 0 companies left without one)
 [2022+, real]     units2: 89.3% [76.6%, 97.1%] -> not decided (the bar: of the companies named, those with a faithful text; 50 faithful of 52 texts + 4 companies left without one)
@@ -355,14 +437,18 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 
 ## Appendix B: every text metric
 
-Scratch scripts, not in the repository (`purity4.py` and `purity4_first.py` in the session scratchpad;
-the definitions are below, so they can be rebuilt). Text is split into sentences with the repository's
+Produced by `uv run scripts/text_measures_2026_11_08.py --out data --out data/faithfulness_confirmation`
+(in the repository, with a test; the earlier scratch version gave the same figures but for one interval end, +16.5 where the script gives +16.4, a different percentile rule). Text is split into sentences with the repository's
 `chunking.split_sentences`; the names in a sentence are found with the same `CompanyResolver` the draw
 uses. Each text is for one company, and each sentence of it is put in one group:
 
 - **names the company:** the company's own ticker is among the names found;
 - **mixed:** it names the company **and** another universe company (a subset of the line above);
 - **names nobody:** no universe company is named (its owner was decided by recency or by the model).
+
+The names are found with the plain resolver, which does not read short forms: a line that `units2` or
+`units3` gave to a company by a short form (guard, header rule) shows as "names nobody", so `own%` is not
+comparable between `units` and those two on header lines.
 
 A sentence naming only other companies cannot occur (a sentence goes only to the companies it names), so
 that group is zero by construction and is not shown. "Texts with a mixed sentence" is the share of texts
@@ -380,7 +466,7 @@ units3      148      476     284       3.7   51.9      42.8        19.1         
 
 paired differences (same company, same article), 95% interval over the 30 articles
   chars baseline - units: n=185 +370 [+154, +665]
-  mixed-share baseline - units: n=185 +7.3 pts [-1.8, +16.5]
+  mixed-share baseline - units: n=185 +7.3 pts [-1.8, +16.4]
   chars units2 - units: n=134 +51 [+14, +122]
   mixed-share units2 - units: n=134 -0.3 pts [-2.2, +1.1]
   chars units3 - units: n=147 +48 [+14, +113]
@@ -417,6 +503,6 @@ What the text metrics show, in one place:
 - the baseline writes texts 1.7 to 1.9 times longer than `units`, mostly sentences that name nobody;
 - `units`, `units2` and `units3` write texts of similar length (570 to 640 characters on the confirmation
   set) and similar mixing; the guard and header rules do not make the text purer by this count;
-- the shared-sentence gap between the baseline and `units` is +7.3 points [-1.8, +16.5] on the first set
+- the shared-sentence gap between the baseline and `units` is +7.3 points [-1.8, +16.4] on the first set
   and +6.1 [+0.1, +12.4] on the confirmation set: a lean toward `units`, not a firm gap;
 - the faithful rule lets mixed text through, so these metrics see what the faithfulness figure does not.

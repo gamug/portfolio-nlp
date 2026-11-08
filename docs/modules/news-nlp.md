@@ -350,7 +350,8 @@ lean `articles` rows itself.
   the footer-only ones) in `faithfulness_exempt.json` and, for the owner to read, in
   `faithfulness_exempt_to_read.csv`, and `report_wi18 faithfulness` gives the bar also with them
   counted as unfaithful (every company named) and, once read, on the real companies. Audit of the
-  header rule: `scripts/audit_headers_2026_11_08.py`.
+  header rule: `scripts/audit_headers_2026_11_08.py`. Text measures of the company texts (characters, mixed and nameless sentences, paired
+  intervals): `scripts/text_measures_2026_11_08.py`.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 

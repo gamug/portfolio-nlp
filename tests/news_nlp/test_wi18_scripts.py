@@ -3105,3 +3105,59 @@ def test_write_hashes_renews_the_row_hashes_only_with_overwrite_marks(
         build.main()
     monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
     build.main()
+
+
+# --- text measures of the company texts (T-148b10) ---------------------------------------------
+
+MEASURES = _script("text_measures_2026_11_08")
+
+
+def _fake_resolve(sentence: str) -> list[str]:
+    return [t for t in ("AAA", "BBB") if t in sentence]
+
+
+def test_measure_text_groups_sentences_by_names() -> None:
+    text = "AAA rose. AAA and BBB fell. It was calm."
+    chars, n, own, mixed, nameless, others = MEASURES.measure_text(
+        text, "AAA", ["AAA rose.", "AAA and BBB fell.", "It was calm."], _fake_resolve
+    )
+    assert (chars, n, own, mixed, nameless, others) == (len(text), 3, 2, 1, 1, 1)
+
+
+def test_measure_text_sentence_of_only_another_company_is_in_no_group() -> None:
+    _, n, own, mixed, nameless, others = MEASURES.measure_text(
+        "BBB rose.", "AAA", ["BBB rose."], _fake_resolve
+    )
+    assert (n, own, mixed, nameless, others) == (1, 0, 0, 0, 0)
+
+
+def test_read_measures_counts_a_shared_text_once_per_extractor(tmp_path: Path) -> None:
+    (tmp_path / "faithfulness_ids.csv").write_text(
+        "review_order,article_id,ticker,extractors\n1,10,AAA,baseline|units\n2,10,BBB,baseline\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "faithfulness_to_tag.csv").write_text(
+        "review_order,text\n1,AAA rose. BBB fell.\n2,BBB fell.\n", encoding="utf-8"
+    )
+    rows = MEASURES.read_measures(
+        tmp_path, lambda t: [s.strip() + "." for s in t.split(".") if s.strip()], _fake_resolve
+    )
+    assert sorted((r.extractor, r.ticker) for r in rows) == [
+        ("baseline", "AAA"),
+        ("baseline", "BBB"),
+        ("units", "AAA"),
+    ]
+    lines = MEASURES.summary_lines(rows)
+    assert lines[1].startswith("baseline") and lines[2].startswith("units")
+
+
+def test_paired_difference_is_over_shared_companies_and_none_without_any() -> None:
+    def row(extractor: str, article: str, chars: int) -> object:
+        return MEASURES.Measure(extractor, article, "AAA", chars, 2, 1, 0, 1, 0)
+
+    rows = [row("baseline", str(i), 300) for i in range(5)] + [
+        row("units", str(i), 100) for i in range(5)
+    ]
+    n, mean, low, high = MEASURES.paired(rows, "baseline", "units", lambda r: float(r.chars))
+    assert (n, mean, low, high) == (5, 200.0, 200.0, 200.0)
+    assert MEASURES.paired(rows, "units2", "units", lambda r: float(r.chars)) is None
