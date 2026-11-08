@@ -128,7 +128,7 @@ Closed. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-close
 
 ## Work item 15 — Category: fix the `other` bucket (calibrate it, and clean up what the tagging fix removes)
 
-**Re-scoped 2026-10-28 into Work item 18; its own plan is superseded.** What stays useful (body-hash grouping, name/ticker resolution, sentence attribution, the cleanup of the results of quarantined pairs: T-131, T-132) continues there. Decisions D1–D10 (relevance gate, `review` pairs, verdict vocabulary, read-only attach, defaults of 2026-10-22) and the original design: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 15".
+**Re-scoped 2026-10-28 into Work item 18; its own plan is superseded.** What stays useful (body-hash grouping, name/ticker resolution, sentence attribution, the cleanup of removed rows [D36 (h1) proposes: of the results of quarantined pairs]: T-131, T-132) continues there. Decisions D1–D10 (relevance gate, `review` pairs, verdict vocabulary, read-only attach, defaults of 2026-10-22) and the original design: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 15".
 
 ## Work item 16 — Check the data-mining schema version before reading (closed 2026-10-22, #109; D8 default: build it here)
 
