@@ -284,7 +284,7 @@ component; every rule below assumes the stack actually pinned in
     overwritten or left out of a stage because `portfolio-data-mining`
     quarantined its (article, ticker) pair: `reject` and `review` are a
     verdict on the company tag, not on the article, and some quarantined
-    articles are financial news about another company (how many: T-159). A step that would
+    articles are financial news about another company (how many: T-160). A step that would
     drop, purge or exclude such an article stops and asks (`PLAN.md` D36).
     Derived results attached to a wrong pair may be moved aside in a
     reversible archive, never destroyed. A size, a count or a coverage figure
