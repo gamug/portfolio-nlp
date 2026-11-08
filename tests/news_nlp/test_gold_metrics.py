@@ -246,3 +246,79 @@ def test_a_figure_with_no_interval_is_undefined_not_undecided() -> None:
     assert Figure(0.6, 0.5, nan).judge(0.7) == "undefined"
     assert gold_metrics.gain_verdict(Figure(nan, nan, nan)) == "undefined"
     assert gold_metrics.gain_verdict(Figure(0.0, -0.1, 0.1)) == "not decided"  # unchanged
+
+
+def _stratified_rows(
+    candidate_right: int, baseline_right: int, n: int = 40
+) -> list[dict[str, str]]:
+    """*n* rows of one stratum, the owner's class cycling over the three; the first
+    *candidate_right* are right for the candidate and the first *baseline_right* for the baseline."""
+    classes = ["positive", "negative", "neutral"]
+    rows = []
+    for i in range(n):
+        gold = classes[i % 3]
+        wrong = classes[(i + 1) % 3]
+        rows.append(
+            {
+                "stratum": "checked/positive",
+                "gold": gold,
+                "predicted": gold if i < candidate_right else wrong,
+                "baseline": gold if i < baseline_right else wrong,
+            }
+        )
+    return rows
+
+
+def test_the_paired_stratified_gain_is_better_only_when_the_whole_interval_is_above_zero() -> None:
+    populations = {"checked/positive": 400}
+    big = gold_metrics.paired_stratified_gain(_stratified_rows(38, 10), populations, resamples=400)
+    assert big.point == pytest.approx((38 - 10) / 40)
+    assert gold_metrics.gain_verdict(big) == "better"
+    same = gold_metrics.paired_stratified_gain(_stratified_rows(20, 20), populations, resamples=400)
+    assert same.point == 0 and gold_metrics.gain_verdict(same) == "not decided"
+    worse = gold_metrics.paired_stratified_gain(_stratified_rows(5, 35), populations, resamples=400)
+    assert gold_metrics.gain_verdict(worse) == "not better"
+
+
+def test_the_paired_stratified_gain_of_precision_and_recall_of_a_label() -> None:
+    populations = {"checked/positive": 40}
+    rows = [
+        {
+            "stratum": "checked/positive",
+            "gold": "negative",
+            "predicted": "negative",
+            "baseline": "neutral",
+        },
+        {
+            "stratum": "checked/positive",
+            "gold": "negative",
+            "predicted": "negative",
+            "baseline": "negative",
+        },
+        {
+            "stratum": "checked/positive",
+            "gold": "neutral",
+            "predicted": "neutral",
+            "baseline": "negative",
+        },
+        {
+            "stratum": "checked/positive",
+            "gold": "neutral",
+            "predicted": "neutral",
+            "baseline": "neutral",
+        },
+    ]
+    recall = gold_metrics.paired_stratified_gain(rows, populations, metric="recall", resamples=200)
+    assert recall.point == pytest.approx(1.0 - 0.5)  # candidate finds both negatives, baseline one
+    precision = gold_metrics.paired_stratified_gain(
+        rows, populations, metric="precision", resamples=200
+    )
+    assert precision.point == pytest.approx(1.0 - 0.5)  # baseline: 1 of its 2 negatives is right
+
+
+def test_the_paired_stratified_gain_refuses_an_unknown_stratum_and_an_unknown_metric() -> None:
+    rows = _stratified_rows(10, 10)
+    with pytest.raises(MarkedFileError, match="no population"):
+        gold_metrics.paired_stratified_gain(rows, {"other": 5})
+    with pytest.raises(ValueError, match="metric"):
+        gold_metrics.paired_stratified_gain(rows, {"checked/positive": 5}, metric="f1")

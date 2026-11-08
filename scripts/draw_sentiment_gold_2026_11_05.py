@@ -238,13 +238,17 @@ def predicted_label(chunk_probs: list[list[float]], id2label: dict[int, str]) ->
     return id2label[max(range(len(mean)), key=mean.__getitem__)]
 
 
-def predict(texts: list[dict[str, str]], cfg: dict[str, str] | None = None) -> list[dict[str, str]]:
+def predict(
+    texts: list[dict[str, str]], cfg: dict[str, str] | None = None, pair: bool = False
+) -> list[dict[str, str]]:
     """Add the sentiment model's label to each text (the pinned one, or *cfg*'s ``model`` and
     ``revision``), read as the pipeline's stage reads a text. Returns the texts that have at least
-    one chunk."""
+    one chunk. With *pair* the model reads the pair company + chunk (``sentiment_pair``): every text
+    carries its ``company`` and the chunks are cut to the room the company leaves."""
     import torch  # noqa: PLC0415
     from transformers import AutoModelForSequenceClassification, AutoTokenizer  # noqa: PLC0415
 
+    import sentiment_pair  # noqa: PLC0415
     from chunking import chunk_text  # noqa: PLC0415
 
     cfg = cfg or _models()["sentiment"]
@@ -256,14 +260,20 @@ def predict(texts: list[dict[str, str]], cfg: dict[str, str] | None = None) -> l
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
     kept: list[dict[str, str]] = []
     for item in texts:
-        chunks = chunk_text(item["text"], tok, max_tokens=510)
+        budget = sentiment_pair.chunk_budget(tok, item["company"]) if pair else 510
+        chunks = chunk_text(item["text"], tok, max_tokens=budget)
         if not chunks:
             continue
         chunk_probs: list[list[float]] = []
         for chunk in chunks:
-            inputs = tok(chunk.text, return_tensors="pt", truncation=True, max_length=512).to(
-                device
-            )
+            if pair:
+                inputs = sentiment_pair.encode_pair(
+                    tok, item["company"], chunk.text, return_tensors="pt"
+                ).to(device)
+            else:
+                inputs = tok(chunk.text, return_tensors="pt", truncation=True, max_length=512).to(
+                    device
+                )
             with torch.no_grad():
                 chunk_probs.append(torch.softmax(model(**inputs).logits[0], dim=-1).cpu().tolist())
         item["predicted"] = predicted_label(chunk_probs, id2label)
