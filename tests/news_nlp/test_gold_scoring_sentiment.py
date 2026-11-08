@@ -9,9 +9,12 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
+import transformers
 
+import sentiment_pair
 from news_nlp import gold_metrics, retag
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -687,3 +690,122 @@ def test_the_company_less_model_is_pinned_like_any_model(
             tickers=143,
         )
     assert not (tmp_path / "gold" / "log.csv").exists()
+
+
+def test_a_pair_run_cannot_be_the_baseline_and_company_less_options_need_a_pair_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(SystemExit, match="the baseline is the pinned text-only model"):
+        _run(tmp_path, monkeypatch, _stored_answers(), extra=("--pair", "--role", "baseline"))
+    with pytest.raises(SystemExit, match="belong to a --pair run"):
+        _run(
+            tmp_path,
+            monkeypatch,
+            _stored_answers(),
+            extra=("--company-less-model", "org/text-only", "--company-less-revision", COMMIT),
+        )
+    assert not (tmp_path / "gold" / "log.csv").exists()  # refused before anything was scored
+
+
+def test_a_scope_that_contradicts_the_ticker_stops_the_routing() -> None:
+    rows = _gold()
+    rows[0]["ticker"] = "AAA"
+    ids = _ids(rows)
+    ids[0]["scope"] = "sector"  # a company-less scope on a row that has a ticker
+    with pytest.raises(gold_metrics.MarkedFileError, match="disagree about whether"):
+        SCORE.texts_of_the_gold(rows, ids, {"AAA": "Alpha"})
+    ids[0]["scope"] = "single"
+    assert SCORE.texts_of_the_gold(rows, ids, {"AAA": "Alpha"})[0]["company"] == "Alpha"
+    ids[1]["scope"] = "market_economy"  # a company-less scope and no ticker: the text-only side
+    assert SCORE.texts_of_the_gold(rows, ids, {"AAA": "Alpha"})[1]["company"] == ""
+
+
+def test_the_log_row_says_how_many_rows_each_model_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    log = _run(
+        tmp_path, monkeypatch, _marks_as_answers(), extra=("--pair", "--role", "other"), tickers=143
+    )
+    assert "rows read as a pair: 143, by the text-only model: 37" in capsys.readouterr().out
+    with log.open(encoding="utf-8", newline="") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert (row["rows_pair"], row["rows_text_only"]) == ("143", "37")
+    assert int(row["rows_pair"]) + int(row["rows_text_only"]) == int(row["texts"])
+
+
+# --- the real path of predict(pair=True), token_counts and describe_model, on a tiny model ------
+
+
+def _tiny_model(directory: Path) -> Path:
+    """A real (random, tiny) BERT classifier and its WordPiece tokenizer, written to *directory*."""
+    hf: Any = transformers  # the classes are lazily exported: typed as Any for the checker
+    words = ["acme", "corp", "shares", "rose", "fell", "the", "company", "said", "it", ".", ","]
+    vocab = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]", *words]
+    directory.mkdir()
+    (directory / "vocab.txt").write_text("\n".join(vocab), encoding="utf-8")
+    tokenizer = hf.BertTokenizerFast(vocab_file=str(directory / "vocab.txt"), do_lower_case=True)
+    labels = {0: "positive", 1: "negative", 2: "neutral"}
+    config = hf.BertConfig(
+        vocab_size=len(vocab),
+        hidden_size=16,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        intermediate_size=32,
+        max_position_embeddings=512,
+        num_labels=3,
+        id2label=labels,
+        label2id={v: k for k, v in labels.items()},
+    )
+    hf.BertForSequenceClassification(config).save_pretrained(directory)
+    tokenizer.save_pretrained(directory)
+    return directory
+
+
+def test_predict_reads_the_pair_with_the_company_and_the_room_it_leaves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = _tiny_model(tmp_path / "tiny")
+    seen: list[tuple[str, str]] = []
+    budgets: list[int] = []
+    real_encode, real_budget = sentiment_pair.encode_pair, sentiment_pair.chunk_budget
+
+    def encode(tok: Any, company: str, chunk: str, *a: Any, **kw: Any) -> Any:
+        seen.append((company, chunk))
+        return real_encode(tok, company, chunk, *a, **kw)
+
+    def budget(tok: Any, company: str, *a: Any, **kw: Any) -> int:
+        budgets.append(real_budget(tok, company, *a, **kw))
+        return budgets[-1]
+
+    monkeypatch.setattr(sentiment_pair, "encode_pair", encode)
+    monkeypatch.setattr(sentiment_pair, "chunk_budget", budget)
+    items = [
+        {"key": "a", "text": "Acme shares rose. The company said it fell.", "company": "Acme Corp"}
+    ]
+    out = SCORE.gold_draw.predict(items, {"model": str(model)}, pair=True)
+    assert [i["key"] for i in out] == ["a"]
+    assert out[0]["predicted"] in gold_metrics.SENTIMENT_CLASSES
+    assert budgets == [512 - 3 - 2]  # "acme corp" is two tokens
+    assert seen and all(company == "Acme Corp" for company, _ in seen)
+    # the text-only reading is unchanged: no company, the 510-token chunks
+    seen.clear()
+    plain = SCORE.gold_draw.predict(
+        [{"key": "b", "text": "Acme shares rose."}], {"model": str(model)}
+    )
+    assert plain[0]["predicted"] in gold_metrics.SENTIMENT_CLASSES and not seen
+
+
+def test_the_token_counts_and_the_model_description_of_a_real_checkpoint(tmp_path: Path) -> None:
+    model = _tiny_model(tmp_path / "tiny")
+    counts = SCORE.token_counts(
+        [
+            {"key": "a", "text": "Acme shares rose"},
+            {"key": "b", "text": "the company said it fell ."},
+        ],
+        str(model),
+        "",
+    )
+    assert counts == {"a": 3, "b": 6}  # no special tokens counted
+    identity = SCORE.describe_model(str(model), "")
+    assert json.loads(identity["id2label"]) == {"0": "positive", "1": "negative", "2": "neutral"}
+    assert len(identity["weights_sha256"]) == 64 and identity["device"] in {"cpu", "cuda"}

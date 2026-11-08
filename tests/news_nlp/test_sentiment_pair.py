@@ -40,3 +40,17 @@ def test_the_pair_truncates_only_the_chunk() -> None:
     assert out["a"] == "Tesla, Inc." and out["b"] == "the chunk"
     assert out["truncation"] == "only_second" and out["max_length"] == 512
     assert out["return_tensors"] == "pt"
+
+
+def test_a_text_is_read_as_a_pair_only_with_a_ticker_and_a_company_scope() -> None:
+    assert pair.reads_as_pair("single", "AAA") and pair.reads_as_pair("", "AAA")
+    assert not pair.reads_as_pair("single", "") and not pair.reads_as_pair("", "  ")
+    for scope in ("sector", "market_economy", "investing_general", "market", "economy", "Sector"):
+        assert not pair.reads_as_pair(scope, "AAA")  # a company-less scope, whatever the ticker
+
+
+def test_a_known_scope_and_the_ticker_must_agree_about_having_a_company() -> None:
+    assert pair.agrees_with_ticker("", "") and pair.agrees_with_ticker("", "AAA")
+    assert pair.agrees_with_ticker("single", "AAA") and pair.agrees_with_ticker("sector", "")
+    assert not pair.agrees_with_ticker("sector", "AAA")
+    assert not pair.agrees_with_ticker("single", "")

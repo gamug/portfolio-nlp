@@ -232,7 +232,11 @@ def paired_stratified_gain(
     interval is of the difference). *metric* is ``agreement``, ``precision`` or ``recall`` (of
     *label*). *rows* carry ``gold``, the candidate's column and the baseline's. Every row of the gold
     is its own body, so the bootstrap is inside the strata, as the report's. The result goes to
-    :func:`gain_verdict`: ``better`` only when the whole interval is above 0."""
+    :func:`gain_verdict`: ``better`` only when the whole interval is above 0. A resample in which the
+    metric is undefined (no row predicted *label*, for the precision) is left out, as in the report's
+    own intervals, so the interval of a precision gain can come from fewer resamples than asked when
+    the baseline predicts few of *label*; a point that is undefined makes the whole figure NaN
+    (``undefined`` for the verdict)."""
     if metric not in {"agreement", "precision", "recall"}:
         raise ValueError(f"metric {metric!r}: one of agreement, precision, recall")
     strata: dict[str, list[Mapping[str, str]]] = {}

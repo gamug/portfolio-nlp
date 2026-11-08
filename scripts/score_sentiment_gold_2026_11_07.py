@@ -62,6 +62,7 @@ import report_wi18_2026_11_06 as report
 import retag_gold_2026_10_29 as retag_cli
 
 import chunking
+import sentiment_pair
 from news_nlp import gold_metrics, retag
 from news_nlp.gold_metrics import MarkedFileError
 
@@ -81,8 +82,9 @@ def texts_of_the_gold(
     company_of: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     """The text of each gold row, from the draw's ids, checked against the hash the owner marked.
-    With *company_of* (ticker -> name) each item also carries its ``company`` (empty when the row has
-    no ticker). Raises ``MarkedFileError`` when a text is missing or is not the one that was read, or a
+    With *company_of* (ticker -> name) each item also carries its ``company`` (empty when
+    ``sentiment_pair.reads_as_pair`` says the text is not read as a pair: no ticker, or a company-less
+    scope when the ids file knows it). Raises ``MarkedFileError`` when a text is missing or is not the one that was read, or a
     ticker has no name."""
     by_key = {r["key"]: r for r in ids}
     items = []
@@ -97,9 +99,17 @@ def texts_of_the_gold(
         item = {"key": row["key"], "text": drawn["text"]}
         if company_of is not None:
             ticker = (row.get("ticker") or "").strip()
+            scope = drawn.get("scope", "")  # the local ids file has it, the tracked gold does not
+            if not sentiment_pair.agrees_with_ticker(scope, ticker):
+                raise MarkedFileError(
+                    f"{row['key']}: the scope {scope!r} and the ticker {ticker!r} disagree about "
+                    "whether this text has a company: the routing needs one answer"
+                )
             if ticker and ticker not in company_of:
                 raise MarkedFileError(f"{row['key']}: the ticker {ticker} has no company name")
-            item["company"] = company_of[ticker] if ticker else ""
+            item["company"] = (
+                company_of[ticker] if sentiment_pair.reads_as_pair(scope, ticker) else ""
+            )
         items.append(item)
     return items
 
@@ -403,6 +413,7 @@ def log_row(
     rows: list[dict[str, str]],
     tokens_by_hash: dict[str, int],
     gain: dict[str, str] | None = None,
+    routed: tuple[int, int] = (0, 0),
 ) -> dict[str, str]:
     by_period = period_figures(rows)
     by_length = length_figures(rows, tokens_by_hash)
@@ -442,6 +453,8 @@ def log_row(
         "input_format": "pair" if args.pair else "text",
         "company_less_model": args.company_less_model if args.pair else "",
         "company_less_revision": args.company_less_revision if args.pair else "",
+        "rows_pair": str(routed[0]),
+        "rows_text_only": str(routed[1]),
         "agreement_over_128": f"{long_f.point:.4f}",
         "agreement_over_128_low": f"{long_f.low:.4f}",
         "agreement_over_128_high": f"{long_f.high:.4f}",
@@ -481,6 +494,22 @@ def earlier_lines(earlier: list[dict[str, str]], role: str, redo: bool) -> list[
             "baseline and the final run, and the report that quotes a figure lists every run"
         )
     return lines
+
+
+def check_options(args: argparse.Namespace) -> None:
+    """Options that would make a run meaningless are refused before anything is loaded: the baseline
+    is the pinned text-only model (a pair model logged as the baseline would become the model every
+    later gain is measured against), and the company-less model belongs to a pair run."""
+    if args.pair and args.role == "baseline":
+        raise MarkedFileError(
+            "--pair with --role baseline: the baseline is the pinned text-only model; a pair model "
+            "is scored as --role final (or other)"
+        )
+    if not args.pair and (args.company_less_model or args.company_less_revision):
+        raise MarkedFileError(
+            "--company-less-model / --company-less-revision belong to a --pair run: a text-only "
+            "model has no company-less texts to route"
+        )
 
 
 def company_names() -> dict[str, str]:
@@ -546,6 +575,7 @@ def main() -> None:
             gold_metrics.SENTIMENT_CLASSES,
             required=("key", "part", "stratum", "predicted", "population", "text_hash", "pub_date"),
         )
+        check_options(args)
         companies = company_names() if args.pair else None
         items = texts_of_the_gold(tagged, extra._read(args.texts), companies)
         require_pinned(args.model, args.revision)
@@ -581,8 +611,11 @@ def main() -> None:
         *length_lines(rows, tokens_by_hash),
         *gain_lines,
     ]
+    with_company = sum(bool(i.get("company")) for i in items)
+    routed = (with_company, len(items) - with_company)
+    output.insert(1, f"rows read as a pair: {routed[0]}, by the text-only model: {routed[1]}")
     number = log_run(
-        args.log, log_row(args, identity, gold_sha, rep, rows, tokens_by_hash, gain)
+        args.log, log_row(args, identity, gold_sha, rep, rows, tokens_by_hash, gain, routed)
     )  # last: all built
     print(f"run {number} on the gold ({args.log}): every run is listed (D35)")
     print("\n".join(output))

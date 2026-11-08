@@ -818,12 +818,15 @@ SENTIMENT_SCORING_LOG_COLUMNS = (
     "texts",
     # T-148c2b (2026-11-08): why a second baseline or final run was made; the input the model reads
     # (text, or the pair company + text) and, for a pair model, the text-only model that scored
-    # the texts with no company; the agreement for texts over 128 tokens apart from the rest; and
+    # the texts with no company and how many rows each read (``rows_pair`` + ``rows_text_only`` =
+    # ``texts``); the agreement for texts over 128 tokens apart from the rest; and
     # the paired gain over the last baseline row that the pin rule reads (empty unless role final).
     "redo_reason",
     "input_format",
     "company_less_model",
     "company_less_revision",
+    "rows_pair",
+    "rows_text_only",
     "agreement_over_128",
     "agreement_over_128_low",
     "agreement_over_128_high",
