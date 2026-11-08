@@ -3176,6 +3176,15 @@ counted as unfaithful `units3` is 74.2% [66.0, 81.5], `units2` 68.4% [57.9, 80.3
 were designed on the failures of these same 30 bodies, so the figures are development figures; a
 confirmation on bodies not used before is proposed in TASKS T-148b8.
 
+**The owner's reading of the 37 (2026-11-08)** settles the denominator: 23 of them are not companies
+("Bloom" the person, "Equity markets", "Union Square"), 14 are. With the 23 out of every extractor's
+share, the texts the others wrote about them included, all extractors are on the same 167 real
+companies: baseline 68.9% [53.6, 82.1], `model` 86.2% [71.7, 97.5], `units` **94.0% [87.0, 99.2], pass**,
+`units2` 77.8% [64.1, 92.9], `units3` 84.4% [76.4, 93.3] (not decided); `units3` minus `units` -9.6
+[-16.5, -1.6] (not better). The guard removes a distortion (names that are not companies counted
+against `units`) and loses 13 real companies, mostly lines headed by a short form. The decision on
+the candidate for the cut stays the owner's (PLAN D34 (e), TASKS T-148b8, T-148b9).
+
 **Spend (2026-11-08, approved by the owner): Spanish for `faithfulness_exempt_to_read.csv`.** The title and the
 line that names each of the 37 exempt companies (no article body), the approved engine, `draw_faithfulness
 --exempt --yes`: 37 articles = 37 paid calls, 0 failures; 8,848 prompt and 4,910 completion tokens (retries and

@@ -444,42 +444,56 @@ def _exempt_lines(
     read: dict[str, str],
 ) -> list[str]:
     """The bar of each ``units`` extractor with the companies it is not asked about (footer, guard)
-    counted as unfaithful: all the companies the bodies name. Once the owner has read them
-    (``real_company``), also with only the ones that are real companies; the share the extractor is
-    judged on is for the owner to settle (D32 counts every company named)."""
+    counted as unfaithful: all the companies the bodies name. Once the owner has read all of them
+    (``real_company``), the whole block again **on real companies for every extractor**: a company
+    marked ``no`` (a person, a place, a common word) is taken out of every extractor's share, the
+    texts the others wrote about it too, and one marked ``yes`` that an extractor wrote no text for
+    counts against it. The share an extractor is judged on is for the owner to settle (D32 counts
+    every company named)."""
     present = {n for names in owners.values() for n in names}
     lines = []
+    asked: dict[str, list[str]] = {}
     for name in sorted({c["extractor"] for c in exempt} & present):
         written = {key.rsplit("#", 1)[0] for key, who in owners.items() if name in who}
-        pairs = [
+        asked[name] = [
             f"{c['article_id']}#{c['ticker']}"
             for c in exempt
             if c["extractor"] == name and f"{c['article_id']}#{c['ticker']}" not in written
         ]  # a company it did write a text for is already in the share: not counted twice
-        strict = {**omitted, name: [*omitted.get(name, []), *pairs]}
+        strict = {**omitted, name: [*omitted.get(name, []), *asked[name]]}
         fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)[name]
         lines.append(
-            f"[{label}] {name}: the {len(pairs)} companies it wrote no text for and is not asked "
-            f"about counted as unfaithful (the bar on every company named): {fig} -> "
+            f"[{label}] {name}: the {len(asked[name])} companies it wrote no text for and is not "
+            f"asked about counted as unfaithful (the bar on every company named): {fig} -> "
             f"{fig.judge(FAITHFUL_BAR)}"
         )
-        marked = [read.get(p, "") for p in pairs]
-        if not read or not any(marked):
-            continue
-        if not all(marked):
-            lines.append(
-                f"[{label}] {name}: {marked.count('')} of those {len(pairs)} companies are not yet "
-                "read (real_company): the reading of real companies only is not computed"
-            )
-            continue
-        real = [p for p, m in zip(pairs, marked, strict=True) if m == "yes"]
-        only = {**omitted, name: [*omitted.get(name, []), *real]}
-        fig = gold_metrics.faithfulness_report(marks, owners, omitted=only)[name]
-        lines.append(
-            f"[{label}] {name}: the {len(real)} of those {len(pairs)} that are real companies "
-            f"counted as unfaithful (the bar on real companies): {fig} -> {fig.judge(FAITHFUL_BAR)}"
-        )
-    return lines
+    pairs = sorted(
+        {f"{c['article_id']}#{c['ticker']}" for c in exempt if c["extractor"] in present}
+    )
+    marked = [read.get(p, "") for p in pairs]
+    if not read or not any(marked):
+        return lines
+    if not all(marked):
+        return [
+            *lines,
+            f"[{label}] {marked.count('')} of {len(pairs)} exempt companies are not yet read "
+            "(real_company): the bar on real companies is not computed",
+        ]
+    gone = {p for p, m in zip(pairs, marked, strict=True) if m == "no"}
+
+    def keep(pair: str) -> bool:
+        return pair not in gone
+
+    marks_real = {k: v for k, v in marks.items() if keep(k.rsplit("#", 1)[0])}
+    owners_real = {k: v for k, v in owners.items() if keep(k.rsplit("#", 1)[0])}
+    omitted_real = {name: [p for p in lost if keep(p)] for name, lost in omitted.items()}
+    for name, lost in asked.items():
+        omitted_real[name] = [*omitted_real.get(name, []), *(p for p in lost if keep(p))]
+    lines.append(
+        f"[{label}] real companies: {len(gone)} of the {len(pairs)} exempt companies are not "
+        "companies (owner's reading); they are out of every extractor's share, the others count"
+    )
+    return [*lines, *_faithfulness_block(f"{label}, real", marks_real, owners_real, omitted_real)]
 
 
 STALE_SHOWN = 6  # marked rows named in the one-line staleness note

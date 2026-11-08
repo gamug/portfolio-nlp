@@ -708,11 +708,11 @@ def _exempt_file(path: Path, rows: list[dict[str, str]], rules: str | None = Non
     (path / gold_metrics.EXEMPT_NAME).write_text(json.dumps(document), encoding="utf-8")
 
 
-def _read_file(path: Path, marks: dict[int, str]) -> None:
+def _read_file(path: Path, marks: dict[int, str], tickers: dict[int, str] | None = None) -> None:
     rows = [
         {
             "article_id": str(a),
-            "ticker": "U",
+            "ticker": (tickers or {}).get(a, "U"),
             "company": "U Inc.",
             "why": "guard",
             "extractors": "units",
@@ -736,14 +736,23 @@ def test_the_bar_is_also_given_on_every_company_named_and_on_the_real_ones(tmp_p
     assert "[all] units: the 2 companies it wrote no text for and is not asked about" in text
     assert "[2022+] units: the 2 companies" in text  # both blocks, the dates are 2023
     assert "75.0%" in text.split("(the bar on every company named)")[1]  # 6 faithful of 6 + 2
-    assert "bar on real companies" not in text  # the owner has not read them
+    assert "real companies" not in text  # the owner has not read them
     _read_file(tmp_path, {1: "yes", 2: ""})
     part = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "1 of those 2 companies are not yet read" in part and "bar on real companies" not in part
-    _read_file(tmp_path, {1: "yes", 2: "no"})  # one is a company, the other a person
+    assert "1 of 2 exempt companies are not yet read" in part and "[all, real]" not in part
+    # 1#U is a company the extractor lost; 2#U is not a company; 3#T is not a company either,
+    # and every extractor wrote a text about it: that text leaves every extractor's share
+    rows = [_skip(1, "units"), _skip(2, "units"), {**_skip(3, "units"), "ticker": "T"}]
+    _exempt_file(tmp_path, rows)
+    _read_file(tmp_path, {1: "yes", 2: "no", 3: "no"}, tickers={3: "T"})
     done = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "the 1 of those 2 that are real companies counted as unfaithful" in done
-    assert "85.7%" in done.split("(the bar on real companies)")[1]  # 6 faithful of 6 + 1
+    assert "2 of the 3 exempt companies are not companies" in done
+    real = [line for line in done.splitlines() if line.startswith("[all, real]")]
+    units = next(line for line in real if "units:" in line and "of the texts" not in line)
+    assert "5 faithful of 5 texts + 1 companies left without one" in units  # 3#T#1 is gone
+    assert "83.3%" in units
+    base = next(line for line in real if "baseline:" in line and "of the texts" not in line)
+    assert "5 faithful of 5 texts + 0 companies" in base and "100.0%" in base  # also lost 3#T#1
     _exempt_file(tmp_path, [_skip(1, "units")], rules="another revision")
     other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
     assert "written by the rules 'another revision'" in other
