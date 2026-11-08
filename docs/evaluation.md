@@ -3199,15 +3199,18 @@ used before: `uv run scripts/draw_faithfulness_2026_11_06.py --out data/faithful
 --exclude-from data --extractors baseline,units --attribution-model data/models/attribution_2026_11_08
 --n 30 --seed 20261109 --yes` (`--exclude-from` leaves out the bodies of the first draw, twins by body hash
 included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. **The draw cannot be repeated:** the bodies file is never drawn again by design, so the same command a second time draws nothing and a different `--seed` does not redraw either; the confirmation set is this one, and a different set needs a different `--out` (and fewer bodies are left to draw). The
-owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. **For the result to be comparable
-with the first reading the owner also has to mark the non-companies:** `draw_faithfulness --exempt --out
-data/faithfulness_confirmation` (free) writes `faithfulness_exempt.json` and
-`faithfulness_exempt_to_read.csv` (the companies the plain resolver names that the guard would reject, or
-the footer holds, with the line that names each; `--yes` pays for the Spanish of its empty cells), and
-`real_company` yes or no on those rows takes the non-companies out of every extractor's share. Then
-`uv run scripts/report_wi18_2026_11_06.py faithfulness --out data/faithfulness_confirmation`. Without that
-reading `units` is measured with the plain resolver's non-companies counted against it, as it was before the
-owner's reading of the 37. `faithfulness_exempt.json` is derived from the code of five modules and is free to
+owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. The owner has decided to read only these 357 texts, so the marking of the non-companies is
+**optional and was declined**: `draw_faithfulness --exempt --out data/faithfulness_confirmation` (free) would write
+`faithfulness_exempt.json` and `faithfulness_exempt_to_read.csv` (the companies the plain resolver names that
+the guard would reject, or the footer holds; `--yes` pays for the Spanish of its empty cells, and it is not
+bought), and `real_company` yes or no on those rows would take the non-companies out of every extractor's
+share. Without it, run `uv run scripts/report_wi18_2026_11_06.py faithfulness --out data/faithfulness_confirmation`:
+it prints the block `[all]` and, for `units`, the line "the bar on every company named", and skips the
+`real` blocks with no error (a file with no mark in it is the same as no file). Without the marks the
+plain resolver's non-companies count against `units`: on the first 30 bodies that is 83.2% [72.7, 91.0]
+(not decided) against 94.0% [87.0, 99.2] (pass) with the owner's 23 marks, and the gain over the baseline
+hardly moves (24.3% [12.9, 39.4] against 25.1% [12.3, 41.4]). The rule proposed for reading the confirmation
+without the marks is TASKS T-148b10 (6b). `faithfulness_exempt.json` is derived from the code of five modules and is free to
 rebuild: if it is rebuilt after an edit the owner's marks (by article and company) are kept; the report skips
 the readings that need it, with a line, while it was written by other code.
 
