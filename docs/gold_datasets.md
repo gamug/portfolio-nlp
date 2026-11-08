@@ -163,6 +163,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   `extractors` and `revisions` and new rows, and goes through.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
   bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
+- **Later files of this set (2026-11-08, in `data/`, not yet in `gold/`):** the same file now holds 437 texts of the 30 bodies (baseline, `model`, `units`, `units2`, `units3`; 336 yes, 101 no) and `faithfulness_exempt_to_read.csv` the owner's reading of 37 names (23 not companies). A **confirmation set** of 30 other bodies (`data/faithfulness_confirmation/`: 395 texts, 345 yes and 50 no, and 30 names read, 25 not companies) was tagged the same day. **The owner selected `units` as the base model of step 4 (2026-11-08).** Datasets, metrics, results and what is next: `docs/extractor_training.md`.
 
 ### 5. Sentiment — `gold/sentiment_gold.csv`
 
