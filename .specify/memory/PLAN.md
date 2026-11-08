@@ -216,7 +216,7 @@ with the owner's scope on >= 90% of the full 720 before silver is bought (at mos
 1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
 owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope (D30 drew 200 instead; D33: no top-up, and no recall floor for a scope under 40 gold bodies); D19 full backfill of the **81,961 unique `ok` bodies** (not the
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
-the results of the 377,010 quarantined pairs are purged (T-131) [D36 (b): moved aside reversibly, not destroyed; the new wording is proposed in D36 (h), not in force until the owner accepts it; 377,010 are SOURCE rows, the RESULTS has 365,782 `reject` and `review` rows]; D20 the scope triage is accepted
+the results of the 377,010 quarantined pairs are purged (T-131) [D36 (b): moved aside reversibly, not destroyed; the new wording is proposed in D36 (h1), not in force until the owner accepts it; 377,010 are SOURCE rows, the RESULTS has 365,782 `reject` and `review` rows]; D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and
 recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
 (at 40 bodies the per-scope interval is about +/-13 points; D33 amends: a scope with fewer than 40 gold bodies is reported with its interval, not gated); D21 each
@@ -313,7 +313,7 @@ above, it says so; nothing else above is touched.
 
 - **T-132 shrunk (owner, 2026-11-05).** It was designed around T-117's call budget and T-130's
   relevance judge, both superseded. Only the upstream alias table stays; the quarantined pairs
-  follow D19 (their results are purged, T-131; D36 (h) proposes "moved aside reversibly").
+  follow D19 (their results are purged, T-131; D36 (h1) proposes "moved aside reversibly").
 
 **Owner calls on the four open questions (interactive session, 2026-11-05; D31–D34).**
 
