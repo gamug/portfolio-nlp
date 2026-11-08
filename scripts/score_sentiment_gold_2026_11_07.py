@@ -414,6 +414,7 @@ def log_row(
     tokens_by_hash: dict[str, int],
     gain: dict[str, str] | None = None,
     routed: tuple[int, int] = (0, 0),
+    company_less_identity: dict[str, str] | None = None,
 ) -> dict[str, str]:
     by_period = period_figures(rows)
     by_length = length_figures(rows, tokens_by_hash)
@@ -453,6 +454,7 @@ def log_row(
         "input_format": "pair" if args.pair else "text",
         "company_less_model": args.company_less_model if args.pair else "",
         "company_less_revision": args.company_less_revision if args.pair else "",
+        "company_less_weights_sha256": (company_less_identity or {}).get("weights_sha256", ""),
         "rows_pair": str(routed[0]),
         "rows_text_only": str(routed[1]),
         "agreement_over_128": f"{long_f.point:.4f}",
@@ -510,6 +512,29 @@ def check_options(args: argparse.Namespace) -> None:
             "--company-less-model / --company-less-revision belong to a --pair run: a text-only "
             "model has no company-less texts to route"
         )
+
+
+def require_class_labels(identity: dict[str, str], model: str) -> None:
+    """The labels a model uses must be the three classes (a head whose ``id2label`` was never set says
+    ``label_0``): refused before anything is scored, for the second model of a routed run, whose
+    answers are only checked once both models have run."""
+    labels = {v.lower() for v in json.loads(identity["id2label"]).values()}
+    if outside := sorted(labels - set(gold_metrics.SENTIMENT_CLASSES)):
+        raise MarkedFileError(
+            f"the company-less model {model} uses the labels {outside}, not "
+            f"{list(gold_metrics.SENTIMENT_CLASSES)}: set id2label on the checkpoint and score again"
+        )
+
+
+def company_less_setup(args: argparse.Namespace) -> tuple[dict[str, str] | None, dict[str, str]]:
+    """The text-only model of a ``--pair`` run and what identifies it (its weights, its labels), checked
+    before anything is scored; ``(None, {})`` for a text-only run."""
+    config = resolve_company_less(args)
+    if config is None:
+        return None, {}
+    identity = describe_model(config["model"], config["revision"])
+    require_class_labels(identity, config["model"])
+    return config, identity
 
 
 def company_names() -> dict[str, str]:
@@ -579,7 +604,7 @@ def main() -> None:
         companies = company_names() if args.pair else None
         items = texts_of_the_gold(tagged, extra._read(args.texts), companies)
         require_pinned(args.model, args.revision)
-        company_less = resolve_company_less(args)
+        company_less, company_less_identity = company_less_setup(args)
         earlier = previous_runs(args.log)
         check_role(args.role, earlier, args.redo_role, args.redo_reason)
         baseline_row = require_baseline(args.role, earlier)
@@ -602,20 +627,23 @@ def main() -> None:
     except MarkedFileError as exc:
         sys.exit(str(exc))
     gold_sha = hashlib.sha256(gold_file.read_bytes()).hexdigest()
+    with_company = sum(bool(i.get("company")) for i in items)
+    routed = (with_company, len(items) - with_company)
     output = [
         *earlier_lines(earlier, args.role, args.redo_role),
         f"model {args.model} {args.revision}: {moved} of {len(stored)} predictions differ from",
         "the model the sample was drawn by (0 for the pinned model: the scorer is the same)",
+        f"rows read as a pair: {routed[0]}, by the text-only model: {routed[1]}",
         *lines,
         *period_lines(rows),
         *length_lines(rows, tokens_by_hash),
         *gain_lines,
     ]
-    with_company = sum(bool(i.get("company")) for i in items)
-    routed = (with_company, len(items) - with_company)
-    output.insert(1, f"rows read as a pair: {routed[0]}, by the text-only model: {routed[1]}")
     number = log_run(
-        args.log, log_row(args, identity, gold_sha, rep, rows, tokens_by_hash, gain, routed)
+        args.log,
+        log_row(
+            args, identity, gold_sha, rep, rows, tokens_by_hash, gain, routed, company_less_identity
+        ),
     )  # last: all built
     print(f"run {number} on the gold ({args.log}): every run is listed (D35)")
     print("\n".join(output))

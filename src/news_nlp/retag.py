@@ -825,6 +825,7 @@ SENTIMENT_SCORING_LOG_COLUMNS = (
     "input_format",
     "company_less_model",
     "company_less_revision",
+    "company_less_weights_sha256",
     "rows_pair",
     "rows_text_only",
     "agreement_over_128",

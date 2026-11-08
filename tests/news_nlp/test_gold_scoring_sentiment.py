@@ -176,6 +176,7 @@ def _run(
     revision: str = COMMIT,
     tickers: int = 0,
     calls: list[tuple[int, bool, str]] | None = None,
+    identities: dict[str, dict[str, str]] | None = None,
 ) -> Path:
     """A temporary gold, ids and log, a fake model, and ``main`` run on them; returns the log."""
     rows = _gold()
@@ -208,7 +209,9 @@ def _run(
         "_models",
         lambda: {"sentiment": {"model": "org/pinned", "revision": "9" * 40}},
     )
-    monkeypatch.setattr(SCORE, "describe_model", lambda model, revision: IDENTITY)
+    monkeypatch.setattr(
+        SCORE, "describe_model", lambda model, revision: (identities or {}).get(model, IDENTITY)
+    )
     monkeypatch.setattr(
         SCORE,
         "token_counts",
@@ -809,3 +812,66 @@ def test_the_token_counts_and_the_model_description_of_a_real_checkpoint(tmp_pat
     identity = SCORE.describe_model(str(model), "")
     assert json.loads(identity["id2label"]) == {"0": "positive", "1": "negative", "2": "neutral"}
     assert len(identity["weights_sha256"]) == 64 and identity["device"] in {"cpu", "cuda"}
+
+
+def test_the_report_keeps_the_earlier_runs_together_and_then_the_routing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(tmp_path, monkeypatch, _stored_answers(), extra=("--role", "baseline"))
+    _run(tmp_path, monkeypatch, _marks_as_answers())
+    capsys.readouterr()
+    _run(tmp_path, monkeypatch, _marks_as_answers(), tickers=143, extra=("--pair",))
+    lines = capsys.readouterr().out.splitlines()
+    first = next(i for i, line in enumerate(lines) if line.startswith("earlier runs on the gold"))
+    assert lines[first] == "earlier runs on the gold: 2"
+    assert lines[first + 1].startswith("  run 1 ") and lines[first + 2].startswith("  run 2 ")
+    routing = next(i for i, line in enumerate(lines) if line.startswith("rows read as a pair"))
+    assert routing > first + 2 and "143" in lines[routing] and "37" in lines[routing]
+
+
+def test_the_text_only_model_of_a_routed_run_is_identified_in_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = {**IDENTITY, "weights_sha256": "t" * 8}
+    log = _run(
+        tmp_path,
+        monkeypatch,
+        _marks_as_answers(),
+        tickers=143,
+        extra=(
+            "--pair",
+            "--company-less-model",
+            "org/text-only",
+            "--company-less-revision",
+            COMMIT,
+        ),
+        identities={"org/text-only": other},
+    )
+    with log.open(encoding="utf-8", newline="") as fh:
+        (row,) = list(csv.DictReader(fh))
+    assert row["weights_sha256"] == "w" * 8 and row["company_less_weights_sha256"] == "t" * 8
+    assert row["company_less_model"] == "org/text-only"
+
+
+def test_a_company_less_model_with_labels_that_are_not_the_classes_is_refused_before_scoring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[int, bool, str]] = []
+    bad = {**IDENTITY, "id2label": '{"0": "label_0", "1": "label_1"}'}
+    with pytest.raises(SystemExit, match="company-less model org/text-only uses the labels"):
+        _run(
+            tmp_path,
+            monkeypatch,
+            _marks_as_answers(),
+            tickers=143,
+            extra=(
+                "--pair",
+                "--company-less-model",
+                "org/text-only",
+                "--company-less-revision",
+                COMMIT,
+            ),
+            identities={"org/text-only": bad},
+            calls=calls,
+        )
+    assert calls == [] and not (tmp_path / "gold" / "log.csv").exists()  # nothing was scored
