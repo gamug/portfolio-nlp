@@ -13,6 +13,7 @@ D30, D32, D33).
 * ``faithfulness``: the share of faithful texts per extractor (``faithfulness_to_tag.csv`` with
   ``faithfulness_ids.csv``) and the model's gain over the baseline on the same company texts.
 
+``scope --gold --out gold`` reads ``category_gold_v2_test.csv`` (the tags and the draw's weights);
 ``label-check --gold --out gold`` reads the tracked file instead (it keeps the year);
 ``sentiment --gold --out gold`` reads ``sentiment_gold.csv`` (the marks and the draw's weights);
 ``faithfulness --gold --out gold`` reads ``faithfulness_gold.csv`` and ``faithfulness_coverage.csv``. ``faithfulness --partial MIN``
@@ -64,12 +65,47 @@ def scope_report(out: Path) -> list[str]:
     populations = {r["stratum"]: int(r["frame"]) for r in extra._read(out / "heldout_strata.csv")}
     rows = [
         {
+            "article_id": r["article_id"],
             "stratum": stratum_of[r["article_id"]],
             "predicted": triage.RULE_SCOPE_TO_GOLD[stratum_of[r["article_id"]]],
             "gold": r["scope"],
         }
         for r in tagged
     ]
+    return _scope_lines(rows, populations)
+
+
+def scope_gold_report(out: Path) -> list[str]:
+    """The same figures from the tracked ``category_gold_v2_test.csv`` in *out* (``--gold --out
+    gold``): its ``stratum`` and ``frame`` columns are the draw's weights, so neither the
+    git-ignored ``data/`` nor the draw is needed."""
+    name = "category_gold_v2_test.csv"
+    tagged = gold_metrics.read_marked(
+        out / name, "scope", triage.GOLD_SCOPES, ("article_id", "stratum", "frame")
+    )
+    gold_metrics.require_unique([r["article_id"] for r in tagged], name)
+    unknown = sorted({r["stratum"] for r in tagged} - triage.RULE_SCOPE_TO_GOLD.keys())
+    if unknown:
+        raise MarkedFileError(f"{name} has strata the rules do not have: {unknown}")
+    populations: dict[str, int] = {}
+    for r in tagged:
+        if populations.setdefault(r["stratum"], int(r["frame"])) != int(r["frame"]):
+            raise MarkedFileError(f"{name}: the stratum {r['stratum']} has two frame sizes")
+    rows = [
+        {
+            "article_id": r["article_id"],
+            "stratum": r["stratum"],
+            "predicted": triage.RULE_SCOPE_TO_GOLD[r["stratum"]],
+            "gold": r["scope"],
+        }
+        for r in tagged
+    ]
+    return [f"from the tracked gold: {len(rows)} bodies", *_scope_lines(rows, populations)]
+
+
+def _scope_lines(rows: list[dict[str, str]], populations: dict[str, int]) -> list[str]:
+    # the bootstrap draws by position: sorted by id, the figures do not depend on the file's order
+    rows = sorted(rows, key=lambda r: int(r["article_id"]))
     lines: list[str] = []
     overall = gold_metrics.stratified_report(
         rows, populations, label="single", stratum_key="stratum"
@@ -592,7 +628,7 @@ def main() -> None:
     parser.add_argument(
         "--gold",
         action="store_true",
-        help="label-check / sentiment / faithfulness: read the tracked gold/ files in --out",
+        help="scope / label-check / sentiment / faithfulness: read the tracked gold/ files in --out",
     )
     parser.add_argument(
         "--partial",
@@ -601,14 +637,16 @@ def main() -> None:
         help="faithfulness: the file is not finished; accept the first rows marked, at least MIN",
     )
     args = parser.parse_args()
-    if args.gold and args.command not in ("label-check", "sentiment", "faithfulness"):
-        parser.error("--gold is for label-check, sentiment and faithfulness only")
+    if args.gold and args.command not in ("scope", "label-check", "sentiment", "faithfulness"):
+        parser.error("--gold is for scope, label-check, sentiment and faithfulness only")
     if args.gold and args.partial is not None:
         parser.error("--partial reads the owner's file in progress: not with --gold")
     if args.partial is not None and args.command != "faithfulness":
         parser.error("--partial is for faithfulness only")
     command = COMMANDS[args.command]
-    if args.command == "label-check":
+    if args.command == "scope" and args.gold:
+        command = scope_gold_report
+    elif args.command == "label-check":
         command = functools.partial(label_check_report, gold=args.gold)
     elif args.command == "sentiment":
         command = functools.partial(sentiment_report, gold=args.gold)
