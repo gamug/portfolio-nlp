@@ -33,14 +33,31 @@ SENTIMENT_CLASSES = ("positive", "negative", "neutral")
 SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
-# companies a body names only in its footer (T-148b4): the ``units`` reading does not ask for a text
-# of them, so they are not in the coverage; the report counts them in a second reading of the bar.
-# The file is ``{"rules": <revision of the footer rules>, "companies": [<coverage rows>]}``: the
-# companies depend on the rules, so the report refuses a file written by other rules.
-FOOTER_ONLY_NAME = "faithfulness_footer_only.json"
+# Companies a body names that an extractor of the ``units`` family is not asked for a text of (T-148b4,
+# T-148b5): the ones named only in the footer (``units``, ``units2``, ``units3``) and the ones named
+# only by the first word of their name (``units2``, ``units3``, the guard). They are not in the
+# coverage, so the share of the bar leaves them out; the report also gives the bar with them counted
+# as unfaithful, and (once the owner has read them) with only the ones that are real companies.
+# The file is ``{"rules": <revision of the rules>, "companies": [<coverage rows>]}``: the companies
+# depend on the rules, so the report skips a file written by other rules.
+EXEMPT_NAME = "faithfulness_exempt.json"
+# the companies above, one row each, for the owner to read: is it a company? (``real_company``)
+EXEMPT_READ_NAME = "faithfulness_exempt_to_read.csv"
+EXEMPT_READ_COLUMNS = (
+    "article_id",
+    "ticker",
+    "company",
+    "why",
+    "extractors",
+    "title",
+    "text",
+    "spanish_title",
+    "spanish_text",
+    "real_company",
+)
 # what ``draw_faithfulness --stale`` found: the marked rows the current code no longer writes
 STALE_NAME = "faithfulness_stale.json"
-KNOWN_EXTRACTORS = ("baseline", "model", "units")
+KNOWN_EXTRACTORS = ("baseline", "model", "units", "units2", "units3")
 
 
 class MarkedFileError(ValueError):
@@ -331,26 +348,58 @@ def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
     return rows
 
 
-class FooterRulesChanged(MarkedFileError):
-    """The footer-only file was written by other footer rules than the current ones."""
+class ExemptRulesChanged(MarkedFileError):
+    """The exempt-companies file was written by other rules than the current ones."""
 
 
-def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
-    """The companies each body names only in its footer, from the file the draw wrote with
-    ``--footer-only``. Refused when it was written by other footer *rules* (their revision): the
-    companies would be those of a different cut."""
+def read_exempt(path: Path, rules: str) -> list[dict[str, str]]:
+    """The companies an extractor of the ``units`` family is not asked about, from the file the
+    draw wrote with ``--exempt``. Refused when it was written by other *rules* (the revision of
+    the footer and guard code): the companies would be those of a different cut."""
     if not path.exists():
         return []
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("rules") != rules:
-        raise FooterRulesChanged(
-            f"{path.name} was written by the footer rules {data.get('rules')!r}, not the current "
-            f"{rules!r}: draw it again (--footer-only)"
+        raise ExemptRulesChanged(
+            f"{path.name} was written by the rules {data.get('rules')!r}, not the current "
+            f"{rules!r}: draw it again (--exempt)"
         )
     rows: list[dict[str, str]] = data["companies"]
     if any(tuple(r) != COVERAGE_COLUMNS for r in rows):
         raise MarkedFileError(f"{path.name} rows must have the columns {COVERAGE_COLUMNS}")
     return rows
+
+
+EXEMPT_READ_OWNER_COLUMNS = ("notes",)  # the owner's free text, which the figures never read
+
+
+def exempt_read_header_ok(header: Sequence[str]) -> bool:
+    """The reading file has every column of ``EXEMPT_READ_COLUMNS`` (a spreadsheet may reorder them)
+    and, besides, only the owner's own ``notes``."""
+    return (
+        set(EXEMPT_READ_COLUMNS)
+        <= set(header)
+        <= {*EXEMPT_READ_COLUMNS, *EXEMPT_READ_OWNER_COLUMNS}
+    )
+
+
+def read_exempt_marks(path: Path) -> dict[str, str]:
+    """The owner's reading of the exempt companies: ``<article>#<ticker>`` -> ``yes`` (a real
+    company), ``no`` (not a company: a person, a place, a common word) or ``""`` (not read)."""
+    if not path.exists():
+        return {}
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        if not exempt_read_header_ok(reader.fieldnames or ()):
+            raise MarkedFileError(f"{path.name} must have the columns {EXEMPT_READ_COLUMNS}")
+        rows = list(reader)
+    marks: dict[str, str] = {}
+    for row in rows:
+        mark = row["real_company"].strip().lower()
+        if mark not in ("", "yes", "no"):
+            raise MarkedFileError(f"{path.name}: real_company must be yes or no, not {mark!r}")
+        marks[f"{row['article_id']}#{row['ticker']}"] = mark
+    return marks
 
 
 class StaleEntry(TypedDict):
@@ -402,9 +451,11 @@ class PairWriteError(OSError):
     """A replace failed after another file of the group was already replaced and could not be put back."""
 
 
-def render_csv(fields: Sequence[str], rows: Sequence[Mapping[str, str]]) -> str:
+def render_csv(
+    fields: Sequence[str], rows: Sequence[Mapping[str, str]], *, lineterminator: str = "\n"
+) -> str:
     buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator="\n")
+    writer = csv.DictWriter(buffer, fieldnames=list(fields), lineterminator=lineterminator)
     writer.writeheader()
     writer.writerows(rows)
     return buffer.getvalue()

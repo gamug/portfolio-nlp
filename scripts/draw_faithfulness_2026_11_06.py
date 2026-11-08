@@ -30,6 +30,7 @@ translation of the same engine; nothing is bought without ``--yes``. Its cache i
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import random
@@ -65,7 +66,8 @@ CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
 COVERAGE_NAME = gold_metrics.COVERAGE_NAME
-FOOTER_ONLY_NAME = gold_metrics.FOOTER_ONLY_NAME
+EXEMPT_NAME = gold_metrics.EXEMPT_NAME
+EXEMPT_READ_NAME = gold_metrics.EXEMPT_READ_NAME
 COVERAGE_FIELDS = gold_metrics.COVERAGE_COLUMNS
 IDS_FIELDS = (
     "review_order",
@@ -77,6 +79,7 @@ IDS_FIELDS = (
     "revisions",
     "pub_date",
 )
+UNITS_READINGS = ("units", "units2", "units3")  # the extractors that read the body by units
 Extractor = Callable[[str, CompanyResolver], dict[str, str]]
 EXTRACTORS: dict[str, Extractor] = {"baseline": attribution_baseline.baseline_company_texts}
 MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_model
@@ -85,27 +88,31 @@ MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_
 def extractor_revision(name: str) -> str:
     """The revision of extractor *name*: the baseline's code, or the trained model's identity (the
     Hub id and revision, or a local directory's files hash) with the code of the extractor:
-    ``model`` the model's modules, ``units`` those and the footer and unit cutting."""
-    if name not in ("model", "units"):
+    ``model`` the model's modules, the ``units`` readings those and the footer and unit cutting."""
+    if name not in ("model", *UNITS_READINGS):
         return retag.extractor_revision(name)
     if not MODEL_IDENTITY:
         raise ValueError("the model extractor is not registered: pass --attribution-model")
     modules = (
-        attribution_model.UNITS_CODE_MODULES if name == "units" else attribution_model.CODE_MODULES
+        attribution_model.UNITS_CODE_MODULES
+        if name in UNITS_READINGS
+        else attribution_model.CODE_MODULES
     )
     code = retag.code_revision(*modules)
     return f"extractor:{name}@{MODEL_IDENTITY[0]}@{code}"
 
 
 def model_extractor(
-    scorer: attribution_model.Scorer, names: dict[str, str], *, units: bool = False
+    scorer: attribution_model.Scorer, names: dict[str, str], *, reading: str = "sentences"
 ) -> Extractor:
     """The trained model as an extractor: the baseline's signature, the model behind *scorer*. With
-    *units* the body is read without its footer and cut at lines, bullets and clauses
-    (``news_nlp.attribution_units``, T-148b4)."""
+    *reading* ``units`` the body is read without its footer and cut at lines, bullets and clauses
+    (``news_nlp.attribution_units``, T-148b4); ``units2`` also with the guarded resolver and the
+    lines headed by names (T-148b5); ``units3`` also gives such a line to the companies its text
+    names (T-148b6)."""
 
     def extract(body: str, resolver: CompanyResolver) -> dict[str, str]:
-        return attribution_model.model_company_texts(body, resolver, names, scorer, units=units)
+        return attribution_model.model_company_texts(body, resolver, names, scorer, reading=reading)
 
     return extract
 
@@ -130,7 +137,9 @@ def register_model(model: str, revision: str | None, names: dict[str, str]) -> N
     MODEL_IDENTITY[:] = [f"{base}@names:{names_hash}@t{attribution_model.THRESHOLD}"]
     scorer = attribution_model.TransformerScorer(model, revision)
     EXTRACTORS["model"] = model_extractor(scorer, names)
-    EXTRACTORS["units"] = model_extractor(scorer, names, units=True)
+    EXTRACTORS["units"] = model_extractor(scorer, names, reading="units")
+    EXTRACTORS["units2"] = model_extractor(scorer, names, reading="units2")
+    EXTRACTORS["units3"] = model_extractor(scorer, names, reading="units3")
 
 
 def draw_bodies(candidates: list[dict[str, str]], n: int, seed: int) -> list[dict[str, str]]:
@@ -153,11 +162,20 @@ def merge_texts(
     return [(t, tuple(v)) for t, v in by_text.items()]
 
 
-def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str]]:
+def candidate_bodies(
+    out: Path, resolver: CompanyResolver, before: Path | None = None
+) -> list[dict[str, str]]:
+    """The narrative multi bodies the one-segment parser cannot split, minus the held-out set and,
+    for a confirmation draw, the bodies (by hash: twins share a body) of the earlier draw in
+    *before*, whose held-out list is used when *out* has none."""
     conn = db.connect_pipeline()
-    held = extra.excluded_hashes(
-        conn, {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
-    )
+    heldout = out / "heldout_ids.csv"
+    if before is not None and not heldout.exists():
+        heldout = before / "heldout_ids.csv"
+    ids = {int(r["article_id"]) for r in extra._read(heldout)}
+    if before is not None:
+        ids |= {int(r["article_id"]) for r in extra._read(before / BODIES_NAME)}
+    held = extra.excluded_hashes(conn, ids)
     found: list[dict[str, str]] = []
     for row in extra._read(GOLD):
         if row["scope"] != "multi":
@@ -212,15 +230,83 @@ def stale_report(
     return out
 
 
-def write_footer_only(out: Path) -> None:
-    """``--footer-only``: write ``faithfulness_footer_only.json`` (the companies each drawn body
-    names only in its footer, with the revision of the footer rules that found them)."""
-    rows = footer_only_rows(extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies()))
-    document = {"rules": retag.code_revision(attribution_units), "companies": rows}
-    gold_metrics.write_pair_atomically(
-        {out / FOOTER_ONLY_NAME: json.dumps(document, indent=1) + "\n"}
+def exempt_rules() -> str:
+    """The revision of the code that decides which companies are exempt (footer and guard)."""
+    return retag.code_revision(*attribution_model.UNITS_CODE_MODULES)
+
+
+def _read_reading(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """The reading file as the owner's spreadsheet left it: its columns in its order, and its rows."""
+    if not path.exists():
+        return [], []
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = list(reader.fieldnames or [])
+        if not gold_metrics.exempt_read_header_ok(header):
+            sys.exit(f"{path.name} must have the columns {gold_metrics.EXEMPT_READ_COLUMNS}")
+        return header, list(reader)
+
+
+def write_exempt(out: Path, *, yes: bool = False, max_new: int = retag_cli.DEFAULT_MAX_NEW) -> None:
+    """``--exempt``: write ``faithfulness_exempt.json`` (the companies each drawn body names that
+    the ``units`` extractors are not asked about, with the revision of the rules that found them)
+    and ``faithfulness_exempt_to_read.csv``: one row per company with the line that names it, for
+    the owner to mark ``real_company`` yes or no. **The owner's file is merged, never replaced:**
+    its columns stay in the order the spreadsheet left them, its rows stay, ``real_company`` and
+    every other value is untouched; only a company not in the file is appended, and only empty
+    Spanish cells are filled. The Spanish is the approved paid translation of the title and the
+    line (no body), bought only with ``--yes``; one already in the file is not bought again."""
+    rows, reading = exempt_rows(
+        extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies())
     )
-    print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+    document = {"rules": exempt_rules(), "companies": rows}
+    read_path = out / EXEMPT_READ_NAME
+    header, have = _read_reading(read_path)
+    known = {(r["article_id"], r["ticker"]) for r in have}
+    table = have + [r for r in reading if (r["article_id"], r["ticker"]) not in known]
+    todo = [r for r in table if not r["spanish_text"]]
+    if yes and todo:
+        cache = out / CACHE_DIR
+        cache.mkdir(exist_ok=True)
+        asked = [
+            {
+                "article_id": f"{r['article_id']}#{r['ticker']}",
+                "title": r["title"],
+                "text": r["text"],
+            }
+            for r in todo
+        ]
+        done = {
+            r["article_id"]: r
+            for r in retag_cli.add_spanish(
+                cache, asked, retag_cli._translator(), yes=True, max_new=max_new
+            )
+        }
+        for row in todo:
+            got = done[f"{row['article_id']}#{row['ticker']}"]
+            row["spanish_title"], row["spanish_text"] = got["spanish_title"], got["spanish_text"]
+    elif todo:
+        print(f"{len(todo)} rows without Spanish: --yes pays for the translation")
+    safe = retag.spreadsheet_safe(table, tag_columns=("real_company",))
+    # the spreadsheet saves with CRLF: the file keeps the line endings it was found with
+    crlf = read_path.exists() and b"\r\n" in read_path.read_bytes()
+    gold_metrics.write_pair_atomically(
+        {
+            out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n",
+            # with a byte order mark, like the other files the owner opens in a spreadsheet: without
+            # it Excel reads the UTF-8 as Windows-1252 and "percepción" shows as "percepciÃ³n"
+            read_path: "\ufeff"
+            + gold_metrics.render_csv(
+                tuple(header or gold_metrics.EXEMPT_READ_COLUMNS),
+                safe,
+                lineterminator="\r\n" if crlf else "\n",
+            ),
+        }
+    )
+    pairs = {(r["article_id"], r["ticker"]) for r in rows}
+    print(
+        f"{len(pairs)} companies exempt for at least one extractor written to {out / EXEMPT_NAME}"
+    )
 
 
 def label_extractors(label: str) -> set[str]:
@@ -280,31 +366,65 @@ def run_stale(args: argparse.Namespace) -> int:
     return (1 if result["stale"] else 0) + (2 if unchecked else 0)
 
 
-def footer_only_rows(
+def exempt_rows(
     bodies: list[dict[str, str]], resolver: CompanyResolver
-) -> list[dict[str, str]]:
-    """The companies each body names only in its footer (``COVERAGE_FIELDS``, extractor ``units``):
-    the ``units`` reading is not asked for a text of them, and the report counts them as unfaithful
-    in the second reading of the bar."""
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """The companies each body names that the ``units`` extractors are not asked about: the ones
+    named only in the footer (``units``, ``units2``, ``units3``) and the ones named in the story
+    only by the first word of their name, which the guard does not accept (``units2``,
+    ``units3``). Returns the rows of ``EXEMPT_NAME`` (``COVERAGE_FIELDS``, one per extractor) and
+    the rows of ``EXEMPT_READ_NAME`` (one per company, with the line that names it, to read)."""
     conn = db.connect_pipeline()
     rows: list[dict[str, str]] = []
+    reading: list[dict[str, str]] = []
+    names = {c.ticker: c.name for c in retag_cli.companies()}
     for b in bodies:
         src = conn.execute(
-            "SELECT body_text, pub_date FROM source.articles WHERE id = ?", (int(b["article_id"]),)
+            "SELECT title, body_text, pub_date FROM source.articles WHERE id = ?",
+            (int(b["article_id"]),),
         ).fetchone()
         body = src["body_text"] or ""
-        story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
-        rows += [
-            {
-                "article_id": b["article_id"],
-                "ticker": ticker,
-                "extractor": "units",
-                "pub_date": src["pub_date"] or "",
-            }
-            for ticker in sorted(resolver.resolve(body, skip_attribution=False))
-            if ticker not in story
-        ]
-    return rows
+        story = attribution_units.strip_footer(body)
+        in_story = set(resolver.resolve(story, skip_attribution=False))
+        accepted = set(attribution_units.GuardedResolver(resolver, story).resolve(story))
+        why = {t: "footer" for t in set(resolver.resolve(body, skip_attribution=False)) - in_story}
+        why |= {t: "guard" for t in in_story - accepted}
+        for ticker, reason in sorted(why.items()):
+            extractors = UNITS_READINGS if reason == "footer" else UNITS_READINGS[1:]
+            rows += [
+                {
+                    "article_id": b["article_id"],
+                    "ticker": ticker,
+                    "extractor": name,
+                    "pub_date": src["pub_date"] or "",
+                }
+                for name in extractors
+            ]
+            reading.append(
+                {
+                    "article_id": b["article_id"],
+                    "ticker": ticker,
+                    "company": names.get(ticker, ticker),
+                    "why": reason,
+                    "extractors": "|".join(extractors),
+                    "title": src["title"] or "",
+                    "text": _line_naming(body, resolver, ticker),
+                    "spanish_title": "",
+                    "spanish_text": "",
+                    "real_company": "",
+                }
+            )
+    return rows, reading
+
+
+def _line_naming(body: str, resolver: CompanyResolver, ticker: str) -> str:
+    """The line of *body* that holds the first mention of *ticker* (at most 400 characters)."""
+    for start, _end, found in resolver.mention_spans(body):
+        if found == ticker:
+            before = body.rfind("\n", 0, start) + 1
+            after = body.find("\n", start)
+            return body[before : after if after >= 0 else len(body)].strip()[:400]
+    return ""
 
 
 def collect_items(
@@ -326,7 +446,13 @@ def collect_items(
         found = {name: EXTRACTORS[name](body, resolver) for name in names}
         # a company named only in the footer is not a company of the story: the units extractor,
         # which reads the body without its footer, is not asked for a text of it
-        in_story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
+        story = attribution_units.strip_footer(body)
+        in_story = resolver.resolve(story, skip_attribution=False)
+        guarded = (
+            attribution_units.GuardedResolver(resolver, story).resolve(story)
+            if {"units2", "units3"} & set(names)
+            else {}
+        )
         for ticker in sorted(resolver.resolve(body, skip_attribution=False)):
             per = {n: {"text": found[n].get(ticker, "")} for n in names}
             omissions += [
@@ -337,7 +463,9 @@ def collect_items(
                     "pub_date": src["pub_date"] or "",
                 }
                 for n in names
-                if not per[n]["text"].strip() and (n != "units" or ticker in in_story)
+                if not per[n]["text"].strip()
+                and (n != "units" or ticker in in_story)
+                and (n not in ("units2", "units3") or ticker in guarded)
             ]
             for number, (text, extractors) in enumerate(merge_texts(per), 1):
                 items.append(
@@ -586,9 +714,20 @@ def parse_args() -> argparse.Namespace:
         "are left out, not counted as unchecked",
     )
     parser.add_argument(
+        "--exclude-from",
+        type=Path,
+        metavar="DIR",
+        help="a confirmation draw: leave out the bodies of the draw in DIR (and use its held-out "
+        "list); write into --out, a new directory",
+    )
+    parser.add_argument(
+        "--exempt",
         "--footer-only",
+        dest="exempt",
         action="store_true",
-        help="write the companies each drawn body names only in its footer (free, no translation)",
+        help="write the companies each drawn body names that the units extractors are not asked "
+        "about (footer, guard) and merge them into the file for the owner to read; --yes pays for "
+        "the Spanish of its empty cells",
     )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
@@ -605,7 +744,7 @@ def main() -> None:
         if args.add_extractor
         else set(args.extractors.split(","))
     )
-    if args.attribution_model and "model" in {w.strip() for w in wanted}:
+    if args.attribution_model and {"model", *UNITS_READINGS} & {w.strip() for w in wanted}:
         register_model(
             args.attribution_model,
             args.attribution_revision,
@@ -617,8 +756,8 @@ def main() -> None:
     out: Path = args.out
     if args.stale:
         sys.exit(run_stale(args))
-    if args.footer_only:
-        write_footer_only(out)
+    if args.exempt:
+        write_exempt(out, yes=args.yes, max_new=args.max_new)
         return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]
@@ -638,7 +777,7 @@ def main() -> None:
         bodies = extra._read(bodies_path)
         print(f"{bodies_path} exists: the bodies are not drawn again")
     else:
-        candidates = candidate_bodies(out, resolver)
+        candidates = candidate_bodies(out, resolver, args.exclude_from)
         bodies = draw_bodies(candidates, args.n, args.seed)
         extra._write(bodies_path, bodies)
         one = sum(b["segments"] == "1" for b in bodies)

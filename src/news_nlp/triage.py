@@ -322,17 +322,18 @@ class CompanyResolver:
         """How many explicit ticker forms (``$X``, ``(NYSE: X)``) *text* carries."""
         return sum(1 for m in self._tickers.finditer(text) if m.group(1) or m.group(2))
 
-    def _matches(self, text: str) -> list[tuple[re.Match[str], str]]:
+    def _matches(self, text: str, *, aliases: bool = True) -> list[tuple[re.Match[str], str]]:
         """Every mention in *text* as ``(match, ticker)``: names, short aliases (not the first word
-        of a full name already found) and explicit or bare ticker forms. The one place the
-        patterns are applied: :meth:`_text_mentions` counts them, :meth:`mention_spans` places them."""
+        of a full name already found; none without *aliases*) and explicit or bare ticker forms. The
+        one place the patterns are applied: :meth:`_text_mentions` counts them,
+        :meth:`mention_spans` places them."""
         found: list[tuple[re.Match[str], str]] = []
         spans = []
         for pattern in (self._names, self._word_names):
             for match in pattern.finditer(text):
                 spans.append(match.span())
                 found.append((match, self._by_name[normalize_name(match.group(0))]))
-        for match in self._aliases.finditer(text):
+        for match in self._aliases.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
                 found.append((match, self._alias_to[match.group(0)]))
         for match in self._tickers.finditer(text):
@@ -351,12 +352,13 @@ class CompanyResolver:
             (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted
 
-    def mention_spans(self, text: str) -> list[tuple[int, int, str]]:
+    def mention_spans(self, text: str, *, aliases: bool = True) -> list[tuple[int, int, str]]:
         """``(start, end, ticker)`` of the mentions in *text*, in order and without overlaps (the
         longest wins where two overlap, e.g. a ticker form inside a name). The same matches as
-        :meth:`resolve` counts, with positions: what the attribution model masks."""
+        :meth:`resolve` counts, with positions: what the attribution model masks. Without *aliases*
+        the first word of a company's name does not count as a mention."""
         found = sorted(
-            ((*match.span(), ticker) for match, ticker in self._matches(text)),
+            ((*match.span(), ticker) for match, ticker in self._matches(text, aliases=aliases)),
             key=lambda m: (m[0], -m[1]),
         )
         kept: list[tuple[int, int, str]] = []

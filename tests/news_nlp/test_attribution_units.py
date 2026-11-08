@@ -19,6 +19,9 @@ UNIVERSE = [
     Company("ORCL", "Oracle Corporation", "Information Technology", "Systems Software"),
     Company("KHC", "Kraft Heinz", "Consumer Staples", "Packaged Foods"),
     Company("TWC", "Time Warner Cable", "Communication Services", "Cable"),
+    Company("BE", "Bloom Energy", "Industrials", "Electrical Equipment"),
+    Company("UNP", "Union Pacific Corporation", "Industrials", "Railroads"),
+    Company("NSC", "Norfolk Southern Corporation", "Industrials", "Railroads"),
 ]
 RESOLVER = CompanyResolver(UNIVERSE)
 NAMES = {c.ticker: c.name for c in UNIVERSE}
@@ -155,7 +158,7 @@ class _Scorer:
 def test_with_units_a_list_does_not_hand_every_company_the_whole_list() -> None:
     body = "Stocks to watch:\n- Apple fell 3%.\n- Microsoft rose 2%.\n- Oracle slid 3%.\n" + STORY
     plain = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0))
-    split = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), units=True)
+    split = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units")
     assert "Oracle slid 3%." in plain["AAPL"]  # one "sentence" naming the three: all three got it
     assert "Oracle slid 3%." not in split["AAPL"] and "Microsoft rose 2%." not in split["AAPL"]
     assert split["ORCL"].startswith("Oracle slid 3%.")
@@ -164,8 +167,88 @@ def test_with_units_a_list_does_not_hand_every_company_the_whole_list() -> None:
 def test_the_default_reading_is_unchanged() -> None:
     body = "Apple rose.\nMicrosoft fell. Nothing else."
     assert am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0)) == am.model_company_texts(
-        body, RESOLVER, NAMES, _Scorer(0.0), units=False
+        body, RESOLVER, NAMES, _Scorer(0.0), reading="sentences"
     )
+
+
+def test_the_guard_drops_a_company_named_only_by_the_first_word_of_its_name() -> None:
+    body = "CNBC's Michael Bloom said Apple rose. The Union Square funds bought Microsoft."
+    plain = {t for _, _, t in RESOLVER.mention_spans(body)}
+    guarded = au.GuardedResolver(RESOLVER, body)
+    assert {"BE", "UNP"} <= plain  # the resolver the scope rules use takes both for companies
+    assert {t for _, _, t in guarded.mention_spans(body)} == {"AAPL", "MSFT"}
+    assert set(guarded.resolve(body)) == {"AAPL", "MSFT"}
+
+
+def test_the_guard_keeps_a_short_form_when_the_full_name_is_in_the_body() -> None:
+    body = "Bloom Energy rose 4%. Later, Bloom said it would hire."
+    guarded = au.GuardedResolver(RESOLVER, body)
+    assert [t for _, _, t in guarded.mention_spans("Bloom said it would hire.")] == ["BE"]
+    assert [t for _, _, t in guarded.mention_spans(body)] == ["BE", "BE"]
+
+
+def test_the_resolver_the_scope_rules_use_is_not_changed_by_the_flag() -> None:
+    text = "Bloom said Apple rose."
+    assert RESOLVER.mention_spans(text) == RESOLVER.mention_spans(text, aliases=True)
+    assert [t for _, _, t in RESOLVER.mention_spans(text, aliases=False)] == ["AAPL"]
+
+
+def test_a_line_headed_by_names_belongs_to_them_alone() -> None:
+    line = "Canadian Pacific \u2014 Its chief met with Norfolk Southern CEO about a merger."
+    assert au.header_owners(line, RESOLVER) == ()  # a company outside the universe heads it
+    line = "Apple, Microsoft \u2014 Evercore downgraded the stocks; Oracle was cut as well."
+    assert au.header_owners(line, RESOLVER) == ("AAPL", "MSFT")
+    assert au.header_owners("Apple - Shares rose after Oracle fell.", RESOLVER) == ("AAPL",)
+
+
+def test_a_sentence_is_not_taken_for_a_header() -> None:
+    for line in (
+        "Microsoft rose while Apple - up 3% - fell.",
+        "Shares rose, he said - and Apple fell.",
+        "A long first part of the line that goes on and on and on and on and on and on - Apple.",
+        "Apple said it would buy back shares.",
+    ):
+        assert au.header_owners(line, RESOLVER) is None, line
+
+
+def test_pieces_of_a_header_line_carry_their_owners_only_with_the_flag() -> None:
+    body = "Apple, Microsoft \u2014 Evercore cut the stocks. It also cut Oracle.\nOracle fell 3%."
+    plain = au.attribution_pieces(body, RESOLVER)
+    assert all(p.owners is None for p in plain)
+    headed = au.attribution_pieces(body, RESOLVER, headers=True)
+    assert [p.owners for p in headed] == [("AAPL", "MSFT"), ("AAPL", "MSFT"), None]
+
+
+def test_units2_gives_a_header_line_to_its_names_and_ignores_a_common_word() -> None:
+    body = (
+        "Canadian Pacific \u2014 Its chief met with Norfolk Southern CEO.\n"
+        "Apple \u2014 Shares rose after Michael Bloom said so.\n" + STORY
+    )
+    two = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units2")
+    one = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units")
+    assert "NSC" in one and "NSC" not in two  # the line is about Canadian Pacific, not Norfolk
+    assert "BE" in one and "BE" not in two  # "Bloom" is a person
+    assert two["AAPL"].startswith("Apple \u2014 Shares rose after Michael Bloom said so.")
+
+
+def test_units3_gives_a_header_line_also_to_the_companies_its_text_names() -> None:
+    body = (
+        "Apple — Shares rose. Microsoft added 2% and Oracle fell 3%.\n"
+        "Canadian Pacific — Its chief met with Norfolk Southern CEO.\n" + STORY
+    )
+    two = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units2")
+    three = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units3")
+    sentence = "Microsoft added 2% and Oracle fell 3%."
+    assert "ORCL" not in two  # units2: the line is Apple's alone
+    assert three["ORCL"] == sentence and sentence in three["MSFT"]
+    assert sentence in three["AAPL"] and three["AAPL"].startswith("Apple \u2014 Shares rose.")
+    assert "NSC" not in three  # a line headed by somebody else is still about nobody
+
+
+def test_units3_pieces_carry_the_header_and_the_companies_they_name() -> None:
+    body = "Apple — Shares rose. Microsoft added 2%."
+    pieces = au.attribution_pieces(body, RESOLVER, headers=True, named_after=True)
+    assert [p.owners for p in pieces] == [("AAPL",), ("AAPL", "MSFT")]
 
 
 def test_with_units_a_company_named_only_in_the_footer_is_not_a_candidate() -> None:
@@ -176,7 +259,7 @@ def test_with_units_a_company_named_only_in_the_footer_is_not_a_candidate() -> N
     body = story + "\nDisclosures:\nThe author owns (ORCL)"
     scorer = _Scorer(0.9)  # every candidate scores 0.9
     plain = am.model_company_texts(body, RESOLVER, NAMES, scorer)
-    units = am.model_company_texts(body, RESOLVER, NAMES, scorer, units=True)
+    units = am.model_company_texts(body, RESOLVER, NAMES, scorer, reading="units")
     assert "ORCL" in plain  # the whole body names Oracle in the footer: it is a candidate
     assert set(units) == {"MSFT"}  # the story names only Microsoft: Oracle is not asked about
 
@@ -235,3 +318,43 @@ def test_a_long_paragraph_that_starts_like_a_credit_is_the_story(last: str) -> N
 )
 def test_the_credits_and_notices_are_still_footers(line: str) -> None:
     assert au.strip_footer(STORY + "\n" + line).strip() == STORY.strip()
+
+
+def test_a_dateline_or_a_label_in_capitals_is_not_a_header_that_takes_the_line_away() -> None:
+    for line in (
+        "DETROIT — Apple's new store sales rose 7.7% from a year earlier.",
+        "NEW YORK — Microsoft is handing its tools over to a partner.",
+        "REFINING - This is the weak spot for Oracle this quarter.",
+    ):
+        assert au.header_owners(line, RESOLVER) is None, line
+    # a company in capitals is still a header, and a company outside the universe in mixed case
+    assert au.header_owners("AAPL - Shares rose after the report.", RESOLVER) == ("AAPL",)
+    assert au.header_owners("Canadian Pacific — Its chief met a rival.", RESOLVER) == ()
+    body = "DETROIT — Apple sold more phones.\n" + STORY
+    texts = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units3")
+    assert texts["AAPL"].startswith("DETROIT — Apple sold more phones.")  # not lost
+
+
+def test_a_reading_that_is_not_one_of_the_four_is_an_error() -> None:
+    with pytest.raises(ValueError, match="reading 'unit3'"):
+        am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading="unit3")  # type: ignore[arg-type]
+    for reading in am.READINGS:
+        am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading=reading)  # type: ignore[arg-type]
+
+
+def test_a_dash_inside_a_sentence_and_a_speaker_label_are_not_headers() -> None:
+    for line in (
+        "In Miami Beach \u2014 as in New York and San Diego \u2014 rentals are limited.",
+        "Today, Apple \u2014 like the industry itself \u2014 is challenged by cheap rivals.",
+        "Enter Prime Air \u2014 the air cargo service Apple introduced last summer.",
+        "Volkswagen - synonymous with the classic camper - has spawned a sub-industry.",
+    ):
+        assert au.header_owners(line, RESOLVER) is None, line
+    assert au.starts_a_sentence("Shares rose 3%.") and au.starts_a_sentence(
+        '"Shares rose," he said'
+    )
+    assert au.starts_a_sentence("3M raised its outlook.")
+    assert not au.starts_a_sentence("as in New York")
+    assert not au.starts_a_sentence("") and not au.starts_a_sentence("   ")  # nothing starts
+    # a header whose text starts with a capital is still a header
+    assert au.header_owners("Apple \u2014 Shares rose after the report.", RESOLVER) == ("AAPL",)

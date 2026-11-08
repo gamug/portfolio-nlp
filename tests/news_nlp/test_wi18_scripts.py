@@ -702,25 +702,118 @@ def test_the_report_gives_the_three_gains_when_the_three_extractors_wrote_texts(
     assert "model minus baseline on 6" in two and "units minus" not in two
 
 
-def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path: Path) -> None:
+def _exempt_file(path: Path, rows: list[dict[str, str]], rules: str | None = None) -> None:
+    document = {
+        "rules": rules or retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES),
+        "companies": rows,
+    }
+    (path / gold_metrics.EXEMPT_NAME).write_text(json.dumps(document), encoding="utf-8")
+
+
+def _read_file(path: Path, marks: dict[int, str], tickers: dict[int, str] | None = None) -> None:
+    rows = [
+        {
+            "article_id": str(a),
+            "ticker": (tickers or {}).get(a, "U"),
+            "company": "U Inc.",
+            "why": "guard",
+            "extractors": "units",
+            "title": "t",
+            "text": "x",
+            "spanish_title": "",
+            "spanish_text": "",
+            "real_company": m,
+        }
+        for a, m in marks.items()
+    ]
+    _csv(path / gold_metrics.EXEMPT_READ_NAME, rows, gold_metrics.EXEMPT_READ_COLUMNS)
+
+
+def test_the_bar_is_also_given_on_every_company_named_and_on_the_real_ones(tmp_path: Path) -> None:
     _faith_files(tmp_path, [], extractors="baseline|model|units")
     plain = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "second reading of the bar" not in plain  # no file: nothing to count
-    document = {
-        "rules": retag.code_revision(REPORT.attribution_units),
-        "companies": [_skip(1, "units"), _skip(2, "units")],
-    }
-    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert "counted as unfaithful (the bar" not in plain  # no file: nothing to count
+    _exempt_file(tmp_path, [_skip(1, "units"), _skip(2, "units")])
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "[all] units: with the 2 companies named only in a footer counted as unfaithful" in text
-    assert "[2022+] units: with the 2 companies" in text  # both blocks, the dates are 2023
-    assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
-    document["rules"] = "another revision"
-    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert "[all] units: the 2 companies it wrote no text for and is not asked about" in text
+    assert "[2022+] units: the 2 companies" in text  # both blocks, the dates are 2023
+    assert "75.0%" in text.split("(the bar on every company named)")[1]  # 6 faithful of 6 + 2
+    assert "real companies" not in text  # the owner has not read them
+    _read_file(tmp_path, {1: "yes", 2: ""})
+    part = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 of 2 exempt companies are not yet read" in part and "[all, real]" not in part
+    # 1#U is a company the extractor lost; 2#U is not a company; 3#T is not a company either,
+    # and every extractor wrote a text about it: that text leaves every extractor's share
+    rows = [_skip(1, "units"), _skip(2, "units"), {**_skip(3, "units"), "ticker": "T"}]
+    _exempt_file(tmp_path, rows)
+    _read_file(tmp_path, {1: "yes", 2: "no", 3: "no"}, tickers={3: "T"})
+    done = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "2 of the 3 exempt companies are not companies" in done
+    real = [line for line in done.splitlines() if line.startswith("[all, real]")]
+    units = next(line for line in real if "units:" in line and "of the texts" not in line)
+    assert "5 faithful of 5 texts + 1 companies left without one" in units  # 3#T#1 is gone
+    assert "83.3%" in units
+    base = next(line for line in real if "baseline:" in line and "of the texts" not in line)
+    assert "5 faithful of 5 texts + 0 companies" in base and "100.0%" in base  # also lost 3#T#1
+    # the texts written for the non-company are the extractor's errors, counted apart (informative)
+    for name in ("baseline", "units"):
+        wrote = [x for x in done.splitlines() if x.startswith(f"[all] {name}: 1 of the 6 texts")]
+        assert wrote and "for a company that is not one" in wrote[0], done
+    _exempt_file(tmp_path, [_skip(1, "units")], rules="another revision")
     other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
-    assert "written by the footer rules 'another revision'" in other
-    assert "the second reading of the bar is skipped" in other
-    assert "second reading of the bar):" not in other and "[all]   baseline:" in other
+    assert "written by the rules 'another revision'" in other
+    assert "the other readings of the bar are skipped" in other and "[all]   baseline:" in other
+
+
+def test_the_exempt_reading_file_keeps_the_line_endings_the_spreadsheet_gave_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    row = {
+        "article_id": "1",
+        "ticker": "BE",
+        "company": "Bloom Energy",
+        "why": "guard",
+        "extractors": "units2",
+        "title": "t",
+        "text": "Michael Bloom said so.",
+        "spanish_title": "x",
+        "spanish_text": "y",
+        "real_company": "no",
+    }
+    rows = [{"article_id": "1", "ticker": "BE", "extractor": "units2", "pub_date": "2023-01-01"}]
+    monkeypatch.setattr(FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(row)]))
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME
+    FAITH.write_exempt(tmp_path)  # a new file: the project's own line ending
+    assert b"\r\n" not in path.read_bytes()
+    text = gold_metrics.render_csv(gold_metrics.EXEMPT_READ_COLUMNS, [row], lineterminator="\r\n")
+    path.write_bytes(b"\xef\xbb\xbf" + text.encode())  # saved by a spreadsheet: CRLF
+    before = path.read_bytes()
+    FAITH.write_exempt(tmp_path)  # drawn again with nothing new: the file is the same bytes
+    assert path.read_bytes() == before
+
+
+def test_a_not_a_company_mark_applies_when_only_other_extractors_were_not_asked_about_it(
+    tmp_path: Path,
+) -> None:
+    """A confirmation draw has baseline and units only; the guard-rejected companies are exempt rows
+    of units2 and units3, which did not run. The owner's "no" is about the company: it must leave
+    the shares of the extractors that did run."""
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    rows = [{**_skip(3, "units2"), "ticker": "T"}, {**_skip(4, "units3"), "ticker": "T"}]
+    _exempt_file(tmp_path, rows)
+    _read_file(tmp_path, {3: "no", 4: "yes"}, tickers={3: "T", 4: "T"})
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 of the 2 exempt companies are not companies" in text
+    real = [line for line in text.splitlines() if line.startswith("[all, real]")]
+    for name in ("baseline", "units"):
+        line = next(x for x in real if f"{name}:" in x and "of the texts" not in x)
+        assert "5 faithful of 5 texts" in line, line  # 3#T#1 is out of both shares, 4#T#1 stays
+    _read_file(tmp_path, {3: "", 4: "yes"}, tickers={3: "T", 4: "T"})
+    assert "1 of 2 exempt companies are not yet read" in "\n".join(
+        REPORT.faithfulness_report(tmp_path)
+    )
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
@@ -778,6 +871,29 @@ def test_the_draws_refuse_a_held_out_body_under_another_article_id(
         SENTIMENT.tagged_bodies(tmp_path)
 
 
+def test_a_confirmation_draw_leaves_out_the_bodies_of_the_first_draw_and_its_twins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source(
+        monkeypatch,
+        {1: "Used body.", 2: "Used body.", 3: "Fresh one.", 4: "Held out.", 5: "Fresh two."},
+    )
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    _csv(first / "heldout_ids.csv", [{"article_id": "4", "stratum": "single"}])
+    _csv(first / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "3"}])
+    gold = [{"article_id": str(a), "scope": "multi"} for a in (1, 2, 3, 4, 5)]
+    _csv(tmp_path / "gold.csv", gold)
+    monkeypatch.setattr(FAITH, "GOLD", tmp_path / "gold.csv")
+    plain = FAITH.candidate_bodies(first, _Resolver())  # type: ignore[arg-type]
+    assert [c["article_id"] for c in plain] == ["1", "2", "3", "5"]  # the first draw's pool
+    got = FAITH.candidate_bodies(second, _Resolver(), first)  # type: ignore[arg-type]
+    # article 1 was drawn, article 2 has the same body, 4 is held out: only 3 and 5 are new
+    assert [c["article_id"] for c in got] == ["3", "5"]
+
+
 def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -824,36 +940,86 @@ def test_the_units_extractor_is_not_asked_for_a_company_named_only_in_the_footer
     assert omissions == []  # U is in the footer only: no omission for units, and "other" wrote one
 
 
-class _FooterResolver:
-    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
-        return {"T"} | ({"U"} if "Disclosures" in body else set())
-
-
-def test_footer_only_rows_are_the_companies_the_body_names_only_in_its_footer(
+def test_the_units2_extractor_is_not_asked_for_a_company_named_only_by_a_common_word(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    story = "Company T had a good quarter and said so in a long statement to the press. " * 4
-    _source(monkeypatch, {1: story + "\nDisclosures:\nCortes owns U", 2: story})
-    rows = FAITH.footer_only_rows(
-        [{"article_id": "1", "segments": "1"}, {"article_id": "2", "segments": "1"}],
-        _FooterResolver(),  # type: ignore[arg-type]
+    from news_nlp.triage import Company, CompanyResolver  # noqa: PLC0415
+
+    resolver = CompanyResolver(
+        [
+            Company("AAPL", "Apple Inc.", "Information Technology", "Hardware"),
+            Company("BE", "Bloom Energy", "Industrials", "Electrical Equipment"),
+        ]
     )
-    assert [(r["article_id"], r["ticker"], r["extractor"]) for r in rows] == [("1", "U", "units")]
+    story = "Apple had a good quarter, and CNBC's Michael Bloom said so in a long note. " * 4
+    _source(monkeypatch, {1: story})
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"extractor:{name}@abc")
+    monkeypatch.setitem(FAITH.EXTRACTORS, "units2", lambda body, resolver: {"AAPL": "Apple text."})
+    _, omissions = FAITH.collect_items([{"article_id": "1", "segments": "1"}], ["units2"], resolver)
+    assert omissions == []  # "Bloom" is a person here: Bloom Energy is not a company of this story
 
 
-def test_the_footer_only_file_carries_the_rules_and_the_report_refuses_other_rules(
-    tmp_path: Path,
+def test_exempt_rows_are_the_companies_named_only_in_the_footer_or_by_a_common_word(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / gold_metrics.FOOTER_ONLY_NAME
+    from news_nlp.triage import Company, CompanyResolver  # noqa: PLC0415
+
+    universe = [
+        Company("AAPL", "Apple Inc.", "Information Technology", "Hardware"),
+        Company("BE", "Bloom Energy", "Industrials", "Electrical Equipment"),
+        Company("MSFT", "Microsoft Corporation", "Information Technology", "Software"),
+    ]
+    story = "Apple had a good quarter, and CNBC's Michael Bloom said so in a long note. " * 4
+    body = story + "\nDisclosures:\nThe author owns Microsoft Corporation"
+    _source(monkeypatch, {1: body})
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: universe)
+    rows, reading = FAITH.exempt_rows(
+        [{"article_id": "1", "segments": "1"}], CompanyResolver(universe)
+    )
+    by_company: dict[str, list[str]] = {}
+    for row in rows:
+        by_company.setdefault(row["ticker"], []).append(row["extractor"])
+    # Microsoft is in the footer only: no units extractor is asked; Bloom is a person: not the guarded
+    assert by_company == {"MSFT": ["units", "units2", "units3"], "BE": ["units2", "units3"]}
+    why = {r["ticker"]: (r["why"], r["extractors"]) for r in reading}
+    assert why == {"MSFT": ("footer", "units|units2|units3"), "BE": ("guard", "units2|units3")}
+    line = next(r["text"] for r in reading if r["ticker"] == "BE")
+    assert "Michael Bloom" in line and not any(r["spanish_text"] for r in reading)
+
+
+def test_the_exempt_file_carries_the_rules_and_the_reading_is_validated(tmp_path: Path) -> None:
+    path = tmp_path / gold_metrics.EXEMPT_NAME
     row = {"article_id": "1", "ticker": "U", "extractor": "units", "pub_date": "2023-01-01"}
     path.write_text(json.dumps({"rules": "abc", "companies": [row]}), encoding="utf-8")
-    assert gold_metrics.read_footer_only(path, "abc") == [row]
-    with pytest.raises(gold_metrics.MarkedFileError, match="written by the footer rules"):
-        gold_metrics.read_footer_only(path, "other")
-    assert gold_metrics.read_footer_only(tmp_path / "missing.json", "abc") == []
+    assert gold_metrics.read_exempt(path, "abc") == [row]
+    with pytest.raises(gold_metrics.ExemptRulesChanged, match="written by the rules"):
+        gold_metrics.read_exempt(path, "other")
+    assert gold_metrics.read_exempt(tmp_path / "missing.json", "abc") == []
     path.write_text(json.dumps({"rules": "abc", "companies": [{"x": 1}]}), encoding="utf-8")
     with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
-        gold_metrics.read_footer_only(path, "abc")
+        gold_metrics.read_exempt(path, "abc")
+    assert gold_metrics.read_exempt_marks(tmp_path / "none.csv") == {}
+    _read_file(tmp_path, {1: "Yes", 2: "no", 3: ""})
+    marks = gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)
+    assert marks == {"1#U": "yes", "2#U": "no", "3#U": ""}
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME  # the owner's own notes column is allowed
+    header = [*reversed(gold_metrics.EXEMPT_READ_COLUMNS), "notes"]
+    path.write_text(
+        ",".join(header)
+        + "\n"
+        + ",".join("yes" if c == "real_company" else "x" for c in header)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert gold_metrics.read_exempt_marks(path) == {"x#x": "yes"}
+    path.write_text(
+        ",".join([*header, "other"]) + "\n", encoding="utf-8"
+    )  # any other column is not
+    with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
+        gold_metrics.read_exempt_marks(path)
+    _read_file(tmp_path, {1: "maybe"})
+    with pytest.raises(gold_metrics.MarkedFileError, match="yes or no"):
+        gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)
 
 
 def _stale_ids(*rows: tuple[str, str, str, str]) -> list[dict[str, str]]:
@@ -2581,6 +2747,96 @@ def test_the_new_texts_of_an_entry_include_the_ones_other_extractors_also_write(
     assert saved["units2"]["new"] == ["1#T#3 (units2)"]
 
 
+def _read_row(path: Path) -> dict[str, str]:
+    return next(csv.DictReader(path.open(encoding="utf-8-sig")))
+
+
+def test_the_exempt_reading_file_gets_its_spanish_only_with_yes_and_keeps_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    reading = [
+        {
+            "article_id": "1",
+            "ticker": "BE",
+            "company": "Bloom Energy",
+            "why": "guard",
+            "extractors": "units2|units3",
+            "title": "A title",
+            "text": "Michael Bloom said so.",
+            "spanish_title": "",
+            "spanish_text": "",
+            "real_company": "",
+        }
+    ]
+    rows = [{"article_id": "1", "ticker": "BE", "extractor": "units2", "pub_date": "2023-01-01"}]
+    monkeypatch.setattr(
+        FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(r) for r in reading])
+    )
+    paid: list[list[dict[str, str]]] = []
+
+    def fake_add_spanish(cache, asked, translator, *, yes, max_new):  # type: ignore[no-untyped-def]
+        assert yes is True
+        paid.append(asked)
+        return [
+            {
+                **a,
+                "spanish_title": "Un titulo",
+                "spanish_text": "Michael Bloom lo dijo: percepción.",
+            }
+            for a in asked
+        ]
+
+    monkeypatch.setattr(FAITH.retag_cli, "add_spanish", fake_add_spanish)
+    monkeypatch.setattr(FAITH.retag_cli, "_translator", object)
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME
+
+    FAITH.write_exempt(tmp_path)  # without --yes: nothing is bought, the columns stay empty
+    assert not paid and _read_row(path)["spanish_text"] == ""
+    FAITH.write_exempt(tmp_path, yes=True)
+    row = _read_row(path)
+    assert paid == [[{"article_id": "1#BE", "title": "A title", "text": "Michael Bloom said so."}]]
+    assert (row["spanish_title"], row["spanish_text"]) == (
+        "Un titulo",
+        "Michael Bloom lo dijo: percepción.",
+    )
+    raw = path.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")  # a byte order mark: Excel reads UTF-8, not cp1252
+    assert "percepción".encode() in raw and "percepciÃ³n".encode() not in raw
+    header = next(csv.reader(path.open(encoding="utf-8-sig")))
+    assert header.index("spanish_title") == header.index("text") + 1  # right after the text
+    FAITH.write_exempt(
+        tmp_path, yes=True
+    )  # drawn again: what was paid for is kept, not bought again
+    assert len(paid) == 1
+    assert _read_row(path)["spanish_text"] != ""
+    # the owner's spreadsheet reordered the columns and marked a row: both survive a new draw
+    rows_now = list(csv.DictReader(path.open(encoding="utf-8-sig")))
+    rows_now[0]["real_company"] = "yes"
+    rows_now[0]["spanish_text"] = (
+        ""  # and this cell is empty again: it is the only one to be filled
+    )
+    order = ["ticker", "article_id", "company", "why", "extractors", "title", "text"]
+    order += ["spanish_title", "spanish_text", "real_company"]
+    _csv(path, rows_now, tuple(order))
+    extra_row = {**reading[0], "ticker": "HD", "company": "Home Depot"}
+    rows.append({**rows[0], "ticker": "HD"})
+    monkeypatch.setattr(
+        FAITH, "exempt_rows", lambda bodies, resolver: (rows, [dict(reading[0]), dict(extra_row)])
+    )
+    FAITH.write_exempt(tmp_path, yes=True)
+    merged = list(csv.DictReader(path.open(encoding="utf-8-sig")))
+    assert next(csv.reader(path.open(encoding="utf-8-sig"))) == order  # their column order
+    assert [r["ticker"] for r in merged] == ["BE", "HD"]  # their row first, the new company after
+    assert merged[0]["real_company"] == "yes" and merged[1]["real_company"] == ""
+    assert merged[0]["spanish_text"] and merged[1]["spanish_text"]
+    assert [a["article_id"] for a in paid[-1]] == [
+        "1#BE",
+        "1#HD",
+    ]  # only the empty cells are bought
+
+
 HELDOUT_ROW_HASHES = Path(__file__).resolve().parent / "heldout_gold_row_hashes.csv"
 HELDOUT_GOLD = Path(__file__).resolve().parents[2] / "gold" / "category_gold_v2_test.csv"
 
@@ -2849,3 +3105,59 @@ def test_write_hashes_renews_the_row_hashes_only_with_overwrite_marks(
         build.main()
     monkeypatch.setattr(sys, "argv", [*sys.argv, "--overwrite-marks"])
     build.main()
+
+
+# --- text measures of the company texts (T-148b10) ---------------------------------------------
+
+MEASURES = _script("text_measures_2026_11_08")
+
+
+def _fake_resolve(sentence: str) -> list[str]:
+    return [t for t in ("AAA", "BBB") if t in sentence]
+
+
+def test_measure_text_groups_sentences_by_names() -> None:
+    text = "AAA rose. AAA and BBB fell. It was calm."
+    chars, n, own, mixed, nameless, others = MEASURES.measure_text(
+        text, "AAA", ["AAA rose.", "AAA and BBB fell.", "It was calm."], _fake_resolve
+    )
+    assert (chars, n, own, mixed, nameless, others) == (len(text), 3, 2, 1, 1, 1)
+
+
+def test_measure_text_sentence_of_only_another_company_is_in_no_group() -> None:
+    _, n, own, mixed, nameless, others = MEASURES.measure_text(
+        "BBB rose.", "AAA", ["BBB rose."], _fake_resolve
+    )
+    assert (n, own, mixed, nameless, others) == (1, 0, 0, 0, 0)
+
+
+def test_read_measures_counts_a_shared_text_once_per_extractor(tmp_path: Path) -> None:
+    (tmp_path / "faithfulness_ids.csv").write_text(
+        "review_order,article_id,ticker,extractors\n1,10,AAA,baseline|units\n2,10,BBB,baseline\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "faithfulness_to_tag.csv").write_text(
+        "review_order,text\n1,AAA rose. BBB fell.\n2,BBB fell.\n", encoding="utf-8"
+    )
+    rows = MEASURES.read_measures(
+        tmp_path, lambda t: [s.strip() + "." for s in t.split(".") if s.strip()], _fake_resolve
+    )
+    assert sorted((r.extractor, r.ticker) for r in rows) == [
+        ("baseline", "AAA"),
+        ("baseline", "BBB"),
+        ("units", "AAA"),
+    ]
+    lines = MEASURES.summary_lines(rows)
+    assert lines[1].startswith("baseline") and lines[2].startswith("units")
+
+
+def test_paired_difference_is_over_shared_companies_and_none_without_any() -> None:
+    def row(extractor: str, article: str, chars: int) -> object:
+        return MEASURES.Measure(extractor, article, "AAA", chars, 2, 1, 0, 1, 0)
+
+    rows = [row("baseline", str(i), 300) for i in range(5)] + [
+        row("units", str(i), 100) for i in range(5)
+    ]
+    n, mean, low, high = MEASURES.paired(rows, "baseline", "units", lambda r: float(r.chars))
+    assert (n, mean, low, high) == (5, 200.0, 200.0, 200.0)
+    assert MEASURES.paired(rows, "units2", "units", lambda r: float(r.chars)) is None

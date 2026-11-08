@@ -3160,3 +3160,72 @@ others), says which extractors of the marks were never checked, and warns when a
 other code than the current one (the code part of a revision needs no model). The exit code is a sum:
 1 if a marked row is stale, 2 if an extractor of the marks was neither run nor left out with
 `--only NAMES`; 0 when everything asked for was checked and is clean.
+
+### Follow-up (2026-11-08): `units2` and `units3`, and what their bar leaves out (Work item 18, T-148b5, T-148b6)
+
+`units2` reads `units` with the guarded resolver (a short form of a company's name counts only when
+the full name or a ticker form is in the body) and the lines headed by names ("NAMES - text") given
+to those names; `units3` also gives a piece of such a line to the universe companies it names. The
+owner's readings (2026-11-07): `units2` 84.4% [72.5, 97.2] and `units3` 91.6% [84.7, 97.8] on D32's
+bar, `units` 85.4%. Two cautions before those figures are used. First, they leave out the companies
+the extractor is not asked about: on the 30 bodies 36 of the 190 companies named get no text from
+`units3` and are counted nowhere (32 the guard rejects, 5 only in the footer, minus 1); with them
+counted as unfaithful `units3` is 74.2% [66.0, 81.5], `units2` 68.4% [57.9, 80.3] and `units` 83.2%
+[72.7, 91.0] (`report_wi18 faithfulness` prints both readings; the reading of the 36 by the owner,
+`faithfulness_exempt_to_read.csv`, gives the bar on real companies). Second, the guard and `units3`
+were designed on the failures of these same 30 bodies, so the figures are development figures; a
+confirmation on bodies not used before is proposed in TASKS T-148b8.
+
+**The owner's reading of the 37 (2026-11-08)** settles the denominator: 23 of them are not companies
+("Bloom" the person, "Equity markets", "Union Square"), 14 are. With the 23 out of every extractor's
+share, the texts the others wrote about them included, all extractors are on the same 167
+companies (190 named, minus the 23 read and found not to be companies; the other 167 were not read one
+by one): baseline 68.9% [53.6, 82.1], `model` 86.2% [71.7, 97.5], `units` **94.0% [87.0, 99.2], pass**,
+`units2` 77.8% [64.1, 92.9], `units3` 84.4% [76.4, 93.3] (not decided); `units3` minus `units` -9.6
+[-16.5, -1.6] (not better). **What the 94.0% leaves out:** the 23
+non-companies take 22 of `units`' 185 texts out of its share, and 21 of them were unfaithful (the extractor wrote
+a text for "Home Depot" about "Home smart speakers", for "Franklin Resources" about a person); they are the
+extractor's own errors, not an artefact of the bar, and a cut with `units` ships them (the report prints them
+apart: "N of the M texts it wrote are for a company that is not one"). On every company named `units` is
+83.2% [72.7, 91.0], not decided. The guard (`units3`) writes none of them (0 of 148) and has 7 unfaithful texts
+of 148 against 27 of 185 for `units`, but leaves 19 real companies without a text against 4 for `units`, mostly
+lines headed by a short form. The choice between the two is the owner's trade (PLAN D34 (e), T-148b10). The decision on
+the candidate for the cut stays the owner's (PLAN D34 (e), TASKS T-148b8, T-148b9).
+
+**Spend (2026-11-08, approved by the owner): Spanish for `faithfulness_exempt_to_read.csv`.** The title and the
+line that names each of the 37 exempt companies (no article body), the approved engine, `draw_faithfulness
+--exempt --yes`: 37 articles = 37 paid calls, 0 failures; 8,848 prompt and 4,910 completion tokens (retries and
+rejected replies included). The file is merged, never replaced: a spreadsheet may reorder its columns, the
+owner's marks and values stay, and only empty Spanish cells are bought.
+
+### Follow-up (2026-11-08): the confirmation draw and how to read it (Work item 18, T-148b10)
+
+The figures above are development figures. The confirmation is a second set of narrative multi bodies not
+used before: `uv run scripts/draw_faithfulness_2026_11_06.py --out data/faithfulness_confirmation
+--exclude-from data --extractors baseline,units --attribution-model data/models/attribution_2026_11_08
+--n 30 --seed 20261109 --yes` (`--exclude-from` leaves out the bodies of the first draw, twins by body hash
+included, and the held-out set). The pool is small: 32 narrative multi bodies are left, 30 are drawn. **The draw cannot be repeated:** the bodies file is never drawn again by design, so the same command a second time draws nothing and a different `--seed` does not redraw either; the confirmation set is this one, and a different set needs a different `--out` (and fewer bodies are left to draw). The
+owner marks `faithful` in `faithfulness_to_tag.csv` as in the first draw. **Before any reading, rebuild
+the derived file: `draw_faithfulness --exempt --out data/faithfulness_confirmation --attribution-model <dir>`
+(free; the owner's file keeps its rows, marks, column order and line endings).** It is written by the rules of
+five modules and goes stale with any edit to them; the report then skips the "every company named" line. The owner has decided to read only these 357 texts, so the marking of the non-companies is
+**optional and was declined**: `draw_faithfulness --exempt --out data/faithfulness_confirmation` (free) would write
+`faithfulness_exempt.json` and `faithfulness_exempt_to_read.csv` (the companies the plain resolver names that
+the guard would reject, or the footer holds; `--yes` pays for the Spanish of its empty cells, and it is not
+bought), and `real_company` yes or no on those rows would take the non-companies out of every extractor's
+share. Without it, run `uv run scripts/report_wi18_2026_11_06.py faithfulness --out data/faithfulness_confirmation`:
+it prints the block `[all]` and, for `units`, the line "the bar on every company named", and skips the
+`real` blocks with no error (a file with no mark in it is the same as no file). Without the marks the
+plain resolver's non-companies count against `units`: on the first 30 bodies that is 83.2% [72.7, 91.0]
+(not decided) against 94.0% [87.0, 99.2] (pass) with the owner's 23 marks, and the gain over the baseline
+hardly moves (24.3% [12.9, 39.4] against 25.1% [12.3, 41.4]). The rule proposed for reading the confirmation
+without the marks is TASKS T-148b10 (6b). `faithfulness_exempt.json` is derived from the code of five modules and is free to
+rebuild: if it is rebuilt after an edit the owner's marks (by article and company) are kept; the report skips
+the readings that need it, with a line, while it was written by other code.
+
+**Result and selection (2026-11-08).** The 357 texts were tagged, then `units2` and `units3` were added to the same file (38 new texts, 38 paid translations, 11,899 prompt and 9,240 completion tokens, approved by the owner) and tagged, and the 30 exempt names were read (25 not companies). `units` is 86.1% [80.9, 90.7] on every company named and 95.3% [92.0, 98.2] on real companies; the baseline 86.6% and 95.9%; `units2` 78.4% and 89.9%; `units3` 79.9% and 91.7%. **The owner selected `units` as the base model (80% is enough accuracy; not a pin or a publication).** Datasets, metrics, results and options: `docs/extractor_training.md`.
+
+**Spend (2026-11-08, approved by the owner): the confirmation set, baseline and `units`.** 30 bodies, 357 texts
+and 30 bodies translated: 387 articles = 387 paid calls, 0 failures; 150,259 prompt and 134,950 completion
+tokens (retries and rejected replies included). Files: `data/faithfulness_confirmation/`.
+
