@@ -333,9 +333,9 @@ lean `articles` rows itself.
   `chunking.split_sentences` is not changed (sentiment and NER use it). Tools:
   `scripts/audit_footer_2026_11_08.py` (seeded audit of the footer rules on the corpus),
   `draw_faithfulness --footer-only` (the companies a body names only in its footer, with the revision
-  of the rules) and `draw_faithfulness --stale` (which marked rows the code no longer writes; exit 1
-  if any, 2 if an extractor could not be checked; writes `faithfulness_stale.json`, which
-  `report_wi18 faithfulness` quotes in one line).
+  of the rules) and `draw_faithfulness --stale` (which marked rows the code no longer writes; exit
+  code 1 if any, +2 if an extractor of the marks was not checked, `--only NAMES` limits it; keeps the
+  last check of each extractor in `faithfulness_stale.json`, which `report_wi18 faithfulness` quotes).
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 

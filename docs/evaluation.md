@@ -3153,6 +3153,10 @@ prints a second reading with those companies counted as unfaithful (`draw_faithf
 writes them with the revision of the footer rules; the report skips the reading, and says so, when
 the rules changed). Second, the marks are on texts: `draw_faithfulness --stale` (free, read-only, with
 `--attribution-model`) re-runs the extractors over the 30 bodies and lists the marked rows the code
-no longer writes (today the Apple and Amazon rows of body 122960), the new texts and the rows
+no longer writes (at the time of writing, 2026-11-08, the Apple and Amazon rows of body 122960), the new texts and the rows
 written by another revision of the code (the text is the same: the mark stands); the report quotes
-its last result in one line and says when none was recorded.
+the last check of each extractor in one line (a run of some extractors keeps the last check of the
+others), says which extractors of the marks were never checked, and warns when a check was made with
+other code than the current one (the code part of a revision needs no model). The exit code is a sum:
+1 if a marked row is stale, 2 if an extractor of the marks was neither run nor left out with
+`--only NAMES`; 0 when everything asked for was checked and is clean.

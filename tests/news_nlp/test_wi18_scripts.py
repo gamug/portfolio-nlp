@@ -907,39 +907,84 @@ def test_stale_ignores_extractors_that_were_not_run() -> None:
     assert got == {"stale": [], "new": [], "revision": []}
 
 
-def _stale_file(path: Path, **changes: object) -> None:
-    document: dict[str, object] = {
-        "date": "2026-11-08",
-        "revisions": {"baseline": retag.extractor_revision("baseline")},
-        "checked": ["baseline"],
-        "unchecked": [],
-        "stale": [],
+def _stale_file(path: Path, **entries: dict[str, object]) -> None:
+    """A staleness result: by default the baseline checked now and clean."""
+    document: dict[str, dict[str, object]] = {
+        "baseline": {
+            "date": "2026-11-08",
+            "revision": retag.extractor_revision("baseline"),
+            "stale": [],
+            "new": [],
+        }
+    }
+    document.update(entries)
+    (path / gold_metrics.STALE_NAME).write_text(
+        json.dumps({"extractors": document}), encoding="utf-8"
+    )
+
+
+def _units_entry(code: str, stale: list[str] | None = None) -> dict[str, object]:
+    return {
+        "date": "2026-11-09",
+        "revision": f"extractor:units@local:x@names:y@t0.5@{code}",
+        "stale": stale or [],
         "new": [],
     }
-    document.update(changes)
-    (path / gold_metrics.STALE_NAME).write_text(json.dumps(document), encoding="utf-8")
 
 
-def test_the_report_says_in_one_line_what_the_staleness_check_found(tmp_path: Path) -> None:
+def test_the_report_says_what_the_staleness_check_found_per_extractor(tmp_path: Path) -> None:
     _faith_files(tmp_path, [], extractors="baseline|units")
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "no staleness check recorded: run draw_faithfulness --stale" in text
     _stale_file(tmp_path)
-    assert "no marked row is on a text the current code no longer writes" in "\n".join(
-        REPORT.faithfulness_report(tmp_path)
-    )
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "no marked row is on a text the current code no longer writes" in text
+    assert "never checked: units" in text  # the marks have units rows, the file has no entry
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
     rows = [f"{n}#T#1 (units)" for n in range(8)]
-    _stale_file(tmp_path, stale=rows, unchecked=["model"])
+    _stale_file(tmp_path, units=_units_entry(units, rows))
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "8 marked rows are on texts the current code no longer writes" in text
     assert "0#T#1 (units), 1#T#1 (units)" in text and ", ...)" in text  # six shown
-    assert "the figures include their marks" in text and "not checked: model" in text
-    _stale_file(tmp_path, revisions={"baseline": "extractor:baseline@old"})
+    assert "never checked" not in text and "warning" not in text
+
+
+def test_a_check_made_with_other_code_is_said_for_the_baseline_the_model_and_units(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    model = retag.code_revision(*REPORT.attribution_model.CODE_MODULES)
+    entry = _units_entry("0123456789ab")  # another hash: the footer rules changed since the check
+    _stale_file(
+        tmp_path,
+        units=entry,
+        model={**entry, "revision": f"extractor:model@local:x@names:y@t0.5@{model}"},
+    )
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "warning: the staleness check (2026-11-08) was made against baseline" in text
+    assert "warning: the staleness check of units (2026-11-09) was made with other code" in text
+    assert "check of model" not in text and "check of baseline" not in text  # those are current
+    _stale_file(tmp_path, baseline={**entry, "revision": "extractor:baseline@old"})
+    assert "check of baseline" in "\n".join(REPORT.faithfulness_report(tmp_path))
 
 
-def test_stale_exits_with_what_it_could_and_could_not_check(
+def test_a_run_of_some_extractors_keeps_the_last_check_of_the_others(tmp_path: Path) -> None:
+    path = tmp_path / gold_metrics.STALE_NAME
+    units = gold_metrics.StaleEntry(date="d1", revision="r", stale=["1#T#1 (units)"], new=[])
+    baseline = gold_metrics.StaleEntry(date="d2", revision="r", stale=[], new=[])
+    path.write_text(json.dumps(gold_metrics.merge_stale({}, {"units": units})), encoding="utf-8")
+    again = gold_metrics.merge_stale(gold_metrics.read_stale(path), {"baseline": baseline})
+    path.write_text(json.dumps(again), encoding="utf-8")
+    kept = gold_metrics.read_stale(path)
+    assert kept["units"]["stale"] == ["1#T#1 (units)"] and kept["baseline"]["date"] == "d2"
+    path.write_text(json.dumps({"date": "old format"}), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="not in the current format"):
+        gold_metrics.read_stale(path)
+    path.write_text(json.dumps({"extractors": {"units": {"date": 1}}}), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="malformed"):
+        gold_metrics.read_stale(path)
+
+
+def test_stale_exits_with_a_sum_of_what_is_stale_and_what_was_not_checked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
@@ -950,26 +995,36 @@ def test_stale_exits_with_what_it_could_and_could_not_check(
     _csv(tmp_path / "faithfulness_ids.csv", ids)
     monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
     monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"rev-{name}")
-    monkeypatch.setattr(FAITH, "EXTRACTORS", {"baseline": lambda body, resolver: {}})
-    args = types.SimpleNamespace(out=tmp_path)
+    monkeypatch.setattr(
+        FAITH, "EXTRACTORS", {"baseline": lambda body, resolver: {}, "model": lambda b, r: {}}
+    )
 
     def collect(writes: list[dict[str, str]]):  # type: ignore[no-untyped-def]
         return lambda bodies, names, resolver: (writes, [])
 
-    monkeypatch.setattr(FAITH, "collect_items", collect([_stale_item("1#T#1", "text", "baseline")]))
-    # the baseline writes the text of T and nothing for U: one row stale; the model row unchecked
-    assert FAITH.run_stale(args) == 2
-    saved = json.loads((tmp_path / gold_metrics.STALE_NAME).read_text(encoding="utf-8"))
-    assert saved["unchecked"] == ["model"] and saved["stale"] == ["1#U#1 (baseline)"]
     both = [_stale_item("1#T#1", "text", "baseline"), _stale_item("1#U#1", "other", "baseline")]
+    args = types.SimpleNamespace(out=tmp_path, only=None)
+    monkeypatch.setattr(FAITH, "collect_items", collect([both[0]]))
+    # baseline and model are run, U is no longer written by the baseline: stale (1); the model
+    # wrote nothing for U either (stale too); nothing left unchecked
+    assert FAITH.run_stale(args) == 1
+    saved = gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
+    assert saved["baseline"]["stale"] == ["1#U#1 (baseline)"] and saved["model"]["stale"]
+    # an extractor in the ids that is not registered is unchecked (2); with stale rows, 3
+    _csv(tmp_path / "faithfulness_ids.csv", [*ids, *_stale_ids(("1#V#1", "v", "units9", "r"))])
+    assert FAITH.run_stale(args) == 3
+    # --only limits the check to the extractors asked for: the others are left out, not unchecked
+    only = types.SimpleNamespace(out=tmp_path, only="baseline")
     monkeypatch.setattr(FAITH, "collect_items", collect(both))
     _csv(
         tmp_path / "faithfulness_ids.csv",
-        _stale_ids(("1#T#1", "text", "baseline", "r1"), ("1#U#1", "other", "baseline", "r1")),
+        _stale_ids(("1#T#1", "text", "baseline", "r1"), ("1#V#1", "v", "units9", "r")),
     )
-    assert FAITH.run_stale(args) == 0  # all checked, nothing stale
-    monkeypatch.setattr(FAITH, "collect_items", collect([both[0]]))
-    assert FAITH.run_stale(args) == 1  # U is no longer written
+    assert FAITH.run_stale(only) == 0
+    with pytest.raises(SystemExit, match="not registered"):
+        FAITH.run_stale(types.SimpleNamespace(out=tmp_path, only="nope"))
+    # the earlier result of the model is still in the file after a run of the baseline alone
+    assert "model" in gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(

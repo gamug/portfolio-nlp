@@ -225,21 +225,31 @@ def write_footer_only(out: Path) -> None:
 
 def run_stale(args: argparse.Namespace) -> int:
     """``--stale``: free and read-only (it writes ``faithfulness_stale.json``, the result the report
-    quotes); run every registered extractor over the drawn bodies and say which marked rows the
-    code no longer reproduces. Returns the exit code: 0 all checked and none stale, 1 some stale,
-    2 some extractor of the ids was not run (the model needs ``--attribution-model``)."""
+    quotes); run the registered extractors (``--only`` limits them) over the drawn bodies and say
+    which marked rows the code no longer reproduces. The file keeps the last check of every
+    extractor: a run of some does not erase the others. Returns the exit code, a sum: 1 some marked
+    row is stale, 2 some extractor of the ids was neither run nor excluded by ``--only`` (the model
+    needs ``--attribution-model``); 0 all that was asked for was checked and is clean."""
     out: Path = args.out
-    resolver = CompanyResolver(retag_cli.companies())
     names = sorted(EXTRACTORS)
+    if args.only:
+        names = sorted({n.strip() for n in args.only.split(",") if n.strip()})
+        unknown = [n for n in names if n not in EXTRACTORS]
+        if unknown:
+            sys.exit(f"--only {unknown}: not registered here ({sorted(EXTRACTORS)})")
+    resolver = CompanyResolver(retag_cli.companies())
     items, _ = collect_items(extra._read(out / BODIES_NAME), names, resolver)
     revisions = {n: extractor_revision(n) for n in names}
     ids = extra._read(out / IDS_NAME)
     result = stale_report(ids, items, names, revisions)
-    unchecked = sorted({n for row in ids for n in row["extractors"].split("|")} - set(names))
+    left = sorted({n for row in ids for n in row["extractors"].split("|")} - set(names))
+    unchecked = [] if args.only else left
     print("extractors run:", ", ".join(names))
-    if unchecked:
+    if left and args.only:
+        print(f"left out by --only: {', '.join(left)}")
+    elif left:
         print(
-            f"not checked: {', '.join(unchecked)} (model and units need --attribution-model; an "
+            f"not checked: {', '.join(left)} (model and units need --attribution-model; an "
             "extractor this branch does not define cannot be checked here)"
         )
     for label, rows in result.items():
@@ -250,18 +260,19 @@ def run_stale(args: argparse.Namespace) -> int:
             continue
         for row in rows[:40]:
             print("  ", row)
-    document = {
-        "date": date.today().isoformat(),
-        "revisions": revisions,
-        "checked": names,
-        "unchecked": unchecked,
-        "stale": result["stale"],
-        "new": result["new"],
+    path = out / gold_metrics.STALE_NAME
+    ran = {
+        n: gold_metrics.StaleEntry(
+            date=date.today().isoformat(),
+            revision=revisions[n],
+            stale=[r for r in result["stale"] if r.endswith(f"({n})")],
+            new=[r for r in result["new"] if f"({n}" in r],
+        )
+        for n in names
     }
-    gold_metrics.write_pair_atomically(
-        {out / gold_metrics.STALE_NAME: json.dumps(document, indent=1) + "\n"}
-    )
-    return 2 if unchecked else 1 if result["stale"] else 0
+    document = gold_metrics.merge_stale(gold_metrics.read_stale(path), ran)
+    gold_metrics.write_pair_atomically({path: json.dumps(document, indent=1) + "\n"})
+    return (1 if result["stale"] else 0) + (2 if unchecked else 0)
 
 
 def footer_only_rows(
@@ -559,8 +570,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stale",
         action="store_true",
-        help="which marked rows the code no longer writes; exit 1 if any, 2 if an extractor of the "
-        "ids was not run (needs --attribution-model for model and units); writes faithfulness_stale.json",
+        help="which marked rows the code no longer writes; exit code 1 if any, +2 if an extractor of "
+        "the ids was not run (model and units need --attribution-model; --only limits the check); "
+        "updates faithfulness_stale.json",
+    )
+    parser.add_argument(
+        "--only",
+        metavar="NAMES",
+        help="with --stale: check only these extractors (comma-separated); the others of the ids "
+        "are left out, not counted as unchecked",
     )
     parser.add_argument(
         "--footer-only",

@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import draw_sector_extra_2026_11_05 as extra
 
-from news_nlp import attribution_units, gold_metrics, retag, triage
+from news_nlp import attribution_model, attribution_units, gold_metrics, retag, triage
 from news_nlp.gold_metrics import MarkedFileError
 
 AGREEMENT_BAR = 0.80  # D32 sentiment overall agreement
@@ -421,7 +421,7 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
     except gold_metrics.FooterRulesChanged as changed:
         footer_only = []
         notes.append(f"{changed}; the second reading of the bar is skipped")
-    notes += _stale_lines(out)
+    notes += _stale_lines(out, {n for names in owners.values() for n in names})
     return _faithfulness_lines(notes, marks, owners, dates, coverage, footer_only)
 
 
@@ -447,34 +447,55 @@ def _footer_only_lines(
 STALE_SHOWN = 6  # marked rows named in the one-line staleness note
 
 
-def _stale_lines(out: Path) -> list[str]:
-    """What ``draw_faithfulness --stale`` last found, in one line: the marked rows that are on
-    texts the current code no longer writes (the figures above include those marks), and the
-    extractors it could not check. A check made against another baseline revision than the current
-    one, or none at all, is said so: the check needs the model, the report cannot redo it."""
-    stale = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
-    if stale is None:
+def _current_code(name: str) -> str | None:
+    """The code part of the revision of extractor *name* as it is now (the baseline's whole
+    revision), or ``None`` for an extractor this branch does not define. No model is needed."""
+    if name == "baseline":
+        return retag.extractor_revision("baseline")
+    modules = {
+        "model": attribution_model.CODE_MODULES,
+        "units": attribution_model.UNITS_CODE_MODULES,
+    }
+    return retag.code_revision(*modules[name]) if name in modules else None
+
+
+def _checked_with_current_code(name: str, revision: str) -> bool | None:
+    """Whether the check of *name* was made with the code it has now (``None``: cannot tell)."""
+    code = _current_code(name)
+    if code is None:
+        return None
+    return revision == code if name == "baseline" else revision.endswith(f"@{code}")
+
+
+def _stale_lines(out: Path, marked: set[str]) -> list[str]:
+    """What ``draw_faithfulness --stale`` last found, per extractor, in a few lines: the marked rows
+    on texts the current code no longer writes (the figures above include those marks), the
+    extractors of the marks it never checked, and a warning for each check that was made with other
+    code than the current one (the code part of a revision needs no model; the check does)."""
+    entries = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
+    if not entries:
         return ["no staleness check recorded: run draw_faithfulness --stale (needs the model)"]
-    revisions: dict[str, str] = stale["revisions"]  # type: ignore[assignment]
-    rows: list[str] = stale["stale"]  # type: ignore[assignment]
-    unchecked: list[str] = stale["unchecked"]  # type: ignore[assignment]
-    lines = []
-    current = retag.extractor_revision("baseline")
-    if revisions.get("baseline") != current:
-        lines.append(
-            f"warning: the staleness check ({stale['date']}) was made against baseline "
-            f"{revisions.get('baseline')}, the current one is {current}: run it again"
-        )
-    said = f"staleness check ({stale['date']}): "
+    lines: list[str] = []
+    rows: list[str] = []
+    for name, entry in sorted(entries.items()):
+        if _checked_with_current_code(name, entry["revision"]) is False:
+            lines.append(
+                f"warning: the staleness check of {name} ({entry['date']}) was made with other "
+                "code than the current one: run it again"
+            )
+        rows += entry["stale"]
+    said = (
+        f"staleness check ({', '.join(f'{n} {e["date"]}' for n, e in sorted(entries.items()))}): "
+    )
     if rows:
         shown = ", ".join(rows[:STALE_SHOWN]) + (", ..." if len(rows) > STALE_SHOWN else "")
         said += f"{len(rows)} marked rows are on texts the current code no longer writes "
-        said += f"({shown}); "
-        said += "the figures include their marks"
+        said += f"({shown}); the figures include their marks"
     else:
         said += "no marked row is on a text the current code no longer writes"
-    if unchecked:
-        said += f"; not checked: {', '.join(unchecked)}"
+    missing = sorted(marked - set(entries))
+    if missing:
+        said += f"; never checked: {', '.join(missing)}"
     return [*lines, said]
 
 
