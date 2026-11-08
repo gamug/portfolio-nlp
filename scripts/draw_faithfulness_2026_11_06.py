@@ -37,6 +37,7 @@ import shutil
 import sys
 from collections import Counter
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -49,6 +50,7 @@ import news_nlp as db
 from news_nlp import (
     attribution_baseline,
     attribution_model,
+    attribution_units,
     company_texts,
     gold_metrics,
     retag,
@@ -63,6 +65,7 @@ CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
 COVERAGE_NAME = gold_metrics.COVERAGE_NAME
+FOOTER_ONLY_NAME = gold_metrics.FOOTER_ONLY_NAME
 COVERAGE_FIELDS = gold_metrics.COVERAGE_COLUMNS
 IDS_FIELDS = (
     "review_order",
@@ -81,20 +84,28 @@ MODEL_IDENTITY: list[str] = []  # the trained model's identity, set by register_
 
 def extractor_revision(name: str) -> str:
     """The revision of extractor *name*: the baseline's code, or the trained model's identity (the
-    Hub id and revision, or a local directory's weights hash) with its code."""
-    if name != "model":
+    Hub id and revision, or a local directory's files hash) with the code of the extractor:
+    ``model`` the model's modules, ``units`` those and the footer and unit cutting."""
+    if name not in ("model", "units"):
         return retag.extractor_revision(name)
     if not MODEL_IDENTITY:
         raise ValueError("the model extractor is not registered: pass --attribution-model")
-    code = retag.code_revision(*attribution_model.CODE_MODULES)
-    return f"extractor:model@{MODEL_IDENTITY[0]}@{code}"
+    modules = (
+        attribution_model.UNITS_CODE_MODULES if name == "units" else attribution_model.CODE_MODULES
+    )
+    code = retag.code_revision(*modules)
+    return f"extractor:{name}@{MODEL_IDENTITY[0]}@{code}"
 
 
-def model_extractor(scorer: attribution_model.Scorer, names: dict[str, str]) -> Extractor:
-    """The trained model as an extractor: the baseline's signature, the model behind *scorer*."""
+def model_extractor(
+    scorer: attribution_model.Scorer, names: dict[str, str], *, units: bool = False
+) -> Extractor:
+    """The trained model as an extractor: the baseline's signature, the model behind *scorer*. With
+    *units* the body is read without its footer and cut at lines, bullets and clauses
+    (``news_nlp.attribution_units``, T-148b4)."""
 
     def extract(body: str, resolver: CompanyResolver) -> dict[str, str]:
-        return attribution_model.model_company_texts(body, resolver, names, scorer)
+        return attribution_model.model_company_texts(body, resolver, names, scorer, units=units)
 
     return extract
 
@@ -117,9 +128,9 @@ def register_model(model: str, revision: str | None, names: dict[str, str]) -> N
     base = local_identity(Path(model)) if local else f"{model}@{revision}"
     names_hash = hashlib.sha256(json.dumps(sorted(names.items())).encode()).hexdigest()[:8]
     MODEL_IDENTITY[:] = [f"{base}@names:{names_hash}@t{attribution_model.THRESHOLD}"]
-    EXTRACTORS["model"] = model_extractor(
-        attribution_model.TransformerScorer(model, revision), names
-    )
+    scorer = attribution_model.TransformerScorer(model, revision)
+    EXTRACTORS["model"] = model_extractor(scorer, names)
+    EXTRACTORS["units"] = model_extractor(scorer, names, units=True)
 
 
 def draw_bodies(candidates: list[dict[str, str]], n: int, seed: int) -> list[dict[str, str]]:
@@ -167,6 +178,135 @@ def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str
     return found
 
 
+def stale_report(
+    ids: list[dict[str, str]],
+    items: list[dict[str, str]],
+    extractors: list[str],
+    revisions: dict[str, str],
+) -> dict[str, list[str]]:
+    """What the code writes now against the rows the owner marked (*ids*), for the *extractors*
+    that were run (*items* are their texts, :func:`collect_items`). ``stale``: a marked row whose
+    extractor now writes another text (or none) for that company, so its mark is on a text the code
+    no longer produces; ``new``: texts the code writes now that no row holds, which would be new
+    rows to read; ``revision``: rows whose extractor revision differs from the current one (the
+    text may still be the same: the mark stands, the record is old)."""
+    now: dict[tuple[str, str, str], str] = {}
+    for item in items:
+        for name in item["extractors"].split("|"):
+            now[(item["article_id"], item["ticker"], name)] = item["text_hash"]
+    held = {(r["article_id"], r["ticker"], r["text_hash"]) for r in ids}
+    out: dict[str, list[str]] = {"stale": [], "new": [], "revision": []}
+    for row in ids:
+        have = dict(zip(row["extractors"].split("|"), row["revisions"].split("|"), strict=True))
+        for name in sorted(set(have) & set(extractors)):
+            label = f"{row['key']} ({name})"
+            if now.get((row["article_id"], row["ticker"], name)) != row["text_hash"]:
+                out["stale"].append(label)
+            if have[name] != revisions[name]:
+                out["revision"].append(label)
+    out["new"] = [
+        f"{i['key']} ({i['extractors']})"
+        for i in items
+        if (i["article_id"], i["ticker"], i["text_hash"]) not in held
+    ]
+    return out
+
+
+def write_footer_only(out: Path) -> None:
+    """``--footer-only``: write ``faithfulness_footer_only.json`` (the companies each drawn body
+    names only in its footer, with the revision of the footer rules that found them)."""
+    rows = footer_only_rows(extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies()))
+    document = {"rules": retag.code_revision(attribution_units), "companies": rows}
+    gold_metrics.write_pair_atomically(
+        {out / FOOTER_ONLY_NAME: json.dumps(document, indent=1) + "\n"}
+    )
+    print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+
+
+def label_extractors(label: str) -> set[str]:
+    """The extractors named in a ``<key> (<a>|<b>)`` label of :func:`stale_report`."""
+    return set(label.rsplit("(", 1)[1].rstrip(")").split("|"))
+
+
+def run_stale(args: argparse.Namespace) -> int:
+    """``--stale``: free and read-only (it writes ``faithfulness_stale.json``, the result the report
+    quotes); run the registered extractors (``--only`` limits them) over the drawn bodies and say
+    which marked rows the code no longer reproduces. The file keeps the last check of every
+    extractor: a run of some does not erase the others. Returns the exit code, a sum: 1 some marked
+    row is stale, 2 some extractor of the ids was neither run nor excluded by ``--only`` (the model
+    needs ``--attribution-model``); 0 all that was asked for was checked and is clean."""
+    out: Path = args.out
+    names = sorted(EXTRACTORS)
+    if args.only:
+        names = sorted({n.strip() for n in args.only.split(",") if n.strip()})
+        unknown = [n for n in names if n not in EXTRACTORS]
+        if unknown:
+            sys.exit(f"--only {unknown}: not registered here ({sorted(EXTRACTORS)})")
+    resolver = CompanyResolver(retag_cli.companies())
+    items, _ = collect_items(extra._read(out / BODIES_NAME), names, resolver)
+    revisions = {n: extractor_revision(n) for n in names}
+    ids = extra._read(out / IDS_NAME)
+    result = stale_report(ids, items, names, revisions)
+    left = sorted({n for row in ids for n in row["extractors"].split("|")} - set(names))
+    unchecked = [] if args.only else left
+    print("extractors run:", ", ".join(names))
+    if left and args.only:
+        print(f"left out by --only: {', '.join(left)}")
+    elif left:
+        print(
+            f"not checked: {', '.join(left)} (model and units need --attribution-model; an "
+            "extractor this branch does not define cannot be checked here)"
+        )
+    for label, rows in result.items():
+        print(f"{label}: {len(rows)}")
+        if label == "revision":  # the text is the same: only the record is old, so a count each
+            by_extractor = Counter(row.rsplit("(", 1)[1].rstrip(")") for row in rows)
+            print("  ", dict(sorted(by_extractor.items())))
+            continue
+        for row in rows[:40]:
+            print("  ", row)
+    path = out / gold_metrics.STALE_NAME
+    ran = {
+        n: gold_metrics.StaleEntry(
+            date=date.today().isoformat(),
+            revision=revisions[n],
+            stale=[r for r in result["stale"] if r.endswith(f"({n})")],
+            new=[r for r in result["new"] if n in label_extractors(r)],
+        )
+        for n in names
+    }
+    document = gold_metrics.merge_stale(gold_metrics.read_stale(path), ran)
+    gold_metrics.write_pair_atomically({path: json.dumps(document, indent=1) + "\n"})
+    return (1 if result["stale"] else 0) + (2 if unchecked else 0)
+
+
+def footer_only_rows(
+    bodies: list[dict[str, str]], resolver: CompanyResolver
+) -> list[dict[str, str]]:
+    """The companies each body names only in its footer (``COVERAGE_FIELDS``, extractor ``units``):
+    the ``units`` reading is not asked for a text of them, and the report counts them as unfaithful
+    in the second reading of the bar."""
+    conn = db.connect_pipeline()
+    rows: list[dict[str, str]] = []
+    for b in bodies:
+        src = conn.execute(
+            "SELECT body_text, pub_date FROM source.articles WHERE id = ?", (int(b["article_id"]),)
+        ).fetchone()
+        body = src["body_text"] or ""
+        story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
+        rows += [
+            {
+                "article_id": b["article_id"],
+                "ticker": ticker,
+                "extractor": "units",
+                "pub_date": src["pub_date"] or "",
+            }
+            for ticker in sorted(resolver.resolve(body, skip_attribution=False))
+            if ticker not in story
+        ]
+    return rows
+
+
 def collect_items(
     bodies: list[dict[str, str]], names: list[str], resolver: CompanyResolver
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -184,6 +324,9 @@ def collect_items(
         ).fetchone()
         body = src["body_text"] or ""
         found = {name: EXTRACTORS[name](body, resolver) for name in names}
+        # a company named only in the footer is not a company of the story: the units extractor,
+        # which reads the body without its footer, is not asked for a text of it
+        in_story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
         for ticker in sorted(resolver.resolve(body, skip_attribution=False)):
             per = {n: {"text": found[n].get(ticker, "")} for n in names}
             omissions += [
@@ -194,7 +337,7 @@ def collect_items(
                     "pub_date": src["pub_date"] or "",
                 }
                 for n in names
-                if not per[n]["text"].strip()
+                if not per[n]["text"].strip() and (n != "units" or ticker in in_story)
             ]
             for number, (text, extractors) in enumerate(merge_texts(per), 1):
                 items.append(
@@ -429,6 +572,24 @@ def parse_args() -> argparse.Namespace:
         "--attribution-revision; without it only the baseline exists",
     )
     parser.add_argument("--attribution-revision", metavar="SHA")
+    parser.add_argument(
+        "--stale",
+        action="store_true",
+        help="which marked rows the code no longer writes; exit code 1 if any, +2 if an extractor of "
+        "the ids was not run (model and units need --attribution-model; --only limits the check); "
+        "updates faithfulness_stale.json",
+    )
+    parser.add_argument(
+        "--only",
+        metavar="NAMES",
+        help="with --stale: check only these extractors (comma-separated); the others of the ids "
+        "are left out, not counted as unchecked",
+    )
+    parser.add_argument(
+        "--footer-only",
+        action="store_true",
+        help="write the companies each drawn body names only in its footer (free, no translation)",
+    )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
     return parser.parse_args()
@@ -437,7 +598,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
-    wanted = {args.add_extractor} if args.add_extractor else set(args.extractors.split(","))
+    wanted = (
+        {"model"}
+        if args.stale
+        else {args.add_extractor}
+        if args.add_extractor
+        else set(args.extractors.split(","))
+    )
     if args.attribution_model and "model" in {w.strip() for w in wanted}:
         register_model(
             args.attribution_model,
@@ -448,6 +615,11 @@ def main() -> None:
         add_extractor(args)
         return
     out: Path = args.out
+    if args.stale:
+        sys.exit(run_stale(args))
+    if args.footer_only:
+        write_footer_only(out)
+        return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]
     if missing:

@@ -26,13 +26,15 @@ from typing import Any, NamedTuple, Protocol
 
 import chunking
 from chunking import split_sentences
-from news_nlp import company_texts, triage
+from news_nlp import attribution_units, company_texts, triage
 from news_nlp.company_texts import SegmentLabel, segments
 from news_nlp.triage import CompanyResolver
 
 # The code the training pairs and the run-time texts depend on: one list for the training record
 # and for the extractor's revision, so a change in any of them is seen by both.
 CODE_MODULES = (sys.modules[__name__], chunking, company_texts, triage)
+# The ``units`` reading also depends on how the body is cut and its footer stripped.
+UNITS_CODE_MODULES = (*CODE_MODULES, attribution_units)
 
 MASK = "[COMPANY]"
 MAX_LENGTH = 160  # a sentence and the one before it: well under 160 word pieces
@@ -254,13 +256,23 @@ def scored_sentences(
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
 ) -> list[tuple[str, tuple[str, ...], float | None]]:
     """``(sentence, tickers, score)`` for each sentence of *body*: the companies it belongs to
     (``()`` when none is named in it and none reaches *threshold*) and, for a sentence that names
     none, the best score any candidate got (``None`` when the sentence names a company or the body
-    has no candidate)."""
-    sentences = [s for s, _, _ in split_sentences(body)]
-    candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
+    has no candidate). With *units* the pieces are those of
+    :func:`attribution_units.attribution_units` (footer removed; lines, bullets and clauses cut)
+    instead of the splitter's sentences, and the candidates are the companies of the body without
+    its footer: a company named only there is not asked about."""
+    if units:
+        sentences = attribution_units.attribution_units(body, resolver)
+        story = attribution_units.strip_footer(body)
+    else:
+        sentences = [s for s, _, _ in split_sentences(body)]
+        story = body
+    candidates = sorted(t for t in resolver.resolve(story, skip_attribution=False) if t in names)
     named = [tuple(sorted(resolver.resolve(s, skip_attribution=False))) for s in sentences]
     pairs: list[Pair] = []
     where: list[tuple[int, str]] = []
@@ -292,10 +304,13 @@ def attribute_sentences(
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
 ) -> list[tuple[str, tuple[str, ...]]]:
     """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
-    and none reaches *threshold*."""
-    return [(s, t) for s, t, _ in scored_sentences(body, resolver, names, scorer, threshold)]
+    and none reaches *threshold*. *units*: see :func:`scored_sentences`."""
+    scored = scored_sentences(body, resolver, names, scorer, threshold, units=units)
+    return [(s, t) for s, t, _ in scored]
 
 
 def model_company_texts(
@@ -304,12 +319,16 @@ def model_company_texts(
     names: Mapping[str, str],
     scorer: Scorer,
     threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
 ) -> dict[str, str]:
     """``{ticker: text}`` in order of first appearance, as ``baseline_company_texts``: a company the
     body names always gets the sentence that names it; the sentences that name none go to the
     company the model chooses, or to nobody."""
     groups: dict[str, list[str]] = {}
-    for sentence, tickers in attribute_sentences(body, resolver, names, scorer, threshold):
+    for sentence, tickers in attribute_sentences(
+        body, resolver, names, scorer, threshold, units=units
+    ):
         for ticker in tickers:
             groups.setdefault(ticker, []).append(sentence)
     return {ticker: " ".join(sentences) for ticker, sentences in groups.items()}

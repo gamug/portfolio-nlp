@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import json
 import math
 import os
 import random
@@ -18,6 +19,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from news_nlp import triage
 
@@ -31,7 +33,14 @@ SENTIMENT_CLASSES = ("positive", "negative", "neutral")
 SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
-KNOWN_EXTRACTORS = ("baseline", "model")
+# companies a body names only in its footer (T-148b4): the ``units`` reading does not ask for a text
+# of them, so they are not in the coverage; the report counts them in a second reading of the bar.
+# The file is ``{"rules": <revision of the footer rules>, "companies": [<coverage rows>]}``: the
+# companies depend on the rules, so the report refuses a file written by other rules.
+FOOTER_ONLY_NAME = "faithfulness_footer_only.json"
+# what ``draw_faithfulness --stale`` found: the marked rows the current code no longer writes
+STALE_NAME = "faithfulness_stale.json"
+KNOWN_EXTRACTORS = ("baseline", "model", "units")
 
 
 class MarkedFileError(ValueError):
@@ -320,6 +329,73 @@ def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
         raise MarkedFileError(f"{path.name} has extractors the draw does not have: {foreign}")
     require_unique([f"{r['article_id']}#{r['ticker']}#{r['extractor']}" for r in rows], path.name)
     return rows
+
+
+class FooterRulesChanged(MarkedFileError):
+    """The footer-only file was written by other footer rules than the current ones."""
+
+
+def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
+    """The companies each body names only in its footer, from the file the draw wrote with
+    ``--footer-only``. Refused when it was written by other footer *rules* (their revision): the
+    companies would be those of a different cut."""
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("rules") != rules:
+        raise FooterRulesChanged(
+            f"{path.name} was written by the footer rules {data.get('rules')!r}, not the current "
+            f"{rules!r}: draw it again (--footer-only)"
+        )
+    rows: list[dict[str, str]] = data["companies"]
+    if any(tuple(r) != COVERAGE_COLUMNS for r in rows):
+        raise MarkedFileError(f"{path.name} rows must have the columns {COVERAGE_COLUMNS}")
+    return rows
+
+
+class StaleEntry(TypedDict):
+    """What the last ``--stale`` found for one extractor."""
+
+    date: str
+    revision: str  # the extractor's revision when it was checked
+    stale: list[str]  # marked rows (``<key> (<extractor>)``) on texts it no longer writes
+    new: list[str]  # texts it writes now that no row holds
+
+
+def read_stale(path: Path) -> dict[str, StaleEntry]:
+    """The result of ``draw_faithfulness --stale`` per extractor (``{}`` if it was never run). The
+    file keeps the last check of each extractor: a later run of other extractors does not erase it."""
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    entries = data.get("extractors") if isinstance(data, dict) else None
+    if not isinstance(entries, dict):
+        raise MarkedFileError(f"{path.name} is not in the current format: run --stale again")
+    out: dict[str, StaleEntry] = {}
+    for name, entry in entries.items():
+        ok = (
+            isinstance(entry, dict)
+            and isinstance(entry.get("date"), str)
+            and isinstance(entry.get("revision"), str)
+            and isinstance(entry.get("stale"), list)
+            and isinstance(entry.get("new"), list)
+        )
+        if not ok:
+            raise MarkedFileError(
+                f"{path.name}: the entry of {name!r} is malformed: run --stale again"
+            )
+        out[name] = StaleEntry(
+            date=entry["date"], revision=entry["revision"], stale=entry["stale"], new=entry["new"]
+        )
+    return out
+
+
+def merge_stale(
+    old: Mapping[str, StaleEntry], ran: Mapping[str, StaleEntry]
+) -> dict[str, dict[str, StaleEntry]]:
+    """The file's content after a run: the entries of the extractors that were run replace the old
+    ones, the others stay as they were."""
+    return {"extractors": {**old, **ran}}
 
 
 class PairWriteError(OSError):

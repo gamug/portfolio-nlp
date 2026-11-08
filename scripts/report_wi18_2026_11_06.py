@@ -29,7 +29,7 @@ import argparse
 import functools
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import draw_sector_extra_2026_11_05 as extra
 
-from news_nlp import gold_metrics, triage
+from news_nlp import attribution_model, attribution_units, gold_metrics, retag, triage
 from news_nlp.gold_metrics import MarkedFileError
 
 AGREEMENT_BAR = 0.80  # D32 sentiment overall agreement
@@ -357,8 +357,9 @@ def _faithfulness_block(
                 f"[{label}] {name:>10}: of the texts it wrote, {only} (informative; omissions not "
                 "counted)"
             )
-    if {"model", "baseline"} <= set(report):
-        lines += _gain_lines(label, marks, owners, omitted)
+    for challenger, reference in (("model", "baseline"), ("units", "baseline"), ("units", "model")):
+        if {challenger, reference} <= set(report):
+            lines += _gain_lines(label, marks, owners, omitted, challenger, reference)
     return lines
 
 
@@ -367,8 +368,11 @@ def _gain_lines(
     marks: dict[str, bool],
     owners: dict[str, list[str]],
     omitted: dict[str, list[str]],
+    challenger: str = "model",
+    reference: str = "baseline",
 ) -> list[str]:
-    """Model minus baseline on the companies at least one of them wrote a text for; a company one
+    """*challenger* minus *reference* (by default model minus baseline) on the companies at least
+    one of them wrote a text for; a company one
     skipped counts as unfaithful for it, and a company both skipped says nothing on which is
     better (it stays in the shares only)."""
     pairs: dict[str, dict[str, bool]] = {}
@@ -381,17 +385,17 @@ def _gain_lines(
         for pair in pair_keys:
             if pair in written:
                 pairs[pair][name] = False
-    both = {p: v for p, v in pairs.items() if {"model", "baseline"} <= set(v)}
+    both = {p: v for p, v in pairs.items() if {challenger, reference} <= set(v)}
     if not both:
         return []
     gain = gold_metrics.paired_difference(
-        [v["model"] for v in both.values()],
-        [v["baseline"] for v in both.values()],
+        [v[challenger] for v in both.values()],
+        [v[reference] for v in both.values()],
         clusters=[gold_metrics.body_of_key(p) for p in both],
     )
     bodies = len({gold_metrics.body_of_key(p) for p in both})
     return [
-        f"[{label}] model minus baseline on {len(both)} company texts of {bodies} "
+        f"[{label}] {challenger} minus {reference} on {len(both)} company texts of {bodies} "
         f"bodies: {gain} -> {gold_metrics.gain_verdict(gain)}"
     ]
 
@@ -445,7 +449,90 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         marks[row["key"]] = r["faithful"] == "yes"
         owners[row["key"]] = row["extractors"].split("|")
         dates[row["key"]] = row
-    return _faithfulness_lines(note, marks, owners, dates, coverage)
+    notes = list(note)
+    try:
+        footer_only = gold_metrics.read_footer_only(
+            out / gold_metrics.FOOTER_ONLY_NAME, retag.code_revision(attribution_units)
+        )
+    except gold_metrics.FooterRulesChanged as changed:
+        footer_only = []
+        notes.append(f"{changed}; the second reading of the bar is skipped")
+    notes += _stale_lines(out, {n for names in owners.values() for n in names})
+    return _faithfulness_lines(notes, marks, owners, dates, coverage, footer_only)
+
+
+def _footer_only_lines(
+    label: str,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    omitted: dict[str, list[str]],
+    footer_only: Sequence[dict[str, str]],
+) -> list[str]:
+    """``units`` on the bar with the companies named only in a footer counted as unfaithful."""
+    extra_pairs = [f"{c['article_id']}#{c['ticker']}" for c in footer_only]
+    if not extra_pairs or "units" not in {n for o in owners.values() for n in o}:
+        return []
+    strict = {**omitted, "units": [*omitted.get("units", []), *extra_pairs]}
+    fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)["units"]
+    return [
+        f"[{label}] units: with the {len(extra_pairs)} companies named only in a footer counted "
+        f"as unfaithful (second reading of the bar): {fig} -> {fig.judge(FAITHFUL_BAR)}"
+    ]
+
+
+STALE_SHOWN = 6  # marked rows named in the one-line staleness note
+
+
+def _current_code(name: str) -> str | None:
+    """The code part of the revision of extractor *name* as it is now (the baseline's whole
+    revision), or ``None`` for an extractor this branch does not define. No model is needed."""
+    if name == "baseline":
+        return retag.extractor_revision("baseline")
+    modules = {
+        "model": attribution_model.CODE_MODULES,
+        "units": attribution_model.UNITS_CODE_MODULES,
+    }
+    return retag.code_revision(*modules[name]) if name in modules else None
+
+
+def _checked_with_current_code(name: str, revision: str) -> bool | None:
+    """Whether the check of *name* was made with the code it has now (``None``: cannot tell)."""
+    code = _current_code(name)
+    if code is None:
+        return None
+    return revision == code if name == "baseline" else revision.endswith(f"@{code}")
+
+
+def _stale_lines(out: Path, marked: set[str]) -> list[str]:
+    """What ``draw_faithfulness --stale`` last found, per extractor, in a few lines: the marked rows
+    on texts the current code no longer writes (the figures above include those marks), the
+    extractors of the marks it never checked, and a warning for each check that was made with other
+    code than the current one (the code part of a revision needs no model; the check does)."""
+    entries = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
+    if not entries:
+        return ["no staleness check recorded: run draw_faithfulness --stale (needs the model)"]
+    lines: list[str] = []
+    rows: list[str] = []
+    for name, entry in sorted(entries.items()):
+        if _checked_with_current_code(name, entry["revision"]) is False:
+            lines.append(
+                f"warning: the staleness check of {name} ({entry['date']}) was made with other "
+                "code than the current one: run it again"
+            )
+        rows += entry["stale"]
+    said = (
+        f"staleness check ({', '.join(f'{n} {e["date"]}' for n, e in sorted(entries.items()))}): "
+    )
+    if rows:
+        shown = ", ".join(rows[:STALE_SHOWN]) + (", ..." if len(rows) > STALE_SHOWN else "")
+        said += f"{len(rows)} marked rows are on texts the current code no longer writes "
+        said += f"({shown}); the figures include their marks"
+    else:
+        said += "no marked row is on a text the current code no longer writes"
+    missing = sorted(marked - set(entries))
+    if missing:
+        said += f"; never checked: {', '.join(missing)}"
+    return [*lines, said]
 
 
 def _faithfulness_lines(
@@ -454,10 +541,13 @@ def _faithfulness_lines(
     owners: dict[str, list[str]],
     dates: dict[str, dict[str, str]],
     coverage: list[dict[str, str]],
+    footer_only: Sequence[dict[str, str]] = (),
 ) -> list[str]:
     """The figures from marks by text key, who wrote each text, the row (with ``pub_date``) of
     each key and the companies an extractor left without a text. Shared by the owner's file and
-    the tracked gold, so both give the same figures."""
+    the tracked gold, so both give the same figures. *footer_only* are the companies a body names
+    only in its footer, which ``units`` is not asked about: a second reading of the bar counts
+    them as unfaithful for ``units`` (the owner decides which reading is the bar's)."""
     omitted: dict[str, list[str]] = {}
     omitted_late: dict[str, list[str]] = {}
     for c in coverage:
@@ -475,12 +565,14 @@ def _faithfulness_lines(
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
     lines += _faithfulness_block("all", marks, owners, omitted)
-    lines += _faithfulness_block(
-        "2022+",
-        {k: v for k, v in marks.items() if k in late},
-        {k: v for k, v in owners.items() if k in late},
-        omitted_late,
-    )
+    lines += _footer_only_lines("all", marks, owners, omitted, footer_only)
+    late_marks = {k: v for k, v in marks.items() if k in late}
+    late_owners = {k: v for k, v in owners.items() if k in late}
+    lines += _faithfulness_block("2022+", late_marks, late_owners, omitted_late)
+    late_footer = [
+        c for c in footer_only if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR
+    ]
+    lines += _footer_only_lines("2022+", late_marks, late_owners, omitted_late, late_footer)
     return lines
 
 

@@ -323,6 +323,19 @@ lean `articles` rows itself.
   (`--eval-only DIR` re-scores a trained model and keeps the training-time report); used as the
   `model` extractor by `scripts/draw_faithfulness_2026_11_06.py --attribution-model DIR_OR_ID`
   (a Hub id needs `--attribution-revision`). Figures: PLAN D27 and `docs/evaluation.md`.
+- `news_nlp/attribution_units.py` — what the attribution reads (T-148b4, D27): `strip_footer` (credit
+  and "read more" lines anywhere, a "more from" header with its link titles, a disclosure block that
+  opens in the last 40% of the body, a run of footer lines at the end; label words are anchored and a
+  long paragraph is story, a legal notice is not) and `attribution_units` (a line, a bullet, a
+  sentence, a part between semicolons, a sentence of two companies cut between them).
+  `model_company_texts(..., units=True)` reads it, and then the candidates are the companies of the
+  body without its footer; the faithfulness draw registers it as the `units` extractor.
+  `chunking.split_sentences` is not changed (sentiment and NER use it). Tools:
+  `scripts/audit_footer_2026_11_08.py` (seeded audit of the footer rules on the corpus),
+  `draw_faithfulness --footer-only` (the companies a body names only in its footer, with the revision
+  of the rules) and `draw_faithfulness --stale` (which marked rows the code no longer writes; exit
+  code 1 if any, +2 if an extractor of the marks was not checked, `--only NAMES` limits it; keeps the
+  last check of each extractor in `faithfulness_stale.json`, which `report_wi18 faithfulness` quotes).
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 
