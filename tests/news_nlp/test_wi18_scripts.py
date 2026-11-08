@@ -2676,7 +2676,11 @@ def test_the_exempt_reading_file_gets_its_spanish_only_with_yes_and_keeps_it(
         assert yes is True
         paid.append(asked)
         return [
-            {**a, "spanish_title": "Un titulo", "spanish_text": "Michael Bloom lo dijo."}
+            {
+                **a,
+                "spanish_title": "Un titulo",
+                "spanish_text": "Michael Bloom lo dijo: percepción.",
+            }
             for a in asked
         ]
 
@@ -2689,7 +2693,13 @@ def test_the_exempt_reading_file_gets_its_spanish_only_with_yes_and_keeps_it(
     FAITH.write_exempt(tmp_path, yes=True)
     row = _read_row(path)
     assert paid == [[{"article_id": "1#BE", "title": "A title", "text": "Michael Bloom said so."}]]
-    assert (row["spanish_title"], row["spanish_text"]) == ("Un titulo", "Michael Bloom lo dijo.")
+    assert (row["spanish_title"], row["spanish_text"]) == (
+        "Un titulo",
+        "Michael Bloom lo dijo: percepción.",
+    )
+    raw = path.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")  # a byte order mark: Excel reads UTF-8, not cp1252
+    assert "percepción".encode() in raw and "percepciÃ³n".encode() not in raw
     header = next(csv.reader(path.open(encoding="utf-8-sig")))
     assert header.index("spanish_title") == header.index("text") + 1  # right after the text
     FAITH.write_exempt(

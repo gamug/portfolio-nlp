@@ -282,9 +282,10 @@ def write_exempt(out: Path, *, yes: bool = False, max_new: int = retag_cli.DEFAU
     gold_metrics.write_pair_atomically(
         {
             out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n",
-            read_path: gold_metrics.render_csv(
-                tuple(header or gold_metrics.EXEMPT_READ_COLUMNS), safe
-            ),
+            # with a byte order mark, like the other files the owner opens in a spreadsheet: without
+            # it Excel reads the UTF-8 as Windows-1252 and "percepción" shows as "percepciÃ³n"
+            read_path: "\ufeff"
+            + gold_metrics.render_csv(tuple(header or gold_metrics.EXEMPT_READ_COLUMNS), safe),
         }
     )
     pairs = {(r["article_id"], r["ticker"]) for r in rows}
