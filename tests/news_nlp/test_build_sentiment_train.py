@@ -452,6 +452,40 @@ def test_a_row_without_a_company_stops_the_build_and_a_blank_ticker_does_not() -
         BUILD.build(_marks(ids), ids)
 
 
+def test_the_notes_that_say_the_company_is_absent_are_counted_by_their_words() -> None:
+    rows = [
+        {"notes": "Tesla not in the news", "sentiment": "neutral"},
+        {"notes": "This is not about ADP company", "sentiment": "neutral"},
+        {"notes": "Investor activity", "sentiment": "positive"},
+        {"notes": "", "sentiment": "negative"},
+    ]
+    assert len(BUILD.company_absent_notes(rows)) == 2
+    lines = BUILD.summary([{**r, "slice": "train", "predicted": "neutral"} for r in rows])
+    assert any("3 rows have a note; 2 say the company is not in the text" in ln for ln in lines)
+
+
+def test_the_committed_counts_of_the_notes_and_the_date_forms_are_the_ones_the_docs_quote() -> None:
+    rows = _committed_rows()
+    assert sum(1 for r in rows if r["notes"].strip()) == 49
+    absent = BUILD.company_absent_notes(rows)
+    assert len(absent) == 14 and {r["sentiment"] for r in absent} == {"neutral"}
+    assert Counter(r["rule_scope"] for r in absent) == {
+        "single": 8,
+        "multi_dominated": 4,
+        "sector": 2,
+    }
+    assert sum(r["predicted"] != "neutral" for r in absent) == 12
+    forms = Counter(
+        "Z.000"
+        if r["pub_date"].endswith(".000Z")
+        else "Z"
+        if r["pub_date"].endswith("Z")
+        else "+0000"
+        for r in rows
+    )
+    assert forms == {"+0000": 355, "Z": 77, "Z.000": 18}
+
+
 def test_the_company_of_a_row_is_protected_once_the_file_has_it() -> None:
     ids = _ids()
     rows = BUILD.build(_marks(ids), ids)

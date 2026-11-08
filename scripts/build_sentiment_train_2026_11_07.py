@@ -289,6 +289,17 @@ def warnings(rows: list[dict[str, str]]) -> list[str]:
     return found
 
 
+#: Words of the owner's notes that say the company of the row is not in the text. A keyword match,
+#: so the count is approximate (it can miss a note worded otherwise); it is the only measure there is
+#: of how many marks are neutral because of the company anchor (D35), and a lower bound.
+ABSENT_NOTE_WORDS = ("not in the", "not mention", "not about", "nothing relevant", "not in text")
+
+
+def company_absent_notes(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The rows whose note says the company is not in the text (``ABSENT_NOTE_WORDS``)."""
+    return [r for r in rows if any(w in r["notes"].lower() for w in ABSENT_NOTE_WORDS)]
+
+
 def summary(rows: list[dict[str, str]]) -> list[str]:
     """What the owner marked, by slice, and the model that balanced the draw against the owner (a
     row per predicted class, a column per mark): context for the training, not a figure."""
@@ -298,6 +309,11 @@ def summary(rows: list[dict[str, str]]) -> list[str]:
         lines.append(
             f"{kind}: {len(mine)} texts, marks {dict(Counter(r['sentiment'] for r in mine))}"
         )
+    absent = company_absent_notes(rows)
+    lines.append(
+        f"{sum(1 for r in rows if r['notes'].strip())} rows have a note; {len(absent)} say the company is "
+        f"not in the text (a keyword match, a lower bound), marks {dict(Counter(r['sentiment'] for r in absent))}"
+    )
     both = Counter((r["predicted"], r["sentiment"]) for r in rows)
     lines.append(
         "the model that balanced the draw (rows) against the owner (columns): "
