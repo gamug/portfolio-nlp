@@ -559,7 +559,7 @@ treating a related FR/NR as done:
 
 18. **Judge-verdict reuse could pair a stale verdict with a changed prediction** under an unchanged `experiment` label. **Resolved 2026-09-19** (`PLAN.md` Work item 13, `TASKS.md` T-109–T-110): reuse also requires a matching prediction — FR-015 (tightened). Full text: `.specify/memory/archive/SPEC-open-questions-2026-11-08.md`, item 18.
 
-19. **Category's `other` label covers 42.7% of the corpus and means two things** (195,993 of 459,112 articles on 2026-10-14; `other`'s own precision is 0.474). **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions D11–D35 in `PLAN.md` Work item 18); Work item 15's plan is superseded. No FR is added until a behaviour ships. Full text: `.specify/memory/archive/SPEC-open-questions-2026-11-08.md`, item 19.
+19. **Category's `other` label covers 42.7% of the corpus and means two things** (195,993 of 459,112 articles on 2026-10-14; `other`'s own precision is 0.474). **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions D11–D36 in `PLAN.md` Work item 18); Work item 15's plan is superseded. No FR is added until a behaviour ships. Full text: `.specify/memory/archive/SPEC-open-questions-2026-11-08.md`, item 19.
 
 20. **The data-mining database is read on trust, and the next step reads more of it.**
     `urls.db` carries `PRAGMA user_version` (5 today, additive, not monotonic: a
@@ -586,12 +586,12 @@ treating a related FR/NR as done:
     PR (D9 did not). `PLAN.md` Work item 17,
     `TASKS.md` T-137–T-138.
     **Re-scoped 2026-10-28 → `PLAN.md` Work item 18** (triage per unique body; decisions
-    D11–D35 in `PLAN.md` Work item 18). **The `multi` flag above is superseded
+    D11–D36 in `PLAN.md` Work item 18). **The `multi` flag above is superseded
     (2026-11-05):** a multi body gets the text of each company (D27) and one snapshot row per
     (body, company) (D28), so no flag is added to the existing result tables; T-138 was superseded
     (moved to `CHANGELOG.md`). No FR is added until a behaviour ships.
 
-22. **A quarantined pair is not a rejected article.** `portfolio-data-mining` classes each (article, ticker) pair as `accept`, `reject` or `review`; `reject` and `review` are quarantined. That is a judgement about the company tag, made from the URL and the title, not about the article: the SOURCE holds 377,010 quarantined articles with a `body_text` (against 98,462 `ok`), some of them financial news about another company (examples in `docs/db-topology.md`; how many is T-159). **Decided (owner, 2026-11-08, `PLAN.md` D36):** a properly fetched article (a title and a body) is preserved and stays eligible for the pipeline whatever its pair class; stored results of a quarantined pair are moved aside reversibly, never the article; sizes say which corpus they are of. The cut stays on the `ok` window and the preserved corpus joins after the delivery; `thin_content` rows are not part of it. Open: the size of the preserved corpus (`TASKS.md` T-159) and its effect on D19. No FR is added until a behaviour ships.
+22. **A quarantined pair is not a rejected article.** `portfolio-data-mining` classes each (article, ticker) pair as `accept`, `reject` or `review`; `reject` and `review` are quarantined. That is a judgement about the company tag, made from the URL and the title, not about the article: the SOURCE holds far more quarantined articles with a `body_text` than `ok` ones (counts: `PLAN.md` D36), some of them financial news about another company (examples in `docs/db-topology.md`; how many is T-159). **Decided (owner, 2026-11-08, `PLAN.md` D36):** a properly fetched article (a title and a body) is preserved and stays eligible for the pipeline whatever its pair class; stored results of a quarantined pair are moved aside reversibly, never the article; sizes say which corpus they are of. The cut stays on the `ok` window and the preserved corpus joins after the delivery; `thin_content` rows are not part of it. Open: the size of the preserved corpus (`TASKS.md` T-159) and its effect on D19. No FR is added until a behaviour ships.
 
 ## 14. Scope Boundaries (Out of Scope, Not Deferred)
 

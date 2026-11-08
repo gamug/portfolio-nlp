@@ -14,7 +14,7 @@ lists a file's sections; read that range). Do not load whole files by default.
 
 ## Where things are
 
-- **Current focus:** Work item 18, triage-first pipeline (`PLAN.md`, `TASKS.md`). Decisions D11–D35 are all in `PLAN.md` Work item 18 ("Decisions" for D11–D24, then D25–D35); T-143 (the original record of D11–D24) and T-151 moved to `CHANGELOG.md`.
+- **Current focus:** Work item 18, triage-first pipeline (`PLAN.md`, `TASKS.md`). Decisions D11–D36 are all in `PLAN.md` Work item 18 ("Decisions" for D11–D24, then D25–D36); T-143 (the original record of D11–D24) and T-151 moved to `CHANGELOG.md`.
 - **The corpus is preserved (D36, 2026-11-08):** a quarantined pair is a verdict on the company tag, not on the article; a properly fetched article (title and body) is never deleted or left out because of it; every size says which corpus it is of (`PLAN.md` D36, `TASKS.md` T-159, constitution #16).
 - **Step 4 (company texts):** the extractor `units` was selected on 2026-11-08 (`TASKS.md` T-148b10 (9), `PLAN.md` D34 (e)); datasets, experiments, metrics and results are in `docs/extractor_training.md`; wiring it into the cut is T-148b12 (proposed).
 - **Closed work items:** 1, 5, 6, 8–14, 16 (and 15, superseded by 18). Their plan is in `archive/PLAN-closed-work-items-2026-11-08.md` (grep `## Work item N`), their tasks in `CHANGELOG.md`. **A reference such as "PLAN.md Work item 10 step 3" in a doc or a code comment resolves in that archive file.**
