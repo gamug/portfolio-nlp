@@ -279,6 +279,18 @@ component; every rule below assumes the stack actually pinned in
     above their size when the rule was adopted), a `## Work item` section of
     `PLAN.md`, a line, or a task entry passes its length limit; the fix is to move text, not to raise the limit.
 
+16. **The properly fetched corpus is preserved (owner, 2026-11-08).** An
+    article that was fetched with a title and a body is never deleted,
+    overwritten or left out of a stage because `portfolio-data-mining`
+    quarantined its (article, ticker) pair: `reject` and `review` are a
+    verdict on the company tag, not on the article, and some quarantined
+    articles are financial news about another company (how many: T-159). A step that would
+    drop, purge or exclude such an article stops and asks (`PLAN.md` D36).
+    Derived results attached to a wrong pair may be moved aside in a
+    reversible archive, never destroyed. A size, a count or a coverage figure
+    always says which corpus it is of (the `ok` pairs, the unique bodies, or
+    all properly fetched bodies), so a number is never read as the whole.
+
 Canonical commands — a spec/plan should reference these, not invent new
 ad-hoc invocations:
 
@@ -405,4 +417,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.11.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-08
+**Version**: 2.12.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-08

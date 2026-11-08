@@ -205,6 +205,12 @@ from outside this package to build a bespoke query — it's internal; ask for
 (or add) a named export in `portfolio_common.news_export` instead if another
 repo needs a second shared read.
 
+## What "quarantined" means (D36, 2026-11-08)
+
+`articles.fetch_status` has `ok`, `quarantined` and `thin_content`. **`quarantined` is a verdict about the company tag, not about the article:** upstream (`portfolio-data-mining`) classes each (article, ticker) pair as `accept`, `reject` or `review` from the URL and the title, and quarantines the last two. A quarantined row still has what it was fetched with: on 2026-11-08, 377,010 quarantined rows all had a `body_text` (376,873 a title), against 98,462 `ok`. Example (real rows, ticker `A`, Agilent): a CNBC piece on Berkshire's cash and one on Corning and the S&P 500 are `reject` for Agilent, and are financial news.
+
+The rule (`PLAN.md` D36): a properly fetched article is preserved and stays eligible for the pipeline; the pair class decides which company a stored result may be attributed to, not whether the body exists. Nothing here changes the read-only contract of SOURCE; `default articles selection` still reads `ok` until the owner decides the backfill scope (`TASKS.md` T-159).
+
 ## Caveats
 
 - **Orphaned WAL on the SOURCE.** As of `portfolio-common` v1.2.2, `attach_source`
