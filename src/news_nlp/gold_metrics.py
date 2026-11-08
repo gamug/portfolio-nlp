@@ -215,6 +215,54 @@ def stratified_report(
     )
 
 
+def paired_stratified_gain(
+    rows: Sequence[Mapping[str, str]],
+    populations: Mapping[str, int],
+    *,
+    candidate: str = "predicted",
+    baseline: str = "baseline",
+    metric: str = "agreement",
+    label: str = "negative",
+    stratum_key: str = "stratum",
+    seed: int = 20261106,
+    resamples: int = RESAMPLES,
+) -> Figure:
+    """The candidate's *metric* minus the baseline's, on the same rows of a stratified draw, with the
+    weights and the resampling of :func:`stratified_report` (the same resample feeds both, so the
+    interval is of the difference). *metric* is ``agreement``, ``precision`` or ``recall`` (of
+    *label*). *rows* carry ``gold``, the candidate's column and the baseline's. Every row of the gold
+    is its own body, so the bootstrap is inside the strata, as the report's. The result goes to
+    :func:`gain_verdict`: ``better`` only when the whole interval is above 0."""
+    if metric not in {"agreement", "precision", "recall"}:
+        raise ValueError(f"metric {metric!r}: one of agreement, precision, recall")
+    strata: dict[str, list[Mapping[str, str]]] = {}
+    for row in rows:
+        strata.setdefault(row[stratum_key], []).append(row)
+    unknown = sorted(set(strata) - set(populations))
+    if unknown:
+        raise MarkedFileError(f"no population for the strata {unknown}")
+
+    def value(s: Mapping[str, list[Mapping[str, str]]], column: str) -> float:
+        def weighted(keep: Callable[[Mapping[str, str]], bool]) -> float:
+            return sum(populations[k] / len(v) for k, v in s.items() for r in v if keep(r))
+
+        if metric == "agreement":
+            total = weighted(lambda r: True)
+            return weighted(lambda r: r["gold"] == r[column]) / total if total else math.nan
+        hit = weighted(lambda r: r[column] == label and r["gold"] == label)
+        if metric == "precision":
+            predicted = weighted(lambda r: r[column] == label)
+            return hit / predicted if predicted else math.nan
+        actual = weighted(lambda r: r["gold"] == label)
+        return hit / actual if actual else math.nan
+
+    def gain(s: Mapping[str, list[Mapping[str, str]]]) -> float:
+        return value(s, candidate) - value(s, baseline)
+
+    census = frozenset(k for k, v in strata.items() if len(v) >= populations[k])
+    return _bootstrap(strata, gain, seed, resamples, census)
+
+
 def _cluster_ratio(clusters: Sequence[tuple[float, int]], seed: int, resamples: int) -> Figure:
     """The ratio ``sum(first) / sum(second)`` over *clusters*, with a bootstrap interval that
     resamples whole clusters: the units that are independent (the bodies), not their texts."""
