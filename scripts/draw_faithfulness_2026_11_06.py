@@ -162,11 +162,20 @@ def merge_texts(
     return [(t, tuple(v)) for t, v in by_text.items()]
 
 
-def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str]]:
+def candidate_bodies(
+    out: Path, resolver: CompanyResolver, before: Path | None = None
+) -> list[dict[str, str]]:
+    """The narrative multi bodies the one-segment parser cannot split, minus the held-out set and,
+    for a confirmation draw, the bodies (by hash: twins share a body) of the earlier draw in
+    *before*, whose held-out list is used when *out* has none."""
     conn = db.connect_pipeline()
-    held = extra.excluded_hashes(
-        conn, {int(r["article_id"]) for r in extra._read(out / "heldout_ids.csv")}
-    )
+    heldout = out / "heldout_ids.csv"
+    if before is not None and not heldout.exists():
+        heldout = before / "heldout_ids.csv"
+    ids = {int(r["article_id"]) for r in extra._read(heldout)}
+    if before is not None:
+        ids |= {int(r["article_id"]) for r in extra._read(before / BODIES_NAME)}
+    held = extra.excluded_hashes(conn, ids)
     found: list[dict[str, str]] = []
     for row in extra._read(GOLD):
         if row["scope"] != "multi":
@@ -699,6 +708,13 @@ def parse_args() -> argparse.Namespace:
         "are left out, not counted as unchecked",
     )
     parser.add_argument(
+        "--exclude-from",
+        type=Path,
+        metavar="DIR",
+        help="a confirmation draw: leave out the bodies of the draw in DIR (and use its held-out "
+        "list); write into --out, a new directory",
+    )
+    parser.add_argument(
         "--exempt",
         "--footer-only",
         dest="exempt",
@@ -722,7 +738,7 @@ def main() -> None:
         if args.add_extractor
         else set(args.extractors.split(","))
     )
-    if args.attribution_model and "model" in {w.strip() for w in wanted}:
+    if args.attribution_model and {"model", *UNITS_READINGS} & {w.strip() for w in wanted}:
         register_model(
             args.attribution_model,
             args.attribution_revision,
@@ -755,7 +771,7 @@ def main() -> None:
         bodies = extra._read(bodies_path)
         print(f"{bodies_path} exists: the bodies are not drawn again")
     else:
-        candidates = candidate_bodies(out, resolver)
+        candidates = candidate_bodies(out, resolver, args.exclude_from)
         bodies = draw_bodies(candidates, args.n, args.seed)
         extra._write(bodies_path, bodies)
         one = sum(b["segments"] == "1" for b in bodies)

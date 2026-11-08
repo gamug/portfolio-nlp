@@ -814,6 +814,29 @@ def test_the_draws_refuse_a_held_out_body_under_another_article_id(
         SENTIMENT.tagged_bodies(tmp_path)
 
 
+def test_a_confirmation_draw_leaves_out_the_bodies_of_the_first_draw_and_its_twins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source(
+        monkeypatch,
+        {1: "Used body.", 2: "Used body.", 3: "Fresh one.", 4: "Held out.", 5: "Fresh two."},
+    )
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    _csv(first / "heldout_ids.csv", [{"article_id": "4", "stratum": "single"}])
+    _csv(first / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "3"}])
+    gold = [{"article_id": str(a), "scope": "multi"} for a in (1, 2, 3, 4, 5)]
+    _csv(tmp_path / "gold.csv", gold)
+    monkeypatch.setattr(FAITH, "GOLD", tmp_path / "gold.csv")
+    plain = FAITH.candidate_bodies(first, _Resolver())  # type: ignore[arg-type]
+    assert [c["article_id"] for c in plain] == ["1", "2", "3", "5"]  # the first draw's pool
+    got = FAITH.candidate_bodies(second, _Resolver(), first)  # type: ignore[arg-type]
+    # article 1 was drawn, article 2 has the same body, 4 is held out: only 3 and 5 are new
+    assert [c["article_id"] for c in got] == ["3", "5"]
+
+
 def test_collect_items_lists_the_companies_an_extractor_left_without_a_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
