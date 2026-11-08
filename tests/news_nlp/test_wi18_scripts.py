@@ -1002,6 +1002,21 @@ def test_the_exempt_file_carries_the_rules_and_the_reading_is_validated(tmp_path
     _read_file(tmp_path, {1: "Yes", 2: "no", 3: ""})
     marks = gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)
     assert marks == {"1#U": "yes", "2#U": "no", "3#U": ""}
+    path = tmp_path / gold_metrics.EXEMPT_READ_NAME  # the owner's own notes column is allowed
+    header = [*reversed(gold_metrics.EXEMPT_READ_COLUMNS), "notes"]
+    path.write_text(
+        ",".join(header)
+        + "\n"
+        + ",".join("yes" if c == "real_company" else "x" for c in header)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert gold_metrics.read_exempt_marks(path) == {"x#x": "yes"}
+    path.write_text(
+        ",".join([*header, "other"]) + "\n", encoding="utf-8"
+    )  # any other column is not
+    with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
+        gold_metrics.read_exempt_marks(path)
     _read_file(tmp_path, {1: "maybe"})
     with pytest.raises(gold_metrics.MarkedFileError, match="yes or no"):
         gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)

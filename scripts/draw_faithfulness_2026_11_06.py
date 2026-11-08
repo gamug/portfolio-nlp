@@ -242,7 +242,7 @@ def _read_reading(path: Path) -> tuple[list[str], list[dict[str, str]]]:
     with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         header = list(reader.fieldnames or [])
-        if set(header) != set(gold_metrics.EXEMPT_READ_COLUMNS):
+        if not gold_metrics.exempt_read_header_ok(header):
             sys.exit(f"{path.name} must have the columns {gold_metrics.EXEMPT_READ_COLUMNS}")
         return header, list(reader)
 

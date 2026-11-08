@@ -370,6 +370,19 @@ def read_exempt(path: Path, rules: str) -> list[dict[str, str]]:
     return rows
 
 
+EXEMPT_READ_OWNER_COLUMNS = ("notes",)  # the owner's free text, which the figures never read
+
+
+def exempt_read_header_ok(header: Sequence[str]) -> bool:
+    """The reading file has every column of ``EXEMPT_READ_COLUMNS`` (a spreadsheet may reorder them)
+    and, besides, only the owner's own ``notes``."""
+    return (
+        set(EXEMPT_READ_COLUMNS)
+        <= set(header)
+        <= {*EXEMPT_READ_COLUMNS, *EXEMPT_READ_OWNER_COLUMNS}
+    )
+
+
 def read_exempt_marks(path: Path) -> dict[str, str]:
     """The owner's reading of the exempt companies: ``<article>#<ticker>`` -> ``yes`` (a real
     company), ``no`` (not a company: a person, a place, a common word) or ``""`` (not read)."""
@@ -377,7 +390,7 @@ def read_exempt_marks(path: Path) -> dict[str, str]:
         return {}
     with path.open(encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
-        if set(reader.fieldnames or ()) != set(EXEMPT_READ_COLUMNS):  # a spreadsheet may reorder
+        if not exempt_read_header_ok(reader.fieldnames or ()):
             raise MarkedFileError(f"{path.name} must have the columns {EXEMPT_READ_COLUMNS}")
         rows = list(reader)
     marks: dict[str, str] = {}
