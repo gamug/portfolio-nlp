@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import draw_sector_extra_2026_11_05 as extra
 
-from news_nlp import attribution_model, attribution_units, gold_metrics, retag, triage
+from news_nlp import attribution_model, gold_metrics, retag, triage
 from news_nlp.gold_metrics import MarkedFileError
 
 AGREEMENT_BAR = 0.80  # D32 sentiment overall agreement
@@ -423,33 +423,63 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         dates[row["key"]] = row
     notes = list(note)
     try:
-        footer_only = gold_metrics.read_footer_only(
-            out / gold_metrics.FOOTER_ONLY_NAME, retag.code_revision(attribution_units)
+        exempt = gold_metrics.read_exempt(
+            out / gold_metrics.EXEMPT_NAME,
+            retag.code_revision(*attribution_model.UNITS_CODE_MODULES),
         )
-    except gold_metrics.FooterRulesChanged as changed:
-        footer_only = []
-        notes.append(f"{changed}; the second reading of the bar is skipped")
+    except gold_metrics.ExemptRulesChanged as changed:
+        exempt = []
+        notes.append(f"{changed}; the other readings of the bar are skipped")
     notes += _stale_lines(out, {n for names in owners.values() for n in names})
-    return _faithfulness_lines(notes, marks, owners, dates, coverage, footer_only)
+    read = gold_metrics.read_exempt_marks(out / gold_metrics.EXEMPT_READ_NAME)
+    return _faithfulness_lines(notes, marks, owners, dates, coverage, exempt, read)
 
 
-def _footer_only_lines(
+def _exempt_lines(
     label: str,
     marks: dict[str, bool],
     owners: dict[str, list[str]],
     omitted: dict[str, list[str]],
-    footer_only: Sequence[dict[str, str]],
+    exempt: Sequence[dict[str, str]],
+    read: dict[str, str],
 ) -> list[str]:
-    """``units`` on the bar with the companies named only in a footer counted as unfaithful."""
-    extra_pairs = [f"{c['article_id']}#{c['ticker']}" for c in footer_only]
-    if not extra_pairs or "units" not in {n for o in owners.values() for n in o}:
-        return []
-    strict = {**omitted, "units": [*omitted.get("units", []), *extra_pairs]}
-    fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)["units"]
-    return [
-        f"[{label}] units: with the {len(extra_pairs)} companies named only in a footer counted "
-        f"as unfaithful (second reading of the bar): {fig} -> {fig.judge(FAITHFUL_BAR)}"
-    ]
+    """The bar of each ``units`` extractor with the companies it is not asked about (footer, guard)
+    counted as unfaithful: all the companies the bodies name. Once the owner has read them
+    (``real_company``), also with only the ones that are real companies; the share the extractor is
+    judged on is for the owner to settle (D32 counts every company named)."""
+    present = {n for names in owners.values() for n in names}
+    lines = []
+    for name in sorted({c["extractor"] for c in exempt} & present):
+        written = {key.rsplit("#", 1)[0] for key, who in owners.items() if name in who}
+        pairs = [
+            f"{c['article_id']}#{c['ticker']}"
+            for c in exempt
+            if c["extractor"] == name and f"{c['article_id']}#{c['ticker']}" not in written
+        ]  # a company it did write a text for is already in the share: not counted twice
+        strict = {**omitted, name: [*omitted.get(name, []), *pairs]}
+        fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)[name]
+        lines.append(
+            f"[{label}] {name}: the {len(pairs)} companies it wrote no text for and is not asked "
+            f"about counted as unfaithful (the bar on every company named): {fig} -> "
+            f"{fig.judge(FAITHFUL_BAR)}"
+        )
+        marked = [read.get(p, "") for p in pairs]
+        if not read or not any(marked):
+            continue
+        if not all(marked):
+            lines.append(
+                f"[{label}] {name}: {marked.count('')} of those {len(pairs)} companies are not yet "
+                "read (real_company): the reading of real companies only is not computed"
+            )
+            continue
+        real = [p for p, m in zip(pairs, marked, strict=True) if m == "yes"]
+        only = {**omitted, name: [*omitted.get(name, []), *real]}
+        fig = gold_metrics.faithfulness_report(marks, owners, omitted=only)[name]
+        lines.append(
+            f"[{label}] {name}: the {len(real)} of those {len(pairs)} that are real companies "
+            f"counted as unfaithful (the bar on real companies): {fig} -> {fig.judge(FAITHFUL_BAR)}"
+        )
+    return lines
 
 
 STALE_SHOWN = 6  # marked rows named in the one-line staleness note
@@ -463,6 +493,8 @@ def _current_code(name: str) -> str | None:
     modules = {
         "model": attribution_model.CODE_MODULES,
         "units": attribution_model.UNITS_CODE_MODULES,
+        "units2": attribution_model.UNITS_CODE_MODULES,
+        "units3": attribution_model.UNITS_CODE_MODULES,
     }
     return retag.code_revision(*modules[name]) if name in modules else None
 
@@ -513,13 +545,15 @@ def _faithfulness_lines(
     owners: dict[str, list[str]],
     dates: dict[str, dict[str, str]],
     coverage: list[dict[str, str]],
-    footer_only: Sequence[dict[str, str]] = (),
+    exempt: Sequence[dict[str, str]] = (),
+    read: dict[str, str] | None = None,
 ) -> list[str]:
     """The figures from marks by text key, who wrote each text, the row (with ``pub_date``) of
     each key and the companies an extractor left without a text. Shared by the owner's file and
-    the tracked gold, so both give the same figures. *footer_only* are the companies a body names
-    only in its footer, which ``units`` is not asked about: a second reading of the bar counts
-    them as unfaithful for ``units`` (the owner decides which reading is the bar's)."""
+    the tracked gold, so both give the same figures. *exempt* are the companies a body names that a
+    ``units`` extractor is not asked about (footer, guard): further readings of the bar count them
+    as unfaithful (the owner decides which reading is the bar's); *read* is the owner's reading
+    of them."""
     omitted: dict[str, list[str]] = {}
     omitted_late: dict[str, list[str]] = {}
     for c in coverage:
@@ -537,14 +571,14 @@ def _faithfulness_lines(
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
     lines += _faithfulness_block("all", marks, owners, omitted)
-    lines += _footer_only_lines("all", marks, owners, omitted, footer_only)
+    lines += _exempt_lines("all", marks, owners, omitted, exempt, read or {})
     late_marks = {k: v for k, v in marks.items() if k in late}
     late_owners = {k: v for k, v in owners.items() if k in late}
     lines += _faithfulness_block("2022+", late_marks, late_owners, omitted_late)
-    late_footer = [
-        c for c in footer_only if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR
+    late_exempt = [
+        c for c in exempt if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR
     ]
-    lines += _footer_only_lines("2022+", late_marks, late_owners, omitted_late, late_footer)
+    lines += _exempt_lines("2022+", late_marks, late_owners, omitted_late, late_exempt, read or {})
     return lines
 
 

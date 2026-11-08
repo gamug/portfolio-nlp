@@ -65,7 +65,8 @@ CACHE_DIR = "faithfulness"
 GOLD = Path("gold/category_gold_v2.csv")
 BODY_FIELDS = ("article_id", "segments")
 COVERAGE_NAME = gold_metrics.COVERAGE_NAME
-FOOTER_ONLY_NAME = gold_metrics.FOOTER_ONLY_NAME
+EXEMPT_NAME = gold_metrics.EXEMPT_NAME
+EXEMPT_READ_NAME = gold_metrics.EXEMPT_READ_NAME
 COVERAGE_FIELDS = gold_metrics.COVERAGE_COLUMNS
 IDS_FIELDS = (
     "review_order",
@@ -219,15 +220,35 @@ def stale_report(
     return out
 
 
-def write_footer_only(out: Path) -> None:
-    """``--footer-only``: write ``faithfulness_footer_only.json`` (the companies each drawn body
-    names only in its footer, with the revision of the footer rules that found them)."""
-    rows = footer_only_rows(extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies()))
-    document = {"rules": retag.code_revision(attribution_units), "companies": rows}
-    gold_metrics.write_pair_atomically(
-        {out / FOOTER_ONLY_NAME: json.dumps(document, indent=1) + "\n"}
+def exempt_rules() -> str:
+    """The revision of the code that decides which companies are exempt (footer and guard)."""
+    return retag.code_revision(*attribution_model.UNITS_CODE_MODULES)
+
+
+def write_exempt(out: Path) -> None:
+    """``--exempt``: write ``faithfulness_exempt.json`` (the companies each drawn body names that
+    the ``units`` extractors are not asked about, with the revision of the rules that found them)
+    and, if it holds no reading of the owner's yet, ``faithfulness_exempt_to_read.csv``: one row per
+    company with the line that names it, for the owner to mark ``real_company`` yes or no. The
+    Spanish columns are left empty: the paid translation needs the owner's approval."""
+    rows, reading = exempt_rows(
+        extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies())
     )
-    print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+    document = {"rules": exempt_rules(), "companies": rows}
+    files = {out / EXEMPT_NAME: json.dumps(document, indent=1) + "\n"}
+    read_path = out / EXEMPT_READ_NAME
+    if gold_metrics.read_exempt_marks(read_path) and any(
+        gold_metrics.read_exempt_marks(read_path).values()
+    ):
+        print(f"{read_path.name} holds the owner's marks: it is not rewritten")
+    else:
+        safe = retag.spreadsheet_safe(reading, tag_columns=("real_company",))
+        files[read_path] = gold_metrics.render_csv(gold_metrics.EXEMPT_READ_COLUMNS, safe)
+    gold_metrics.write_pair_atomically(files)
+    pairs = {(r["article_id"], r["ticker"]) for r in rows}
+    print(
+        f"{len(pairs)} companies exempt for at least one extractor written to {out / EXEMPT_NAME}"
+    )
 
 
 def label_extractors(label: str) -> set[str]:
@@ -287,31 +308,65 @@ def run_stale(args: argparse.Namespace) -> int:
     return (1 if result["stale"] else 0) + (2 if unchecked else 0)
 
 
-def footer_only_rows(
+def exempt_rows(
     bodies: list[dict[str, str]], resolver: CompanyResolver
-) -> list[dict[str, str]]:
-    """The companies each body names only in its footer (``COVERAGE_FIELDS``, extractor ``units``):
-    the ``units`` reading is not asked for a text of them, and the report counts them as unfaithful
-    in the second reading of the bar."""
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """The companies each body names that the ``units`` extractors are not asked about: the ones
+    named only in the footer (``units``, ``units2``, ``units3``) and the ones named in the story
+    only by the first word of their name, which the guard does not accept (``units2``,
+    ``units3``). Returns the rows of ``EXEMPT_NAME`` (``COVERAGE_FIELDS``, one per extractor) and
+    the rows of ``EXEMPT_READ_NAME`` (one per company, with the line that names it, to read)."""
     conn = db.connect_pipeline()
     rows: list[dict[str, str]] = []
+    reading: list[dict[str, str]] = []
+    names = {c.ticker: c.name for c in retag_cli.companies()}
     for b in bodies:
         src = conn.execute(
-            "SELECT body_text, pub_date FROM source.articles WHERE id = ?", (int(b["article_id"]),)
+            "SELECT title, body_text, pub_date FROM source.articles WHERE id = ?",
+            (int(b["article_id"]),),
         ).fetchone()
         body = src["body_text"] or ""
-        story = resolver.resolve(attribution_units.strip_footer(body), skip_attribution=False)
-        rows += [
-            {
-                "article_id": b["article_id"],
-                "ticker": ticker,
-                "extractor": "units",
-                "pub_date": src["pub_date"] or "",
-            }
-            for ticker in sorted(resolver.resolve(body, skip_attribution=False))
-            if ticker not in story
-        ]
-    return rows
+        story = attribution_units.strip_footer(body)
+        in_story = set(resolver.resolve(story, skip_attribution=False))
+        accepted = set(attribution_units.GuardedResolver(resolver, story).resolve(story))
+        why = {t: "footer" for t in set(resolver.resolve(body, skip_attribution=False)) - in_story}
+        why |= {t: "guard" for t in in_story - accepted}
+        for ticker, reason in sorted(why.items()):
+            extractors = UNITS_READINGS if reason == "footer" else UNITS_READINGS[1:]
+            rows += [
+                {
+                    "article_id": b["article_id"],
+                    "ticker": ticker,
+                    "extractor": name,
+                    "pub_date": src["pub_date"] or "",
+                }
+                for name in extractors
+            ]
+            reading.append(
+                {
+                    "article_id": b["article_id"],
+                    "ticker": ticker,
+                    "company": names.get(ticker, ticker),
+                    "why": reason,
+                    "extractors": "|".join(extractors),
+                    "title": src["title"] or "",
+                    "text": _line_naming(body, resolver, ticker),
+                    "spanish_title": "",
+                    "spanish_text": "",
+                    "real_company": "",
+                }
+            )
+    return rows, reading
+
+
+def _line_naming(body: str, resolver: CompanyResolver, ticker: str) -> str:
+    """The line of *body* that holds the first mention of *ticker* (at most 400 characters)."""
+    for start, _end, found in resolver.mention_spans(body):
+        if found == ticker:
+            before = body.rfind("\n", 0, start) + 1
+            after = body.find("\n", start)
+            return body[before : after if after >= 0 else len(body)].strip()[:400]
+    return ""
 
 
 def collect_items(
@@ -601,9 +656,12 @@ def parse_args() -> argparse.Namespace:
         "are left out, not counted as unchecked",
     )
     parser.add_argument(
+        "--exempt",
         "--footer-only",
+        dest="exempt",
         action="store_true",
-        help="write the companies each drawn body names only in its footer (free, no translation)",
+        help="write the companies each drawn body names that the units extractors are not asked "
+        "about (footer, guard) and the file for the owner to read (free, no translation)",
     )
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
     parser.add_argument("--max-new", type=int, default=retag_cli.DEFAULT_MAX_NEW)
@@ -632,8 +690,8 @@ def main() -> None:
     out: Path = args.out
     if args.stale:
         sys.exit(run_stale(args))
-    if args.footer_only:
-        write_footer_only(out)
+    if args.exempt:
+        write_exempt(out)
         return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]

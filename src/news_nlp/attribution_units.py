@@ -152,7 +152,8 @@ def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
     """The companies a "NAMES - text" line belongs to: the universe companies named before the
     dash, when what comes before it is a short list of capitalised names. ``()`` when the names
     are of no company of the universe (the line is about somebody else); ``None`` when the line
-    has no such header."""
+    has no such header, or when what comes before the dash is written in capitals and names no
+    company of the universe (a dateline such as "DETROIT" or a label such as "REFINING")."""
     match = _HEADER.match(line)
     if not match:
         return None
@@ -162,7 +163,12 @@ def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
         w[:1].isupper() or w[:1].isdigit() or w.lower() in _HEAD_JOIN for w in words
     ):
         return None
-    return tuple(sorted({ticker for _, _, ticker in resolver.mention_spans(head)}))
+    owners = tuple(sorted({ticker for _, _, ticker in resolver.mention_spans(head)}))
+    if not owners and all(
+        w.isupper() or not any(c.isalpha() for c in w) or w.lower() in _HEAD_JOIN for w in words
+    ):
+        return None  # "DETROIT - Ford ...", "REFINING - ...": a dateline or a label, not a company
+    return owners
 
 
 def attribution_pieces(

@@ -318,3 +318,25 @@ def test_a_long_paragraph_that_starts_like_a_credit_is_the_story(last: str) -> N
 )
 def test_the_credits_and_notices_are_still_footers(line: str) -> None:
     assert au.strip_footer(STORY + "\n" + line).strip() == STORY.strip()
+
+
+def test_a_dateline_or_a_label_in_capitals_is_not_a_header_that_takes_the_line_away() -> None:
+    for line in (
+        "DETROIT — Apple's new store sales rose 7.7% from a year earlier.",
+        "NEW YORK — Microsoft is handing its tools over to a partner.",
+        "REFINING - This is the weak spot for Oracle this quarter.",
+    ):
+        assert au.header_owners(line, RESOLVER) is None, line
+    # a company in capitals is still a header, and a company outside the universe in mixed case
+    assert au.header_owners("AAPL - shares rose after the report.", RESOLVER) == ("AAPL",)
+    assert au.header_owners("Canadian Pacific — Its chief met a rival.", RESOLVER) == ()
+    body = "DETROIT — Apple sold more phones.\n" + STORY
+    texts = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units3")
+    assert texts["AAPL"].startswith("DETROIT — Apple sold more phones.")  # not lost
+
+
+def test_a_reading_that_is_not_one_of_the_four_is_an_error() -> None:
+    with pytest.raises(ValueError, match="reading 'unit3'"):
+        am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading="unit3")  # type: ignore[arg-type]
+    for reading in am.READINGS:
+        am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading=reading)  # type: ignore[arg-type]

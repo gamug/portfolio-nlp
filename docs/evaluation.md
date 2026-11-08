@@ -3160,3 +3160,19 @@ others), says which extractors of the marks were never checked, and warns when a
 other code than the current one (the code part of a revision needs no model). The exit code is a sum:
 1 if a marked row is stale, 2 if an extractor of the marks was neither run nor left out with
 `--only NAMES`; 0 when everything asked for was checked and is clean.
+
+### Follow-up (2026-11-08): `units2` and `units3`, and what their bar leaves out (Work item 18, T-148b5, T-148b6)
+
+`units2` reads `units` with the guarded resolver (a short form of a company's name counts only when
+the full name or a ticker form is in the body) and the lines headed by names ("NAMES - text") given
+to those names; `units3` also gives a piece of such a line to the universe companies it names. The
+owner's readings (2026-11-07): `units2` 84.4% [72.5, 97.2] and `units3` 91.6% [84.7, 97.8] on D32's
+bar, `units` 85.4%. Two cautions before those figures are used. First, they leave out the companies
+the extractor is not asked about: on the 30 bodies 36 of the 190 companies named get no text from
+`units3` and are counted nowhere (32 the guard rejects, 5 only in the footer, minus 1); with them
+counted as unfaithful `units3` is 74.2% [66.0, 81.5], `units2` 68.4% [57.9, 80.3] and `units` 83.2%
+[72.7, 91.0] (`report_wi18 faithfulness` prints both readings; the reading of the 36 by the owner,
+`faithfulness_exempt_to_read.csv`, gives the bar on real companies). Second, the guard and `units3`
+were designed on the failures of these same 30 bodies, so the figures are development figures; a
+confirmation on bodies not used before is proposed in TASKS T-148b8.
+

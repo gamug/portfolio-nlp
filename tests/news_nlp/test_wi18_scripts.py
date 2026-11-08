@@ -700,25 +700,54 @@ def test_the_report_gives_the_three_gains_when_the_three_extractors_wrote_texts(
     assert "model minus baseline on 6" in two and "units minus" not in two
 
 
-def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path: Path) -> None:
+def _exempt_file(path: Path, rows: list[dict[str, str]], rules: str | None = None) -> None:
+    document = {
+        "rules": rules or retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES),
+        "companies": rows,
+    }
+    (path / gold_metrics.EXEMPT_NAME).write_text(json.dumps(document), encoding="utf-8")
+
+
+def _read_file(path: Path, marks: dict[int, str]) -> None:
+    rows = [
+        {
+            "article_id": str(a),
+            "ticker": "U",
+            "company": "U Inc.",
+            "why": "guard",
+            "extractors": "units",
+            "title": "t",
+            "text": "x",
+            "spanish_title": "",
+            "spanish_text": "",
+            "real_company": m,
+        }
+        for a, m in marks.items()
+    ]
+    _csv(path / gold_metrics.EXEMPT_READ_NAME, rows, gold_metrics.EXEMPT_READ_COLUMNS)
+
+
+def test_the_bar_is_also_given_on_every_company_named_and_on_the_real_ones(tmp_path: Path) -> None:
     _faith_files(tmp_path, [], extractors="baseline|model|units")
     plain = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "second reading of the bar" not in plain  # no file: nothing to count
-    document = {
-        "rules": retag.code_revision(REPORT.attribution_units),
-        "companies": [_skip(1, "units"), _skip(2, "units")],
-    }
-    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert "counted as unfaithful (the bar" not in plain  # no file: nothing to count
+    _exempt_file(tmp_path, [_skip(1, "units"), _skip(2, "units")])
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "[all] units: with the 2 companies named only in a footer counted as unfaithful" in text
-    assert "[2022+] units: with the 2 companies" in text  # both blocks, the dates are 2023
-    assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
-    document["rules"] = "another revision"
-    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert "[all] units: the 2 companies it wrote no text for and is not asked about" in text
+    assert "[2022+] units: the 2 companies" in text  # both blocks, the dates are 2023
+    assert "75.0%" in text.split("(the bar on every company named)")[1]  # 6 faithful of 6 + 2
+    assert "bar on real companies" not in text  # the owner has not read them
+    _read_file(tmp_path, {1: "yes", 2: ""})
+    part = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 of those 2 companies are not yet read" in part and "bar on real companies" not in part
+    _read_file(tmp_path, {1: "yes", 2: "no"})  # one is a company, the other a person
+    done = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "the 1 of those 2 that are real companies counted as unfaithful" in done
+    assert "85.7%" in done.split("(the bar on real companies)")[1]  # 6 faithful of 6 + 1
+    _exempt_file(tmp_path, [_skip(1, "units")], rules="another revision")
     other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
-    assert "written by the footer rules 'another revision'" in other
-    assert "the second reading of the bar is skipped" in other
-    assert "second reading of the bar):" not in other and "[all]   baseline:" in other
+    assert "written by the rules 'another revision'" in other
+    assert "the other readings of the bar are skipped" in other and "[all]   baseline:" in other
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
@@ -841,36 +870,52 @@ def test_the_units2_extractor_is_not_asked_for_a_company_named_only_by_a_common_
     assert omissions == []  # "Bloom" is a person here: Bloom Energy is not a company of this story
 
 
-class _FooterResolver:
-    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
-        return {"T"} | ({"U"} if "Disclosures" in body else set())
-
-
-def test_footer_only_rows_are_the_companies_the_body_names_only_in_its_footer(
+def test_exempt_rows_are_the_companies_named_only_in_the_footer_or_by_a_common_word(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    story = "Company T had a good quarter and said so in a long statement to the press. " * 4
-    _source(monkeypatch, {1: story + "\nDisclosures:\nCortes owns U", 2: story})
-    rows = FAITH.footer_only_rows(
-        [{"article_id": "1", "segments": "1"}, {"article_id": "2", "segments": "1"}],
-        _FooterResolver(),  # type: ignore[arg-type]
+    from news_nlp.triage import Company, CompanyResolver  # noqa: PLC0415
+
+    universe = [
+        Company("AAPL", "Apple Inc.", "Information Technology", "Hardware"),
+        Company("BE", "Bloom Energy", "Industrials", "Electrical Equipment"),
+        Company("MSFT", "Microsoft Corporation", "Information Technology", "Software"),
+    ]
+    story = "Apple had a good quarter, and CNBC's Michael Bloom said so in a long note. " * 4
+    body = story + "\nDisclosures:\nThe author owns Microsoft Corporation"
+    _source(monkeypatch, {1: body})
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: universe)
+    rows, reading = FAITH.exempt_rows(
+        [{"article_id": "1", "segments": "1"}], CompanyResolver(universe)
     )
-    assert [(r["article_id"], r["ticker"], r["extractor"]) for r in rows] == [("1", "U", "units")]
+    by_company: dict[str, list[str]] = {}
+    for row in rows:
+        by_company.setdefault(row["ticker"], []).append(row["extractor"])
+    # Microsoft is in the footer only: no units extractor is asked; Bloom is a person: not the guarded
+    assert by_company == {"MSFT": ["units", "units2", "units3"], "BE": ["units2", "units3"]}
+    why = {r["ticker"]: (r["why"], r["extractors"]) for r in reading}
+    assert why == {"MSFT": ("footer", "units|units2|units3"), "BE": ("guard", "units2|units3")}
+    line = next(r["text"] for r in reading if r["ticker"] == "BE")
+    assert "Michael Bloom" in line and not any(r["spanish_text"] for r in reading)
 
 
-def test_the_footer_only_file_carries_the_rules_and_the_report_refuses_other_rules(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / gold_metrics.FOOTER_ONLY_NAME
+def test_the_exempt_file_carries_the_rules_and_the_reading_is_validated(tmp_path: Path) -> None:
+    path = tmp_path / gold_metrics.EXEMPT_NAME
     row = {"article_id": "1", "ticker": "U", "extractor": "units", "pub_date": "2023-01-01"}
     path.write_text(json.dumps({"rules": "abc", "companies": [row]}), encoding="utf-8")
-    assert gold_metrics.read_footer_only(path, "abc") == [row]
-    with pytest.raises(gold_metrics.MarkedFileError, match="written by the footer rules"):
-        gold_metrics.read_footer_only(path, "other")
-    assert gold_metrics.read_footer_only(tmp_path / "missing.json", "abc") == []
+    assert gold_metrics.read_exempt(path, "abc") == [row]
+    with pytest.raises(gold_metrics.ExemptRulesChanged, match="written by the rules"):
+        gold_metrics.read_exempt(path, "other")
+    assert gold_metrics.read_exempt(tmp_path / "missing.json", "abc") == []
     path.write_text(json.dumps({"rules": "abc", "companies": [{"x": 1}]}), encoding="utf-8")
     with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
-        gold_metrics.read_footer_only(path, "abc")
+        gold_metrics.read_exempt(path, "abc")
+    assert gold_metrics.read_exempt_marks(tmp_path / "none.csv") == {}
+    _read_file(tmp_path, {1: "Yes", 2: "no", 3: ""})
+    marks = gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)
+    assert marks == {"1#U": "yes", "2#U": "no", "3#U": ""}
+    _read_file(tmp_path, {1: "maybe"})
+    with pytest.raises(gold_metrics.MarkedFileError, match="yes or no"):
+        gold_metrics.read_exempt_marks(tmp_path / gold_metrics.EXEMPT_READ_NAME)
 
 
 def _stale_ids(*rows: tuple[str, str, str, str]) -> list[dict[str, str]]:

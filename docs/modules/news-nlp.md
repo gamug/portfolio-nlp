@@ -336,6 +336,20 @@ lean `articles` rows itself.
   of the rules) and `draw_faithfulness --stale` (which marked rows the code no longer writes; exit
   code 1 if any, +2 if an extractor of the marks was not checked, `--only NAMES` limits it; keeps the
   last check of each extractor in `faithfulness_stale.json`, which `report_wi18 faithfulness` quotes).
+- The guard and the headers (T-148b5, T-148b6, `attribution_units.py`; `units2` and `units3` of
+  `attribute_sentences(reading=...)`, one of `sentences`, `units`, `units2`, `units3`, anything else
+  is a `ValueError`): `GuardedResolver` counts a short form of a company's name only when its full
+  name or a ticker form is in the body (for the attribution only: `CompanyResolver.mention_spans(
+  aliases=False)` is opt-in and the scope rules keep the resolver they were measured with);
+  `header_owners` gives a "NAMES - text" line to the universe companies among the names, to nobody
+  when the names are of a company outside the universe, and does not take a dateline or a label in
+  capitals ("DETROIT - ...") for a header; `units3` also gives the piece of such a line to the
+  universe companies it names itself. **Known loss:** a company named only by a short form has no
+  text, and is not counted as an omission; `draw_faithfulness --exempt` lists those companies (and
+  the footer-only ones) in `faithfulness_exempt.json` and, for the owner to read, in
+  `faithfulness_exempt_to_read.csv`, and `report_wi18 faithfulness` gives the bar also with them
+  counted as unfaithful (every company named) and, once read, on the real companies. Audit of the
+  header rule: `scripts/audit_headers_2026_11_08.py`.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 
