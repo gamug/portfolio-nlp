@@ -30,7 +30,7 @@ _FOOTER_LINE = re.compile(
         |plus,\s+sign\s+up|sign\s+up\b|like\s+this\s+story
         |for\s+more\s+(?:insight|information)|members\s+of\s+the\s+media|don.?t\s+miss
         |more\s+from|read\s+more|related(?:\s+(?:story|stories|articles?))?\s*:|click\s+here
-        |source\s*:|copyright\b|all\s+rights\s+reserved|disclosures?\s*:
+        |source\s*:|copyright\s*(?:\u00a9|\(c\)|\d{4}|:)|all\s+rights\s+reserved|disclosures?\s*:
         |seeking\s+alpha.s\s+disclosure|cnbc\.com\s+with\s+wires|reporting\s+by|editing\s+by
         |additional\s+reporting|photo\s*:|image\s*:|the\s+opinions\s+expressed|[_\-*=]{4,}|\u00a9
     )""",
@@ -39,9 +39,18 @@ _FOOTER_LINE = re.compile(
 MAX_FOOTER_LINE = 300  # characters: a longer line is a paragraph of the story...
 #: ...unless it is a legal notice, which is long by nature.
 _LEGAL_LINE = re.compile(
-    r"^\W*(?:disclosures?\s*:|disclaimer|seeking\s+alpha.s\s+disclosure|copyright|all\s+rights)",
+    r"^\W*(?:disclosures?\s*:|disclaimer|seeking\s+alpha.s\s+disclosure"
+    r"|copyright\s*(?:\u00a9|\(c\)|\d{4}|:)|all\s+rights)",
     re.I,
 )
+#: Credits and labels that are one short line: a long paragraph that starts alike is the story
+#: ("Reporting by Bloomberg showed that deliveries fell...").
+_CREDITISH = re.compile(
+    r"^\W*(?:reporting\s+by|editing\s+by|additional\s+reporting|source\s*:|sign\s+up\b"
+    r"|plus,\s+sign\s+up|copyright)",
+    re.I,
+)
+MAX_CREDIT_LINE = 120  # characters
 #: "— CNBC's Michael Bloom contributed to this report": a credit, at the end or inside the text.
 _CREDIT_LINE = re.compile(
     r"^\W*(by\s+)?(reuters|cnbc|cnbc.s\s+[\w.\- ]+|[\w.\- ]+)\s+contributed\s+to\s+this\s+report",
@@ -70,7 +79,10 @@ def _is_footer(text: str) -> bool:
     """Whether a line is the site's own text (short, and starting like a footer label)."""
     if not _FOOTER_LINE.match(text):
         return False
-    return len(text) <= MAX_FOOTER_LINE or bool(_LEGAL_LINE.match(text))
+    if _LEGAL_LINE.match(text):
+        return True
+    limit = MAX_CREDIT_LINE if _CREDITISH.match(text) else MAX_FOOTER_LINE
+    return len(text) <= limit
 
 
 def strip_footer(body: str) -> str:

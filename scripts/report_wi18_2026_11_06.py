@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import draw_sector_extra_2026_11_05 as extra
 
-from news_nlp import gold_metrics, triage
+from news_nlp import attribution_units, gold_metrics, retag, triage
 from news_nlp.gold_metrics import MarkedFileError
 
 AGREEMENT_BAR = 0.80  # D32 sentiment overall agreement
@@ -413,12 +413,14 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         marks[row["key"]] = r["faithful"] == "yes"
         owners[row["key"]] = row["extractors"].split("|")
         dates[row["key"]] = row
-    footer_path = out / gold_metrics.FOOTER_ONLY_NAME
-    footer_only = gold_metrics.read_coverage(footer_path) if footer_path.exists() else []
+    footer_only = gold_metrics.read_footer_only(
+        out / gold_metrics.FOOTER_ONLY_NAME, retag.code_revision(attribution_units)
+    )
     return _faithfulness_lines(note, marks, owners, dates, coverage, footer_only)
 
 
 def _footer_only_lines(
+    label: str,
     marks: dict[str, bool],
     owners: dict[str, list[str]],
     omitted: dict[str, list[str]],
@@ -431,9 +433,35 @@ def _footer_only_lines(
     strict = {**omitted, "units": [*omitted.get("units", []), *extra_pairs]}
     fig = gold_metrics.faithfulness_report(marks, owners, omitted=strict)["units"]
     return [
-        f"[all]      units: with the {len(extra_pairs)} companies named only in a footer counted "
+        f"[{label}] units: with the {len(extra_pairs)} companies named only in a footer counted "
         f"as unfaithful (second reading of the bar): {fig} -> {fig.judge(FAITHFUL_BAR)}"
     ]
+
+
+def _revision_lines(dates: dict[str, dict[str, str]]) -> list[str]:
+    """A warning for each extractor whose marked rows were written by more than one revision of
+    the code (a partial re-run), or, for the baseline, by one that is not the current one. The
+    model's and ``units``'s current revision needs the model: ``draw_faithfulness --stale``."""
+    seen: dict[str, set[str]] = {}
+    for row in dates.values():
+        if "extractors" in row and "revisions" in row:
+            for name, revision in zip(
+                row["extractors"].split("|"), row["revisions"].split("|"), strict=False
+            ):
+                seen.setdefault(name, set()).add(revision)
+    lines = [
+        f"warning: the {name} rows were written by {len(revisions)} revisions of the code "
+        f"({', '.join(sorted(revisions))}); run draw_faithfulness --stale"
+        for name, revisions in sorted(seen.items())
+        if len(revisions) > 1
+    ]
+    current = retag.extractor_revision("baseline")
+    if seen.get("baseline") and seen["baseline"] != {current}:
+        lines.append(
+            f"warning: the baseline rows were written by {', '.join(sorted(seen['baseline']))}, "
+            f"the current baseline is {current}"
+        )
+    return lines
 
 
 def _faithfulness_lines(
@@ -465,14 +493,16 @@ def _faithfulness_lines(
     lines = [*note, "the intervals are a bootstrap over bodies, not over texts (D32)"]
     if undated:
         lines.append(f"{undated} texts have no usable pub_date: they are not in the 2022+ block")
+    lines += _revision_lines(dates)
     lines += _faithfulness_block("all", marks, owners, omitted)
-    lines += _footer_only_lines(marks, owners, omitted, footer_only)
-    lines += _faithfulness_block(
-        "2022+",
-        {k: v for k, v in marks.items() if k in late},
-        {k: v for k, v in owners.items() if k in late},
-        omitted_late,
-    )
+    lines += _footer_only_lines("all", marks, owners, omitted, footer_only)
+    late_marks = {k: v for k, v in marks.items() if k in late}
+    late_owners = {k: v for k, v in owners.items() if k in late}
+    lines += _faithfulness_block("2022+", late_marks, late_owners, omitted_late)
+    late_footer = [
+        c for c in footer_only if (gold_metrics.year_of(c) or 0) >= gold_metrics.LATE_FROM_YEAR
+    ]
+    lines += _footer_only_lines("2022+", late_marks, late_owners, omitted_late, late_footer)
     return lines
 
 

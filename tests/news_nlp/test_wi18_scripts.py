@@ -704,14 +704,19 @@ def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path
     _faith_files(tmp_path, [], extractors="baseline|model|units")
     plain = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "second reading of the bar" not in plain  # no file: nothing to count
-    _csv(
-        tmp_path / "faithfulness_footer_only.csv",
-        [_skip(1, "units"), _skip(2, "units")],
-        FAITH.COVERAGE_FIELDS,
-    )
+    document = {
+        "rules": retag.code_revision(REPORT.attribution_units),
+        "companies": [_skip(1, "units"), _skip(2, "units")],
+    }
+    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert "with the 2 companies named only in a footer counted as unfaithful" in text
+    assert "[all] units: with the 2 companies named only in a footer counted as unfaithful" in text
+    assert "[2022+] units: with the 2 companies" in text  # both blocks, the dates are 2023
     assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
+    document["rules"] = "another revision"
+    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="written by the footer rules"):
+        REPORT.faithfulness_report(tmp_path)
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
@@ -813,6 +818,104 @@ def test_the_units_extractor_is_not_asked_for_a_company_named_only_in_the_footer
         Footer(),  # type: ignore[arg-type]
     )
     assert omissions == []  # U is in the footer only: no omission for units, and "other" wrote one
+
+
+class _FooterResolver:
+    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
+        return {"T"} | ({"U"} if "Disclosures" in body else set())
+
+
+def test_footer_only_rows_are_the_companies_the_body_names_only_in_its_footer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    story = "Company T had a good quarter and said so in a long statement to the press. " * 4
+    _source(monkeypatch, {1: story + "\nDisclosures:\nCortes owns U", 2: story})
+    rows = FAITH.footer_only_rows(
+        [{"article_id": "1", "segments": "1"}, {"article_id": "2", "segments": "1"}],
+        _FooterResolver(),  # type: ignore[arg-type]
+    )
+    assert [(r["article_id"], r["ticker"], r["extractor"]) for r in rows] == [("1", "U", "units")]
+
+
+def test_the_footer_only_file_carries_the_rules_and_the_report_refuses_other_rules(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / gold_metrics.FOOTER_ONLY_NAME
+    row = {"article_id": "1", "ticker": "U", "extractor": "units", "pub_date": "2023-01-01"}
+    path.write_text(json.dumps({"rules": "abc", "companies": [row]}), encoding="utf-8")
+    assert gold_metrics.read_footer_only(path, "abc") == [row]
+    with pytest.raises(gold_metrics.MarkedFileError, match="written by the footer rules"):
+        gold_metrics.read_footer_only(path, "other")
+    assert gold_metrics.read_footer_only(tmp_path / "missing.json", "abc") == []
+    path.write_text(json.dumps({"rules": "abc", "companies": [{"x": 1}]}), encoding="utf-8")
+    with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
+        gold_metrics.read_footer_only(path, "abc")
+
+
+def _stale_ids(*rows: tuple[str, str, str, str]) -> list[dict[str, str]]:
+    """(key, text, extractors, revisions) as the ids file holds them."""
+    out = []
+    for key, text, extractors, revisions in rows:
+        article, ticker, _ = key.split("#")
+        out.append(
+            {
+                "key": key,
+                "article_id": article,
+                "ticker": ticker,
+                "text_hash": retag.text_hash(text),
+                "extractors": extractors,
+                "revisions": revisions,
+            }
+        )
+    return out
+
+
+def _stale_item(key: str, text: str, extractors: str) -> dict[str, str]:
+    article, ticker, _ = key.split("#")
+    return {
+        "key": key,
+        "article_id": article,
+        "ticker": ticker,
+        "text_hash": retag.text_hash(text),
+        "extractors": extractors,
+    }
+
+
+def test_stale_lists_the_marked_rows_the_code_no_longer_writes_and_the_texts_it_adds() -> None:
+    ids = _stale_ids(
+        ("1#T#1", "same", "baseline|units", "b1|u1"),
+        ("2#T#1", "old text", "units", "u1"),
+        ("3#T#1", "gone", "units", "u1"),
+    )
+    items = [
+        _stale_item("1#T#1", "same", "baseline|units"),
+        _stale_item("2#T#2", "new text", "units"),  # units now writes another text for article 2
+    ]  # and nothing for article 3
+    got = FAITH.stale_report(ids, items, ["baseline", "units"], {"baseline": "b1", "units": "u2"})
+    assert got["stale"] == ["2#T#1 (units)", "3#T#1 (units)"]
+    assert got["new"] == ["2#T#2 (units)"]
+    assert got["revision"] == ["1#T#1 (units)", "2#T#1 (units)", "3#T#1 (units)"]  # u1 is not u2
+
+
+def test_stale_ignores_extractors_that_were_not_run() -> None:
+    ids = _stale_ids(("1#T#1", "text", "baseline|units3", "b1|u3"))
+    got = FAITH.stale_report(
+        ids, [_stale_item("1#T#1", "text", "baseline")], ["baseline"], {"baseline": "b1"}
+    )
+    assert got == {"stale": [], "new": [], "revision": []}
+
+
+def test_the_report_warns_when_the_rows_of_an_extractor_have_several_revisions(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    ids = list(csv.DictReader((tmp_path / "faithfulness_ids.csv").open(encoding="utf-8-sig")))
+    for i, row in enumerate(ids):
+        row["revisions"] = f"{retag.extractor_revision('baseline')}|u{i % 2}"
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "warning: the units rows were written by 2 revisions of the code" in text
+    assert "baseline rows were written" not in text  # the baseline is the current one
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(

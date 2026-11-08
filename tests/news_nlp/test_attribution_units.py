@@ -206,3 +206,32 @@ def test_the_footer_audit_counts_the_changed_bodies_and_shows_what_was_removed(
     assert [a for a, _ in result["sample"]] == [2] and result["sample"][0][
         1
     ] == "Questions? Comments?"
+
+
+@pytest.mark.parametrize(
+    "last",
+    [
+        "Reporting by Bloomberg showed that deliveries fell for the third month in a row, "
+        "according to people familiar with the matter at two of the largest suppliers.",
+        "Copyright holders argued in court that the new rules would hurt creators and publishers "
+        "of every size, and asked the judge to block them until the appeal is decided.",
+        "Sign up fees at the largest gyms rose sharply last year, the survey found, as owners "
+        "passed on higher rents and staff costs to new members across the whole country.",
+    ],
+)
+def test_a_long_paragraph_that_starts_like_a_credit_is_the_story(last: str) -> None:
+    assert au.strip_footer(STORY + "\n" + last).rstrip().endswith(last)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Reporting by Jane Doe; Editing by John Roe",
+        "Copyright 2020 Reuters. All rights reserved.",
+        "Copyright \u00a9 2020 The Associated Press. All rights reserved. "
+        + "This material may not be published. " * 8,
+        "Source: Company filings",
+    ],
+)
+def test_the_credits_and_notices_are_still_footers(line: str) -> None:
+    assert au.strip_footer(STORY + "\n" + line).strip() == STORY.strip()

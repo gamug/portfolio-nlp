@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import io
+import json
 import math
 import os
 import random
@@ -32,8 +33,10 @@ SENTIMENT_DESIGN = {"checked": 40, "extractor": 20}
 COVERAGE_NAME = "faithfulness_coverage.csv"  # companies an extractor left without a text (D32)
 COVERAGE_COLUMNS = ("article_id", "ticker", "extractor", "pub_date")
 # companies a body names only in its footer (T-148b4): the ``units`` reading does not ask for a text
-# of them, so they are not in the coverage; the report counts them in a second reading of the bar
-FOOTER_ONLY_NAME = "faithfulness_footer_only.csv"
+# of them, so they are not in the coverage; the report counts them in a second reading of the bar.
+# The file is ``{"rules": <revision of the footer rules>, "companies": [<coverage rows>]}``: the
+# companies depend on the rules, so the report refuses a file written by other rules.
+FOOTER_ONLY_NAME = "faithfulness_footer_only.json"
 KNOWN_EXTRACTORS = ("baseline", "model", "units")
 
 
@@ -322,6 +325,24 @@ def read_coverage(path: Path, *, hint: str = "") -> list[dict[str, str]]:
     if foreign:
         raise MarkedFileError(f"{path.name} has extractors the draw does not have: {foreign}")
     require_unique([f"{r['article_id']}#{r['ticker']}#{r['extractor']}" for r in rows], path.name)
+    return rows
+
+
+def read_footer_only(path: Path, rules: str) -> list[dict[str, str]]:
+    """The companies each body names only in its footer, from the file the draw wrote with
+    ``--footer-only``. Refused when it was written by other footer *rules* (their revision): the
+    companies would be those of a different cut."""
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("rules") != rules:
+        raise MarkedFileError(
+            f"{path.name} was written by the footer rules {data.get('rules')!r}, not the current "
+            f"{rules!r}: draw it again (--footer-only)"
+        )
+    rows: list[dict[str, str]] = data["companies"]
+    if any(tuple(r) != COVERAGE_COLUMNS for r in rows):
+        raise MarkedFileError(f"{path.name} rows must have the columns {COVERAGE_COLUMNS}")
     return rows
 
 

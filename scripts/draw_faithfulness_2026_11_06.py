@@ -177,6 +177,71 @@ def candidate_bodies(out: Path, resolver: CompanyResolver) -> list[dict[str, str
     return found
 
 
+def stale_report(
+    ids: list[dict[str, str]],
+    items: list[dict[str, str]],
+    extractors: list[str],
+    revisions: dict[str, str],
+) -> dict[str, list[str]]:
+    """What the code writes now against the rows the owner marked (*ids*), for the *extractors*
+    that were run (*items* are their texts, :func:`collect_items`). ``stale``: a marked row whose
+    extractor now writes another text (or none) for that company, so its mark is on a text the code
+    no longer produces; ``new``: texts the code writes now that no row holds, which would be new
+    rows to read; ``revision``: rows whose extractor revision differs from the current one (the
+    text may still be the same: the mark stands, the record is old)."""
+    now: dict[tuple[str, str, str], str] = {}
+    for item in items:
+        for name in item["extractors"].split("|"):
+            now[(item["article_id"], item["ticker"], name)] = item["text_hash"]
+    held = {(r["article_id"], r["ticker"], r["text_hash"]) for r in ids}
+    out: dict[str, list[str]] = {"stale": [], "new": [], "revision": []}
+    for row in ids:
+        have = dict(zip(row["extractors"].split("|"), row["revisions"].split("|"), strict=True))
+        for name in sorted(set(have) & set(extractors)):
+            label = f"{row['key']} ({name})"
+            if now.get((row["article_id"], row["ticker"], name)) != row["text_hash"]:
+                out["stale"].append(label)
+            if have[name] != revisions[name]:
+                out["revision"].append(label)
+    out["new"] = [
+        f"{i['key']} ({i['extractors']})"
+        for i in items
+        if (i["article_id"], i["ticker"], i["text_hash"]) not in held
+    ]
+    return out
+
+
+def write_footer_only(out: Path) -> None:
+    """``--footer-only``: write ``faithfulness_footer_only.json`` (the companies each drawn body
+    names only in its footer, with the revision of the footer rules that found them)."""
+    rows = footer_only_rows(extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies()))
+    document = {"rules": retag.code_revision(attribution_units), "companies": rows}
+    gold_metrics.write_pair_atomically(
+        {out / FOOTER_ONLY_NAME: json.dumps(document, indent=1) + "\n"}
+    )
+    print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+
+
+def run_stale(args: argparse.Namespace) -> None:
+    """``--stale``: free and read-only; run every registered extractor over the drawn bodies and
+    say which marked rows the code no longer reproduces."""
+    out: Path = args.out
+    resolver = CompanyResolver(retag_cli.companies())
+    names = sorted(EXTRACTORS)
+    items, _ = collect_items(extra._read(out / BODIES_NAME), names, resolver)
+    revisions = {n: extractor_revision(n) for n in names}
+    result = stale_report(extra._read(out / IDS_NAME), items, names, revisions)
+    print("extractors run:", ", ".join(names))
+    for label, rows in result.items():
+        print(f"{label}: {len(rows)}")
+        if label == "revision":  # the text is the same: only the record is old, so a count each
+            by_extractor = Counter(row.rsplit("(", 1)[1].rstrip(")") for row in rows)
+            print("  ", dict(sorted(by_extractor.items())))
+            continue
+        for row in rows[:40]:
+            print("  ", row)
+
+
 def footer_only_rows(
     bodies: list[dict[str, str]], resolver: CompanyResolver
 ) -> list[dict[str, str]]:
@@ -470,6 +535,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--attribution-revision", metavar="SHA")
     parser.add_argument(
+        "--stale",
+        action="store_true",
+        help="free, read-only: which marked rows the code no longer writes (needs --attribution-model)",
+    )
+    parser.add_argument(
         "--footer-only",
         action="store_true",
         help="write the companies each drawn body names only in its footer (free, no translation)",
@@ -482,7 +552,13 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     db.env.load_env_file()  # .env: these scripts do not import pipeline, which loads it elsewhere
     args = parse_args()
-    wanted = {args.add_extractor} if args.add_extractor else set(args.extractors.split(","))
+    wanted = (
+        {"model"}
+        if args.stale
+        else {args.add_extractor}
+        if args.add_extractor
+        else set(args.extractors.split(","))
+    )
     if args.attribution_model and "model" in {w.strip() for w in wanted}:
         register_model(
             args.attribution_model,
@@ -493,14 +569,11 @@ def main() -> None:
         add_extractor(args)
         return
     out: Path = args.out
+    if args.stale:
+        run_stale(args)
+        return
     if args.footer_only:
-        rows = footer_only_rows(
-            extra._read(out / BODIES_NAME), CompanyResolver(retag_cli.companies())
-        )
-        gold_metrics.write_pair_atomically(
-            {out / FOOTER_ONLY_NAME: gold_metrics.render_csv(COVERAGE_FIELDS, rows)}
-        )
-        print(f"{len(rows)} companies named only in a footer written to {out / FOOTER_ONLY_NAME}")
+        write_footer_only(out)
         return
     names = [e.strip() for e in args.extractors.split(",") if e.strip()]
     missing = [e for e in names if e not in EXTRACTORS]
