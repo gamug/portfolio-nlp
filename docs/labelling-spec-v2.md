@@ -5,7 +5,7 @@ SOURCE store (each checked to exist there on 2026-10-29).
 
 It is the guide for the re-tag of the 720 articles (gold v2, T-146b), for the revised LLM
 labelling prompt (T-146c) and for the held-out gold (T-146e). Rules marked **[owner call N]** were
-decided by the owner (the numbered list at the end). It builds on D11–D24 (`TASKS.md` T-143). The older 9-label definitions with
+decided by the owner (the numbered list at the end). It builds on D11–D24 (`PLAN.md` Work item 18, "Decisions"). The older 9-label definitions with
 their close calls are in `docs/category-taxonomy.md`.
 
 ## What is tagged

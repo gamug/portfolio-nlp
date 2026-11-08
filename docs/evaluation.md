@@ -2513,7 +2513,7 @@ LLM's labels agree with the owner on 46.3% of them (57.9% with `other`, the owne
 `legal_regulatory` 42, `leadership_governance` 42, `unrelated` 31 (not about the economy),
 `earnings_performance` 20, `capital_shareholder_returns` 2. The notes ask for reputational harm (10),
 competitive actions (about 11), sector news, whole-market / economy news and investor moves. This
-re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D24, `TASKS.md` T-143).
+re-scoped Work items 15 and 17 into Work item 18 (decisions D11–D24, `PLAN.md` Work item 18).
 
 **Scope implied by the tags** (`news_nlp.triage.gold_scope`; six scopes, D22): single company 458,
 several companies 135, **`investing_general` 78** (the owner's `other` tag: investing or
