@@ -17,14 +17,24 @@ by default. The output has the baseline's shape, so the faithfulness check reads
 
 from __future__ import annotations
 
+import hashlib
 import random
+import sys
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
+import chunking
 from chunking import split_sentences
-from news_nlp import attribution_units
+from news_nlp import attribution_units, company_texts, triage
 from news_nlp.company_texts import SegmentLabel, segments
 from news_nlp.triage import CompanyResolver
+
+# The code the training pairs and the run-time texts depend on: one list for the training record
+# and for the extractor's revision, so a change in any of them is seen by both.
+CODE_MODULES = (sys.modules[__name__], chunking, company_texts, triage)
+# The ``units`` reading also depends on how the body is cut and its footer stripped.
+UNITS_CODE_MODULES = (*CODE_MODULES, attribution_units)
 
 MASK = "[COMPANY]"
 MAX_LENGTH = 160  # a sentence and the one before it: well under 160 word pieces
@@ -46,6 +56,7 @@ class Example(NamedTuple):
     key: str  # ``<article>#<paragraph>#<sentence>``: which sentence, so a positive and its negatives group
     first: bool  # the first sentence of its paragraph (the company changes there)
     year: int
+    named: bool = False  # the sentence named a universe company (run time scores the others)
 
 
 class Scorer(Protocol):
@@ -94,9 +105,12 @@ def training_examples(
         for index, sentence in enumerate(sentences):
             context = sentences[index - 1] if index else (previous or [""])[0]
             masked = mask_company(sentence, resolver, label.ticker)
+            named = bool(resolver.mention_spans(sentence))
             key = f"{article_id}#{label.position}#{index}"
             first = index == 0
-            out.append(Example(Pair(names[label.ticker], context, masked), 1, key, first, year))
+            out.append(
+                Example(Pair(names[label.ticker], context, masked), 1, key, first, year, named)
+            )
             wrong = [t for t in tickers if t != label.ticker]
             hard = (
                 [before.ticker] if first and before is not None and before.ticker in wrong else []
@@ -104,14 +118,111 @@ def training_examples(
             rest = [t for t in wrong if t not in hard]
             rng.shuffle(rest)
             for ticker in (hard + rest)[:NEGATIVES]:
-                out.append(Example(Pair(names[ticker], context, masked), 0, key, first, year))
+                out.append(
+                    Example(Pair(names[ticker], context, masked), 0, key, first, year, named)
+                )
     return out
 
 
-def named_in_context(pair: Pair) -> float:
-    """The mention-and-recency baseline as a score on a pair: 1 when the candidate's name is in the
-    previous sentence (recency), else 0. What the model has to beat on the same pairs."""
+def exact_name_in_context(pair: Pair) -> float:
+    """1 when the candidate's name, as given to the model (the legal name), is in the previous
+    sentence. Prose rarely writes the legal name, so this is a weak floor, kept to show it."""
     return float(bool(pair.candidate) and pair.candidate.lower() in pair.context.lower())
+
+
+class Decision(NamedTuple):
+    """One sentence as run time sees it: scored against every company of the body."""
+
+    true: str  # the company of the paragraph the sentence is in
+    candidates: tuple[str, ...]  # the companies the body names (all of them are asked about)
+    pairs: tuple[Pair, ...]  # one per candidate, in the same order
+    recent: str  # the company mentioned last in the previous sentence ("" if none)
+
+
+def decisions(
+    body: str,
+    labels: Sequence[SegmentLabel],
+    *,
+    resolver: CompanyResolver,
+    names: Mapping[str, str],
+) -> list[Decision]:
+    """The run-time task on the ``lead`` paragraphs of one body: the sentences that name no
+    universe company (the only ones the model decides), each with every company the body names as
+    candidate, as :func:`attribute_sentences` builds them."""
+    parts = segments(body)
+    candidates = tuple(
+        sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
+    )
+    out: list[Decision] = []
+    for label in labels:
+        if label.kind != "lead" or label.ticker not in candidates or label.position >= len(parts):
+            continue
+        sentences = sentences_of(parts[label.position])
+        previous = sentences_of(parts[label.position - 1])[-1:] if label.position > 0 else []
+        for index, sentence in enumerate(sentences):
+            if resolver.mention_spans(sentence):
+                continue
+            context = sentences[index - 1] if index else (previous or [""])[0]
+            seen = [t for _, _, t in resolver.mention_spans(context)]
+            pairs = tuple(Pair(names[t], context, sentence) for t in candidates)
+            out.append(Decision(label.ticker, candidates, pairs, seen[-1] if seen else ""))
+    return out
+
+
+def decision_report(
+    items: Sequence[Decision], scores: Sequence[Sequence[float]], threshold: float = THRESHOLD
+) -> dict[str, float]:
+    """On the sentences of *items*, what run time does: the share the model gives to the right
+    company, to a wrong one and to nobody (no score reaches *threshold*, or two companies tie for
+    the best), and the baseline's (the
+    company mentioned last in the previous sentence, else nobody)."""
+    right = wrong = 0
+    base_right = base_wrong = 0
+    for item, row in zip(items, scores, strict=True):
+        best = max(range(len(row)), key=row.__getitem__)
+        tied = row.count(row[best]) > 1  # no best company: nobody, not the first in alphabet
+        if row[best] >= threshold and not tied:
+            if item.candidates[best] == item.true:
+                right += 1
+            else:
+                wrong += 1
+        if item.recent in item.candidates:
+            if item.recent == item.true:
+                base_right += 1
+            else:
+                base_wrong += 1
+    n = len(items) or float("nan")
+    return {
+        "sentences": float(len(items)),
+        "model right": right / n,
+        "model wrong": wrong / n,
+        "model nobody": (len(items) - right - wrong) / n,
+        "baseline right": base_right / n,
+        "baseline wrong": base_wrong / n,
+        "baseline nobody": (len(items) - base_right - base_wrong) / n,
+    }
+
+
+def directory_identity(directory: Path) -> str:
+    """A hash of every top-level file of a model directory (weights, config, tokenizer), by name,
+    except ``metrics.json``, which the trainer rewrites: what identifies a local model. A file of
+    any kind counts (an editor backup changes the identity: the safe side); subdirectories
+    (checkpoints) are not read. A directory without weights or ``config.json`` is not a model."""
+    for needed in ("model.safetensors", "config.json"):
+        if not (directory / needed).is_file():
+            raise ValueError(f"{directory} has no {needed}: it is not a trained model directory")
+    digest = hashlib.sha256()
+    for path in sorted(p for p in directory.iterdir() if p.is_file() and p.name != "metrics.json"):
+        digest.update(path.name.encode() + b"\0" + path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def named_in_context(pair: Pair, resolver: CompanyResolver) -> float:
+    """The mention-and-recency baseline as a score on a pair: 1 when the previous sentence mentions
+    the candidate the way the resolver reads mentions (short names, tickers), else 0. What the model
+    has to beat on the same pairs."""
+    wanted = set(resolver.resolve(pair.candidate, skip_attribution=False))
+    return float(bool(wanted & {t for _, _, t in resolver.mention_spans(pair.context)}))
 
 
 def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[str, float]:
@@ -139,7 +250,7 @@ def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[
     }
 
 
-def attribute_sentences(
+def scored_sentences(
     body: str,
     resolver: CompanyResolver,
     names: Mapping[str, str],
@@ -147,17 +258,21 @@ def attribute_sentences(
     threshold: float = THRESHOLD,
     *,
     units: bool = False,
-) -> list[tuple[str, tuple[str, ...]]]:
-    """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
-    and none reaches *threshold*. With *units* the pieces are those of
+) -> list[tuple[str, tuple[str, ...], float | None]]:
+    """``(sentence, tickers, score)`` for each sentence of *body*: the companies it belongs to
+    (``()`` when none is named in it and none reaches *threshold*) and, for a sentence that names
+    none, the best score any candidate got (``None`` when the sentence names a company or the body
+    has no candidate). With *units* the pieces are those of
     :func:`attribution_units.attribution_units` (footer removed; lines, bullets and clauses cut)
-    instead of the splitter's sentences."""
-    sentences = (
-        attribution_units.attribution_units(body, resolver)
-        if units
-        else [s for s, _, _ in split_sentences(body)]
-    )
-    candidates = sorted(t for t in resolver.resolve(body, skip_attribution=False) if t in names)
+    instead of the splitter's sentences, and the candidates are the companies of the body without
+    its footer: a company named only there is not asked about."""
+    if units:
+        sentences = attribution_units.attribution_units(body, resolver)
+        story = attribution_units.strip_footer(body)
+    else:
+        sentences = [s for s, _, _ in split_sentences(body)]
+        story = body
+    candidates = sorted(t for t in resolver.resolve(story, skip_attribution=False) if t in names)
     named = [tuple(sorted(resolver.resolve(s, skip_attribution=False))) for s in sentences]
     pairs: list[Pair] = []
     where: list[tuple[int, str]] = []
@@ -172,15 +287,30 @@ def attribute_sentences(
     for (index, ticker), score in zip(where, scorer.score(pairs) if pairs else [], strict=True):
         if index not in best or score > best[index][0]:
             best[index] = (score, ticker)
-    out: list[tuple[str, tuple[str, ...]]] = []
+    out: list[tuple[str, tuple[str, ...], float | None]] = []
     for index, sentence in enumerate(sentences):
         if named[index]:
-            out.append((sentence, named[index]))
+            out.append((sentence, named[index], None))
         elif index in best and best[index][0] >= threshold:
-            out.append((sentence, (best[index][1],)))
+            out.append((sentence, (best[index][1],), best[index][0]))
         else:
-            out.append((sentence, ()))
+            out.append((sentence, (), best[index][0] if index in best else None))
     return out
+
+
+def attribute_sentences(
+    body: str,
+    resolver: CompanyResolver,
+    names: Mapping[str, str],
+    scorer: Scorer,
+    threshold: float = THRESHOLD,
+    *,
+    units: bool = False,
+) -> list[tuple[str, tuple[str, ...]]]:
+    """``(sentence, tickers)`` for each sentence of *body*; ``()`` when no company is named in it
+    and none reaches *threshold*. *units*: see :func:`scored_sentences`."""
+    scored = scored_sentences(body, resolver, names, scorer, threshold, units=units)
+    return [(s, t) for s, t, _ in scored]
 
 
 def model_company_texts(

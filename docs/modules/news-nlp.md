@@ -313,6 +313,16 @@ lean `articles` rows itself.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
+- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **not
+  published, not pinned**): a pair classifier, *is this sentence about this company?* (the company's
+  name, the previous sentence and the sentence in; trained on `lead` paragraphs only, with the
+  company's name masked). A sentence that names universe companies belongs to them; one that names
+  none goes to the best-scoring company of the body if the score is at least 0.5, else to nobody.
+  `CompanyResolver.mention_spans` gives the mentions with positions (what is masked); `CODE_MODULES`
+  is the code the model's identity covers. Trained by `scripts/train_attribution_2026_11_08.py`
+  (`--eval-only DIR` re-scores a trained model and keeps the training-time report); used as the
+  `model` extractor by `scripts/draw_faithfulness_2026_11_06.py --attribution-model DIR_OR_ID`
+  (a Hub id needs `--attribution-revision`). Figures: PLAN D27 and `docs/evaluation.md`.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 

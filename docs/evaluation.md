@@ -3097,3 +3097,43 @@ Same engine and purpose as above, for `data/sector_extra_to_tag.csv`: 44 bodies 
 bodies of the 240. Outside the D18 labelling budget, paid, logged here. **Spend: 44 articles = 44
 paid calls, 0 failures; 37,940 prompt + 45,359 completion tokens (retries and rejected replies
 included); well under 1 USD at list prices (estimate).**
+
+### Follow-up (2026-11-07): how the attribution model is evaluated (Work item 18, T-148b3)
+
+Three readings, in rising order of weight; only the last decides (PLAN D27, D32).
+
+1. **Pairs on `val`** (`scripts/train_attribution_2026_11_08.py`; 270 bodies, 7,644 pairs, never
+   trained on): the right company against one wrong one, ranked right 90.1% of the time against 63.7%
+   for the mention-and-recency baseline (the previous sentence mentions the candidate, read by the
+   resolver; 59.0% with the legal name only). Also by period, for the first sentence of a paragraph,
+   and for the sentences that name no universe company (94.4% against 86.6%), which are the only
+   ones scored at run time and carry no `[COMPANY]` mask.
+2. **The run-time task on `val`** (the 1,153 sentences that name no company; every company of the body
+   a candidate; threshold 0.5; a tie for the best score is nobody): the model gives the sentence to
+   the right company 86.4% of the time, a wrong one 11.8%, nobody 1.8%; the baseline (the company
+   mentioned last in the previous sentence) 70.8%, 6.4% and 22.8%. The labels are the parser's
+   (88% of the `lead` ones right in the owner's check), so part of the "wrong" is label noise.
+3. **The owner's faithfulness reading** of the 30 narrative bodies (D32). Abstention is not in `val`
+   (every sentence there has a right company); `train_attribution_2026_11_08.py --abstention DIR`
+   measures it on the 30 bodies: of the 421 sentences that name no company the model gives 145 (34%)
+   to nobody and 276 to one company, the baseline 19 to nobody, 281 to one company and 121 to
+   several. A seeded sample read by the developer (not the owner's reading; 5 and 5, so only a
+   direction): of the 5 given to nobody, 4 are right (the company is not in the universe: Nextracker,
+   Macy's and Gap, Staples, Nikola) and 1 is wrong ("JPMorgan said in the note ...": the resolver
+   does not read the one-word "JPMorgan", a name-matcher gap, T-148b7); of the 5 given to a
+   company by the 0.5 rule, none is right (a venture investment given to Comcast because the previous
+   sentence is Comcast's disclosure, a market index to EQR, Motorola's president's quote to Apple,
+   Boeing's next chief to Amazon, a start-up's partners to BSX). The model was trained only on
+   sentences that belong to one of the body's companies, so it has not learned to answer "none of
+   these"; a sentence about a company outside the universe is given to the nearest one when the score
+   reaches 0.5.
+ The 276 sentences given by the rule have these best scores: 38 from 0.5 to 0.6, 79 from 0.6 to 0.8,
+   159 from 0.8 to 1 (and 102 of the 276 name, in the previous sentence, the company chosen); the five
+   wrong examples scored 0.999, 0.988, 0.997, 0.893 and 0.505. They are confident, not borderline: a
+   higher threshold would not remove them. The threshold is the owner's to decide after reading the texts; none is proposed.
+
+A `val` body is left out as a copy when 80% of a sample of its 8-word shingles are in one train
+body (none was); an earlier key on the start and the end of a body, and then 30% of all the train
+shingles together, matched footers, a shared closing paragraph and stories of one template, not
+copies. `--eval-only` keeps `report_at_training` in `metrics.json` and adds an `eval` block tied to
+the hash of the model files it scored.
