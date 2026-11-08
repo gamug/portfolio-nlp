@@ -289,15 +289,30 @@ def warnings(rows: list[dict[str, str]]) -> list[str]:
     return found
 
 
-#: Words of the owner's notes that say the company of the row is not in the text. A keyword match,
-#: so the count is approximate (it can miss a note worded otherwise); it is the only measure there is
-#: of how many marks are neutral because of the company anchor (D35), and a lower bound.
-ABSENT_NOTE_WORDS = ("not in the", "not mention", "not about", "nothing relevant", "not in text")
+#: What the owner's notes say about the company of a row, by the words they use; the first kind that
+#: matches wins. A keyword match: a note worded otherwise is not counted, a note can be misread, so the
+#: counts are approximate in both directions (no bound). Only the notes are read; most rows have none.
+NOTE_KINDS = {
+    "namesake": ("person name", "forest", "legal document", "not for the company"),
+    "other scope": ("about a sector", "about any sector", "entire market"),
+    "nothing relevant": ("nothing relevant", "anything financial"),
+    "absent": ("not mention", "not in the", "no mention", "not about"),
+}
 
 
-def company_absent_notes(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """The rows whose note says the company is not in the text (``ABSENT_NOTE_WORDS``)."""
-    return [r for r in rows if any(w in r["notes"].lower() for w in ABSENT_NOTE_WORDS)]
+def note_kind(note: str) -> str:
+    """The kind of what a note says about the company (``NOTE_KINDS``), or an empty string."""
+    low = note.lower()
+    return next((k for k, words in NOTE_KINDS.items() if any(w in low for w in words)), "")
+
+
+def notes_by_kind(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    """The rows whose note matches a kind of ``NOTE_KINDS``, by kind."""
+    found: dict[str, list[dict[str, str]]] = {}
+    for r in rows:
+        if kind := note_kind(r.get("notes", "")):
+            found.setdefault(kind, []).append(r)
+    return found
 
 
 def summary(rows: list[dict[str, str]]) -> list[str]:
@@ -309,10 +324,11 @@ def summary(rows: list[dict[str, str]]) -> list[str]:
         lines.append(
             f"{kind}: {len(mine)} texts, marks {dict(Counter(r['sentiment'] for r in mine))}"
         )
-    absent = company_absent_notes(rows)
+    kinds = notes_by_kind(rows)
     lines.append(
-        f"{sum(1 for r in rows if r['notes'].strip())} rows have a note; {len(absent)} say the company is "
-        f"not in the text (a keyword match, a lower bound), marks {dict(Counter(r['sentiment'] for r in absent))}"
+        f"{sum(1 for r in rows if r.get('notes', '').strip())} rows have a note; by keyword: "
+        + ", ".join(f"{k} {len(v)}" for k, v in kinds.items())
+        + " (approximate, no bound)"
     )
     both = Counter((r["predicted"], r["sentiment"]) for r in rows)
     lines.append(

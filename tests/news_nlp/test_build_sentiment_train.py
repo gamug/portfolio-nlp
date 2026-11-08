@@ -452,29 +452,40 @@ def test_a_row_without_a_company_stops_the_build_and_a_blank_ticker_does_not() -
         BUILD.build(_marks(ids), ids)
 
 
-def test_the_notes_that_say_the_company_is_absent_are_counted_by_their_words() -> None:
-    rows = [
-        {"notes": "Tesla not in the news", "sentiment": "neutral"},
-        {"notes": "This is not about ADP company", "sentiment": "neutral"},
-        {"notes": "Investor activity", "sentiment": "positive"},
-        {"notes": "", "sentiment": "negative"},
-    ]
-    assert len(BUILD.company_absent_notes(rows)) == 2
-    lines = BUILD.summary([{**r, "slice": "train", "predicted": "neutral"} for r in rows])
-    assert any("3 rows have a note; 2 say the company is not in the text" in ln for ln in lines)
+def test_a_note_is_read_by_its_words_into_one_kind_and_a_missing_column_is_not_an_error() -> None:
+    kind = BUILD.note_kind
+    assert kind("Tesla not in the news") == "absent"
+    assert kind("Nothing relevant about Goldman Sachs") == "nothing relevant"
+    assert (
+        kind("This is not about the company but about the entire market instead") == "other scope"
+    )
+    assert kind("Is not about a sector") == "other scope"
+    assert kind("Baxter comes from a person name, not for the company") == "namesake"
+    assert kind("Investor activity") == "" and kind("") == ""
+    rows = [{"notes": "Oracle not in the text"}, {"notes": ""}, {"sentiment": "neutral"}]
+    assert {k: len(v) for k, v in BUILD.notes_by_kind(rows).items()} == {"absent": 1}
+    lines = BUILD.summary(
+        [{**r, "slice": "train", "predicted": "neutral", "sentiment": "neutral"} for r in rows]
+    )
+    assert any("1 rows have a note; by keyword: absent 1" in ln for ln in lines)
 
 
 def test_the_committed_counts_of_the_notes_and_the_date_forms_are_the_ones_the_docs_quote() -> None:
     rows = _committed_rows()
     assert sum(1 for r in rows if r["notes"].strip()) == 49
-    absent = BUILD.company_absent_notes(rows)
-    assert len(absent) == 14 and {r["sentiment"] for r in absent} == {"neutral"}
-    assert Counter(r["rule_scope"] for r in absent) == {
-        "single": 8,
-        "multi_dominated": 4,
-        "sector": 2,
+    kinds = BUILD.notes_by_kind(rows)
+    assert {k: len(v) for k, v in kinds.items()} == {
+        "absent": 9,
+        "nothing relevant": 4,
+        "other scope": 3,
+        "namesake": 3,
     }
-    assert sum(r["predicted"] != "neutral" for r in absent) == 12
+    assert all(r["sentiment"] == "neutral" for v in kinds.values() for r in v)
+    assert {r["key"] for r in kinds["namesake"]} == {
+        "91090#summary",
+        "479890#summary",
+        "475332#summary",
+    }
     forms = Counter(
         "Z.000"
         if r["pub_date"].endswith(".000Z")
