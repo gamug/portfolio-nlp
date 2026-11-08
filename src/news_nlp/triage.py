@@ -322,48 +322,45 @@ class CompanyResolver:
         """How many explicit ticker forms (``$X``, ``(NYSE: X)``) *text* carries."""
         return sum(1 for m in self._tickers.finditer(text) if m.group(1) or m.group(2))
 
-    def _text_mentions(
-        self, text: str, skip_attribution: bool
-    ) -> tuple[Counter[str], Counter[str]]:
-        """``(plain, quoted)`` mentions per ticker found in *text*: names, short aliases (not the
-        first word of a full name already found) and explicit or bare ticker forms; *quoted* are
-        the ones named as the source of an opinion when *skip_attribution*."""
-        plain: Counter[str] = Counter()
-        quoted: Counter[str] = Counter()
-
-        def add(ticker: str, match: re.Match[str]) -> None:
-            is_quoted = skip_attribution and _attributed(text, match)
-            (quoted if is_quoted else plain)[ticker] += 1
-
+    def _matches(self, text: str, *, aliases: bool = True) -> list[tuple[re.Match[str], str]]:
+        """Every mention in *text* as ``(match, ticker)``: names, short aliases (not the first word
+        of a full name already found; none without *aliases*) and explicit or bare ticker forms. The
+        one place the patterns are applied: :meth:`_text_mentions` counts them,
+        :meth:`mention_spans` places them."""
+        found: list[tuple[re.Match[str], str]] = []
         spans = []
         for pattern in (self._names, self._word_names):
             for match in pattern.finditer(text):
                 spans.append(match.span())
-                add(self._by_name[normalize_name(match.group(0))], match)
-        for match in self._aliases.finditer(text):
+                found.append((match, self._by_name[normalize_name(match.group(0))]))
+        for match in self._aliases.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
-                add(self._alias_to[match.group(0)], match)
+                found.append((match, self._alias_to[match.group(0)]))
         for match in self._tickers.finditer(text):
-            add(self._by_ticker[next(g for g in match.groups() if g).upper()], match)
+            found.append((match, self._by_ticker[next(g for g in match.groups() if g).upper()]))
+        return found
+
+    def _text_mentions(
+        self, text: str, skip_attribution: bool
+    ) -> tuple[Counter[str], Counter[str]]:
+        """``(plain, quoted)`` mentions per ticker found in *text*; *quoted* are the ones named as
+        the source of an opinion when *skip_attribution*."""
+        plain: Counter[str] = Counter()
+        quoted: Counter[str] = Counter()
+        for match, ticker in self._matches(text):
+            is_quoted = skip_attribution and _attributed(text, match)
+            (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted
 
     def mention_spans(self, text: str, *, aliases: bool = True) -> list[tuple[int, int, str]]:
-        """``(start, end, ticker)`` of every mention in *text* (names, short aliases not inside a
-        full name already found, explicit or bare ticker forms), in order and without overlaps.
-        The same patterns as :meth:`resolve`, with positions: what the attribution model masks.
-        Without *aliases* the first word of a company's name does not count as a mention."""
-        found: list[tuple[int, int, str]] = []
-        for pattern in (self._names, self._word_names):
-            for match in pattern.finditer(text):
-                found.append((*match.span(), self._by_name[normalize_name(match.group(0))]))
-        names = list(found)
-        for match in self._aliases.finditer(text) if aliases else ():
-            if not any(a <= match.start() and match.end() <= b for a, b, _ in names):
-                found.append((*match.span(), self._alias_to[match.group(0)]))
-        for match in self._tickers.finditer(text):
-            ticker = self._by_ticker[next(g for g in match.groups() if g).upper()]
-            found.append((*match.span(), ticker))
-        found.sort(key=lambda m: (m[0], -m[1]))
+        """``(start, end, ticker)`` of the mentions in *text*, in order and without overlaps (the
+        longest wins where two overlap, e.g. a ticker form inside a name). The same matches as
+        :meth:`resolve` counts, with positions: what the attribution model masks. Without *aliases*
+        the first word of a company's name does not count as a mention."""
+        found = sorted(
+            ((*match.span(), ticker) for match, ticker in self._matches(text, aliases=aliases)),
+            key=lambda m: (m[0], -m[1]),
+        )
         kept: list[tuple[int, int, str]] = []
         for start, end, ticker in found:
             if not kept or start >= kept[-1][1]:

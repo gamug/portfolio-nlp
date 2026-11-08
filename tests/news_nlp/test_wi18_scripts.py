@@ -652,14 +652,16 @@ def test_the_sentiment_draw_names_a_short_stratum_and_a_repeated_key() -> None:
         SENTIMENT.draw(twins, 2, 1)
 
 
-def _faith_files(tmp_path: Path, skipped: list[dict[str, str]]) -> None:
+def _faith_files(
+    tmp_path: Path, skipped: list[dict[str, str]], extractors: str = "baseline|model"
+) -> None:
     ids, tags = [], []
     for order, article in enumerate(range(1, 7), 1):
         ids.append(
             {
                 "review_order": str(order),
                 "key": f"{article}#T#1",
-                "extractors": "baseline|model",
+                "extractors": extractors,
                 "pub_date": "2023-01-01",
             }
         )
@@ -684,6 +686,39 @@ def test_the_faithfulness_report_prints_both_readings_of_the_bar(tmp_path: Path)
     text = "\n".join(REPORT.faithfulness_report(tmp_path))
     assert "6 faithful of 6 texts + 2 companies left without one" in text
     assert "of the texts it wrote, 100.0%" in text
+
+
+def test_the_report_gives_the_three_gains_when_the_three_extractors_wrote_texts(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    for pair in ("model minus baseline", "units minus baseline", "units minus model"):
+        assert f"{pair} on 6 company texts" in text
+    _faith_files(tmp_path, [], extractors="baseline|model")
+    two = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "model minus baseline on 6" in two and "units minus" not in two
+
+
+def test_the_second_reading_of_the_bar_counts_the_footer_only_companies(tmp_path: Path) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    plain = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "second reading of the bar" not in plain  # no file: nothing to count
+    document = {
+        "rules": retag.code_revision(REPORT.attribution_units),
+        "companies": [_skip(1, "units"), _skip(2, "units")],
+    }
+    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "[all] units: with the 2 companies named only in a footer counted as unfaithful" in text
+    assert "[2022+] units: with the 2 companies" in text  # both blocks, the dates are 2023
+    assert "75.0%" in text.split("second reading of the bar")[1]  # 6 faithful of 6 + 2
+    document["rules"] = "another revision"
+    (tmp_path / gold_metrics.FOOTER_ONLY_NAME).write_text(json.dumps(document), encoding="utf-8")
+    other = "\n".join(REPORT.faithfulness_report(tmp_path))  # the report goes on without it
+    assert "written by the footer rules 'another revision'" in other
+    assert "the second reading of the bar is skipped" in other
+    assert "second reading of the bar):" not in other and "[all]   baseline:" in other
 
 
 def test_a_company_both_extractors_skipped_is_in_the_shares_not_in_the_gain(
@@ -804,6 +839,211 @@ def test_the_units2_extractor_is_not_asked_for_a_company_named_only_by_a_common_
     monkeypatch.setitem(FAITH.EXTRACTORS, "units2", lambda body, resolver: {"AAPL": "Apple text."})
     _, omissions = FAITH.collect_items([{"article_id": "1", "segments": "1"}], ["units2"], resolver)
     assert omissions == []  # "Bloom" is a person here: Bloom Energy is not a company of this story
+
+
+class _FooterResolver:
+    def resolve(self, body: str, skip_attribution: bool = True) -> set[str]:
+        return {"T"} | ({"U"} if "Disclosures" in body else set())
+
+
+def test_footer_only_rows_are_the_companies_the_body_names_only_in_its_footer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    story = "Company T had a good quarter and said so in a long statement to the press. " * 4
+    _source(monkeypatch, {1: story + "\nDisclosures:\nCortes owns U", 2: story})
+    rows = FAITH.footer_only_rows(
+        [{"article_id": "1", "segments": "1"}, {"article_id": "2", "segments": "1"}],
+        _FooterResolver(),  # type: ignore[arg-type]
+    )
+    assert [(r["article_id"], r["ticker"], r["extractor"]) for r in rows] == [("1", "U", "units")]
+
+
+def test_the_footer_only_file_carries_the_rules_and_the_report_refuses_other_rules(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / gold_metrics.FOOTER_ONLY_NAME
+    row = {"article_id": "1", "ticker": "U", "extractor": "units", "pub_date": "2023-01-01"}
+    path.write_text(json.dumps({"rules": "abc", "companies": [row]}), encoding="utf-8")
+    assert gold_metrics.read_footer_only(path, "abc") == [row]
+    with pytest.raises(gold_metrics.MarkedFileError, match="written by the footer rules"):
+        gold_metrics.read_footer_only(path, "other")
+    assert gold_metrics.read_footer_only(tmp_path / "missing.json", "abc") == []
+    path.write_text(json.dumps({"rules": "abc", "companies": [{"x": 1}]}), encoding="utf-8")
+    with pytest.raises(gold_metrics.MarkedFileError, match="columns"):
+        gold_metrics.read_footer_only(path, "abc")
+
+
+def _stale_ids(*rows: tuple[str, str, str, str]) -> list[dict[str, str]]:
+    """(key, text, extractors, revisions) as the ids file holds them."""
+    out = []
+    for key, text, extractors, revisions in rows:
+        article, ticker, _ = key.split("#")
+        out.append(
+            {
+                "key": key,
+                "article_id": article,
+                "ticker": ticker,
+                "text_hash": retag.text_hash(text),
+                "extractors": extractors,
+                "revisions": revisions,
+            }
+        )
+    return out
+
+
+def _stale_item(key: str, text: str, extractors: str) -> dict[str, str]:
+    article, ticker, _ = key.split("#")
+    return {
+        "key": key,
+        "article_id": article,
+        "ticker": ticker,
+        "text_hash": retag.text_hash(text),
+        "extractors": extractors,
+    }
+
+
+def test_stale_lists_the_marked_rows_the_code_no_longer_writes_and_the_texts_it_adds() -> None:
+    ids = _stale_ids(
+        ("1#T#1", "same", "baseline|units", "b1|u1"),
+        ("2#T#1", "old text", "units", "u1"),
+        ("3#T#1", "gone", "units", "u1"),
+    )
+    items = [
+        _stale_item("1#T#1", "same", "baseline|units"),
+        _stale_item("2#T#2", "new text", "units"),  # units now writes another text for article 2
+    ]  # and nothing for article 3
+    got = FAITH.stale_report(ids, items, ["baseline", "units"], {"baseline": "b1", "units": "u2"})
+    assert got["stale"] == ["2#T#1 (units)", "3#T#1 (units)"]
+    assert got["new"] == ["2#T#2 (units)"]
+    assert got["revision"] == ["1#T#1 (units)", "2#T#1 (units)", "3#T#1 (units)"]  # u1 is not u2
+
+
+def test_stale_ignores_extractors_that_were_not_run() -> None:
+    ids = _stale_ids(("1#T#1", "text", "baseline|units3", "b1|u3"))
+    got = FAITH.stale_report(
+        ids, [_stale_item("1#T#1", "text", "baseline")], ["baseline"], {"baseline": "b1"}
+    )
+    assert got == {"stale": [], "new": [], "revision": []}
+
+
+def _stale_file(path: Path, **entries: dict[str, object]) -> None:
+    """A staleness result: by default the baseline checked now and clean."""
+    document: dict[str, dict[str, object]] = {
+        "baseline": {
+            "date": "2026-11-08",
+            "revision": retag.extractor_revision("baseline"),
+            "stale": [],
+            "new": [],
+        }
+    }
+    document.update(entries)
+    (path / gold_metrics.STALE_NAME).write_text(
+        json.dumps({"extractors": document}), encoding="utf-8"
+    )
+
+
+def _units_entry(code: str, stale: list[str] | None = None) -> dict[str, object]:
+    return {
+        "date": "2026-11-09",
+        "revision": f"extractor:units@local:x@names:y@t0.5@{code}",
+        "stale": stale or [],
+        "new": [],
+    }
+
+
+def test_the_report_says_what_the_staleness_check_found_per_extractor(tmp_path: Path) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "no staleness check recorded: run draw_faithfulness --stale" in text
+    _stale_file(tmp_path)
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "no marked row is on a text the current code no longer writes" in text
+    assert "never checked: units" in text  # the marks have units rows, the file has no entry
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    rows = [f"{n}#T#1 (units)" for n in range(8)]
+    _stale_file(tmp_path, units=_units_entry(units, rows))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "8 marked rows are on texts the current code no longer writes" in text
+    assert "0#T#1 (units), 1#T#1 (units)" in text and ", ...)" in text  # six shown
+    assert "never checked" not in text and "warning" not in text
+
+
+def test_a_check_made_with_other_code_is_said_for_the_baseline_the_model_and_units(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|model|units")
+    model = retag.code_revision(*REPORT.attribution_model.CODE_MODULES)
+    entry = _units_entry("0123456789ab")  # another hash: the footer rules changed since the check
+    _stale_file(
+        tmp_path,
+        units=entry,
+        model={**entry, "revision": f"extractor:model@local:x@names:y@t0.5@{model}"},
+    )
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "warning: the staleness check of units (2026-11-09) was made with other code" in text
+    assert "check of model" not in text and "check of baseline" not in text  # those are current
+    _stale_file(tmp_path, baseline={**entry, "revision": "extractor:baseline@old"})
+    assert "check of baseline" in "\n".join(REPORT.faithfulness_report(tmp_path))
+
+
+def test_a_run_of_some_extractors_keeps_the_last_check_of_the_others(tmp_path: Path) -> None:
+    path = tmp_path / gold_metrics.STALE_NAME
+    units = gold_metrics.StaleEntry(date="d1", revision="r", stale=["1#T#1 (units)"], new=[])
+    baseline = gold_metrics.StaleEntry(date="d2", revision="r", stale=[], new=[])
+    path.write_text(json.dumps(gold_metrics.merge_stale({}, {"units": units})), encoding="utf-8")
+    again = gold_metrics.merge_stale(gold_metrics.read_stale(path), {"baseline": baseline})
+    path.write_text(json.dumps(again), encoding="utf-8")
+    kept = gold_metrics.read_stale(path)
+    assert kept["units"]["stale"] == ["1#T#1 (units)"] and kept["baseline"]["date"] == "d2"
+    path.write_text(json.dumps({"date": "old format"}), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="not in the current format"):
+        gold_metrics.read_stale(path)
+    path.write_text(json.dumps({"extractors": {"units": {"date": 1}}}), encoding="utf-8")
+    with pytest.raises(MarkedFileError, match="malformed"):
+        gold_metrics.read_stale(path)
+
+
+def test_stale_exits_with_a_sum_of_what_is_stale_and_what_was_not_checked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    ids = _stale_ids(
+        ("1#T#1", "text", "baseline", "r1"),
+        ("1#U#1", "other", "baseline|model", "r1|r2"),
+    )
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"rev-{name}")
+    monkeypatch.setattr(
+        FAITH, "EXTRACTORS", {"baseline": lambda body, resolver: {}, "model": lambda b, r: {}}
+    )
+
+    def collect(writes: list[dict[str, str]]):  # type: ignore[no-untyped-def]
+        return lambda bodies, names, resolver: (writes, [])
+
+    both = [_stale_item("1#T#1", "text", "baseline"), _stale_item("1#U#1", "other", "baseline")]
+    args = types.SimpleNamespace(out=tmp_path, only=None)
+    monkeypatch.setattr(FAITH, "collect_items", collect([both[0]]))
+    # baseline and model are run, U is no longer written by the baseline: stale (1); the model
+    # wrote nothing for U either (stale too); nothing left unchecked
+    assert FAITH.run_stale(args) == 1
+    saved = gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
+    assert saved["baseline"]["stale"] == ["1#U#1 (baseline)"] and saved["model"]["stale"]
+    # an extractor in the ids that is not registered is unchecked (2); with stale rows, 3
+    _csv(tmp_path / "faithfulness_ids.csv", [*ids, *_stale_ids(("1#V#1", "v", "units9", "r"))])
+    assert FAITH.run_stale(args) == 3
+    # --only limits the check to the extractors asked for: the others are left out, not unchecked
+    only = types.SimpleNamespace(out=tmp_path, only="baseline")
+    monkeypatch.setattr(FAITH, "collect_items", collect(both))
+    _csv(
+        tmp_path / "faithfulness_ids.csv",
+        _stale_ids(("1#T#1", "text", "baseline", "r1"), ("1#V#1", "v", "units9", "r")),
+    )
+    assert FAITH.run_stale(only) == 0
+    with pytest.raises(SystemExit, match="not registered"):
+        FAITH.run_stale(types.SimpleNamespace(out=tmp_path, only="nope"))
+    # the earlier result of the model is still in the file after a run of the baseline alone
+    assert "model" in gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
 
 
 def test_a_scored_pool_is_refused_under_other_conditions(
@@ -1611,7 +1851,10 @@ def test_faithfulness_gold_copies_the_coverage_and_the_report_reads_the_tracked_
     # the owner's file with the draw and the coverage, copied into the draw's names, gives the same
     (tmp_path / "faithfulness_bodies.csv").write_text("article_id\n1\n2\n3\n", encoding="utf-8")
     from_data = "\n".join(REPORT.faithfulness_report(tmp_path))
-    assert from_data.splitlines() == from_gold.splitlines()[1:]  # but for the gold's first line
+    working_only = [  # the staleness note is about the working files, not the tracked gold
+        line for line in from_data.splitlines() if "staleness check" not in line
+    ]
+    assert working_only == from_gold.splitlines()[1:]  # but for the gold's first line
 
 
 def test_the_report_reads_the_committed_gold_and_gives_the_figures_of_the_decision() -> None:
@@ -2328,3 +2571,28 @@ def test_the_env_file_scan_wants_a_call_before_the_connect_not_a_mention() -> No
         "late.py",
         "helper.py",
     ]
+
+
+def test_the_new_texts_of_an_entry_include_the_ones_other_extractors_also_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert FAITH.label_extractors("1#T#2 (baseline|units)") == {"baseline", "units"}
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "1"}])
+    _csv(tmp_path / "faithfulness_ids.csv", _stale_ids(("1#T#1", "text", "baseline", "r1")))
+    monkeypatch.setattr(FAITH.retag_cli, "companies", lambda: [])
+    monkeypatch.setattr(FAITH, "extractor_revision", lambda name: f"rev-{name}")
+    registered: dict[str, Callable[[str, object], dict[str, str]]] = {
+        n: (lambda body, resolver: {}) for n in ("baseline", "units", "units2")
+    }
+    monkeypatch.setattr(FAITH, "EXTRACTORS", registered)
+    written = [
+        _stale_item("1#T#1", "text", "baseline"),
+        _stale_item("1#T#2", "fresh", "baseline|units"),  # a new text two extractors write
+        _stale_item("1#T#3", "fresh two", "units2"),  # one only units2 writes
+    ]
+    monkeypatch.setattr(FAITH, "collect_items", lambda bodies, names, resolver: (written, []))
+    FAITH.run_stale(types.SimpleNamespace(out=tmp_path, only=None))
+    saved = gold_metrics.read_stale(tmp_path / gold_metrics.STALE_NAME)
+    assert saved["units"]["new"] == ["1#T#2 (baseline|units)"]  # not the units2 text
+    assert saved["baseline"]["new"] == ["1#T#2 (baseline|units)"]
+    assert saved["units2"]["new"] == ["1#T#3 (units2)"]
