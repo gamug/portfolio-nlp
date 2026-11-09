@@ -74,7 +74,7 @@ another run, so compare the shifts, not the levels.)
 Not affected: counts of bodies by date or status (T-159, T-160's bodies, the 29,113 of the cut's
 window), the models, the gold labels of the owner.
 
-## 6. The 2026-11-16 cut (proposed; the owner decides)
+## 6. The 2026-11-16 cut (decided by the owner, 2026-11-09: A, freeze)
 
 The cut is complete (117 chunks of 250, 29,113 unique bodies, summariser pinned) and was made with
 the rules of manifest revision `f0a251aaf437`, which is not master's (`d883f7c2fee2`): it is already
@@ -84,9 +84,12 @@ rules' revision, so the finished cut keeps reading after the merge. What the new
 summary, 0.3% (about 80) would leave it, 5.6% change scope, 12.5% change their subject companies
 (which matters for the company texts built later with the new matcher).
 
-* **A. Freeze (proposed):** the cut stays as built; its README/index says it was made with the rules of
+* **A. Freeze (decided):** the cut stays as built; its README/index says it was made with the rules of
   `f0a251aaf437` (matcher before PR #155), so nobody compares its scopes with a count made after it.
   Nothing is rebuilt; about 290 bodies that the new rules would summarise have no summary.
-* **B. Add the difference:** summarise only the bodies that enter the set (about 290, at 0.84 s per body
+* **B. Add the difference (not chosen):** summarise only the bodies that enter the set (about 290, at 0.84 s per body
   about 4 minutes), into a second, separate cut folder, and leave the 80 that leave it.
-* **C. Rebuild:** a new cut with the merged rules (29,113 bodies at 0.84 s: about 6.8 hours).
+* **C. Rebuild (not chosen):** a new cut with the merged rules (29,113 bodies at 0.84 s: about 6.8 hours).
+
+The cut folder is the owner's data and was not touched: the statement that it was made with the rules
+of `f0a251aaf437` (the matcher before PR #155) is here and in PLAN D38 (e).
