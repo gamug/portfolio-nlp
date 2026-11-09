@@ -100,6 +100,54 @@ _WORD_NAMES = frozenset(
         "williams",
     ]
 )
+#: First words of company names that are everyday words, places or first names (measured on a body
+#: sample, PR #155): "Federal Reserve", "Boston Globe", "Ralph" said. The company is named by the
+#: short form of its name ("Federal Realty", "Palo Alto") or in full.
+_COMMON_FIRST_WORDS = frozenset(
+    [
+        "federal",
+        "state",
+        "union",
+        "trade",
+        "west",
+        "home",
+        "take",
+        "universal",
+        "boston",
+        "illinois",
+        "republic",
+        "equity",
+        "live",
+        "realty",
+        "fair",
+        "builders",
+        "extra",
+        "globe",
+        "iron",
+        "steel",
+        "consolidated",
+        "principal",
+        "citizens",
+        "arch",
+        "snap",
+        "fifth",
+        "palo",
+        "alexandria",
+        "cincinnati",
+        "camden",
+        "monster",
+        "marathon",
+        "ralph",
+        "philip",
+        "arthur",
+        "stanley",
+        "henry",
+        "casey",
+        "phillips",
+        "fidelity",
+        "crown",
+    ]
+)
 #: First words of company names that name nothing by themselves (several companies share them or
 #: they are everyday words): never used as a short alias ("General", "American", "First").
 _ALIAS_STOP = frozenset(
@@ -135,25 +183,40 @@ _ALIAS_STOP = frozenset(
         "western",
         "charles",
         "western",
-        "federal",
-        "state",
-        "union",
-        "trade",
-        "west",
-        "home",
-        "take",
-        "universal",
+        *_COMMON_FIRST_WORDS,
     ]
 )
 #: Names and first-word aliases that are also surnames, first names or everyday nouns ("Wilbur
 #: Ross", "block trade", "Williams said"): a mention counts only when the same text also names the
 #: company some other way (its full name or a ticker form). Lower case.
-_CORROBORATED = frozenset(["bloom", "ross", "jack", "martin", "block", "travelers", "williams"])
+_CORROBORATED = frozenset(
+    [
+        "bloom",
+        "ross",
+        "jack",
+        "martin",
+        "block",
+        "travelers",
+        "williams",
+        "edwards",
+        "simon",
+        "baker",
+        "jacobs",
+        "parker",
+        "wells",
+        "morgan",
+        "ferguson",
+        "tyson",
+        "duke",
+        "franklin",
+        "apollo",
+    ]
+)
 #: The first words of company names (stop-listed ones and the ``_CORROBORATED`` words) that name
 #: their company in a short form of two words: "Federal Realty", "Take-Two", "Jack Henry".
-_SHORT_FORMS = frozenset(
-    [*["federal", "state", "union", "trade", "west", "home", "take", "universal"], *_CORROBORATED]
-)
+_SHORT_FORMS = _COMMON_FIRST_WORDS | _CORROBORATED
+#: ...except where the short form is itself a place: "Palo Alto" (the city), not "Palo Alto Networks".
+_NO_SHORT_FORM = frozenset(["palo"])
 _EXCHANGES = r"(?:NYSE|NASDAQ|Nasdaq|NYSEARCA|NYSE American|AMEX|BATS|Cboe)"
 #: Keywords of a body that names no company (whole words, case-insensitive).
 MARKET_TERMS = (
@@ -229,7 +292,10 @@ class Company(NamedTuple):
 
 
 def _words_pattern(phrases: Iterable[str]) -> re.Pattern[str]:
-    alternatives = sorted({re.escape(p) for p in phrases if p}, key=len, reverse=True)
+    # a hyphen reads as the space it replaced: "Coca-Cola" is "coca cola", "Bristol-Myers Squibb"
+    alternatives = sorted(
+        {re.escape(p).replace(r"\ ", r"[\s-]+") for p in phrases if p}, key=len, reverse=True
+    )
     if (
         not alternatives
     ):  # an empty universe matches nothing (an empty alternation matches everywhere)
@@ -316,7 +382,12 @@ class CompanyResolver:
                 r"[A-Za-z0-9&]+(?:-[A-Za-z0-9]+)*", re.sub(r"\(.*?\)", " ", company.name)
             )
             tokens = tokens[1:] if tokens[:1] == ["The"] else tokens
-            if key and key.split()[0] in _SHORT_FORMS and len(tokens) > 1 and key in self._by_name:
+            if (
+                key
+                and key.split()[0] in _SHORT_FORMS - _NO_SHORT_FORM
+                and len(tokens) > 1
+                and key in self._by_name
+            ):
                 head = tokens[:1] if "-" in tokens[0] else tokens[:2]
                 if " ".join(head).lower() != key:
                     self._short.setdefault(" ".join(head), self._by_name[key])

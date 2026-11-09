@@ -213,6 +213,16 @@ COMMON_WORDS = [
     Company("ROST", "Ross Stores, Inc.", "Consumer Discretionary", "Apparel Retail"),
     Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
     Company("META", "Meta Platforms, Inc.", "Communication Services", "Interactive Media"),
+    Company("BSX", "Boston Scientific Corporation", "Health Care", "Equipment"),
+    Company("KO", "Coca-Cola Company (The)", "Consumer Staples", "Soft Drinks"),
+    Company("PANW", "Palo Alto Networks, Inc.", "Information Technology", "Security"),
+    Company("WFC", "Wells Fargo & Company", "Financials", "Banks"),
+    Company("MS", "Morgan Stanley", "Financials", "Investment Banking"),
+    Company("JPM", "JPMorgan Chase & Co.", "Financials", "Banks"),
+    Company("LLY", "Lilly (Eli) and Company", "Health Care", "Pharmaceuticals"),
+    Company("EW", "Edwards Lifesciences Corporation", "Health Care", "Equipment"),
+    Company("RL", "Ralph Lauren Corporation", "Consumer Discretionary", "Apparel"),
+    Company("ITW", "Illinois Tool Works Inc.", "Industrials", "Machinery"),
 ]
 #: Each ordinary use of the word, and the company it used to be taken for.
 COMMON_USES = [
@@ -231,6 +241,13 @@ COMMON_USES = [
     ("Travelers waited in line.", "TRV"),
     ("Commerce Secretary Wilbur Ross spoke.", "ROST"),
     ("Williams said so.", "WMB"),
+    ("The Boston Globe reported it from Boston.", "BSX"),
+    ("Doug Parker and Wells said so; Palo Alto is a city.", "PANW"),
+    ("J.P. Morgan upgraded it, said Morgan.", "MS"),
+    ("Wells said so.", "WFC"),
+    ("Patty Edwards owns it.", "EW"),
+    ("Ralph said so.", "RL"),
+    ("Illinois voters went to the polls.", "ITW"),
 ]
 #: The company named properly: it must still count.
 REAL_USES = [
@@ -249,6 +266,15 @@ REAL_USES = [
     ("Travelers Companies rose.", "TRV"),
     ("Ross Stores rose.", "ROST"),
     ("Williams Companies rose.", "WMB"),
+    ("Boston Scientific rose.", "BSX"),
+    ("Coca-Cola rose.", "KO"),
+    ("Palo Alto Networks rose.", "PANW"),
+    ("Wells Fargo rose.", "WFC"),
+    ("Morgan Stanley rose.", "MS"),
+    ("Eli Lilly rose.", "LLY"),
+    ("Edwards Lifesciences rose.", "EW"),
+    ("Ralph Lauren rose.", "RL"),
+    ("Illinois Tool Works rose.", "ITW"),
 ]
 
 
