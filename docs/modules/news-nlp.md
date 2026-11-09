@@ -310,10 +310,10 @@ lean `articles` rows itself.
   owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
   and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
   development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
-  **Common words (D38, PR #155):** a hyphen in a name reads as a space ("Coca-Cola"); the first word of
+  **Common words (D38, PR #155):** a hyphen or an apostrophe in a name reads as a space ("Coca-Cola", "Casey's"), a line break does not; the first word of
   a company's name is not a mention when it is an everyday word, a place or a first name
   (`_COMMON_FIRST_WORDS` in `_ALIAS_STOP`: "Federal", "Boston", "Ralph", ...); the two-word short form
-  ("Federal Realty", "Take-Two", "Jack Henry") is. Surnames and nouns (`_CORROBORATED`: Bloom, Ross,
+  ("Federal Realty", "Take-Two", "Jack Henry"; a comma only before a legal word, never a full stop) is. Surnames and nouns (`_CORROBORATED`: Bloom, Ross,
   Wells, Morgan, Block, ...) count in `resolve` only when the body names the company another way (full
   name, short form, ticker form); "Block", "Travelers", "Williams" are read capitalised only.
   `mention_spans` keeps the corroborated aliases (it places the masks of single sentences;

@@ -1,14 +1,21 @@
 """Bodies that name each company with the matcher of a git revision and with the working tree (PR #155, D38).
 
-    uv run scripts/matcher_before_after_2026_11_09.py [--bodies 4000] [--modulo 60] [--base origin/master]
-        [--tickers FRT STT ...]
+    uv run scripts/matcher_before_after_2026_11_09.py [--bodies 4000] [--modulo 60] [--base 786766f]
+        [--tickers FRT STT ...] [--self-check]
 
-Read-only, CPU only, no model. It reads a sample of the properly fetched SOURCE bodies (``id % modulo
-= 7``; unique by ``triage.body_hash``), resolves each with ``CompanyResolver.resolve`` of the
+Read-only, CPU only, no model; it needs the same environment as the count script (``SOURCE_DATABASE_URL``,
+and ``DATABASE_URL`` for the pipeline connection). It reads a sample of the properly fetched SOURCE
+bodies (``id % modulo = residue``, 7 by default; another residue is a held-out sample; unique by
+``triage.body_hash``), resolves each with ``CompanyResolver.resolve`` of the
 ``triage.py`` at ``--base`` (read from git, never imported over the working one) and of the working
 tree, and prints, for the given tickers, the bodies naming the company before and after, the share
 dropped, and the words the dropped mentions were. It is the check behind the numbers of D38: compare a
 full run of ``company_news_counts_2026_11_09.py`` with the 2026-11-09 CSV the same way.
+
+``--base`` is the revision *before* the change (786766f, the last commit of master before PR #155):
+``origin/master`` would be the branch itself once it is merged. ``--self-check`` reads no body: it
+resolves each company of the universe from its own name and its short form and lists those the
+working matcher does not find (a stop list must not erase a company).
 """
 
 from __future__ import annotations
@@ -63,17 +70,45 @@ def triage_at(revision: str, repo: Path) -> ModuleType:
     return module
 
 
+def self_check(resolver: triage.CompanyResolver, universe: list[triage.Company]) -> list[str]:
+    """The companies *resolver* does not find by their own name (raw, with its curly apostrophes and
+    no-break spaces too); a stop word or a gap in the name pattern shows here."""
+    missing = []
+    for company in universe:
+        canonical = resolver.by_ticker[company.ticker.upper()]
+        for name in (company.name, company.name.replace("'", "\u2019").replace(" ", "\u00a0")):
+            if not resolver.resolve(f"{name} rose.", skip_attribution=False)[canonical]:
+                missing.append(f"{company.ticker}: {name!r}")
+                break
+    return missing
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     parser.add_argument("--bodies", type=int, default=4000)
     parser.add_argument("--modulo", type=int, default=60)
-    parser.add_argument("--base", default="origin/master")
+    parser.add_argument("--residue", type=int, default=7)
+    parser.add_argument("--base", default="786766f")
+    parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--tickers", nargs="*", default=TICKERS)
     args = parser.parse_args()
     env.load_env_file()
     conn = db.connect_pipeline()
     universe = counts.load_universe(conn)
     before_module = triage_at(args.base, Path(__file__).resolve().parents[1])
+    if args.self_check:
+        now = self_check(triage.CompanyResolver(universe), universe)
+        was = self_check(
+            before_module.CompanyResolver([before_module.Company(*c) for c in universe]), universe
+        )
+        print(f"{len(universe) - len(now)} of {len(universe)} companies found by their own name")
+        print(
+            f"{len(was)} were not found at {args.base} (it read only a plain space, no apostrophe)"
+        )
+        print("not found now:\n" + "\n".join(now))
+        lost = [m for m in now if m not in was]
+        print(f"LOST since {args.base} ({len(lost)}):\n" + "\n".join(lost))
+        return
     before = before_module.CompanyResolver([before_module.Company(*c) for c in universe])
     after = triage.CompanyResolver(universe)
     old: Counter[str] = Counter()
@@ -82,9 +117,9 @@ def main() -> None:
     seen: set[str] = set()
     for (body,) in conn.execute(
         "SELECT body_text FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
-        "AND body_text IS NOT NULL AND trim(body_text, char(32, 9, 10, 13)) != '' AND id % ? = 7 "
+        "AND body_text IS NOT NULL AND trim(body_text, char(32, 9, 10, 13)) != '' AND id % ? = ? "
         "ORDER BY id",
-        (args.modulo,),
+        (args.modulo, args.residue),
     ):
         digest = triage.body_hash(body)
         if digest in seen:

@@ -327,3 +327,54 @@ def test_distinctive_first_word_aliases_still_count() -> None:
     assert CompanyResolver(COMMON_WORDS).resolve("Meta fell.", skip_attribution=False) == Counter(
         {"META": 1}
     )
+
+
+CURLY, NBSP = chr(0x2019), chr(0xA0)  # the curly apostrophe, the no-break space
+TRICKY_NAMES = [
+    Company("CASY", "Casey's General Stores, Inc.", "Consumer Staples", "Food Retail"),
+    Company("DPZ", "Domino's Pizza Inc", "Consumer Discretionary", "Restaurants"),
+    Company("MCO", "Moody's Corporation", "Financials", "Financial Exchanges & Data"),
+    Company("LOW", "Lowe's Companies, Inc.", "Consumer Discretionary", "Home Improvement"),
+    Company("SNA", "Snap-on Incorporated", "Industrials", "Machinery"),
+    Company("BMY", "Bristol-Myers Squibb", "Health Care", "Pharmaceuticals"),
+    Company("PH", "Parker-Hannifin Corporation", "Industrials", "Machinery"),
+    Company("JKHY", "Jack Henry & Associates, Inc.", "Information Technology", "Processing"),
+    Company("XYZ", "Block, Inc.", "Financials", "Transaction Processing"),
+    Company("WSM", "Williams-Sonoma, Inc.", "Consumer Discretionary", "Home Furnishings"),
+    Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
+]
+
+
+@pytest.mark.parametrize("company", TRICKY_NAMES, ids=lambda c: c.ticker)
+def test_every_company_is_found_by_its_own_name(company: Company) -> None:
+    """The names of a universe are read as written: apostrophes, hyphens and ``&`` included, with
+    the straight or the curly apostrophe and a no-break space. A stop list must not erase one."""
+    resolver = CompanyResolver(TRICKY_NAMES)
+    for name in (company.name, company.name.replace("'", CURLY).replace(" ", NBSP)):
+        assert resolver.resolve(f"{name} rose.", skip_attribution=False)[company.ticker] >= 1, name
+
+
+def test_the_name_of_a_company_with_an_apostrophe_is_read_without_its_alias() -> None:
+    resolver = CompanyResolver(TRICKY_NAMES)
+    assert resolver.resolve(
+        f"Casey{CURLY}s General Stores rose.", skip_attribution=False
+    ) == Counter({"CASY": 1})
+    assert resolver.resolve("Williams-Sonoma rose.", skip_attribution=False)["WSM"] == 1
+    assert resolver.resolve("Williams-Sonoma rose.", skip_attribution=False)["WMB"] == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "ticker"),
+    [
+        ("Smith met Jack. Henry rose to speak.", "JKHY"),
+        ("Ask Martin. Marietta is a town.", "MLM"),
+        ("Federal. Realty investors", "FRT"),
+        ("Travelers. Companies said.", "TRV"),
+        ("Morgan\n\nStanley rose.", "MS"),
+        ("Home\nDepot rose.", "HD"),
+        ("Take\nTwo Interactive Software rose.", "TTWO"),
+    ],
+)
+def test_a_name_is_on_one_line_and_in_one_sentence(text: str, ticker: str) -> None:
+    resolver = CompanyResolver(COMMON_WORDS)
+    assert resolver.resolve(text, skip_attribution=False)[ticker] == 0

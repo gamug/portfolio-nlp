@@ -291,10 +291,31 @@ class Company(NamedTuple):
     gics_sub_industry: str
 
 
+#: What may stand between the words of a name: spaces, a hyphen, an apostrophe (never a line break).
+_NAME_GAP = r"[ \u00a0\t'\u2019-]+"
+
+
+def _canonical(form: str) -> str:
+    """A short form as the key it is looked up by: lower case, one space where the text had spaces,
+    a comma, a hyphen or an apostrophe."""
+    return re.sub(r"[ \u00a0\t,'\u2019-]+", " ", form.lower()).strip()
+
+
+def _short_form_pattern(tokens: Sequence[str]) -> str:
+    """The pattern of a short form given as its words: a hyphen or a space between name words, a
+    comma allowed only before a legal word ("Block, Inc."), never a full stop or a line break."""
+    parts = [re.escape(tokens[0])]
+    for token in tokens[1:]:
+        gap = r",?[ \u00a0\t]+" if token.lower() in _LEGAL_WORDS else r"[ \u00a0\t-]+"
+        parts += [gap, re.escape(token)]
+    return "".join(parts)
+
+
 def _words_pattern(phrases: Iterable[str]) -> re.Pattern[str]:
-    # a hyphen reads as the space it replaced: "Coca-Cola" is "coca cola", "Bristol-Myers Squibb"
+    # a hyphen or an apostrophe reads as the space it replaced ("Coca-Cola", "Casey's General Stores"),
+    # but a line break does not: a name is on one line
     alternatives = sorted(
-        {re.escape(p).replace(r"\ ", r"[\s-]+") for p in phrases if p}, key=len, reverse=True
+        {re.escape(p).replace(r"\ ", _NAME_GAP) for p in phrases if p}, key=len, reverse=True
     )
     if (
         not alternatives
@@ -376,6 +397,7 @@ class CompanyResolver:
         # company in the short form of its name: "Federal Realty", "Take-Two", "Jack Henry",
         # "Block, Inc." Matched capitalised, as a mention in itself.
         self._short = {}
+        short_tokens: dict[str, tuple[str, ...]] = {}
         for company in self.companies:
             key = normalize_name(company.name)
             tokens = re.findall(
@@ -390,11 +412,13 @@ class CompanyResolver:
             ):
                 head = tokens[:1] if "-" in tokens[0] else tokens[:2]
                 if " ".join(head).lower() != key:
-                    self._short.setdefault(" ".join(head), self._by_name[key])
+                    # the first company of a head keeps it (none shares one in the S&P universe)
+                    self._short.setdefault(_canonical(" ".join(head)), self._by_name[key])
+                    short_tokens.setdefault(_canonical(" ".join(head)), tuple(head))
         self._short_forms = re.compile(
             r"(?<![\w&])(?:"
             + "|".join(
-                re.escape(form).replace(r"\ ", r"[\s,.]+")
+                _short_form_pattern(short_tokens[form])
                 for form in sorted(self._short, key=len, reverse=True)
             )
             + r")(?![\w&])"
@@ -455,7 +479,7 @@ class CompanyResolver:
                 found.append((match, self._alias_to[match.group(0)]))
         for match in self._short_forms.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
-                found.append((match, self._short[re.sub(r"[\s,.]+", " ", match.group(0))]))
+                found.append((match, self._short[_canonical(match.group(0))]))
         for match in self._tickers.finditer(text):
             found.append((match, self._by_ticker[next(g for g in match.groups() if g).upper()]))
         return found
