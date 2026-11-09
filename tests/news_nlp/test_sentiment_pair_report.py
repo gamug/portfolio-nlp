@@ -140,7 +140,7 @@ def test_the_pin_rule_pins_only_on_a_better_agreement_gain_and_no_not_better_pre
     assert not pins and "negative recall gain is `not better` (D35 (4))" in reason
 
 
-def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_and_said_to_be_a_proposal() -> (
+def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_by_the_owners_answer() -> (
     None
 ):
     for verdicts in (
@@ -148,7 +148,4 @@ def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_and_said_t
         _verdicts("better", "better", "undefined"),
     ):
         pins, reason = rep.pin_decision(verdicts)
-        assert (
-            not pins
-            and "`undefined`, read as not passing (proposed, not decided by the owner)" in reason
-        )
+        assert not pins and "`undefined`, read as not passing (owner, 2026-11-09)" in reason

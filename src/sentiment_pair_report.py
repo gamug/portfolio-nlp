@@ -170,9 +170,8 @@ def pin_decision(verdicts: Mapping[str, str]) -> tuple[bool, str]:
     """D35's pin rule on the verdicts of the paired weighted gain (``weighted_gains``; keys ``agreement``,
     ``negative precision``, ``negative recall``), and the reason in words. (3) The candidate is pinned only if
     the agreement gain is ``better``. (4) No pin if the negative precision or the recall gain is ``not
-    better``. An ``undefined`` gain (no interval) of precision or recall is **read as not passing** here: the
-    owner's wording of (4) names only ``not better``, so this is a proposal for the owner, not a decision.
-    The rule is applied once, to the gold (T-148c4); on the validation slice it is a rehearsal."""
+    better``. An ``undefined`` gain (no interval) of precision or recall is **read as not passing**: the owner's
+    answer of 2026-11-09 (PLAN D35 (7)); (4) itself names only ``not better``. The rule is applied once, to the gold (T-148c4); on the validation slice it is a rehearsal."""
     if verdicts["agreement"] != "better":
         return False, f"the agreement gain is `{verdicts['agreement']}`, not `better` (D35 (3))"
     for name in ("negative precision", "negative recall"):
@@ -181,7 +180,7 @@ def pin_decision(verdicts: Mapping[str, str]) -> tuple[bool, str]:
         if verdicts[name] == "undefined":
             return (
                 False,
-                f"the {name} gain is `undefined`, read as not passing (proposed, not decided by the owner)",
+                f"the {name} gain is `undefined`, read as not passing (owner, 2026-11-09)",
             )
     return True, (
         f"the agreement gain is `better` and neither the precision (`{verdicts['negative precision']}`) "
