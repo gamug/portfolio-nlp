@@ -149,3 +149,54 @@ def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_by_the_own
     ):
         pins, reason = rep.pin_decision(verdicts)
         assert not pins and "`undefined`, read as not passing (owner, 2026-11-09)" in reason
+
+
+def _row(**changes: str) -> dict[str, str]:
+    row = {
+        "role": "final",
+        "gain_verdict": "better",
+        "gain_negative_precision_verdict": "better",
+        "gain_negative_recall_verdict": "better",
+    }
+    return {**row, **changes}
+
+
+def test_the_pin_is_decided_from_the_three_verdict_columns_each_read_for_its_own_metric() -> None:
+    from news_nlp.gold_metrics import MarkedFileError  # noqa: PLC0415
+
+    assert rep.pin_decision_from_row(_row())[0]
+    # each column moves only its own metric: swapping them would change who blocks the pin
+    pins, reason = rep.pin_decision_from_row(_row(gain_negative_precision_verdict="not better"))
+    assert not pins and "negative precision gain is `not better`" in reason
+    pins, reason = rep.pin_decision_from_row(_row(gain_negative_recall_verdict="not better"))
+    assert not pins and "negative recall gain is `not better`" in reason
+    pins, reason = rep.pin_decision_from_row(_row(gain_verdict="not decided"))
+    assert not pins and "the agreement gain is `not decided`" in reason
+    pins, reason = rep.pin_decision_from_row(_row(gain_negative_recall_verdict="undefined"))
+    assert not pins and "read as not passing (owner, 2026-11-09)" in reason
+    # a verdict that is `not decided` for precision does not block (the validation figures' case)
+    assert rep.pin_decision_from_row(_row(gain_negative_precision_verdict="not decided"))[0]
+    for column in rep.ROW_VERDICT_COLUMNS.values():
+        missing = _row()
+        del missing[column]
+        with pytest.raises(MarkedFileError, match=f"{column}: '' is not a verdict"):
+            rep.pin_decision_from_row(missing)
+        with pytest.raises(MarkedFileError, match=f"{column}: 'good' is not a verdict"):
+            rep.pin_decision_from_row(_row(**{column: "good"}))
+        with pytest.raises(MarkedFileError, match=f"{column}: '' is not a verdict"):
+            rep.pin_decision_from_row(_row(**{column: ""}))  # a baseline row has no gain
+
+
+def test_a_row_that_is_not_a_final_run_is_refused_and_a_row_without_a_role_is_read() -> None:
+    from news_nlp.gold_metrics import MarkedFileError  # noqa: PLC0415
+
+    with pytest.raises(MarkedFileError, match="`final` row, this one is 'baseline'"):
+        rep.pin_decision_from_row(_row(role="baseline"))
+    without_role = {k: v for k, v in _row().items() if k != "role"}
+    assert rep.pin_decision_from_row(without_role)[0]
+
+
+def test_the_row_columns_are_the_ones_the_scorer_logs() -> None:
+    from news_nlp import retag  # noqa: PLC0415
+
+    assert set(rep.ROW_VERDICT_COLUMNS.values()) <= set(retag.SENTIMENT_SCORING_LOG_COLUMNS)

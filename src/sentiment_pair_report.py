@@ -186,3 +186,33 @@ def pin_decision(verdicts: Mapping[str, str]) -> tuple[bool, str]:
         f"the agreement gain is `better` and neither the precision (`{verdicts['negative precision']}`) "
         f"nor the recall (`{verdicts['negative recall']}`) gain is `not better` (D35 (3), (4))"
     )
+
+
+#: The columns of a scorer row (``retag.SENTIMENT_SCORING_LOG_COLUMNS``) that carry the verdicts of the paired
+#: gain of a ``final`` run, by the key ``pin_decision`` reads.
+ROW_VERDICT_COLUMNS = {
+    "agreement": "gain_verdict",
+    "negative precision": "gain_negative_precision_verdict",
+    "negative recall": "gain_negative_recall_verdict",
+}
+VERDICTS = ("better", "not better", "not decided", "undefined")
+
+
+def pin_decision_from_row(row: Mapping[str, str]) -> tuple[bool, str]:
+    """The pin decision of a ``final`` row of the gold scorer: the one place that decides it (T-148c4). The three
+    verdict columns are read by name; a missing or unknown one stops the run, since a pin on a guessed verdict
+    is worse than no pin. A row that says its role and it is not ``final`` is refused."""
+    role = row.get("role")
+    if role is not None and role != "final":
+        raise gold_metrics.MarkedFileError(
+            f"the pin is decided on a `final` row, this one is {role!r}"
+        )
+    verdicts = {}
+    for key, column in ROW_VERDICT_COLUMNS.items():
+        value = (row.get(column) or "").strip()
+        if value not in VERDICTS:
+            raise gold_metrics.MarkedFileError(
+                f"{column}: {value!r} is not a verdict ({', '.join(VERDICTS)}); the pin is not decided"
+            )
+        verdicts[key] = value
+    return pin_decision(verdicts)
