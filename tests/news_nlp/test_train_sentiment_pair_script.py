@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -35,16 +36,16 @@ def _source(tmp_path: Path) -> Path:
     path = tmp_path / "source.db"
     with sqlite3.connect(path) as raw:
         raw.execute(
-            "CREATE TABLE articles (id INTEGER, ticker TEXT, company TEXT, body_text TEXT, fetch_status TEXT)"
+            "CREATE TABLE articles (id INTEGER, ticker TEXT, company TEXT, body_text TEXT, fetch_status TEXT, title TEXT)"
         )
         raw.executemany(
-            "INSERT INTO articles VALUES (?,?,?,?,?)",
+            "INSERT INTO articles VALUES (?,?,?,?,?,?)",
             [
-                (1, "AAA", "Acme Corp", "Acme  rose today", "ok"),
-                (2, "BBB", "Bravo Inc", "Bravo fell", "quarantined"),
-                (3, "CCC", "Charlie", "", "ok"),  # no body
-                (4, "", "Delta", "Delta news", "ok"),  # no ticker
-                (5, "EEE", None, "Echo news", "ok"),  # no company
+                (1, "AAA", "Acme Corp", "Acme  rose today", "ok", "Acme raises its yearly outlook"),
+                (2, "BBB", "Bravo Inc", "Bravo fell", "quarantined", "Bravo"),  # a short headline
+                (3, "CCC", "Charlie", "", "ok", None),  # no body
+                (4, "", "Delta", "Delta news", "ok", None),  # no ticker
+                (5, "EEE", None, "Echo news", "ok", None),  # no company
             ],
         )
     return path
@@ -57,7 +58,13 @@ def test_the_replay_gets_the_body_ticker_and_company_of_each_article_that_has_al
     conn.execute("ATTACH DATABASE ? AS source", (str(_source(tmp_path)),))
     infos = CMD.article_infos(conn, {1, 2, 3, 4, 5, 99})
     assert set(infos) == {1, 2}
-    assert infos[1] == spt.ArticleInfo(triage.body_hash("Acme rose today"), "AAA", "Acme Corp")
+    assert infos[1] == spt.ArticleInfo(
+        triage.body_hash("Acme rose today"),
+        "AAA",
+        "Acme Corp",
+        CMD.headline_key("Acme raises its yearly outlook"),
+    )
+    assert infos[1].title_key and infos[2].title_key == ""  # too short to mean anything
 
 
 def test_the_source_is_read_as_an_immutable_snapshot_when_it_cannot_be_attached(
@@ -71,8 +78,9 @@ def test_the_source_is_read_as_an_immutable_snapshot_when_it_cannot_be_attached(
     conn = CMD.connect_source()
     assert conn.execute("SELECT COUNT(*) FROM source.articles").fetchone()[0] == 5
     assert "immutable snapshot" in capsys.readouterr().err
+    assert "immutable snapshot" in CMD.SOURCE_MODE["how"]  # written into the results file
     with pytest.raises(sqlite3.OperationalError):  # read-only
-        conn.execute("INSERT INTO source.articles VALUES (9, 'X', 'X', 'X', 'ok')")
+        conn.execute("INSERT INTO source.articles VALUES (9, 'X', 'X', 'X', 'ok', 'X')")
 
 
 def test_without_a_source_the_attach_error_is_not_hidden(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -115,14 +123,15 @@ def test_the_results_are_written_whole_and_only_the_grid_rows_choose_the_setting
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(CMD, "OUT", tmp_path / "out")
-    assert CMD.load_results() == []
+    assert CMD.load_results() == ({}, [])
     rows = [
         {"name": "n1", "tag": "grid", "validation_agreement": 0.7, "settings": {"epochs": 2, "learning_rate": 1e-5}},
         {"name": "n2", "tag": "grid", "validation_agreement": 0.8, "settings": {"epochs": 2, "learning_rate": 1e-5}},
         {"name": "t", "tag": "timing", "validation_agreement": 0.1, "settings": {"epochs": 4, "learning_rate": 2e-5}},
     ]  # fmt: skip
-    CMD.save_results(rows)
-    assert CMD.load_results() == rows and not list((tmp_path / "out").glob("*.tmp"))
+    CMD.save_results(rows, {"fingerprint": "f1", "source": "attached read-only"})
+    assert CMD.load_results() == ({"fingerprint": "f1", "source": "attached read-only"}, rows)
+    assert not list((tmp_path / "out").glob("*.tmp"))
     assert CMD.agreements_by_setting(rows) == {(2, 1e-5): [0.7, 0.8]}
 
 
@@ -180,19 +189,47 @@ def test_the_grid_runs_what_is_not_done_and_saves_after_every_run(
 ) -> None:
     _patch_run(monkeypatch, tmp_path)
     first = spt.grid_settings()[0]
-    CMD.save_results([{**CMD.one_run(first, [], lambda _d: 0.7), "tag": "grid"}])
+    CMD.save_results(
+        [{**CMD.one_run(first, [], lambda _d: 0.7), "tag": "grid"}], {"fingerprint": "f"}
+    )
     saved: list[int] = []
     real_save = CMD.save_results
 
-    def counting_save(rows: list[dict[str, Any]]) -> None:
+    def counting_save(rows: list[dict[str, Any]], header: dict[str, Any]) -> None:
         saved.append(len(rows))
-        real_save(rows)
+        real_save(rows, header)
 
     monkeypatch.setattr(CMD, "save_results", counting_save)
-    CMD.run_grid([], lambda _d: 0.8, False)
-    assert "1 runs already done, 26 to run" in capsys.readouterr().out
+    CMD.run_grid([], lambda _d: 0.8, False, "f", 83)
+    out = capsys.readouterr().out
+    assert "1 runs already done, 26 to run" in out
+    assert "/83 texts" in out and "sampling noise of 83 texts" in out
     assert saved == list(range(2, 28))  # one save per run
-    assert len(CMD.load_results()) == 27 and len({r["name"] for r in CMD.load_results()}) == 27
+    header, rows = CMD.load_results()
+    assert len(rows) == 27 and len({r["name"] for r in rows}) == 27 and header["fingerprint"] == "f"
+
+
+def test_rows_of_other_data_are_not_resumed_unless_asked_and_then_set_aside(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    row = {**CMD.one_run(spt.grid_settings()[0], [], lambda _d: 0.7), "tag": "grid"}
+    CMD.save_results([row], {"fingerprint": "old-data"})
+    with pytest.raises(SystemExit, match=r"other data or settings.*--fresh"):
+        CMD.run_grid([], lambda _d: 0.8, False, "new-data")
+    with pytest.raises(SystemExit, match=r"other data or settings"):
+        CMD.run_final([], lambda _d: 0.8, False, "new-data")
+    CMD.run_grid([], lambda _d: 0.8, False, "new-data", fresh=True)
+    assert (tmp_path / "out" / "grid_results.previous.json").exists()
+    header, rows = CMD.load_results()
+    assert (
+        header["fingerprint"] == "new-data"
+        and len(rows) == 27
+        and rows[0]["validation_agreement"] == 0.8
+    )
+    old = tmp_path / "out" / "grid_results.json"
+    old.write_text("[]")  # the first format: no fingerprint, and no rows to lose
+    CMD.run_grid([], lambda _d: 0.8, False, "new-data")
 
 
 def test_the_final_run_needs_the_whole_grid_and_is_made_once(
@@ -200,11 +237,12 @@ def test_the_final_run_needs_the_whole_grid_and_is_made_once(
 ) -> None:
     _patch_run(monkeypatch, tmp_path)
     with pytest.raises(SystemExit, match="grid is not complete"):
-        CMD.run_final([], lambda _d: 0.8, False)
+        CMD.run_final([], lambda _d: 0.8, False, "f")
     CMD.save_results(
-        [{**CMD.one_run(s, [], lambda _d: 0.8), "tag": "grid"} for s in spt.grid_settings()]
+        [{**CMD.one_run(s, [], lambda _d: 0.8), "tag": "grid"} for s in spt.grid_settings()],
+        {"fingerprint": "f"},
     )
-    CMD.run_final([], lambda _d: 0.9, False)
+    CMD.run_final([], lambda _d: 0.9, False, "f", 83)
     out = capsys.readouterr().out
     assert (
         "chosen: 4 epochs, lr 2e-05" in out
@@ -212,10 +250,70 @@ def test_the_final_run_needs_the_whole_grid_and_is_made_once(
     )
     assert "not published, not scored on the gold" in out
     last = CMD.load_results()[-1]
+    last = CMD.load_results()[1][-1]
     assert last["tag"] == "final" and last["settings"]["seed"] == spt.FINAL_SEED
+    assert last["fingerprint"] == "f"  # T-148c4 can check what the published model was trained on
     assert (tmp_path / "models" / "final" / "config.json").exists()
-    with pytest.raises(SystemExit, match="exists"):
-        CMD.run_final([], lambda _d: 0.9, False)  # a final run is made once
+    assert not (tmp_path / "models" / "final.partial").exists()
+    with pytest.raises(SystemExit, match=r"a final run is made once.*exists.*a final row"):
+        CMD.run_final([], lambda _d: 0.9, False, "f")  # a final run is made once
+
+
+def test_a_final_run_that_fails_leaves_no_model_without_a_row_and_can_be_made_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    CMD.save_results(
+        [{**CMD.one_run(s, [], lambda _d: 0.8), "tag": "grid"} for s in spt.grid_settings()],
+        {"fingerprint": "f"},
+    )
+
+    def broken(_d: str) -> float:
+        raise RuntimeError("scoring failed")
+
+    with pytest.raises(RuntimeError, match="scoring failed"):
+        CMD.run_final([], broken, False, "f")
+    assert not (
+        tmp_path / "models" / "final"
+    ).exists()  # only the partial one, never taken for the model
+    CMD.run_final([], lambda _d: 0.9, False, "f")  # the partial directory is replaced
+    assert (tmp_path / "models" / "final" / "config.json").exists()
+    assert CMD.load_results()[1][-1]["tag"] == "final"
+    # a final row without its model directory is refused and says which of the two is missing
+    shutil.rmtree(tmp_path / "models" / "final")
+    with pytest.raises(SystemExit, match=r"is missing and the results file has a final row"):
+        CMD.run_final([], lambda _d: 0.9, False, "f")
+
+
+def test_the_baseline_scores_the_pinned_model_with_the_pair_and_without(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "abcd"]
+    seen: list[Any] = []
+
+    def predict(items: list[dict[str, str]], cfg: Any, pair: bool = False) -> list[dict[str, str]]:
+        seen.append((cfg, pair))
+        hits = 3 if pair else 1  # the pair reads three of the four as marked
+        return [
+            {**i, "predicted": "positive" if n < hits else "negative"} for n, i in enumerate(items)
+        ]
+
+    monkeypatch.setattr(CMD.gold_draw, "predict", predict)
+    result = CMD.run_baseline(validation)
+    assert seen == [
+        ({"model": "base", "revision": "rev"}, True),
+        ({"model": "base", "revision": "rev"}, False),
+    ]
+    assert (result["pair"], result["text_only"], result["n"]) == (3, 1, 4)
+    assert json.loads((tmp_path / "out" / "baseline.json").read_text())["pair"] == 3
+    assert "as the pair 3/4 = 0.750; text only 1/4 = 0.250" in capsys.readouterr().out
+
+
+def test_the_stage_rule_the_replay_uses_is_still_there_under_its_name() -> None:
+    from sentiment_stage import _text_mentions_subject  # noqa: PLC0415
+
+    assert CMD._text_mentions_subject is _text_mentions_subject
 
 
 def test_the_replay_seed_and_the_timing_setting_are_fixed_in_the_command() -> None:

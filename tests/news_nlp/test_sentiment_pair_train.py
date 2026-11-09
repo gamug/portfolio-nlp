@@ -172,6 +172,47 @@ def test_a_class_short_of_its_quota_is_filled_from_the_others() -> None:
     sentences = [s for s in _sentences(90) if s["label"] != "negative" or s["article_id"] < 7]
     _, report = spt.replay_examples(sentences, _info, set(), _mentions, 30, seed=1)
     assert report.drawn == 30 and report.by_label["negative"] <= 3
+    assert any("negative has" in w and "less balanced" in w for w in report.warnings)
+
+
+def test_a_replay_smaller_than_asked_says_so_and_an_unknown_label_is_named() -> None:
+    _, report = spt.replay_examples(_sentences(12), _info, set(), _mentions, 30, seed=1)
+    assert report.drawn == 11 and any("only 11 of the 30" in w for w in report.warnings)
+    assert any(line.startswith("WARNING: only 11") for line in report.lines())
+    bad = [{"sentence": "Acme x", "label": "bullish", "article_id": 5}]
+    with pytest.raises(spt.MarkedFileError, match=r"article 5.*bullish"):
+        spt.replay_examples(bad, _info, set(), _mentions, 3, seed=1)
+
+
+def test_a_sentence_under_the_headline_of_an_exam_article_is_left_out() -> None:
+    def titled(article_id: int) -> spt.ArticleInfo | None:
+        info = _info(article_id)
+        return info and info._replace(title_key="same story" if article_id < 10 else "")
+
+    chosen, report = spt.replay_examples(
+        _sentences(30), titled, set(), _mentions, 12, seed=1, never_titles={"same story"}
+    )
+    assert report.exam_titles == 9 and "9 under the headline" in report.lines()[0]
+    assert all(int(e.key.split("#")[0]) >= 10 for e in chosen)
+    # an empty headline key (too short to mean anything) never matches
+    _, none = spt.replay_examples(
+        _sentences(30), titled, set(), _mentions, 12, seed=1, never_titles={""}
+    )
+    assert none.exam_titles == 0
+
+
+def test_the_fingerprint_follows_the_data_the_base_and_the_constants_not_the_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    train = [_example(i) for i in range(5)]
+    val = [_example(i + 10) for i in range(3)]
+    base = spt.train_fingerprint(train, val, "m", "r1")
+    assert base == spt.train_fingerprint(train[::-1], val[::-1], "m", "r1")
+    assert base != spt.train_fingerprint(train[:-1], val, "m", "r1")
+    assert base != spt.train_fingerprint(train, val[:-1], "m", "r1")
+    assert base != spt.train_fingerprint(train, val, "m", "r2")
+    monkeypatch.setattr(spt, "BATCH_SIZE", 8)
+    assert base != spt.train_fingerprint(train, val, "m", "r1")
 
 
 # --- the batches ---------------------------------------------------------------------------------

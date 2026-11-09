@@ -21,6 +21,7 @@ gives it.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import random
 import statistics
@@ -126,6 +127,7 @@ class ArticleInfo(NamedTuple):
     body_hash: str
     ticker: str
     company: str
+    title_key: str = ""  # the headline key (empty if too short to mean anything)
 
 
 @dataclass
@@ -135,17 +137,23 @@ class ReplayReport:
     pool: int = 0
     unknown_article: int = 0
     exam_bodies: int = 0  # the body is a gold, held-out or drawn-for-tagging body
+    exam_titles: int = 0  # the same story under another body: its headline is an exam headline
     no_company_named: int = 0  # the sentence does not name its article's company
     eligible: int = 0
     drawn: int = 0
     by_label: dict[str, int] = field(default_factory=dict)
+    warnings: list[str] = field(
+        default_factory=list
+    )  # a replay smaller or less balanced than asked
 
     def lines(self) -> list[str]:
         return [
             f"replay pool {self.pool:,}: {self.unknown_article:,} of an article not in the SOURCE, "
             f"{self.exam_bodies:,} of a gold, held-out or drawn-for-tagging body, "
+            f"{self.exam_titles:,} under the headline of one (same story, another body), "
             f"{self.no_company_named:,} that do not name their article's company; "
-            f"{self.eligible:,} eligible, {self.drawn:,} drawn {self.by_label}"
+            f"{self.eligible:,} eligible, {self.drawn:,} drawn {self.by_label}",
+            *(f"WARNING: {w}" for w in self.warnings),
         ]
 
 
@@ -156,11 +164,12 @@ def replay_examples(
     mentions: Callable[[str, str, str], bool],
     n: int,
     seed: int,
+    never_titles: frozenset[str] | set[str] = frozenset(),
 ) -> tuple[list[Example], ReplayReport]:
     """*n* sentences of the earlier balanced pool, seeded and as balanced by class as the pool allows,
     each read for the company of its article. Left out: a sentence of an article the SOURCE does not
-    have, of a body in *never* (the gold, the held-out and the drawn-for-tagging bodies, by hash), or
-    that does not name its article's company (*mentions*: ``(text, company, ticker)``, the rule the
+    have, of a body in *never* (the gold, the held-out and the drawn-for-tagging bodies, by hash), under a
+    headline in *never_titles* (the same story stored under another body), or that does not name its article's company (*mentions*: ``(text, company, ticker)``, the rule the
     stage uses to weigh a chunk), since a pair needs a company the sentence is about."""
     report = ReplayReport()
     eligible: dict[int, list[Example]] = defaultdict(list)
@@ -171,10 +180,16 @@ def replay_examples(
             report.unknown_article += 1
         elif info.body_hash in never:
             report.exam_bodies += 1
+        elif info.title_key and info.title_key in never_titles:
+            report.exam_titles += 1
         elif not mentions(row["sentence"], info.company, info.ticker):
             report.no_company_named += 1
         else:
-            label = LABEL2ID[row["label"]]
+            label = LABEL2ID.get(row["label"])
+            if label is None:
+                raise MarkedFileError(
+                    f"replay sentence of article {row['article_id']}: {row['label']!r} is not a class"
+                )
             key = f"{row['article_id']}#{hashlib.sha256(row['sentence'].encode()).hexdigest()[:10]}"
             eligible[label].append(Example(key, info.company, row["sentence"], label, "sentence"))
     report.eligible = sum(len(v) for v in eligible.values())
@@ -190,8 +205,41 @@ def replay_examples(
     rng.shuffle(leftovers)
     chosen += leftovers[: n - len(chosen)]
     report.drawn = len(chosen)
+    report.warnings = _shortfalls(report.drawn, n, {k: len(v) for k, v in eligible.items()}, quota)
     report.by_label = {ID2LABEL[k]: v for k, v in sorted(Counter(e.label for e in chosen).items())}
     return chosen, report
+
+
+def _shortfalls(drawn: int, n: int, eligible: dict[int, int], quota: int) -> list[str]:
+    """What is short in a replay: fewer sentences than asked, or a class below its quota."""
+    warnings = []
+    if drawn < n:
+        warnings.append(f"only {drawn} of the {n} asked: the eligible pool is smaller")
+    for label in LABEL2ID.values():
+        if eligible.get(label, 0) < quota:
+            warnings.append(
+                f"{ID2LABEL[label]} has {eligible.get(label, 0)} eligible sentences, below its quota "
+                f"of {quota}: the replay is less balanced than asked"
+            )
+    return warnings
+
+
+def train_fingerprint(
+    train: Sequence[Example],
+    validation: Sequence[Example],
+    base_model: str,
+    base_revision: str | None,
+) -> str:
+    """A hash of everything the grid's rows depend on: the training texts (key and class), the validation
+    texts, the base model and revision, and the recipe's constants. Rows made under another fingerprint
+    are not rows of the same grid."""
+    payload = {
+        "train": sorted((e.key, e.label, e.kind) for e in train),
+        "validation": sorted((e.key, e.label) for e in validation),
+        "base": [base_model, base_revision],
+        "constants": [BATCH_SIZE, WEIGHT_DECAY, MAX_GRAD_NORM, MAX_LENGTH, GRID_SEEDS, FINAL_SEED],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 # --- batches --------------------------------------------------------------------------------------
