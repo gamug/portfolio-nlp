@@ -116,3 +116,39 @@ def test_the_weighted_agreement_of_a_run_weighs_its_strata_by_the_pool() -> None
     assert rep.weighted_agreement(rows, populations, "good") == 1.0
     assert rep.weighted_agreement(rows, populations, "bad") == pytest.approx(0.06)
     assert math.isnan(rep.weighted_agreement([], {}, "good"))
+
+
+def _verdicts(agreement: str, precision: str, recall: str) -> dict[str, str]:
+    return {"agreement": agreement, "negative precision": precision, "negative recall": recall}
+
+
+def test_the_pin_rule_pins_only_on_a_better_agreement_gain_and_no_not_better_precision_or_recall() -> (
+    None
+):
+    pins, reason = rep.pin_decision(_verdicts("better", "not decided", "better"))
+    assert pins and "neither the precision (`not decided`) nor the recall (`better`)" in reason
+    assert rep.pin_decision(_verdicts("better", "better", "not decided"))[0]
+    assert rep.pin_decision(_verdicts("better", "better", "better"))[0]
+    for agreement in ("not better", "not decided", "undefined"):  # (3): only `better` pins
+        pins, reason = rep.pin_decision(_verdicts(agreement, "better", "better"))
+        assert (
+            not pins and f"the agreement gain is `{agreement}`" in reason and "(D35 (3))" in reason
+        )
+    pins, reason = rep.pin_decision(_verdicts("better", "not better", "better"))  # (4)
+    assert not pins and "negative precision gain is `not better` (D35 (4))" in reason
+    pins, reason = rep.pin_decision(_verdicts("better", "better", "not better"))
+    assert not pins and "negative recall gain is `not better` (D35 (4))" in reason
+
+
+def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_and_said_to_be_a_proposal() -> (
+    None
+):
+    for verdicts in (
+        _verdicts("better", "undefined", "better"),
+        _verdicts("better", "better", "undefined"),
+    ):
+        pins, reason = rep.pin_decision(verdicts)
+        assert (
+            not pins
+            and "`undefined`, read as not passing (proposed, not decided by the owner)" in reason
+        )

@@ -164,3 +164,26 @@ def weighted_agreement(
         populations[k] * sum(r["gold"] == r[column] for r in v) / len(v) for k, v in strata.items()
     )
     return right / total if total else math.nan
+
+
+def pin_decision(verdicts: Mapping[str, str]) -> tuple[bool, str]:
+    """D35's pin rule on the verdicts of the paired weighted gain (``weighted_gains``; keys ``agreement``,
+    ``negative precision``, ``negative recall``), and the reason in words. (3) The candidate is pinned only if
+    the agreement gain is ``better``. (4) No pin if the negative precision or the recall gain is ``not
+    better``. An ``undefined`` gain (no interval) of precision or recall is **read as not passing** here: the
+    owner's wording of (4) names only ``not better``, so this is a proposal for the owner, not a decision.
+    The rule is applied once, to the gold (T-148c4); on the validation slice it is a rehearsal."""
+    if verdicts["agreement"] != "better":
+        return False, f"the agreement gain is `{verdicts['agreement']}`, not `better` (D35 (3))"
+    for name in ("negative precision", "negative recall"):
+        if verdicts[name] == "not better":
+            return False, f"the {name} gain is `not better` (D35 (4))"
+        if verdicts[name] == "undefined":
+            return (
+                False,
+                f"the {name} gain is `undefined`, read as not passing (proposed, not decided by the owner)",
+            )
+    return True, (
+        f"the agreement gain is `better` and neither the precision (`{verdicts['negative precision']}`) "
+        f"nor the recall (`{verdicts['negative recall']}`) gain is `not better` (D35 (3), (4))"
+    )

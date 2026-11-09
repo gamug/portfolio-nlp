@@ -59,6 +59,8 @@ REPLAY_SEED = (
 )
 TIMING_SETTING = spt.RunSettings(*spt.EARLIER_SETTING, seed=1)
 #: How the SOURCE was read: written into the results file, so a result got from a snapshot can be told.
+#: A run's agreement recomputed from its predictions must equal the one its row logged (a share of 83).
+AGREEMENT_TOLERANCE = 1e-9
 SOURCE_MODE = {"how": "attached read-only"}
 
 
@@ -164,6 +166,12 @@ def validation_scorer(validation: list[spt.Example]) -> ValidationScorer:
     return ValidationScorer(validation)
 
 
+def prediction_name(tag: str, name: str) -> str:
+    """The file of a run's predictions: qualified by its tag, because the settings alone do not make a run
+    unique (the timing run has the settings, and so the name, of one of the grid's)."""
+    return f"{tag}__{name}"
+
+
 def write_predictions(name: str, predictions: list[dict[str, str]]) -> None:
     folder = OUT / "predictions"
     folder.mkdir(parents=True, exist_ok=True)
@@ -243,7 +251,7 @@ def one_run(
     if keep is None:
         shutil.rmtree(target, ignore_errors=True)
     if predictions := getattr(scorer, "predictions", None):
-        write_predictions(settings.name, predictions)
+        write_predictions(prediction_name(tag, settings.name), predictions)
     if mlflow_on:
         log_mlflow(row, settings, len(train), fingerprint)
     return row
@@ -256,7 +264,7 @@ def log_mlflow(
     import mlflow  # noqa: PLC0415 -- the ``eval`` group, imported only when asked for
 
     mlflow.set_experiment("sentiment_pair_summaries")
-    with mlflow.start_run(run_name=row["name"]):
+    with mlflow.start_run(run_name=prediction_name(row["tag"], row["name"])):
         mlflow.set_tags(
             {
                 "stage": "sentiment",
@@ -302,6 +310,18 @@ def save_results(rows: list[dict[str, Any]], header: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
+def set_aside(header: dict[str, Any]) -> Path:
+    """Move the results file to a name of its own (its fingerprint; a number if that name is taken), never over
+    an earlier set-aside file: those rows are the only record of that grid."""
+    base = f"grid_results.previous-{str(header.get('fingerprint') or 'unfingerprinted')[:12]}"
+    target, n = OUT / f"{base}.json", 1
+    while target.exists():
+        n += 1
+        target = OUT / f"{base}-{n}.json"
+    (OUT / "grid_results.json").replace(target)
+    return target
+
+
 def open_results(
     fingerprint: str, *, fresh: bool = False
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -315,7 +335,8 @@ def open_results(
                 f"{str(header.get('fingerprint'))[:12]} against {fingerprint[:12]}): its rows are not rows "
                 "of this grid. Run --grid --fresh to set it aside and start again."
             )
-        (OUT / "grid_results.json").replace(OUT / "grid_results.previous.json")
+        aside = set_aside(header)
+        print(f"the earlier results are kept as {aside}")
         rows = []
     mode, earlier = SOURCE_MODE["how"], header.get("source") if rows else None
     if earlier is None or earlier == mode or mode in earlier:
@@ -546,14 +567,9 @@ def print_weighted(
     print("  paired weighted gain of the final run over the pinned model as text (D35's pin rule):")
     for metric, (gain, verdict) in gains.items():
         print(f"    {metric}: {gain} -> {verdict}")
-    gain_verdicts = {m: v for m, (_g, v) in gains.items()}
-    pins = gain_verdicts["agreement"] == "better" and "not better" not in (
-        gain_verdicts["negative precision"],
-        gain_verdicts["negative recall"],
-    )
+    pins, reason = rep.pin_decision({m: v for m, (_g, v) in gains.items()})
     print(
-        "  the pin rule on these figures (D35 (3) and (4): the agreement gain `better`, and neither the "
-        f"negative precision nor the recall gain `not better`): {'would pin' if pins else 'would not pin'} "
+        f"  the pin rule on these figures: {'would pin' if pins else 'would not pin'}: {reason} "
         "(validation; the rule is applied once, to the gold)"
     )
 
@@ -569,10 +585,18 @@ def print_setting_ranking(marks: list[dict[str, str]]) -> None:
     for row in load_results()[1]:
         if row["tag"] != "grid":
             continue
-        predictions = read_predictions(row["name"])
+        predictions = read_predictions(prediction_name("grid", row["name"]))
         if predictions is None:
             print(
                 f"  (the weighted ranking of the settings needs the predictions of {row['name']})"
+            )
+            return
+        raw_agreement = sum(p["predicted"] == p["expected"] for p in predictions) / len(predictions)
+        if abs(raw_agreement - row["validation_agreement"]) > AGREEMENT_TOLERANCE:
+            print(
+                f"  WARNING: the predictions of {row['name']} give {raw_agreement:.4f}, its row logged "
+                f"{row['validation_agreement']:.4f}: they are not of the same run; the weighted ranking "
+                "of the settings is not made"
             )
             return
         rows, populations = weighted_rows(marks, {"run": predictions})
@@ -603,7 +627,7 @@ def run_report(*, required: bool = True) -> None:
     the 83 (confusion, per class, McNemar). The slice is drawn per class the pinned model predicted, so raw
     shares are not the population's."""
     final_row = next((r for r in reversed(load_results()[1]) if r["tag"] == "final"), None)
-    final = read_predictions(final_row["name"]) if final_row else None
+    final = read_predictions(prediction_name("final", final_row["name"])) if final_row else None
     base = {n: read_predictions(f"baseline_{n}") for n in ("text_only", "pair")}
     if final is None or None in base.values():
         message = (
@@ -674,7 +698,9 @@ def main() -> None:
     mode.add_argument("--baseline", action="store_true")
     mode.add_argument("--report", action="store_true")
     parser.add_argument(
-        "--fresh", action="store_true", help="with --grid: set aside results made with other data"
+        "--fresh",
+        action="store_true",
+        help="with --grid: set aside the results made with other data (kept as grid_results.previous-<fingerprint>.json; the predictions files of the old runs are overwritten as the new runs are made)",
     )
     parser.add_argument(
         "--mlflow", action="store_true", help="log every run to the local MLflow store"

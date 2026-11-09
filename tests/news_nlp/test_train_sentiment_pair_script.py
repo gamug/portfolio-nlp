@@ -228,7 +228,7 @@ def test_rows_of_other_data_are_not_resumed_unless_asked_and_then_set_aside(
     with pytest.raises(SystemExit, match=r"other data or settings"):
         CMD.run_final([], lambda _d: 0.8, False, "new-data")
     CMD.run_grid([], lambda _d: 0.8, False, "new-data", fresh=True)
-    assert (tmp_path / "out" / "grid_results.previous.json").exists()
+    assert (tmp_path / "out" / "grid_results.previous-old-data.json").exists()
     header, rows = CMD.load_results()
     assert (
         header["fingerprint"] == "new-data"
@@ -366,14 +366,14 @@ def test_a_run_keeps_what_each_validation_text_was_read_as_when_the_scorer_has_i
     )  # fmt: skip
     settings = spt.RunSettings(2, 1e-5, 1)
     CMD.one_run(settings, [], scorer)
-    assert CMD.read_predictions(settings.name) == [
+    assert CMD.read_predictions(f"grid__{settings.name}") == [
         {"key": "a", "expected": "positive", "predicted": "negative"},
         {"key": "b", "expected": "positive", "predicted": "negative"},
     ]
     CMD.one_run(
         spt.RunSettings(2, 1e-5, 2), [], lambda _d: 0.5
     )  # a plain function: nothing to keep
-    assert CMD.read_predictions("e2_lr1e-05_s2") is None
+    assert CMD.read_predictions("grid__e2_lr1e-05_s2") is None
 
 
 def _report_fixture(
@@ -414,7 +414,9 @@ def _report_fixture(
         "baseline_text_only", predictions(["negative"] * 4 + ["positive"] * 4)
     )  # the strata the texts were drawn from: the pinned model's own prediction
     CMD.write_predictions("baseline_pair", predictions(["positive"] * 8))
-    CMD.write_predictions("e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"]))
+    CMD.write_predictions(
+        "final__e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"])
+    )
     CMD.save_results(
         [{"name": "e2_lr3e-05_s4", "tag": "final", "code": code}], {"fingerprint": "f"}
     )
@@ -556,28 +558,34 @@ def test_a_baseline_that_is_not_the_reading_the_strata_came_from_withholds_the_w
 
 
 def _grid_with_predictions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, good_for: tuple[int, float]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    right_on: dict[tuple[int, float], set[int]],
 ) -> None:
-    """Grid rows for two settings, three seeds each, with predictions: the setting *good_for* reads all 8 texts
-    as the owner marked, the other one reads none of them so."""
+    """Grid rows for the settings of *right_on*, three seeds each, with predictions: each setting reads right
+    the texts (by position among the 8 of the fixture) it is given and wrong all the others; the rows log the
+    agreement of their own predictions."""
     keys, expected = _report_fixture(tmp_path, monkeypatch)
     rows = []
-    for epochs, lr in ((2, 1e-5), (3, 2e-5)):
+    for (epochs, lr), right in right_on.items():
         for seed in (1, 2, 3):
             name = f"e{epochs}_lr{lr:g}_s{seed}"
-            right = (epochs, lr) == good_for
+            predicted = [
+                e if i in right else ("positive" if e == "neutral" else "neutral")
+                for i, e in enumerate(expected)
+            ]
             CMD.write_predictions(
-                name,
+                f"grid__{name}",
                 [
-                    {"key": k, "expected": e, "predicted": e if right else "neutral"}
-                    for k, e in zip(keys, expected, strict=True)
+                    {"key": k, "expected": e, "predicted": p}
+                    for k, e, p in zip(keys, expected, predicted, strict=True)
                 ],
             )
             rows.append(
                 {
                     "name": name,
                     "tag": "grid",
-                    "validation_agreement": 1.0 if right else 0.25,
+                    "validation_agreement": len(right) / len(keys),
                     "settings": {"epochs": epochs, "learning_rate": lr, "seed": seed},
                 }
             )
@@ -588,29 +596,84 @@ def _grid_with_predictions(
 def test_the_report_says_whether_the_weighted_agreement_would_choose_the_same_setting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _grid_with_predictions(tmp_path, monkeypatch, good_for=(2, 1e-5))
+    # texts 0-3 are of the small stratum (pool 100), 4-7 of the big one (pool 900)
+    a, b = (2, 1e-5), (3, 2e-5)
+    _grid_with_predictions(tmp_path, monkeypatch, {a: {0, 1, 2, 3, 4, 5}, b: {4, 5}})
     CMD.run_report()
     out = capsys.readouterr().out
-    assert (
-        "weighted agreement by setting (mean of the seeds): 2 ep 1e-05: 1.000; 3 ep 2e-05: 0.450"
-        in out
-    )
+    assert "weighted agreement by setting (mean of the seeds): 2 ep 1e-05: " in out
     assert "the grid chose 2 epochs, lr 1e-05 (raw agreement)" in out and ": the same" in out
-    # the raw agreements of the rows say one thing, the predictions on disk another: the ranking differs
-    _grid_with_predictions(tmp_path, monkeypatch, good_for=(3, 2e-5))
-    rows = CMD.load_results()[1]
-    for row in rows:
-        if row["tag"] == "grid":
-            row["validation_agreement"] = 1.0 if row["settings"]["epochs"] == 2 else 0.25
-    CMD.save_results(rows, {"fingerprint": "f"})
+    # raw agreement prefers b (5 of 8 against 4), the weighted one prefers a (its 4 right are the big stratum's)
+    _grid_with_predictions(tmp_path, monkeypatch, {a: {4, 5, 6, 7}, b: {0, 1, 2, 3, 7}})
     capsys.readouterr()
     CMD.run_report()
     out = capsys.readouterr().out
-    assert "the grid chose 2 epochs, lr 1e-05" in out
+    assert "the grid chose 3 epochs, lr 2e-05 (raw agreement)" in out
     assert (
-        "would choose 3 epochs, lr 2e-05: DIFFERENT, a question for the owner (nothing is re-picked)"
+        "would choose 2 epochs, lr 1e-05: DIFFERENT, a question for the owner (nothing is re-picked)"
         in out
     )
-    (tmp_path / "out" / "predictions" / "e3_lr2e-05_s1.csv").unlink()
+    (tmp_path / "out" / "predictions" / "grid__e3_lr2e-05_s1.csv").unlink()
     CMD.run_report()
     assert "needs the predictions of e3_lr2e-05_s1" in capsys.readouterr().out
+
+
+def test_a_timing_run_does_not_overwrite_the_predictions_of_the_grid_run_with_the_same_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "ab"]
+    scorer = CMD.ValidationScorer(validation)
+    answers = {"label": "negative"}
+    monkeypatch.setattr(
+        CMD.gold_draw,
+        "predict",
+        lambda items, cfg, pair=False: [{**i, "predicted": answers["label"]} for i in items],
+    )
+    grid_run = CMD.TIMING_SETTING  # the timing setting is, by name, one of the grid's 27
+    assert grid_run.name in {s.name for s in spt.grid_settings()}
+    CMD.one_run(grid_run, [], scorer, tag="grid")
+    kept = CMD.read_predictions(f"grid__{grid_run.name}")
+    answers["label"] = "neutral"  # another training run: another reading
+    CMD.one_run(grid_run, [], scorer, tag="timing")
+    assert (
+        CMD.read_predictions(f"grid__{grid_run.name}") == kept
+    )  # the grid run's file is untouched
+    assert CMD.read_predictions(f"timing__{grid_run.name}") != kept
+
+
+def test_the_ranking_is_not_made_from_predictions_that_are_not_of_the_run_in_its_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _grid_with_predictions(tmp_path, monkeypatch, {(2, 1e-5): {0, 1}, (3, 2e-5): {0, 1, 2}})
+    rows = CMD.load_results()[1]
+    for row in rows:
+        if row["name"] == "e3_lr2e-05_s2":
+            row["validation_agreement"] = 0.5  # the row says one thing, the file another
+    CMD.save_results(rows, {"fingerprint": "f"})
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert "WARNING: the predictions of e3_lr2e-05_s2 give 0.3750, its row logged 0.5000" in out
+    assert "the weighted ranking of the settings is not made" in out
+    assert "weighted agreement by setting" not in out
+
+
+def test_two_fresh_starts_keep_both_sets_of_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    row = {**CMD.one_run(spt.grid_settings()[0], [], lambda _d: 0.7), "tag": "grid"}
+    CMD.save_results([row], {"fingerprint": "aaaa"})
+    CMD.open_results("bbbb", fresh=True)
+    CMD.save_results(
+        [{**row, "validation_agreement": 0.9}], {"fingerprint": "aaaa"}
+    )  # the same old
+    CMD.open_results("cccc", fresh=True)
+    kept = sorted(p.name for p in (tmp_path / "out").glob("grid_results.previous-*.json"))
+    assert kept == ["grid_results.previous-aaaa-2.json", "grid_results.previous-aaaa.json"]
+    # the first set-aside rows were not overwritten by the second
+    first = json.loads((tmp_path / "out" / "grid_results.previous-aaaa.json").read_text())
+    assert first["rows"][0]["validation_agreement"] == 0.7
+    CMD.save_results([], {})
+    (tmp_path / "out" / "grid_results.json").write_text("[]")  # the first format: nothing to lose
+    assert CMD.open_results("dddd", fresh=True)[1] == []
