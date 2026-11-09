@@ -4,6 +4,7 @@
     uv run scripts/train_sentiment_pair_2026_11_09.py --grid        # the 27 runs of the grid (resumable)
     uv run scripts/train_sentiment_pair_2026_11_09.py --final       # the setting chosen, one run, the model kept
     uv run scripts/train_sentiment_pair_2026_11_09.py --baseline    # the pinned model on the validation slice, no training
+    uv run scripts/train_sentiment_pair_2026_11_09.py --report      # the final run against the baseline, per class and paired
 
 The recipe and its checks are in ``src/sentiment_pair_train.py``. This script gives them the data: the 450
 marks (``gold/sentiment_train.csv``) with their texts (``data/sentiment_train_ids.csv``, git-ignored), the
@@ -11,7 +12,8 @@ earlier balanced pool of sentences as the replay (``data/sentiment_finetune``, r
 sentence from the SOURCE), and the scorer's own reading of a saved model for the validation slice
 (``draw_sentiment_gold_2026_11_05.predict``, with the pair). It never reads the 180-text gold.
 
-Read-only on the databases; writes ``data/sentiment_pair/`` (the replay as drawn, the results of the runs) and,
+Read-only on the databases; writes ``data/sentiment_pair/`` (the replay as drawn, the results of the runs, and
+``predictions/<run>.csv``: the class each run gave each validation text, for the paired comparison) and,
 for ``--final``, the model to ``models/sentiment_pair/final`` (git-ignored). A run's model is deleted after its
 validation agreement is scored, except the final one. ``--mlflow`` logs every run (params, the validation
 agreement, the epochs' losses) to the local MLflow store (``uv sync --group eval``).
@@ -41,7 +43,7 @@ from tqdm import tqdm
 
 import news_nlp as db
 import sentiment_pair_train as spt
-from news_nlp import triage
+from news_nlp import retag, triage
 from sentiment_stage import _text_mentions_subject
 
 MARKS = Path("gold/sentiment_train.csv")
@@ -129,19 +131,48 @@ def build_data(
     return marked, replay, report
 
 
-def validation_scorer(validation: list[spt.Example]) -> Any:
-    """The scorer's own reading of a saved model on the validation slice: its agreement with the marks."""
-    items = [{"key": e.key, "text": e.text, "company": e.company} for e in validation]
-    expected = {e.key: spt.ID2LABEL[e.label] for e in validation}
+class ValidationScorer:
+    """The scorer's own reading of a saved model on the validation slice: its agreement with the marks. The
+    per-text predictions of the last call stay in ``predictions`` (key, owner's class, predicted class)."""
 
-    def score(model_dir: str) -> float:
-        scored = gold_draw.predict([dict(i) for i in items], {"model": model_dir}, pair=True)
-        if len(scored) != len(items):
-            raise spt.MarkedFileError(f"{len(items) - len(scored)} validation texts have no chunk")
-        hits = sum(t["predicted"] == expected[t["key"]] for t in scored)
-        return hits / len(items)
+    def __init__(self, validation: list[spt.Example]) -> None:
+        self.items = [{"key": e.key, "text": e.text, "company": e.company} for e in validation]
+        self._expected = {e.key: spt.ID2LABEL[e.label] for e in validation}
+        self.predictions: list[dict[str, str]] = []
 
-    return score
+    def __call__(self, model_dir: str) -> float:
+        scored = gold_draw.predict([dict(i) for i in self.items], {"model": model_dir}, pair=True)
+        self.predictions = self.collect(scored)
+        return sum(p["predicted"] == p["expected"] for p in self.predictions) / len(self.items)
+
+    def collect(self, scored: list[dict[str, str]]) -> list[dict[str, str]]:
+        """The predictions of a reading, one per validation text; stop if a text was not read."""
+        if len(scored) != len(self.items):
+            raise spt.MarkedFileError(
+                f"{len(self.items) - len(scored)} validation texts have no chunk"
+            )
+        return [
+            {"key": t["key"], "expected": self._expected[t["key"]], "predicted": t["predicted"]}
+            for t in scored
+        ]
+
+
+def validation_scorer(validation: list[spt.Example]) -> ValidationScorer:
+    return ValidationScorer(validation)
+
+
+def write_predictions(name: str, predictions: list[dict[str, str]]) -> None:
+    folder = OUT / "predictions"
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / f"{name}.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["key", "expected", "predicted"])
+        writer.writeheader()
+        writer.writerows(predictions)
+
+
+def read_predictions(name: str) -> list[dict[str, str]] | None:
+    path = OUT / "predictions" / f"{name}.csv"
+    return sorted(read_csv(path), key=lambda r: r["key"]) if path.exists() else None
 
 
 def connect_source() -> Any:
@@ -164,6 +195,15 @@ def connect_source() -> Any:
         return conn
 
 
+def code_revision() -> str:
+    """The revision of the code that makes a number of the grid: the recipe, the pair's encoding, the
+    chunking and the scorer."""
+    import chunking  # noqa: PLC0415
+    import sentiment_pair  # noqa: PLC0415
+
+    return retag.code_revision(spt, sentiment_pair, chunking, gold_draw)
+
+
 def base_model() -> tuple[str, str]:
     cfg = json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))["sentiment"]
     return cfg["model"], cfg["revision"]
@@ -177,6 +217,7 @@ def one_run(
     keep: Path | None = None,
     mlflow_on: bool = False,
     tag: str = "grid",
+    fingerprint: str = "",
 ) -> dict[str, Any]:
     """Train and score one run; delete its model unless *keep* is given. Returns the result row."""
     model, revision = base_model()
@@ -198,18 +239,29 @@ def one_run(
     }
     if keep is None:
         shutil.rmtree(target, ignore_errors=True)
+    if predictions := getattr(scorer, "predictions", None):
+        write_predictions(settings.name, predictions)
     if mlflow_on:
-        log_mlflow(row, settings, len(train))
+        log_mlflow(row, settings, len(train), fingerprint)
     return row
 
 
-def log_mlflow(row: dict[str, Any], settings: spt.RunSettings, n_train: int) -> None:
+def log_mlflow(
+    row: dict[str, Any], settings: spt.RunSettings, n_train: int, fingerprint: str = ""
+) -> None:
     """One MLflow run per training run, in the local store (``mlruns/``)."""
     import mlflow  # noqa: PLC0415 -- the ``eval`` group, imported only when asked for
 
     mlflow.set_experiment("sentiment_pair_summaries")
     with mlflow.start_run(run_name=row["name"]):
-        mlflow.set_tags({"stage": "sentiment", "recipe": "D35 pair", "kind": row["tag"]})
+        mlflow.set_tags(
+            {
+                "stage": "sentiment",
+                "recipe": "D35 pair",
+                "kind": row["tag"],
+                "fingerprint": fingerprint[:12],  # the key of grid_results.json
+            }
+        )
         mlflow.log_params(
             {
                 "epochs": settings.epochs,
@@ -262,7 +314,12 @@ def open_results(
             )
         (OUT / "grid_results.json").replace(OUT / "grid_results.previous.json")
         rows = []
-    return {"fingerprint": fingerprint, "source": SOURCE_MODE["how"]}, rows
+    mode, earlier = SOURCE_MODE["how"], header.get("source") if rows else None
+    if earlier is None or earlier == mode or mode in earlier:
+        source = earlier or mode
+    else:  # the rows already there were made with the SOURCE read another way
+        source = f"{earlier}, then {mode}"
+    return {"fingerprint": fingerprint, "source": source}, rows
 
 
 def agreements_by_setting(rows: list[dict[str, Any]]) -> dict[tuple[int, float], list[float]]:
@@ -304,7 +361,7 @@ def run_grid(
     todo = [s for s in spt.grid_settings() if s.name not in done]
     print(f"grid: {len(done)} runs already done, {len(todo)} to run", flush=True)
     for settings in tqdm(todo, desc="grid", unit="run"):
-        rows.append(one_run(settings, train, scorer, mlflow_on=mlflow_on))
+        rows.append(one_run(settings, train, scorer, mlflow_on=mlflow_on, fingerprint=fingerprint))
         save_results(rows, header)  # after every run: a stop loses one run, not the grid
         tqdm.write(f"{settings.name}: validation agreement {rows[-1]['validation_agreement']:.3f}")
     summarise(rows, n_validation)
@@ -358,7 +415,15 @@ def run_final(
         MODELS / "final.partial"
     )  # renamed only after the row is saved: no model without a row
     shutil.rmtree(partial, ignore_errors=True)
-    row = one_run(settings, train, scorer, keep=partial, mlflow_on=mlflow_on, tag="final")
+    row = one_run(
+        settings,
+        train,
+        scorer,
+        keep=partial,
+        mlflow_on=mlflow_on,
+        tag="final",
+        fingerprint=fingerprint,
+    )
     seeds = agreements_by_setting(rows)[(choice.epochs, choice.learning_rate)]
     rows.append({**row, "fingerprint": fingerprint})
     save_results(rows, header)
@@ -368,29 +433,70 @@ def run_final(
         f"the three seeds of the same setting: mean {statistics.fmean(seeds):.3f}, "
         f"spread (sd) {statistics.stdev(seeds):.3f}\nmodel: {target} (not published, not scored on the gold)"
     )
+    run_report(required=False)
 
 
 def run_baseline(validation: list[spt.Example]) -> dict[str, Any]:
     """The pinned model on the validation slice, as the scorer reads it, with the pair and without: what the
-    grid's numbers are to be set against (no training)."""
+    grid's numbers are to be set against (no training). The per-text predictions are kept for the paired
+    comparison; a text the model did not read stops the run, as it does for the grid."""
     model, revision = base_model()
-    items = [{"key": e.key, "text": e.text, "company": e.company} for e in validation]
-    expected = {e.key: spt.ID2LABEL[e.label] for e in validation}
+    scorer = ValidationScorer(validation)
+    items = scorer.items
     result: dict[str, Any] = {"model": f"{model}@{revision}", "n": len(items)}
     for name, pair in (("pair", True), ("text_only", False)):
         scored = gold_draw.predict(
             [dict(i) for i in items], {"model": model, "revision": revision}, pair=pair
         )
-        result[name] = sum(t["predicted"] == expected[t["key"]] for t in scored)
-        result[f"{name}_texts"] = len(scored)
+        predictions = scorer.collect(scored)
+        write_predictions(f"baseline_{name}", predictions)
+        result[name] = sum(p["predicted"] == p["expected"] for p in predictions)
+        print("\n".join(spt.report_lines(f"pinned, {name}", *_columns(predictions))))
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     print(
         f"pinned {result['model']} on {result['n']} validation texts: as the pair "
-        f"{result['pair']}/{result['pair_texts']} = {result['pair'] / result['n']:.3f}; "
-        f"text only {result['text_only']}/{result['text_only_texts']} = {result['text_only'] / result['n']:.3f}"
+        f"{result['pair']}/{result['n']} = {result['pair'] / result['n']:.3f}; "
+        f"text only {result['text_only']}/{result['n']} = {result['text_only'] / result['n']:.3f}"
     )
     return result
+
+
+def _columns(predictions: list[dict[str, str]]) -> tuple[list[str], list[str]]:
+    return [p["expected"] for p in predictions], [p["predicted"] for p in predictions]
+
+
+def run_report(*, required: bool = True) -> None:
+    """The final run against the pinned model's two readings, from the predictions kept: per class, and
+    paired (who is right where, the exact McNemar p-value, the gain with the gold's interval and verdict).
+    Validation, 83 texts: an indication; the bar is the gold's."""
+    final_row = next((r for r in reversed(load_results()[1]) if r["tag"] == "final"), None)
+    final = read_predictions(final_row["name"]) if final_row else None
+    baselines = {n: read_predictions(f"baseline_{n}") for n in ("text_only", "pair")}
+    if final is None or None in baselines.values():
+        message = (
+            "the report needs --baseline and --final to have run (their predictions are not here)"
+        )
+        if required:
+            sys.exit(message)
+        print(f"\n{message}: run --baseline, then --report")
+        return
+    assert final_row is not None
+    print("\n".join(spt.report_lines(f"final ({final_row['name']})", *_columns(final))))
+    print("the validation slice is 83 texts: the figures of a class are indicative only")
+    for name, base in baselines.items():
+        assert base is not None
+        if [p["key"] for p in base] != [p["key"] for p in final]:
+            sys.exit(f"the final run and the baseline {name} did not read the same texts")
+        report = spt.paired_report(
+            [p["expected"] == p["predicted"] for p in final],
+            [p["expected"] == p["predicted"] for p in base],
+        )
+        print(
+            f"final against pinned {name}: both right {report.both}, only the final {report.only_a}, "
+            f"only the pinned {report.only_b}, neither {report.neither}; exact McNemar p = "
+            f"{report.p_value:.4f}; gain {report.gain} -> {report.verdict} (the gold's rule)"
+        )
 
 
 def main() -> None:
@@ -401,6 +507,7 @@ def main() -> None:
     mode.add_argument("--grid", action="store_true")
     mode.add_argument("--final", action="store_true")
     mode.add_argument("--baseline", action="store_true")
+    mode.add_argument("--report", action="store_true")
     parser.add_argument(
         "--fresh", action="store_true", help="with --grid: set aside results made with other data"
     )
@@ -408,8 +515,13 @@ def main() -> None:
         "--mlflow", action="store_true", help="log every run to the local MLflow store"
     )
     args = parser.parse_args()
+    if args.fresh and not args.grid:
+        parser.error("--fresh only applies to --grid")
     if not torch.cuda.is_available():
         print("no CUDA device: the runs will be slow", file=sys.stderr)
+    if args.report:  # the predictions kept: no model, no SOURCE
+        run_report()
+        return
     if args.baseline:  # marks only: no SOURCE, no replay
         run_baseline(spt.load_marked_summaries(read_csv(MARKS), read_csv(IDS)).validation)
         return
@@ -417,7 +529,9 @@ def main() -> None:
     marked, replay, _report = build_data(conn)
     train = [*marked.train, *replay]
     scorer = validation_scorer(marked.validation)
-    fingerprint = spt.train_fingerprint(train, marked.validation, *base_model())
+    fingerprint = spt.train_fingerprint(
+        train, marked.validation, *base_model(), code=code_revision()
+    )
     n = len(marked.validation)
     if args.time_one:
         run_timing(train, scorer, args.mlflow)

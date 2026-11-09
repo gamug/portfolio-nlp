@@ -35,7 +35,7 @@ from typing import Any, NamedTuple
 
 from fti import TrainConfig, TrainedArtifact
 from fti import Trainer as FtiTrainer
-from news_nlp import retag
+from news_nlp import gold_metrics, retag
 from sentiment_pair import company_segment, reads_as_pair
 
 #: The model's class order: the one of ``ProsusAI/finbert`` and of ``train_sentiment.LABEL2ID``.
@@ -229,17 +229,98 @@ def train_fingerprint(
     validation: Sequence[Example],
     base_model: str,
     base_revision: str | None,
+    code: str = "",
 ) -> str:
     """A hash of everything the grid's rows depend on: the training texts (key and class), the validation
-    texts, the base model and revision, and the recipe's constants. Rows made under another fingerprint
-    are not rows of the same grid."""
+    texts, the base model and revision, the recipe's constants, the grid itself and *code* (the revision of
+    the modules that make a number: ``retag.code_revision`` over them, given by the command). Rows made
+    under another fingerprint are not rows of the same grid."""
     payload = {
         "train": sorted((e.key, e.label, e.kind) for e in train),
         "validation": sorted((e.key, e.label) for e in validation),
         "base": [base_model, base_revision],
         "constants": [BATCH_SIZE, WEIGHT_DECAY, MAX_GRAD_NORM, MAX_LENGTH, GRID_SEEDS, FINAL_SEED],
+        "grid": [GRID_EPOCHS, GRID_LEARNING_RATES, EARLIER_SETTING],
+        "code": code,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+# --- the report of a reading of the validation slice ---------------------------------------------
+
+
+def confusion(expected: Sequence[str], predicted: Sequence[str]) -> dict[str, dict[str, int]]:
+    """``[owner's class][predicted class]`` -> texts, over the three classes."""
+    table = {e: dict.fromkeys(LABEL2ID, 0) for e in LABEL2ID}
+    for e, p in zip(expected, predicted, strict=True):
+        table[e][p] += 1
+    return table
+
+
+def class_figures(table: dict[str, dict[str, int]]) -> dict[str, dict[str, gold_metrics.Figure]]:
+    """Precision and recall of each class with a Wilson interval (the validation slice is read as drawn,
+    not re-weighted: it is an indication, the bar is the gold's)."""
+    figures = {}
+    for label in LABEL2ID:
+        tp = table[label][label]
+        predicted = sum(row[label] for row in table.values())
+        figures[label] = {
+            "precision": gold_metrics.wilson(tp, predicted),
+            "recall": gold_metrics.wilson(tp, sum(table[label].values())),
+        }
+    return figures
+
+
+def mcnemar_exact(only_a: int, only_b: int) -> float:
+    """The exact two-sided McNemar p-value: of the texts the two readings do not share, how likely is a split
+    as uneven as *only_a* against *only_b* if each reading were as likely to be the right one."""
+    n = only_a + only_b
+    if n == 0:
+        return 1.0
+    tail = sum(math.comb(n, k) for k in range(min(only_a, only_b) + 1)) / 2**n
+    return float(min(1.0, 2 * tail))
+
+
+class PairedReport(NamedTuple):
+    both: int
+    only_a: int
+    only_b: int
+    neither: int
+    p_value: float
+    gain: gold_metrics.Figure  # share *a* gets right minus share *b* gets right
+    verdict: str  # the gold's rule (``gold_metrics.gain_verdict``) applied to the gain
+
+
+def paired_report(a_hits: Sequence[bool], b_hits: Sequence[bool]) -> PairedReport:
+    """Two readings of the same texts: who is right where, the exact McNemar p-value, and the gain of *a* over
+    *b* with the interval and verdict the gold uses (T-148c4)."""
+    pairs = list(zip(a_hits, b_hits, strict=True))
+    only_a = sum(x and not y for x, y in pairs)
+    only_b = sum(y and not x for x, y in pairs)
+    gain = gold_metrics.paired_difference(a_hits, b_hits)
+    return PairedReport(
+        both=sum(x and y for x, y in pairs),
+        only_a=only_a,
+        only_b=only_b,
+        neither=sum(not x and not y for x, y in pairs),
+        p_value=mcnemar_exact(only_a, only_b),
+        gain=gain,
+        verdict=gold_metrics.gain_verdict(gain),
+    )
+
+
+def report_lines(name: str, expected: Sequence[str], predicted: Sequence[str]) -> list[str]:
+    """The confusion matrix and the per-class figures of one reading, for printing."""
+    table = confusion(expected, predicted)
+    hits = sum(e == p for e, p in zip(expected, predicted, strict=True))
+    lines = [
+        f"{name}: agreement {hits}/{len(expected)}",
+        f"  rows: the owner's class; columns: {list(LABEL2ID)}",
+    ]
+    lines += [f"  {e:<9}" + " ".join(f"{table[e][p]:>4}" for p in LABEL2ID) for e in LABEL2ID]
+    for label, f in class_figures(table).items():
+        lines.append(f"  {label}: precision {f['precision']}, recall {f['recall']}")
+    return lines
 
 
 # --- batches --------------------------------------------------------------------------------------

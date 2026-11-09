@@ -162,7 +162,9 @@ def _patch_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
     monkeypatch.setattr(CMD, "MODELS", tmp_path / "models")
     monkeypatch.setattr(CMD.spt, "SentimentPairTrainer", _Trainer)
     monkeypatch.setattr(CMD, "base_model", lambda: ("base", "rev"))
-    monkeypatch.setattr(CMD, "log_mlflow", lambda row, settings, n: logged.append(row["name"]))
+    monkeypatch.setattr(
+        CMD, "log_mlflow", lambda row, settings, n, fp="": logged.append(f"{row['name']}|{fp}")
+    )
     return logged
 
 
@@ -175,11 +177,17 @@ def test_a_run_deletes_its_model_unless_it_is_kept_and_logs_to_mlflow_when_asked
     assert row["validation_agreement"] == 0.5 and row["tag"] == "grid" and logged == []
     assert not (tmp_path / "models" / "_run" / settings.name).exists()  # deleted after scoring
     kept = CMD.one_run(
-        settings, [], lambda _d: 0.6, keep=tmp_path / "keep", mlflow_on=True, tag="final"
+        settings,
+        [],
+        lambda _d: 0.6,
+        keep=tmp_path / "keep",
+        mlflow_on=True,
+        tag="final",
+        fingerprint="fp1",
     )
     assert (
         (tmp_path / "keep" / "config.json").exists()
-        and logged == [settings.name]
+        and logged == [f"{settings.name}|fp1"]
         and kept["tag"] == "final"
     )
 
@@ -320,3 +328,146 @@ def test_the_replay_seed_and_the_timing_setting_are_fixed_in_the_command() -> No
     assert CMD.REPLAY_SEED == 20261109 and spt.RunSettings(4, 2e-5, 1) == CMD.TIMING_SETTING
     models = SCRIPTS.parent / "config" / "pipeline_models.json"
     assert json.loads(models.read_text(encoding="utf-8"))["sentiment"]["revision"]
+
+
+def test_a_baseline_that_leaves_a_text_unread_stops_and_the_predictions_are_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    validation = [spt.Example(k, "Acme", "t", i % 3, "summary") for i, k in enumerate("abcd")]
+    monkeypatch.setattr(
+        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "neutral"} for i in items][:3]
+    )  # fmt: skip
+    with pytest.raises(spt.MarkedFileError, match="1 validation texts have no chunk"):
+        CMD.run_baseline(validation)
+    monkeypatch.setattr(
+        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "neutral"} for i in items]
+    )  # fmt: skip
+    CMD.run_baseline(validation)
+    kept = CMD.read_predictions("baseline_pair")
+    assert kept == [
+        {"key": "a", "expected": "positive", "predicted": "neutral"},
+        {"key": "b", "expected": "negative", "predicted": "neutral"},
+        {"key": "c", "expected": "neutral", "predicted": "neutral"},
+        {"key": "d", "expected": "positive", "predicted": "neutral"},
+    ]
+
+
+def test_a_run_keeps_what_each_validation_text_was_read_as_when_the_scorer_has_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "ab"]
+    scorer = CMD.ValidationScorer(validation)
+    monkeypatch.setattr(
+        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "negative"} for i in items]
+    )  # fmt: skip
+    settings = spt.RunSettings(2, 1e-5, 1)
+    CMD.one_run(settings, [], scorer)
+    assert CMD.read_predictions(settings.name) == [
+        {"key": "a", "expected": "positive", "predicted": "negative"},
+        {"key": "b", "expected": "positive", "predicted": "negative"},
+    ]
+    CMD.one_run(
+        spt.RunSettings(2, 1e-5, 2), [], lambda _d: 0.5
+    )  # a plain function: nothing to keep
+    assert CMD.read_predictions("e2_lr1e-05_s2") is None
+
+
+def test_the_report_sets_the_final_run_against_both_readings_of_the_pinned_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit, match="needs --baseline and --final"):
+        CMD.run_report()
+    capsys.readouterr()
+    CMD.run_report(required=False)
+    assert "run --baseline, then --report" in capsys.readouterr().out
+    keys = [f"k{i}" for i in range(8)]
+    expected = [
+        "negative",
+        "negative",
+        "positive",
+        "positive",
+        "neutral",
+        "neutral",
+        "negative",
+        "positive",
+    ]
+
+    def predictions(predicted: list[str]) -> list[dict[str, str]]:
+        return [
+            {"key": k, "expected": e, "predicted": p}
+            for k, e, p in zip(keys, expected, predicted, strict=True)
+        ]
+
+    CMD.write_predictions("baseline_text_only", predictions(["neutral"] * 8))
+    CMD.write_predictions("baseline_pair", predictions(["positive"] * 8))
+    CMD.write_predictions("e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"]))
+    CMD.save_results([{"name": "e2_lr3e-05_s4", "tag": "final"}], {"fingerprint": "f"})
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert "final (e2_lr3e-05_s4): agreement 6/8" in out and "indicative only" in out
+    assert "negative: precision" in out
+    assert (
+        "final against pinned text_only: both right 2, only the final 4, only the pinned 0, neither 2"
+        in out
+    )
+    assert "exact McNemar p = 0.1250" in out
+    assert (
+        "final against pinned pair: both right 2, only the final 4, only the pinned 1, neither 1"
+        in out
+    )
+    CMD.write_predictions("baseline_pair", predictions(["positive"] * 8)[:-1])  # one text fewer
+    with pytest.raises(SystemExit, match="did not read the same texts"):
+        CMD.run_report()
+
+
+def test_resuming_with_the_source_read_another_way_says_so_and_keeps_the_first_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    row = {**CMD.one_run(spt.grid_settings()[0], [], lambda _d: 0.7), "tag": "grid"}
+    monkeypatch.setitem(CMD.SOURCE_MODE, "how", "attached read-only")
+    CMD.save_results([row], CMD.open_results("f")[0])
+    assert CMD.load_results()[0]["source"] == "attached read-only"
+    monkeypatch.setitem(CMD.SOURCE_MODE, "how", "immutable snapshot")
+    header, _ = CMD.open_results("f")
+    assert header["source"] == "attached read-only, then immutable snapshot"
+    CMD.save_results([row], header)
+    assert CMD.open_results("f")[0]["source"] == header["source"]  # not appended again
+    assert CMD.open_results("g", fresh=True)[0]["source"] == "immutable snapshot"  # a new file
+
+
+def test_the_code_revision_of_the_fingerprint_is_twelve_hex_digits_of_the_modules_that_make_a_number() -> (
+    None
+):
+    assert len(CMD.code_revision()) == 12 and int(CMD.code_revision(), 16) >= 0
+
+
+def _argv(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["train_sentiment_pair", *args])
+    monkeypatch.setattr(CMD.db.env, "load_env_file", lambda *_a: None)
+
+
+def test_fresh_is_only_for_the_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    for mode in ("--final", "--time-one", "--baseline", "--report"):
+        _argv(monkeypatch, mode, "--fresh")
+        with pytest.raises(SystemExit) as stopped:
+            CMD.main()
+        assert stopped.value.code == 2  # argparse's own refusal
+
+
+def test_the_baseline_and_the_report_never_open_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    def opened() -> Any:
+        raise AssertionError("the SOURCE was opened")
+
+    called: list[str] = []
+    monkeypatch.setattr(CMD, "connect_source", opened)
+    monkeypatch.setattr(CMD, "read_csv", lambda _p: [])
+    monkeypatch.setattr(CMD, "run_baseline", lambda validation: called.append("baseline"))  # type: ignore[arg-type,return-value]
+    monkeypatch.setattr(CMD, "run_report", lambda: called.append("report"))
+    for mode in ("--baseline", "--report"):
+        _argv(monkeypatch, mode)
+        CMD.main()
+    assert called == ["baseline", "report"]
