@@ -2566,7 +2566,9 @@ the 9 + 9 found). Rules that read names and counts cannot find these; that is wh
 triage (P3) is for.
 
 **Sizing the corpus** (`scripts/size_triage_2026_10_28.py`, read-only, about 47 minutes; mentions
-counted once, the corrected rules above): 98,462 `ok` (URL, ticker) pairs hold **81,961 unique
+counted once, the corrected rules above; **measured with the matcher at 786766f: PR #155 moves the
+scope shares by about +4 points single and -3 single + mentions, see
+`docs/matcher_measurements_2026-11-09.md`, not recomputed**): 98,462 `ok` (URL, ticker) pairs hold **81,961 unique
 bodies**; 85.5% of bodies sit under one pair, 10.7% under two, 3.7% under three or more; 1,904 pairs
 are share-class twins. Subject companies per body (named twice or in the title): none 4.4%, one 52.4%,
 two 21.5%, three to five 15.6%, six to ten 4.7%, more than ten 1.5%.

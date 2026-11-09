@@ -310,6 +310,49 @@ lean `articles` rows itself.
   owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
   and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
   development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
+  **Common words (D38, PR #155):** a hyphen, a dash, an apostrophe (also the backtick and the acute
+  accent) in a name reads as the space it replaced ("Coca-Cola", "Casey's"), a line break does not.
+  The first word of a company's name is not a mention when it is an everyday word, a place or a
+  first name (`_COMMON_FIRST_WORDS`, part of `_ALIAS_STOP`: "Federal", "Boston", "Ralph", ...); the
+  short form of the name ("Federal Realty", "Take-Two", "Jack Henry"; a comma only before a legal
+  word, never a full stop) and a few known names (`_KNOWN_NAMES`: "Abbott Labs") are. Surnames and
+  nouns (`_CORROBORATED`: Bloom, Ross, Wells, Morgan, Block, Kraft, Warner, ...) count only when the
+  body names the company another way (full name, short form, ticker form): in `resolve` (counting,
+  the stored NER spans too) and in `attribution_units.GuardedResolver` (the attribution), through
+  one method, `CompanyResolver.firm_spans`. Names that are also lower-case nouns (`_WORD_NAMES`:
+  Block, Travelers, Williams, Workday, Booking, Visa, Flex, Cognizant, Coherent, ...) are read
+  capitalised only; bare tickers that are words (`_WORD_TICKERS`: COO, MET, ...) only with an
+  explicit form. `mention_spans` itself keeps the corroborated aliases (it places the masks of single
+  sentences, where the full name is often absent): the guard decides those with the whole body.
+  Names with initials, an exclamation mark or an accent are found as written ("J.B. Hunt", "JB Hunt",
+  "U.S. Bancorp", "Yum! Brands", "Estée Lauder", also with the accent decomposed): the initials are
+  upper case ("us" is not "U.S."), a full stop follows an initial, spaces between initials are
+  optional, `squash_initials` gives the key of the name without them. A disclosure or ticker list
+  ("Trader A Owns (INTC)", "is long X;", "have positions in X") is told from a sentence by
+  `triage.in_disclosure`; `CompanyResolver.disclosure_only` gives the tickers a text names only that
+  way, and `counted_matches` / `is_ticker_form` the mentions `resolve` counts and their kind.
+- `scripts/company_news_counts_2026_11_09.py` (T-160, PLAN D36, D38) — the news counts per company for
+  the owner's partner: for three corpora (`ok_`, `quarantined_only_`, `all_`) and four measures:
+  `*_bodies_naming`, `*_bodies_subject`, `*_bodies_single`, and `*_bodies_disclosure` (of the bodies
+  that name the company, those that name it only in a disclosure; `subject` and `single` are not
+  adjusted for it, the README gives the run's own shares). `scripts/matcher_before_after_2026_11_09.py`
+  compares the matcher with a git revision (`--base`), checks that each company is found by its own
+  name (`--self-check`), measures the disclosure share (`--disclosures`) and prints the labels of
+  `docs/matcher_labels_2026-11-09.csv` with their context (`--render`) and recomputes the precision of
+  its sets (`--labels-summary`).
+- `docs/matcher_labels_2026-11-09.csv` (PLAN D38) — what was read to measure the matcher, one reader
+  (the developer), no news text. Columns: `set` (the sample: `r<residue>_<what>`, residue of
+  `id % 60`), `n` (its number in the set), `article_id` (SOURCE), `ticker`, `word` (the matched
+  text), `rule` (which rule matched), `offset` (character offset of `word` in the body as stored),
+  `residue`, `seed` (of the random draw; `all` = every mention), `label`, `note`. Labels by kind of
+  set: sets of **mentions** (`*_owner15`, `*_alias`, `*_short_corr`, `*_name_ticker`, `*_dropped_*`,
+  `*_ten_names_new`): `real` (the company), `not`, `ambiguous` (counted as wrong in the tables),
+  `unreadable` (left out); the "precision" of a `*_dropped_*` set is the share of dropped mentions
+  that were the company, i.e. what the rule costs. Sets of **flagged** pairs (named only inside a
+  disclosure by the detector): `disclosure`, `not-disclosure`, `ambiguous`, `unreadable`. Sets of
+  **unflagged** ticker-only pairs: `prose-real`, `not-company`, `disclosure-missed`, `ambiguous`,
+  `unreadable` (counts only). `r59_unflagged_by_tightening` was drawn under the round-6 detector (what the next version stopped flagging); `r17_*` were read on a residue none of the edits was chosen from. A test reads the file, checks every label against its set and pins the
+  figures D38 quotes.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
@@ -338,9 +381,10 @@ lean `articles` rows itself.
   last check of each extractor in `faithfulness_stale.json`, which `report_wi18 faithfulness` quotes).
 - The guard and the headers (T-148b5, T-148b6, `attribution_units.py`; `units2` and `units3` of
   `attribute_sentences(reading=...)`, one of `sentences`, `units`, `units2`, `units3`, anything else
-  is a `ValueError`): `GuardedResolver` counts a short form of a company's name only when its full
-  name or a ticker form is in the body (for the attribution only: `CompanyResolver.mention_spans(
-  aliases=False)` is opt-in and the scope rules keep the resolver they were measured with);
+  is a `ValueError`): `GuardedResolver` counts a company named by a first word or by a surname or noun ("Bloom",
+  "Williams", "Block") only when the body also has its full name, its short form or a ticker form
+  (`CompanyResolver.firm_spans`; PLAN D38: the scope rules count a body with `resolve`, which applies
+  the same rule);
   `header_owners` gives a "NAMES - text" line to the universe companies among the names, to nobody
   when the names are of a company outside the universe, and does not take a dateline or a label in
   capitals ("DETROIT - ..."), nor a dash inside a sentence (the text after it does not start with a capital, a

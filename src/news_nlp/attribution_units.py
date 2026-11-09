@@ -230,18 +230,21 @@ class Mentions(Protocol):
 
 class GuardedResolver:
     """A resolver for the attribution that does not take a common word for a company. A company
-    that the body names only by the first word of its name ("Bloom", "Union", "Home", "Baker") does
-    not count: a short form is a mention only when the full name, or a ticker form, of the same
-    company is somewhere in *body*. The first reading of the faithfulness check found such texts
-    34% faithful (11 of 32) against 90 to 100% for every other way a company is named. The scope
-    rules keep the resolver they were measured with: this is for the attribution only."""
+    that the body names only by the first word of its name ("Bloom", "Union", "Home", "Baker"), or
+    by a name that is also a surname or a noun ("Williams", "Block", "Travelers"), does not count:
+    such a word is a mention only when the full name, the short form or a ticker form of the same
+    company is somewhere in *body* (``CompanyResolver.firm_spans``). The first reading of the
+    faithfulness check found such texts 34% faithful (11 of 32) against 90 to 100% for every other
+    way a company is named. The scope rules count a body with ``CompanyResolver.resolve``, which
+    applies the same rule to the whole body (PLAN D38); this is for the single sentences the
+    attribution masks and cuts."""
 
     def __init__(self, resolver: CompanyResolver, body: str) -> None:
         self.resolver = resolver
-        self.confirmed = {t for _, _, t in resolver.mention_spans(body, aliases=False)}
+        self.confirmed = {t for _, _, t in resolver.firm_spans(body)}
 
     def mention_spans(self, text: str) -> list[tuple[int, int, str]]:
-        full = {(a, b) for a, b, _ in self.resolver.mention_spans(text, aliases=False)}
+        full = {(a, b) for a, b, _ in self.resolver.firm_spans(text)}
         return [
             (a, b, t)
             for a, b, t in self.resolver.mention_spans(text)
