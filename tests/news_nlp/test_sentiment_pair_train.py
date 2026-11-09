@@ -370,7 +370,8 @@ def test_the_trainer_trains_saves_and_scores_the_saved_model_through_the_scorer(
     assert artifact.output_dir == str(tmp_path / "out") and seen == [artifact.output_dir]
     assert (tmp_path / "out" / "config.json").exists()
     metrics = artifact.metrics or {}
-    assert metrics["validation_agreement"] == 0.75 and metrics["n_train"] == 16
+    assert metrics["validation_score"] == 0.75 and metrics["n_train"] == 16
+    assert metrics["validation_detail"] is None  # a plain function carries no per-class figures
     assert metrics["settings"] == {"epochs": 2, "learning_rate": 1e-3, "seed": 1}
     assert len(metrics["epoch_losses"]) == 2 and metrics["train_seconds"] >= 0
 

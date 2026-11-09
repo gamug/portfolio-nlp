@@ -4,19 +4,24 @@
     uv run scripts/train_sentiment_pair_2026_11_09.py --grid        # the 27 runs of the grid (resumable)
     uv run scripts/train_sentiment_pair_2026_11_09.py --final       # the setting chosen, one run, the model kept
     uv run scripts/train_sentiment_pair_2026_11_09.py --baseline    # the pinned model on the validation slice, no training
-    uv run scripts/train_sentiment_pair_2026_11_09.py --report      # the final run against the baseline, per class and paired
+    uv run scripts/train_sentiment_pair_2026_11_09.py --report      # the final run against the baseline: precision, recall, ROC OVR
 
 The recipe and its checks are in ``src/sentiment_pair_train.py``. This script gives them the data: the 450
 marks (``gold/sentiment_train.csv``) with their texts (``data/sentiment_train_ids.csv``, git-ignored), the
 earlier balanced pool of sentences as the replay (``data/sentiment_finetune``, read for the company of each
 sentence from the SOURCE), and the scorer's own reading of a saved model for the validation slice
-(``draw_sentiment_gold_2026_11_05.predict``, with the pair). It never reads the 180-text gold.
+(``draw_sentiment_gold_2026_11_05.predict_probs``, with the pair). It never reads the 180-text gold.
+
+**The metrics (owner, 2026-11-09; PLAN D37): Precision, Recall and ROC OVR, per class, are recorded for every run and
+are what model selection uses**: the validation score of a run is the mean of those nine figures (weighted by the
+strata of the draw), and the grid's tie rule reads it. Accuracy is not a selection metric.
 
 Read-only on the databases; writes ``data/sentiment_pair/`` (the replay as drawn, the results of the runs, and
-``predictions/<run>.csv``: the class each run gave each validation text, for the paired comparison) and,
+``predictions/<tag>__<run>.csv``: the class and the class probabilities each run gave each validation text) and,
 for ``--final``, the model to ``models/sentiment_pair/final`` (git-ignored). A run's model is deleted after its
-validation agreement is scored, except the final one. ``--mlflow`` logs every run (params, the validation
-agreement, the epochs' losses) to the local MLflow store (``uv sync --group eval``).
+validation score is computed, except the final one. ``--mlflow`` logs every run (params, the validation score,
+the precision, recall and ROC OVR of each class, the epochs' losses) to the local MLflow store
+(``uv sync --group eval``).
 """
 
 from __future__ import annotations
@@ -25,7 +30,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 import shutil
 import sqlite3
 import statistics
@@ -59,8 +63,11 @@ REPLAY_SEED = (
 )
 TIMING_SETTING = spt.RunSettings(*spt.EARLIER_SETTING, seed=1)
 #: How the SOURCE was read: written into the results file, so a result got from a snapshot can be told.
-#: A run's agreement recomputed from its predictions must equal the one its row logged (a share of 83).
-AGREEMENT_TOLERANCE = 1e-9
+#: A run's score recomputed from its predictions must equal the one its row logged.
+SCORE_TOLERANCE = 1e-9
+#: Bootstrap resamples of the report's intervals (``gold_metrics.RESAMPLES``); a test lowers it.
+REPORT_RESAMPLES = rep.RESAMPLES
+PREDICTION_COLUMNS = ["key", "expected", "predicted", *[f"p_{c}" for c in rep.CLASSES]]
 SOURCE_MODE = {"how": "attached read-only"}
 
 
@@ -137,33 +144,63 @@ def build_data(
 
 
 class ValidationScorer:
-    """The scorer's own reading of a saved model on the validation slice: its agreement with the marks. The
-    per-text predictions of the last call stay in ``predictions`` (key, owner's class, predicted class)."""
+    """The scorer's own reading of a saved model on the validation slice: the **validation score** (the mean of
+    the precision, recall and ROC OVR of the three classes, weighted by the strata of the draw: PLAN D37). After
+    a call, ``predictions`` holds the per-text predictions (key, owner's class, predicted class, the class
+    probabilities) and ``detail`` the figures of each class and their macros."""
 
-    def __init__(self, validation: list[spt.Example]) -> None:
+    def __init__(self, validation: list[spt.Example], marks: list[dict[str, str]]) -> None:
         self.items = [{"key": e.key, "text": e.text, "company": e.company} for e in validation]
         self._expected = {e.key: spt.ID2LABEL[e.label] for e in validation}
+        self.marks = marks
         self.predictions: list[dict[str, str]] = []
+        self.detail: dict[str, dict[str, float | None]] = {}
 
     def __call__(self, model_dir: str) -> float:
-        scored = gold_draw.predict([dict(i) for i in self.items], {"model": model_dir}, pair=True)
+        scored = gold_draw.predict_probs(
+            [dict(i) for i in self.items], {"model": model_dir}, pair=True
+        )
         self.predictions = self.collect(scored)
-        return sum(p["predicted"] == p["expected"] for p in self.predictions) / len(self.items)
+        self.detail, score = self.measure(self.predictions)
+        return score
 
-    def collect(self, scored: list[dict[str, str]]) -> list[dict[str, str]]:
+    def collect(self, scored: list[dict[str, Any]]) -> list[dict[str, str]]:
         """The predictions of a reading, one per validation text; stop if a text was not read."""
         if len(scored) != len(self.items):
             raise spt.MarkedFileError(
                 f"{len(self.items) - len(scored)} validation texts have no chunk"
             )
         return [
-            {"key": t["key"], "expected": self._expected[t["key"]], "predicted": t["predicted"]}
+            {
+                "key": t["key"],
+                "expected": self._expected[t["key"]],
+                "predicted": t["predicted"],
+                **{f"p_{c}": repr(float(t["probs"][c])) for c in rep.CLASSES},
+            }
             for t in scored
         ]
 
+    def measure(
+        self, predictions: list[dict[str, str]]
+    ) -> tuple[dict[str, dict[str, float | None]], float]:
+        """The per-class figures and the validation score of a reading."""
+        return measure(predictions, self.marks)
 
-def validation_scorer(validation: list[spt.Example]) -> ValidationScorer:
-    return ValidationScorer(validation)
+
+def measure(
+    predictions: list[dict[str, str]], marks: list[dict[str, str]]
+) -> tuple[dict[str, dict[str, float | None]], float]:
+    """The precision, recall and ROC OVR of each class (weighted by the strata of the draw), as a run records
+    them, and the validation score: their mean."""
+    scored, populations = rep.scored_from_rows(predictions, marks)
+    metrics = rep.class_metrics(scored, rep.row_weights(scored, populations))
+    return rep.detail_of(metrics), rep.selection_score(metrics)
+
+
+def validation_scorer(
+    validation: list[spt.Example], marks: list[dict[str, str]]
+) -> ValidationScorer:
+    return ValidationScorer(validation, marks)
 
 
 def prediction_name(tag: str, name: str) -> str:
@@ -176,7 +213,7 @@ def write_predictions(name: str, predictions: list[dict[str, str]]) -> None:
     folder = OUT / "predictions"
     folder.mkdir(parents=True, exist_ok=True)
     with (folder / f"{name}.csv").open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["key", "expected", "predicted"])
+        writer = csv.DictWriter(handle, fieldnames=PREDICTION_COLUMNS)
         writer.writeheader()
         writer.writerows(predictions)
 
@@ -284,7 +321,11 @@ def log_mlflow(
                 "base_model": "{}@{}".format(*base_model()),
             }
         )
-        mlflow.log_metric("validation_agreement", row["validation_agreement"])
+        mlflow.log_metric("validation_score", row["validation_score"])
+        for label, figures in (row.get("validation_detail") or {}).items():
+            for metric, value in figures.items():
+                if value is not None:  # an undefined figure is not logged
+                    mlflow.log_metric(f"{metric}_{label}", value)
         mlflow.log_metric("train_seconds", row["train_seconds"])
         for epoch, loss in enumerate(row["epoch_losses"], 1):
             mlflow.log_metric("train_loss", loss, step=epoch)
@@ -346,12 +387,12 @@ def open_results(
     return {"fingerprint": fingerprint, "source": source}, rows
 
 
-def agreements_by_setting(rows: list[dict[str, Any]]) -> dict[tuple[int, float], list[float]]:
+def scores_by_setting(rows: list[dict[str, Any]]) -> dict[tuple[int, float], list[float]]:
     by: dict[tuple[int, float], list[float]] = {}
     for row in rows:
         if row["tag"] == "grid":
             s = row["settings"]
-            by.setdefault((s["epochs"], s["learning_rate"]), []).append(row["validation_agreement"])
+            by.setdefault((s["epochs"], s["learning_rate"]), []).append(row["validation_score"])
     return by
 
 
@@ -365,7 +406,7 @@ def run_timing(train: list[spt.Example], scorer: Any, mlflow_on: bool) -> None:
         len(spt.grid_settings()) + 1
     )
     print(
-        f"validation agreement {row['validation_agreement']:.3f}; training {row['train_seconds']:.0f} s "
+        f"validation score {row['validation_score']:.3f}; training {row['train_seconds']:.0f} s "
         f"({per_epoch:.1f} s an epoch), loading and scoring {overhead:.0f} s; the 27 runs and the final one: "
         f"about {full / 60:.0f} min ({epochs_in_grid} epochs + {spt.EARLIER_SETTING[0]})"
     )
@@ -387,30 +428,45 @@ def run_grid(
     for settings in tqdm(todo, desc="grid", unit="run"):
         rows.append(one_run(settings, train, scorer, mlflow_on=mlflow_on, fingerprint=fingerprint))
         save_results(rows, header)  # after every run: a stop loses one run, not the grid
-        tqdm.write(f"{settings.name}: validation agreement {rows[-1]['validation_agreement']:.3f}")
+        tqdm.write(f"{settings.name}: validation score {rows[-1]['validation_score']:.3f}")
     summarise(rows, n_validation)
 
 
 def summarise(rows: list[dict[str, Any]], n_validation: int = 0) -> spt.Choice:
-    by = agreements_by_setting(rows)
-    print("\nmean validation agreement by setting (3 seeds):")
+    """The mean validation score of each setting (and, where the runs recorded them, the macro precision, recall
+    and ROC OVR it is made of), and the choice by D35's tie rule on the score."""
+    by = scores_by_setting(rows)
+    macros: dict[tuple[int, float], dict[str, list[float]]] = {}
+    for row in rows:
+        if row["tag"] == "grid" and (row.get("validation_detail") or {}).get("macro"):
+            s = row["settings"]
+            for metric, value in row["validation_detail"]["macro"].items():
+                macros.setdefault((s["epochs"], s["learning_rate"]), {}).setdefault(
+                    metric, []
+                ).append(value)
+    print(
+        "\nmean validation score by setting (3 seeds; the score is the mean of the macro precision, recall and ROC OVR):"
+    )
     for (epochs, lr), values in sorted(by.items()):
-        counted = (
-            f" = {statistics.fmean(values) * n_validation:.1f}/{n_validation} texts"
-            if n_validation
+        parts = macros.get((epochs, lr))
+        made_of = (
+            " (precision {:.3f}, recall {:.3f}, ROC OVR {:.3f})".format(
+                *(statistics.fmean(parts[m]) for m in rep.CLASS_METRICS)
+            )
+            if parts
             else ""
         )
         print(
-            f"  {epochs} epochs, lr {lr:g}: {statistics.fmean(values):.3f}{counted} {[round(v, 3) for v in values]}"
+            f"  {epochs} epochs, lr {lr:g}: {statistics.fmean(values):.3f}{made_of} {[round(v, 3) for v in values]}"
         )
     choice = spt.choose_settings(by)
     print(f"chosen: {choice.epochs} epochs, lr {choice.learning_rate:g}: {choice.reason}")
     if n_validation:
-        noise = math.sqrt(choice.mean * (1 - choice.mean) / n_validation)
         print(
-            f"read with care: the SE above is the spread between seeds only; the sampling noise of "
-            f"{n_validation} texts is about {noise:.3f} (binomial) and every setting shares it, so a gap "
-            "of a few texts between settings is not a difference the validation slice can show"
+            f"read with care: the SE above is the spread between seeds only; the validation slice has "
+            f"{n_validation} texts and its sampling noise is shared by every setting and not shown by the seeds "
+            "(the report's intervals show it for the final run), so a small gap between settings is not a "
+            "difference the validation slice can show"
         )
     return choice
 
@@ -448,12 +504,12 @@ def run_final(
         tag="final",
         fingerprint=fingerprint,
     )
-    seeds = agreements_by_setting(rows)[(choice.epochs, choice.learning_rate)]
+    seeds = scores_by_setting(rows)[(choice.epochs, choice.learning_rate)]
     rows.append({**row, "fingerprint": fingerprint, "code": code_revision()})
     save_results(rows, header)
     partial.replace(target)
     print(
-        f"\nfinal run ({settings.name}): validation agreement {row['validation_agreement']:.3f}; "
+        f"\nfinal run ({settings.name}): validation score {row['validation_score']:.3f}; "
         f"the three seeds of the same setting: mean {statistics.fmean(seeds):.3f}, "
         f"spread (sd) {statistics.stdev(seeds):.3f}\nmodel: {target} (not published, not scored on the gold)"
     )
@@ -464,14 +520,31 @@ def keys_hash(keys: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(keys)).encode()).hexdigest()[:12]
 
 
-def run_baseline(validation: list[spt.Example]) -> dict[str, Any]:
+def metric_lines(name: str, detail: dict[str, dict[str, float | None]], score: float) -> list[str]:
+    """The precision, recall and ROC OVR of each class and their macro, and the score, as a run recorded them
+    (weighted by the strata of the draw; points, without intervals)."""
+
+    def fmt(v: float | None) -> str:
+        return "undefined" if v is None else f"{v:.3f}"
+
+    lines = [f"{name}: validation score {score:.3f} (weighted; the mean of the nine figures)"]
+    for label in (*rep.CLASSES, "macro"):
+        figures = detail[label]
+        lines.append(
+            f"  {label:<8} precision {fmt(figures['precision'])}, recall {fmt(figures['recall'])}, "
+            f"ROC OVR {fmt(figures['roc_ovr'])}"
+        )
+    return lines
+
+
+def run_baseline(validation: list[spt.Example], marks: list[dict[str, str]]) -> dict[str, Any]:
     """The pinned model on the validation slice, as the scorer reads it, with the pair and without: what the
-    grid's numbers are to be set against (no training). The per-text predictions are kept for the paired
-    comparison; a text the model did not read stops the run, as it does for the grid. ``baseline.json``
-    records the model and revision, the code revision and the validation keys, so a report can tell a stale
-    baseline."""
+    grid's numbers are to be set against (no training). The per-text predictions (with the class
+    probabilities) are kept; a text the model did not read stops the run, as it does for the grid.
+    ``baseline.json`` records the model and revision, the code revision, the validation keys and each
+    reading's score, so a report can tell a stale baseline."""
     model, revision = base_model()
-    scorer = ValidationScorer(validation)
+    scorer = ValidationScorer(validation, marks)
     items = scorer.items
     result: dict[str, Any] = {
         "model": f"{model}@{revision}",
@@ -480,19 +553,20 @@ def run_baseline(validation: list[spt.Example]) -> dict[str, Any]:
         "n": len(items),
     }
     for name, pair in (("pair", True), ("text_only", False)):
-        scored = gold_draw.predict(
+        scored = gold_draw.predict_probs(
             [dict(i) for i in items], {"model": model, "revision": revision}, pair=pair
         )
         predictions = scorer.collect(scored)
         write_predictions(f"baseline_{name}", predictions)
-        result[name] = sum(p["predicted"] == p["expected"] for p in predictions)
+        detail, score = scorer.measure(predictions)
+        result[f"{name}_score"], result[f"{name}_detail"] = score, detail
+        print("\n".join(metric_lines(f"pinned, {name}", detail, score)))
         print("\n".join(rep.report_lines(f"pinned, {name}", *_columns(predictions))))
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     print(
-        f"pinned {result['model']} on {result['n']} validation texts: as the pair "
-        f"{result['pair']}/{result['n']} = {result['pair'] / result['n']:.3f}; "
-        f"text only {result['text_only']}/{result['n']} = {result['text_only'] / result['n']:.3f} (raw)"
+        f"pinned {result['model']} on {result['n']} validation texts: validation score as the pair "
+        f"{result['pair_score']:.3f}; text only {result['text_only_score']:.3f}"
     )
     return result
 
@@ -522,110 +596,69 @@ def stale_baseline(final_row: dict[str, Any], keys: list[str]) -> str | None:
     return None
 
 
-def weighted_rows(
-    marks: list[dict[str, str]], readings: dict[str, list[dict[str, str]]]
-) -> tuple[list[dict[str, str]], dict[str, int]]:
-    """One row per validation text for the weighted figures: the owner's class (``gold``), the stratum (the
-    class the pinned model predicted when the text was drawn) and each reading; and the size of each stratum's
-    pool (``pool_class_size`` of the marks)."""
-    by_key = {m["key"]: m for m in marks if m["slice"] == "validation"}
-    populations: dict[str, int] = {}
-    rows = []
-    first = next(iter(readings.values()))
-    for i, p in enumerate(first):
-        m = by_key[p["key"]]
-        size = populations.setdefault(m["predicted"], int(m["pool_class_size"]))
-        if size != int(m["pool_class_size"]):
-            raise spt.MarkedFileError(f"stratum {m['predicted']} has two pool sizes")
-        rows.append(
-            {
-                "key": p["key"],
-                "stratum": m["predicted"],
-                "gold": p["expected"],
-                **{name: r[i]["predicted"] for name, r in readings.items()},
-            }
+def print_weighted(scored: dict[str, list[rep.Scored]], populations: dict[str, int]) -> None:
+    """The figures of each reading, weighted, with intervals: precision, recall and ROC OVR of each class, their
+    macros and the validation score; D32's verdicts on the final run's negative class; then the paired weighted
+    gain of the final run over the pinned model as text, with the gold's verdicts, and the pin rule on it. The
+    two tests are different: a model can pin and still be below the bar."""
+    for name, rows in scored.items():
+        figures = rep.weighted_figures(rows, populations, resamples=REPORT_RESAMPLES)
+        print(f"  {name}: validation score {figures['score']}")
+        for label in rep.CLASSES:
+            print(
+                f"    {label:<8} "
+                + "; ".join(f"{m} {figures[f'{label} {m}']}" for m in rep.CLASS_METRICS)
+            )
+        print(
+            "    macro    " + "; ".join(f"{m} {figures[f'macro {m}']}" for m in rep.CLASS_METRICS)
         )
-    return rows, populations
-
-
-def print_weighted(
-    rows: list[dict[str, str]], populations: dict[str, int], readings: dict[str, Any]
-) -> None:
-    """The weighted figures of each reading with D32's verdict on each (the bar for the cut), then the paired
-    weighted gain of the final run over the pinned model as text with the gold's verdict (D35's pin rule).
-    The two tests are different: a model can pin and still be below the bar."""
-    for name in readings:
-        figures = rep.weighted_figures(rows, populations, name)
-        print(f"  {name}: " + "; ".join(f"{k} {v}" for k, v in figures.items()))
         if name == "final":
             verdicts = rep.bar_verdicts(figures)
             print(
-                "    D32's bar on the final run (agreement 80%, negative precision and recall 70%): "
+                "    D32's bar on the final run's negative class (precision and recall 70%; ROC OVR has no bar): "
                 + "; ".join(f"{k} {v}" for k, v in verdicts.items())
             )
-    gains = rep.weighted_gains(rows, populations, "final", "pinned_text")
+    gains = rep.weighted_gains(
+        scored["final"], scored["pinned_text"], populations, resamples=REPORT_RESAMPLES
+    )
     print("  paired weighted gain of the final run over the pinned model as text (D35's pin rule):")
-    for metric, (gain, verdict) in gains.items():
-        print(f"    {metric}: {gain} -> {verdict}")
-    pins, reason = rep.pin_decision({m: v for m, (_g, v) in gains.items()})
+    for name in ("score", *(f"macro {m}" for m in rep.CLASS_METRICS)):
+        gain, verdict = gains[name]
+        print(f"    {name}: {gain} -> {verdict}")
+    for name in ("negative precision", "negative recall", "negative roc_ovr"):
+        gain, verdict = gains[name]
+        print(f"    {name}: {gain} -> {verdict}")
+    pins, reason = rep.pin_decision({m: gains[m][1] for m in rep.PIN_STATISTICS})
     print(
         f"  the pin rule on these figures: {'would pin' if pins else 'would not pin'}: {reason} "
         "(validation; the rule is applied once, to the gold)"
     )
 
 
-def print_setting_ranking(marks: list[dict[str, str]]) -> None:
-    """The grid chose by the raw validation agreement; here the nine settings by the weighted agreement (mean of
-    their seeds, from the predictions kept), and whether D35's rule on it would choose the same. Nothing is
-    re-picked: this is for the owner to know before T-148c4."""
-    by: dict[tuple[int, float], list[float]] = {}
-    if not any(r["tag"] == "grid" for r in load_results()[1]):
-        print("  (no grid rows: the weighted ranking of the settings is not made)")
-        return
-    for row in load_results()[1]:
-        if row["tag"] != "grid":
+def check_run_scores(marks: list[dict[str, str]], rows: list[dict[str, Any]]) -> None:
+    """Every run's score recomputed from its predictions file must equal the one its row logged (the predictions
+    and the row are of the same run). A mismatch is a WARNING, and says which run."""
+    for row in rows:
+        if row["tag"] not in ("grid", "final"):
             continue
-        predictions = read_predictions(prediction_name("grid", row["name"]))
+        predictions = read_predictions(prediction_name(row["tag"], row["name"]))
         if predictions is None:
+            print(f"  (the predictions of {row['name']} are not here: its score is not checked)")
+            continue
+        recomputed = measure(predictions, marks)[1]
+        if abs(recomputed - row["validation_score"]) > SCORE_TOLERANCE:
             print(
-                f"  (the weighted ranking of the settings needs the predictions of {row['name']})"
+                f"  WARNING: the predictions of {row['name']} give a score of {recomputed:.4f}, its row logged "
+                f"{row['validation_score']:.4f}: they are not of the same run"
             )
-            return
-        raw_agreement = sum(p["predicted"] == p["expected"] for p in predictions) / len(predictions)
-        if abs(raw_agreement - row["validation_agreement"]) > AGREEMENT_TOLERANCE:
-            print(
-                f"  WARNING: the predictions of {row['name']} give {raw_agreement:.4f}, its row logged "
-                f"{row['validation_agreement']:.4f}: they are not of the same run; the weighted ranking "
-                "of the settings is not made"
-            )
-            return
-        rows, populations = weighted_rows(marks, {"run": predictions})
-        s = row["settings"]
-        by.setdefault((s["epochs"], s["learning_rate"]), []).append(
-            rep.weighted_agreement(rows, populations, "run")
-        )
-    raw = spt.choose_settings(agreements_by_setting(load_results()[1]))
-    weighted = spt.choose_settings(by)
-    print(
-        "  weighted agreement by setting (mean of the seeds): "
-        + "; ".join(
-            f"{e} ep {lr:g}: {statistics.fmean(v):.3f}" for (e, lr), v in sorted(by.items())
-        )
-    )
-    same = (raw.epochs, raw.learning_rate) == (weighted.epochs, weighted.learning_rate)
-    print(
-        f"  the grid chose {raw.epochs} epochs, lr {raw.learning_rate:g} (raw agreement); D35's rule on the "
-        f"weighted agreement would choose {weighted.epochs} epochs, lr {weighted.learning_rate:g}: "
-        f"{'the same' if same else 'DIFFERENT, a question for the owner (nothing is re-picked)'}"
-    )
 
 
 def run_report(*, required: bool = True) -> None:
     """The final run against the pinned model's two readings, from the predictions kept. **Weighted** (the
-    figures the bar and D35's pin rule are read in: agreement, negative precision and recall, and their
-    paired gain over the pinned model read as text, with the gold's verdicts), then the **raw** description of
-    the 83 (confusion, per class, McNemar). The slice is drawn per class the pinned model predicted, so raw
-    shares are not the population's."""
+    figures the bar and D35's pin rule are read in: precision, recall and ROC OVR per class, the validation
+    score, and the paired gain over the pinned model read as text, with the gold's verdicts), then the **raw**
+    description of the 83 (confusion, per class, McNemar). The slice is drawn per class the pinned model
+    predicted, so raw shares are not the population's."""
     final_row = next((r for r in reversed(load_results()[1]) if r["tag"] == "final"), None)
     final = read_predictions(prediction_name("final", final_row["name"])) if final_row else None
     base = {n: read_predictions(f"baseline_{n}") for n in ("text_only", "pair")}
@@ -648,29 +681,31 @@ def run_report(*, required: bool = True) -> None:
             sys.exit(f"the report cannot be made: {problem}")
         print(f"\nthe report is not made: {problem}")
         return
+    marks = read_csv(MARKS)
     readings = {
         "final": final,
         "pinned_text": base["text_only"] or [],
         "pinned_pair": base["pair"] or [],
     }
-    marks = read_csv(MARKS)
-    rows, populations = weighted_rows(marks, readings)
-    drawn = sum(r["pinned_text"] == r["stratum"] for r in rows)
+    scored = {name: rep.scored_from_rows(preds, marks)[0] for name, preds in readings.items()}
+    populations = rep.scored_from_rows(final, marks)[1]
+    drawn = sum(s.predicted == s.stratum for s in scored["pinned_text"])
     print(
         f"\nWEIGHTED (each text weighs pool size / drawn of its stratum; strata = the class the pinned model "
-        f"predicted when the text was drawn: {populations}; drawn {dict(Counter(r['stratum'] for r in rows))}). "
-        f"The weights stand for the pair-readable texts of each stratum: the 7 company-less rows of the 90 "
-        f"are out of the slice and stay with the text-only model, which the gold includes.\n"
-        f"(check: the pinned model as text agrees with its stored draw prediction on {drawn} of {len(rows)} texts)"
+        f"predicted when the text was drawn: {populations}; drawn "
+        f"{dict(Counter(s.stratum for s in scored['final']))}). The weights stand for the pair-readable "
+        f"texts of each stratum: the 7 company-less rows of the 90 are out of the slice and stay with the "
+        f"text-only model, which the gold includes. Precision, recall and ROC OVR, per class (PLAN D37).\n"
+        f"(check: the pinned model as text agrees with its stored draw prediction on {drawn} of {len(keys)} texts)"
     )
-    if drawn != len(rows):
+    if drawn != len(keys):
         print(
-            f"WARNING: the baseline is not the reading the strata were drawn from ({len(rows) - drawn} texts "
+            f"WARNING: the baseline is not the reading the strata were drawn from ({len(keys) - drawn} texts "
             "differ): the weighted figures, the gain and the verdicts are withheld; the raw description follows"
         )
     else:
-        print_weighted(rows, populations, readings)
-        print_setting_ranking(marks)
+        print_weighted(scored, populations)
+        check_run_scores(marks, load_results()[1])
     print("\n" + "\n".join(rep.report_lines(f"final ({final_row['name']})", *_columns(final))))
     print(
         "RAW is the description of this draw, not an estimate for the population; negatives are few"
@@ -714,12 +749,13 @@ def main() -> None:
         run_report()
         return
     if args.baseline:  # marks only: no SOURCE, no replay
-        run_baseline(spt.load_marked_summaries(read_csv(MARKS), read_csv(IDS)).validation)
+        marks = read_csv(MARKS)
+        run_baseline(spt.load_marked_summaries(marks, read_csv(IDS)).validation, marks)
         return
     conn = connect_source()
     marked, replay, _report = build_data(conn)
     train = [*marked.train, *replay]
-    scorer = validation_scorer(marked.validation)
+    scorer = validation_scorer(marked.validation, read_csv(MARKS))
     fingerprint = spt.train_fingerprint(
         train, marked.validation, *base_model(), code=code_revision()
     )

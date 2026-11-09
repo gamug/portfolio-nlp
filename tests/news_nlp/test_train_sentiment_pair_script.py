@@ -93,46 +93,20 @@ def test_without_a_source_the_attach_error_is_not_hidden(monkeypatch: pytest.Mon
         CMD.connect_source()
 
 
-def test_the_validation_agreement_is_the_share_of_texts_read_as_the_owner_marked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    validation = [
-        spt.Example("a", "Acme", "t1", 0, "summary"),
-        spt.Example("b", "Bravo", "t2", 1, "summary"),
-        spt.Example("c", "Acme", "t3", 2, "summary"),
-        spt.Example("d", "Bravo", "t4", 0, "summary"),
-    ]
-    seen: list[Any] = []
-
-    def predict(items: list[dict[str, str]], cfg: Any, pair: bool = False) -> list[dict[str, str]]:
-        seen.append((cfg, pair, [i["company"] for i in items]))
-        answers = {"a": "positive", "b": "negative", "c": "positive", "d": "positive"}
-        return [{**i, "predicted": answers[i["key"]]} for i in items]
-
-    monkeypatch.setattr(CMD.gold_draw, "predict", predict)
-    score = CMD.validation_scorer(validation)
-    assert score("models/x") == 0.75
-    assert seen == [({"model": "models/x"}, True, ["Acme", "Bravo", "Acme", "Bravo"])]  # the pair
-
-    monkeypatch.setattr(CMD.gold_draw, "predict", lambda items, cfg, pair=False: items[:2])
-    with pytest.raises(spt.MarkedFileError, match="no chunk"):
-        CMD.validation_scorer(validation)("models/x")
-
-
 def test_the_results_are_written_whole_and_only_the_grid_rows_choose_the_setting(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(CMD, "OUT", tmp_path / "out")
     assert CMD.load_results() == ({}, [])
     rows = [
-        {"name": "n1", "tag": "grid", "validation_agreement": 0.7, "settings": {"epochs": 2, "learning_rate": 1e-5}},
-        {"name": "n2", "tag": "grid", "validation_agreement": 0.8, "settings": {"epochs": 2, "learning_rate": 1e-5}},
-        {"name": "t", "tag": "timing", "validation_agreement": 0.1, "settings": {"epochs": 4, "learning_rate": 2e-5}},
+        {"name": "n1", "tag": "grid", "validation_score": 0.7, "settings": {"epochs": 2, "learning_rate": 1e-5}},
+        {"name": "n2", "tag": "grid", "validation_score": 0.8, "settings": {"epochs": 2, "learning_rate": 1e-5}},
+        {"name": "t", "tag": "timing", "validation_score": 0.1, "settings": {"epochs": 4, "learning_rate": 2e-5}},
     ]  # fmt: skip
     CMD.save_results(rows, {"fingerprint": "f1", "source": "attached read-only"})
     assert CMD.load_results() == ({"fingerprint": "f1", "source": "attached read-only"}, rows)
     assert not list((tmp_path / "out").glob("*.tmp"))
-    assert CMD.agreements_by_setting(rows) == {(2, 1e-5): [0.7, 0.8]}
+    assert CMD.scores_by_setting(rows) == {(2, 1e-5): [0.7, 0.8]}
 
 
 class _Trainer:
@@ -147,7 +121,7 @@ class _Trainer:
         return TrainedArtifact(
             config.output_dir,
             {
-                "validation_agreement": self._scorer(config.output_dir),
+                "validation_score": self._scorer(config.output_dir),
                 "epoch_losses": [1.0],
                 "train_seconds": 1.0,
                 "settings": {"epochs": config.settings.epochs, "learning_rate": config.settings.learning_rate, "seed": config.settings.seed},
@@ -174,7 +148,7 @@ def test_a_run_deletes_its_model_unless_it_is_kept_and_logs_to_mlflow_when_asked
     logged = _patch_run(monkeypatch, tmp_path)
     settings = spt.RunSettings(2, 1e-5, 1)
     row = CMD.one_run(settings, [], lambda _d: 0.5)
-    assert row["validation_agreement"] == 0.5 and row["tag"] == "grid" and logged == []
+    assert row["validation_score"] == 0.5 and row["tag"] == "grid" and logged == []
     assert not (tmp_path / "models" / "_run" / settings.name).exists()  # deleted after scoring
     kept = CMD.one_run(
         settings,
@@ -211,7 +185,8 @@ def test_the_grid_runs_what_is_not_done_and_saves_after_every_run(
     CMD.run_grid([], lambda _d: 0.8, False, "f", 83)
     out = capsys.readouterr().out
     assert "1 runs already done, 26 to run" in out
-    assert "/83 texts" in out and "sampling noise of 83 texts" in out
+    assert "mean validation score by setting" in out and "the validation slice has 83 texts" in out
+    assert "the mean of the macro precision, recall and ROC OVR" in out
     assert saved == list(range(2, 28))  # one save per run
     header, rows = CMD.load_results()
     assert len(rows) == 27 and len({r["name"] for r in rows}) == 27 and header["fingerprint"] == "f"
@@ -233,7 +208,7 @@ def test_rows_of_other_data_are_not_resumed_unless_asked_and_then_set_aside(
     assert (
         header["fingerprint"] == "new-data"
         and len(rows) == 27
-        and rows[0]["validation_agreement"] == 0.8
+        and rows[0]["validation_score"] == 0.8
     )
     old = tmp_path / "out" / "grid_results.json"
     old.write_text("[]")  # the first format: no fingerprint, and no rows to lose
@@ -293,33 +268,6 @@ def test_a_final_run_that_fails_leaves_no_model_without_a_row_and_can_be_made_ag
         CMD.run_final([], lambda _d: 0.9, False, "f")
 
 
-def test_the_baseline_scores_the_pinned_model_with_the_pair_and_without(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    _patch_run(monkeypatch, tmp_path)
-    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "abcd"]
-    seen: list[Any] = []
-
-    def predict(items: list[dict[str, str]], cfg: Any, pair: bool = False) -> list[dict[str, str]]:
-        seen.append((cfg, pair))
-        hits = 3 if pair else 1  # the pair reads three of the four as marked
-        return [
-            {**i, "predicted": "positive" if n < hits else "negative"} for n, i in enumerate(items)
-        ]
-
-    monkeypatch.setattr(CMD.gold_draw, "predict", predict)
-    result = CMD.run_baseline(validation)
-    assert seen == [
-        ({"model": "base", "revision": "rev"}, True),
-        ({"model": "base", "revision": "rev"}, False),
-    ]
-    assert (result["pair"], result["text_only"], result["n"]) == (3, 1, 4)
-    record = json.loads((tmp_path / "out" / "baseline.json").read_text())
-    assert record["pair"] == 3 and record["model"] == "base@rev" and len(record["code"]) == 12
-    assert record["keys"] == CMD.keys_hash(list("abcd"))
-    assert "as the pair 3/4 = 0.750; text only 1/4 = 0.250" in capsys.readouterr().out
-
-
 def test_the_stage_rule_the_replay_uses_is_still_there_under_its_name() -> None:
     from sentiment_stage import _text_mentions_subject  # noqa: PLC0415
 
@@ -330,163 +278,6 @@ def test_the_replay_seed_and_the_timing_setting_are_fixed_in_the_command() -> No
     assert CMD.REPLAY_SEED == 20261109 and spt.RunSettings(4, 2e-5, 1) == CMD.TIMING_SETTING
     models = SCRIPTS.parent / "config" / "pipeline_models.json"
     assert json.loads(models.read_text(encoding="utf-8"))["sentiment"]["revision"]
-
-
-def test_a_baseline_that_leaves_a_text_unread_stops_and_the_predictions_are_kept(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_run(monkeypatch, tmp_path)
-    validation = [spt.Example(k, "Acme", "t", i % 3, "summary") for i, k in enumerate("abcd")]
-    monkeypatch.setattr(
-        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "neutral"} for i in items][:3]
-    )  # fmt: skip
-    with pytest.raises(spt.MarkedFileError, match="1 validation texts have no chunk"):
-        CMD.run_baseline(validation)
-    monkeypatch.setattr(
-        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "neutral"} for i in items]
-    )  # fmt: skip
-    CMD.run_baseline(validation)
-    kept = CMD.read_predictions("baseline_pair")
-    assert kept == [
-        {"key": "a", "expected": "positive", "predicted": "neutral"},
-        {"key": "b", "expected": "negative", "predicted": "neutral"},
-        {"key": "c", "expected": "neutral", "predicted": "neutral"},
-        {"key": "d", "expected": "positive", "predicted": "neutral"},
-    ]
-
-
-def test_a_run_keeps_what_each_validation_text_was_read_as_when_the_scorer_has_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_run(monkeypatch, tmp_path)
-    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "ab"]
-    scorer = CMD.ValidationScorer(validation)
-    monkeypatch.setattr(
-        CMD.gold_draw, "predict", lambda items, cfg, pair=False: [{**i, "predicted": "negative"} for i in items]
-    )  # fmt: skip
-    settings = spt.RunSettings(2, 1e-5, 1)
-    CMD.one_run(settings, [], scorer)
-    assert CMD.read_predictions(f"grid__{settings.name}") == [
-        {"key": "a", "expected": "positive", "predicted": "negative"},
-        {"key": "b", "expected": "positive", "predicted": "negative"},
-    ]
-    CMD.one_run(
-        spt.RunSettings(2, 1e-5, 2), [], lambda _d: 0.5
-    )  # a plain function: nothing to keep
-    assert CMD.read_predictions("grid__e2_lr1e-05_s2") is None
-
-
-def _report_fixture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str = "c1"
-) -> tuple[list[str], list[str]]:
-    """Predictions of the final run and both baselines for 8 texts, the marks they come from (two strata with
-    different pools), baseline.json and the final row."""
-    _patch_run(monkeypatch, tmp_path)
-    monkeypatch.setattr(CMD, "code_revision", lambda: "c1")
-    keys = [f"k{i}" for i in range(8)]
-    expected = [
-        "negative",
-        "negative",
-        "positive",
-        "positive",
-        "neutral",
-        "neutral",
-        "negative",
-        "positive",
-    ]
-    marks = tmp_path / "marks.csv"
-    marks.write_text(
-        "key,slice,predicted,pool_class_size,sentiment\n"
-        + "".join(
-            f"{k},validation,{'negative' if i < 4 else 'positive'},{100 if i < 4 else 900},{e}\n"
-            for i, (k, e) in enumerate(zip(keys, expected, strict=True))
-        )
-    )
-    monkeypatch.setattr(CMD, "MARKS", marks)
-
-    def predictions(predicted: list[str]) -> list[dict[str, str]]:
-        return [
-            {"key": k, "expected": e, "predicted": p}
-            for k, e, p in zip(keys, expected, predicted, strict=True)
-        ]
-
-    CMD.write_predictions(
-        "baseline_text_only", predictions(["negative"] * 4 + ["positive"] * 4)
-    )  # the strata the texts were drawn from: the pinned model's own prediction
-    CMD.write_predictions("baseline_pair", predictions(["positive"] * 8))
-    CMD.write_predictions(
-        "final__e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"])
-    )
-    CMD.save_results(
-        [{"name": "e2_lr3e-05_s4", "tag": "final", "code": code}], {"fingerprint": "f"}
-    )
-    (tmp_path / "out" / "baseline.json").write_text(
-        json.dumps({"model": "base@rev", "code": "c1", "keys": CMD.keys_hash(keys), "n": 8})
-    )
-    return keys, expected
-
-
-def test_the_report_gives_the_weighted_figures_and_gain_first_and_the_raw_description_after(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with pytest.raises(SystemExit, match="needs --baseline and --final"):
-        _patch_run(monkeypatch, tmp_path)
-        CMD.run_report()
-    capsys.readouterr()
-    CMD.run_report(required=False)
-    assert "run --baseline, then --report" in capsys.readouterr().out
-    _report_fixture(tmp_path, monkeypatch)
-    CMD.run_report()
-    out = capsys.readouterr().out
-    assert out.index("WEIGHTED") < out.index("RAW on the 8 texts")
-    assert "{'negative': 100, 'positive': 900}" in out and "7 company-less rows" in out
-    assert "final: agreement" in out and "pinned_text: agreement" in out
-    assert (
-        "paired weighted gain of the final run over the pinned model as text (D35's pin rule)"
-        in out
-    )
-    assert "negative precision" in out and "-> " in out  # the gold's verdict of the weighted gain
-    assert "D32's bar on the final run" in out
-    assert "agreement not decided; negative precision pass" in out  # 8 texts: wide intervals
-    assert "the pin rule on these figures" in out
-    assert "(validation; the rule is applied once, to the gold)" in out
-    assert "agrees with its stored draw prediction on 8 of 8 texts" in out
-    assert "final (e2_lr3e-05_s4), RAW on the 8 texts: agreement 6/8" in out
-    assert (
-        "final against pinned text_only, RAW: both right 2, only the final 4, only the pinned 1, neither 1"
-        in out
-    )
-    assert "exact McNemar p = 0.3750" in out and "no verdict" in out
-    assert (
-        "better" not in out.split("RAW is the description")[1]
-    )  # no verdict word for the raw gain
-
-
-def test_the_report_stops_if_the_baseline_is_not_of_this_model_these_texts_or_this_code(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    keys, _ = _report_fixture(tmp_path, monkeypatch)
-    baseline = tmp_path / "out" / "baseline.json"
-    good = json.loads(baseline.read_text())
-    for change, message in (
-        ({"model": "other@rev"}, "the pinned model is now base@rev"),
-        ({"keys": "x"}, "other validation texts"),
-        ({"code": "c0"}, "the code differs: baseline c0, final run c1, now c1"),
-    ):
-        baseline.write_text(json.dumps({**good, **change}))
-        with pytest.raises(SystemExit, match=message):
-            CMD.run_report()
-    baseline.write_text(json.dumps(good))
-    monkeypatch.setattr(CMD, "code_revision", lambda: "c2")  # the code moved on since the runs
-    with pytest.raises(SystemExit, match="the code differs: baseline c1, final run c1, now c2"):
-        CMD.run_report()
-    capsys.readouterr()
-    CMD.run_report(required=False)  # after --final: said, not fatal
-    assert "the report is not made: the code differs" in capsys.readouterr().out
-    baseline.unlink()
-    with pytest.raises(SystemExit, match=r"no baseline\.json"):
-        CMD.run_report()
-    assert keys
 
 
 def test_resuming_with_the_source_read_another_way_says_so_and_keeps_the_first_mode(
@@ -531,7 +322,7 @@ def test_the_baseline_and_the_report_never_open_the_source(monkeypatch: pytest.M
     called: list[str] = []
     monkeypatch.setattr(CMD, "connect_source", opened)
     monkeypatch.setattr(CMD, "read_csv", lambda _p: [])
-    monkeypatch.setattr(CMD, "run_baseline", lambda validation: called.append("baseline"))  # type: ignore[arg-type,return-value]
+    monkeypatch.setattr(CMD, "run_baseline", lambda validation, marks: called.append("baseline"))  # type: ignore[arg-type,return-value]
     monkeypatch.setattr(CMD, "run_report", lambda: called.append("report"))
     for mode in ("--baseline", "--report"):
         _argv(monkeypatch, mode)
@@ -539,13 +330,304 @@ def test_the_baseline_and_the_report_never_open_the_source(monkeypatch: pytest.M
     assert called == ["baseline", "report"]
 
 
+def test_two_fresh_starts_keep_both_sets_of_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    row = {**CMD.one_run(spt.grid_settings()[0], [], lambda _d: 0.7), "tag": "grid"}
+    CMD.save_results([row], {"fingerprint": "aaaa"})
+    CMD.open_results("bbbb", fresh=True)
+    CMD.save_results([{**row, "validation_score": 0.9}], {"fingerprint": "aaaa"})  # the same old
+    CMD.open_results("cccc", fresh=True)
+    kept = sorted(p.name for p in (tmp_path / "out").glob("grid_results.previous-*.json"))
+    assert kept == ["grid_results.previous-aaaa-2.json", "grid_results.previous-aaaa.json"]
+    # the first set-aside rows were not overwritten by the second
+    first = json.loads((tmp_path / "out" / "grid_results.previous-aaaa.json").read_text())
+    assert first["rows"][0]["validation_score"] == 0.7
+    CMD.save_results([], {})
+    (tmp_path / "out" / "grid_results.json").write_text("[]")  # the first format: nothing to lose
+    assert CMD.open_results("dddd", fresh=True)[1] == []
+
+
+# --- the metrics (owner, 2026-11-09; PLAN D37): precision, recall and ROC OVR, per class -----------
+
+KEYS = [f"k{i}" for i in range(8)]
+EXPECTED = [
+    "negative",
+    "negative",
+    "positive",
+    "positive",
+    "neutral",
+    "neutral",
+    "negative",
+    "positive",
+]
+STRATA = ["negative"] * 4 + [
+    "positive"
+] * 4  # the class the pinned model predicted when the texts were drawn
+
+
+def _marks() -> list[dict[str, str]]:
+    return [
+        {
+            "key": k,
+            "slice": "validation",
+            "predicted": STRATA[i],
+            "pool_class_size": "100" if i < 4 else "900",
+            "sentiment": EXPECTED[i],
+        }
+        for i, k in enumerate(KEYS)
+    ]
+
+
+def _validation() -> list[spt.Example]:
+    return [
+        spt.Example(k, "Acme", f"t{i}", spt.LABEL2ID[EXPECTED[i]], "summary")
+        for i, k in enumerate(KEYS)
+    ]
+
+
+def _probs(label: str) -> dict[str, float]:
+    return {c: 0.1 for c in spt.LABEL2ID} | {label: 0.8}
+
+
+def _scored_items(items: list[dict[str, str]], predicted: list[str]) -> list[dict[str, Any]]:
+    """What ``predict_probs`` gives back: each text with its label and class probabilities."""
+    return [
+        {**i, "predicted": p, "probs": _probs(p)} for i, p in zip(items, predicted, strict=True)
+    ]
+
+
+def _rows(predicted: list[str]) -> list[dict[str, str]]:
+    """Predictions as the command keeps them (``key``, ``expected``, ``predicted``, ``p_<class>``)."""
+    return [
+        {
+            "key": k,
+            "expected": e,
+            "predicted": p,
+            **{f"p_{c}": repr(v) for c, v in _probs(p).items()},
+        }
+        for k, e, p in zip(KEYS, EXPECTED, predicted, strict=True)
+    ]
+
+
+def test_the_validation_score_is_the_mean_of_precision_recall_and_roc_ovr_of_the_three_classes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[Any] = []
+
+    def predict_probs(
+        items: list[dict[str, str]], cfg: Any, pair: bool = False
+    ) -> list[dict[str, Any]]:
+        seen.append((cfg, pair, [i["company"] for i in items]))
+        return _scored_items(items, EXPECTED)  # every text read as the owner marked it
+
+    monkeypatch.setattr(CMD.gold_draw, "predict_probs", predict_probs)
+    scorer = CMD.validation_scorer(_validation(), _marks())
+    assert scorer("models/x") == 1.0
+    assert seen == [({"model": "models/x"}, True, ["Acme"] * 8)]  # the pair
+    assert scorer.detail["macro"] == {"precision": 1.0, "recall": 1.0, "roc_ovr": 1.0}
+    assert set(scorer.detail) == {"positive", "negative", "neutral", "macro"}
+    assert scorer.predictions[0] == {
+        "key": "k0", "expected": "negative", "predicted": "negative",
+        "p_positive": "0.1", "p_negative": "0.8", "p_neutral": "0.1",
+    }  # fmt: skip
+    # a worse reading scores lower, by the same nine figures
+    monkeypatch.setattr(
+        CMD.gold_draw,
+        "predict_probs",
+        lambda items, cfg, pair=False: _scored_items(items, ["positive"] * 8),
+    )
+    worse = scorer("models/y")
+    assert worse < 0.6 and scorer.detail["negative"]["recall"] == 0.0
+    assert scorer.detail["negative"]["precision"] is None  # never predicted: undefined, not 0
+    monkeypatch.setattr(CMD.gold_draw, "predict_probs", lambda items, cfg, pair=False: items[:2])
+    with pytest.raises(spt.MarkedFileError, match="no chunk"):
+        CMD.validation_scorer(_validation(), _marks())("models/x")
+
+
+def test_the_baseline_scores_the_pinned_model_with_the_pair_and_without_and_keeps_the_probabilities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    monkeypatch.setattr(CMD, "code_revision", lambda: "c1")
+    seen: list[Any] = []
+
+    def predict_probs(
+        items: list[dict[str, str]], cfg: Any, pair: bool = False
+    ) -> list[dict[str, Any]]:
+        seen.append((cfg, pair))
+        return _scored_items(items, EXPECTED if pair else ["positive"] * 8)
+
+    monkeypatch.setattr(CMD.gold_draw, "predict_probs", predict_probs)
+    result = CMD.run_baseline(_validation(), _marks())
+    assert seen == [
+        ({"model": "base", "revision": "rev"}, True),
+        ({"model": "base", "revision": "rev"}, False),
+    ]
+    assert result["pair_score"] == 1.0 and result["text_only_score"] < result["pair_score"]
+    record = json.loads((tmp_path / "out" / "baseline.json").read_text())
+    assert record["model"] == "base@rev" and record["code"] == "c1" and record["n"] == 8
+    assert (
+        record["keys"] == CMD.keys_hash(KEYS) and record["pair_detail"]["macro"]["roc_ovr"] == 1.0
+    )
+    out = capsys.readouterr().out
+    assert "pinned, pair: validation score 1.000 (weighted; the mean of the nine figures)" in out
+    assert "negative precision 1.000, recall 1.000, ROC OVR 1.000" in out.replace(
+        "  negative ", "negative "
+    )
+    assert CMD.read_predictions("baseline_pair") == sorted(_rows(EXPECTED), key=lambda r: r["key"])
+
+
+def test_a_baseline_that_leaves_a_text_unread_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        CMD.gold_draw,
+        "predict_probs",
+        lambda items, cfg, pair=False: _scored_items(items, EXPECTED)[:7],
+    )
+    with pytest.raises(spt.MarkedFileError, match="1 validation texts have no chunk"):
+        CMD.run_baseline(_validation(), _marks())
+
+
+def test_a_run_keeps_the_probabilities_and_the_per_class_figures_when_the_scorer_has_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_run(monkeypatch, tmp_path)
+    scorer = CMD.ValidationScorer(_validation(), _marks())
+    monkeypatch.setattr(
+        CMD.gold_draw,
+        "predict_probs",
+        lambda items, cfg, pair=False: _scored_items(items, ["positive"] * 8),
+    )
+    settings = spt.RunSettings(2, 1e-5, 1)
+    row = CMD.one_run(settings, [], scorer)
+    assert CMD.read_predictions(f"grid__{settings.name}") == sorted(
+        _rows(["positive"] * 8), key=lambda r: r["key"]
+    )
+    # the trainer stub of these tests records only the score; the scorer carries the per-class figures
+    assert row["validation_score"] == scorer("x") and scorer.detail["positive"]["recall"] == 1.0
+    CMD.one_run(
+        spt.RunSettings(2, 1e-5, 2), [], lambda _d: 0.5
+    )  # a plain function: nothing to keep
+    assert CMD.read_predictions("grid__e2_lr1e-05_s2") is None
+
+
+def _report_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str = "c1"
+) -> list[dict[str, str]]:
+    """Predictions of the final run and both baselines for the 8 texts, their marks (two strata with different
+    pools), baseline.json and the final row. Returns the marks."""
+    _patch_run(monkeypatch, tmp_path)
+    monkeypatch.setattr(CMD, "code_revision", lambda: "c1")
+    monkeypatch.setattr(CMD, "REPORT_RESAMPLES", 30)
+    marks = _marks()
+    marks_file = tmp_path / "marks.csv"
+    marks_file.write_text(
+        "key,slice,predicted,pool_class_size,sentiment\n"
+        + "".join(
+            f"{m['key']},validation,{m['predicted']},{m['pool_class_size']},{m['sentiment']}\n"
+            for m in marks
+        )
+    )
+    monkeypatch.setattr(CMD, "MARKS", marks_file)
+    CMD.write_predictions(
+        "baseline_text_only", _rows(STRATA)
+    )  # the pinned model's own draw prediction
+    CMD.write_predictions("baseline_pair", _rows(["positive"] * 8))
+    CMD.write_predictions("final__e2_lr3e-05_s4", _rows([*EXPECTED[:6], "neutral", "neutral"]))
+    final = {"name": "e2_lr3e-05_s4", "tag": "final", "code": code}
+    CMD.save_results(
+        [
+            {
+                **final,
+                "validation_score": CMD.measure(
+                    _rows([*EXPECTED[:6], "neutral", "neutral"]), marks
+                )[1],
+            }
+        ],
+        {"fingerprint": "f"},
+    )
+    (tmp_path / "out" / "baseline.json").write_text(
+        json.dumps({"model": "base@rev", "code": "c1", "keys": CMD.keys_hash(KEYS), "n": 8})
+    )
+    return marks
+
+
+def test_the_report_gives_precision_recall_and_roc_ovr_weighted_first_and_the_raw_description_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit, match="needs --baseline and --final"):
+        _patch_run(monkeypatch, tmp_path)
+        CMD.run_report()
+    capsys.readouterr()
+    CMD.run_report(required=False)
+    assert "run --baseline, then --report" in capsys.readouterr().out
+    _report_fixture(tmp_path, monkeypatch)
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert out.index("WEIGHTED") < out.index("RAW on the 8 texts")
+    assert "{'negative': 100, 'positive': 900}" in out and "7 company-less rows" in out
+    assert "Precision, recall and ROC OVR, per class (PLAN D37)" in out
+    assert "agrees with its stored draw prediction on 8 of 8 texts" in out
+    for reading in ("final", "pinned_text", "pinned_pair"):
+        assert f"  {reading}: validation score " in out
+    assert "positive precision" in out and "negative roc_ovr" in out and "macro roc_ovr" in out
+    assert (
+        "D32's bar on the final run's negative class (precision and recall 70%; ROC OVR has no bar)"
+        in out
+    )
+    assert (
+        "paired weighted gain of the final run over the pinned model as text (D35's pin rule)"
+        in out
+    )
+    assert "score: " in out and "-> " in out  # the gold's verdict of each gain
+    assert "the pin rule on these figures:" in out
+    assert "(validation; the rule is applied once, to the gold)" in out
+    assert "final (e2_lr3e-05_s4), RAW on the 8 texts: agreement 6/8" in out
+    assert (
+        "final against pinned text_only, RAW: both right 2, only the final 4, only the pinned 1, neither 1"
+        in out
+    )
+    assert "exact McNemar p = 0.3750" in out and "no verdict" in out
+    assert "WARNING" not in out  # every run's score matches its predictions
+
+
+def test_the_report_stops_if_the_baseline_is_not_of_this_model_these_texts_or_this_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _report_fixture(tmp_path, monkeypatch)
+    baseline = tmp_path / "out" / "baseline.json"
+    good = json.loads(baseline.read_text())
+    for change, message in (
+        ({"model": "other@rev"}, "the pinned model is now base@rev"),
+        ({"keys": "x"}, "other validation texts"),
+        ({"code": "c0"}, "the code differs: baseline c0, final run c1, now c1"),
+    ):
+        baseline.write_text(json.dumps({**good, **change}))
+        with pytest.raises(SystemExit, match=message):
+            CMD.run_report()
+    baseline.write_text(json.dumps(good))
+    monkeypatch.setattr(CMD, "code_revision", lambda: "c2")  # the code moved on since the runs
+    with pytest.raises(SystemExit, match="the code differs: baseline c1, final run c1, now c2"):
+        CMD.run_report()
+    capsys.readouterr()
+    CMD.run_report(required=False)  # after --final: said, not fatal
+    assert "the report is not made: the code differs" in capsys.readouterr().out
+    baseline.unlink()
+    with pytest.raises(SystemExit, match=r"no baseline\.json"):
+        CMD.run_report()
+
+
 def test_a_baseline_that_is_not_the_reading_the_strata_came_from_withholds_the_weighted_figures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _report_fixture(tmp_path, monkeypatch)
-    keys = [f"k{i}" for i in range(8)]
-    other = [{"key": k, "expected": "positive", "predicted": "neutral"} for k in keys]
-    CMD.write_predictions("baseline_text_only", other)  # not the stored draw prediction
+    CMD.write_predictions(
+        "baseline_text_only", _rows(["neutral"] * 8)
+    )  # not the stored draw prediction
     CMD.run_report()
     out = capsys.readouterr().out
     assert "agrees with its stored draw prediction on 0 of 8 texts" in out
@@ -558,83 +640,74 @@ def test_a_baseline_that_is_not_the_reading_the_strata_came_from_withholds_the_w
 
 
 def _grid_with_predictions(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    right_on: dict[tuple[int, float], set[int]],
-) -> None:
-    """Grid rows for the settings of *right_on*, three seeds each, with predictions: each setting reads right
-    the texts (by position among the 8 of the fixture) it is given and wrong all the others; the rows log the
-    agreement of their own predictions."""
-    keys, expected = _report_fixture(tmp_path, monkeypatch)
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, right_on: dict[tuple[int, float], set[int]]
+) -> list[dict[str, str]]:
+    """Grid rows for the settings of *right_on*, three seeds each, with predictions: each setting reads right the
+    texts (by position among the 8) it is given and wrong all the others; the rows log the score of their own
+    predictions."""
+    marks = _report_fixture(tmp_path, monkeypatch)
     rows = []
     for (epochs, lr), right in right_on.items():
         for seed in (1, 2, 3):
             name = f"e{epochs}_lr{lr:g}_s{seed}"
             predicted = [
                 e if i in right else ("positive" if e == "neutral" else "neutral")
-                for i, e in enumerate(expected)
+                for i, e in enumerate(EXPECTED)
             ]
-            CMD.write_predictions(
-                f"grid__{name}",
-                [
-                    {"key": k, "expected": e, "predicted": p}
-                    for k, e, p in zip(keys, expected, predicted, strict=True)
-                ],
-            )
+            CMD.write_predictions(f"grid__{name}", _rows(predicted))
             rows.append(
                 {
                     "name": name,
                     "tag": "grid",
-                    "validation_agreement": len(right) / len(keys),
+                    "validation_score": CMD.measure(_rows(predicted), marks)[1],
                     "settings": {"epochs": epochs, "learning_rate": lr, "seed": seed},
                 }
             )
-    final = {"name": "e2_lr3e-05_s4", "tag": "final", "code": "c1"}
-    CMD.save_results([*rows, final], {"fingerprint": "f"})
+    header, kept = CMD.load_results()
+    CMD.save_results([*rows, *kept], header)
+    return marks
 
 
-def test_the_report_says_whether_the_weighted_agreement_would_choose_the_same_setting(
+def test_the_report_checks_every_runs_score_against_its_predictions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # texts 0-3 are of the small stratum (pool 100), 4-7 of the big one (pool 900)
-    a, b = (2, 1e-5), (3, 2e-5)
-    _grid_with_predictions(tmp_path, monkeypatch, {a: {0, 1, 2, 3, 4, 5}, b: {4, 5}})
+    _grid_with_predictions(tmp_path, monkeypatch, {(2, 1e-5): {0, 1, 2, 3}, (3, 2e-5): {0, 1, 2}})
+    CMD.run_report()
+    assert "WARNING" not in capsys.readouterr().out
+    header, rows = CMD.load_results()
+    for row in rows:
+        if row["name"] == "e3_lr2e-05_s2":
+            row["validation_score"] = 0.9  # the row says one thing, the file another
+    CMD.save_results(rows, header)
     CMD.run_report()
     out = capsys.readouterr().out
-    assert "weighted agreement by setting (mean of the seeds): 2 ep 1e-05: " in out
-    assert "the grid chose 2 epochs, lr 1e-05 (raw agreement)" in out and ": the same" in out
-    # raw agreement prefers b (5 of 8 against 4), the weighted one prefers a (its 4 right are the big stratum's)
-    _grid_with_predictions(tmp_path, monkeypatch, {a: {4, 5, 6, 7}, b: {0, 1, 2, 3, 7}})
-    capsys.readouterr()
-    CMD.run_report()
-    out = capsys.readouterr().out
-    assert "the grid chose 3 epochs, lr 2e-05 (raw agreement)" in out
-    assert (
-        "would choose 2 epochs, lr 1e-05: DIFFERENT, a question for the owner (nothing is re-picked)"
-        in out
-    )
+    assert "WARNING: the predictions of e3_lr2e-05_s2 give a score of" in out
+    assert "its row logged 0.9000: they are not of the same run" in out
+    assert out.count("WARNING") == 1  # only that run
     (tmp_path / "out" / "predictions" / "grid__e3_lr2e-05_s1.csv").unlink()
     CMD.run_report()
-    assert "needs the predictions of e3_lr2e-05_s1" in capsys.readouterr().out
+    assert (
+        "the predictions of e3_lr2e-05_s1 are not here: its score is not checked"
+        in capsys.readouterr().out
+    )
 
 
 def test_a_timing_run_does_not_overwrite_the_predictions_of_the_grid_run_with_the_same_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_run(monkeypatch, tmp_path)
-    validation = [spt.Example(k, "Acme", "t", 0, "summary") for k in "ab"]
-    scorer = CMD.ValidationScorer(validation)
-    answers = {"label": "negative"}
+    scorer = CMD.ValidationScorer(_validation(), _marks())
+    answers = {"label": ["positive"] * 8}
     monkeypatch.setattr(
         CMD.gold_draw,
-        "predict",
-        lambda items, cfg, pair=False: [{**i, "predicted": answers["label"]} for i in items],
+        "predict_probs",
+        lambda items, cfg, pair=False: _scored_items(items, answers["label"]),
     )
     grid_run = CMD.TIMING_SETTING  # the timing setting is, by name, one of the grid's 27
     assert grid_run.name in {s.name for s in spt.grid_settings()}
     CMD.one_run(grid_run, [], scorer, tag="grid")
     kept = CMD.read_predictions(f"grid__{grid_run.name}")
-    answers["label"] = "neutral"  # another training run: another reading
+    answers["label"] = ["neutral"] * 8  # another training run: another reading
     CMD.one_run(grid_run, [], scorer, tag="timing")
     assert (
         CMD.read_predictions(f"grid__{grid_run.name}") == kept
@@ -642,38 +715,26 @@ def test_a_timing_run_does_not_overwrite_the_predictions_of_the_grid_run_with_th
     assert CMD.read_predictions(f"timing__{grid_run.name}") != kept
 
 
-def test_the_ranking_is_not_made_from_predictions_that_are_not_of_the_run_in_its_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_the_summary_of_the_grid_shows_the_score_and_the_macro_precision_recall_and_roc_ovr_it_is_made_of(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _grid_with_predictions(tmp_path, monkeypatch, {(2, 1e-5): {0, 1}, (3, 2e-5): {0, 1, 2}})
-    rows = CMD.load_results()[1]
-    for row in rows:
-        if row["name"] == "e3_lr2e-05_s2":
-            row["validation_agreement"] = 0.5  # the row says one thing, the file another
-    CMD.save_results(rows, {"fingerprint": "f"})
-    CMD.run_report()
+    def row(epochs: int, lr: float, seed: int, score: float) -> dict[str, Any]:
+        macro = {"precision": score + 0.1, "recall": score, "roc_ovr": score - 0.1}
+        return {
+            "name": f"e{epochs}_lr{lr:g}_s{seed}",
+            "tag": "grid",
+            "validation_score": score,
+            "validation_detail": {"macro": macro},
+            "settings": {"epochs": epochs, "learning_rate": lr, "seed": seed},
+        }
+
+    rows = [row(2, 3e-5, s, 0.7) for s in (1, 2, 3)] + [row(4, 2e-5, s, 0.6) for s in (1, 2, 3)]
+    choice = CMD.summarise(rows, 83)
     out = capsys.readouterr().out
-    assert "WARNING: the predictions of e3_lr2e-05_s2 give 0.3750, its row logged 0.5000" in out
-    assert "the weighted ranking of the settings is not made" in out
-    assert "weighted agreement by setting" not in out
-
-
-def test_two_fresh_starts_keep_both_sets_of_rows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_run(monkeypatch, tmp_path)
-    row = {**CMD.one_run(spt.grid_settings()[0], [], lambda _d: 0.7), "tag": "grid"}
-    CMD.save_results([row], {"fingerprint": "aaaa"})
-    CMD.open_results("bbbb", fresh=True)
-    CMD.save_results(
-        [{**row, "validation_agreement": 0.9}], {"fingerprint": "aaaa"}
-    )  # the same old
-    CMD.open_results("cccc", fresh=True)
-    kept = sorted(p.name for p in (tmp_path / "out").glob("grid_results.previous-*.json"))
-    assert kept == ["grid_results.previous-aaaa-2.json", "grid_results.previous-aaaa.json"]
-    # the first set-aside rows were not overwritten by the second
-    first = json.loads((tmp_path / "out" / "grid_results.previous-aaaa.json").read_text())
-    assert first["rows"][0]["validation_agreement"] == 0.7
-    CMD.save_results([], {})
-    (tmp_path / "out" / "grid_results.json").write_text("[]")  # the first format: nothing to lose
-    assert CMD.open_results("dddd", fresh=True)[1] == []
+    assert "2 epochs, lr 3e-05: 0.700 (precision 0.800, recall 0.700, ROC OVR 0.600)" in out
+    assert "4 epochs, lr 2e-05: 0.600 (precision 0.700, recall 0.600, ROC OVR 0.500)" in out
+    assert (choice.epochs, choice.learning_rate) == (2, 3e-5)
+    # rows made before the per-class figures were recorded still print, without the parts
+    plain = [{k: v for k, v in r.items() if k != "validation_detail"} for r in rows]
+    CMD.summarise(plain)
+    assert "2 epochs, lr 3e-05: 0.700 [0.7, 0.7, 0.7]" in capsys.readouterr().out

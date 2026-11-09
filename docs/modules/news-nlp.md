@@ -360,7 +360,9 @@ lean `articles` rows itself.
 A candidate sentiment model, fine-tuned from the pinned one on the owner's tagged summaries and read as the
 **pair** `[CLS] company [SEP] text [SEP]` (D35). It is not in the pipeline: the stage still runs the pinned
 model, and the gold is scored once, by `scripts/score_sentiment_gold_2026_11_07.py --pair` (T-148c4). Numbers
-and decisions are in `TASKS.md` T-148c3 and `PLAN.md` D35, not copied here.
+and decisions are in `TASKS.md` T-148c3 and `PLAN.md` D35, not copied here. **The metrics that are
+recorded and that select a model are Precision, Recall and ROC OVR per class (owner, 2026-11-09, `PLAN.md` D37):
+the validation score of a run is the mean of those nine figures; accuracy is a description only.**
 
 - `src/sentiment_pair.py` — the pair's encoding and the routing rule (`reads_as_pair`), shared by the trainer,
   the draw's `predict` and the scorer; the stage will use it in PR C (T-148c5, proposed, not built).
@@ -369,9 +371,10 @@ and decisions are in `TASKS.md` T-148c3 and `PLAN.md` D35, not copied here.
   never mix summaries with sentences, one run, the grid of 27, D35's tie rule, and a fingerprint of the data,
   recipe and code. Its revision is part of the fingerprint, so a change to it invalidates the runs.
 - `src/sentiment_pair_report.py` — how a run is *shown*, kept apart so that changing it does not invalidate
-  the runs: the raw description of the validation slice, the weighted figures and paired weighted gain (the
-  slice is drawn per class the pinned model predicted), D32's verdicts, and the pin rule
-  (`pin_decision`, and `pin_decision_from_row` for a `final` row of the scorer).
+  the runs: the precision, recall and ROC OVR of each class and the selection score (weighted, with a bootstrap
+  interval, because the slice is drawn per class the pinned model predicted), the paired weighted gain over the
+  pinned model, D32's verdicts on the negative class, the pin rule (`pin_decision`), and the raw description
+  of the slice (confusion matrix, McNemar).
 - `scripts/train_sentiment_pair_2026_11_09.py` — `--baseline` (the pinned model on the validation slice),
   `--time-one`, `--grid [--fresh]` (27 runs, resumable over the same fingerprint), `--final` (one run, seed 4,
   the model kept), `--report` (from the predictions on disk), `--mlflow` (experiment

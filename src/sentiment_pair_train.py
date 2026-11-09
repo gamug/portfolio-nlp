@@ -392,18 +392,20 @@ def standard_error(values: Sequence[float]) -> float:
     return statistics.stdev(values) / math.sqrt(len(values)) if len(values) > 1 else 0.0
 
 
-def choose_settings(agreements: dict[tuple[int, float], list[float]]) -> Choice:
-    """The setting with the highest mean validation agreement over its seeds, **unless it does not beat the
+def choose_settings(scores: dict[tuple[int, float], list[float]]) -> Choice:
+    """The setting with the highest mean validation score over its seeds (the score is the mean of the nine
+    figures of precision, recall and ROC OVR per class, PLAN D37; ``sentiment_pair_report.selection_score``),
+    **unless it does not beat the
     earlier fine-tune's setting (4 epochs, 2e-5) by more than one standard error of the mean** (the larger
     of the two settings' standard errors): nine settings compared on 90 texts would otherwise pick a winner
     that is partly noise, so the earlier setting stays. Ties go to the earlier setting, then to the fewer
     epochs, then to the lower rate."""
-    means = {k: statistics.fmean(v) for k, v in agreements.items()}
+    means = {k: statistics.fmean(v) for k, v in scores.items()}
     best = max(means, key=lambda k: (means[k], k == EARLIER_SETTING, -k[0], -k[1]))
-    if EARLIER_SETTING not in agreements or best == EARLIER_SETTING:
-        return Choice(*best, means[best], "highest mean validation agreement")
+    if EARLIER_SETTING not in scores or best == EARLIER_SETTING:
+        return Choice(*best, means[best], "highest mean validation score")
     margin = means[best] - means[EARLIER_SETTING]
-    se = max(standard_error(agreements[best]), standard_error(agreements[EARLIER_SETTING]))
+    se = max(standard_error(scores[best]), standard_error(scores[EARLIER_SETTING]))
     if margin > se:
         return Choice(
             *best, means[best], f"beats the earlier setting by {margin:.4f} > 1 SE ({se:.4f})"
@@ -435,7 +437,9 @@ class SentimentPairTrainConfig(TrainConfig):
 class SentimentPairTrainer(FtiTrainer[SentimentPairTrainConfig]):
     """One run on the FTI base class (``fti.py``): load the base, train, save, and score the validation slice
     through *scorer*, the scorer's own reading of a saved model (a function of the model directory that gives
-    the agreement with the owner's marks). It logs nothing: the grid logs to MLflow."""
+    the validation score: the mean of the precision, recall and ROC OVR of the three classes, PLAN D37; the
+    scorer may carry the per-class figures in a ``detail`` attribute, which the run records). It logs nothing:
+    the grid logs to MLflow."""
 
     def __init__(self, scorer: Callable[[str], float], log: Callable[[str], None] = print) -> None:
         self._scorer = scorer
@@ -471,11 +475,12 @@ class SentimentPairTrainer(FtiTrainer[SentimentPairTrainConfig]):
         del model
         if device.type == "cuda":
             torch.cuda.empty_cache()
-        agreement = self._scorer(config.output_dir)
+        score = self._scorer(config.output_dir)
         return TrainedArtifact(
             output_dir=config.output_dir,
             metrics={
-                "validation_agreement": agreement,
+                "validation_score": score,
+                "validation_detail": getattr(self._scorer, "detail", None),
                 "epoch_losses": losses,
                 "train_seconds": seconds,
                 "settings": {

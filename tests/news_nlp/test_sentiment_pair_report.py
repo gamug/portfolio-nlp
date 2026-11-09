@@ -1,4 +1,5 @@
-"""The report of a reading of the validation slice (T-148c3): raw description and weighted figures."""
+"""The report of a reading of the validation slice (T-148c3): precision, recall and ROC OVR (PLAN D37), weighted,
+with the raw description of the 83."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import math
 import pytest
 
 import sentiment_pair_report as rep
+from news_nlp import gold_metrics
 
 
 def test_the_confusion_matrix_and_the_class_figures_count_what_was_read_as_what() -> None:
@@ -47,156 +49,208 @@ def test_the_exact_mcnemar_p_value_and_the_paired_report() -> None:
     assert same.p_value == 1.0 and same.gain.point == 0.0
 
 
-def _rows() -> tuple[list[dict[str, str]], dict[str, int]]:
-    """Two strata (the class the pinned model predicted), 10 texts each; the stratum 'neg' is a small pool."""
-    rows = []
-    for i in range(10):
-        gold = "negative" if i < 6 else "positive"
-        rows.append(
-            {"key": f"n{i}", "stratum": "neg", "gold": gold, "good": gold, "bad": "negative"}
-        )
-    for i in range(10):
-        rows.append(
-            {
-                "key": f"p{i}",
-                "stratum": "pos",
-                "gold": "positive",
-                "good": "positive",
-                "bad": "negative",
-            }
-        )
-    return rows, {"neg": 100, "pos": 900}
+def _scored(reading: str) -> tuple[list[rep.Scored], dict[str, int]]:
+    """Two strata (the class the pinned model predicted), the small one a pool of 100 and the big one of 900,
+    10 texts each. *reading* 'good' gives the owner's class the top probability, 'bad' gives it the lowest."""
+    out = []
+    for stratum, count in (("negative", 10), ("positive", 10)):
+        for i in range(count):
+            gold = (
+                ("negative" if i < 6 else "positive")
+                if stratum == "negative"
+                else (
+                    (
+                        "positive",
+                        "positive",
+                        "positive",
+                        "positive",
+                        "neutral",
+                        "neutral",
+                        "negative",
+                        "positive",
+                        "positive",
+                        "neutral",
+                    )[i]
+                )
+            )
+            good = {c: 0.1 for c in rep.CLASSES} | {gold: 0.8}
+            bad = {c: 0.8 for c in rep.CLASSES} | {gold: 0.1}
+            probs = good if reading == "good" else bad
+            predicted = max(probs, key=lambda c: probs[c])
+            out.append(rep.Scored(f"{stratum[0]}{i}", stratum, gold, predicted, probs))
+    return out, {"negative": 100, "positive": 900}
 
 
-def test_the_weighted_figures_weigh_each_text_by_its_strata_pool_not_by_the_draw() -> None:
-    rows, populations = _rows()
-    good = rep.weighted_figures(rows, populations, "good")
-    assert good["agreement"].point == 1.0 and good["negative precision"].point == 1.0
-    bad = rep.weighted_figures(rows, populations, "bad")
-    # raw: 6 of 20 right (30%); weighted: the 'pos' stratum (900 of 1000) is all wrong, 'neg' is 60% right
-    assert bad["agreement"].point == pytest.approx((100 * 0.6 + 0) / 1000)
-    # every text read as negative: precision is the weighted share of negatives among them
-    assert bad["negative precision"].point == pytest.approx(60 / 1000)
-    assert bad["negative recall"].point == 1.0
+def test_the_weighted_roc_auc_of_a_class_against_the_rest() -> None:
+    assert rep.weighted_roc_auc([0.9, 0.8, 0.2, 0.1], [True, True, False, False], [1] * 4) == 1.0
+    assert rep.weighted_roc_auc([0.1, 0.2, 0.8, 0.9], [True, True, False, False], [1] * 4) == 0.0
+    assert rep.weighted_roc_auc([0.5, 0.5], [True, False], [1, 1]) == 0.5  # a tie counts half
+    # weights: the heavy negative sits above the positive, the light one below: 1 / (1 + 3) of the weight is won
+    assert rep.weighted_roc_auc([0.5, 0.9, 0.1], [True, False, False], [1, 3, 1]) == pytest.approx(
+        1 / 4
+    )
+    assert math.isnan(rep.weighted_roc_auc([0.5, 0.6], [True, True], [1, 1]))  # no negative text
+    assert math.isnan(rep.weighted_roc_auc([0.5, 0.6], [False, False], [1, 1]))  # no positive text
+
+
+def test_precision_recall_and_roc_ovr_of_each_class_weighted_by_the_strata() -> None:
+    scored, populations = _scored("good")
+    weights = rep.row_weights(scored, populations)
+    assert weights[0] == 10.0 and weights[-1] == 90.0  # pool / drawn
+    metrics = rep.class_metrics(scored, weights)
+    for c in rep.CLASSES:
+        assert metrics[c] == {"precision": 1.0, "recall": 1.0, "roc_ovr": 1.0}
+    assert rep.selection_score(metrics) == 1.0
+    bad_scored, _ = _scored("bad")
+    bad = rep.class_metrics(bad_scored, rep.row_weights(bad_scored, populations))
+    assert bad["negative"]["roc_ovr"] == 0.0  # the owner's class always has the lowest probability
+    # the owner's class never has the top probability: no class is ever the right answer
+    assert all(bad[c]["recall"] == 0.0 and bad[c]["roc_ovr"] == 0.0 for c in rep.CLASSES)
+    assert rep.selection_score(bad) < 0.1
+
+
+def test_an_undefined_figure_counts_as_zero_in_the_macro_and_the_selection_score() -> None:
+    metrics = {
+        "positive": {"precision": 0.9, "recall": 0.6, "roc_ovr": 0.9},
+        "negative": {"precision": math.nan, "recall": 0.0, "roc_ovr": 0.3},
+        "neutral": {"precision": 0.3, "recall": 0.3, "roc_ovr": 0.6},
+    }
+    macro = rep.macro(metrics)
+    assert macro == {
+        "precision": pytest.approx((0.9 + 0 + 0.3) / 3),
+        "recall": pytest.approx((0.6 + 0 + 0.3) / 3),
+        "roc_ovr": pytest.approx((0.9 + 0.3 + 0.6) / 3),
+    }
+    assert rep.selection_score(metrics) == pytest.approx(sum(macro.values()) / 3)
+    detail = rep.detail_of(metrics)
+    assert detail["negative"]["precision"] is None and detail["macro"][
+        "precision"
+    ] == pytest.approx(0.4)
+    assert set(detail) == {"positive", "negative", "neutral", "macro"}
+
+
+def test_the_weighted_figures_have_an_interval_that_holds_the_point_and_do_not_change_with_the_seed() -> (
+    None
+):
+    scored, populations = _scored("good")
+    figures = rep.weighted_figures(scored, populations, resamples=60)
+    assert figures["score"].point == 1.0 and (figures["score"].low, figures["score"].high) == (
+        1.0,
+        1.0,
+    )
+    assert set(figures) == {"score", *(f"macro {m}" for m in rep.CLASS_METRICS)} | {
+        f"{c} {m}" for c in rep.CLASSES for m in rep.CLASS_METRICS
+    }
+    mixed = (
+        [s if i % 4 else s._replace(predicted="neutral") for i, s in enumerate(scored)]
+        if False
+        else [
+            rep.Scored(s.key, s.stratum, s.gold, "neutral" if i % 4 == 0 else s.predicted, s.probs)
+            for i, s in enumerate(scored)
+        ]
+    )
+    a = rep.weighted_figures(mixed, populations, resamples=60)
+    b = rep.weighted_figures(mixed, populations, resamples=60)
+    assert a == b  # seeded
+    assert (
+        a["score"].low <= a["score"].point <= a["score"].high and a["score"].low < a["score"].high
+    )
+    assert rep.weighted_figures(mixed, populations, resamples=60, seed=7) != a
 
 
 def test_the_weighted_gain_is_paired_and_comes_with_the_gold_verdict() -> None:
-    rows, populations = _rows()
-    gains = rep.weighted_gains(rows, populations, "good", "bad")
-    assert set(gains) == {"agreement", "negative precision", "negative recall"}
-    gain, verdict = gains["agreement"]
-    assert gain.point == pytest.approx(1 - 0.06) and verdict == "better"
-    gain, verdict = gains["negative recall"]  # both read every negative as negative
-    assert gain.point == 0.0 and verdict == "not decided"
-    same = rep.weighted_gains(rows, populations, "good", "good")
+    good, populations = _scored("good")
+    bad, _ = _scored("bad")
+    gains = rep.weighted_gains(good, bad, populations, resamples=60)
+    gain, verdict = gains["score"]
+    assert gain.point > 0.5 and verdict == "better"
+    gain, verdict = gains["negative roc_ovr"]
+    assert gain.point == 1.0 and verdict == "better"
+    same = rep.weighted_gains(good, good, populations, resamples=60)
     assert all(g.point == 0.0 and v == "not decided" for g, v in same.values())
+    with pytest.raises(gold_metrics.MarkedFileError, match="not of the same texts"):
+        rep.weighted_gains(good, [*bad[:-1], bad[0]], populations, resamples=5)
+    with pytest.raises(gold_metrics.MarkedFileError, match="no population for the strata"):
+        rep.row_weights(good, {"negative": 1})
 
 
-def test_d32_verdicts_are_the_bars_judge_of_each_figure_and_a_better_model_can_still_fail_them() -> (
-    None
-):
-    from news_nlp.gold_metrics import Figure  # noqa: PLC0415
-
+def test_d32_verdicts_are_the_bars_judge_of_the_negative_class_and_roc_has_no_bar() -> None:
     figures = {
-        "agreement": Figure(0.666, 0.569, 0.763),  # wholly below 80%
-        "negative precision": Figure(0.46, 0.278, 0.652),  # wholly below 70%
-        "negative recall": Figure(0.892, 0.719, 1.0),  # wholly at or above 70%
+        "negative precision": gold_metrics.Figure(0.46, 0.278, 0.652),  # wholly below 70%
+        "negative recall": gold_metrics.Figure(0.892, 0.719, 1.0),  # wholly at or above 70%
+        "negative roc_ovr": gold_metrics.Figure(0.5, 0.4, 0.6),
     }
-    assert rep.bar_verdicts(figures) == {
-        "agreement": "fail",
-        "negative precision": "fail",
-        "negative recall": "pass",
-    }
-    figures["negative recall"] = Figure(0.8, 0.6, 0.95)  # straddles the bar
+    assert rep.bar_verdicts(figures) == {"negative precision": "fail", "negative recall": "pass"}
+    figures["negative recall"] = gold_metrics.Figure(0.8, 0.6, 0.95)  # straddles the bar
     assert rep.bar_verdicts(figures)["negative recall"] == "not decided"
 
 
-def test_the_weighted_agreement_of_a_run_weighs_its_strata_by_the_pool() -> None:
-    rows, populations = _rows()
-    assert rep.weighted_agreement(rows, populations, "good") == 1.0
-    assert rep.weighted_agreement(rows, populations, "bad") == pytest.approx(0.06)
-    assert math.isnan(rep.weighted_agreement([], {}, "good"))
+def test_the_kept_predictions_become_scored_texts_with_their_strata_and_pools() -> None:
+    marks = [
+        {"key": "a", "slice": "validation", "predicted": "negative", "pool_class_size": "100"},
+        {"key": "b", "slice": "validation", "predicted": "positive", "pool_class_size": "900"},
+        {"key": "c", "slice": "train", "predicted": "positive", "pool_class_size": "900"},
+    ]
+    predictions = [
+        {
+            "key": k,
+            "expected": "negative",
+            "predicted": "positive",
+            "p_positive": "0.7",
+            "p_negative": "0.2",
+            "p_neutral": "0.1",
+        }
+        for k in ("a", "b")
+    ]
+    scored, populations = rep.scored_from_rows(predictions, marks)
+    assert populations == {"negative": 100, "positive": 900}
+    assert scored[0] == rep.Scored(
+        "a", "negative", "negative", "positive", {"positive": 0.7, "negative": 0.2, "neutral": 0.1}
+    )
+    marks[1]["pool_class_size"] = "901"
+    marks.append(
+        {"key": "d", "slice": "validation", "predicted": "positive", "pool_class_size": "900"}
+    )
+    with pytest.raises(gold_metrics.MarkedFileError, match="stratum positive has two pool sizes"):
+        rep.scored_from_rows([*predictions, {**predictions[0], "key": "d"}], marks)
 
 
-def _verdicts(agreement: str, precision: str, recall: str) -> dict[str, str]:
-    return {"agreement": agreement, "negative precision": precision, "negative recall": recall}
-
-
-def test_the_pin_rule_pins_only_on_a_better_agreement_gain_and_no_not_better_precision_or_recall() -> (
-    None
-):
-    pins, reason = rep.pin_decision(_verdicts("better", "not decided", "better"))
-    assert pins and "neither the precision (`not decided`) nor the recall (`better`)" in reason
-    assert rep.pin_decision(_verdicts("better", "better", "not decided"))[0]
-    assert rep.pin_decision(_verdicts("better", "better", "better"))[0]
-    for agreement in ("not better", "not decided", "undefined"):  # (3): only `better` pins
-        pins, reason = rep.pin_decision(_verdicts(agreement, "better", "better"))
-        assert (
-            not pins and f"the agreement gain is `{agreement}`" in reason and "(D35 (3))" in reason
-        )
-    pins, reason = rep.pin_decision(_verdicts("better", "not better", "better"))  # (4)
-    assert not pins and "negative precision gain is `not better` (D35 (4))" in reason
-    pins, reason = rep.pin_decision(_verdicts("better", "better", "not better"))
-    assert not pins and "negative recall gain is `not better` (D35 (4))" in reason
-
-
-def test_an_undefined_precision_or_recall_gain_is_read_as_not_passing_by_the_owners_answer() -> (
-    None
-):
-    for verdicts in (
-        _verdicts("better", "undefined", "better"),
-        _verdicts("better", "better", "undefined"),
-    ):
-        pins, reason = rep.pin_decision(verdicts)
-        assert not pins and "`undefined`, read as not passing (owner, 2026-11-09)" in reason
-
-
-def _row(**changes: str) -> dict[str, str]:
-    row = {
-        "role": "final",
-        "gain_verdict": "better",
-        "gain_negative_precision_verdict": "better",
-        "gain_negative_recall_verdict": "better",
+def _verdicts(score: str, precision: str, recall: str, roc: str) -> dict[str, str]:
+    return {
+        "score": score,
+        "negative precision": precision,
+        "negative recall": recall,
+        "negative roc_ovr": roc,
     }
-    return {**row, **changes}
 
 
-def test_the_pin_is_decided_from_the_three_verdict_columns_each_read_for_its_own_metric() -> None:
-    from news_nlp.gold_metrics import MarkedFileError  # noqa: PLC0415
-
-    assert rep.pin_decision_from_row(_row())[0]
-    # each column moves only its own metric: swapping them would change who blocks the pin
-    pins, reason = rep.pin_decision_from_row(_row(gain_negative_precision_verdict="not better"))
-    assert not pins and "negative precision gain is `not better`" in reason
-    pins, reason = rep.pin_decision_from_row(_row(gain_negative_recall_verdict="not better"))
-    assert not pins and "negative recall gain is `not better`" in reason
-    pins, reason = rep.pin_decision_from_row(_row(gain_verdict="not decided"))
-    assert not pins and "the agreement gain is `not decided`" in reason
-    pins, reason = rep.pin_decision_from_row(_row(gain_negative_recall_verdict="undefined"))
-    assert not pins and "read as not passing (owner, 2026-11-09)" in reason
-    # a verdict that is `not decided` for precision does not block (the validation figures' case)
-    assert rep.pin_decision_from_row(_row(gain_negative_precision_verdict="not decided"))[0]
-    for column in rep.ROW_VERDICT_COLUMNS.values():
-        missing = _row()
-        del missing[column]
-        with pytest.raises(MarkedFileError, match=f"{column}: '' is not a verdict"):
-            rep.pin_decision_from_row(missing)
-        with pytest.raises(MarkedFileError, match=f"{column}: 'good' is not a verdict"):
-            rep.pin_decision_from_row(_row(**{column: "good"}))
-        with pytest.raises(MarkedFileError, match=f"{column}: '' is not a verdict"):
-            rep.pin_decision_from_row(_row(**{column: ""}))  # a baseline row has no gain
+def test_the_pin_rule_pins_on_a_better_score_gain_and_no_not_better_negative_precision_recall_or_roc() -> (
+    None
+):
+    pins, reason = rep.pin_decision(_verdicts("better", "not decided", "better", "better"))
+    assert pins and "precision `not decided`, recall `better`, ROC OVR `better`" in reason
+    assert rep.pin_decision(_verdicts("better", "not decided", "not decided", "not decided"))[0]
+    for score in ("not better", "not decided", "undefined"):  # (3): only `better` pins
+        pins, reason = rep.pin_decision(_verdicts(score, "better", "better", "better"))
+        assert (
+            not pins
+            and f"the selection score gain is `{score}`" in reason
+            and "(D35 (3))" in reason
+        )
+    for name, args in (
+        ("negative precision", ("not better", "better", "better")),
+        ("negative recall", ("better", "not better", "better")),
+        ("negative roc_ovr", ("better", "better", "not better")),
+    ):
+        pins, reason = rep.pin_decision(_verdicts("better", *args))  # (4)
+        assert not pins and f"the {name} gain is `not better` (D35 (4))" in reason
 
 
-def test_a_row_that_is_not_a_final_run_is_refused_and_a_row_without_a_role_is_read() -> None:
-    from news_nlp.gold_metrics import MarkedFileError  # noqa: PLC0415
-
-    with pytest.raises(MarkedFileError, match="`final` row, this one is 'baseline'"):
-        rep.pin_decision_from_row(_row(role="baseline"))
-    without_role = {k: v for k, v in _row().items() if k != "role"}
-    assert rep.pin_decision_from_row(without_role)[0]
-
-
-def test_the_row_columns_are_the_ones_the_scorer_logs() -> None:
-    from news_nlp import retag  # noqa: PLC0415
-
-    assert set(rep.ROW_VERDICT_COLUMNS.values()) <= set(retag.SENTIMENT_SCORING_LOG_COLUMNS)
+def test_an_undefined_negative_gain_is_read_as_not_passing_by_the_owners_answer() -> None:
+    for args in (
+        ("undefined", "better", "better"),
+        ("better", "undefined", "better"),
+        ("better", "better", "undefined"),
+    ):
+        pins, reason = rep.pin_decision(_verdicts("better", *args))
+        assert not pins and "`undefined`, read as not passing (owner, 2026-11-09)" in reason

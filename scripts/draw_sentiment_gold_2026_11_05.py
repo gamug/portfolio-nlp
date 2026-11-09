@@ -53,6 +53,7 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Any, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -232,9 +233,14 @@ def summarise(items: list[tuple[dict[str, str], str]]) -> list[dict[str, str]]:
     return [{**meta, "text": summary} for (meta, _), (summary, _) in zip(items, done, strict=True)]
 
 
+def mean_probs(chunk_probs: list[list[float]]) -> list[float]:
+    """The mean of the chunks' class probabilities (equal weights)."""
+    return [sum(col) / len(chunk_probs) for col in zip(*chunk_probs, strict=True)]
+
+
 def predicted_label(chunk_probs: list[list[float]], id2label: dict[int, str]) -> str:
     """The class of the mean of the chunks' probabilities (equal weights)."""
-    mean = [sum(col) / len(chunk_probs) for col in zip(*chunk_probs, strict=True)]
+    mean = mean_probs(chunk_probs)
     return id2label[max(range(len(mean)), key=mean.__getitem__)]
 
 
@@ -244,7 +250,19 @@ def predict(
     """Add the sentiment model's label to each text (the pinned one, or *cfg*'s ``model`` and
     ``revision``), read as the pipeline's stage reads a text. Returns the texts that have at least
     one chunk. With *pair* the model reads the pair company + chunk (``sentiment_pair``): every text
-    carries its ``company`` and the chunks are cut to the room the company leaves."""
+    carries its ``company`` and the chunks are cut to the room the company leaves. The label only:
+    :func:`predict_probs` is the same reading with the class probabilities too."""
+    kept = predict_probs(texts, cfg, pair)
+    for item in kept:
+        item.pop("probs")
+    return cast("list[dict[str, str]]", kept)
+
+
+def predict_probs(
+    texts: list[dict[str, str]], cfg: dict[str, str] | None = None, pair: bool = False
+) -> list[dict[str, Any]]:
+    """:func:`predict`, and every text also carries ``probs``: ``{class: mean probability over its chunks}``
+    (the score a one-vs-rest ROC is computed from; the label is the largest of them)."""
     import torch  # noqa: PLC0415
     from transformers import AutoModelForSequenceClassification, AutoTokenizer  # noqa: PLC0415
 
@@ -258,7 +276,7 @@ def predict(
     model = AutoModelForSequenceClassification.from_pretrained(cfg["model"], revision=revision)
     model = model.to(device).eval()
     id2label = {int(k): v.lower() for k, v in model.config.id2label.items()}
-    kept: list[dict[str, str]] = []
+    kept: list[dict[str, Any]] = []
     for item in texts:
         budget = sentiment_pair.chunk_budget(tok, item["company"]) if pair else 510
         chunks = chunk_text(item["text"], tok, max_tokens=budget)
@@ -277,7 +295,10 @@ def predict(
             with torch.no_grad():
                 chunk_probs.append(torch.softmax(model(**inputs).logits[0], dim=-1).cpu().tolist())
         item["predicted"] = predicted_label(chunk_probs, id2label)
-        kept.append(item)
+        probs = dict(
+            zip((id2label[i] for i in sorted(id2label)), mean_probs(chunk_probs), strict=True)
+        )
+        kept.append({**item, "probs": probs})
     return kept
 
 
