@@ -8,6 +8,7 @@ import json
 import sqlite3
 import sys
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -51,7 +52,7 @@ def _row(i: int, status: str, title: str, body: str) -> tuple[int, str, str, str
 
 
 def _counts(rows: list[tuple[int, str, str, str, str, str]]) -> list[dict[str, object]]:
-    entries = COUNTS.read_corpus(rows, RESOLVER, TERMS, lambda _id: [])
+    entries = COUNTS.read_corpus(rows, RESOLVER, TERMS)
     counted: list[dict[str, object]] = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
     return counted
 
@@ -104,17 +105,6 @@ def test_a_share_class_is_one_row_and_a_company_named_nowhere_is_a_zero_row() ->
     assert len(rows) == 3  # ZEN (with ZENB), QUO, LON: the whole universe, even when never named
 
 
-def test_the_stored_spans_are_given_to_the_resolver() -> None:
-    entries = COUNTS.read_corpus(
-        [_row(1, "ok", "A story", "Nothing in the text names it.")],
-        RESOLVER,
-        TERMS,
-        lambda _id: ["Quorra Holdings", "Quorra Holdings"],
-    )
-    (entry,) = entries.values()
-    assert entry.reading.named == {"QUO"}
-
-
 def test_the_csv_has_no_article_text_and_opens_in_excel(tmp_path: Path) -> None:
     rows = _counts([_row(1, "ok", "Zenith up", ZENITH_STORY)])
     path = tmp_path / "out" / "company_news_counts_2026-11-09.csv"
@@ -130,9 +120,7 @@ def test_the_csv_has_no_article_text_and_opens_in_excel(tmp_path: Path) -> None:
 
 
 def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() -> None:
-    entries = COUNTS.read_corpus(
-        [_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS, lambda _id: []
-    )
+    entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
     rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
     text = COUNTS.readme_text(
         entries,
@@ -210,6 +198,17 @@ def _tiny_store(tmp_path: Path) -> sqlite3.Connection:
                 "t",
                 "thin",
             ),
+            (
+                6,
+                "ok",
+                "ZEN",
+                "Zenith Dynamics Inc",
+                "Industrials",
+                "Aerospace",
+                "\t",
+                ZENITH_STORY + " x",
+            ),
+            (7, "ok", "ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace", "t", "\n\n"),
         ]
         raw.executemany("INSERT INTO articles VALUES (?,?,?,?,?,?,?,?)", rows)
         raw.executemany("INSERT INTO discovered_urls VALUES (?,?)", [(1, "https://e.test/a.html")])
@@ -460,9 +459,7 @@ def test_the_fingerprint_changes_with_the_sub_industry_the_rules_read() -> None:
 
 
 def test_the_readme_does_not_call_the_ok_column_the_cut_and_says_what_the_universe_is() -> None:
-    entries = COUNTS.read_corpus(
-        [_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS, lambda _id: []
-    )
+    entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
     rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
     text = COUNTS.readme_text(
         entries,
@@ -519,42 +516,6 @@ def test_the_readme_compares_with_t159_only_when_the_corpus_was_read_in_full() -
     assert "not comparable" in COUNTS.reconciliation(1, 1, 1, 3)
 
 
-def test_the_share_of_bodies_with_stored_spans_is_given_per_corpus() -> None:
-    def spans_of(article_id: int) -> list[str]:
-        return ["Zenith Dynamics"] if article_id == 1 else []
-
-    entries = COUNTS.read_corpus(
-        [
-            _row(1, "ok", "Zenith up", ZENITH_STORY),
-            _row(2, "ok", "Quorra", MIXED_STORY),
-            _row(3, "quarantined", "Zenith other", ZENITH_STORY + " More."),
-        ],
-        RESOLVER,
-        TERMS,
-        spans_of,
-    )
-    assert COUNTS.spans_share(entries) == (
-        0.5,
-        0.0,
-    )  # one of two ok bodies, none of the quarantined
-    rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
-    text = COUNTS.readme_text(
-        entries, rows, universe_size=4, row_total=3, new_rows=3, everything=3,
-        day="2026-11-09", revision="a", elapsed=1.0,
-    )  # fmt: skip
-    assert "stored NER spans" in text and "ok 50.0%, quarantined only 0.0%" in text
-
-
-def test_the_spans_flag_survives_the_checkpoint(tmp_path: Path) -> None:
-    entries = COUNTS.read_corpus(
-        [_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS, lambda _id: ["Zenith Dynamics"]
-    )
-    path = tmp_path / "c.json"
-    COUNTS.save_checkpoint(path, "fp", 1, 1, entries)
-    last, rows, loaded = COUNTS.load_checkpoint(path, "fp")  # type: ignore[misc]
-    assert (last, rows) == (1, 1) and next(iter(loaded.values())).has_spans
-
-
 def test_a_second_run_on_the_same_folder_is_refused_and_the_lock_is_released(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -595,3 +556,61 @@ def test_the_files_carry_the_run_date(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "company_news_counts_2026-11-09.csv" in (
         out / "company_news_counts_2026-11-09_README.txt"
     ).read_text(encoding="utf-8")
+
+
+def test_a_title_or_body_of_tabs_and_new_lines_is_not_one_here_either(tmp_path: Path) -> None:
+    """Rows 6 and 7 of the tiny store (a title of a tab, a body of new lines) are out, as in T-159."""
+    conn = _tiny_store(tmp_path)
+    assert COUNTS.count_rows(conn) == 3
+    assert [row[0] for row in COUNTS.stream_rows(conn, 0)] == [1, 2, 3]
+
+
+def test_the_stored_ner_spans_are_not_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _tiny_store(tmp_path)
+    conn.executemany(
+        "INSERT INTO article_entities VALUES (?, 'ORG', ?)",
+        [(1, "Quorra Holdings"), (1, "Quorra Holdings"), (1, "Quorra Holdings")],
+    )  # spans on article 1, a Zenith story: they would make Quorra a subject of it
+    out = tmp_path / "result"
+    _run(monkeypatch, conn, out)
+    with (out / "company_news_counts_2026-11-09.csv").open(encoding="utf-8-sig", newline="") as fh:
+        by = {r["ticker"]: r for r in csv.DictReader(fh)}
+    assert by["QUO"]["ok_bodies_naming"] == "0"  # only the text counts
+
+
+def test_the_universe_does_not_depend_on_the_order_of_the_rows(tmp_path: Path) -> None:
+    def store(order: list[tuple[int, str]]) -> sqlite3.Connection:
+        path = tmp_path / f"s{order[0][0]}.db"
+        with sqlite3.connect(path) as raw:
+            raw.execute(
+                "CREATE TABLE articles (id INTEGER, fetch_status TEXT, ticker TEXT, company TEXT, "
+                "gics_sector TEXT, gics_sub_industry TEXT, title TEXT, body_text TEXT)"
+            )
+            raw.executemany(
+                "INSERT INTO articles VALUES (?, 'ok', 'ZEN', ?, 'Industrials', 'Aerospace', 't', 'b')",
+                order,
+            )
+        conn = sqlite3.connect(":memory:")
+        conn.execute("ATTACH DATABASE ? AS source", (str(path),))
+        return conn
+
+    rows = [(1, "Zenith Dynamics Inc"), (2, "Zenith Dynamics, Inc.")]
+    assert COUNTS.load_universe(store(rows)) == COUNTS.load_universe(store(rows[::-1]))
+
+
+def test_the_file_name_takes_the_date_of_the_machine_not_utc() -> None:
+    fresh = _script("company_news_counts_2026_11_09")  # the real ``today``, not the patched one
+    assert fresh.today() == f"{datetime.now().astimezone():%Y-%m-%d}"
+
+
+def test_a_checkpoint_gives_back_the_bodies_it_was_given(tmp_path: Path) -> None:
+    entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
+    path = tmp_path / "c.json"
+    COUNTS.save_checkpoint(path, "fp", 1, 1, entries)
+    loaded = COUNTS.load_checkpoint(path, "fp")
+    assert not isinstance(loaded, str)
+    last, rows, back = loaded
+    assert (last, rows) == (1, 1)
+    (before,), (after,) = entries.values(), back.values()
+    assert (before.reading, before.is_ok) == (after.reading, after.is_ok)
+    assert COUNTS.load_checkpoint(path, "another") != loaded  # other code or universe: not used

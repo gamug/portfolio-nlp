@@ -35,8 +35,9 @@ are the same; otherwise it is ignored and the run starts again. ``--fresh`` igno
 it if rows already read may have changed, for example a pair that became ``ok``).
 
 ``--limit N`` stops after N rows of this run (a smoke run) and prints how long the whole run would
-take at that speed. The stored NER ``ORG`` spans of the first pair of a body help the resolver, as in
-the size script.
+take at that speed. **The names are read from the text only** (owner, 2026-11-09): the stored NER ``ORG``
+spans that the size script adds are not used, so that the ``ok`` and the quarantined-only bodies, which
+the NER stage covered unequally, are read in exactly the same way.
 """
 
 from __future__ import annotations
@@ -76,7 +77,8 @@ KNOWN = (309_882, 81_961, 227_921)
 
 
 def today() -> str:
-    return f"{datetime.now(UTC):%Y-%m-%d}"
+    """The date on the owner's machine (not UTC), for the file names; the README gives the UTC time."""
+    return f"{datetime.now().astimezone():%Y-%m-%d}"
 
 
 def csv_name(day: str) -> str:
@@ -104,20 +106,12 @@ class BodyReading(NamedTuple):
 class Entry:
     """One unique body: its reading, and whether any of its pairs is ``ok``."""
 
-    __slots__ = ("has_spans", "is_ok", "reading", "roundup_by_headline")
+    __slots__ = ("is_ok", "reading", "roundup_by_headline")
 
-    def __init__(
-        self,
-        reading: BodyReading,
-        *,
-        is_ok: bool,
-        roundup_by_headline: bool,
-        has_spans: bool = False,
-    ) -> None:
+    def __init__(self, reading: BodyReading, *, is_ok: bool, roundup_by_headline: bool) -> None:
         self.reading = reading
         self.is_ok = is_ok
         self.roundup_by_headline = roundup_by_headline
-        self.has_spans = has_spans  # the stored NER ORG spans of its first pair helped the resolver
 
 
 def read_body(
@@ -125,12 +119,11 @@ def read_body(
     title: str,
     body: str,
     slug: str,
-    spans: list[str],
     terms: list[str],
 ) -> BodyReading:
     """The names, the subjects and the scope of one body, with every rule step of the size script."""
     text = f"{title}\n{triage.strip_boilerplate(body)}"
-    named = resolver.resolve(text, spans, skip_attribution=True)
+    named = resolver.resolve(text, skip_attribution=True)  # the text only: no stored NER spans
     in_title = resolver.resolve(title, skip_attribution=True)
     subjects = triage.subjects(named, in_title)
     roundup = triage.is_roundup(title, slug, len(in_title), resolver.ticker_forms(text))
@@ -142,7 +135,7 @@ def load_universe(conn: db.NewsNlpDatabase) -> list[Company]:
     """The tickers of the properly fetched SOURCE rows, ``ok`` or ``quarantined``: a company that has
     only quarantined rows is still in the universe."""
     rows = conn.execute(
-        "SELECT ticker, company, gics_sector, gics_sub_industry FROM source.articles "
+        "SELECT ticker, MIN(company), MIN(gics_sector), MIN(gics_sub_industry) FROM source.articles "
         "WHERE fetch_status IN ('ok', 'quarantined') AND ticker IS NOT NULL AND ticker != '' "
         "GROUP BY ticker ORDER BY ticker"
     ).fetchall()
@@ -158,8 +151,8 @@ def stream_rows(
         "SELECT a.id, a.fetch_status, a.ticker, a.title, a.body_text, d.url FROM source.articles a "
         "LEFT JOIN source.discovered_urls d ON d.id = a.id "
         "WHERE a.fetch_status IN ('ok', 'quarantined') "
-        "AND a.title IS NOT NULL AND trim(a.title) != '' "
-        "AND a.body_text IS NOT NULL AND trim(a.body_text) != '' "
+        "AND a.title IS NOT NULL AND trim(a.title, char(32, 9, 10, 13)) != '' "
+        "AND a.body_text IS NOT NULL AND trim(a.body_text, char(32, 9, 10, 13)) != '' "
         "AND a.id > ? ORDER BY a.id LIMIT ?",
         (after_id, limit or -1),
     )
@@ -169,13 +162,11 @@ def read_corpus(
     rows: Iterable[tuple[int, str, str, str, str, str]],
     resolver: CompanyResolver,
     terms: list[str],
-    spans_of: Callable[[int], list[str]],
     *,
     entries: dict[str, Entry] | None = None,
     after_row: Callable[[int, int], None] = lambda _id, _bodies: None,
 ) -> dict[str, Entry]:
     """Every unique body of *rows* read once, added to *entries* (the state of an earlier run, if any).
-    *spans_of* gives the stored ``ORG`` spans of an article id (a query on the RESULTS store).
     A body seen again under another pair only updates ``is_ok`` and, as in the size script, is read
     again with the first headline that reads as a round-up if the first reading was not one; both are
     idempotent, so a row read twice (after a stop) changes nothing. *after_row* is called with the
@@ -188,13 +179,9 @@ def read_corpus(
         entry = entries.get(key)
         headline_roundup = triage.is_roundup(title, slug, 0, 0)
         if entry is None:
-            spans = spans_of(article_id)
-            reading = read_body(resolver, title, body, slug, spans, terms)
+            reading = read_body(resolver, title, body, slug, terms)
             entries[key] = Entry(
-                reading,
-                is_ok=status == "ok",
-                roundup_by_headline=headline_roundup,
-                has_spans=bool(spans),
+                reading, is_ok=status == "ok", roundup_by_headline=headline_roundup
             )
         else:
             entry.is_ok = entry.is_ok or status == "ok"
@@ -203,7 +190,7 @@ def read_corpus(
                 and not entry.roundup_by_headline
                 and entry.reading.scope != "roundup"
             ):
-                entry.reading = read_body(resolver, title, body, slug, spans_of(article_id), terms)
+                entry.reading = read_body(resolver, title, body, slug, terms)
                 entry.roundup_by_headline = True
         after_row(article_id, len(entries))
     return entries
@@ -250,7 +237,6 @@ def save_checkpoint(
                 e.reading.scope,
                 e.is_ok,
                 e.roundup_by_headline,
-                e.has_spans,
             ]
             for key, e in entries.items()
         ],
@@ -273,9 +259,8 @@ def load_checkpoint(path: Path, print_of: str) -> tuple[int, int, dict[str, Entr
                 BodyReading(frozenset(named), frozenset(subjects), scope),
                 is_ok=is_ok,
                 roundup_by_headline=roundup,
-                has_spans=has_spans,
             )
-            for key, named, subjects, scope, is_ok, roundup, has_spans in state["entries"]
+            for key, named, subjects, scope, is_ok, roundup in state["entries"]
         }
         return int(state["last_id"]), int(state["rows_read"]), entries
     except (ValueError, KeyError, TypeError) as error:
@@ -349,17 +334,6 @@ def check_invariants(rows: list[dict[str, object]]) -> None:
                 )
 
 
-def spans_share(entries: dict[str, Entry]) -> tuple[float, float]:
-    """The share of the ``ok`` bodies and of the quarantined-only bodies whose first pair had stored
-    NER ``ORG`` spans: the two corpora are read with the same help only if the shares are close."""
-    ok = [e.has_spans for e in entries.values() if e.is_ok]
-    quarantined = [e.has_spans for e in entries.values() if not e.is_ok]
-    return (
-        sum(ok) / len(ok) if ok else 0.0,
-        sum(quarantined) / len(quarantined) if quarantined else 0.0,
-    )
-
-
 def acquire_lock(folder: Path) -> Path:
     """Create the lock file of *folder* (an exclusive create), so that two runs cannot write the same
     checkpoint and files; stop with what to do if it exists."""
@@ -411,7 +385,6 @@ def readme_text(
     ok = sum(e.is_ok for e in entries.values())
     named_any = sum(bool(e.reading.named) for e in entries.values())
     scopes = Counter(e.reading.scope for e in entries.values())
-    ok_share, quarantined_share = spans_share(entries)
     smoke = (
         f"SMOKE RUN: {row_total:,} of {everything:,} rows read, not the whole corpus.\n\n"
         if row_total < everything
@@ -445,8 +418,7 @@ def readme_text(
         f"  bodies that name at least one company: {named_any:,}; by rule scope: "
         f"{dict(scopes.most_common())}\n"
         f"  {reconciliation(len(entries), ok, row_total, everything)}\n"
-        f"  bodies with stored NER spans (which help the name resolver): ok {ok_share:.1%}, "
-        f"quarantined only {quarantined_share:.1%}\n\n"
+        "  names read from the text only, the same for every body (no stored NER spans)\n\n"
         "LIMITS (read the counts as a floor, with some noise)\n"
         "  - No alias table yet: a company named in another way (a product, a nickname) is missed.\n"
         "  - A name that is also a common word or a person's name can be counted by mistake.\n"
@@ -468,8 +440,8 @@ def count_rows(conn: db.NewsNlpDatabase, after_id: int = 0) -> int:
     return int(
         conn.execute(
             "SELECT COUNT(*) FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
-            "AND title IS NOT NULL AND trim(title) != '' "
-            "AND body_text IS NOT NULL AND trim(body_text) != '' AND id > ?",
+            "AND title IS NOT NULL AND trim(title, char(32, 9, 10, 13)) != '' "
+            "AND body_text IS NOT NULL AND trim(body_text, char(32, 9, 10, 13)) != '' AND id > ?",
             (after_id,),
         ).fetchone()[0]
     )
@@ -567,15 +539,6 @@ def run(args: argparse.Namespace) -> None:
         f"universe {len(universe)} tickers; {everything:,} rows in the corpus; reading {to_read:,}"
     )
 
-    def spans_of(article_id: int) -> list[str]:
-        return [
-            r[0]
-            for r in conn.execute(
-                "SELECT text FROM article_entities WHERE entity_type = 'ORG' AND article_id = ?",
-                (article_id,),
-            )
-        ]
-
     state = {"last": last_id, "n": 0}
     bar = tqdm(total=to_read, unit="row", desc="reading", disable=args.no_progress)
 
@@ -593,7 +556,6 @@ def run(args: argparse.Namespace) -> None:
             stream_rows(conn, args.limit, last_id),
             resolver,
             terms,
-            spans_of,
             entries=entries,
             after_row=after_row,
         )
