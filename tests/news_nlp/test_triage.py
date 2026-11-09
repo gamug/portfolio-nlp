@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import re
+import unicodedata
 from collections import Counter
 
 import pytest
@@ -596,3 +598,49 @@ def test_words_that_the_samples_showed_to_be_taken_for_a_company(text: str, tick
 )
 def test_and_the_company_named_properly_still_counts(text: str, ticker: str) -> None:
     assert CompanyResolver(EXTRA_WORDS).resolve(text, skip_attribution=False)[ticker] == 1
+
+
+def _spellings(name: str) -> list[str]:
+    """The ways a text may write a company name: case, decomposed accents, spaces, hyphens,
+    apostrophes, initials with and without full stops, a trailing exclamation mark."""
+    return [
+        name,
+        name.upper(),
+        name.lower(),
+        unicodedata.normalize("NFD", name),
+        name.replace(" ", chr(0xA0)),
+        name.replace(" ", "  "),
+        name.replace(" ", "-"),
+        name.replace("'", chr(0x2019)),
+        re.sub(r"\.", ". ", name),
+        re.sub(r"\. ", ".", name),
+        re.sub(r"([A-Z])\. ?([A-Z])\.", r"\1\2.", name),
+        name.replace("&", " & "),
+        name + "!",
+        name.replace(",", " "),
+    ]
+
+
+def test_no_spelling_of_a_company_name_breaks_the_matcher() -> None:
+    """A failure inside a four-hour run of the count script costs the run: every public reading
+    of every spelling of every name of the fixtures must return, and the exact name must be found."""
+    companies = [
+        *COMMON_WORDS,
+        *TRICKY_NAMES,
+        *EXTRA_WORDS,
+        *(company for company, _ in INITIALS_AND_ACCENTS),
+    ]
+    resolver = CompanyResolver(companies)
+    for company in companies:
+        for spelling in _spellings(company.name):
+            text = f"{spelling} rose. Then {spelling}'s shares fell."
+            resolver.resolve(text, skip_attribution=False)
+            resolver.mention_spans(text)
+            resolver.firm_spans(text)
+            resolver.disclosure_only(text, [company.ticker])
+        ticker = resolver.by_ticker[company.ticker.upper()]
+        found = resolver.resolve(f"{company.name} rose.", skip_attribution=False)
+        corroborated = triage._CORROBORATED | triage._WORD_NAMES  # these need more than their name
+        first = triage.normalize_name(company.name).split()[:1]
+        if first and first[0] not in corroborated:
+            assert found[ticker] >= 1, company.name

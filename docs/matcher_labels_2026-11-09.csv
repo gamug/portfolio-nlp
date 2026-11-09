@@ -886,3 +886,93 @@ r13_ten_names_new,70,246913,YUM,Yum Brands,name,1585,13,all,real,
 r13_ten_names_new,71,246913,DHI,D.R. Horton,name,2971,13,all,real,
 r13_ten_names_new,72,247513,SJM,J.M. Smucker,name,2890,13,all,real,
 r13_ten_names_new,73,247633,TROW,T. Rowe Price,name,1801,13,all,real,
+r59_owns_only_flagged,0,166919,EXR,EXR,ticker,3761,59,59,disclosure,
+r59_owns_only_flagged,1,64619,DGX,DGX,ticker,3223,59,59,not-disclosure,Nvidia's DGX Cloud (a product)
+r59_owns_only_flagged,2,230819,EXR,EXR,ticker,2828,59,59,disclosure,
+r59_owns_only_flagged,3,215579,EXR,EXR,ticker,3982,59,59,disclosure,
+r59_owns_only_flagged,4,230879,AMAT,AMAT,ticker,1040,59,59,disclosure,
+r59_owns_only_flagged,5,52619,AKAM,AKAM,ticker,4109,59,59,disclosure,
+r59_owns_only_flagged,6,89999,PSA,PSA,ticker,3801,59,59,not-disclosure,Groupe PSA
+r59_owns_only_flagged,7,110339,EXR,EXR,ticker,3645,59,59,disclosure,
+r59_owns_only_flagged,8,229259,EXR,EXR,ticker,3435,59,59,disclosure,
+r59_owns_only_flagged,9,230759,DLR,DLR,ticker,3266,59,59,disclosure,
+r59_owns_only_flagged,10,229139,EXR,EXR,ticker,3690,59,59,disclosure,
+r59_owns_only_flagged,11,213659,EXR,EXR,ticker,1579,59,59,disclosure,
+r59_owns_only_flagged,12,229379,EXR,EXR,ticker,2454,59,59,disclosure,
+r59_owns_only_flagged,13,212699,EXR,EXR,ticker,2997,59,59,disclosure,
+r59_owns_only_flagged,14,153959,AIG,AIG,ticker,1080,59,59,not-disclosure,"prose: 'an AIG, Bank of America'"
+r59_owns_only_flagged,15,213659,DLR,DLR,ticker,1524,59,59,disclosure,
+r59_owns_only_flagged,16,230399,EXR,EXR,ticker,1930,59,59,disclosure,
+r59_owns_only_flagged,17,212819,EXR,EXR,ticker,2756,59,59,disclosure,
+r59_owns_only_flagged,18,230879,FCX,FCX,ticker,1008,59,59,disclosure,
+r59_owns_only_flagged,19,124439,EXR,EXR,ticker,9071,59,59,disclosure,
+r59_owns_only_flagged,20,212759,EXR,EXR,ticker,2723,59,59,disclosure,
+r59_owns_only_flagged,21,94679,USB,USB,ticker,1676,59,59,not-disclosure,USB-C
+r59_owns_only_flagged,22,166919,DLR,DLR,ticker,3706,59,59,disclosure,
+r59_owns_only_flagged,23,110339,DLR,DLR,ticker,3590,59,59,disclosure,
+r59_owns_only_flagged,24,52619,GOOG,GOOG,ticker,4361,59,59,disclosure,
+r59_dense_only_flagged,0,57059,JNJ,JNJ,ticker,7520,59,59,not-disclosure,price table: Johnson and Johnson (JNJ)
+r59_dense_only_flagged,1,124319,VLO,VLO,ticker,3838,59,59,disclosure,
+r59_dense_only_flagged,2,223739,MCD,MCD,ticker,605,59,59,disclosure,
+r59_dense_only_flagged,3,17159,MKC,MKC,ticker,2645,59,59,not-disclosure,prose
+r59_dense_only_flagged,4,116279,BKNG,BKNG,ticker,3187,59,59,not-disclosure,analyst prose
+r59_dense_only_flagged,5,115319,CVS,CVS,ticker,3804,59,59,not-disclosure,analyst prose
+r59_dense_only_flagged,6,57059,WMT,WMT,ticker,7289,59,59,not-disclosure,price table
+r59_dense_only_flagged,7,227819,NFLX,NFLX,ticker,561,59,59,disclosure,
+r59_dense_only_flagged,8,76199,MCD,MCD,ticker,1816,59,59,disclosure,
+r59_dense_only_flagged,9,224159,MOS,MOS,ticker,602,59,59,disclosure,
+r59_dense_only_flagged,10,226499,PYPL,PYPL,ticker,1243,59,59,disclosure,
+r59_dense_only_flagged,11,214919,ICE,ICE,ticker,4871,59,59,not-disclosure,all-caps transcript: ICE CREAM
+r59_dense_only_flagged,12,215459,INCY,INCY,ticker,2236,59,59,disclosure,
+r59_dense_only_flagged,13,224159,MCD,MCD,ticker,587,59,59,disclosure,
+r59_dense_only_flagged,14,96539,GOOG,GOOG,ticker,5541,59,59,disclosure,
+r59_dense_only_flagged,15,226679,FIX,FIX,ticker,3946,59,59,not-disclosure,all-caps transcript: TO FIX
+r59_dense_only_flagged,16,223739,NKE,NKE,ticker,642,59,59,disclosure,
+r59_dense_only_flagged,17,215459,GILD,GILD,ticker,2113,59,59,disclosure,
+r59_dense_only_flagged,18,215459,UNH,UNH,ticker,2175,59,59,disclosure,
+r59_dense_only_flagged,19,247739,CBOE,CBOE,ticker,418,59,59,not-disclosure,prose
+r59_dense_only_flagged,20,118139,PODD,PODD,ticker,10090,59,59,not-disclosure,prose
+r59_dense_only_flagged,21,57059,XOM,XOM,ticker,8066,59,59,not-disclosure,price table
+r59_dense_only_flagged,22,124619,PNC,PNC,ticker,3712,59,59,not-disclosure,prose list of names
+r59_dense_only_flagged,23,5159,AMD,AMD,ticker,2789,59,59,not-disclosure,earnings calendar
+r59_dense_only_flagged,24,215459,MCK,MCK,ticker,2298,59,59,disclosure,
+r59_unflagged_by_tightening,0,116279,BKNG,BKNG,ticker,3187,59,60,prose-real,
+r59_unflagged_by_tightening,1,115319,CVS,CVS,ticker,3804,59,60,prose-real,
+r59_unflagged_by_tightening,2,199559,HPQ,HPQ,ticker,6058,59,60,prose-real,
+r59_unflagged_by_tightening,3,63839,MKC,MKC,ticker,6224,59,60,prose-real,
+r59_unflagged_by_tightening,4,99959,MGM,MGM,ticker,3490,59,60,prose-real,
+r59_unflagged_by_tightening,5,89999,PSA,PSA,ticker,3801,59,60,not-company,Groupe PSA
+r59_unflagged_by_tightening,6,159539,AMD,AMD,ticker,5553,59,60,prose-real,
+r59_unflagged_by_tightening,7,153959,AIG,AIG,ticker,1080,59,60,prose-real,
+r59_unflagged_by_tightening,8,124319,LUV,LUV,ticker,3777,59,60,disclosure-missed,list of tickers with names
+r59_unflagged_by_tightening,9,17159,MKC,MKC,ticker,2645,59,60,prose-real,
+r59_unflagged_by_tightening,10,57059,XOM,XOM,ticker,8066,59,60,prose-real,
+r59_unflagged_by_tightening,11,73079,PKG,PKG,ticker,1613,59,60,prose-real,
+r59_unflagged_by_tightening,12,226679,FIX,FIX,ticker,3946,59,60,not-company,all-caps: TO FIX
+r59_unflagged_by_tightening,13,124619,MMM,MMM,ticker,3683,59,60,prose-real,
+r59_unflagged_by_tightening,14,213599,AXP,AXP,ticker,2192,59,60,disclosure-missed,Citi: compensation from / co-manager
+r59_unflagged_by_tightening,15,94679,USB,USB,ticker,1676,59,60,not-company,USB-C
+r59_unflagged_by_tightening,16,5159,AMD,AMD,ticker,2789,59,60,prose-real,
+r59_unflagged_by_tightening,17,124619,PNC,PNC,ticker,3712,59,60,prose-real,
+r59_unflagged_by_tightening,18,64619,DGX,DGX,ticker,3223,59,60,not-company,Nvidia's DGX Cloud
+r59_unflagged_by_tightening,19,57059,WMT,WMT,ticker,7289,59,60,prose-real,
+r59_unflagged_by_tightening,20,247739,CBOE,CBOE,ticker,418,59,60,prose-real,
+r59_unflagged_by_tightening,21,161999,ADP,ADP,ticker,1025,59,60,prose-real,
+r59_unflagged_by_tightening,22,118139,PODD,PODD,ticker,10090,59,60,prose-real,
+r59_unflagged_by_tightening,23,124619,UPS,UPS,ticker,3727,59,60,prose-real,
+r59_unflagged_by_tightening,24,213599,YUM,YUM,ticker,2321,59,60,disclosure-missed,Citi: managed a securities offering
+r59_unflagged_by_tightening,25,49259,DELL,DELL,ticker,258,59,60,prose-real,
+r59_unflagged_by_tightening,26,224159,APH,APH,ticker,511,59,60,disclosure-missed,list with HK.APH
+r59_unflagged_by_tightening,27,214919,ICE,ICE,ticker,4871,59,60,not-company,all-caps: ICE CREAM
+r59_unflagged_by_tightening,28,105479,AIG,AIG,ticker,877,59,60,prose-real,
+r59_unflagged_by_tightening,29,247619,HON,HON,ticker,387,59,60,prose-real,
+r59_unflagged_by_tightening,30,7019,KLAC,KLAC,ticker,1644,59,60,prose-real,
+r59_unflagged_by_tightening,31,205499,CBOE,CBOE,ticker,1246,59,60,prose-real,
+r59_unflagged_by_tightening,32,124319,OXY,OXY,ticker,3650,59,60,disclosure-missed,list with names
+r59_unflagged_by_tightening,33,48359,ADP,ADP,ticker,8106,59,60,prose-real,
+r59_unflagged_by_tightening,34,207119,DIS,DIS,ticker,2431,59,60,prose-real,
+r59_unflagged_by_tightening,35,181679,DELL,DELL,ticker,355,59,60,prose-real,
+r59_unflagged_by_tightening,36,193259,ETN,ETN,ticker,424,59,60,prose-real,
+r59_unflagged_by_tightening,37,124319,VLO,VLO,ticker,3838,59,60,disclosure-missed,list with names
+r59_unflagged_by_tightening,38,213659,GLW,GLW,ticker,3895,59,60,disclosure-missed,Citi: compensation for services
+r59_unflagged_by_tightening,39,145559,ADP,ADP,ticker,4810,59,60,prose-real,

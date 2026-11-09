@@ -338,7 +338,21 @@ lean `articles` rows itself.
   adjusted for it, the README gives the run's own shares). `scripts/matcher_before_after_2026_11_09.py`
   compares the matcher with a git revision (`--base`), checks that each company is found by its own
   name (`--self-check`), measures the disclosure share (`--disclosures`) and prints the labels of
-  `docs/matcher_labels_2026-11-09.csv` with their context (`--render`).
+  `docs/matcher_labels_2026-11-09.csv` with their context (`--render`) and recomputes the precision of
+  its sets (`--labels-summary`).
+- `docs/matcher_labels_2026-11-09.csv` (PLAN D38) — what was read to measure the matcher, one reader
+  (the developer), no news text. Columns: `set` (the sample: `r<residue>_<what>`, residue of
+  `id % 60`), `n` (its number in the set), `article_id` (SOURCE), `ticker`, `word` (the matched
+  text), `rule` (which rule matched), `offset` (character offset of `word` in the body as stored),
+  `residue`, `seed` (of the random draw; `all` = every mention), `label`, `note`. Labels by kind of
+  set: sets of **mentions** (`*_owner15`, `*_alias`, `*_short_corr`, `*_name_ticker`, `*_dropped_*`,
+  `*_ten_names_new`): `real` (the company), `not`, `ambiguous` (counted as wrong in the tables),
+  `unreadable` (left out); the "precision" of a `*_dropped_*` set is the share of dropped mentions
+  that were the company, i.e. what the rule costs. Sets of **flagged** pairs (named only inside a
+  disclosure by the detector): `disclosure`, `not-disclosure`, `ambiguous`, `unreadable`. Sets of
+  **unflagged** ticker-only pairs: `prose-real`, `not-company`, `disclosure-missed`, `ambiguous`,
+  `unreadable` (counts only). A test reads the file, checks every label against its set and pins the
+  figures D38 quotes.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).

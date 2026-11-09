@@ -24,7 +24,7 @@ import hashlib
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Container, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -488,28 +488,57 @@ def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]
     return kept
 
 
-#: A disclosure or a ticker list: a keyword of the genre ("Najarian Owns (INTC)", "is long X") near a
-#: ticker form, or a dense run of ticker-like tokens in the 160 characters around it.
-_DISCLOSURE_WORDS = re.compile(
-    r"\bowns?\b"
-    r"|\b(?:is|are|has|have)\s+(?:long|short)\b(?:\s+\w+){0,3}\s+\(?(?-i:[A-Z]{1,5})\b"
+#: The genre of a disclosure or a ticker list, in the 160 characters around a ticker form (PLAN D38):
+#: the phrases of the footers ("is long X", "makes a market in X"), the form of "Owns" that is
+#: followed by a ticker ("Owns (INTC)", "Owns INTC;"), and a comma list of tickers. Not any use of
+#: the word "owns" ("Disney owns ESPN"), not any run of upper-case words (an all-caps transcript, a
+#: calendar of "ADP, CPI, GDP, ISM, PMI").
+_GENRE = re.compile(
+    r"\b(?:is|are|has|have)\s+(?:\w+\s+)?(?:long|short)\b(?:\s+\w+){0,3}\s+\(?(?-i:[A-Z]{1,5})\b"
     r"|\b(?:has|have)\s+(?:an?\s+)?(?:options?\s+)?positions?\s+in\b"
     r"|\b(?:long|short)\s*:|\boptions?\s+position|\bmarket\s+maker|\bdisclosures?\s*:"
     r"|\bmakes?\s+a\s+market\s+in\b|\b(?:was|were)\s+an?\s+(?:buyer|seller)s?\s+of\b"
-    r"|\bco-?manager\s+of\s+an\s+offering\b",
+    r"|\bco-?manager\s+of\s+an\s+offering\b|\bbeneficially\s+owns?\b|\bis\s+a\s+holding\s+of\b"
+    r"|\blong\s+(?:\w+\s+){0,2}(?:calls?|puts?)\b|\bmanaged\s+an\s+offering\b"
+    r"|\binvestment\s+banking\s+(?:services|clients)\b|\bbanking\s+services\s+(?:to|from)\b"
+    r"|\bpartners\s+own\b|\bcompensation\s+(?:from|for)\b|\bco-?manager\s+of\s+(?:an\s+)?offering\b"
+    r"|\bsecurities\s+offering\s+of\b",
     re.IGNORECASE,
 )
-_TICKER_TOKEN = re.compile(r"(?<![\w.])[A-Z]{1,5}(?:\.[A-Z])?(?![\w])")
-DENSE_TICKERS = 6
+_OWNS = re.compile(
+    r"\bowns?\s*\("
+    r"|\bowns?\s+(?:more\s+than\s+)?\d+(?:\.\d+)?%"
+    r"|\bowns?\s+\(?(?-i:[A-Z]{1,5})\)?\s*(?:[;,.]|\bcalls?\b|\bputs?\b|\b(?:call|put)\s+spreads?\b|\bleaps?\b)",
+    re.IGNORECASE,
+)
+_TICKER = r"(?-i:[A-Z]{1,5}(?:\.[A-Z]{1,4})?)"
+_TICKER_LIST = re.compile(rf"(?<![\w.])\(?{_TICKER}\)?(?:\s*[,;]\s*\(?{_TICKER}\)?(?![\w])){{4,}}")
+_LIST_TICKERS = 3  # of a list of five or more, at least this many are tickers of the universe
 
 
-def in_disclosure(text: str, start: int, end: int) -> bool:
+def disclosure_branch(
+    text: str, start: int, end: int, known: Container[str] | None = None
+) -> str | None:
+    """What makes the ticker form at ``text[start:end]`` part of a disclosure or a ticker list:
+    ``"genre"``, ``"owns"`` or ``"list"`` (a comma list that holds at least three tickers of *known*,
+    any if *known* is not given), or ``None``."""
+    low = max(0, start - 160)
+    window = text[low : end + 160]
+    if _GENRE.search(window):
+        return "genre"
+    if _OWNS.search(window):
+        return "owns"
+    for run in _TICKER_LIST.finditer(window):
+        if run.start() <= start - low and end - low <= run.end():
+            tokens = re.findall(_TICKER, run.group(0))
+            if known is None or sum(token in known for token in tokens) >= _LIST_TICKERS:
+                return "list"
+    return None
+
+
+def in_disclosure(text: str, start: int, end: int, known: Container[str] | None = None) -> bool:
     """Whether the ticker form at ``text[start:end]`` sits in a disclosure or a ticker list."""
-    window = text[max(0, start - 160) : end + 160]
-    return (
-        bool(_DISCLOSURE_WORDS.search(window))
-        or len(_TICKER_TOKEN.findall(window)) >= DENSE_TICKERS
-    )
+    return disclosure_branch(text, start, end, known) is not None
 
 
 @dataclass
@@ -692,17 +721,28 @@ class CompanyResolver:
         """Whether *match* came from the ticker patterns (``$X``, ``(NYSE: X)``, bare ``X``)."""
         return match.re is self._tickers
 
-    def disclosure_only(self, text: str, counted: Iterable[str]) -> frozenset[str]:
-        """The tickers of *counted* that *text* names only by ticker forms inside a disclosure or a
-        ticker list ("Najarian Owns (INTC)"): named, but not what the body is about (PLAN D38)."""
-        flags: dict[str, list[bool]] = {}
+    def disclosure_branches(self, text: str, counted: Iterable[str]) -> dict[str, frozenset[str]]:
+        """For each ticker of *counted* that *text* names only by ticker forms inside a disclosure or
+        a ticker list ("Trader A Owns (INTC)"), the branches of the genre that put its mentions
+        there (``genre``, ``owns``, ``list``): named, but not what the body is about (PLAN D38)."""
+        found: dict[str, list[str | None]] = {}
         wanted = set(counted)
         for match, ticker in self.counted_matches(text):
             if ticker in wanted:
-                flags.setdefault(ticker, []).append(
-                    self.is_ticker_form(match) and in_disclosure(text, *match.span())
+                found.setdefault(ticker, []).append(
+                    disclosure_branch(text, *match.span(), self._by_ticker)
+                    if self.is_ticker_form(match)
+                    else None
                 )
-        return frozenset(ticker for ticker, found in flags.items() if all(found))
+        return {
+            ticker: frozenset(b for b in branches if b)
+            for ticker, branches in found.items()
+            if all(branches)
+        }
+
+    def disclosure_only(self, text: str, counted: Iterable[str]) -> frozenset[str]:
+        """The tickers of *counted* that *text* names only inside a disclosure or a ticker list."""
+        return frozenset(self.disclosure_branches(text, counted))
 
     def _text_mentions(
         self, text: str, skip_attribution: bool

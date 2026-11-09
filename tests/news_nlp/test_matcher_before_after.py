@@ -77,9 +77,20 @@ def test_a_ticker_form_in_a_disclosure_or_a_list_is_told_from_one_in_a_sentence(
         "Trader A Capital Markets LLC makes a market in NFLX CNBC.com with wires",
         "Trader A was a seller of NFLX. Trader B was a buyer of Ford.",
         "Citigroup acted as manager or co-manager of an offering of securities of NFLX Citigroup",
+        "Citi Expects To Receive Compensation from (AXP), (V), (MA) Citi Has Acted As Manager",
+        "Citi has Managed a Securities Offering of (YUM)  Citi Has Received Compensation from (YUM)",
+        "Compensation For Services Provided In Past 12 Months From (MOT), (GLW) Citigroup",
+        "Charlie is funds long GS Charlie is funds long KKR Charlie is funds long JPM",
+        "Stuart Frankel & Co and its partners own HPQ Stuart Frankel & Co and its partners own HSPO",
+        "Investment Banking Clients Of Citigroup Global Markets (CVS), (DG), (HD), (JCP), (KSS)",
     ):
-        spot = genre.index("FSLR" if "FSLR" in genre else "WMT" if "WMT" in genre else "NFLX")
-        assert triage.in_disclosure(genre, spot, spot + 3), genre
+        key = next(
+            k
+            for k in ("FSLR", "WMT", "NFLX", "AXP", "YUM", "GLW", "KKR", "HPQ", "CVS")
+            if k in genre
+        )
+        spot = genre.index(key)
+        assert triage.in_disclosure(genre, spot, spot + len(key)), genre
     for prose in (
         "Cramer said the stock is long overdue for a rally, and AMZN fell.",
         "Analysts have a position on the deal, said AMZN's chief.",
@@ -120,3 +131,94 @@ def test_the_labels_are_rendered_with_their_context_from_source(tmp_path: Path) 
     )
     lines = CHECK.render_labels(conn, labels, only="demo", width=5)  # type: ignore[arg-type]
     assert lines == ["demo   0 not        WBD   Mark [[Warner]] said  (a senator)"]
+
+
+@pytest.mark.parametrize(
+    ("text", "ticker"),
+    [
+        (
+            "THE FED RAISED RATES AND AAPL FELL TODAY AS THE US ECONOMY SLOWED, SAID THE CEO.",
+            "AAPL",
+        ),
+        (
+            "Key events: ADP, CPI, GDP, ISM, PMI and NFP reports; AAPL also reports earnings.",
+            "AAPL",
+        ),
+        ("Disney (DIS) owns ESPN and said so.", "DIS"),
+        ("Amazon is large. AMZN owns Whole Foods and Zoox.", "AMZN"),
+        ("Calendar: ADP, CPI, GDP, ISM, PMI, NFP and AAPL results.", "AAPL"),
+    ],
+)
+def test_ordinary_prose_is_not_a_disclosure(text: str, ticker: str) -> None:
+    """The generic readings of the first version (any "owns", any six upper-case words) flagged all of
+    these (PR #155, round 6)."""
+    known = {"AAPL", "DIS", "AMZN", "ADP"}
+    spot = text.index(ticker)
+    assert triage.disclosure_branch(text, spot, spot + len(ticker), known) is None
+
+
+def test_the_branches_of_a_disclosure_are_named() -> None:
+    known = {"INTC", "GS", "MSFT", "BAC", "C", "JPM", "KO"}
+    owns = "Adami Owns AGU; Adami Owns C; Adami Owns INTC; Adami Owns MSFT;"
+    assert (
+        triage.disclosure_branch(owns, owns.index("INTC"), owns.index("INTC") + 4, known) == "owns"
+    )
+    paren = "Najarian Owns More Than 1% Of (EXR) Virtus"
+    assert (
+        triage.disclosure_branch(paren, paren.index("EXR"), paren.index("EXR") + 3, known) == "owns"
+    )
+    lst = "Her firm: BAC, C, GS, JPM, KO, XYZ and more."
+    spot = lst.index("GS")
+    assert triage.disclosure_branch(lst, spot, spot + 2, known) == "list"
+    assert (
+        triage.disclosure_branch(lst, spot, spot + 2, {"GS"}) is None
+    )  # a list of words, not tickers
+    resolver = CompanyResolver(
+        [Company("INTC", "Intel Corporation", "Technology", "Semiconductors")]
+    )
+    footer = "Trader A Owns (INTC); Trader B Is Short (F)."
+    assert resolver.disclosure_branches(footer, ["INTC"]) == {"INTC": frozenset({"genre"})}
+    assert resolver.disclosure_branches("Intel (NYSE: INTC) fell.", ["INTC"]) == {}
+
+
+LABELS = Path(__file__).resolve().parents[2] / "docs" / "matcher_labels_2026-11-09.csv"
+
+#: The figures PLAN D38 quotes, by set: (right, read), unreadable left out.
+QUOTED = {
+    "r13_owner15": (86, 89),
+    "r29_owner15": (38, 40),
+    "r13_name_ticker": (37, 39),
+    "r29_name_ticker": (34, 36),
+    "r13_short_corr": (12, 14),
+    "r29_short_corr": (26, 27),
+    "r13_alias": (59, 94),
+    "r29_alias": (80, 94),
+    "r41_alias": (86, 98),
+    "r53_disclosure_flagged": (39, 40),
+    "r13_ten_names_new": (74, 74),
+    "r59_owns_only_flagged": (21, 25),  # the generic "owns" of the first detector, read alone
+    "r59_dense_only_flagged": (13, 25),  # and its "six upper-case words", read alone
+}
+
+
+def test_the_committed_labels_are_valid_and_give_the_figures_quoted() -> None:
+    lines = {line.split()[0]: line for line in CHECK.labels_summary(LABELS)}  # a bad label raises
+    for name, (right, read) in QUOTED.items():
+        assert f"precision {right}/{read} " in lines[name], (name, lines[name])
+
+
+def test_the_tightening_of_the_detector_is_read_in_the_labels() -> None:
+    lines = {line.split()[0]: line for line in CHECK.labels_summary(LABELS)}
+    line = lines["r59_unflagged_by_tightening"]
+    assert "n= 40" in line and "disclosure-missed 7" in line
+
+
+def test_a_label_a_set_does_not_allow_is_an_error(tmp_path: Path) -> None:
+    bad = tmp_path / "labels.csv"
+    bad.write_text(
+        "set,n,article_id,ticker,word,rule,offset,residue,seed,label,note\n"
+        "r1_alias,0,1,F,Ford,alias,0,1,1,disclosure,\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="not in"):
+        CHECK.labels_summary(bad)
