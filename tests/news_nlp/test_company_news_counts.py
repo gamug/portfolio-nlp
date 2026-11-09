@@ -141,7 +141,7 @@ def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() 
         "SMOKE RUN",
         "floor",
         "*_bodies_disclosure",
-        "Najarian Owns (INTC)",
+        "Trader A Owns (INTC)",
     ):
         assert phrase in text
 
@@ -626,7 +626,7 @@ def test_a_checkpoint_gives_back_the_bodies_it_was_given(tmp_path: Path) -> None
     assert COUNTS.load_checkpoint(path, "another") != loaded  # other code or universe: not used
 
 
-DISCLOSURE_FOOTER = "Najarian Owns (ZEN); Najarian Owns (GS) Calls; Terranova Is Short (F)."
+DISCLOSURE_FOOTER = "Trader A Owns (ZEN); Trader A Owns (GS) Calls; Trader B Is Short (F)."
 
 
 def test_a_company_named_only_in_a_disclosure_is_counted_as_named_and_as_disclosure() -> None:
@@ -660,3 +660,47 @@ def test_the_disclosure_column_cannot_exceed_the_naming_column() -> None:
 def test_a_body_that_names_the_company_in_its_text_has_no_disclosure_reading() -> None:
     entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
     assert next(iter(entries.values())).reading.disclosure == frozenset()
+
+
+def test_the_readme_lists_exactly_the_measures_and_gives_the_runs_own_disclosure_share() -> None:
+    entries = COUNTS.read_corpus(
+        [
+            _row(1, "ok", "Zenith up", ZENITH_STORY),
+            _row(2, "ok", "Market notes", "Stocks rose on Friday. " + DISCLOSURE_FOOTER),
+        ],
+        RESOLVER,
+        TERMS,
+    )
+    rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
+    text = COUNTS.readme_text(
+        entries,
+        rows,
+        universe_size=4,
+        row_total=2,
+        new_rows=2,
+        everything=2,
+        day="2026-11-09",
+        revision="abc",
+        elapsed=60.0,
+    )
+    measures = text.split("THE FOUR MEASURES")[1].split("THE TAG IS NOT USED")[0]
+    for measure in COUNTS.MEASURES:
+        assert f"*_bodies_{measure}" in measures
+    assert measures.count("*_bodies_") == len(COUNTS.MEASURES)
+    assert "THREE MEASURES" not in text and "Najarian" not in text and "fifth" not in text
+    assert "(of them 1 only in a disclosure)" in text
+    assert "naming 1 of 2 (50.0%)" in text and "subject 0 of 1 (0.0%)" in text
+
+
+def test_the_disclosure_is_read_before_the_boilerplate_rules_cut_its_words() -> None:
+    """``strip_boilerplate`` removes the sentence with "Disclosure:" and leaves tickers bare: the
+    reading of the genre is on the body as it was."""
+    universe = [Company("ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace")]
+    resolver = CompanyResolver(universe)
+    body = (
+        "Stocks rose on Friday. Sign up for our newsletter. Trader A Owns (ZEN), (AAA), (BBB), "
+        "(CCC), (DDD), (EEE), (FFF) Disclosure: Click here for more. See (ZEN)"
+    )
+    reading = COUNTS.read_body(resolver, "Market notes", body, "", TERMS)
+    assert "ZEN" in reading.named
+    assert "ZEN" in reading.disclosure

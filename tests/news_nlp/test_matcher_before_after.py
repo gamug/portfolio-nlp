@@ -66,10 +66,26 @@ def test_the_self_check_lists_the_company_a_stop_word_erased() -> None:
 
 
 def test_a_ticker_form_in_a_disclosure_or_a_list_is_told_from_one_in_a_sentence() -> None:
-    footer = "Najarian Owns (INTC); Najarian Owns (GS) Calls; Terranova Is Short (F)."
+    footer = "Trader A Owns (INTC); Trader A Owns (GS) Calls; Trader B Is Short (F)."
     assert triage.in_disclosure(footer, footer.index("INTC"), footer.index("INTC") + 4)
     sentence = "Cramer said shares of AMZN rose on Tuesday after the quarter was reported."
     assert not triage.in_disclosure(sentence, sentence.index("AMZN"), sentence.index("AMZN") + 4)
+    for genre in (
+        "J. Najarian is long MS; J. Najarian is long GMCR; J. Najarian is long FSLR; J. Najarian is long DB;",
+        "Disclosure: Trader A and Joule Financial have positions in WMT and DIS.",
+        "The firm has an options position in (NFLX) and is short Jan calls NFLX.",
+        "Trader A Capital Markets LLC makes a market in NFLX CNBC.com with wires",
+        "Trader A was a seller of NFLX. Trader B was a buyer of Ford.",
+        "Citigroup acted as manager or co-manager of an offering of securities of NFLX Citigroup",
+    ):
+        spot = genre.index("FSLR" if "FSLR" in genre else "WMT" if "WMT" in genre else "NFLX")
+        assert triage.in_disclosure(genre, spot, spot + 3), genre
+    for prose in (
+        "Cramer said the stock is long overdue for a rally, and AMZN fell.",
+        "Analysts have a position on the deal, said AMZN's chief.",
+    ):
+        spot = prose.index("AMZN")
+        assert not triage.in_disclosure(prose, spot, spot + 4), prose
     run = "short: SPY, XRT, QQQ, IWM, DIA, GLD, SLV. long: AAPL"
     assert triage.in_disclosure(run, run.index("XRT"), run.index("XRT") + 3)
 
@@ -80,7 +96,7 @@ def test_the_disclosures_report_counts_the_pairs_named_only_in_a_footer() -> Non
         Company("AAPL", "Apple Inc.", "Technology", "Hardware"),
     ]
     bodies = [
-        "Apple rose. Najarian Owns (INTC); Najarian Owns (GS) Calls; Terranova Is Short (F).",
+        "Apple rose. Trader A Owns (INTC); Trader A Owns (GS) Calls; Trader B Is Short (F).",
         "Intel (NYSE: INTC) fell and Apple rose.",
     ]
     lines = CHECK.disclosures(universe, bodies)

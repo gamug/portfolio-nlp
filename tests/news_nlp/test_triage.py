@@ -405,6 +405,26 @@ def test_names_with_initials_an_exclamation_mark_or_an_accent_are_found(
         assert resolver.resolve(f"{form} rose.", skip_attribution=False)[company.ticker] == 1, form
 
 
+def test_the_decomposed_form_of_an_accent_is_read_too() -> None:
+    """Scraped text has both: "e" followed by a combining acute accent is the same letter."""
+    resolver = CompanyResolver([INITIALS_AND_ACCENTS[-1][0]])
+    for text in ("Este\u0301e Lauder rose.", "ESTE\u0301E LAUDER rose."):
+        assert resolver.resolve(text, skip_attribution=False)["EL"] == 1, text
+
+
+def test_initials_are_upper_case_so_a_pronoun_is_not_a_company() -> None:
+    resolver = CompanyResolver([c for c, _ in INITIALS_AND_ACCENTS])
+    for text in (
+        "The report told us Bancorp executives were wrong.",
+        "Shares of us bancorp fell.",
+        "Sales at a o smith were flat.",
+        "He met t rowe price at lunch.",
+        "Visit d r horton homes.",
+    ):
+        assert not resolver.resolve(text, skip_attribution=False), text
+    assert resolver.resolve("U.S. BANCORP and US Bancorp rose.", skip_attribution=False)["USB"] == 2
+
+
 def test_initials_do_not_open_the_name_to_a_sentence_or_a_line() -> None:
     resolver = CompanyResolver([c for c, _ in INITIALS_AND_ACCENTS])
     for text in (
@@ -491,6 +511,7 @@ EXTRA_WORDS = [
     Company("APP", "AppLovin Corporation", "Information Technology", "Software"),
     Company("MAS", "Masco Corporation", "Industrials", "Building Products"),
     Company("AFL", "Aflac Incorporated", "Financials", "Insurance"),
+    Company("PEG", "Public Service Enterprise Group", "Utilities", "Electric Utilities"),
 ]
 
 
@@ -527,6 +548,7 @@ EXTRA_WORDS = [
         ("Authorized push payment (APP) fraud is rising.", "APP"),
         ("The Monetary Authority of Singapore (MAS) set policy.", "MAS"),
         ("The AFL-CIO and other unions met.", "AFL"),
+        ("The stock's PEG ratio is below the median.", "PEG"),
         ("THE LAST TIME WE MET BACK IN OCTOBER YOU TALKED.", "MET"),
         ("Time Warner Cable and Motorola Mobility were sold.", "WBD"),
         ("Time Warner Cable and Motorola Mobility were sold.", "MSI"),

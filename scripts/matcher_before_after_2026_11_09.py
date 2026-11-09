@@ -117,7 +117,9 @@ def disclosures(universe: list[triage.Company], bodies: Iterable[str], top: int 
     only: Counter[str] = Counter()
     total = 0
     for body in bodies:
-        counted = resolver.resolve(body, skip_attribution=True)
+        # as the count script reads it: the names in the text without its boilerplate, the
+        # disclosure genre in the body as it was
+        counted = resolver.resolve(triage.strip_boilerplate(body), skip_attribution=True)
         flagged = resolver.disclosure_only(body, counted)
         for ticker in counted:
             pairs[ticker] += 1

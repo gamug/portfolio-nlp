@@ -26,7 +26,6 @@ import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from itertools import pairwise
 from typing import NamedTuple
 
 #: Legal-form words dropped from a company name before matching it.
@@ -68,6 +67,7 @@ _WORD_TICKERS = frozenset(
         "APP",
         "MAS",
         "AFL",
+        "PEG",
         "BALL",
         "BEN",
         "CAT",
@@ -384,8 +384,24 @@ _ACCENTED = {
 _INITIALS_GAP = r"\.?[ \u00a0\t]*"
 
 
-def _word_pattern(word: str) -> str:
-    return "".join(f"[{_ACCENTED[c]}]" if c in _ACCENTED else re.escape(c) for c in word)
+def _word_pattern(word: str, *, initial: bool = False) -> str:
+    """The pattern of one word of a name: an initial is upper case ("us" is not "U.S."); a letter
+    that may carry an accent matches the accented letter, or the plain one followed by a combining
+    mark (the decomposed form), whichever the text has."""
+    if initial:
+        return f"(?-i:{word.upper()})"
+    return "".join(
+        f"[{_ACCENTED[c]}][\u0300-\u036f]?" if c in _ACCENTED else re.escape(c) for c in word
+    )
+
+
+def _initials(words: list[str]) -> list[bool]:
+    """Which words of a name are initials: one letter, first or after an initial ("j b hunt"); the
+    "s" of "casey s general stores" is a possessive, not an initial."""
+    flags: list[bool] = []
+    for i, word in enumerate(words):
+        flags.append(len(word) == 1 and word.isalpha() and (i == 0 or flags[i - 1]))
+    return flags
 
 
 def _name_pattern(phrase: str) -> str:
@@ -395,17 +411,17 @@ def _name_pattern(phrase: str) -> str:
     missing or present ("Estee Lauder"); a line break or a full stop between words does not read as
     a space: a name is on one line and in one sentence."""
     words = phrase.split(" ")
-    parts = [_word_pattern(words[0])]
-    for before, after in pairwise(words):
-        initial = len(before) == 1 and before.isalpha()
-        if initial and len(after) == 1 and after.isalpha():
+    initial = _initials(words)
+    parts = [_word_pattern(words[0], initial=initial[0])]
+    for i in range(1, len(words)):
+        if initial[i - 1] and initial[i]:
             parts.append(_INITIALS_GAP)
-        elif initial:
+        elif initial[i - 1]:
             parts.append(r"\.?" + _NAME_GAP)
         else:
             parts.append("!?" + _NAME_GAP)
-        parts.append(_word_pattern(after))
-    if len(words[-1]) == 1 and words[-1].isalpha():
+        parts.append(_word_pattern(words[i], initial=initial[i]))
+    if initial[-1]:
         parts.append(r"\.?")
     return "".join(parts)
 
@@ -475,8 +491,12 @@ def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]
 #: A disclosure or a ticker list: a keyword of the genre ("Najarian Owns (INTC)", "is long X") near a
 #: ticker form, or a dense run of ticker-like tokens in the 160 characters around it.
 _DISCLOSURE_WORDS = re.compile(
-    r"\b(?:owns?|is long|are long|is short|are short|options? position|market maker|disclosures?"
-    r"|short|long)\b[^.]{0,40}[(,]|\bowns?\b",
+    r"\bowns?\b"
+    r"|\b(?:is|are|has|have)\s+(?:long|short)\b(?:\s+\w+){0,3}\s+\(?(?-i:[A-Z]{1,5})\b"
+    r"|\b(?:has|have)\s+(?:an?\s+)?(?:options?\s+)?positions?\s+in\b"
+    r"|\b(?:long|short)\s*:|\boptions?\s+position|\bmarket\s+maker|\bdisclosures?\s*:"
+    r"|\bmakes?\s+a\s+market\s+in\b|\b(?:was|were)\s+an?\s+(?:buyer|seller)s?\s+of\b"
+    r"|\bco-?manager\s+of\s+an\s+offering\b",
     re.IGNORECASE,
 )
 _TICKER_TOKEN = re.compile(r"(?<![\w.])[A-Z]{1,5}(?:\.[A-Z])?(?![\w])")

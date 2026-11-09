@@ -15,12 +15,13 @@ It writes two files to ``--out``, for the S&P universe over every date of the co
   article text. The counts are of unique bodies, in three corpora: the bodies with an ``ok`` pair,
   the quarantined-only bodies (no ``ok`` pair under any ticker), and both together. For each: the
   bodies that **name** the company, the bodies it is a **subject** of (named twice or in the title),
-  and the bodies it is the **only** subject of (scope ``single``).
+  the bodies it is the **only** subject of (scope ``single``), and, of the bodies that name it, those
+  that name it **only in a disclosure** or a ticker list (``disclosure``).
 * ``company_news_counts_README.txt``: the date, the corpus each column is of, the totals and the limits.
 
 The files carry the run date (``company_news_counts_2026-11-09.csv`` and ``..._README.txt``): send the
 two together. Before writing, the counts are checked against themselves (``all = ok + quarantined_only``,
-``single <= subject <= naming``; a failure stops the run with no file) and the README compares the
+``single <= subject <= naming``, ``disclosure <= naming``; a failure stops the run with no file) and the README compares the
 totals with what T-159 counted. A lock file in ``--out`` stops a second run on the same folder.
 
 A ``tqdm`` bar shows the rows read, the speed and the time left (``--no-progress`` turns it off for a
@@ -131,7 +132,9 @@ def read_body(
     subjects = triage.subjects(named, in_title)
     roundup = triage.is_roundup(title, slug, len(in_title), resolver.ticker_forms(text))
     scope = triage.scope_candidate(subjects, text, terms, roundup=roundup)
-    disclosure = resolver.disclosure_only(text, named)
+    # the disclosure is read in the body as it was: the boilerplate rules cut the words of the genre
+    # ("Owns", "is long") out of a list and leave its tickers bare
+    disclosure = resolver.disclosure_only(f"{title}\n{body}", named)
     return BodyReading(frozenset(named), frozenset(subjects), frozenset(disclosure), scope.scope)
 
 
@@ -293,7 +296,7 @@ def count_by_company(
     entries: Iterable[Entry], resolver: CompanyResolver, universe: list[Company]
 ) -> list[dict[str, object]]:
     """One row per canonical company: ``{corpus}_bodies_{measure}`` for the three corpora and the
-    three measures. A company that shares a canonical ticker with another (share classes) is one row,
+    four measures. A company that shares a canonical ticker with another (share classes) is one row,
     listing the other tickers in ``also_covers``."""
     counts = tally(entries)
     first: dict[str, Company] = {}
@@ -381,6 +384,27 @@ def reconciliation(bodies: int, ok: int, row_total: int, everything: int) -> str
     return f"{known} (all bodies / with an ok pair / quarantined only); {here}: compare them, the crawl may have added some"
 
 
+def disclosure_totals(entries: Iterable[Entry]) -> str:
+    """The share of the company-body pairs that are disclosure-only, for ``naming``, ``subject`` and
+    ``single``: the run's own figures for the README (the column adjusts ``naming`` only)."""
+    pairs = Counter[str]()
+    for entry in entries:
+        reading = entry.reading
+        pairs["naming"] += len(reading.named)
+        pairs["naming_d"] += len(reading.disclosure)
+        pairs["subject"] += len(reading.subjects)
+        pairs["subject_d"] += len(reading.subjects & reading.disclosure)
+        if reading.scope == "single":
+            pairs["single"] += len(reading.subjects)
+            pairs["single_d"] += len(reading.subjects & reading.disclosure)
+    parts = [
+        f"{measure} {pairs[measure + '_d']:,} of {pairs[measure]:,} "
+        f"({100 * pairs[measure + '_d'] / max(pairs[measure], 1):.1f}%)"
+        for measure in ("naming", "subject", "single")
+    ]
+    return "company-body pairs that are only in a disclosure: " + "; ".join(parts)
+
+
 def readme_text(
     entries: dict[str, Entry],
     rows: list[dict[str, object]],
@@ -395,6 +419,10 @@ def readme_text(
 ) -> str:
     ok = sum(e.is_ok for e in entries.values())
     named_any = sum(bool(e.reading.named) for e in entries.values())
+    only_disclosure = sum(
+        bool(e.reading.named) and e.reading.named <= e.reading.disclosure for e in entries.values()
+    )
+    disclosure_share = disclosure_totals(entries.values())
     scopes = Counter(e.reading.scope for e in entries.values())
     smoke = (
         f"SMOKE RUN: {row_total:,} of {everything:,} rows read, not the whole corpus.\n\n"
@@ -414,15 +442,15 @@ def readme_text(
         "  quarantined_only_* bodies whose pairs are all quarantined: fetched properly (a title and a "
         "body) but upstream could not tie them to the tagged company; read here for what they say\n"
         "  all_*              the two together (ok + quarantined_only), each body once\n\n"
-        "THE THREE MEASURES\n"
+        "THE FOUR MEASURES\n"
         "  *_bodies_naming   the company is named somewhere in the text\n"
         "  *_bodies_subject  it is named at least twice, or in the title (a passing mention is not a "
         "subject)\n"
         "  *_bodies_single   it is the only subject of the body (a single-company article)\n"
         "  *_bodies_disclosure  OF THE BODIES THAT NAME THE COMPANY, those that name it only by a "
-        'ticker form inside a disclosure or a ticker list ("Najarian Owns (INTC)"): named, but not what '
-        "the body is about. About a fifth of the pairs; naming minus disclosure is the count without "
-        "them\n\n"
+        'ticker form inside a disclosure or a ticker list ("Trader A Owns (INTC)"): named, but not what '
+        "the body is about. naming minus disclosure is the count without them. subject and single are "
+        "NOT adjusted for it (the share is under TOTALS)\n\n"
         "THE TAG IS NOT USED. A quarantined pair's ticker says nothing about the article, so every "
         "count comes from the text.\n\n"
         "TOTALS OF THIS RUN\n"
@@ -430,8 +458,9 @@ def readme_text(
         f"checkpoint of earlier runs); unique bodies {len(entries):,} ({ok:,} with an ok pair, "
         f"{len(entries) - ok:,} quarantined only); universe {universe_size} tickers (the tickers the "
         f"crawl tagged, not the index's membership on a date), {len(rows)} rows.\n"
-        f"  bodies that name at least one company: {named_any:,}; by rule scope: "
-        f"{dict(scopes.most_common())}\n"
+        f"  bodies that name at least one company: {named_any:,} (of them {only_disclosure:,} only in a "
+        f"disclosure); by rule scope: {dict(scopes.most_common())}\n"
+        f"  {disclosure_share}\n"
         f"  {reconciliation(len(entries), ok, row_total, everything)}\n"
         "  names read from the text only, the same for every body (no stored NER spans)\n\n"
         "LIMITS (read the counts as a floor, with some noise)\n"

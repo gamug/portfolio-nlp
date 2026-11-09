@@ -324,6 +324,21 @@ lean `articles` rows itself.
   capitalised only; bare tickers that are words (`_WORD_TICKERS`: COO, MET, ...) only with an
   explicit form. `mention_spans` itself keeps the corroborated aliases (it places the masks of single
   sentences, where the full name is often absent): the guard decides those with the whole body.
+  Names with initials, an exclamation mark or an accent are found as written ("J.B. Hunt", "JB Hunt",
+  "U.S. Bancorp", "Yum! Brands", "Estée Lauder", also with the accent decomposed): the initials are
+  upper case ("us" is not "U.S."), a full stop follows an initial, spaces between initials are
+  optional, `squash_initials` gives the key of the name without them. A disclosure or ticker list
+  ("Trader A Owns (INTC)", "is long X;", "have positions in X") is told from a sentence by
+  `triage.in_disclosure`; `CompanyResolver.disclosure_only` gives the tickers a text names only that
+  way, and `counted_matches` / `is_ticker_form` the mentions `resolve` counts and their kind.
+- `scripts/company_news_counts_2026_11_09.py` (T-160, PLAN D36, D38) — the news counts per company for
+  the owner's partner: for three corpora (`ok_`, `quarantined_only_`, `all_`) and four measures:
+  `*_bodies_naming`, `*_bodies_subject`, `*_bodies_single`, and `*_bodies_disclosure` (of the bodies
+  that name the company, those that name it only in a disclosure; `subject` and `single` are not
+  adjusted for it, the README gives the run's own shares). `scripts/matcher_before_after_2026_11_09.py`
+  compares the matcher with a git revision (`--base`), checks that each company is found by its own
+  name (`--self-check`), measures the disclosure share (`--disclosures`) and prints the labels of
+  `docs/matcher_labels_2026-11-09.csv` with their context (`--render`).
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
