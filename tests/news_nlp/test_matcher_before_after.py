@@ -253,3 +253,50 @@ def test_a_label_a_set_does_not_allow_is_an_error(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="not in"):
         CHECK.labels_summary(bad)
+
+
+def _scope_store() -> object:
+    import sqlite3  # noqa: PLC0415
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE article_entities (article_id INTEGER, entity_type TEXT, text TEXT)")
+    conn.execute("ATTACH DATABASE ':memory:' AS source")
+    conn.execute(
+        "CREATE TABLE source.articles (id INTEGER, title TEXT, body_text TEXT, fetch_status TEXT, "
+        "pub_date TEXT)"
+    )
+    conn.execute("CREATE TABLE source.discovered_urls (id INTEGER, url TEXT)")
+    body = "Zenith Dynamics raised its forecast. Zenith Dynamics also said demand is strong. " * 3
+    for i in (1, 2):
+        conn.execute(
+            "INSERT INTO source.articles VALUES (?, 'Zenith up', ?, 'ok', '2022-03-01')",
+            (i, body + f" Story {i}."),
+        )
+        conn.execute("INSERT INTO source.discovered_urls VALUES (?, 'https://x.test/a.html')", (i,))
+    conn.execute(
+        "INSERT INTO source.articles VALUES (3, 'Old', 'Zenith old news.', 'ok', '2019-01-01')"
+    )
+    return conn
+
+
+class _NamesNobody:
+    """A stand-in for the matcher before the change: a module whose resolver finds no company."""
+
+    Company = triage.Company
+
+    class CompanyResolver(CompanyResolver):
+        def resolve(self, text, org_spans=(), *, skip_attribution=True):  # type: ignore[no-untyped-def]
+            return triage.Counter()
+
+
+def test_the_scope_shift_reads_the_window_as_the_cut_does() -> None:
+    import argparse  # noqa: PLC0415
+
+    universe = [Company("ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace")]
+    args = argparse.Namespace(since="2021-12-31", modulo=1, residue=0, bodies=10, base="x")
+    conn = _scope_store()
+    same = CHECK.scope_shift(conn, universe, triage, args)  # type: ignore[arg-type]
+    assert same[0].startswith("2 unique bodies") and "scope changed: 0 (0.0%)" in same[1]
+    moved = CHECK.scope_shift(conn, universe, _NamesNobody, args)  # type: ignore[arg-type]
+    assert "rule scope changed: 2 (100.0%)" in moved[1]
+    assert "enter the set that gets a summary: 2" in moved[2]  # the old reading named nobody

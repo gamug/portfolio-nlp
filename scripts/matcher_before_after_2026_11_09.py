@@ -24,6 +24,14 @@ character offset, rule, label, the sample and its seed), so that the owner can a
 the precision the tables of D38 quote (``real / (real + not + ambiguous)``, unreadable left out); a
 label outside the list of its set is an error.
 
+``--scopes [--since 2021-12-31] [--results-db PATH]`` reads the rule scope and the subject companies of
+a sample of the backtest window (``ok`` bodies published ``--since`` or later, the unique ones of
+``id % modulo = residue``) with the matcher at ``--base`` and with the working tree, exactly as
+``cut_summaries_2026_11_07.py`` does (``size_triage.classify``, the stored NER spans of the first
+article), and prints the scope shift and the bodies that enter or leave the set that gets a summary.
+It reads SOURCE and RESULTS read-only (``--results-db`` gives the RESULTS file; without it the
+pipeline connection of the environment is used).
+
 ``--base`` is the revision *before* the change (786766f, the last commit of master before PR #155):
 ``origin/master`` would be the branch itself once it is merged. ``--self-check`` reads no body: it
 resolves each company of the universe from its own name and its short form and lists those the
@@ -35,6 +43,8 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.util
+import os
+import sqlite3
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -46,6 +56,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import company_news_counts_2026_11_09 as counts
+import cut_summaries_2026_11_07 as cut
+import size_triage_2026_10_28 as size_triage
 
 from news_nlp import db, env, triage
 
@@ -215,6 +227,82 @@ def render_labels(
     return lines
 
 
+def read_only_connection(source: Path, results: Path) -> sqlite3.Connection:
+    """RESULTS as ``main`` and SOURCE as ``source``, both read-only and immutable: nothing is written."""
+    conn = sqlite3.connect(f"{results.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    conn.execute(
+        "ATTACH DATABASE ? AS source", (f"{source.resolve().as_uri()}?mode=ro&immutable=1",)
+    )
+    return conn
+
+
+def scope_shift(
+    conn: db.NewsNlpDatabase,
+    universe: list[triage.Company],
+    before_module: ModuleType,
+    args: argparse.Namespace,
+) -> list[str]:
+    """The lines of ``--scopes``: how the rule scope and the subject companies of the window's bodies
+    move between the matcher at ``--base`` and the working tree."""
+    before = before_module.CompanyResolver([before_module.Company(*c) for c in universe])
+    after = triage.CompanyResolver(universe)
+    terms = list(size_triage.sector_terms(universe))
+    moves: Counter[tuple[str, str]] = Counter()
+    changed_subjects = entered = left = seen_n = 0
+    seen: set[str] = set()
+    ids = conn.execute(
+        "SELECT id FROM source.articles WHERE fetch_status = 'ok' AND body_text IS NOT NULL "
+        "AND body_text != '' AND pub_date >= ? AND id % ? = ? ORDER BY id",
+        (args.since, args.modulo, args.residue),
+    )
+    for (article_id,) in ids:
+        title, body, slug, headlines = cut.fetch_body(conn, [article_id])
+        digest = triage.body_hash(body)
+        if digest in seen:
+            continue
+        seen.add(digest)
+        headline, slug = size_triage.roundup_headline(headlines) or (title, slug)
+        spans = cut.first_spans(conn, [article_id])
+        old_scope, old_subjects = size_triage.classify(
+            before, headline, body, slug, spans, terms, **size_triage.FULL
+        )
+        new_scope, new_subjects = size_triage.classify(
+            after, headline, body, slug, spans, terms, **size_triage.FULL
+        )
+        moves[(old_scope.scope, new_scope.scope)] += 1
+        changed_subjects += set(old_subjects) != set(new_subjects)
+        was = old_scope.scope in cut.SUMMARY_RULE_SCOPES
+        now = new_scope.scope in cut.SUMMARY_RULE_SCOPES
+        entered += now and not was
+        left += was and not now
+        seen_n += 1
+        if seen_n >= args.bodies:
+            break
+    changed = sum(n for (a, b), n in moves.items() if a != b)
+    old_share = Counter[str]()
+    new_share = Counter[str]()
+    for (a, b), n in moves.items():
+        old_share[a] += n
+        new_share[b] += n
+    lines = [
+        f"{seen_n} unique bodies published {args.since} or later (base {args.base})",
+        f"rule scope changed: {changed} ({100 * changed / max(seen_n, 1):.1f}%); the set of subject "
+        f"companies changed: {changed_subjects} ({100 * changed_subjects / max(seen_n, 1):.1f}%)",
+        f"enter the set that gets a summary: {entered}; leave it: {left}",
+        "scope              before   after",
+    ]
+    for name in sorted(set(old_share) | set(new_share), key=lambda k: -old_share[k]):
+        lines.append(
+            f"{name:<18} {old_share[name]:6} ({100 * old_share[name] / max(seen_n, 1):4.1f}%)"
+            f" {new_share[name]:6} ({100 * new_share[name] / max(seen_n, 1):4.1f}%)"
+        )
+    lines.append(
+        "moves (before -> after): "
+        + ", ".join(f"{a}->{b} {n}" for (a, b), n in moves.most_common() if a != b)
+    )
+    return lines
+
+
 def self_check_report(
     universe: list[triage.Company], before_module: ModuleType, base: str
 ) -> list[str]:
@@ -278,6 +366,9 @@ def main() -> None:
     parser.add_argument("--disclosures", action="store_true")
     parser.add_argument("--render", type=Path)
     parser.add_argument("--labels-summary", type=Path)
+    parser.add_argument("--scopes", action="store_true")
+    parser.add_argument("--since", default="2021-12-31")
+    parser.add_argument("--results-db", type=Path)
     parser.add_argument("--set")
     parser.add_argument("--tickers", nargs="*", default=TICKERS)
     args = parser.parse_args()
@@ -285,7 +376,10 @@ def main() -> None:
         print("\n".join(labels_summary(args.labels_summary)))
         return
     env.load_env_file()
-    conn = db.connect_pipeline()
+    if args.scopes and args.results_db:
+        conn = read_only_connection(Path(os.environ["SOURCE_DATABASE_URL"]), args.results_db)
+    else:
+        conn = db.connect_pipeline()
     if args.render:
         print("\n".join(render_labels(conn, args.render, args.set)))
         return
@@ -298,6 +392,9 @@ def main() -> None:
         )
         return
     before_module = triage_at(args.base, Path(__file__).resolve().parents[1])
+    if args.scopes:
+        print("\n".join(scope_shift(conn, universe, before_module, args)))
+        return
     if args.self_check:
         print("\n".join(self_check_report(universe, before_module, args.base)))
         return
