@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import shutil
@@ -30,6 +31,7 @@ import sqlite3
 import statistics
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,7 @@ import torch
 from tqdm import tqdm
 
 import news_nlp as db
+import sentiment_pair_report as rep
 import sentiment_pair_train as spt
 from news_nlp import retag, triage
 from sentiment_stage import _text_mentions_subject
@@ -425,7 +428,7 @@ def run_final(
         fingerprint=fingerprint,
     )
     seeds = agreements_by_setting(rows)[(choice.epochs, choice.learning_rate)]
-    rows.append({**row, "fingerprint": fingerprint})
+    rows.append({**row, "fingerprint": fingerprint, "code": code_revision()})
     save_results(rows, header)
     partial.replace(target)
     print(
@@ -436,14 +439,25 @@ def run_final(
     run_report(required=False)
 
 
+def keys_hash(keys: list[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(keys)).encode()).hexdigest()[:12]
+
+
 def run_baseline(validation: list[spt.Example]) -> dict[str, Any]:
     """The pinned model on the validation slice, as the scorer reads it, with the pair and without: what the
     grid's numbers are to be set against (no training). The per-text predictions are kept for the paired
-    comparison; a text the model did not read stops the run, as it does for the grid."""
+    comparison; a text the model did not read stops the run, as it does for the grid. ``baseline.json``
+    records the model and revision, the code revision and the validation keys, so a report can tell a stale
+    baseline."""
     model, revision = base_model()
     scorer = ValidationScorer(validation)
     items = scorer.items
-    result: dict[str, Any] = {"model": f"{model}@{revision}", "n": len(items)}
+    result: dict[str, Any] = {
+        "model": f"{model}@{revision}",
+        "code": code_revision(),
+        "keys": keys_hash([e.key for e in validation]),
+        "n": len(items),
+    }
     for name, pair in (("pair", True), ("text_only", False)):
         scored = gold_draw.predict(
             [dict(i) for i in items], {"model": model, "revision": revision}, pair=pair
@@ -451,13 +465,13 @@ def run_baseline(validation: list[spt.Example]) -> dict[str, Any]:
         predictions = scorer.collect(scored)
         write_predictions(f"baseline_{name}", predictions)
         result[name] = sum(p["predicted"] == p["expected"] for p in predictions)
-        print("\n".join(spt.report_lines(f"pinned, {name}", *_columns(predictions))))
+        print("\n".join(rep.report_lines(f"pinned, {name}", *_columns(predictions))))
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "baseline.json").write_text(json.dumps(result, indent=1), encoding="utf-8")
     print(
         f"pinned {result['model']} on {result['n']} validation texts: as the pair "
         f"{result['pair']}/{result['n']} = {result['pair'] / result['n']:.3f}; "
-        f"text only {result['text_only']}/{result['n']} = {result['text_only'] / result['n']:.3f}"
+        f"text only {result['text_only']}/{result['n']} = {result['text_only'] / result['n']:.3f} (raw)"
     )
     return result
 
@@ -466,14 +480,63 @@ def _columns(predictions: list[dict[str, str]]) -> tuple[list[str], list[str]]:
     return [p["expected"] for p in predictions], [p["predicted"] for p in predictions]
 
 
+def stale_baseline(final_row: dict[str, Any], keys: list[str]) -> str | None:
+    """Why the baseline cannot be set against this final run, or None: another model or revision, another
+    code revision (the baseline's, the final run's, today's), or other validation texts."""
+    path = OUT / "baseline.json"
+    if not path.exists():
+        return "there is no baseline.json: run --baseline"
+    baseline = json.loads(path.read_text(encoding="utf-8"))
+    model, revision = base_model()
+    if baseline.get("model") != f"{model}@{revision}":
+        return f"the baseline is of {baseline.get('model')}, the pinned model is now {model}@{revision}"
+    if baseline.get("keys") != keys_hash(keys):
+        return "the baseline read other validation texts than the final run"
+    now = code_revision()
+    if not baseline.get("code") == final_row.get("code") == now:
+        return (
+            f"the code differs: baseline {baseline.get('code')}, final run {final_row.get('code')}, "
+            f"now {now}: run --baseline again (and the grid and --final if the change is to the recipe)"
+        )
+    return None
+
+
+def weighted_rows(
+    marks: list[dict[str, str]], readings: dict[str, list[dict[str, str]]]
+) -> tuple[list[dict[str, str]], dict[str, int]]:
+    """One row per validation text for the weighted figures: the owner's class (``gold``), the stratum (the
+    class the pinned model predicted when the text was drawn) and each reading; and the size of each stratum's
+    pool (``pool_class_size`` of the marks)."""
+    by_key = {m["key"]: m for m in marks if m["slice"] == "validation"}
+    populations: dict[str, int] = {}
+    rows = []
+    first = next(iter(readings.values()))
+    for i, p in enumerate(first):
+        m = by_key[p["key"]]
+        size = populations.setdefault(m["predicted"], int(m["pool_class_size"]))
+        if size != int(m["pool_class_size"]):
+            raise spt.MarkedFileError(f"stratum {m['predicted']} has two pool sizes")
+        rows.append(
+            {
+                "key": p["key"],
+                "stratum": m["predicted"],
+                "gold": p["expected"],
+                **{name: r[i]["predicted"] for name, r in readings.items()},
+            }
+        )
+    return rows, populations
+
+
 def run_report(*, required: bool = True) -> None:
-    """The final run against the pinned model's two readings, from the predictions kept: per class, and
-    paired (who is right where, the exact McNemar p-value, the gain with the gold's interval and verdict).
-    Validation, 83 texts: an indication; the bar is the gold's."""
+    """The final run against the pinned model's two readings, from the predictions kept. **Weighted** (the
+    figures the bar and D35's pin rule are read in: agreement, negative precision and recall, and their
+    paired gain over the pinned model read as text, with the gold's verdicts), then the **raw** description of
+    the 83 (confusion, per class, McNemar). The slice is drawn per class the pinned model predicted, so raw
+    shares are not the population's."""
     final_row = next((r for r in reversed(load_results()[1]) if r["tag"] == "final"), None)
     final = read_predictions(final_row["name"]) if final_row else None
-    baselines = {n: read_predictions(f"baseline_{n}") for n in ("text_only", "pair")}
-    if final is None or None in baselines.values():
+    base = {n: read_predictions(f"baseline_{n}") for n in ("text_only", "pair")}
+    if final is None or None in base.values():
         message = (
             "the report needs --baseline and --final to have run (their predictions are not here)"
         )
@@ -482,20 +545,52 @@ def run_report(*, required: bool = True) -> None:
         print(f"\n{message}: run --baseline, then --report")
         return
     assert final_row is not None
-    print("\n".join(spt.report_lines(f"final ({final_row['name']})", *_columns(final))))
-    print("the validation slice is 83 texts: the figures of a class are indicative only")
-    for name, base in baselines.items():
-        assert base is not None
-        if [p["key"] for p in base] != [p["key"] for p in final]:
+    keys = [p["key"] for p in final]
+    for name, rows in base.items():
+        assert rows is not None
+        if [p["key"] for p in rows] != keys:
             sys.exit(f"the final run and the baseline {name} did not read the same texts")
-        report = spt.paired_report(
+    if problem := stale_baseline(final_row, keys):
+        if required:
+            sys.exit(f"the report cannot be made: {problem}")
+        print(f"\nthe report is not made: {problem}")
+        return
+    readings = {
+        "final": final,
+        "pinned_text": base["text_only"] or [],
+        "pinned_pair": base["pair"] or [],
+    }
+    rows, populations = weighted_rows(read_csv(MARKS), readings)
+    drawn = sum(r["pinned_text"] == r["stratum"] for r in rows)
+    print(
+        f"\nWEIGHTED (each text weighs pool size / drawn of its stratum; strata = the class the pinned model "
+        f"predicted when the text was drawn: {populations}; drawn {dict(Counter(r['stratum'] for r in rows))}). "
+        f"The weights stand for the pair-readable texts of each stratum: the 7 company-less rows of the 90 "
+        f"are out of the slice and stay with the text-only model, which the gold includes.\n"
+        f"(check: the pinned model as text agrees with its stored draw prediction on {drawn} of {len(rows)} texts)"
+    )
+    for name in readings:
+        figures = rep.weighted_figures(rows, populations, name)
+        print(f"  {name}: " + "; ".join(f"{k} {v}" for k, v in figures.items()))
+    print("  paired weighted gain of the final run over the pinned model as text (D35's pin rule):")
+    for metric, (gain, verdict) in rep.weighted_gains(
+        rows, populations, "final", "pinned_text"
+    ).items():
+        print(f"    {metric}: {gain} -> {verdict}")
+    print("\n" + "\n".join(rep.report_lines(f"final ({final_row['name']})", *_columns(final))))
+    print(
+        "RAW is the description of this draw, not an estimate for the population; negatives are few"
+    )
+    for name, other in base.items():
+        assert other is not None
+        paired = rep.paired_report(
             [p["expected"] == p["predicted"] for p in final],
-            [p["expected"] == p["predicted"] for p in base],
+            [p["expected"] == p["predicted"] for p in other],
         )
         print(
-            f"final against pinned {name}: both right {report.both}, only the final {report.only_a}, "
-            f"only the pinned {report.only_b}, neither {report.neither}; exact McNemar p = "
-            f"{report.p_value:.4f}; gain {report.gain} -> {report.verdict} (the gold's rule)"
+            f"final against pinned {name}, RAW: both right {paired.both}, only the final {paired.only_a}, "
+            f"only the pinned {paired.only_b}, neither {paired.neither}; exact McNemar p = "
+            f"{paired.p_value:.4f}; raw gain {paired.gain} (no verdict: the pin rule is the weighted gain)"
         )
 
 

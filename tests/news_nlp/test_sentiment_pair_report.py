@@ -1,0 +1,90 @@
+"""The report of a reading of the validation slice (T-148c3): raw description and weighted figures."""
+
+from __future__ import annotations
+
+import pytest
+
+import sentiment_pair_report as rep
+
+
+def test_the_confusion_matrix_and_the_class_figures_count_what_was_read_as_what() -> None:
+    expected = ["negative"] * 4 + ["positive"] * 3 + ["neutral"] * 3
+    predicted = (
+        ["negative", "negative", "neutral", "positive"]
+        + ["positive"] * 3
+        + ["negative"]
+        + ["neutral"] * 2
+    )
+    table = rep.confusion(expected, predicted)
+    assert table["negative"] == {"positive": 1, "negative": 2, "neutral": 1}
+    assert table["neutral"] == {"positive": 0, "negative": 1, "neutral": 2}
+    negative = rep.class_figures(table)["negative"]
+    assert negative["precision"].point == pytest.approx(2 / 3)  # 3 read as negative, 2 of them are
+    assert negative["recall"].point == pytest.approx(2 / 4)
+    assert negative["recall"].low < 0.5 < negative["recall"].high
+    lines = rep.report_lines("x", expected, predicted)
+    assert lines[0] == "x, RAW on the 10 texts: agreement 7/10" and any(
+        "negative: precision" in line for line in lines
+    )
+
+
+def test_the_exact_mcnemar_p_value_and_the_paired_report() -> None:
+    assert rep.mcnemar_exact(0, 0) == 1.0 and rep.mcnemar_exact(3, 3) == 1.0
+    assert rep.mcnemar_exact(0, 5) == pytest.approx(2 / 32)
+    assert rep.mcnemar_exact(11, 0) == pytest.approx(2 / 2**11)
+    a = [True] * 12 + [False] * 8
+    b = (
+        [True] * 2 + [False] * 10 + [True] * 2 + [False] * 6
+    )  # 2 shared, 10 only a, 2 only b, 6 neither
+    report = rep.paired_report(a, b)
+    assert (report.both, report.only_a, report.only_b, report.neither) == (2, 10, 2, 6)
+    assert report.p_value == pytest.approx(rep.mcnemar_exact(10, 2)) and report.p_value < 0.05
+    assert report.gain.point == pytest.approx(0.4)
+    assert not hasattr(report, "verdict")  # the pin rule is the weighted gain, not this one
+    same = rep.paired_report(a, a)
+    assert same.p_value == 1.0 and same.gain.point == 0.0
+
+
+def _rows() -> tuple[list[dict[str, str]], dict[str, int]]:
+    """Two strata (the class the pinned model predicted), 10 texts each; the stratum 'neg' is a small pool."""
+    rows = []
+    for i in range(10):
+        gold = "negative" if i < 6 else "positive"
+        rows.append(
+            {"key": f"n{i}", "stratum": "neg", "gold": gold, "good": gold, "bad": "negative"}
+        )
+    for i in range(10):
+        rows.append(
+            {
+                "key": f"p{i}",
+                "stratum": "pos",
+                "gold": "positive",
+                "good": "positive",
+                "bad": "negative",
+            }
+        )
+    return rows, {"neg": 100, "pos": 900}
+
+
+def test_the_weighted_figures_weigh_each_text_by_its_strata_pool_not_by_the_draw() -> None:
+    rows, populations = _rows()
+    good = rep.weighted_figures(rows, populations, "good")
+    assert good["agreement"].point == 1.0 and good["negative precision"].point == 1.0
+    bad = rep.weighted_figures(rows, populations, "bad")
+    # raw: 6 of 20 right (30%); weighted: the 'pos' stratum (900 of 1000) is all wrong, 'neg' is 60% right
+    assert bad["agreement"].point == pytest.approx((100 * 0.6 + 0) / 1000)
+    # every text read as negative: precision is the weighted share of negatives among them
+    assert bad["negative precision"].point == pytest.approx(60 / 1000)
+    assert bad["negative recall"].point == 1.0
+
+
+def test_the_weighted_gain_is_paired_and_comes_with_the_gold_verdict() -> None:
+    rows, populations = _rows()
+    gains = rep.weighted_gains(rows, populations, "good", "bad")
+    assert set(gains) == {"agreement", "negative precision", "negative recall"}
+    gain, verdict = gains["agreement"]
+    assert gain.point == pytest.approx(1 - 0.06) and verdict == "better"
+    gain, verdict = gains["negative recall"]  # both read every negative as negative
+    assert gain.point == 0.0 and verdict == "not decided"
+    same = rep.weighted_gains(rows, populations, "good", "good")
+    assert all(g.point == 0.0 and v == "not decided" for g, v in same.values())

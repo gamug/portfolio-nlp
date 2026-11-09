@@ -396,38 +396,3 @@ def test_the_fingerprint_follows_the_grid_and_the_code_too(monkeypatch: pytest.M
     assert base != spt.train_fingerprint(train, val, "m", "r1", code="abd")  # an edit to the code
     monkeypatch.setattr(spt, "GRID_LEARNING_RATES", (1e-5, 2e-5))  # an edit to the grid
     assert base != spt.train_fingerprint(train, val, "m", "r1", code="abc")
-
-
-def test_the_confusion_matrix_and_the_class_figures_count_what_was_read_as_what() -> None:
-    expected = ["negative"] * 4 + ["positive"] * 3 + ["neutral"] * 3
-    predicted = (
-        ["negative", "negative", "neutral", "positive"]
-        + ["positive"] * 3
-        + ["negative"]
-        + ["neutral"] * 2
-    )
-    table = spt.confusion(expected, predicted)
-    assert table["negative"] == {"positive": 1, "negative": 2, "neutral": 1}
-    assert table["neutral"] == {"positive": 0, "negative": 1, "neutral": 2}
-    negative = spt.class_figures(table)["negative"]
-    assert negative["precision"].point == pytest.approx(2 / 3)  # 3 read as negative, 2 of them are
-    assert negative["recall"].point == pytest.approx(2 / 4)
-    assert negative["recall"].low < 0.5 < negative["recall"].high
-    lines = spt.report_lines("x", expected, predicted)
-    assert lines[0] == "x: agreement 7/10" and any("negative: precision" in line for line in lines)
-
-
-def test_the_exact_mcnemar_p_value_and_the_paired_report() -> None:
-    assert spt.mcnemar_exact(0, 0) == 1.0 and spt.mcnemar_exact(3, 3) == 1.0
-    assert spt.mcnemar_exact(0, 5) == pytest.approx(2 / 32)
-    assert spt.mcnemar_exact(11, 0) == pytest.approx(2 / 2**11)
-    a = [True] * 12 + [False] * 8
-    b = (
-        [True] * 2 + [False] * 10 + [True] * 2 + [False] * 6
-    )  # 2 shared, 10 only a, 2 only b, 6 neither
-    report = spt.paired_report(a, b)
-    assert (report.both, report.only_a, report.only_b, report.neither) == (2, 10, 2, 6)
-    assert report.p_value == pytest.approx(spt.mcnemar_exact(10, 2)) and report.p_value < 0.05
-    assert report.gain.point == pytest.approx(0.4) and report.verdict == "better"
-    same = spt.paired_report(a, a)
-    assert same.p_value == 1.0 and same.gain.point == 0.0 and same.verdict == "not decided"

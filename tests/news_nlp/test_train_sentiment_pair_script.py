@@ -314,7 +314,9 @@ def test_the_baseline_scores_the_pinned_model_with_the_pair_and_without(
         ({"model": "base", "revision": "rev"}, False),
     ]
     assert (result["pair"], result["text_only"], result["n"]) == (3, 1, 4)
-    assert json.loads((tmp_path / "out" / "baseline.json").read_text())["pair"] == 3
+    record = json.loads((tmp_path / "out" / "baseline.json").read_text())
+    assert record["pair"] == 3 and record["model"] == "base@rev" and len(record["code"]) == 12
+    assert record["keys"] == CMD.keys_hash(list("abcd"))
     assert "as the pair 3/4 = 0.750; text only 1/4 = 0.250" in capsys.readouterr().out
 
 
@@ -374,15 +376,13 @@ def test_a_run_keeps_what_each_validation_text_was_read_as_when_the_scorer_has_i
     assert CMD.read_predictions("e2_lr1e-05_s2") is None
 
 
-def test_the_report_sets_the_final_run_against_both_readings_of_the_pinned_model(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _report_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str = "c1"
+) -> tuple[list[str], list[str]]:
+    """Predictions of the final run and both baselines for 8 texts, the marks they come from (two strata with
+    different pools), baseline.json and the final row."""
     _patch_run(monkeypatch, tmp_path)
-    with pytest.raises(SystemExit, match="needs --baseline and --final"):
-        CMD.run_report()
-    capsys.readouterr()
-    CMD.run_report(required=False)
-    assert "run --baseline, then --report" in capsys.readouterr().out
+    monkeypatch.setattr(CMD, "code_revision", lambda: "c1")
     keys = [f"k{i}" for i in range(8)]
     expected = [
         "negative",
@@ -394,6 +394,15 @@ def test_the_report_sets_the_final_run_against_both_readings_of_the_pinned_model
         "negative",
         "positive",
     ]
+    marks = tmp_path / "marks.csv"
+    marks.write_text(
+        "key,slice,predicted,pool_class_size,sentiment\n"
+        + "".join(
+            f"{k},validation,{'negative' if i < 4 else 'positive'},{100 if i < 4 else 900},{e}\n"
+            for i, (k, e) in enumerate(zip(keys, expected, strict=True))
+        )
+    )
+    monkeypatch.setattr(CMD, "MARKS", marks)
 
     def predictions(predicted: list[str]) -> list[dict[str, str]]:
         return [
@@ -404,23 +413,71 @@ def test_the_report_sets_the_final_run_against_both_readings_of_the_pinned_model
     CMD.write_predictions("baseline_text_only", predictions(["neutral"] * 8))
     CMD.write_predictions("baseline_pair", predictions(["positive"] * 8))
     CMD.write_predictions("e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"]))
-    CMD.save_results([{"name": "e2_lr3e-05_s4", "tag": "final"}], {"fingerprint": "f"})
+    CMD.save_results(
+        [{"name": "e2_lr3e-05_s4", "tag": "final", "code": code}], {"fingerprint": "f"}
+    )
+    (tmp_path / "out" / "baseline.json").write_text(
+        json.dumps({"model": "base@rev", "code": "c1", "keys": CMD.keys_hash(keys), "n": 8})
+    )
+    return keys, expected
+
+
+def test_the_report_gives_the_weighted_figures_and_gain_first_and_the_raw_description_after(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit, match="needs --baseline and --final"):
+        _patch_run(monkeypatch, tmp_path)
+        CMD.run_report()
+    capsys.readouterr()
+    CMD.run_report(required=False)
+    assert "run --baseline, then --report" in capsys.readouterr().out
+    _report_fixture(tmp_path, monkeypatch)
     CMD.run_report()
     out = capsys.readouterr().out
-    assert "final (e2_lr3e-05_s4): agreement 6/8" in out and "indicative only" in out
-    assert "negative: precision" in out
+    assert out.index("WEIGHTED") < out.index("RAW on the 8 texts")
+    assert "{'negative': 100, 'positive': 900}" in out and "7 company-less rows" in out
+    assert "final: agreement" in out and "pinned_text: agreement" in out
     assert (
-        "final against pinned text_only: both right 2, only the final 4, only the pinned 0, neither 2"
+        "paired weighted gain of the final run over the pinned model as text (D35's pin rule)"
         in out
     )
-    assert "exact McNemar p = 0.1250" in out
+    assert "negative precision" in out and "-> " in out  # the gold's verdict of the weighted gain
+    assert "final (e2_lr3e-05_s4), RAW on the 8 texts: agreement 6/8" in out
     assert (
-        "final against pinned pair: both right 2, only the final 4, only the pinned 1, neither 1"
+        "final against pinned text_only, RAW: both right 2, only the final 4, only the pinned 0, neither 2"
         in out
     )
-    CMD.write_predictions("baseline_pair", predictions(["positive"] * 8)[:-1])  # one text fewer
-    with pytest.raises(SystemExit, match="did not read the same texts"):
+    assert "exact McNemar p = 0.1250" in out and "no verdict" in out
+    assert (
+        "better" not in out.split("RAW is the description")[1]
+    )  # no verdict word for the raw gain
+
+
+def test_the_report_stops_if_the_baseline_is_not_of_this_model_these_texts_or_this_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    keys, _ = _report_fixture(tmp_path, monkeypatch)
+    baseline = tmp_path / "out" / "baseline.json"
+    good = json.loads(baseline.read_text())
+    for change, message in (
+        ({"model": "other@rev"}, "the pinned model is now base@rev"),
+        ({"keys": "x"}, "other validation texts"),
+        ({"code": "c0"}, "the code differs: baseline c0, final run c1, now c1"),
+    ):
+        baseline.write_text(json.dumps({**good, **change}))
+        with pytest.raises(SystemExit, match=message):
+            CMD.run_report()
+    baseline.write_text(json.dumps(good))
+    monkeypatch.setattr(CMD, "code_revision", lambda: "c2")  # the code moved on since the runs
+    with pytest.raises(SystemExit, match="the code differs: baseline c1, final run c1, now c2"):
         CMD.run_report()
+    capsys.readouterr()
+    CMD.run_report(required=False)  # after --final: said, not fatal
+    assert "the report is not made: the code differs" in capsys.readouterr().out
+    baseline.unlink()
+    with pytest.raises(SystemExit, match=r"no baseline\.json"):
+        CMD.run_report()
+    assert keys
 
 
 def test_resuming_with_the_source_read_another_way_says_so_and_keeps_the_first_mode(
