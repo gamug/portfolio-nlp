@@ -363,7 +363,7 @@ model, and the gold is scored once, by `scripts/score_sentiment_gold_2026_11_07.
 and decisions are in `TASKS.md` T-148c3 and `PLAN.md` D35, not copied here.
 
 - `src/sentiment_pair.py` — the pair's encoding and the routing rule (`reads_as_pair`), shared by the trainer,
-  the scorer and the stage.
+  the draw's `predict` and the scorer; the stage will use it in PR C (T-148c5, proposed, not built).
 - `src/sentiment_pair_train.py` — the recipe: the loader of the 450 marks, the replay of earlier sentences (only
   those that name their article's company, not of a gold, held-out or marked body or headline), batches that
   never mix summaries with sentences, one run, the grid of 27, D35's tie rule, and a fingerprint of the data,
