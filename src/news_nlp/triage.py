@@ -59,6 +59,13 @@ _WORD_TICKERS = frozenset(
     [
         "ALL",
         "ARE",
+        "COO",
+        "MET",
+        "FANG",
+        "RMD",
+        "APP",
+        "MAS",
+        "AFL",
         "BALL",
         "BEN",
         "CAT",
@@ -246,6 +253,12 @@ _CORROBORATED = frozenset(
 #: The first words of company names (stop-listed ones and the ``_CORROBORATED`` words) that name
 #: their company in a short form of two words: "Federal Realty", "Take-Two", "Jack Henry".
 _SHORT_FORMS = _COMMON_FIRST_WORDS | _CORROBORATED
+#: Names a company is known by that are neither its name nor the first words of it: "Abbott Labs", a
+#: former name. ``(ticker, form)``; read where the ticker is in the universe, capitalised, as a short
+#: form. Found by reading what the corroboration rule dropped (PLAN D38). Not here, on purpose:
+#: "Time Warner" and "Motorola Mobility" (another company, or a predecessor) and "Hewlett-Packard"
+#: (HP Inc. as much as Hewlett Packard Enterprise).
+_KNOWN_NAMES = (("ABT", "Abbott Labs"), ("D", "Dominion Resources"))
 #: ...except where the short form is itself a place ("Palo Alto", the city, not "Palo Alto Networks") or
 #: names another company too ("Hewlett-Packard" is HP Inc. as much as Hewlett Packard Enterprise).
 _NO_SHORT_FORM = frozenset(["palo", "hewlett"])
@@ -325,13 +338,13 @@ class Company(NamedTuple):
 
 #: What may stand between the words of a name: spaces, a hyphen or a dash, an apostrophe (never a
 #: line break).
-_NAME_GAP = r"[ \u00a0\t'\u2019\u2013\u2014-]+"
+_NAME_GAP = r"[ \u00a0\t'`\u00b4\u2019\u2013\u2014-]+"
 
 
 def _canonical(form: str) -> str:
     """A short form as the key it is looked up by: lower case, one space where the text had spaces,
     a comma, a hyphen or an apostrophe."""
-    return re.sub(r"[ \u00a0\t,'\u2019-]+", " ", form.lower()).strip()
+    return re.sub(r"[ \u00a0\t,'`\u00b4\u2019\u2013\u2014-]+", " ", form.lower()).strip()
 
 
 def _short_form_pattern(tokens: Sequence[str]) -> str:
@@ -413,7 +426,10 @@ def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]
 @dataclass
 class CompanyResolver:
     """Finds the universe companies a body names. Share classes of one company (``GOOG`` /
-    ``GOOGL``) resolve to the first ticker seen for that normalized name."""
+    ``GOOGL``) resolve to the first ticker seen for that normalized name. :meth:`resolve` counts a
+    body (a surname or a noun counts only with another form of the company in the body, PLAN D38);
+    :meth:`mention_spans` places the mentions of one text (all aliases, for the attribution masks);
+    :meth:`firm_spans` gives the mentions that need no corroboration (what the guard asks)."""
 
     companies: Sequence[Company]
     _by_name: dict[str, str] = field(init=False)
@@ -465,6 +481,10 @@ class CompanyResolver:
                     # the first company of a head keeps it (none shares one in the S&P universe)
                     self._short.setdefault(_canonical(" ".join(head)), self._by_name[key])
                     short_tokens.setdefault(_canonical(" ".join(head)), tuple(head))
+        for ticker, form in _KNOWN_NAMES:
+            if ticker in self._by_ticker:
+                self._short.setdefault(_canonical(form), self._by_ticker[ticker])
+                short_tokens.setdefault(_canonical(form), tuple(form.split()))
         self._short_forms = re.compile(
             r"(?<![\w&])(?:"
             + "|".join(
@@ -561,6 +581,15 @@ class CompanyResolver:
             )
         ]
 
+    def counted_matches(self, text: str) -> list[tuple[re.Match[str], str]]:
+        """The mentions :meth:`resolve` counts in *text* (before the attribution and the NER
+        spans), as ``(match, ticker)``: for the diagnostics that need to say what kind each is."""
+        return self._corroborated(text, self._matches(text))
+
+    def is_ticker_form(self, match: re.Match[str]) -> bool:
+        """Whether *match* came from the ticker patterns (``$X``, ``(NYSE: X)``, bare ``X``)."""
+        return match.re is self._tickers
+
     def _text_mentions(
         self, text: str, skip_attribution: bool
     ) -> tuple[Counter[str], Counter[str]]:
@@ -568,7 +597,7 @@ class CompanyResolver:
         the source of an opinion when *skip_attribution*."""
         plain: Counter[str] = Counter()
         quoted: Counter[str] = Counter()
-        for match, ticker in self._corroborated(text, self._matches(text)):
+        for match, ticker in self.counted_matches(text):
             is_quoted = skip_attribution and _attributed(text, match)
             (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted

@@ -310,14 +310,20 @@ lean `articles` rows itself.
   owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
   and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
   development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
-  **Common words (D38, PR #155):** a hyphen or an apostrophe in a name reads as a space ("Coca-Cola", "Casey's"), a line break does not; the first word of
-  a company's name is not a mention when it is an everyday word, a place or a first name
-  (`_COMMON_FIRST_WORDS` in `_ALIAS_STOP`: "Federal", "Boston", "Ralph", ...); the two-word short form
-  ("Federal Realty", "Take-Two", "Jack Henry"; a comma only before a legal word, never a full stop) is. Surnames and nouns (`_CORROBORATED`: Bloom, Ross,
-  Wells, Morgan, Block, ...) count in `resolve` only when the body names the company another way (full
-  name, short form, ticker form); "Block", "Travelers", "Williams" are read capitalised only.
-  `mention_spans` keeps the corroborated aliases (it places the masks of single sentences;
-  `attribution_units.GuardedResolver` decides those).
+  **Common words (D38, PR #155):** a hyphen, a dash, an apostrophe (also the backtick and the acute
+  accent) in a name reads as the space it replaced ("Coca-Cola", "Casey's"), a line break does not.
+  The first word of a company's name is not a mention when it is an everyday word, a place or a
+  first name (`_COMMON_FIRST_WORDS`, part of `_ALIAS_STOP`: "Federal", "Boston", "Ralph", ...); the
+  short form of the name ("Federal Realty", "Take-Two", "Jack Henry"; a comma only before a legal
+  word, never a full stop) and a few known names (`_KNOWN_NAMES`: "Abbott Labs") are. Surnames and
+  nouns (`_CORROBORATED`: Bloom, Ross, Wells, Morgan, Block, Kraft, Warner, ...) count only when the
+  body names the company another way (full name, short form, ticker form): in `resolve` (counting,
+  the stored NER spans too) and in `attribution_units.GuardedResolver` (the attribution), through
+  one method, `CompanyResolver.firm_spans`. Names that are also lower-case nouns (`_WORD_NAMES`:
+  Block, Travelers, Williams, Workday, Booking, Visa, Flex, Cognizant, Coherent, ...) are read
+  capitalised only; bare tickers that are words (`_WORD_TICKERS`: COO, MET, ...) only with an
+  explicit form. `mention_spans` itself keeps the corroborated aliases (it places the masks of single
+  sentences, where the full name is often absent): the guard decides those with the whole body.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
@@ -346,9 +352,10 @@ lean `articles` rows itself.
   last check of each extractor in `faithfulness_stale.json`, which `report_wi18 faithfulness` quotes).
 - The guard and the headers (T-148b5, T-148b6, `attribution_units.py`; `units2` and `units3` of
   `attribute_sentences(reading=...)`, one of `sentences`, `units`, `units2`, `units3`, anything else
-  is a `ValueError`): `GuardedResolver` counts a short form of a company's name only when its full
-  name or a ticker form is in the body (for the attribution only: `CompanyResolver.mention_spans(
-  aliases=False)` is opt-in and the scope rules keep the resolver they were measured with);
+  is a `ValueError`): `GuardedResolver` counts a company named by a first word or by a surname or noun ("Bloom",
+  "Williams", "Block") only when the body also has its full name, its short form or a ticker form
+  (`CompanyResolver.firm_spans`; PLAN D38: the scope rules count a body with `resolve`, which applies
+  the same rule);
   `header_owners` gives a "NAMES - text" line to the universe companies among the names, to nobody
   when the names are of a company outside the universe, and does not take a dateline or a label in
   capitals ("DETROIT - ..."), nor a dash inside a sentence (the text after it does not start with a capital, a

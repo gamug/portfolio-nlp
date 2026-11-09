@@ -62,3 +62,44 @@ def test_the_self_check_lists_the_company_a_stop_word_erased() -> None:
         Company("FRT", "Federal Realty Investment Trust", "Real Estate", "REITs"),
     ]
     assert CHECK.self_check(CompanyResolver(universe), universe) == []
+
+
+def test_a_ticker_form_in_a_disclosure_or_a_list_is_told_from_one_in_a_sentence() -> None:
+    footer = "Najarian Owns (INTC); Najarian Owns (GS) Calls; Terranova Is Short (F)."
+    assert CHECK.in_disclosure(footer, footer.index("INTC"), footer.index("INTC") + 4)
+    sentence = "Cramer said shares of AMZN rose on Tuesday after the quarter was reported."
+    assert not CHECK.in_disclosure(sentence, sentence.index("AMZN"), sentence.index("AMZN") + 4)
+    run = "short: SPY, XRT, QQQ, IWM, DIA, GLD, SLV. long: AAPL"
+    assert CHECK.in_disclosure(run, run.index("XRT"), run.index("XRT") + 3)
+
+
+def test_the_disclosures_report_counts_the_pairs_named_only_in_a_footer() -> None:
+    universe = [
+        Company("INTC", "Intel Corporation", "Technology", "Semiconductors"),
+        Company("AAPL", "Apple Inc.", "Technology", "Hardware"),
+    ]
+    bodies = [
+        "Apple rose. Najarian Owns (INTC); Najarian Owns (GS) Calls; Terranova Is Short (F).",
+        "Intel (NYSE: INTC) fell and Apple rose.",
+    ]
+    lines = CHECK.disclosures(universe, bodies)
+    assert lines[0].startswith("4 counted company-body pairs; 1 (25.0%)")
+    assert lines[2].split()[:4] == ["INTC", "1", "/", "2"]
+
+
+def test_the_labels_are_rendered_with_their_context_from_source(tmp_path: Path) -> None:
+    import sqlite3  # noqa: PLC0415
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("ATTACH DATABASE ':memory:' AS source")
+    conn.execute("CREATE TABLE source.articles (id INTEGER, body_text TEXT)")
+    conn.execute("INSERT INTO source.articles VALUES (7, 'Mark Warner said Time Warner sold it.')")
+    labels = tmp_path / "labels.csv"
+    labels.write_text(
+        "set,n,article_id,ticker,word,rule,offset,residue,seed,label,note\n"
+        "demo,0,7,WBD,Warner,alias,5,13,1,not,a senator\n"
+        "other,0,7,WBD,Warner,alias,25,13,1,not,\n",
+        encoding="utf-8",
+    )
+    lines = CHECK.render_labels(conn, labels, only="demo", width=5)  # type: ignore[arg-type]
+    assert lines == ["demo   0 not        WBD   Mark [[Warner]] said  (a senator)"]

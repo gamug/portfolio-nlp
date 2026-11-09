@@ -12,6 +12,14 @@ tree, and prints, for the given tickers, the bodies naming the company before an
 dropped, and the words the dropped mentions were. It is the check behind the numbers of D38: compare a
 full run of ``company_news_counts_2026_11_09.py`` with the 2026-11-09 CSV the same way.
 
+``--disclosures`` reads no base: it says how many of the counted company-body pairs are a company named
+only by ticker forms inside a disclosure or a ticker list ("Najarian Owns (INTC)", "short: SPY, XRT"),
+the footers the scope rules already set aside, per company for the top 20 (PLAN D38, open decision).
+
+``--render docs/matcher_labels_2026-11-09.csv [--set NAME]`` prints the mentions the labels of PLAN D38
+are about, with their context read from SOURCE (the file keeps no news text: article id, ticker, word,
+character offset, rule, label, the sample and its seed), so that the owner can agree or disagree.
+
 ``--base`` is the revision *before* the change (786766f, the last commit of master before PR #155):
 ``origin/master`` would be the branch itself once it is merged. ``--self-check`` reads no body: it
 resolves each company of the universe from its own name and its short form and lists those the
@@ -21,10 +29,13 @@ working matcher does not find (a stop list must not erase a company).
 from __future__ import annotations
 
 import argparse
+import csv
 import importlib.util
+import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
 
@@ -34,6 +45,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import company_news_counts_2026_11_09 as counts
 
 from news_nlp import db, env, triage
+
+#: A disclosure or a ticker list: a keyword of the genre near a ticker form, or a dense run of
+#: ticker-like tokens in the 160 characters around it.
+_DISCLOSURE_WORDS = re.compile(
+    r"\b(?:owns?|is long|are long|is short|are short|options? position|market maker|disclosures?"
+    r"|short|long)\b[^.]{0,40}[(,]|\bowns?\b",
+    re.IGNORECASE,
+)
+_TICKER_TOKEN = re.compile(r"(?<![\w.])[A-Z]{1,5}(?:\.[A-Z])?(?![\w])")
+DENSE_TICKERS = 6
+
+
+def in_disclosure(body: str, start: int, end: int) -> bool:
+    """Whether the ticker form at ``body[start:end]`` sits in a disclosure or a ticker list."""
+    window = body[max(0, start - 160) : end + 160]
+    return (
+        bool(_DISCLOSURE_WORDS.search(window))
+        or len(_TICKER_TOKEN.findall(window)) >= DENSE_TICKERS
+    )
+
 
 TICKERS = [
     "FRT",
@@ -83,6 +114,84 @@ def self_check(resolver: triage.CompanyResolver, universe: list[triage.Company])
     return missing
 
 
+def sample_bodies(conn: db.NewsNlpDatabase, modulo: int, residue: int, limit: int) -> Iterator[str]:
+    """The first *limit* unique bodies of the properly fetched rows with ``id % modulo = residue``."""
+    seen: set[str] = set()
+    for (body,) in conn.execute(
+        "SELECT body_text FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
+        "AND body_text IS NOT NULL AND trim(body_text, char(32, 9, 10, 13)) != '' AND id % ? = ? "
+        "ORDER BY id",
+        (modulo, residue),
+    ):
+        digest = triage.body_hash(body)
+        if digest not in seen:
+            seen.add(digest)
+            yield body
+            if len(seen) >= limit:
+                return
+
+
+def disclosures(universe: list[triage.Company], bodies: Iterable[str], top: int = 20) -> list[str]:
+    """The lines of the report of ``--disclosures`` for *bodies* (the unique ones)."""
+    resolver = triage.CompanyResolver(universe)
+    pairs: Counter[str] = Counter()
+    only: Counter[str] = Counter()
+    total = 0
+    for body in bodies:
+        counted = resolver.resolve(body, skip_attribution=True)
+        kinds: dict[str, list[bool]] = defaultdict(list)
+        for match, ticker in resolver.counted_matches(body):
+            if counted[ticker]:
+                kinds[ticker].append(
+                    resolver.is_ticker_form(match) and in_disclosure(body, *match.span())
+                )
+        for ticker, flags in kinds.items():
+            pairs[ticker] += 1
+            only[ticker] += all(flags)
+            total += 1
+    lines = [
+        f"{total:,} counted company-body pairs; {sum(only.values()):,} "
+        f"({100 * sum(only.values()) / max(total, 1):.1f}%) are named only by ticker forms in a "
+        "disclosure or a ticker list",
+        "ticker  disclosure-only / pairs  (top by disclosure-only pairs)",
+    ]
+    for ticker, count in only.most_common(top):
+        lines.append(
+            f"{ticker:6} {count:6} / {pairs[ticker]:6}  ({100 * count / pairs[ticker]:.0f}%)"
+        )
+    return lines
+
+
+def render_labels(
+    conn: db.NewsNlpDatabase, path: Path, only: str | None = None, width: int = 90
+) -> list[str]:
+    """One line per label of the CSV at *path* (or of the set *only*): the set, its number, the label,
+    the ticker, then the mention in [[ ]] with *width* characters of context read from SOURCE."""
+    lines = []
+    with path.open(encoding="utf-8", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if only and row["set"] != only:
+                continue
+            found = conn.execute(
+                "SELECT body_text FROM source.articles WHERE id = ?", (int(row["article_id"]),)
+            ).fetchone()
+            body = found[0] if found else ""
+            start = int(row["offset"])
+            end = start + len(row["word"])
+            context = (
+                body[max(0, start - width) : start]
+                + "[["
+                + body[start:end]
+                + "]]"
+                + body[end : end + width]
+            ).replace("\n", " ")
+            note = f"  ({row['note']})" if row["note"] else ""
+            lines.append(
+                f"{row['set']} {row['n']:>3} {row['label']:<10} {row['ticker']:<5} {context}{note}"
+            )
+    return lines
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     parser.add_argument("--bodies", type=int, default=4000)
@@ -90,11 +199,21 @@ def main() -> None:
     parser.add_argument("--residue", type=int, default=7)
     parser.add_argument("--base", default="786766f")
     parser.add_argument("--self-check", action="store_true")
+    parser.add_argument("--disclosures", action="store_true")
+    parser.add_argument("--render", type=Path)
+    parser.add_argument("--set")
     parser.add_argument("--tickers", nargs="*", default=TICKERS)
     args = parser.parse_args()
     env.load_env_file()
     conn = db.connect_pipeline()
+    if args.render:
+        print("\n".join(render_labels(conn, args.render, args.set)))
+        return
     universe = counts.load_universe(conn)
+    if args.disclosures:
+        bodies = sample_bodies(conn, args.modulo, args.residue, args.bodies)
+        print("\n".join(disclosures(universe, bodies)))
+        return
     before_module = triage_at(args.base, Path(__file__).resolve().parents[1])
     if args.self_check:
         now = self_check(triage.CompanyResolver(universe), universe)
@@ -114,19 +233,9 @@ def main() -> None:
     old: Counter[str] = Counter()
     new: Counter[str] = Counter()
     words: dict[str, Counter[str]] = defaultdict(Counter)
-    seen: set[str] = set()
-    for (body,) in conn.execute(
-        "SELECT body_text FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
-        "AND body_text IS NOT NULL AND trim(body_text, char(32, 9, 10, 13)) != '' AND id % ? = ? "
-        "ORDER BY id",
-        (args.modulo, args.residue),
-    ):
-        digest = triage.body_hash(body)
-        if digest in seen:
-            continue
-        seen.add(digest)
-        if len(seen) > args.bodies:
-            break
+    unique = 0
+    for body in sample_bodies(conn, args.modulo, args.residue, args.bodies):
+        unique += 1
         was, is_ = before.resolve(body), after.resolve(body)
         for ticker in set(was) | set(is_):
             old[ticker] += bool(was[ticker])
@@ -136,9 +245,7 @@ def main() -> None:
                     if t == ticker:
                         words[ticker][body[start:end]] += 1
                         break
-    print(
-        f"{len(seen) - 1 if len(seen) > args.bodies else len(seen)} unique bodies; base {args.base}"
-    )
+    print(f"{unique} unique bodies; base {args.base}")
     print("ticker  before  after  dropped  words of the dropped mentions")
     for t in args.tickers:
         drop = 100 * (old[t] - new[t]) / old[t] if old[t] else 0

@@ -438,6 +438,14 @@ EXTRA_WORDS = [
     Company("AVY", "Avery Dennison Corporation", "Materials", "Packaging"),
     Company("TYL", "Tyler Technologies, Inc.", "Information Technology", "Software"),
     Company("BMY", "Bristol-Myers Squibb Company", "Health Care", "Pharmaceuticals"),
+    Company("COO", "The Cooper Companies, Inc.", "Health Care", "Equipment"),
+    Company("MET", "MetLife, Inc.", "Financials", "Life Insurance"),
+    Company("MSI", "Motorola Solutions, Inc.", "Information Technology", "Equipment"),
+    Company("FANG", "Diamondback Energy, Inc.", "Energy", "Oil & Gas"),
+    Company("RMD", "ResMed Inc.", "Health Care", "Equipment"),
+    Company("APP", "AppLovin Corporation", "Information Technology", "Software"),
+    Company("MAS", "Masco Corporation", "Industrials", "Building Products"),
+    Company("AFL", "Aflac Incorporated", "Financials", "Insurance"),
 ]
 
 
@@ -468,6 +476,15 @@ EXTRA_WORDS = [
         ("Avery Brewing makes beer.", "AVY"),
         ("The brothers Cameron and Tyler Winklevoss sued.", "TYL"),
         ("3070 Bristol Pike, Suite 112, Bensalem.", "BMY"),
+        ("A new COO and a new CFO were named.", "COO"),
+        ("It is not just the so-FANG stocks.", "FANG"),
+        ("Taking required minimum distributions (RMD) at 73.", "RMD"),
+        ("Authorized push payment (APP) fraud is rising.", "APP"),
+        ("The Monetary Authority of Singapore (MAS) set policy.", "MAS"),
+        ("The AFL-CIO and other unions met.", "AFL"),
+        ("THE LAST TIME WE MET BACK IN OCTOBER YOU TALKED.", "MET"),
+        ("Time Warner Cable and Motorola Mobility were sold.", "WBD"),
+        ("Time Warner Cable and Motorola Mobility were sold.", "MSI"),
     ],
 )
 def test_words_that_the_samples_showed_to_be_taken_for_a_company(text: str, ticker: str) -> None:
@@ -501,6 +518,13 @@ def test_words_that_the_samples_showed_to_be_taken_for_a_company(text: str, tick
         ("Avery Dennison rose.", "AVY"),
         ("Tyler Technologies rose.", "TYL"),
         ("Bristol-Myers Squibb rose.", "BMY"),
+        ("Abbott Labs reported results.", "ABT"),
+        ("Dominion Resources said so.", "D"),
+        ("Moody`s: B3.", "MCO"),
+        ("Moody\u00b4s: B2.", "MCO"),
+        ("Shares rose (NYSE: COO).", "COO"),
+        ("Shares rose (NYSE: FANG).", "FANG"),
+        ("Shares rose (NYSE: MET).", "MET"),
     ],
 )
 def test_and_the_company_named_properly_still_counts(text: str, ticker: str) -> None:
