@@ -310,6 +310,13 @@ lean `articles` rows itself.
   owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
   and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
   development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
+  **Common words (D38, PR #155):** the first word of a company's name is not a mention when it is an
+  everyday word (`_ALIAS_STOP`: "Federal", "State", "Union", "Trade", "West", "Home", "Take",
+  "Universal", …); the two-word short form ("Federal Realty", "Take-Two", "Jack Henry") is. Names that
+  are also surnames or nouns (`_CORROBORATED`: Bloom, Ross, Jack, Martin, Block, Travelers, Williams)
+  count in `resolve` only when the body names the company another way (full name, short form, ticker
+  form); the one-word names are read capitalised only. `mention_spans` is not filtered (it places
+  the masks of single sentences; `attribution_units.GuardedResolver` decides those).
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).

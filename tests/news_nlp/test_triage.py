@@ -200,37 +200,101 @@ COMMON_WORDS = [
     Company("FRT", "Federal Realty Investment Trust", "Real Estate", "Retail REITs"),
     Company("STT", "State Street Corporation", "Financials", "Asset Management"),
     Company("UNP", "Union Pacific Corporation", "Industrials", "Rail"),
+    Company("TTD", "The Trade Desk, Inc.", "Communication Services", "Advertising"),
+    Company("WST", "West Pharmaceutical Services, Inc.", "Health Care", "Life Sciences Tools"),
+    Company("HD", "Home Depot, Inc. (The)", "Consumer Discretionary", "Home Improvement"),
+    Company("TTWO", "Take-Two Interactive Software, Inc.", "Communication Services", "Games"),
     Company("BE", "Bloom Energy Corporation", "Industrials", "Electrical Equipment"),
-    Company("ROST", "Ross Stores, Inc.", "Consumer Discretionary", "Apparel Retail"),
     Company("XYZ", "Block, Inc.", "Financials", "Transaction Processing"),
+    Company("UHS", "Universal Health Services, Inc.", "Health Care", "Facilities"),
+    Company("JKHY", "Jack Henry & Associates, Inc.", "Information Technology", "Processing"),
+    Company("MLM", "Martin Marietta Materials, Inc.", "Materials", "Construction Materials"),
+    Company("TRV", "Travelers Companies, Inc. (The)", "Financials", "Insurance"),
+    Company("ROST", "Ross Stores, Inc.", "Consumer Discretionary", "Apparel Retail"),
     Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
     Company("META", "Meta Platforms, Inc.", "Communication Services", "Interactive Media"),
 ]
+#: Each ordinary use of the word, and the company it used to be taken for.
+COMMON_USES = [
+    ("The Federal Reserve held rates.", "FRT"),
+    ("The State Department spoke.", "STT"),
+    ("The Union called a strike.", "UNP"),
+    ("A Trade deal was signed.", "TTD"),
+    ("The West is dry.", "WST"),
+    ("Home sales fell.", "HD"),
+    ("Take a look at rates.", "TTWO"),
+    ("Michael Bloom said so.", "BE"),
+    ("A Block of shares sold.", "XYZ"),
+    ("Universal Studios opened.", "UHS"),
+    ("Jack said so.", "JKHY"),
+    ("Martin said so.", "MLM"),
+    ("Travelers waited in line.", "TRV"),
+    ("Commerce Secretary Wilbur Ross spoke.", "ROST"),
+    ("Williams said so.", "WMB"),
+]
+#: The company named properly: it must still count.
+REAL_USES = [
+    ("Federal Realty Investment Trust rose.", "FRT"),
+    ("State Street Corporation rose.", "STT"),
+    ("Union Pacific rose.", "UNP"),
+    ("The Trade Desk rose.", "TTD"),
+    ("West Pharmaceutical Services rose.", "WST"),
+    ("Home Depot rose.", "HD"),
+    ("Take-Two Interactive rose.", "TTWO"),
+    ("Bloom Energy rose.", "BE"),
+    ("Block, Inc. rose.", "XYZ"),
+    ("Universal Health Services rose.", "UHS"),
+    ("Jack Henry rose.", "JKHY"),
+    ("Martin Marietta rose.", "MLM"),
+    ("Travelers Companies rose.", "TRV"),
+    ("Ross Stores rose.", "ROST"),
+    ("Williams Companies rose.", "WMB"),
+]
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "The Federal Reserve held rates while the State Department and the Union talked.",
-        "Commerce Secretary Wilbur Ross said the Home Depot of trade deals was a block trade.",
-        "Travelers and Williams said the West would Take a Trade deal.",
-        "Jack and Martin took Universal Studios to Bloom, a florist.",
-    ],
-)
-def test_common_words_are_not_companies(text: str) -> None:
-    assert CompanyResolver(COMMON_WORDS).resolve(text, skip_attribution=False) == Counter()
-
-
-def test_surname_names_count_only_when_corroborated() -> None:
+@pytest.mark.parametrize(("text", "ticker"), COMMON_USES)
+def test_an_ordinary_word_is_not_the_company(text: str, ticker: str) -> None:
     resolver = CompanyResolver(COMMON_WORDS)
-    assert resolver.resolve("Ross Stores rose. Ross said so.", skip_attribution=False) == Counter(
-        {"ROST": 2}
-    )
-    assert resolver.resolve("Bloom Energy rose; Bloom added.", skip_attribution=False) == Counter(
-        {"BE": 2}
-    )
+    assert resolver.resolve(text, skip_attribution=False)[ticker] == 0
+
+
+@pytest.mark.parametrize(("text", "ticker"), REAL_USES)
+def test_the_company_named_properly_still_counts(text: str, ticker: str) -> None:
+    assert CompanyResolver(COMMON_WORDS).resolve(text, skip_attribution=False)[ticker] == 1
+
+
+def test_a_short_form_counts_once_the_body_names_the_company_another_way() -> None:
+    resolver = CompanyResolver(COMMON_WORDS)
+    assert resolver.resolve("Ross Stores rose. Ross said so.", skip_attribution=False)["ROST"] == 2
+    assert resolver.resolve("Bloom Energy rose; Bloom added.", skip_attribution=False)["BE"] == 2
     assert resolver.resolve("Block (NYSE: XYZ) said so.", skip_attribution=False)["XYZ"] == 2
+    assert resolver.resolve("Block, Inc. said so. Block fell.", skip_attribution=False)["XYZ"] == 2
     assert resolver.resolve("Williams WMB rose.", skip_attribution=False)["WMB"] == 2
+    body = "Travelers Companies and Travelers fell."
+    assert resolver.resolve(body, skip_attribution=False)["TRV"] == 2
+
+
+def test_a_one_word_name_is_only_read_capitalised_even_when_corroborated() -> None:
+    resolver = CompanyResolver(COMMON_WORDS)
+    body = "Block (NYSE: XYZ) said a block trade and many travelers and williams."
+    assert resolver.resolve(body, skip_attribution=False)["XYZ"] == 2  # the name and the ticker
+    assert resolver.resolve(body, skip_attribution=False)["TRV"] == 0  # no ticker form: none
+
+
+def test_stored_ner_spans_obey_the_same_rule() -> None:
+    resolver = CompanyResolver(COMMON_WORDS)
+    assert resolver.resolve("Wall Street rose.", ["Williams"], skip_attribution=False)["WMB"] == 0
+    assert resolver.resolve("Williams WMB rose.", ["Williams"], skip_attribution=False)["WMB"] == 2
+
+
+def test_counting_and_the_attribution_spans_differ_on_purpose() -> None:
+    """``resolve`` counts a body, so it drops "Ross" alone; ``mention_spans`` places the masks of
+    single sentences and keeps it: ``attribution_units.GuardedResolver`` decides those with the
+    whole body in hand. Do not "fix" one side to match the other."""
+    resolver = CompanyResolver(COMMON_WORDS)
+    text = "Commerce Secretary Wilbur Ross spoke."
+    assert resolver.resolve(text, skip_attribution=False)["ROST"] == 0
+    assert [t for _, _, t in resolver.mention_spans(text)] == ["ROST"]
 
 
 def test_distinctive_first_word_aliases_still_count() -> None:

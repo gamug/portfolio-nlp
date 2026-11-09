@@ -95,6 +95,9 @@ _WORD_NAMES = frozenset(
         "waters",
         "pool",
         "mosaic",
+        "block",
+        "travelers",
+        "williams",
     ]
 )
 #: First words of company names that name nothing by themselves (several companies share them or
@@ -146,6 +149,11 @@ _ALIAS_STOP = frozenset(
 #: Ross", "block trade", "Williams said"): a mention counts only when the same text also names the
 #: company some other way (its full name or a ticker form). Lower case.
 _CORROBORATED = frozenset(["bloom", "ross", "jack", "martin", "block", "travelers", "williams"])
+#: The first words of company names (stop-listed ones and the ``_CORROBORATED`` words) that name
+#: their company in a short form of two words: "Federal Realty", "Take-Two", "Jack Henry".
+_SHORT_FORMS = frozenset(
+    [*["federal", "state", "union", "trade", "west", "home", "take", "universal"], *_CORROBORATED]
+)
 _EXCHANGES = r"(?:NYSE|NASDAQ|Nasdaq|NYSEARCA|NYSE American|AMEX|BATS|Cboe)"
 #: Keywords of a body that names no company (whole words, case-insensitive).
 MARKET_TERMS = (
@@ -278,6 +286,8 @@ class CompanyResolver:
     _aliases: re.Pattern[str] = field(init=False)
     _alias_to: dict[str, str] = field(init=False)
     _tickers: re.Pattern[str] = field(init=False)
+    _short: dict[str, str] = field(init=False)
+    _short_forms: re.Pattern[str] = field(init=False)
 
     def __post_init__(self) -> None:
         self._by_name = {}
@@ -295,6 +305,30 @@ class CompanyResolver:
             r"(?<![\w&])(?:"
             + "|".join([re.escape(c) for c in capitalised] or ["(?!)"])
             + r")(?![\w&])"
+        )
+        # the words that, alone, are not enough (stop-listed or _CORROBORATED) still name their
+        # company in the short form of its name: "Federal Realty", "Take-Two", "Jack Henry",
+        # "Block, Inc." Matched capitalised, as a mention in itself.
+        self._short = {}
+        for company in self.companies:
+            key = normalize_name(company.name)
+            tokens = re.findall(
+                r"[A-Za-z0-9&]+(?:-[A-Za-z0-9]+)*", re.sub(r"\(.*?\)", " ", company.name)
+            )
+            tokens = tokens[1:] if tokens[:1] == ["The"] else tokens
+            if key and key.split()[0] in _SHORT_FORMS and len(tokens) > 1 and key in self._by_name:
+                head = tokens[:1] if "-" in tokens[0] else tokens[:2]
+                if " ".join(head).lower() != key:
+                    self._short.setdefault(" ".join(head), self._by_name[key])
+        self._short_forms = re.compile(
+            r"(?<![\w&])(?:"
+            + "|".join(
+                re.escape(form).replace(r"\ ", r"[\s,.]+")
+                for form in sorted(self._short, key=len, reverse=True)
+            )
+            + r")(?![\w&])"
+            if self._short
+            else r"(?!)"
         )
         # a company is also known by the first word of its name when that word is unique, not a
         # generic word and not an everyday word: "Meta", "Alphabet" (matched capitalised only)
@@ -348,25 +382,39 @@ class CompanyResolver:
         for match in self._aliases.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
                 found.append((match, self._alias_to[match.group(0)]))
+        for match in self._short_forms.finditer(text) if aliases else ():
+            if not any(start <= match.start() and match.end() <= end for start, end in spans):
+                found.append((match, self._short[re.sub(r"[\s,.]+", " ", match.group(0))]))
         for match in self._tickers.finditer(text):
             found.append((match, self._by_ticker[next(g for g in match.groups() if g).upper()]))
         return found
 
-    @staticmethod
     def _corroborated(
-        found: list[tuple[re.Match[str], str]],
+        self, text: str, found: list[tuple[re.Match[str], str]]
     ) -> list[tuple[re.Match[str], str]]:
-        """*found* without the ``_CORROBORATED`` words of a company the text names no other way.
-        Counting is per body, so this is applied here and not in :meth:`_matches`: the spans the
-        attribution masks place are of single sentences, where the full name is often absent (the
-        guard of ``attribution_units`` decides those with the whole body in hand)."""
+        """*found* without the ``_CORROBORATED`` words of a company the text names no other way (its
+        full name, its short form, a ticker form). Counting
+        is per body, so this is applied here and not in :meth:`_matches`: the spans the attribution
+        masks place are of single sentences, where the full name is often absent (the guard of
+        ``attribution_units`` decides those with the whole body in hand)."""
 
         def weak(match: re.Match[str]) -> bool:
-            text = match.group(0)
-            return text.lower() in _CORROBORATED or normalize_name(text) in _CORROBORATED
+            return match.group(0).lower() in _CORROBORATED
 
         firm = {ticker for match, ticker in found if not weak(match)}
-        return [(match, ticker) for match, ticker in found if ticker in firm or not weak(match)]
+        kept = [(match, ticker) for match, ticker in found if ticker in firm or not weak(match)]
+        # one mention is counted once: a short form that sits inside a longer form of the same company
+        return [
+            (match, ticker)
+            for match, ticker in kept
+            if not any(
+                t == ticker
+                and other.span() != match.span()
+                and other.start() <= match.start()
+                and match.end() <= other.end()
+                for other, t in kept
+            )
+        ]
 
     def _text_mentions(
         self, text: str, skip_attribution: bool
@@ -375,7 +423,7 @@ class CompanyResolver:
         the source of an opinion when *skip_attribution*."""
         plain: Counter[str] = Counter()
         quoted: Counter[str] = Counter()
-        for match, ticker in self._corroborated(self._matches(text)):
+        for match, ticker in self._corroborated(text, self._matches(text)):
             is_quoted = skip_attribution and _attributed(text, match)
             (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted
@@ -408,6 +456,11 @@ class CompanyResolver:
             self._by_name[key]
             for key in (normalize_name(span) for span in org_spans)
             if key in self._by_name
+            and (
+                key not in _CORROBORATED
+                or self._by_name[key] in plain
+                or self._by_name[key] in quoted
+            )
         )
         return Counter(
             {
