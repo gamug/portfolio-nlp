@@ -16,7 +16,8 @@ the same text stored once per tagged ticker is one body. It prints, and writes t
 * the unique bodies of the ``ok`` rows, of the quarantined rows, the **quarantined-only** ones (a body
   that is not also ``ok`` under another ticker: the corpus the pipeline would gain) and the union;
 * the same for the window from ``--since`` (the cut's: 2021-12-31) and by publication year;
-* the words of the quarantined-only bodies (``word_count``), to see how much of it is short;
+* the words of the quarantined-only bodies, counted from the text (the stored ``word_count`` is not
+  used: it may be empty), to see how much of it is short;
 * by the tagged ticker, how many companies have an ``ok`` body and how many have only quarantined ones
   (the tag of a quarantined pair is not evidence about the company: counted for size only).
 
@@ -54,8 +55,8 @@ class Row(NamedTuple):
     in_window: bool
     body: bytes
     words: int
-    has_title: bool = True
-    has_body: bool = True
+    has_title: bool
+    has_body: bool
 
 
 def year_of(pub_date: str | None) -> str:
@@ -75,9 +76,8 @@ def read_rows(conn: object, since: str) -> Iterable[Row]:
     *conn* is a connection with the schema ``source`` attached (``db.connect_pipeline()``)."""
     execute = conn.execute  # type: ignore[attr-defined]
     classes = {int(i): c for i, c in execute("SELECT id, match_class FROM source.discovered_urls")}
-    for article_id, status, ticker, title, body, pub_date, words in execute(
-        "SELECT id, fetch_status, ticker, title, body_text, pub_date, word_count "
-        "FROM source.articles"
+    for article_id, status, ticker, title, body, pub_date in execute(
+        "SELECT id, fetch_status, ticker, title, body_text, pub_date FROM source.articles"
     ):
         date = (pub_date or "").strip()
         has_title, has_body = bool(title and title.strip()), bool(body and body.strip())
@@ -88,7 +88,7 @@ def read_rows(conn: object, since: str) -> Iterable[Row]:
             year=year_of(date),
             in_window=bool(date) and date[:10] >= since,
             body=short_hash(body) if has_body else b"",
-            words=int(words or 0),
+            words=len(body.split()) if has_body else 0,
             has_title=has_title,
             has_body=has_body,
         )

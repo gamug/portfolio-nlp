@@ -140,3 +140,11 @@ def test_a_title_or_body_of_spaces_is_not_one(tmp_path: Path) -> None:
         ok["rows"] == 6 and ok["with_title"] == 4 and ok["with_body"] == 4 and ok["with_both"] == 2
     )
     assert result["unique_bodies"]["ok"] == 2  # no phantom body from the spaces
+
+
+def test_the_words_are_counted_from_the_text_not_from_the_stored_column(tmp_path: Path) -> None:
+    extra = ((11, "quarantined", "DDD", "t", "long enough body text " * 80, "2023-03-03", 0),)
+    result = COUNT.summarise(COUNT.read_rows(_source(tmp_path, extra), "2021-12-31"))
+    words = result["quarantined_only_words"]
+    assert words["under_100"] == 1  # row 3 (90 words); the long body with word_count 0 is not short
+    assert words["under_300"] == 2 and words["median"] == 120
