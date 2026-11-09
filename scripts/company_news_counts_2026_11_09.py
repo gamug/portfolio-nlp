@@ -181,12 +181,23 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding=encoding, newline="")
-    os.replace(temporary, path)
+    try:
+        os.replace(temporary, path)
+    except PermissionError as error:  # on Windows, a file open in Excel cannot be replaced
+        temporary.unlink(missing_ok=True)
+        raise PermissionError(
+            f"cannot write {path}: it is open in another program (Excel?). Close it and run the same "
+            "command again: nothing is lost, the run continues from its checkpoint and finishes in "
+            "seconds."
+        ) from error
 
 
 def fingerprint(universe: list[Company]) -> str:
-    """What a checkpoint must match: the code (this script, the rules) and the company universe."""
-    names = "\n".join(f"{c.ticker}|{c.name}" for c in sorted(universe))
+    """What a checkpoint must match: the code (this script, the rules) and the company universe, with the
+    sector and sub-industry names the scope rule's keywords are built from."""
+    names = "\n".join(
+        "|".join(company) for company in sorted(universe)
+    )  # the sector names feed the rules
     return f"{code_revision()}:{hashlib.sha256(names.encode()).hexdigest()[:12]}"
 
 
@@ -297,7 +308,7 @@ def readme_text(
     universe_size: int,
     row_total: int,
     new_rows: int,
-    limit: int,
+    everything: int,
     revision: str,
     elapsed: float,
 ) -> str:
@@ -305,8 +316,8 @@ def readme_text(
     named_any = sum(bool(e.reading.named) for e in entries.values())
     scopes = Counter(e.reading.scope for e in entries.values())
     smoke = (
-        f"SMOKE RUN: stopped after {limit:,} rows of the run, not the whole corpus.\n\n"
-        if limit
+        f"SMOKE RUN: {row_total:,} of {everything:,} rows read, not the whole corpus.\n\n"
+        if row_total < everything
         else ""
     )
     return (
@@ -318,7 +329,8 @@ def readme_text(
         "One company (share classes of one company are one row, listed in also_covers). Every count "
         "is of UNIQUE BODIES: the same text stored under several tickers is one body.\n\n"
         "THE THREE CORPORA (every column says which one)\n"
-        "  ok_*               bodies with at least one 'ok' pair (the corpus of the 2026-11-16 cut)\n"
+        "  ok_*               bodies with at least one 'ok' pair (the 2026-11-16 cut is the part of them "
+        "published from 2021-12-31; these columns cover every date)\n"
         "  quarantined_only_* bodies whose pairs are all quarantined: fetched properly (a title and a "
         "body) but upstream could not tie them to the tagged company; read here for what they say\n"
         "  all_*              the two together (ok + quarantined_only), each body once\n\n"
@@ -332,7 +344,8 @@ def readme_text(
         "TOTALS OF THIS RUN\n"
         f"  rows read {row_total:,} ({new_rows:,} in the run that wrote this file, the rest from the "
         f"checkpoint of earlier runs); unique bodies {len(entries):,} ({ok:,} with an ok pair, "
-        f"{len(entries) - ok:,} quarantined only); universe {universe_size} tickers, {len(rows)} rows.\n"
+        f"{len(entries) - ok:,} quarantined only); universe {universe_size} tickers (the tickers the "
+        f"crawl tagged, not the index's membership on a date), {len(rows)} rows.\n"
         f"  bodies that name at least one company: {named_any:,}; by rule scope: "
         f"{dict(scopes.most_common())}\n\n"
         "LIMITS (read the counts as a floor, with some noise)\n"
@@ -384,7 +397,7 @@ def finish(
         universe_size=len(universe),
         row_total=rows_total,
         new_rows=new_rows,
-        limit=args.limit,
+        everything=everything,
         revision=code_revision(),
         elapsed=elapsed,
     )
@@ -394,7 +407,8 @@ def finish(
         rate = new_rows / max(time.time() - read_started, 1e-9)
         print(
             f"speed {rate:,.0f} rows/s: the whole corpus ({everything:,} rows) takes about "
-            f"{everything / rate / 60:,.0f} min from the first row"
+            f"{everything / rate / 60:,.0f} min from the first row (an order of magnitude: the speed is "
+            "of the first rows by id, not of a random sample)"
         )
     print(
         f"written: {args.out / CSV_NAME}, {args.out / README_NAME} and {args.out / CHECKPOINT_NAME}"
@@ -431,9 +445,10 @@ def main() -> None:
             "from the checkpoint",
             flush=True,
         )
-    everything = count_rows(conn)
-    to_read = count_rows(conn, last_id)
-    to_read = min(to_read, args.limit) if args.limit else to_read
+    print("counting the rows to read (one pass over the table; a few minutes)...", flush=True)
+    remaining = count_rows(conn, last_id)
+    everything = rows_before + remaining  # what the checkpoint read, and what is left
+    to_read = min(remaining, args.limit) if args.limit else remaining
     print(
         f"universe {len(universe)} tickers; {everything:,} rows in the corpus; reading {to_read:,}"
     )
@@ -472,17 +487,20 @@ def main() -> None:
         bar.close()
         if state["n"]:
             save_checkpoint(checkpoint, print_of, state["last"], rows_before + state["n"], entries)
-    finish(
-        args,
-        entries,
-        resolver,
-        universe,
-        rows_before + state["n"],
-        state["n"],
-        started,
-        everything,
-        read_started,
-    )
+    try:
+        finish(
+            args,
+            entries,
+            resolver,
+            universe,
+            rows_before + state["n"],
+            state["n"],
+            started,
+            everything,
+            read_started,
+        )
+    except PermissionError as error:  # the checkpoint is saved: say what to do, no traceback
+        sys.exit(str(error))
 
 
 if __name__ == "__main__":

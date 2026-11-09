@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import json
 import sqlite3
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -131,7 +134,7 @@ def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() 
         universe_size=4,
         row_total=1,
         new_rows=1,
-        limit=1,
+        everything=2,
         revision="abc",
         elapsed=60.0,
     )
@@ -238,7 +241,7 @@ def test_a_limit_marks_the_readme_as_a_smoke_run(
     out = tmp_path / "smoke"
     monkeypatch.setattr(sys, "argv", ["counts", "--limit", "1", "--out", str(out)])
     COUNTS.main()
-    assert "SMOKE RUN: stopped after 1 rows" in (out / "company_news_counts_README.txt").read_text(
+    assert "SMOKE RUN: 1 of 3 rows read" in (out / "company_news_counts_README.txt").read_text(
         encoding="utf-8"
     )
 
@@ -348,3 +351,119 @@ def test_the_bar_shows_the_rows_read(
     COUNTS.main()
     err = capsys.readouterr().err
     assert "reading" in err and "3/3" in err  # the three valid rows, all read
+
+
+def test_a_file_open_in_excel_gives_a_message_and_leaves_no_temporary_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "x.csv"
+    target.write_text("old")
+
+    def locked(*_args: object) -> None:
+        raise PermissionError(13, "The process cannot access the file")
+
+    monkeypatch.setattr(COUNTS.os, "replace", locked)
+    with pytest.raises(PermissionError, match="Close it and run the same command again"):
+        COUNTS.atomic_write_text(target, "new")
+    assert target.read_text() == "old" and not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_locked_csv_ends_the_run_with_the_message_and_the_checkpoint_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _tiny_store(tmp_path)
+    real = COUNTS.os.replace
+
+    def locked_csv(source: object, target: object) -> None:
+        if str(target).endswith("company_news_counts.csv"):
+            raise PermissionError(13, "locked")
+        real(source, target)
+
+    monkeypatch.setattr(COUNTS.os, "replace", locked_csv)
+    out = tmp_path / "result"
+    with pytest.raises(SystemExit, match="open in another program"):
+        _run(monkeypatch, conn, out)
+    assert (out / "company_news_counts.checkpoint.json").exists()
+    monkeypatch.setattr(COUNTS.os, "replace", real)
+    _run(monkeypatch, conn, out)  # the same command finishes without reading a row
+    assert (out / "company_news_counts.csv").exists()
+
+
+def test_the_rows_are_counted_once_and_a_complete_corpus_is_not_marked_as_a_smoke_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _tiny_store(tmp_path)
+    out = tmp_path / "result"
+    _run(monkeypatch, conn, out)
+    calls: list[int] = []
+    real = COUNTS.count_rows
+
+    def counting(c: sqlite3.Connection, after: int = 0) -> int:
+        calls.append(after)
+        return int(real(c, after))
+
+    monkeypatch.setattr(COUNTS, "count_rows", counting)
+    capsys.readouterr()
+    _run(monkeypatch, conn, out, "--limit", "1")  # the corpus is already complete in the checkpoint
+    assert len(calls) == 1
+    assert "counting the rows" in capsys.readouterr().out
+    assert "SMOKE RUN" not in _files(out)[1]
+
+
+def test_the_checkpoint_is_saved_every_so_many_rows_and_survives_a_run_that_dies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _tiny_store(tmp_path)
+    _run(monkeypatch, conn, tmp_path / "whole")
+    real_save, real_stream = COUNTS.save_checkpoint, COUNTS.stream_rows
+    saves: list[int] = []
+
+    def spy(path: Path, print_of: str, last_id: int, rows_read: int, entries: Any) -> None:
+        if not saves:  # only the periodic save reaches the disk: the run dies before the last one
+            real_save(path, print_of, last_id, rows_read, entries)
+        saves.append(last_id)
+
+    def dies(*args: Any, **kwargs: Any) -> Iterator[Any]:
+        for n, row in enumerate(real_stream(*args, **kwargs)):
+            if n == 2:
+                raise KeyboardInterrupt
+            yield row
+
+    out = tmp_path / "died"
+    monkeypatch.setattr(COUNTS, "CHECKPOINT_EVERY", 2)
+    monkeypatch.setattr(COUNTS, "save_checkpoint", spy)
+    monkeypatch.setattr(COUNTS, "stream_rows", dies)
+    with pytest.raises(KeyboardInterrupt):
+        _run(monkeypatch, conn, out)
+    assert saves[0] == 2  # the periodic save, after the second row
+    saved = json.loads((out / "company_news_counts.checkpoint.json").read_text(encoding="utf-8"))
+    assert saved["last_id"] == 2 and saved["rows_read"] == 2
+    monkeypatch.setattr(COUNTS, "save_checkpoint", real_save)
+    monkeypatch.setattr(COUNTS, "stream_rows", real_stream)
+    _run(monkeypatch, conn, out)
+    assert _files(out)[0] == _files(tmp_path / "whole")[0]
+
+
+def test_the_fingerprint_changes_with_the_sub_industry_the_rules_read() -> None:
+    other = [UNIVERSE[0]._replace(gics_sub_industry="Defence"), *UNIVERSE[1:]]
+    assert COUNTS.fingerprint(UNIVERSE) != COUNTS.fingerprint(other)
+    assert COUNTS.fingerprint(UNIVERSE) == COUNTS.fingerprint(list(reversed(UNIVERSE)))
+
+
+def test_the_readme_does_not_call_the_ok_column_the_cut_and_says_what_the_universe_is() -> None:
+    entries = COUNTS.read_corpus(
+        [_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS, lambda _id: []
+    )
+    rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
+    text = COUNTS.readme_text(
+        entries,
+        rows,
+        universe_size=4,
+        row_total=1,
+        new_rows=1,
+        everything=1,
+        revision="a",
+        elapsed=1.0,
+    )
+    assert "published from 2021-12-31" in text and "not the index's membership on a date" in text
+    assert "SMOKE RUN" not in text
