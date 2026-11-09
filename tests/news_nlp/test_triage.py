@@ -344,30 +344,75 @@ TRICKY_NAMES = [
     Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
     Company("BF.B", "Brown\u2013Forman Corporation", "Consumer Staples", "Distillers"),
 ]
-#: Names the matcher does not find today (a full stop between initials, an exclamation mark, an
-#: accent): the ten companies of PLAN D38's open decision. Strict, so the day one is fixed the
-#: marker has to go.
-NOT_FOUND_BY_NAME = [
-    Company("JBHT", "J.B. Hunt Transport Services, Inc.", "Industrials", "Trucking"),
-    Company("USB", "U.S. Bancorp", "Financials", "Banks"),
-    Company("YUM", "Yum! Brands, Inc.", "Consumer Discretionary", "Restaurants"),
-    Company("AOS", "A. O. Smith Corporation", "Industrials", "Building Products"),
-    Company("CHRW", "C.H. Robinson Worldwide, Inc.", "Industrials", "Logistics"),
-    Company("DHI", "D. R. Horton, Inc.", "Consumer Discretionary", "Homebuilding"),
-    Company("SJM", "J.M. Smucker Company (The)", "Consumer Staples", "Packaged Foods"),
-    Company("TROW", "T. Rowe Price Group, Inc.", "Financials", "Asset Management"),
-    Company("WRB", "W. R. Berkley Corporation", "Financials", "Insurance"),
-    Company("EL", "Est\u00e9e Lauder Companies (The)", "Consumer Staples", "Personal Care"),
+#: Names with initials, an exclamation mark or an accent (the ten companies of PLAN D38 that were not
+#: found by name before): each with the other ways the text writes it.
+INITIALS_AND_ACCENTS = [
+    (
+        Company("JBHT", "J.B. Hunt Transport Services, Inc.", "Industrials", "Trucking"),
+        [
+            "J.B. Hunt Transport Services",
+            "J. B. Hunt Transport Services",
+            "JB Hunt Transport Services",
+        ],
+    ),
+    (
+        Company("USB", "U.S. Bancorp", "Financials", "Banks"),
+        ["U.S. Bancorp", "US Bancorp", "U S Bancorp"],
+    ),
+    (
+        Company("YUM", "Yum! Brands, Inc.", "Consumer Discretionary", "Restaurants"),
+        ["Yum! Brands", "Yum Brands"],
+    ),
+    (
+        Company("AOS", "A. O. Smith Corporation", "Industrials", "Building Products"),
+        ["A. O. Smith", "A.O. Smith", "AO Smith"],
+    ),
+    (
+        Company("CHRW", "C.H. Robinson Worldwide, Inc.", "Industrials", "Logistics"),
+        ["C.H. Robinson Worldwide", "CH Robinson Worldwide"],
+    ),
+    (
+        Company("DHI", "D. R. Horton, Inc.", "Consumer Discretionary", "Homebuilding"),
+        ["D.R. Horton", "D. R. Horton", "DR Horton"],
+    ),
+    (
+        Company("SJM", "J.M. Smucker Company (The)", "Consumer Staples", "Packaged Foods"),
+        ["J.M. Smucker", "JM Smucker"],
+    ),
+    (
+        Company("TROW", "T. Rowe Price Group, Inc.", "Financials", "Asset Management"),
+        ["T. Rowe Price", "T Rowe Price"],
+    ),
+    (
+        Company("WRB", "W. R. Berkley Corporation", "Financials", "Insurance"),
+        ["W. R. Berkley", "W.R. Berkley", "WR Berkley"],
+    ),
+    (
+        Company("EL", "Est\u00e9e Lauder Companies (The)", "Consumer Staples", "Personal Care"),
+        ["Est\u00e9e Lauder", "Estee Lauder", "EST\u00c9E LAUDER"],
+    ),
 ]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="PLAN D38: a name with initials, '!' or an accent is not read"
+@pytest.mark.parametrize(
+    ("company", "written"), INITIALS_AND_ACCENTS, ids=lambda x: getattr(x, "ticker", "")
 )
-@pytest.mark.parametrize("company", NOT_FOUND_BY_NAME, ids=lambda c: c.ticker)
-def test_the_names_the_matcher_does_not_read_yet(company: Company) -> None:
+def test_names_with_initials_an_exclamation_mark_or_an_accent_are_found(
+    company: Company, written: list[str]
+) -> None:
     resolver = CompanyResolver([company])
-    assert resolver.resolve(f"{company.name} rose.", skip_attribution=False)[company.ticker] >= 1
+    for form in (company.name, *written):
+        assert resolver.resolve(f"{form} rose.", skip_attribution=False)[company.ticker] == 1, form
+
+
+def test_initials_do_not_open_the_name_to_a_sentence_or_a_line() -> None:
+    resolver = CompanyResolver([c for c, _ in INITIALS_AND_ACCENTS])
+    for text in (
+        "The J. Hunt Transport Services rose.",
+        "Hunt. Transport Services.",
+        "T.\nRowe Price",
+    ):
+        assert not resolver.resolve(text, skip_attribution=False), text
 
 
 def test_a_name_may_hold_an_apostrophe_but_not_belong_to_the_next_word() -> None:

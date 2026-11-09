@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import NamedTuple
 
 #: Legal-form words dropped from a company name before matching it.
@@ -320,11 +322,22 @@ def body_hash(text: str) -> str:
     return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
 
 
+def _fold_accents(text: str) -> str:
+    """*text* without the accents of its letters ("Estée" -> "Estee")."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def squash_initials(key: str) -> str:
+    """*key* with the spaces between one-letter words taken out ("j b hunt" -> "jb hunt"), so that
+    "J.B. Hunt", "J. B. Hunt" and "JB Hunt" are one name."""
+    return re.sub(r"\b([a-z0-9]) (?=[a-z0-9]\b)", r"\1", key)
+
+
 def normalize_name(name: str) -> str:
     """Lower case, share class, punctuation and legal-form words dropped:
     ``"Alphabet Inc. (Class A)"`` -> ``"alphabet"``.
     Returns ``""`` if nothing is left."""
-    lowered = re.sub(r"\bclass\s+[a-z]\b", " ", name.lower().replace(".com", ""))
+    lowered = re.sub(r"\bclass\s+[a-z]\b", " ", _fold_accents(name).lower().replace(".com", ""))
     words = re.sub(r"[^a-z0-9& ]+", " ", lowered).split()
     return " ".join(w for w in words if w not in _LEGAL_WORDS)
 
@@ -357,12 +370,48 @@ def _short_form_pattern(tokens: Sequence[str]) -> str:
     return "".join(parts)
 
 
+#: The letters that may carry an accent in the text of a name written without it.
+_ACCENTED = {
+    "a": "a\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5",
+    "c": "c\u00e7",
+    "e": "e\u00e8\u00e9\u00ea\u00eb",
+    "i": "i\u00ec\u00ed\u00ee\u00ef",
+    "n": "n\u00f1",
+    "o": "o\u00f2\u00f3\u00f4\u00f5\u00f6",
+    "u": "u\u00f9\u00fa\u00fb\u00fc",
+}
+#: Between initials a full stop and spaces are optional ("J.B.", "A. O.", "JB").
+_INITIALS_GAP = r"\.?[ \u00a0\t]*"
+
+
+def _word_pattern(word: str) -> str:
+    return "".join(f"[{_ACCENTED[c]}]" if c in _ACCENTED else re.escape(c) for c in word)
+
+
+def _name_pattern(phrase: str) -> str:
+    """The pattern of the normalized name *phrase*: a hyphen, a dash or an apostrophe reads as the
+    space it replaced ("Coca-Cola", "Casey's General Stores"), an exclamation mark may follow a word
+    ("Yum! Brands"), a full stop follows an initial ("J.B. Hunt", "U.S. Bancorp"), an accent may be
+    missing or present ("Estee Lauder"); a line break or a full stop between words does not read as
+    a space: a name is on one line and in one sentence."""
+    words = phrase.split(" ")
+    parts = [_word_pattern(words[0])]
+    for before, after in pairwise(words):
+        initial = len(before) == 1 and before.isalpha()
+        if initial and len(after) == 1 and after.isalpha():
+            parts.append(_INITIALS_GAP)
+        elif initial:
+            parts.append(r"\.?" + _NAME_GAP)
+        else:
+            parts.append("!?" + _NAME_GAP)
+        parts.append(_word_pattern(after))
+    if len(words[-1]) == 1 and words[-1].isalpha():
+        parts.append(r"\.?")
+    return "".join(parts)
+
+
 def _words_pattern(phrases: Iterable[str]) -> re.Pattern[str]:
-    # a hyphen or an apostrophe reads as the space it replaced ("Coca-Cola", "Casey's General Stores"),
-    # but a line break does not: a name is on one line
-    alternatives = sorted(
-        {re.escape(p).replace(r"\ ", _NAME_GAP) for p in phrases if p}, key=len, reverse=True
-    )
+    alternatives = sorted({_name_pattern(p) for p in phrases if p}, key=len, reverse=True)
     if (
         not alternatives
     ):  # an empty universe matches nothing (an empty alternation matches everywhere)
@@ -423,6 +472,26 @@ def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]
     return kept
 
 
+#: A disclosure or a ticker list: a keyword of the genre ("Najarian Owns (INTC)", "is long X") near a
+#: ticker form, or a dense run of ticker-like tokens in the 160 characters around it.
+_DISCLOSURE_WORDS = re.compile(
+    r"\b(?:owns?|is long|are long|is short|are short|options? position|market maker|disclosures?"
+    r"|short|long)\b[^.]{0,40}[(,]|\bowns?\b",
+    re.IGNORECASE,
+)
+_TICKER_TOKEN = re.compile(r"(?<![\w.])[A-Z]{1,5}(?:\.[A-Z])?(?![\w])")
+DENSE_TICKERS = 6
+
+
+def in_disclosure(text: str, start: int, end: int) -> bool:
+    """Whether the ticker form at ``text[start:end]`` sits in a disclosure or a ticker list."""
+    window = text[max(0, start - 160) : end + 160]
+    return (
+        bool(_DISCLOSURE_WORDS.search(window))
+        or len(_TICKER_TOKEN.findall(window)) >= DENSE_TICKERS
+    )
+
+
 @dataclass
 class CompanyResolver:
     """Finds the universe companies a body names. Share classes of one company (``GOOG`` /
@@ -440,6 +509,7 @@ class CompanyResolver:
     _alias_to: dict[str, str] = field(init=False)
     _tickers: re.Pattern[str] = field(init=False)
     _short: dict[str, str] = field(init=False)
+    _by_squashed: dict[str, str] = field(init=False)
     _short_forms: re.Pattern[str] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -452,6 +522,7 @@ class CompanyResolver:
             else:
                 canonical = company.ticker
             self._by_ticker[company.ticker.upper()] = canonical
+        self._by_squashed = {squash_initials(k): k for k in self._by_name}
         self._names = _words_pattern(k for k in self._by_name if k not in _WORD_NAMES)
         capitalised = sorted(k.capitalize() for k in self._by_name if k in _WORD_NAMES)
         self._word_names = re.compile(
@@ -546,7 +617,7 @@ class CompanyResolver:
         for pattern in (self._names, self._word_names):
             for match in pattern.finditer(text):
                 spans.append(match.span())
-                found.append((match, self._by_name[normalize_name(match.group(0))]))
+                found.append((match, self._ticker_of_name(match.group(0))))
         for match in self._aliases.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
                 found.append((match, self._alias_to[match.group(0)]))
@@ -581,6 +652,17 @@ class CompanyResolver:
             )
         ]
 
+    def _name_key(self, text: str) -> str:
+        """The key of ``_by_name`` that *text* names ("" if none): its normalized form, or that form
+        with the spaces between initials taken out ("JB Hunt")."""
+        key = normalize_name(text)
+        if key in self._by_name:
+            return key
+        return self._by_squashed.get(squash_initials(key), key)
+
+    def _ticker_of_name(self, text: str) -> str:
+        return self._by_name[self._name_key(text)]
+
     def counted_matches(self, text: str) -> list[tuple[re.Match[str], str]]:
         """The mentions :meth:`resolve` counts in *text* (before the attribution and the NER
         spans), as ``(match, ticker)``: for the diagnostics that need to say what kind each is."""
@@ -589,6 +671,18 @@ class CompanyResolver:
     def is_ticker_form(self, match: re.Match[str]) -> bool:
         """Whether *match* came from the ticker patterns (``$X``, ``(NYSE: X)``, bare ``X``)."""
         return match.re is self._tickers
+
+    def disclosure_only(self, text: str, counted: Iterable[str]) -> frozenset[str]:
+        """The tickers of *counted* that *text* names only by ticker forms inside a disclosure or a
+        ticker list ("Najarian Owns (INTC)"): named, but not what the body is about (PLAN D38)."""
+        flags: dict[str, list[bool]] = {}
+        wanted = set(counted)
+        for match, ticker in self.counted_matches(text):
+            if ticker in wanted:
+                flags.setdefault(ticker, []).append(
+                    self.is_ticker_form(match) and in_disclosure(text, *match.span())
+                )
+        return frozenset(ticker for ticker, found in flags.items() if all(found))
 
     def _text_mentions(
         self, text: str, skip_attribution: bool
@@ -628,7 +722,7 @@ class CompanyResolver:
         plain, quoted = self._text_mentions(text, skip_attribution)
         ner = Counter(
             self._by_name[key]
-            for key in (normalize_name(span) for span in org_spans)
+            for key in (self._name_key(span) for span in org_spans)
             if key in self._by_name
             and (
                 key not in _CORROBORATED

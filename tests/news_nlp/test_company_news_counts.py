@@ -133,7 +133,16 @@ def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() 
         revision="abc",
         elapsed=60.0,
     )
-    for phrase in ("ok_*", "quarantined_only_*", "all_*", "UNIQUE BODIES", "SMOKE RUN", "floor"):
+    for phrase in (
+        "ok_*",
+        "quarantined_only_*",
+        "all_*",
+        "UNIQUE BODIES",
+        "SMOKE RUN",
+        "floor",
+        "*_bodies_disclosure",
+        "Najarian Owns (INTC)",
+    ):
         assert phrase in text
 
 
@@ -615,3 +624,39 @@ def test_a_checkpoint_gives_back_the_bodies_it_was_given(tmp_path: Path) -> None
     (before,), (after,) = entries.values(), back.values()
     assert (before.reading, before.is_ok) == (after.reading, after.is_ok)
     assert COUNTS.load_checkpoint(path, "another") != loaded  # other code or universe: not used
+
+
+DISCLOSURE_FOOTER = "Najarian Owns (ZEN); Najarian Owns (GS) Calls; Terranova Is Short (F)."
+
+
+def test_a_company_named_only_in_a_disclosure_is_counted_as_named_and_as_disclosure() -> None:
+    """The owner's decision of 2026-11-09 (PLAN D38): a separate column, the naming count unchanged."""
+    universe = [Company("ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace")]
+    resolver = CompanyResolver(universe)
+    bodies = [
+        _row(1, "ok", "Market notes", "Stocks rose on Friday. " + DISCLOSURE_FOOTER),
+        _row(2, "ok", "Zenith up", ZENITH_STORY + " " + DISCLOSURE_FOOTER),  # named in the text too
+        _row(3, "quarantined", "Market notes", "Stocks fell on Monday. " + DISCLOSURE_FOOTER),
+    ]
+    entries = COUNTS.read_corpus(bodies, resolver, TERMS)
+    zen = COUNTS.count_by_company(entries.values(), resolver, universe)[0]
+    assert zen["ok_bodies_naming"] == 2 and zen["ok_bodies_disclosure"] == 1
+    assert (
+        zen["quarantined_only_bodies_naming"] == 1
+        and zen["quarantined_only_bodies_disclosure"] == 1
+    )
+    assert zen["all_bodies_naming"] == 3 and zen["all_bodies_disclosure"] == 2
+    COUNTS.check_invariants([zen])
+
+
+def test_the_disclosure_column_cannot_exceed_the_naming_column() -> None:
+    broken = _good_rows()
+    broken[0]["ok_bodies_disclosure"] = broken[0]["ok_bodies_naming"] + 1  # type: ignore[operator]
+    broken[0]["all_bodies_disclosure"] = broken[0]["ok_bodies_disclosure"]
+    with pytest.raises(COUNTS.CheckFailed, match="disclosure <= naming"):
+        COUNTS.check_invariants(broken)
+
+
+def test_a_body_that_names_the_company_in_its_text_has_no_disclosure_reading() -> None:
+    entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
+    assert next(iter(entries.values())).reading.disclosure == frozenset()

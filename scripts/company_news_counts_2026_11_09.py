@@ -90,7 +90,7 @@ def readme_name(day: str) -> str:
 
 
 CORPORA = ("ok", "quarantined_only", "all")
-MEASURES = ("naming", "subject", "single")
+MEASURES = ("naming", "subject", "single", "disclosure")
 
 
 class BodyReading(NamedTuple):
@@ -98,6 +98,9 @@ class BodyReading(NamedTuple):
 
     named: frozenset[str]  # canonical tickers named anywhere in the text
     subjects: frozenset[str]  # named twice or in the title
+    disclosure: frozenset[
+        str
+    ]  # of ``named``: only by ticker forms in a disclosure or a ticker list
     scope: (
         str  # single | multi | multi_dominated | roundup | market | economy | sector | no_company
     )
@@ -128,7 +131,8 @@ def read_body(
     subjects = triage.subjects(named, in_title)
     roundup = triage.is_roundup(title, slug, len(in_title), resolver.ticker_forms(text))
     scope = triage.scope_candidate(subjects, text, terms, roundup=roundup)
-    return BodyReading(frozenset(named), frozenset(subjects), scope.scope)
+    disclosure = resolver.disclosure_only(text, named)
+    return BodyReading(frozenset(named), frozenset(subjects), frozenset(disclosure), scope.scope)
 
 
 def load_universe(conn: db.NewsNlpDatabase) -> list[Company]:
@@ -234,6 +238,7 @@ def save_checkpoint(
                 key,
                 sorted(e.reading.named),
                 sorted(e.reading.subjects),
+                sorted(e.reading.disclosure),
                 e.reading.scope,
                 e.is_ok,
                 e.roundup_by_headline,
@@ -256,11 +261,11 @@ def load_checkpoint(path: Path, print_of: str) -> tuple[int, int, dict[str, Entr
             return f"the code or the universe changed ({saved} -> {print_of})"
         entries = {
             key: Entry(
-                BodyReading(frozenset(named), frozenset(subjects), scope),
+                BodyReading(frozenset(named), frozenset(subjects), frozenset(disclosure), scope),
                 is_ok=is_ok,
                 roundup_by_headline=roundup,
             )
-            for key, named, subjects, scope, is_ok, roundup in state["entries"]
+            for key, named, subjects, disclosure, scope, is_ok, roundup in state["entries"]
         }
         return int(state["last_id"]), int(state["rows_read"]), entries
     except (ValueError, KeyError, TypeError) as error:
@@ -275,6 +280,8 @@ def tally(entries: Iterable[Entry]) -> dict[str, Counter[str]]:
         for corpus in ("ok" if entry.is_ok else "quarantined_only", "all"):
             for ticker in reading.named:
                 counts[ticker][f"{corpus}_bodies_naming"] += 1
+            for ticker in reading.disclosure:
+                counts[ticker][f"{corpus}_bodies_disclosure"] += 1
             for ticker in reading.subjects:
                 counts[ticker][f"{corpus}_bodies_subject"] += 1
                 if reading.scope == "single":
@@ -327,11 +334,15 @@ def check_invariants(rows: list[dict[str, object]]) -> None:
                     f"{row['ticker']}: all_bodies_{measure} is not ok + quarantined_only"
                 )
         for corpus in CORPORA:
-            naming, subject, single = (int(str(row[f"{corpus}_bodies_{m}"])) for m in MEASURES)
+            naming, subject, single, disclosure = (
+                int(str(row[f"{corpus}_bodies_{m}"])) for m in MEASURES
+            )
             if not single <= subject <= naming:
                 raise CheckFailed(
                     f"{row['ticker']}: {corpus} must have single <= subject <= naming"
                 )
+            if disclosure > naming:
+                raise CheckFailed(f"{row['ticker']}: {corpus} must have disclosure <= naming")
 
 
 def acquire_lock(folder: Path) -> Path:
@@ -407,7 +418,11 @@ def readme_text(
         "  *_bodies_naming   the company is named somewhere in the text\n"
         "  *_bodies_subject  it is named at least twice, or in the title (a passing mention is not a "
         "subject)\n"
-        "  *_bodies_single   it is the only subject of the body (a single-company article)\n\n"
+        "  *_bodies_single   it is the only subject of the body (a single-company article)\n"
+        "  *_bodies_disclosure  OF THE BODIES THAT NAME THE COMPANY, those that name it only by a "
+        'ticker form inside a disclosure or a ticker list ("Najarian Owns (INTC)"): named, but not what '
+        "the body is about. About a fifth of the pairs; naming minus disclosure is the count without "
+        "them\n\n"
         "THE TAG IS NOT USED. A quarantined pair's ticker says nothing about the article, so every "
         "count comes from the text.\n\n"
         "TOTALS OF THIS RUN\n"
@@ -424,9 +439,6 @@ def readme_text(
         "  - A company named by a common word or a surname (Federal, State, Boston, Ross, Wells...) "
         "is counted only when the text uses its full name, its short form or a ticker; a company the "
         "text calls only by that word is missed. Other names can still be counted by mistake.\n"
-        "  - Ten companies whose names carry initials with full stops, an exclamation mark or an accent "
-        "are found only by a ticker form, so their counts are floors far below their news volume: "
-        "AOS, CHRW, DHI, JBHT, SJM, TROW, USB, WRB, YUM, EL.\n"
         "  - Boilerplate, data credits and an analyst's bank named as the source of an opinion are "
         "not counted.\n"
         "  - The rules were tuned on the owner's 720 tagged articles with the stored NER spans, which "

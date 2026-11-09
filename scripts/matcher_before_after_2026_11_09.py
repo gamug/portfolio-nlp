@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import csv
 import importlib.util
-import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
@@ -45,26 +44,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import company_news_counts_2026_11_09 as counts
 
 from news_nlp import db, env, triage
-
-#: A disclosure or a ticker list: a keyword of the genre near a ticker form, or a dense run of
-#: ticker-like tokens in the 160 characters around it.
-_DISCLOSURE_WORDS = re.compile(
-    r"\b(?:owns?|is long|are long|is short|are short|options? position|market maker|disclosures?"
-    r"|short|long)\b[^.]{0,40}[(,]|\bowns?\b",
-    re.IGNORECASE,
-)
-_TICKER_TOKEN = re.compile(r"(?<![\w.])[A-Z]{1,5}(?:\.[A-Z])?(?![\w])")
-DENSE_TICKERS = 6
-
-
-def in_disclosure(body: str, start: int, end: int) -> bool:
-    """Whether the ticker form at ``body[start:end]`` sits in a disclosure or a ticker list."""
-    window = body[max(0, start - 160) : end + 160]
-    return (
-        bool(_DISCLOSURE_WORDS.search(window))
-        or len(_TICKER_TOKEN.findall(window)) >= DENSE_TICKERS
-    )
-
 
 TICKERS = [
     "FRT",
@@ -139,15 +118,10 @@ def disclosures(universe: list[triage.Company], bodies: Iterable[str], top: int 
     total = 0
     for body in bodies:
         counted = resolver.resolve(body, skip_attribution=True)
-        kinds: dict[str, list[bool]] = defaultdict(list)
-        for match, ticker in resolver.counted_matches(body):
-            if counted[ticker]:
-                kinds[ticker].append(
-                    resolver.is_ticker_form(match) and in_disclosure(body, *match.span())
-                )
-        for ticker, flags in kinds.items():
+        flagged = resolver.disclosure_only(body, counted)
+        for ticker in counted:
             pairs[ticker] += 1
-            only[ticker] += all(flags)
+            only[ticker] += ticker in flagged
             total += 1
     lines = [
         f"{total:,} counted company-body pairs; {sum(only.values()):,} "

@@ -11,6 +11,7 @@ from types import ModuleType
 
 import pytest
 
+from news_nlp import triage
 from news_nlp.triage import Company, CompanyResolver
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -66,11 +67,11 @@ def test_the_self_check_lists_the_company_a_stop_word_erased() -> None:
 
 def test_a_ticker_form_in_a_disclosure_or_a_list_is_told_from_one_in_a_sentence() -> None:
     footer = "Najarian Owns (INTC); Najarian Owns (GS) Calls; Terranova Is Short (F)."
-    assert CHECK.in_disclosure(footer, footer.index("INTC"), footer.index("INTC") + 4)
+    assert triage.in_disclosure(footer, footer.index("INTC"), footer.index("INTC") + 4)
     sentence = "Cramer said shares of AMZN rose on Tuesday after the quarter was reported."
-    assert not CHECK.in_disclosure(sentence, sentence.index("AMZN"), sentence.index("AMZN") + 4)
+    assert not triage.in_disclosure(sentence, sentence.index("AMZN"), sentence.index("AMZN") + 4)
     run = "short: SPY, XRT, QQQ, IWM, DIA, GLD, SLV. long: AAPL"
-    assert CHECK.in_disclosure(run, run.index("XRT"), run.index("XRT") + 3)
+    assert triage.in_disclosure(run, run.index("XRT"), run.index("XRT") + 3)
 
 
 def test_the_disclosures_report_counts_the_pairs_named_only_in_a_footer() -> None:
