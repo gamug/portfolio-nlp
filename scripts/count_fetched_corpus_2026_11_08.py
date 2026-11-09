@@ -75,12 +75,12 @@ def read_rows(conn: object, since: str) -> Iterable[Row]:
     *conn* is a connection with the schema ``source`` attached (``db.connect_pipeline()``)."""
     execute = conn.execute  # type: ignore[attr-defined]
     classes = {int(i): c for i, c in execute("SELECT id, match_class FROM source.discovered_urls")}
-    for article_id, status, ticker, _title, body, pub_date, words in execute(
+    for article_id, status, ticker, title, body, pub_date, words in execute(
         "SELECT id, fetch_status, ticker, title, body_text, pub_date, word_count "
         "FROM source.articles"
     ):
         date = (pub_date or "").strip()
-        has_title, has_body = bool(_title), bool(body)
+        has_title, has_body = bool(title and title.strip()), bool(body and body.strip())
         yield Row(
             status=status or "",
             pair_class=classes.get(int(article_id)) or "none",
@@ -95,7 +95,8 @@ def read_rows(conn: object, since: str) -> Iterable[Row]:
 
 
 def summarise(rows: Iterable[Row]) -> dict[str, object]:
-    """The counts of the module docstring from *rows* (every row has a title and a body)."""
+    """The counts of the module docstring from *rows*, every stored row: those without a title or
+    without a body are counted by status (``rows_by_status_and_columns``) and then left out of the rest."""
     rows_by_status: Counter[str] = Counter()
     rows_by_class: Counter[tuple[str, str]] = Counter()
     bodies: dict[str, set[bytes]] = {"ok": set(), "quarantined": set(), "thin_content": set()}

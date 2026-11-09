@@ -26,7 +26,7 @@ def _script(name: str) -> ModuleType:
 COUNT = _script("count_fetched_corpus_2026_11_08")
 
 
-def _source(tmp_path: Path) -> sqlite3.Connection:
+def _source(tmp_path: Path, extra: tuple[tuple[object, ...], ...] = ()) -> sqlite3.Connection:
     """A SOURCE with the two tables the count reads, attached as ``source``."""
     path = tmp_path / "source.db"
     with sqlite3.connect(path) as raw:
@@ -48,7 +48,7 @@ def _source(tmp_path: Path) -> sqlite3.Connection:
             (7, "ok", "AAA", "t", "", "2023-01-01", 0),
             (8, "ok", "AAA", "t", "A second ok story " * 20, None, 60),
         ]
-        raw.executemany("INSERT INTO articles VALUES (?,?,?,?,?,?,?)", rows)
+        raw.executemany("INSERT INTO articles VALUES (?,?,?,?,?,?,?)", [*rows, *extra])
         raw.executemany(
             "INSERT INTO discovered_urls VALUES (?,?)",
             [(1, "accept"), (2, "reject"), (3, "review"), (4, "reject")],
@@ -127,3 +127,16 @@ def test_the_rows_left_out_are_counted_by_what_they_lack(tmp_path: Path) -> None
     }  # rows 1, 6, 7, 8
     assert columns["quarantined"]["with_both"] == 3 and columns["thin_content"]["rows"] == 1
     assert "with a title / with a body" in "\n".join(COUNT.report_lines(result, "2021-12-31"))
+
+
+def test_a_title_or_body_of_spaces_is_not_one(tmp_path: Path) -> None:
+    extra = (
+        (9, "ok", "AAA", "   ", "a body of words " * 10, "2023-01-01", 30),
+        (10, "ok", "AAA", "t", "   \n ", "2023-01-01", 0),
+    )
+    result = COUNT.summarise(COUNT.read_rows(_source(tmp_path, extra), "2021-12-31"))
+    ok = result["rows_by_status_and_columns"]["ok"]
+    assert (
+        ok["rows"] == 6 and ok["with_title"] == 4 and ok["with_body"] == 4 and ok["with_both"] == 2
+    )
+    assert result["unique_bodies"]["ok"] == 2  # no phantom body from the spaces
