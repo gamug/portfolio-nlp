@@ -1,0 +1,314 @@
+"""Fine-tune the sentiment model on the owner's summaries as the pair company + text (T-148c3, PLAN D35).
+
+    uv run scripts/train_sentiment_pair_2026_11_09.py --time-one    # one run, timed (4 epochs, 2e-5, seed 1)
+    uv run scripts/train_sentiment_pair_2026_11_09.py --grid        # the 27 runs of the grid (resumable)
+    uv run scripts/train_sentiment_pair_2026_11_09.py --final       # the setting chosen, one run, the model kept
+
+The recipe and its checks are in ``src/sentiment_pair_train.py``. This script gives them the data: the 450
+marks (``gold/sentiment_train.csv``) with their texts (``data/sentiment_train_ids.csv``, git-ignored), the
+earlier balanced pool of sentences as the replay (``data/sentiment_finetune``, read for the company of each
+sentence from the SOURCE), and the scorer's own reading of a saved model for the validation slice
+(``draw_sentiment_gold_2026_11_05.predict``, with the pair). It never reads the 180-text gold.
+
+Read-only on the databases; writes ``data/sentiment_pair/`` (the replay as drawn, the results of the runs) and,
+for ``--final``, the model to ``models/sentiment_pair/final`` (git-ignored). A run's model is deleted after its
+validation agreement is scored, except the final one. ``--mlflow`` logs every run (params, the validation
+agreement, the epochs' losses) to the local MLflow store (``uv sync --group eval``).
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import shutil
+import sqlite3
+import statistics
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import draw_sentiment_gold_2026_11_05 as gold_draw
+import draw_sentiment_train_2026_11_07 as train_draw
+import torch
+from tqdm import tqdm
+
+import news_nlp as db
+import sentiment_pair_train as spt
+from news_nlp import triage
+from sentiment_stage import _text_mentions_subject
+
+MARKS = Path("gold/sentiment_train.csv")
+IDS = Path("data/sentiment_train_ids.csv")
+REPLAY_POOL = Path("data/sentiment_finetune/labeled_sentences_balanced_2026_09_14.jsonl")
+OUT = Path("data/sentiment_pair")
+MODELS = Path("models/sentiment_pair")
+REPLAY_SEED = (
+    20261109  # fixed here, before any run: the replay is the same for every run of the grid
+)
+TIMING_SETTING = spt.RunSettings(*spt.EARLIER_SETTING, seed=1)
+
+
+def read_csv(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def article_infos(conn: db.NewsNlpDatabase, ids: set[int]) -> dict[int, spt.ArticleInfo]:
+    """The body hash, the ticker and the company of each article id of the replay pool, from the SOURCE."""
+    infos: dict[int, spt.ArticleInfo] = {}
+    for article_id, ticker, company, body in conn.execute(
+        "SELECT id, ticker, company, body_text FROM source.articles "
+        "WHERE id IN (SELECT value FROM json_each(?))",
+        (json.dumps(sorted(ids)),),
+    ):
+        if body and ticker and company:
+            infos[int(article_id)] = spt.ArticleInfo(triage.body_hash(body), ticker, company)
+    return infos
+
+
+def exam_hashes(conn: db.NewsNlpDatabase, marked_hashes: set[str]) -> set[str]:
+    """The bodies the replay must not contain: the 180-text gold, the held-out set and the 450 drawn for tagging."""
+    gold_ids = {int(r["article_id"]) for r in read_csv(train_draw.GOLD)}
+    held_ids = {int(r["article_id"]) for r in read_csv(Path("data/heldout_ids.csv"))}
+    hashes, _titles = train_draw.exam_keys(conn, gold_ids | held_ids)
+    return hashes | marked_hashes
+
+
+def build_data(
+    conn: db.NewsNlpDatabase,
+) -> tuple[spt.MarkedSummaries, list[spt.Example], spt.ReplayReport]:
+    """The marks, and the replay as large as the training summaries. Prints what was left out and why."""
+    marked = spt.load_marked_summaries(read_csv(MARKS), read_csv(IDS))
+    print(
+        f"marks: train {len(marked.train)}, validation {len(marked.validation)}; "
+        f"left out {marked.left_out or 'none'} (no company: they stay with the text-only model)"
+    )
+    sentences = [json.loads(line) for line in REPLAY_POOL.read_text(encoding="utf-8").splitlines()]
+    infos = article_infos(conn, {int(s["article_id"]) for s in sentences})
+    replay, report = spt.replay_examples(
+        sentences,
+        infos.get,
+        exam_hashes(conn, marked.body_hashes),
+        _text_mentions_subject,
+        n=len(marked.train),
+        seed=REPLAY_SEED,
+    )
+    print("\n".join(report.lines()))
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "replay.json").write_text(
+        json.dumps([e._asdict() for e in replay], indent=1), encoding="utf-8"
+    )
+    return marked, replay, report
+
+
+def validation_scorer(validation: list[spt.Example]) -> Any:
+    """The scorer's own reading of a saved model on the validation slice: its agreement with the marks."""
+    items = [{"key": e.key, "text": e.text, "company": e.company} for e in validation]
+    expected = {e.key: spt.ID2LABEL[e.label] for e in validation}
+
+    def score(model_dir: str) -> float:
+        scored = gold_draw.predict([dict(i) for i in items], {"model": model_dir}, pair=True)
+        if len(scored) != len(items):
+            raise spt.MarkedFileError(f"{len(items) - len(scored)} validation texts have no chunk")
+        hits = sum(t["predicted"] == expected[t["key"]] for t in scored)
+        return hits / len(items)
+
+    return score
+
+
+def connect_source() -> Any:
+    """The SOURCE as schema ``source``. The normal read-only attach first; if SQLite cannot open it (the
+    usual cause: another process, on Windows for instance, has the file open and the write-ahead log's
+    shared memory cannot be mapped from here, "disk I/O error"), the SOURCE is read as an immutable
+    snapshot: nothing is written, and nothing may write to it while this runs (the crawler is idle)."""
+    try:
+        return db.connect_pipeline()
+    except RuntimeError as error:
+        path = db.env.source_db_path()
+        if path is None:
+            raise
+        print(f"{error}\nreading the SOURCE as an immutable snapshot instead", file=sys.stderr)
+        conn = sqlite3.connect(":memory:", uri=True)
+        conn.execute(
+            "ATTACH DATABASE ? AS source", (f"file:{Path(path).as_posix()}?mode=ro&immutable=1",)
+        )
+        return conn
+
+
+def base_model() -> tuple[str, str]:
+    cfg = json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))["sentiment"]
+    return cfg["model"], cfg["revision"]
+
+
+def one_run(
+    settings: spt.RunSettings,
+    train: list[spt.Example],
+    scorer: Any,
+    *,
+    keep: Path | None = None,
+    mlflow_on: bool = False,
+    tag: str = "grid",
+) -> dict[str, Any]:
+    """Train and score one run; delete its model unless *keep* is given. Returns the result row."""
+    model, revision = base_model()
+    target = keep or MODELS / "_run" / settings.name
+    config = spt.SentimentPairTrainConfig(
+        base_model=model,
+        base_revision=revision,
+        output_dir=str(target),
+        settings=settings,
+        train=train,
+    )
+    started = time.time()
+    artifact = spt.SentimentPairTrainer(scorer, log=tqdm.write).train(config)
+    row = {
+        "name": settings.name,
+        **(artifact.metrics or {}),
+        "total_seconds": time.time() - started,
+        "tag": tag,
+    }
+    if keep is None:
+        shutil.rmtree(target, ignore_errors=True)
+    if mlflow_on:
+        log_mlflow(row, settings, len(train))
+    return row
+
+
+def log_mlflow(row: dict[str, Any], settings: spt.RunSettings, n_train: int) -> None:
+    """One MLflow run per training run, in the local store (``mlruns/``)."""
+    import mlflow  # noqa: PLC0415 -- the ``eval`` group, imported only when asked for
+
+    mlflow.set_experiment("sentiment_pair_summaries")
+    with mlflow.start_run(run_name=row["name"]):
+        mlflow.set_tags({"stage": "sentiment", "recipe": "D35 pair", "kind": row["tag"]})
+        mlflow.log_params(
+            {
+                "epochs": settings.epochs,
+                "learning_rate": settings.learning_rate,
+                "seed": settings.seed,
+                "batch_size": spt.BATCH_SIZE,
+                "weight_decay": spt.WEIGHT_DECAY,
+                "n_train": n_train,
+                "base_model": "{}@{}".format(*base_model()),
+            }
+        )
+        mlflow.log_metric("validation_agreement", row["validation_agreement"])
+        mlflow.log_metric("train_seconds", row["train_seconds"])
+        for epoch, loss in enumerate(row["epoch_losses"], 1):
+            mlflow.log_metric("train_loss", loss, step=epoch)
+
+
+def load_results() -> list[dict[str, Any]]:
+    path = OUT / "grid_results.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
+
+def save_results(rows: list[dict[str, Any]]) -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    path = OUT / "grid_results.json"
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    temporary.replace(path)
+
+
+def agreements_by_setting(rows: list[dict[str, Any]]) -> dict[tuple[int, float], list[float]]:
+    by: dict[tuple[int, float], list[float]] = {}
+    for row in rows:
+        if row["tag"] == "grid":
+            s = row["settings"]
+            by.setdefault((s["epochs"], s["learning_rate"]), []).append(row["validation_agreement"])
+    return by
+
+
+def run_timing(train: list[spt.Example], scorer: Any, mlflow_on: bool) -> None:
+    print(f"timing one run: {TIMING_SETTING.name} on {len(train)} training texts", flush=True)
+    row = one_run(TIMING_SETTING, train, scorer, mlflow_on=mlflow_on, tag="timing")
+    epochs_in_grid = sum(s.epochs for s in spt.grid_settings())
+    per_epoch = row["train_seconds"] / TIMING_SETTING.epochs
+    overhead = row["total_seconds"] - row["train_seconds"]
+    full = per_epoch * (epochs_in_grid + spt.EARLIER_SETTING[0]) + overhead * (
+        len(spt.grid_settings()) + 1
+    )
+    print(
+        f"validation agreement {row['validation_agreement']:.3f}; training {row['train_seconds']:.0f} s "
+        f"({per_epoch:.1f} s an epoch), loading and scoring {overhead:.0f} s; the 27 runs and the final one: "
+        f"about {full / 60:.0f} min ({epochs_in_grid} epochs + {spt.EARLIER_SETTING[0]})"
+    )
+
+
+def run_grid(train: list[spt.Example], scorer: Any, mlflow_on: bool) -> None:
+    rows = load_results()
+    done = {r["name"] for r in rows if r["tag"] == "grid"}
+    todo = [s for s in spt.grid_settings() if s.name not in done]
+    print(f"grid: {len(done)} runs already done, {len(todo)} to run", flush=True)
+    for settings in tqdm(todo, desc="grid", unit="run"):
+        rows.append(one_run(settings, train, scorer, mlflow_on=mlflow_on))
+        save_results(rows)  # after every run: a stop loses one run, not the grid
+        tqdm.write(f"{settings.name}: validation agreement {rows[-1]['validation_agreement']:.3f}")
+    summarise(rows)
+
+
+def summarise(rows: list[dict[str, Any]]) -> spt.Choice:
+    by = agreements_by_setting(rows)
+    print("\nmean validation agreement by setting (3 seeds):")
+    for (epochs, lr), values in sorted(by.items()):
+        print(
+            f"  {epochs} epochs, lr {lr:g}: {statistics.fmean(values):.3f} {[round(v, 3) for v in values]}"
+        )
+    choice = spt.choose_settings(by)
+    print(f"chosen: {choice.epochs} epochs, lr {choice.learning_rate:g}: {choice.reason}")
+    return choice
+
+
+def run_final(train: list[spt.Example], scorer: Any, mlflow_on: bool) -> None:
+    rows = load_results()
+    if len({r["name"] for r in rows if r["tag"] == "grid"}) < len(spt.grid_settings()):
+        sys.exit("the grid is not complete: run --grid first")
+    choice = summarise(rows)
+    settings = spt.RunSettings(choice.epochs, choice.learning_rate, spt.FINAL_SEED)
+    target = MODELS / "final"
+    if target.exists():
+        sys.exit(f"{target} exists: move or delete it, a final run is made once")
+    row = one_run(settings, train, scorer, keep=target, mlflow_on=mlflow_on, tag="final")
+    seeds = agreements_by_setting(rows)[(choice.epochs, choice.learning_rate)]
+    rows.append(row)
+    save_results(rows)
+    print(
+        f"\nfinal run ({settings.name}): validation agreement {row['validation_agreement']:.3f}; "
+        f"the three seeds of the same setting: mean {statistics.fmean(seeds):.3f}, "
+        f"spread (sd) {statistics.stdev(seeds):.3f}\nmodel: {target} (not published, not scored on the gold)"
+    )
+
+
+def main() -> None:
+    db.env.load_env_file()
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--time-one", action="store_true")
+    mode.add_argument("--grid", action="store_true")
+    mode.add_argument("--final", action="store_true")
+    parser.add_argument(
+        "--mlflow", action="store_true", help="log every run to the local MLflow store"
+    )
+    args = parser.parse_args()
+    if not torch.cuda.is_available():
+        print("no CUDA device: the runs will be slow", file=sys.stderr)
+    conn = connect_source()
+    marked, replay, _report = build_data(conn)
+    train = [*marked.train, *replay]
+    scorer = validation_scorer(marked.validation)
+    if args.time_one:
+        run_timing(train, scorer, args.mlflow)
+    elif args.grid:
+        run_grid(train, scorer, args.mlflow)
+    else:
+        run_final(train, scorer, args.mlflow)
+
+
+if __name__ == "__main__":
+    main()
