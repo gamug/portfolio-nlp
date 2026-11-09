@@ -342,7 +342,40 @@ TRICKY_NAMES = [
     Company("XYZ", "Block, Inc.", "Financials", "Transaction Processing"),
     Company("WSM", "Williams-Sonoma, Inc.", "Consumer Discretionary", "Home Furnishings"),
     Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
+    Company("BF.B", "Brown\u2013Forman Corporation", "Consumer Staples", "Distillers"),
 ]
+#: Names the matcher does not find today (a full stop between initials, an exclamation mark, an
+#: accent): the ten companies of PLAN D38's open decision. Strict, so the day one is fixed the
+#: marker has to go.
+NOT_FOUND_BY_NAME = [
+    Company("JBHT", "J.B. Hunt Transport Services, Inc.", "Industrials", "Trucking"),
+    Company("USB", "U.S. Bancorp", "Financials", "Banks"),
+    Company("YUM", "Yum! Brands, Inc.", "Consumer Discretionary", "Restaurants"),
+    Company("AOS", "A. O. Smith Corporation", "Industrials", "Building Products"),
+    Company("CHRW", "C.H. Robinson Worldwide, Inc.", "Industrials", "Logistics"),
+    Company("DHI", "D. R. Horton, Inc.", "Consumer Discretionary", "Homebuilding"),
+    Company("SJM", "J.M. Smucker Company (The)", "Consumer Staples", "Packaged Foods"),
+    Company("TROW", "T. Rowe Price Group, Inc.", "Financials", "Asset Management"),
+    Company("WRB", "W. R. Berkley Corporation", "Financials", "Insurance"),
+    Company("EL", "Est\u00e9e Lauder Companies (The)", "Consumer Staples", "Personal Care"),
+]
+
+
+@pytest.mark.xfail(
+    strict=True, reason="PLAN D38: a name with initials, '!' or an accent is not read"
+)
+@pytest.mark.parametrize("company", NOT_FOUND_BY_NAME, ids=lambda c: c.ticker)
+def test_the_names_the_matcher_does_not_read_yet(company: Company) -> None:
+    resolver = CompanyResolver([company])
+    assert resolver.resolve(f"{company.name} rose.", skip_attribution=False)[company.ticker] >= 1
+
+
+def test_a_name_may_hold_an_apostrophe_but_not_belong_to_the_next_word() -> None:
+    """The apostrophe gap is deliberate ("Casey's"); a possessive after the name is not the name."""
+    resolver = CompanyResolver(TRICKY_NAMES)
+    assert resolver.resolve("Block, Inc.'s shares rose.", skip_attribution=False)["XYZ"] == 1
+    universe = CompanyResolver(COMMON_WORDS)
+    assert universe.resolve("Morgan's Stanley said so.", skip_attribution=False)["MS"] == 0
 
 
 @pytest.mark.parametrize("company", TRICKY_NAMES, ids=lambda c: c.ticker)
@@ -378,3 +411,97 @@ def test_the_name_of_a_company_with_an_apostrophe_is_read_without_its_alias() ->
 def test_a_name_is_on_one_line_and_in_one_sentence(text: str, ticker: str) -> None:
     resolver = CompanyResolver(COMMON_WORDS)
     assert resolver.resolve(text, skip_attribution=False)[ticker] == 0
+
+
+EXTRA_WORDS = [
+    Company("ADP", "Automatic Data Processing, Inc.", "Industrials", "Human Resources"),
+    Company("KHC", "Kraft Heinz Company (The)", "Consumer Staples", "Packaged Foods"),
+    Company("ROK", "Rockwell Automation, Inc.", "Industrials", "Electrical Equipment"),
+    Company("D", "Dominion Energy, Inc.", "Utilities", "Electric Utilities"),
+    Company("WBD", "Warner Bros. Discovery, Inc.", "Communication Services", "Entertainment"),
+    Company("EIX", "Edison International", "Utilities", "Electric Utilities"),
+    Company("ISRG", "Intuitive Surgical, Inc.", "Health Care", "Equipment"),
+    Company("ABT", "Abbott Laboratories", "Health Care", "Equipment"),
+    Company("HPE", "Hewlett Packard Enterprise Company", "Information Technology", "Hardware"),
+    Company("WDAY", "Workday, Inc.", "Information Technology", "Software"),
+    Company("BKNG", "Booking Holdings Inc.", "Consumer Discretionary", "Hotels"),
+    Company("V", "Visa Inc.", "Financials", "Transaction Processing"),
+    Company("FLEX", "Flex Ltd.", "Information Technology", "Electronic Manufacturing"),
+    Company("CTSH", "Cognizant", "Information Technology", "IT"),
+    Company("COHR", "Coherent Corp.", "Information Technology", "Electronic Components"),
+    Company("MCO", "Moody's Corporation", "Financials", "Financial Exchanges & Data"),
+    Company("LOW", "Lowe's Companies, Inc.", "Consumer Discretionary", "Home Improvement"),
+    Company("DIS", "Walt Disney Company (The)", "Communication Services", "Entertainment"),
+    Company("ESS", "Essex Property Trust, Inc.", "Real Estate", "Residential REITs"),
+    Company("EMR", "Emerson Electric Company", "Industrials", "Electrical Equipment"),
+    Company("MRSH", "Marsh McLennan Companies, Inc.", "Financials", "Insurance Brokers"),
+    Company("AVY", "Avery Dennison Corporation", "Materials", "Packaging"),
+    Company("TYL", "Tyler Technologies, Inc.", "Information Technology", "Software"),
+    Company("BMY", "Bristol-Myers Squibb Company", "Health Care", "Pharmaceuticals"),
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "ticker"),
+    [
+        ("Automatic features of retirement plans are sticky.", "ADP"),
+        ("Analyst Bryan Kraft said so.", "KHC"),
+        ("A Rockwell Collins facility was audited.", "ROK"),
+        ("Toronto-Dominion Bank and Toronto Dominion.", "D"),
+        ("Sen. Mark Warner and the Time Warner magazine.", "WBD"),
+        ("The Edison platform helps doctors.", "EIX"),
+        ("Intuitive Machines surged.", "ISRG"),
+        ("Mike Abbott is a partner.", "ABT"),
+        ("Hewlett-Packard bought Opsware.", "HPE"),
+        ("Before the workday, I read the news.", "WDAY"),
+        ("Investors are booking profits.", "BKNG"),
+        ("He secured an H-2B visa for a new hire.", "V"),
+        ("The firm can flex its pricing power.", "FLEX"),
+        ("I'm cognizant of the fact that rates rose.", "CTSH"),
+        ("A coherent stance on rates.", "COHR"),
+        ("David Moody, a dispatcher, said so.", "MCO"),
+        ("RBA Governor Philip Lowe said so.", "LOW"),
+        ("Walt T. from Pennsylvania wrote in.", "DIS"),
+        ("Researchers from the University of Essex found flaws.", "ESS"),
+        ("Author Rick Emerson wrote it.", "EMR"),
+        ("Ruby Princess passenger Mr. Marsh was selected.", "MRSH"),
+        ("Avery Brewing makes beer.", "AVY"),
+        ("The brothers Cameron and Tyler Winklevoss sued.", "TYL"),
+        ("3070 Bristol Pike, Suite 112, Bensalem.", "BMY"),
+    ],
+)
+def test_words_that_the_samples_showed_to_be_taken_for_a_company(text: str, ticker: str) -> None:
+    assert CompanyResolver(EXTRA_WORDS).resolve(text, skip_attribution=False)[ticker] == 0
+
+
+@pytest.mark.parametrize(
+    ("text", "ticker"),
+    [
+        ("Automatic Data Processing rose.", "ADP"),
+        ("Kraft Heinz rose.", "KHC"),
+        ("Rockwell Automation rose.", "ROK"),
+        ("Dominion Energy rose.", "D"),
+        ("Warner Bros. Discovery rose.", "WBD"),
+        ("Edison International rose.", "EIX"),
+        ("Intuitive Surgical rose.", "ISRG"),
+        ("Abbott Laboratories rose.", "ABT"),
+        ("Hewlett Packard Enterprise rose.", "HPE"),
+        ("Workday rose.", "WDAY"),
+        ("Booking Holdings rose.", "BKNG"),
+        ("Visa rose.", "V"),
+        ("Flex rose.", "FLEX"),
+        ("Cognizant rose.", "CTSH"),
+        ("Coherent rose.", "COHR"),
+        ("Moody's rose.", "MCO"),
+        ("Lowe\u2019s rose.", "LOW"),
+        ("Walt Disney rose.", "DIS"),
+        ("Essex Property Trust rose.", "ESS"),
+        ("Emerson Electric rose.", "EMR"),
+        ("Marsh McLennan rose.", "MRSH"),
+        ("Avery Dennison rose.", "AVY"),
+        ("Tyler Technologies rose.", "TYL"),
+        ("Bristol-Myers Squibb rose.", "BMY"),
+    ],
+)
+def test_and_the_company_named_properly_still_counts(text: str, ticker: str) -> None:
+    assert CompanyResolver(EXTRA_WORDS).resolve(text, skip_attribution=False)[ticker] == 1

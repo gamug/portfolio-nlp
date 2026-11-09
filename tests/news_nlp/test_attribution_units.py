@@ -358,3 +358,52 @@ def test_a_dash_inside_a_sentence_and_a_speaker_label_are_not_headers() -> None:
     assert not au.starts_a_sentence("") and not au.starts_a_sentence("   ")  # nothing starts
     # a header whose text starts with a capital is still a header
     assert au.header_owners("Apple \u2014 Shares rose after the report.", RESOLVER) == ("AAPL",)
+
+
+COMMON = CompanyResolver(
+    [
+        Company("ROST", "Ross Stores, Inc.", "Consumer Discretionary", "Apparel Retail"),
+        Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
+        Company("XYZ", "Block, Inc.", "Financials", "Transaction Processing"),
+        Company("TRV", "Travelers Companies, Inc. (The)", "Financials", "Insurance"),
+        Company("WFC", "Wells Fargo & Company", "Financials", "Banks"),
+        Company("FRT", "Federal Realty Investment Trust", "Real Estate", "Retail REITs"),
+    ]
+)
+
+
+def _spans(body: str, resolver: au.GuardedResolver) -> list[tuple[str, str]]:
+    return [(body[a:b], t) for a, b, t in resolver.mention_spans(body)]
+
+
+def test_the_guard_does_not_take_a_one_word_name_that_is_a_surname_or_a_noun_for_a_company() -> (
+    None
+):
+    """The names Williams, Block and Travelers are names, not first words, and still need the full
+    name, the short form or a ticker form somewhere in the body (PR #155, round 3)."""
+    body = "Commerce Secretary Wilbur Ross and Williams said it will block trade. Wells reported."
+    guarded = au.GuardedResolver(COMMON, body)
+    assert _spans(body, guarded) == []  # raw spans: Ross, Williams, Wells
+    assert set(guarded.resolve(body)) == set()
+    body = "Travelers fell. A Block of shares and Block the exit. Doug Parker said so."
+    guarded = au.GuardedResolver(COMMON, body)
+    assert _spans(body, guarded) == []
+    assert guarded.resolve(body) == {}
+
+
+def test_the_guard_keeps_them_once_the_body_names_the_company_otherwise() -> None:
+    for body, ticker in (
+        ("Williams Companies rose. Williams said so.", "WMB"),
+        ("Block, Inc. rose. Block said so.", "XYZ"),
+        ("Travelers (NYSE: TRV) fell. Travelers said so.", "TRV"),
+        ("Ross Stores rose. Ross said so.", "ROST"),
+        ("Wells Fargo & Company rose. Wells said so.", "WFC"),
+    ):
+        guarded = au.GuardedResolver(COMMON, body)
+        assert ticker in {t for _, _, t in guarded.mention_spans(body)}, body
+        assert guarded.resolve(body)[ticker] >= 2, body
+
+
+def test_the_guard_counts_the_short_form_of_a_name_as_a_mention_in_itself() -> None:
+    body = "Federal Realty rose on Monday."
+    assert _spans(body, au.GuardedResolver(COMMON, body)) == [("Federal Realty", "FRT")]
