@@ -527,6 +527,75 @@ def weighted_rows(
     return rows, populations
 
 
+def print_weighted(
+    rows: list[dict[str, str]], populations: dict[str, int], readings: dict[str, Any]
+) -> None:
+    """The weighted figures of each reading with D32's verdict on each (the bar for the cut), then the paired
+    weighted gain of the final run over the pinned model as text with the gold's verdict (D35's pin rule).
+    The two tests are different: a model can pin and still be below the bar."""
+    for name in readings:
+        figures = rep.weighted_figures(rows, populations, name)
+        print(f"  {name}: " + "; ".join(f"{k} {v}" for k, v in figures.items()))
+        if name == "final":
+            verdicts = rep.bar_verdicts(figures)
+            print(
+                "    D32's bar on the final run (agreement 80%, negative precision and recall 70%): "
+                + "; ".join(f"{k} {v}" for k, v in verdicts.items())
+            )
+    gains = rep.weighted_gains(rows, populations, "final", "pinned_text")
+    print("  paired weighted gain of the final run over the pinned model as text (D35's pin rule):")
+    for metric, (gain, verdict) in gains.items():
+        print(f"    {metric}: {gain} -> {verdict}")
+    gain_verdicts = {m: v for m, (_g, v) in gains.items()}
+    pins = gain_verdicts["agreement"] == "better" and "not better" not in (
+        gain_verdicts["negative precision"],
+        gain_verdicts["negative recall"],
+    )
+    print(
+        "  the pin rule on these figures (D35 (3) and (4): the agreement gain `better`, and neither the "
+        f"negative precision nor the recall gain `not better`): {'would pin' if pins else 'would not pin'} "
+        "(validation; the rule is applied once, to the gold)"
+    )
+
+
+def print_setting_ranking(marks: list[dict[str, str]]) -> None:
+    """The grid chose by the raw validation agreement; here the nine settings by the weighted agreement (mean of
+    their seeds, from the predictions kept), and whether D35's rule on it would choose the same. Nothing is
+    re-picked: this is for the owner to know before T-148c4."""
+    by: dict[tuple[int, float], list[float]] = {}
+    if not any(r["tag"] == "grid" for r in load_results()[1]):
+        print("  (no grid rows: the weighted ranking of the settings is not made)")
+        return
+    for row in load_results()[1]:
+        if row["tag"] != "grid":
+            continue
+        predictions = read_predictions(row["name"])
+        if predictions is None:
+            print(
+                f"  (the weighted ranking of the settings needs the predictions of {row['name']})"
+            )
+            return
+        rows, populations = weighted_rows(marks, {"run": predictions})
+        s = row["settings"]
+        by.setdefault((s["epochs"], s["learning_rate"]), []).append(
+            rep.weighted_agreement(rows, populations, "run")
+        )
+    raw = spt.choose_settings(agreements_by_setting(load_results()[1]))
+    weighted = spt.choose_settings(by)
+    print(
+        "  weighted agreement by setting (mean of the seeds): "
+        + "; ".join(
+            f"{e} ep {lr:g}: {statistics.fmean(v):.3f}" for (e, lr), v in sorted(by.items())
+        )
+    )
+    same = (raw.epochs, raw.learning_rate) == (weighted.epochs, weighted.learning_rate)
+    print(
+        f"  the grid chose {raw.epochs} epochs, lr {raw.learning_rate:g} (raw agreement); D35's rule on the "
+        f"weighted agreement would choose {weighted.epochs} epochs, lr {weighted.learning_rate:g}: "
+        f"{'the same' if same else 'DIFFERENT, a question for the owner (nothing is re-picked)'}"
+    )
+
+
 def run_report(*, required: bool = True) -> None:
     """The final run against the pinned model's two readings, from the predictions kept. **Weighted** (the
     figures the bar and D35's pin rule are read in: agreement, negative precision and recall, and their
@@ -560,7 +629,8 @@ def run_report(*, required: bool = True) -> None:
         "pinned_text": base["text_only"] or [],
         "pinned_pair": base["pair"] or [],
     }
-    rows, populations = weighted_rows(read_csv(MARKS), readings)
+    marks = read_csv(MARKS)
+    rows, populations = weighted_rows(marks, readings)
     drawn = sum(r["pinned_text"] == r["stratum"] for r in rows)
     print(
         f"\nWEIGHTED (each text weighs pool size / drawn of its stratum; strata = the class the pinned model "
@@ -569,14 +639,14 @@ def run_report(*, required: bool = True) -> None:
         f"are out of the slice and stay with the text-only model, which the gold includes.\n"
         f"(check: the pinned model as text agrees with its stored draw prediction on {drawn} of {len(rows)} texts)"
     )
-    for name in readings:
-        figures = rep.weighted_figures(rows, populations, name)
-        print(f"  {name}: " + "; ".join(f"{k} {v}" for k, v in figures.items()))
-    print("  paired weighted gain of the final run over the pinned model as text (D35's pin rule):")
-    for metric, (gain, verdict) in rep.weighted_gains(
-        rows, populations, "final", "pinned_text"
-    ).items():
-        print(f"    {metric}: {gain} -> {verdict}")
+    if drawn != len(rows):
+        print(
+            f"WARNING: the baseline is not the reading the strata were drawn from ({len(rows) - drawn} texts "
+            "differ): the weighted figures, the gain and the verdicts are withheld; the raw description follows"
+        )
+    else:
+        print_weighted(rows, populations, readings)
+        print_setting_ranking(marks)
     print("\n" + "\n".join(rep.report_lines(f"final ({final_row['name']})", *_columns(final))))
     print(
         "RAW is the description of this draw, not an estimate for the population; negatives are few"

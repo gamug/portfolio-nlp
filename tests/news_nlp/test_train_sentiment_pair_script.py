@@ -410,7 +410,9 @@ def _report_fixture(
             for k, e, p in zip(keys, expected, predicted, strict=True)
         ]
 
-    CMD.write_predictions("baseline_text_only", predictions(["neutral"] * 8))
+    CMD.write_predictions(
+        "baseline_text_only", predictions(["negative"] * 4 + ["positive"] * 4)
+    )  # the strata the texts were drawn from: the pinned model's own prediction
     CMD.write_predictions("baseline_pair", predictions(["positive"] * 8))
     CMD.write_predictions("e2_lr3e-05_s4", predictions([*expected[:6], "neutral", "neutral"]))
     CMD.save_results(
@@ -442,12 +444,17 @@ def test_the_report_gives_the_weighted_figures_and_gain_first_and_the_raw_descri
         in out
     )
     assert "negative precision" in out and "-> " in out  # the gold's verdict of the weighted gain
+    assert "D32's bar on the final run" in out
+    assert "agreement not decided; negative precision pass" in out  # 8 texts: wide intervals
+    assert "the pin rule on these figures" in out
+    assert "(validation; the rule is applied once, to the gold)" in out
+    assert "agrees with its stored draw prediction on 8 of 8 texts" in out
     assert "final (e2_lr3e-05_s4), RAW on the 8 texts: agreement 6/8" in out
     assert (
-        "final against pinned text_only, RAW: both right 2, only the final 4, only the pinned 0, neither 2"
+        "final against pinned text_only, RAW: both right 2, only the final 4, only the pinned 1, neither 1"
         in out
     )
-    assert "exact McNemar p = 0.1250" in out and "no verdict" in out
+    assert "exact McNemar p = 0.3750" in out and "no verdict" in out
     assert (
         "better" not in out.split("RAW is the description")[1]
     )  # no verdict word for the raw gain
@@ -528,3 +535,82 @@ def test_the_baseline_and_the_report_never_open_the_source(monkeypatch: pytest.M
         _argv(monkeypatch, mode)
         CMD.main()
     assert called == ["baseline", "report"]
+
+
+def test_a_baseline_that_is_not_the_reading_the_strata_came_from_withholds_the_weighted_figures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _report_fixture(tmp_path, monkeypatch)
+    keys = [f"k{i}" for i in range(8)]
+    other = [{"key": k, "expected": "positive", "predicted": "neutral"} for k in keys]
+    CMD.write_predictions("baseline_text_only", other)  # not the stored draw prediction
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert "agrees with its stored draw prediction on 0 of 8 texts" in out
+    assert (
+        "WARNING: the baseline is not the reading the strata were drawn from (8 texts differ)"
+        in out
+    )
+    assert "paired weighted gain" not in out and "D32's bar" not in out
+    assert "RAW on the 8 texts" in out  # the raw description still follows
+
+
+def _grid_with_predictions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, good_for: tuple[int, float]
+) -> None:
+    """Grid rows for two settings, three seeds each, with predictions: the setting *good_for* reads all 8 texts
+    as the owner marked, the other one reads none of them so."""
+    keys, expected = _report_fixture(tmp_path, monkeypatch)
+    rows = []
+    for epochs, lr in ((2, 1e-5), (3, 2e-5)):
+        for seed in (1, 2, 3):
+            name = f"e{epochs}_lr{lr:g}_s{seed}"
+            right = (epochs, lr) == good_for
+            CMD.write_predictions(
+                name,
+                [
+                    {"key": k, "expected": e, "predicted": e if right else "neutral"}
+                    for k, e in zip(keys, expected, strict=True)
+                ],
+            )
+            rows.append(
+                {
+                    "name": name,
+                    "tag": "grid",
+                    "validation_agreement": 1.0 if right else 0.25,
+                    "settings": {"epochs": epochs, "learning_rate": lr, "seed": seed},
+                }
+            )
+    final = {"name": "e2_lr3e-05_s4", "tag": "final", "code": "c1"}
+    CMD.save_results([*rows, final], {"fingerprint": "f"})
+
+
+def test_the_report_says_whether_the_weighted_agreement_would_choose_the_same_setting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _grid_with_predictions(tmp_path, monkeypatch, good_for=(2, 1e-5))
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert (
+        "weighted agreement by setting (mean of the seeds): 2 ep 1e-05: 1.000; 3 ep 2e-05: 0.450"
+        in out
+    )
+    assert "the grid chose 2 epochs, lr 1e-05 (raw agreement)" in out and ": the same" in out
+    # the raw agreements of the rows say one thing, the predictions on disk another: the ranking differs
+    _grid_with_predictions(tmp_path, monkeypatch, good_for=(3, 2e-5))
+    rows = CMD.load_results()[1]
+    for row in rows:
+        if row["tag"] == "grid":
+            row["validation_agreement"] = 1.0 if row["settings"]["epochs"] == 2 else 0.25
+    CMD.save_results(rows, {"fingerprint": "f"})
+    capsys.readouterr()
+    CMD.run_report()
+    out = capsys.readouterr().out
+    assert "the grid chose 2 epochs, lr 1e-05" in out
+    assert (
+        "would choose 3 epochs, lr 2e-05: DIFFERENT, a question for the owner (nothing is re-picked)"
+        in out
+    )
+    (tmp_path / "out" / "predictions" / "e3_lr2e-05_s1.csv").unlink()
+    CMD.run_report()
+    assert "needs the predictions of e3_lr2e-05_s1" in capsys.readouterr().out

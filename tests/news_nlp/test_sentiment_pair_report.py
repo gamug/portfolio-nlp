@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 import sentiment_pair_report as rep
@@ -88,3 +90,29 @@ def test_the_weighted_gain_is_paired_and_comes_with_the_gold_verdict() -> None:
     assert gain.point == 0.0 and verdict == "not decided"
     same = rep.weighted_gains(rows, populations, "good", "good")
     assert all(g.point == 0.0 and v == "not decided" for g, v in same.values())
+
+
+def test_d32_verdicts_are_the_bars_judge_of_each_figure_and_a_better_model_can_still_fail_them() -> (
+    None
+):
+    from news_nlp.gold_metrics import Figure  # noqa: PLC0415
+
+    figures = {
+        "agreement": Figure(0.666, 0.569, 0.763),  # wholly below 80%
+        "negative precision": Figure(0.46, 0.278, 0.652),  # wholly below 70%
+        "negative recall": Figure(0.892, 0.719, 1.0),  # wholly at or above 70%
+    }
+    assert rep.bar_verdicts(figures) == {
+        "agreement": "fail",
+        "negative precision": "fail",
+        "negative recall": "pass",
+    }
+    figures["negative recall"] = Figure(0.8, 0.6, 0.95)  # straddles the bar
+    assert rep.bar_verdicts(figures)["negative recall"] == "not decided"
+
+
+def test_the_weighted_agreement_of_a_run_weighs_its_strata_by_the_pool() -> None:
+    rows, populations = _rows()
+    assert rep.weighted_agreement(rows, populations, "good") == 1.0
+    assert rep.weighted_agreement(rows, populations, "bad") == pytest.approx(0.06)
+    assert math.isnan(rep.weighted_agreement([], {}, "good"))

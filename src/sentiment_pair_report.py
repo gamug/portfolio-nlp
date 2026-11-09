@@ -21,6 +21,8 @@ from news_nlp import gold_metrics
 from sentiment_pair_train import LABEL2ID
 
 METRICS = {"agreement": "agreement", "negative precision": "precision", "negative recall": "recall"}
+#: D32's bar for the cut's sentiment (not the pin rule: that one is a paired gain, ``weighted_gains``).
+BARS = {"agreement": 0.80, "negative precision": 0.70, "negative recall": 0.70}
 
 
 # --- raw, of the 83 -------------------------------------------------------------------------------
@@ -140,3 +142,25 @@ def weighted_gains(
         )
         gains[name] = (gain, gold_metrics.gain_verdict(gain))
     return gains
+
+
+def bar_verdicts(figures: Mapping[str, gold_metrics.Figure]) -> dict[str, str]:
+    """D32's verdict on each weighted figure (``Figure.judge``: ``pass`` when the whole interval is at or above
+    the bar, ``fail`` when it is wholly below, else ``not decided``). It is a different test from the pin
+    rule: a model can be better than the pinned one (the pin rule) and still below the bar (D32)."""
+    return {name: figures[name].judge(bar) for name, bar in BARS.items()}
+
+
+def weighted_agreement(
+    rows: Sequence[Mapping[str, str]], populations: Mapping[str, int], column: str
+) -> float:
+    """The point estimate of the weighted agreement of the reading in *column* (no interval: for comparing
+    the runs of the grid)."""
+    strata: dict[str, list[Mapping[str, str]]] = {}
+    for row in rows:
+        strata.setdefault(row["stratum"], []).append(row)
+    total = sum(populations[k] for k in strata)
+    right = sum(
+        populations[k] * sum(r["gold"] == r[column] for r in v) / len(v) for k, v in strata.items()
+    )
+    return right / total if total else math.nan
