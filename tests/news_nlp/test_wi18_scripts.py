@@ -980,11 +980,10 @@ def test_exempt_rows_are_the_companies_named_only_in_the_footer_or_by_a_common_w
     for row in rows:
         by_company.setdefault(row["ticker"], []).append(row["extractor"])
     # Microsoft is in the footer only: no units extractor is asked; Bloom is a person: not the guarded
-    assert by_company == {"MSFT": ["units", "units2", "units3"], "BE": ["units2", "units3"]}
+    assert by_company == {"MSFT": ["units", "units2", "units3"]}
     why = {r["ticker"]: (r["why"], r["extractors"]) for r in reading}
-    assert why == {"MSFT": ("footer", "units|units2|units3"), "BE": ("guard", "units2|units3")}
-    line = next(r["text"] for r in reading if r["ticker"] == "BE")
-    assert "Michael Bloom" in line and not any(r["spanish_text"] for r in reading)
+    assert why == {"MSFT": ("footer", "units|units2|units3")}
+    assert not any(r["spanish_text"] for r in reading)
 
 
 def test_the_exempt_file_carries_the_rules_and_the_reading_is_validated(tmp_path: Path) -> None:

@@ -132,8 +132,20 @@ _ALIAS_STOP = frozenset(
         "western",
         "charles",
         "western",
+        "federal",
+        "state",
+        "union",
+        "trade",
+        "west",
+        "home",
+        "take",
+        "universal",
     ]
 )
+#: Names and first-word aliases that are also surnames, first names or everyday nouns ("Wilbur
+#: Ross", "block trade", "Williams said"): a mention counts only when the same text also names the
+#: company some other way (its full name or a ticker form). Lower case.
+_CORROBORATED = frozenset(["bloom", "ross", "jack", "martin", "block", "travelers", "williams"])
 _EXCHANGES = r"(?:NYSE|NASDAQ|Nasdaq|NYSEARCA|NYSE American|AMEX|BATS|Cboe)"
 #: Keywords of a body that names no company (whole words, case-insensitive).
 MARKET_TERMS = (
@@ -340,6 +352,22 @@ class CompanyResolver:
             found.append((match, self._by_ticker[next(g for g in match.groups() if g).upper()]))
         return found
 
+    @staticmethod
+    def _corroborated(
+        found: list[tuple[re.Match[str], str]],
+    ) -> list[tuple[re.Match[str], str]]:
+        """*found* without the ``_CORROBORATED`` words of a company the text names no other way.
+        Counting is per body, so this is applied here and not in :meth:`_matches`: the spans the
+        attribution masks place are of single sentences, where the full name is often absent (the
+        guard of ``attribution_units`` decides those with the whole body in hand)."""
+
+        def weak(match: re.Match[str]) -> bool:
+            text = match.group(0)
+            return text.lower() in _CORROBORATED or normalize_name(text) in _CORROBORATED
+
+        firm = {ticker for match, ticker in found if not weak(match)}
+        return [(match, ticker) for match, ticker in found if ticker in firm or not weak(match)]
+
     def _text_mentions(
         self, text: str, skip_attribution: bool
     ) -> tuple[Counter[str], Counter[str]]:
@@ -347,7 +375,7 @@ class CompanyResolver:
         the source of an opinion when *skip_attribution*."""
         plain: Counter[str] = Counter()
         quoted: Counter[str] = Counter()
-        for match, ticker in self._matches(text):
+        for match, ticker in self._corroborated(self._matches(text)):
             is_quoted = skip_attribution and _attributed(text, match)
             (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted

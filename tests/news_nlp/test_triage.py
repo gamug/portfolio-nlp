@@ -194,3 +194,46 @@ def test_subjects_drop_passing_mentions_unless_in_the_title() -> None:
 def test_empty_universe_names_nothing() -> None:
     resolver = CompanyResolver([])
     assert not resolver.resolve("Apple and Microsoft rose, $AAPL (NYSE: MSFT)")
+
+
+COMMON_WORDS = [
+    Company("FRT", "Federal Realty Investment Trust", "Real Estate", "Retail REITs"),
+    Company("STT", "State Street Corporation", "Financials", "Asset Management"),
+    Company("UNP", "Union Pacific Corporation", "Industrials", "Rail"),
+    Company("BE", "Bloom Energy Corporation", "Industrials", "Electrical Equipment"),
+    Company("ROST", "Ross Stores, Inc.", "Consumer Discretionary", "Apparel Retail"),
+    Company("XYZ", "Block, Inc.", "Financials", "Transaction Processing"),
+    Company("WMB", "Williams Companies, Inc.", "Energy", "Pipelines"),
+    Company("META", "Meta Platforms, Inc.", "Communication Services", "Interactive Media"),
+]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The Federal Reserve held rates while the State Department and the Union talked.",
+        "Commerce Secretary Wilbur Ross said the Home Depot of trade deals was a block trade.",
+        "Travelers and Williams said the West would Take a Trade deal.",
+        "Jack and Martin took Universal Studios to Bloom, a florist.",
+    ],
+)
+def test_common_words_are_not_companies(text: str) -> None:
+    assert CompanyResolver(COMMON_WORDS).resolve(text, skip_attribution=False) == Counter()
+
+
+def test_surname_names_count_only_when_corroborated() -> None:
+    resolver = CompanyResolver(COMMON_WORDS)
+    assert resolver.resolve("Ross Stores rose. Ross said so.", skip_attribution=False) == Counter(
+        {"ROST": 2}
+    )
+    assert resolver.resolve("Bloom Energy rose; Bloom added.", skip_attribution=False) == Counter(
+        {"BE": 2}
+    )
+    assert resolver.resolve("Block (NYSE: XYZ) said so.", skip_attribution=False)["XYZ"] == 2
+    assert resolver.resolve("Williams WMB rose.", skip_attribution=False)["WMB"] == 2
+
+
+def test_distinctive_first_word_aliases_still_count() -> None:
+    assert CompanyResolver(COMMON_WORDS).resolve("Meta fell.", skip_attribution=False) == Counter(
+        {"META": 1}
+    )

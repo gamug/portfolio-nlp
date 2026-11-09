@@ -175,7 +175,7 @@ def test_the_guard_drops_a_company_named_only_by_the_first_word_of_its_name() ->
     body = "CNBC's Michael Bloom said Apple rose. The Union Square funds bought Microsoft."
     plain = {t for _, _, t in RESOLVER.mention_spans(body)}
     guarded = au.GuardedResolver(RESOLVER, body)
-    assert {"BE", "UNP"} <= plain  # the resolver the scope rules use takes both for companies
+    assert "BE" in plain and "UNP" not in plain  # "Union" is a stop word; "Bloom" is the guard's
     assert {t for _, _, t in guarded.mention_spans(body)} == {"AAPL", "MSFT"}
     assert set(guarded.resolve(body)) == {"AAPL", "MSFT"}
 
@@ -227,7 +227,7 @@ def test_units2_gives_a_header_line_to_its_names_and_ignores_a_common_word() -> 
     two = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units2")
     one = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units")
     assert "NSC" in one and "NSC" not in two  # the line is about Canadian Pacific, not Norfolk
-    assert "BE" in one and "BE" not in two  # "Bloom" is a person
+    assert "BE" not in one and "BE" not in two  # "Bloom" is a person: not a company
     assert two["AAPL"].startswith("Apple \u2014 Shares rose after Michael Bloom said so.")
 
 
