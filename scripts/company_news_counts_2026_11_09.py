@@ -424,7 +424,9 @@ def readme_text(
         "  - A name that is also a common word or a person's name can be counted by mistake.\n"
         "  - Boilerplate, data credits and an analyst's bank named as the source of an opinion are "
         "not counted.\n"
-        "  - The rules were tuned on the owner's 720 tagged articles; this is not an accuracy figure.\n"
+        "  - The rules were tuned on the owner's 720 tagged articles with the stored NER spans, which "
+        "this run does not use: the effect of that has not been measured, and this is not an "
+        "accuracy figure.\n"
         "  - Bodies are the articles the crawl fetched properly, not all the news that exists.\n"
     )
 

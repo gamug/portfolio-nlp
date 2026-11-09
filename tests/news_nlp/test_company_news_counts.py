@@ -473,6 +473,7 @@ def test_the_readme_does_not_call_the_ok_column_the_cut_and_says_what_the_univer
         elapsed=1.0,
     )
     assert "published from 2021-12-31" in text and "not the index's membership on a date" in text
+    assert "which this run does not use" in text
     assert "SMOKE RUN" not in text
 
 
