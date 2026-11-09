@@ -18,9 +18,20 @@ It writes two files to ``--out``, for the S&P universe over every date of the co
   and the bodies it is the **only** subject of (scope ``single``).
 * ``company_news_counts_README.txt``: the date, the corpus each column is of, the totals and the limits.
 
-``--limit N`` reads only the first N rows by ``id`` (a smoke run) and prints how long the full run
-would take at that speed. The stored NER ``ORG`` spans of the first pair of a body help the resolver,
-as in the size script.
+A ``tqdm`` bar shows the rows read, the speed and the time left (``--no-progress`` turns it off for a
+log file). **The run is idempotent and resumable.** The same command can be run again at any time: the
+files are written whole to a temporary name and then renamed (a run that stops leaves the previous
+files, never half of them), and the state (every body read so far and the last row ``id``) is saved to
+``company_news_counts.checkpoint.json`` every 25,000 rows, on Ctrl-C and at the end. Run again, it
+continues after the last row saved, so an interrupted run loses at most 25,000 rows and a run on an
+unchanged store takes seconds and rewrites the same files; after the crawl adds rows it reads only the
+new ones. The checkpoint is used only if the code (this script, the rules) and the company universe
+are the same; otherwise it is ignored and the run starts again. ``--fresh`` ignores it on purpose (use
+it if rows already read may have changed, for example a pair that became ``ok``).
+
+``--limit N`` stops after N rows of this run (a smoke run) and prints how long the whole run would
+take at that speed. The stored NER ``ORG`` spans of the first pair of a body help the resolver, as in
+the size script.
 """
 
 from __future__ import annotations
@@ -28,6 +39,9 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
+import json
+import os
 import sys
 import time
 from collections import Counter, defaultdict
@@ -35,7 +49,9 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from itertools import product
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
+
+from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -46,7 +62,8 @@ import news_nlp as db
 from news_nlp import retag, triage
 from news_nlp.triage import Company, CompanyResolver
 
-PROGRESS_EVERY = 5_000
+CHECKPOINT_EVERY = 25_000
+CHECKPOINT_NAME = "company_news_counts.checkpoint.json"
 CSV_NAME, README_NAME = "company_news_counts.csv", "company_news_counts_README.txt"
 CORPORA = ("ok", "quarantined_only", "all")
 MEASURES = ("naming", "subject", "single")
@@ -103,17 +120,18 @@ def load_universe(conn: db.NewsNlpDatabase) -> list[Company]:
 
 
 def stream_rows(
-    conn: db.NewsNlpDatabase, limit: int
+    conn: db.NewsNlpDatabase, limit: int, after_id: int = 0
 ) -> Iterable[tuple[int, str, str, str, str, str]]:
-    """``(id, fetch_status, ticker, title, body, url)`` of every properly fetched row, by id."""
+    """``(id, fetch_status, ticker, title, body, url)`` of every properly fetched row with an ``id``
+    above *after_id*, by id."""
     yield from conn.execute(
         "SELECT a.id, a.fetch_status, a.ticker, a.title, a.body_text, d.url FROM source.articles a "
         "LEFT JOIN source.discovered_urls d ON d.id = a.id "
         "WHERE a.fetch_status IN ('ok', 'quarantined') "
         "AND a.title IS NOT NULL AND trim(a.title) != '' "
         "AND a.body_text IS NOT NULL AND trim(a.body_text) != '' "
-        "ORDER BY a.id LIMIT ?",
-        (limit or -1,),
+        "AND a.id > ? ORDER BY a.id LIMIT ?",
+        (after_id, limit or -1),
     )
 
 
@@ -123,22 +141,24 @@ def read_corpus(
     terms: list[str],
     spans_of: Callable[[int], list[str]],
     *,
-    total: int = 0,
+    entries: dict[str, Entry] | None = None,
+    after_row: Callable[[int, int], None] = lambda _id, _bodies: None,
 ) -> dict[str, Entry]:
-    """Every unique body of *rows* read once. *spans_of* gives the stored ``ORG`` spans of an article
-    id (a query on the RESULTS store). A body seen again under another pair only
-    updates ``is_ok`` and, as in the size script, is read again with the first headline that reads as
-    a round-up if the first reading was not one."""
-    entries: dict[str, Entry] = {}
-    started = time.time()
-    for n, (article_id, status, _ticker, title, body, url) in enumerate(rows, 1):
+    """Every unique body of *rows* read once, added to *entries* (the state of an earlier run, if any).
+    *spans_of* gives the stored ``ORG`` spans of an article id (a query on the RESULTS store).
+    A body seen again under another pair only updates ``is_ok`` and, as in the size script, is read
+    again with the first headline that reads as a round-up if the first reading was not one; both are
+    idempotent, so a row read twice (after a stop) changes nothing. *after_row* is called with the
+    row's id and the number of bodies once the row is fully read: the bar and the checkpoint hang
+    from it."""
+    entries = {} if entries is None else entries
+    for article_id, status, _ticker, title, body, url in rows:
         key = triage.body_hash(body)
         slug = size.slug_of(url)
         entry = entries.get(key)
         headline_roundup = triage.is_roundup(title, slug, 0, 0)
         if entry is None:
-            spans = spans_of(article_id)
-            reading = read_body(resolver, title, body, slug, spans, terms)
+            reading = read_body(resolver, title, body, slug, spans_of(article_id), terms)
             entries[key] = Entry(
                 reading, is_ok=status == "ok", roundup_by_headline=headline_roundup
             )
@@ -149,17 +169,70 @@ def read_corpus(
                 and not entry.roundup_by_headline
                 and entry.reading.scope != "roundup"
             ):
-                spans = spans_of(article_id)
-                entry.reading = read_body(resolver, title, body, slug, spans, terms)
+                entry.reading = read_body(resolver, title, body, slug, spans_of(article_id), terms)
                 entry.roundup_by_headline = True
-        if n % PROGRESS_EVERY == 0:
-            elapsed = time.time() - started
-            rate = n / elapsed
-            eta = f"; of {total:,} rows about {total / rate / 60:,.0f} min in all" if total else ""
-            print(
-                f"  {n:,} rows, {len(entries):,} unique bodies, {rate:,.0f} rows/s{eta}", flush=True
-            )
+        after_row(article_id, len(entries))
     return entries
+
+
+def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    """Write *text* whole: to a temporary name, then renamed over *path* (``os.replace`` is atomic on
+    Windows and Linux), so a stopped run never leaves half a file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding=encoding, newline="")
+    os.replace(temporary, path)
+
+
+def fingerprint(universe: list[Company]) -> str:
+    """What a checkpoint must match: the code (this script, the rules) and the company universe."""
+    names = "\n".join(f"{c.ticker}|{c.name}" for c in sorted(universe))
+    return f"{code_revision()}:{hashlib.sha256(names.encode()).hexdigest()[:12]}"
+
+
+def save_checkpoint(
+    path: Path, print_of: str, last_id: int, rows_read: int, entries: dict[str, Entry]
+) -> None:
+    state: dict[str, Any] = {
+        "fingerprint": print_of,
+        "last_id": last_id,
+        "rows_read": rows_read,
+        "entries": [
+            [
+                key,
+                sorted(e.reading.named),
+                sorted(e.reading.subjects),
+                e.reading.scope,
+                e.is_ok,
+                e.roundup_by_headline,
+            ]
+            for key, e in entries.items()
+        ],
+    }
+    atomic_write_text(path, json.dumps(state, separators=(",", ":")))
+
+
+def load_checkpoint(path: Path, print_of: str) -> tuple[int, int, dict[str, Entry]] | str:
+    """``(last_id, rows_read, entries)`` of a checkpoint that matches *print_of*, or the reason it
+    is not used (a ``str``)."""
+    if not path.exists():
+        return "no checkpoint"
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        saved = state["fingerprint"]
+        if saved != print_of:
+            return f"the code or the universe changed ({saved} -> {print_of})"
+        entries = {
+            key: Entry(
+                BodyReading(frozenset(named), frozenset(subjects), scope),
+                is_ok=is_ok,
+                roundup_by_headline=roundup,
+            )
+            for key, named, subjects, scope, is_ok, roundup in state["entries"]
+        }
+        return int(state["last_id"]), int(state["rows_read"]), entries
+    except (ValueError, KeyError, TypeError) as error:
+        return f"the checkpoint is not readable ({error})"
 
 
 def tally(entries: Iterable[Entry]) -> dict[str, Counter[str]]:
@@ -210,11 +283,11 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     fields = ["ticker", "company", "also_covers", "gics_sector"] + [
         f"{c}_bodies_{m}" for c in CORPORA for m in MEASURES
     ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(rows)
+    atomic_write_text(path, buffer.getvalue(), encoding="utf-8-sig")
 
 
 def readme_text(
@@ -223,6 +296,7 @@ def readme_text(
     *,
     universe_size: int,
     row_total: int,
+    new_rows: int,
     limit: int,
     revision: str,
     elapsed: float,
@@ -231,7 +305,7 @@ def readme_text(
     named_any = sum(bool(e.reading.named) for e in entries.values())
     scopes = Counter(e.reading.scope for e in entries.values())
     smoke = (
-        f"SMOKE RUN: only the first {limit:,} rows by id, not the whole corpus.\n\n"
+        f"SMOKE RUN: stopped after {limit:,} rows of the run, not the whole corpus.\n\n"
         if limit
         else ""
     )
@@ -256,7 +330,8 @@ def readme_text(
         "THE TAG IS NOT USED. A quarantined pair's ticker says nothing about the article, so every "
         "count comes from the text.\n\n"
         "TOTALS OF THIS RUN\n"
-        f"  rows read {row_total:,}; unique bodies {len(entries):,} ({ok:,} with an ok pair, "
+        f"  rows read {row_total:,} ({new_rows:,} in the run that wrote this file, the rest from the "
+        f"checkpoint of earlier runs); unique bodies {len(entries):,} ({ok:,} with an ok pair, "
         f"{len(entries) - ok:,} quarantined only); universe {universe_size} tickers, {len(rows)} rows.\n"
         f"  bodies that name at least one company: {named_any:,}; by rule scope: "
         f"{dict(scopes.most_common())}\n\n"
@@ -276,25 +351,92 @@ def code_revision() -> str:
     return hashlib.sha256(own).hexdigest()[:12]
 
 
+def count_rows(conn: db.NewsNlpDatabase, after_id: int = 0) -> int:
+    """The properly fetched rows (``stream_rows``'s rows) with an ``id`` above *after_id*."""
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
+            "AND title IS NOT NULL AND trim(title) != '' "
+            "AND body_text IS NOT NULL AND trim(body_text) != '' AND id > ?",
+            (after_id,),
+        ).fetchone()[0]
+    )
+
+
+def finish(
+    args: argparse.Namespace,
+    entries: dict[str, Entry],
+    resolver: CompanyResolver,
+    universe: list[Company],
+    rows_total: int,
+    new_rows: int,
+    started: float,
+    everything: int,
+    read_started: float,
+) -> None:
+    """Write the CSV and the README (whole, then renamed) and print the totals and the speed."""
+    rows = count_by_company(entries.values(), resolver, universe)
+    write_csv(args.out / CSV_NAME, rows)
+    elapsed = time.time() - started
+    readme = readme_text(
+        entries,
+        rows,
+        universe_size=len(universe),
+        row_total=rows_total,
+        new_rows=new_rows,
+        limit=args.limit,
+        revision=code_revision(),
+        elapsed=elapsed,
+    )
+    atomic_write_text(args.out / README_NAME, readme)
+    print(f"{len(entries):,} unique bodies, {len(rows)} companies, {elapsed / 60:,.1f} min")
+    if new_rows:
+        rate = new_rows / max(time.time() - read_started, 1e-9)
+        print(
+            f"speed {rate:,.0f} rows/s: the whole corpus ({everything:,} rows) takes about "
+            f"{everything / rate / 60:,.0f} min from the first row"
+        )
+    print(
+        f"written: {args.out / CSV_NAME}, {args.out / README_NAME} and {args.out / CHECKPOINT_NAME}"
+    )
+
+
 def main() -> None:
     db.env.load_env_file()
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
-        "--limit", type=int, default=0, help="read only the first N rows (smoke run)"
+        "--limit", type=int, default=0, help="stop after N rows of this run (smoke)"
     )
     parser.add_argument("--out", type=Path, default=Path("data") / "company_news_counts")
+    parser.add_argument(
+        "--fresh", action="store_true", help="ignore the checkpoint, read everything"
+    )
+    parser.add_argument("--no-progress", action="store_true", help="no tqdm bar (for a log file)")
     args = parser.parse_args()
     started = time.time()
     conn = db.connect_pipeline()
     universe = load_universe(conn)
     resolver = CompanyResolver(universe)
     terms = list(size.sector_terms(universe))
-    total = conn.execute(
-        "SELECT COUNT(*) FROM source.articles WHERE fetch_status IN ('ok', 'quarantined') "
-        "AND title IS NOT NULL AND trim(title) != '' AND body_text IS NOT NULL AND trim(body_text) != ''"
-    ).fetchone()[0]
-    total = min(total, args.limit) if args.limit else total
-    print(f"universe {len(universe)} tickers; {total:,} rows to read", flush=True)
+    checkpoint = args.out / CHECKPOINT_NAME
+    print_of = fingerprint(universe)
+    loaded = "--fresh was given" if args.fresh else load_checkpoint(checkpoint, print_of)
+    if isinstance(loaded, str):
+        print(f"starting from the first row: {loaded}", flush=True)
+        last_id, rows_before, entries = 0, 0, {}
+    else:
+        last_id, rows_before, entries = loaded
+        print(
+            f"resuming after row id {last_id:,}: {rows_before:,} rows and {len(entries):,} bodies "
+            "from the checkpoint",
+            flush=True,
+        )
+    everything = count_rows(conn)
+    to_read = count_rows(conn, last_id)
+    to_read = min(to_read, args.limit) if args.limit else to_read
+    print(
+        f"universe {len(universe)} tickers; {everything:,} rows in the corpus; reading {to_read:,}"
+    )
 
     def spans_of(article_id: int) -> list[str]:
         return [
@@ -305,23 +447,42 @@ def main() -> None:
             )
         ]
 
-    entries = read_corpus(stream_rows(conn, args.limit), resolver, terms, spans_of, total=total)
-    rows = count_by_company(entries.values(), resolver, universe)
-    revision = code_revision()
-    write_csv(args.out / CSV_NAME, rows)
-    elapsed = time.time() - started
-    readme = readme_text(
+    state = {"last": last_id, "n": 0}
+    bar = tqdm(total=to_read, unit="row", desc="reading", disable=args.no_progress)
+
+    def after_row(article_id: int, bodies: int) -> None:
+        state["last"], state["n"] = article_id, state["n"] + 1
+        bar.update(1)
+        if state["n"] % 100 == 0:
+            bar.set_postfix(bodies=f"{bodies:,}")
+        if state["n"] % CHECKPOINT_EVERY == 0:
+            save_checkpoint(checkpoint, print_of, state["last"], rows_before + state["n"], entries)
+
+    read_started = time.time()
+    try:
+        read_corpus(
+            stream_rows(conn, args.limit, last_id),
+            resolver,
+            terms,
+            spans_of,
+            entries=entries,
+            after_row=after_row,
+        )
+    finally:  # Ctrl-C or an error saves what was read, so the next run continues from there
+        bar.close()
+        if state["n"]:
+            save_checkpoint(checkpoint, print_of, state["last"], rows_before + state["n"], entries)
+    finish(
+        args,
         entries,
-        rows,
-        universe_size=len(universe),
-        row_total=total,
-        limit=args.limit,
-        revision=revision,
-        elapsed=elapsed,
+        resolver,
+        universe,
+        rows_before + state["n"],
+        state["n"],
+        started,
+        everything,
+        read_started,
     )
-    (args.out / README_NAME).write_text(readme, encoding="utf-8")
-    print(f"{len(entries):,} unique bodies, {len(rows)} companies, {elapsed / 60:,.1f} min")
-    print(f"written: {args.out / CSV_NAME} and {args.out / README_NAME}")
 
 
 if __name__ == "__main__":
