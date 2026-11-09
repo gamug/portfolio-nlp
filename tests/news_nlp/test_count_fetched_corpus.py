@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sqlite3
 import sys
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
@@ -95,3 +98,19 @@ def test_the_year_of_an_odd_date() -> None:
     assert COUNT.year_of("2023-05-01T10:00:00Z") == "2023"
     assert COUNT.year_of("") == "unknown" and COUNT.year_of(None) == "unknown"
     assert COUNT.year_of("May 2023") == "unknown"
+
+
+def test_main_writes_the_result_as_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The entry point reads through ``connect_pipeline`` and writes ``--out`` (its parent is made)."""
+    conn = _source(tmp_path)
+    monkeypatch.setattr(COUNT.db.env, "load_env_file", lambda: None)
+    monkeypatch.setattr(COUNT.db, "connect_pipeline", lambda: conn)
+    out = tmp_path / "nested" / "count.json"
+    monkeypatch.setattr(sys, "argv", ["count", "--since", "2021-12-31", "--out", str(out)])
+    COUNT.main()
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["since"] == "2021-12-31"
+    assert written["unique_bodies"]["properly_fetched"] == 4
+    assert "whole corpus" in capsys.readouterr().out
