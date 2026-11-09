@@ -450,7 +450,11 @@ def readme_text(
         "  *_bodies_disclosure  OF THE BODIES THAT NAME THE COMPANY, those that name it only by a "
         'ticker form inside a disclosure or a ticker list ("Trader A Owns (INTC)"): named, but not what '
         "the body is about. naming minus disclosure is the count without them. subject and single are "
-        "NOT adjusted for it (the share is under TOTALS)\n\n"
+        "NOT adjusted for it (the share is under TOTALS). It is a READING BY PATTERNS, not an exact "
+        "count: in a hand reading of 80 pairs of one sample 40 of 40 flagged pairs were disclosures "
+        "and 4 of 39 unflagged ticker-only pairs were disclosures it missed (long lists with company "
+        "names between the tickers; some phrasings, added since), so naming minus disclosure is an "
+        "approximation\n\n"
         "THE TAG IS NOT USED. A quarantined pair's ticker says nothing about the article, so every "
         "count comes from the text.\n\n"
         "TOTALS OF THIS RUN\n"

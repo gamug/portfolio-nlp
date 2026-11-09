@@ -493,16 +493,26 @@ def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]
 #: followed by a ticker ("Owns (INTC)", "Owns INTC;"), and a comma list of tickers. Not any use of
 #: the word "owns" ("Disney owns ESPN"), not any run of upper-case words (an all-caps transcript, a
 #: calendar of "ADP, CPI, GDP, ISM, PMI").
+_UPPER = r"(?-i:[A-Z]{1,5}(?:\.[A-Z]{1,4})?)"
+_NEXT = rf"\(?\s*{_UPPER}\b"  # a ticker, in parentheses or not, directly after a phrase
+_PAREN = rf"\(\s*{_UPPER}\s*\)"  # a ticker in parentheses
+_POSITION = r"(?:\s+(?:stock|shares|options?|calls?|puts?|(?:call|put)\s+spreads?))*"
+# Every phrase is anchored to what follows it in a footer: a ticker, directly or in parentheses. A
+# phrase alone is ordinary English ("compensation for", "partners own", "banking services to").
 _GENRE = re.compile(
-    r"\b(?:is|are|has|have)\s+(?:\w+\s+)?(?:long|short)\b(?:\s+\w+){0,3}\s+\(?(?-i:[A-Z]{1,5})\b"
-    r"|\b(?:has|have)\s+(?:an?\s+)?(?:options?\s+)?positions?\s+in\b"
-    r"|\b(?:long|short)\s*:|\boptions?\s+position|\bmarket\s+maker|\bdisclosures?\s*:"
-    r"|\bmakes?\s+a\s+market\s+in\b|\b(?:was|were)\s+an?\s+(?:buyer|seller)s?\s+of\b"
-    r"|\bco-?manager\s+of\s+an\s+offering\b|\bbeneficially\s+owns?\b|\bis\s+a\s+holding\s+of\b"
-    r"|\blong\s+(?:\w+\s+){0,2}(?:calls?|puts?)\b|\bmanaged\s+an\s+offering\b"
-    r"|\binvestment\s+banking\s+(?:services|clients)\b|\bbanking\s+services\s+(?:to|from)\b"
-    r"|\bpartners\s+own\b|\bcompensation\s+(?:from|for)\b|\bco-?manager\s+of\s+(?:an\s+)?offering\b"
-    r"|\bsecurities\s+offering\s+of\b",
+    rf"\b(?:is|are|has|have)\s+(?:\w+\s+)?(?:long|short)\b{_POSITION}\s+{_NEXT}"
+    rf"|\b(?:has|have)\s+(?:an?\s+)?(?:options?\s+)?positions?\s+in\s+{_NEXT}"
+    rf"|\b(?:long|short)\s*:|\boptions?\s+position\s+in\s+{_NEXT}|\bmarket\s+maker\s+(?:in|of)\s+{_NEXT}"
+    rf"|\bdisclosures?\s*:|\bmakes?\s+a\s+market\s+in\s+{_NEXT}|\bcalls?\s+against\s+{_NEXT}"
+    rf"|\b(?:is|are|was|were)\s+an?\s+(?:buyer|seller)s?\s+of\s+{_NEXT}"
+    rf"|\b(?:co-?manager\s+of\s+(?:an\s+)?offering|managed\s+an\s+offering|securities\s+offering)"
+    rf"\s+of\s+(?:securities\s+of\s+)?{_NEXT}"
+    rf"|\bbeneficially\s+owns?\s+\d|\bis\s+a\s+holding\s+of\b[^:.]{{0,40}}:\s*{_NEXT}"
+    rf"|\b{_UPPER}\s+long\s+(?:\w+\s+){{0,2}}(?:calls?|puts?)\b|\blong\s+{_NEXT}\s+(?:calls?|puts?)\b"
+    rf"|\bcompensation\s+(?:in\s+(?:the\s+)?past\s+12\s+months\s+)?(?:from|for\s+(?:services|investment\s+banking))\b[^()]{{0,80}}{_PAREN}"
+    rf"|\b(?:investment\s+banking\s+(?:services|clients)|banking\s+services\s+(?:to|from))\b"
+    rf"[^()]{{0,80}}{_PAREN}"
+    rf"|\bpartners\s+own\s+{_UPPER}\b",
     re.IGNORECASE,
 )
 _OWNS = re.compile(
@@ -511,7 +521,7 @@ _OWNS = re.compile(
     r"|\bowns?\s+\(?(?-i:[A-Z]{1,5})\)?\s*(?:[;,.]|\bcalls?\b|\bputs?\b|\b(?:call|put)\s+spreads?\b|\bleaps?\b)",
     re.IGNORECASE,
 )
-_TICKER = r"(?-i:[A-Z]{1,5}(?:\.[A-Z]{1,4})?)"
+_TICKER = _UPPER
 _TICKER_LIST = re.compile(rf"(?<![\w.])\(?{_TICKER}\)?(?:\s*[,;]\s*\(?{_TICKER}\)?(?![\w])){{4,}}")
 _LIST_TICKERS = 3  # of a list of five or more, at least this many are tickers of the universe
 

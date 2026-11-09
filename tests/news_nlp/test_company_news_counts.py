@@ -142,6 +142,7 @@ def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() 
         "floor",
         "*_bodies_disclosure",
         "Trader A Owns (INTC)",
+        "READING BY PATTERNS",
     ):
         assert phrase in text
 

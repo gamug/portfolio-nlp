@@ -83,10 +83,28 @@ def test_a_ticker_form_in_a_disclosure_or_a_list_is_told_from_one_in_a_sentence(
         "Charlie is funds long GS Charlie is funds long KKR Charlie is funds long JPM",
         "Stuart Frankel & Co and its partners own HPQ Stuart Frankel & Co and its partners own HSPO",
         "Investment Banking Clients Of Citigroup Global Markets (CVS), (DG), (HD), (JCP), (KSS)",
+        "Compensation In Past 12 Months From (EXPE), (AMZN), (YHOO), (GOOG) Are Or Were Clients",
+        "Guy Adami is a buyer of DAL. Steve Grasso is a buyer of SO.",
+        "Jon Najarian owns and has sold calls against (AAPL) Jon Najarian owns and has sold calls",
+        "Cantor Fitzgerald is a market maker of ORCL Cantor Fitzgerald is a market maker of GLD",
     ):
         key = next(
             k
-            for k in ("FSLR", "WMT", "NFLX", "AXP", "YUM", "GLW", "KKR", "HPQ", "CVS")
+            for k in (
+                "FSLR",
+                "WMT",
+                "NFLX",
+                "AXP",
+                "YUM",
+                "GLW",
+                "KKR",
+                "HPQ",
+                "CVS",
+                "EXPE",
+                "DAL",
+                "AAPL",
+                "ORCL",
+            )
             if k in genre
         )
         spot = genre.index(key)
@@ -147,12 +165,21 @@ def test_the_labels_are_rendered_with_their_context_from_source(tmp_path: Path) 
         ("Disney (DIS) owns ESPN and said so.", "DIS"),
         ("Amazon is large. AMZN owns Whole Foods and Zoox.", "AMZN"),
         ("Calendar: ADP, CPI, GDP, ISM, PMI, NFP and AAPL results.", "AAPL"),
+        ("Executive compensation for AMZN's chief rose 20% last year, the filing showed.", "AMZN"),
+        ("The bank said it will pay compensation for services to AAPL suppliers.", "AAPL"),
+        ("Analysts say investors should get long Nvidia calls, and NVDA could rally.", "NVDA"),
+        ("The fund has positions in many tech names, including MSFT.", "MSFT"),
+        ("Our partners own the supply chain for AMZN deliveries.", "AMZN"),
+        ("The index is a holding of the fund, as is AAPL.", "AAPL"),
+        ("We provide banking services to AAPL and its suppliers.", "AAPL"),
+        ("Berkshire beneficially owns stakes, and AAPL is the largest.", "AAPL"),
+        ("Fidelity has a short position in TSLA, filings show.", "TSLA"),
     ],
 )
 def test_ordinary_prose_is_not_a_disclosure(text: str, ticker: str) -> None:
-    """The generic readings of the first version (any "owns", any six upper-case words) flagged all of
-    these (PR #155, round 6)."""
-    known = {"AAPL", "DIS", "AMZN", "ADP"}
+    """The generic readings (any "owns", any six upper-case words, then phrases such as "compensation
+    for" and "partners own" not anchored to a ticker) flagged all of these (PR #155, rounds 6, 7)."""
+    known = {"AAPL", "DIS", "AMZN", "ADP", "MSFT", "NVDA", "TSLA"}
     spot = text.index(ticker)
     assert triage.disclosure_branch(text, spot, spot + len(ticker), known) is None
 
@@ -198,6 +225,8 @@ QUOTED = {
     "r13_ten_names_new": (74, 74),
     "r59_owns_only_flagged": (21, 25),  # the generic "owns" of the first detector, read alone
     "r59_dense_only_flagged": (13, 25),  # and its "six upper-case words", read alone
+    "r17_final_flagged": (40, 40),  # the final detector, on a residue no edit was chosen from
+    "r17_round6_phrases_only_flagged": (25, 25),  # the phrases of round 6 alone, the same sample
 }
 
 
@@ -211,6 +240,8 @@ def test_the_tightening_of_the_detector_is_read_in_the_labels() -> None:
     lines = {line.split()[0]: line for line in CHECK.labels_summary(LABELS)}
     line = lines["r59_unflagged_by_tightening"]
     assert "n= 40" in line and "disclosure-missed 7" in line
+    final = lines["r17_final_unflagged"]  # the recall read: 4 missed of 39 readable
+    assert "n= 40" in final and "disclosure-missed 4" in final and "unreadable 1" in final
 
 
 def test_a_label_a_set_does_not_allow_is_an_error(tmp_path: Path) -> None:

@@ -351,7 +351,7 @@ lean `articles` rows itself.
   that were the company, i.e. what the rule costs. Sets of **flagged** pairs (named only inside a
   disclosure by the detector): `disclosure`, `not-disclosure`, `ambiguous`, `unreadable`. Sets of
   **unflagged** ticker-only pairs: `prose-real`, `not-company`, `disclosure-missed`, `ambiguous`,
-  `unreadable` (counts only). A test reads the file, checks every label against its set and pins the
+  `unreadable` (counts only). `r59_unflagged_by_tightening` was drawn under the round-6 detector (what the next version stopped flagging); `r17_*` were read on a residue none of the edits was chosen from. A test reads the file, checks every label against its set and pins the
   figures D38 quotes.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
