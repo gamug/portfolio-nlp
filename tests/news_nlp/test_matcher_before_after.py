@@ -279,12 +279,15 @@ def _scope_store() -> object:
     return conn
 
 
+_RealResolver = CompanyResolver
+
+
 class _NamesNobody:
     """A stand-in for the matcher before the change: a module whose resolver finds no company."""
 
     Company = triage.Company
 
-    class CompanyResolver(CompanyResolver):
+    class CompanyResolver(_RealResolver):
         def resolve(self, text, org_spans=(), *, skip_attribution=True):  # type: ignore[no-untyped-def]
             return triage.Counter()
 
