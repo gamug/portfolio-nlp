@@ -18,6 +18,11 @@ It writes two files to ``--out``, for the S&P universe over every date of the co
   and the bodies it is the **only** subject of (scope ``single``).
 * ``company_news_counts_README.txt``: the date, the corpus each column is of, the totals and the limits.
 
+The files carry the run date (``company_news_counts_2026-11-09.csv`` and ``..._README.txt``): send the
+two together. Before writing, the counts are checked against themselves (``all = ok + quarantined_only``,
+``single <= subject <= naming``; a failure stops the run with no file) and the README compares the
+totals with what T-159 counted. A lock file in ``--out`` stops a second run on the same folder.
+
 A ``tqdm`` bar shows the rows read, the speed and the time left (``--no-progress`` turns it off for a
 log file). **The run is idempotent and resumable.** The same command can be run again at any time: the
 files are written whole to a temporary name and then renamed (a run that stops leaves the previous
@@ -64,7 +69,24 @@ from news_nlp.triage import Company, CompanyResolver
 
 CHECKPOINT_EVERY = 25_000
 CHECKPOINT_NAME = "company_news_counts.checkpoint.json"
-CSV_NAME, README_NAME = "company_news_counts.csv", "company_news_counts_README.txt"
+LOCK_NAME = "company_news_counts.lock"
+#: What T-159 counted on 2026-11-09 (unique bodies: all, with an ``ok`` pair, quarantined only): a
+#: whole-corpus run must come near it, the SOURCE being a live crawl.
+KNOWN = (309_882, 81_961, 227_921)
+
+
+def today() -> str:
+    return f"{datetime.now(UTC):%Y-%m-%d}"
+
+
+def csv_name(day: str) -> str:
+    return f"company_news_counts_{day}.csv"
+
+
+def readme_name(day: str) -> str:
+    return f"company_news_counts_{day}_README.txt"
+
+
 CORPORA = ("ok", "quarantined_only", "all")
 MEASURES = ("naming", "subject", "single")
 
@@ -82,12 +104,20 @@ class BodyReading(NamedTuple):
 class Entry:
     """One unique body: its reading, and whether any of its pairs is ``ok``."""
 
-    __slots__ = ("is_ok", "reading", "roundup_by_headline")
+    __slots__ = ("has_spans", "is_ok", "reading", "roundup_by_headline")
 
-    def __init__(self, reading: BodyReading, *, is_ok: bool, roundup_by_headline: bool) -> None:
+    def __init__(
+        self,
+        reading: BodyReading,
+        *,
+        is_ok: bool,
+        roundup_by_headline: bool,
+        has_spans: bool = False,
+    ) -> None:
         self.reading = reading
         self.is_ok = is_ok
         self.roundup_by_headline = roundup_by_headline
+        self.has_spans = has_spans  # the stored NER ORG spans of its first pair helped the resolver
 
 
 def read_body(
@@ -158,9 +188,13 @@ def read_corpus(
         entry = entries.get(key)
         headline_roundup = triage.is_roundup(title, slug, 0, 0)
         if entry is None:
-            reading = read_body(resolver, title, body, slug, spans_of(article_id), terms)
+            spans = spans_of(article_id)
+            reading = read_body(resolver, title, body, slug, spans, terms)
             entries[key] = Entry(
-                reading, is_ok=status == "ok", roundup_by_headline=headline_roundup
+                reading,
+                is_ok=status == "ok",
+                roundup_by_headline=headline_roundup,
+                has_spans=bool(spans),
             )
         else:
             entry.is_ok = entry.is_ok or status == "ok"
@@ -216,6 +250,7 @@ def save_checkpoint(
                 e.reading.scope,
                 e.is_ok,
                 e.roundup_by_headline,
+                e.has_spans,
             ]
             for key, e in entries.items()
         ],
@@ -238,8 +273,9 @@ def load_checkpoint(path: Path, print_of: str) -> tuple[int, int, dict[str, Entr
                 BodyReading(frozenset(named), frozenset(subjects), scope),
                 is_ok=is_ok,
                 roundup_by_headline=roundup,
+                has_spans=has_spans,
             )
-            for key, named, subjects, scope, is_ok, roundup in state["entries"]
+            for key, named, subjects, scope, is_ok, roundup, has_spans in state["entries"]
         }
         return int(state["last_id"]), int(state["rows_read"]), entries
     except (ValueError, KeyError, TypeError) as error:
@@ -290,6 +326,56 @@ def count_by_company(
     return rows
 
 
+class CheckFailed(ValueError):
+    """A count that must hold does not."""
+
+
+def check_invariants(rows: list[dict[str, object]]) -> None:
+    """Stop, with the company and the column, if a count breaks what must hold: per company
+    ``all = ok + quarantined_only`` for each measure, ``subject <= naming`` and ``single <= subject``
+    in each corpus. A failure is a bug, and the file must not be sent."""
+    for row in rows:
+        for measure in MEASURES:
+            parts = [int(str(row[f"{c}_bodies_{measure}"])) for c in CORPORA]
+            if parts[2] != parts[0] + parts[1]:
+                raise CheckFailed(
+                    f"{row['ticker']}: all_bodies_{measure} is not ok + quarantined_only"
+                )
+        for corpus in CORPORA:
+            naming, subject, single = (int(str(row[f"{corpus}_bodies_{m}"])) for m in MEASURES)
+            if not single <= subject <= naming:
+                raise CheckFailed(
+                    f"{row['ticker']}: {corpus} must have single <= subject <= naming"
+                )
+
+
+def spans_share(entries: dict[str, Entry]) -> tuple[float, float]:
+    """The share of the ``ok`` bodies and of the quarantined-only bodies whose first pair had stored
+    NER ``ORG`` spans: the two corpora are read with the same help only if the shares are close."""
+    ok = [e.has_spans for e in entries.values() if e.is_ok]
+    quarantined = [e.has_spans for e in entries.values() if not e.is_ok]
+    return (
+        sum(ok) / len(ok) if ok else 0.0,
+        sum(quarantined) / len(quarantined) if quarantined else 0.0,
+    )
+
+
+def acquire_lock(folder: Path) -> Path:
+    """Create the lock file of *folder* (an exclusive create), so that two runs cannot write the same
+    checkpoint and files; stop with what to do if it exists."""
+    folder.mkdir(parents=True, exist_ok=True)
+    lock = folder / LOCK_NAME
+    try:
+        with lock.open("x", encoding="utf-8") as handle:
+            handle.write(f"{os.getpid()}\n")
+    except FileExistsError:
+        raise SystemExit(
+            f"another run is using {folder}, or one stopped without cleaning up: delete {lock} if no "
+            "other run is going, and run the same command again."
+        ) from None
+    return lock
+
+
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     fields = ["ticker", "company", "also_covers", "gics_sector"] + [
         f"{c}_bodies_{m}" for c in CORPORA for m in MEASURES
@@ -301,6 +387,15 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
     atomic_write_text(path, buffer.getvalue(), encoding="utf-8-sig")
 
 
+def reconciliation(bodies: int, ok: int, row_total: int, everything: int) -> str:
+    """The totals against what T-159 counted on 2026-11-09 (a whole-corpus run only)."""
+    known = f"T-159 on 2026-11-09: {KNOWN[0]:,} / {KNOWN[1]:,} / {KNOWN[2]:,}"
+    here = f"this run: {bodies:,} / {ok:,} / {bodies - ok:,}"
+    if row_total < everything:
+        return f"{known} (all bodies / with an ok pair / quarantined only); {here}: not comparable, the corpus was not read in full"
+    return f"{known} (all bodies / with an ok pair / quarantined only); {here}: compare them, the crawl may have added some"
+
+
 def readme_text(
     entries: dict[str, Entry],
     rows: list[dict[str, object]],
@@ -309,20 +404,21 @@ def readme_text(
     row_total: int,
     new_rows: int,
     everything: int,
+    day: str,
     revision: str,
     elapsed: float,
 ) -> str:
     ok = sum(e.is_ok for e in entries.values())
     named_any = sum(bool(e.reading.named) for e in entries.values())
     scopes = Counter(e.reading.scope for e in entries.values())
+    ok_share, quarantined_share = spans_share(entries)
     smoke = (
         f"SMOKE RUN: {row_total:,} of {everything:,} rows read, not the whole corpus.\n\n"
         if row_total < everything
         else ""
     )
     return (
-        smoke
-        + f"company_news_counts.csv: news per company, S&P universe, every date of the corpus\n"
+        smoke + f"{csv_name(day)}: news per company, S&P universe, every date of the corpus\n"
         f"Made {datetime.now(UTC):%Y-%m-%d %H:%M} UTC by scripts/company_news_counts_2026_11_09.py "
         f"(code revision {revision}); {elapsed / 60:,.0f} min.\n\n"
         "WHAT A ROW IS\n"
@@ -347,7 +443,10 @@ def readme_text(
         f"{len(entries) - ok:,} quarantined only); universe {universe_size} tickers (the tickers the "
         f"crawl tagged, not the index's membership on a date), {len(rows)} rows.\n"
         f"  bodies that name at least one company: {named_any:,}; by rule scope: "
-        f"{dict(scopes.most_common())}\n\n"
+        f"{dict(scopes.most_common())}\n"
+        f"  {reconciliation(len(entries), ok, row_total, everything)}\n"
+        f"  bodies with stored NER spans (which help the name resolver): ok {ok_share:.1%}, "
+        f"quarantined only {quarantined_share:.1%}\n\n"
         "LIMITS (read the counts as a floor, with some noise)\n"
         "  - No alias table yet: a company named in another way (a product, a nickname) is missed.\n"
         "  - A name that is also a common word or a person's name can be counted by mistake.\n"
@@ -386,10 +485,12 @@ def finish(
     started: float,
     everything: int,
     read_started: float,
+    day: str,
 ) -> None:
     """Write the CSV and the README (whole, then renamed) and print the totals and the speed."""
     rows = count_by_company(entries.values(), resolver, universe)
-    write_csv(args.out / CSV_NAME, rows)
+    check_invariants(rows)  # a failure stops the run before any file is written
+    write_csv(args.out / csv_name(day), rows)
     elapsed = time.time() - started
     readme = readme_text(
         entries,
@@ -398,10 +499,13 @@ def finish(
         row_total=rows_total,
         new_rows=new_rows,
         everything=everything,
+        day=day,
         revision=code_revision(),
         elapsed=elapsed,
     )
-    atomic_write_text(args.out / README_NAME, readme)
+    atomic_write_text(args.out / readme_name(day), readme)
+    ok = sum(e.is_ok for e in entries.values())
+    print(reconciliation(len(entries), ok, rows_total, everything))
     print(f"{len(entries):,} unique bodies, {len(rows)} companies, {elapsed / 60:,.1f} min")
     if new_rows:
         rate = new_rows / max(time.time() - read_started, 1e-9)
@@ -411,7 +515,8 @@ def finish(
             "of the first rows by id, not of a random sample)"
         )
     print(
-        f"written: {args.out / CSV_NAME}, {args.out / README_NAME} and {args.out / CHECKPOINT_NAME}"
+        f"written: {args.out / csv_name(day)}, {args.out / readme_name(day)} and "
+        f"{args.out / CHECKPOINT_NAME} (send the CSV and the README together)"
     )
 
 
@@ -427,7 +532,16 @@ def main() -> None:
     )
     parser.add_argument("--no-progress", action="store_true", help="no tqdm bar (for a log file)")
     args = parser.parse_args()
+    lock = acquire_lock(args.out)
+    try:
+        run(args)
+    finally:  # also on Ctrl-C and on an error, so the next run is not refused
+        lock.unlink(missing_ok=True)
+
+
+def run(args: argparse.Namespace) -> None:
     started = time.time()
+    day = today()
     conn = db.connect_pipeline()
     universe = load_universe(conn)
     resolver = CompanyResolver(universe)
@@ -498,9 +612,12 @@ def main() -> None:
             started,
             everything,
             read_started,
+            day,
         )
     except PermissionError as error:  # the checkpoint is saved: say what to do, no traceback
         sys.exit(str(error))
+    except CheckFailed as error:
+        sys.exit(f"stopped, no file was written: {error}. Do not send results of this run.")
 
 
 if __name__ == "__main__":
