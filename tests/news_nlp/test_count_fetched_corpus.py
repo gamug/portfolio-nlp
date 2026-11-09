@@ -114,3 +114,16 @@ def test_main_writes_the_result_as_json(
     assert written["since"] == "2021-12-31"
     assert written["unique_bodies"]["properly_fetched"] == 4
     assert "whole corpus" in capsys.readouterr().out
+
+
+def test_the_rows_left_out_are_counted_by_what_they_lack(tmp_path: Path) -> None:
+    result = COUNT.summarise(COUNT.read_rows(_source(tmp_path), "2021-12-31"))
+    columns = result["rows_by_status_and_columns"]
+    assert columns["ok"] == {
+        "rows": 4,
+        "with_title": 3,
+        "with_body": 3,
+        "with_both": 2,
+    }  # rows 1, 6, 7, 8
+    assert columns["quarantined"]["with_both"] == 3 and columns["thin_content"]["rows"] == 1
+    assert "with a title / with a body" in "\n".join(COUNT.report_lines(result, "2021-12-31"))

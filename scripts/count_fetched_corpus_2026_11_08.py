@@ -11,7 +11,8 @@ and a ``body_text`` (the owner, 2026-11-08: ``thin_content`` rows are not part o
 apart). The unit is the unique body (``triage.body_hash``, whitespace collapsed), as everywhere else:
 the same text stored once per tagged ticker is one body. It prints, and writes to ``--out`` as JSON:
 
-* the rows by ``fetch_status`` and by pair class (``accept``, ``reject``, ``review``, none);
+* every row by ``fetch_status`` with how many have a title, a body and both (the rows the rest leaves out),
+  and the rows with both by ``fetch_status`` and by pair class (``accept``, ``reject``, ``review``, none);
 * the unique bodies of the ``ok`` rows, of the quarantined rows, the **quarantined-only** ones (a body
   that is not also ``ok`` under another ticker: the corpus the pipeline would gain) and the union;
 * the same for the window from ``--since`` (the cut's: 2021-12-31) and by publication year;
@@ -53,6 +54,8 @@ class Row(NamedTuple):
     in_window: bool
     body: bytes
     words: int
+    has_title: bool = True
+    has_body: bool = True
 
 
 def year_of(pub_date: str | None) -> str:
@@ -67,24 +70,27 @@ def short_hash(text: str) -> bytes:
 
 
 def read_rows(conn: object, since: str) -> Iterable[Row]:
-    """The rows of ``source.articles`` that have a title and a body, with their pair class.
+    """Every row of ``source.articles`` with its pair class, and whether it has a title and a body
+    (``summarise`` counts the rows it leaves out, so that no figure about them is a separate query).
     *conn* is a connection with the schema ``source`` attached (``db.connect_pipeline()``)."""
     execute = conn.execute  # type: ignore[attr-defined]
     classes = {int(i): c for i, c in execute("SELECT id, match_class FROM source.discovered_urls")}
     for article_id, status, ticker, _title, body, pub_date, words in execute(
         "SELECT id, fetch_status, ticker, title, body_text, pub_date, word_count "
-        "FROM source.articles WHERE body_text IS NOT NULL AND body_text != '' "
-        "AND title IS NOT NULL AND title != ''"
+        "FROM source.articles"
     ):
         date = (pub_date or "").strip()
+        has_title, has_body = bool(_title), bool(body)
         yield Row(
             status=status or "",
             pair_class=classes.get(int(article_id)) or "none",
             ticker=ticker or "",
             year=year_of(date),
             in_window=bool(date) and date[:10] >= since,
-            body=short_hash(body),
+            body=short_hash(body) if has_body else b"",
             words=int(words or 0),
+            has_title=has_title,
+            has_body=has_body,
         )
 
 
@@ -99,7 +105,15 @@ def summarise(rows: Iterable[Row]) -> dict[str, object]:
     words_of_body: dict[bytes, int] = {}
     ok_tickers: set[str] = set()
     quarantined_tickers: set[str] = set()
+    columns: dict[str, Counter[str]] = {}
     for row in rows:
+        counts = columns.setdefault(row.status, Counter())
+        counts["rows"] += 1
+        counts["with_title"] += row.has_title
+        counts["with_body"] += row.has_body
+        counts["with_both"] += row.has_title and row.has_body
+        if not (row.has_title and row.has_body):
+            continue
         rows_by_status[row.status] += 1
         rows_by_class[(row.status, row.pair_class)] += 1
         pair_bodies.setdefault(row.pair_class, set()).add(row.body)
@@ -119,6 +133,7 @@ def summarise(rows: Iterable[Row]) -> dict[str, object]:
     by_year = Counter(year_of_body[b] for b in only)
     return {
         "rows_by_fetch_status": dict(rows_by_status),
+        "rows_by_status_and_columns": {s: dict(c) for s, c in sorted(columns.items())},
         "rows_by_status_and_pair_class": {
             f"{s}/{c}": n for (s, c), n in sorted(rows_by_class.items())
         },
@@ -153,7 +168,14 @@ def report_lines(result: dict[str, object], since: str) -> list[str]:
     ub = result["unique_bodies"]
     uw = result["unique_bodies_in_window"]
     assert isinstance(ub, dict) and isinstance(uw, dict)
+    columns = result["rows_by_status_and_columns"]
+    assert isinstance(columns, dict)
     return [
+        "all rows by fetch_status (rows / with a title / with a body / with both): "
+        + "; ".join(
+            f"{k} {v['rows']:,} / {v['with_title']:,} / {v['with_body']:,} / {v['with_both']:,}"
+            for k, v in columns.items()
+        ),
         "rows with a title and a body, by fetch_status: "
         + ", ".join(f"{k} {v:,}" for k, v in sorted(dict(result["rows_by_fetch_status"]).items())),  # type: ignore[call-overload]
         f"unique bodies, whole corpus: ok {ub['ok']:,}; quarantined {ub['quarantined']:,}; "
