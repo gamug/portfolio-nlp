@@ -216,6 +216,24 @@ above, it says so; nothing else above is touched.
   the owner sets it (T-166). **The crawl's tickers** (D36) are kept as a column of the body's result and compared with the model's main tickers by ticker; they do not decide the main company (proposed, to the owner). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
   the relevance model, trained on summaries, holds on sub-news (not measured: a risk of T-165, T-169). Tasks: T-162
   to T-172.
+- **D40 Build order, steps and tables (owner, 2026-11-10, after D39; amends D39's order of work, not its steps).**
+  **Build 1** (first, with a status command and a dry run): (1) the extractor step gives the scope of every body (single,
+  multi, sector, or out of scope) and splits the multi ones into sub-news; (2) the summary of each single body, sub-news
+  and sector body that fits the size rule; (3) NER and the relevance model give the mentions and the main tickers (D39
+  (iii)). **Build 2** (after Build 1 runs): sentiment (between 3 and 4, D39 (6)), then category (D39 (7)); the owner trains
+  the category model while Build 1 runs. **Step 5, the company snapshots and company resumes, is undefined and is not
+  built** (D28 and T-152 wait). **Size rule (step 2):** an item over the size (not set: measured first on the output of
+  step 1, T-166) is summarised; a shorter one is used as it is and its row says `text_source = original`; steps 3 to 4
+  read the row's text, whichever the source. **The scope comes from the extractor step** (the rules triage of
+  `news_nlp.triage`, measured on the held-out 200, inside step 1; the classifier of T-147 is not part of Build 1: proposed,
+  to the owner). **Tables (the owner: each step its own table, sentiment included; names proposed, schema to the owner
+  first, AI #10):** step 1 `body_scope` (unique body, scope, rule revision) and `sub_news`; step 2 `news_summary`
+  (item kind body or sub_news, text, `text_source`, model revision; `article_summary` is keyed by article and cannot
+  hold these); step 3 the `article_entities` columns of D39 (iii) and `news_main_ticker` (item, ticker, relevance score);
+  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker). **Reads and writes:** step 1
+  reads unique bodies of SOURCE; step 2 reads `body_scope` and `sub_news`; step 3 reads `news_summary`; each stops at
+  `--limit`. **Open for the owner:** whether the shared `pipeline_step_state` of D39 (v) stays beside these tables, or
+  each table carries its own status and `--status` reads them all (the owner's wish for tracking holds either way).
 - **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
   model was fine-tuned on sentences, so it is checked on the pipeline's own texts before it is
   trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
@@ -260,7 +278,7 @@ above, it says so; nothing else above is touched.
   **Comparison unit (D32):** the model and the baseline are compared on the same 30 bodies, but the baseline cuts
   by sentence and gives a sentence to every company it names, the structured parser by paragraph; the gain
   therefore measures the extractor as a whole (cut and attribution), not the attribution alone. The model is a new pinned checkpoint (constitution AI #1, #7, #12), **built 2026-11-07 (T-148b3, merged in #141; not published or pinned)**: a pair classifier, *is this sentence about this company?*, on the encoder of the pinned sentiment model (a new 2-label head; input the company's name, the previous sentence and the sentence, max 160 tokens), trained on the `lead` paragraphs only (19,724 paragraphs, 74,512 pairs, 2 epochs, 15.5 minutes; the run refuses unless `train_on_lead_only` holds), `val` 270 bodies never trained on. At run time a sentence that names universe companies belongs to them (the baseline's rule, so a named company always has its text); a sentence naming none goes to the best-scoring company if the score is at least 0.5, else to nobody. Automatic figures on `val` (parser labels, they decide nothing): the right company is ranked above a wrong one 90.1% of the time against 63.7% for the mention-and-recency baseline. **The faithfulness reading (D32) decides.** First set (190 texts of 30 bodies, owner 2026-11-07): baseline 60.5% [45.2, 73.8]; model 76.3% [61.8, 88.1]; `units` (T-148b4: footer stripped, cut at lines, bullets, semicolons and clauses) 85.4% [76.5, 92.2] on its 185 texts, `better` than the baseline (+24.3 [12.9, 39.4]). The confirmation set and the selection of `units` are in (e) below and in `docs/extractor_training.md`. **Open:** the model has not learned to answer "none of these" (a sentence about a company outside the universe goes to the nearest one at a score of 0.5 or more; the wrong cases score 0.9 or more, so a higher threshold does not help): TASKS T-148b3. The build record, the `val` figures, the abstention counts and the second reading of the bar (companies named only in the footer): `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, "D27 build record".
-- **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
+- **D28 Snapshots (undefined, not started: owner 2026-11-10, D40).** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
   is one row per (text, main company), where the text is a summary or a sub-news (D39 (i)): text, ticker, D15 label, sentiment, `pub_date`, `body_hash`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
   per day: the per-(asset, day) signal of D14 is built downstream from the per-body rows, which
