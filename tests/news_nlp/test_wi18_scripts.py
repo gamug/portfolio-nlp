@@ -3644,3 +3644,26 @@ def test_every_tracked_mark_has_its_text_in_gold_texts() -> None:
         assert len(marks) == len(texts) == count
         assert {r["key"] for r in marks} == {r["key"] for r in texts}
         assert all(retag.text_hash(r["text"]) == r["text_hash"] for r in texts), texts_name
+
+
+def test_the_scope_sets_have_their_texts_in_gold_texts() -> None:
+    """Owner, 2026-11-10: the scope train, test and label-check texts are copied too."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+
+    def rows(path: Path) -> list[dict[str, str]]:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            return list(csv.DictReader(fh))
+
+    for marks_name, texts_name, count in (
+        ("category_gold_v2.csv", "category_gold_v2_texts.csv", 284),
+        ("category_gold_v2_test.csv", "category_gold_v2_test_texts.csv", 200),
+    ):
+        marks = {(r["article_id"], r["ticker"]) for r in rows(gold / marks_name)}
+        texts = rows(gold / "texts" / texts_name)
+        assert len(marks) == len(texts) == count
+        assert marks == {(r["article_id"], r["ticker"]) for r in texts}
+        assert all(r["text"].strip() for r in texts)
+    marks_seg = {r["key"] for r in rows(gold / "segment_check_gold.csv")}
+    texts_seg = rows(gold / "texts" / "segment_check_gold_texts.csv")
+    assert marks_seg == {r["key"] for r in texts_seg} and len(texts_seg) == 200

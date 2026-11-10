@@ -364,3 +364,79 @@ owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 p
 - [ ] **T-155** *(gold sets, `docs/gold_datasets.md`)* Move the tagged sets from `data/` to `gold/` with builders that write marks and ids only (no news text), refuse unless every row is marked and valid, protect the tracked marks from silent change (`--overwrite-marks`), and let `report_wi18 ... --gold` reproduce the figures.
       - **Done:** label check (`build_segment_check_gold_2026_11_06.py`, 200 rows), extractor sample (`build_faithfulness_gold_2026_11_06.py`, 190 baseline rows + coverage), sentiment (`build_sentiment_gold_2026_11_06.py`, 180 rows, agreement 60.4% [52.8, 67.6]), held-out scope (#142, 200 rows, row hashes in `tests/news_nlp/heldout_gold_row_hashes.csv`).
       - **Left:** a typed reader per gold file in `news_nlp.retag` (today only the column tuples exist); where the only copy of the 180 texts (`data/sentiment_gold_ids.csv`) is kept (nothing enforces a backup); the extractor evidence of T-148b11 (the `units*` marks, the confirmation set, the exempt readings). → `docs/gold_datasets.md`, D31–D33. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-155.
+
+## Fourth cut (review of PR #160, owner 2026-11-10)
+
+### PLAN D34 (the backtest cut), verbatim
+
+- **D34 The backtest cut for the 2026-11-20 thesis delivery (T-154).** A short path, built while the
+  full plan continues: for the bodies of the backtest window (published 2021-12-31 or later, about
+  29,000 unique bodies), scope from the rules (not the classifier), NER for single and multi
+  bodies, a summary of each non-multi body (measured 0.84 s per body on the local GPU, up to 7
+  hours for the window), the step-4 company texts (D27), and sentiment over the texts checked on
+  the 180-text gold (D32; the 60 extractor texts cover narrative multi bodies, and a row's
+  `sentiment_checked` says whether its kind of text was in the gold, whose figures are weighted to the tagged-body pool, D32). **Output (owner, 2026-11-06):**
+  files, not tables: chunks under `data/cut/` (git-ignored, they hold news text), one row per
+  (body, company) with the approved columns of T-152, written chunk by chunk so a stopped run resumes
+  from the last chunk; no schema change. **Coverage:** the stored corpus, which ends 2026-08-12; the
+  backtest window runs to 2026-10-15, and the bodies the backtest team adds upstream are not in the
+  cut. **Provisional**: the output says so and carries the measured figures; it
+  is not the accepted pipeline. Left to after the delivery: the trained scope classifier and its
+  90% bar, the prompt gate and the silver labels, category (D24) and sub-industry, sector
+  snapshots, active learning, the full backfill, the knowledge-graph contract. **Go/no-go on
+  2026-11-12**: if the owner's tagging (the held-out 200, 200 label-check paragraphs, the 30
+  190 faithfulness texts (30 bodies; 2026-11-06 the draw gave 190, not the 30 assumed) and the 180 sentiment texts: 770 items, 200 of them marked) is done and the extractor passes D32 (**owner call 2026-11-06: tag all 190 faithfulness texts**),
+  the data goes to the backtest team about 2026-11-16 (four days before delivery, which is tight
+  for them: T-153 asks for the latest date they can use); otherwise they are told, with a week's
+  notice, to report the layer as not evaluated. **Measured 2026-11-07 on the held-out 200 (T-146e, PR #142): the rules' scope agreement 68.0% [61.3, 74.5] weighted to the corpus (raw 59.5%); single recall 91.0% [87.1, 94.4] passes the 80% bar, multi recall 52.5% [42.8, 63.5] fails it; sector, market_economy, unrelated and investing_general have 9, 11, 8 and 7 gold bodies, so no recall floor applies (D33) and their recalls (2.6%, 12.1%, 0.0%, 0.0%) are disclosure, not rates. The cut uses the rules' scope (this decision); *proposed, not decided:* report these figures with the cut and leave the trained scope classifier (left to after the delivery) as the answer to the multi gap; the go/no-go is the owner's.** **Rules fixed beforehand (owner, 2026-11-06):**
+  (a) a sentiment figure whose interval straddles its bar (D32 "not decided") does not stop the
+  cut: it goes with the point estimate and the interval printed; **(owner, 2026-11-07: a figure that FAILS its bar, as overall sentiment agreement does since 2026-11-06, is answered by fine-tuning on summaries: D35; a figure whose interval then straddles the bar is "not decided" and this rule applies); **(owner, 2026-11-07, answered: an `undefined` bar, D32, is not "not decided" and this rule does not cover it: it counts as not passed, and the cut goes only with the sentiment layer marked as measured, as in D35's fallback, never as "not decided")** (b) if the attribution model is not
+  ready on 2026-11-09, the faithfulness texts are exported from the baseline alone and the decision
+  is on the baseline (**result 2026-11-06, 190 texts of the 30 bodies marked: baseline 60.5% faithful, interval 45.2 to 73.8, so it fails the 80% bar; 2022+ 60.6% [27.6, 86.1], not decided; of the texts it wrote 60.5% [53.4, 67.2]; no company was left without a text (`gold/faithfulness_coverage.csv` is empty), and `report_wi18 faithfulness --gold --out gold` reproduces these figures from the tracked files; one body of 21 texts has 4 faithful. Unless the model (T-148b3) passes, narrative multi bodies are left out of the cut and counted**): the cut uses it for narrative bodies if it is at least 80% faithful (D32 reading: of the companies named),
+  otherwise narrative multi bodies are left out of the cut and counted; (c) the label check of
+  D27 decides, before the model trains, whether the `continuation` labels are used; (d) a sentiment stratum with fewer texts than the draw takes is drawn whole (a census: held fixed in the bootstrap and marked in the report), the others do not change, and the cut still goes (D32); the scored pool is kept with the extractor, tagged bodies and model revisions it was made under, and a draw under other conditions stops; **(e) Selection of step 4's extractor (owner, 2026-11-08): `units` ("units1") is the base model**, because the accuracy does not need to be above 80% and it clears it: on the confirmation set 86.1% [80.9, 90.7] on every company named (pass) and 95.3% [92.0, 98.2] on real companies; on the first set (development) 94.0% [87.0, 99.2] on real companies (pass) and 83.2% [72.7, 91.0] on every company named (not decided). It is level with the baseline (gain -0.5 [-1.5, 0.0], not decided), so the proposed rule T-148b10 (6b) ("better") is not met and the selection is the owner's call over it. A selection, not a publication or a pin (both need the owner's word), and no code uses it yet (T-148b12, proposed). Rules that stand (owner, 2026-11-07): an extractor whose faithful share is "not decided" against D32's 80% (the point at or above it, the interval straddling it) goes to the cut marked as measured, with the figure and the interval printed, as rule (a) does for sentiment; a FAIL (the whole interval below 80%) does not go; an `undefined` figure counts as not passed; the pull requests of step 4 stay stacked, none merged or published without the owner's word. `units2` and `units3` (the guard and the header rule, #144) are measured fallbacks, not selected (78.4% and 79.9% on every company named in the confirmation set; 7 to 12 real companies left without a text); they are development figures. Record, figures and options: `docs/extractor_training.md`; the history of this rule, with the readings of the 37 and of the 30 names, the manager's review of #144 and the candidate chosen on 2026-11-07: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, "D34 (e)". **Runs:**
+  the summaries of the window (29,000 bodies x 0.84 s is up to 6.8 h; only non-multi bodies need
+  one) start on 2026-11-07 evening, before the go, because they do not depend on the tagging; the
+  model trains on 2026-11-08 on the same GPU after them (**order set by the owner in D35, GPU: the retraining first, about 20 minutes**); NER, step 4 and sentiment run after the
+  go, 2026-11-12 to 2026-11-14. **Spreadsheet safety:** the files the owner opens in a spreadsheet get a leading apostrophe on any value that starts with `=`, `+`, `-`, `@`, a tab or a return, outside the columns the owner marks (`retag.spreadsheet_safe`, applied by the four draw scripts; a headline like "-5% on the day" shows with the apostrophe). Concurrent draws stay accepted (single-owner tooling).
+### PLAN D27 (b), the sentence replaced, verbatim
+
+```
+  to a **trained attribution model**: a small local encoder trained on (a) with the company name
+  masked and the previous sentence as context, so it learns who a sentence is about from its
+  content. It is compared
+```
+### PLAN D32 first words, verbatim
+
+```
+- **D32 Acceptance bars (point estimate, 95% interval reported).** Step-4 attribution model: at
+```
+### PLAN D39, the open paragraph answered, verbatim
+
+```
+**Open, for the owner (no
+  guess):** the sub-news size of 3.3; the rule for "main company(ies)" (best one, or every one over a relevance
+  threshold, how many); whether a sector summary gets a sentiment (step 6 names a main company, a sector has none);
+  where mentions are stored; the run-tracking tables (AI #10). Tasks: T-162 to T-168.
+```
+
+## Fifth cut (TASKS, review of PR #160)
+
+### TASKS T-148a (first line) and its open question, verbatim
+
+```
+- [ ] **T-148a** Summaries: the pinned local summariser (`c_summary`) on every non-multi body (single and sector in the MVP, D39; sub-news over a size, T-166), title and body only. For the cut (T-154) it writes chunks of 250 bodies under `data/cut/summaries/` and resumes from the last chunk (`scripts/cut_summaries_2026_11_07.py`, `--status`, Ctrl-C and run again to resume). **Launch: `uv run scripts/cut_summaries_2026_11_07.py --require-cuda`** (the device is part of the manifest; PR #132); about 29,113 unique bodies, about 70% summarised, 5 to 6 GPU hours. Bodies the rules call `multi`, `roundup` or `no_company` get no summary; the rules never predict `investing_general` (D25 summarises it).
+      - **Open (owner to decide before the long run), the order against NER on the window:** (a) NER first, then this job; or (b) run now and let T-154 recompute scope and mentions from the final spans (`--accept-new-spans` keeps the chunks; their `rule_scope` stays the old one; mentions differ in about 4% of bodies). Until decided, T-154 must not read `rule_scope` from the chunks. → D25, D26. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148a.
+```
+
+### TASKS T-148d, verbatim (same work as T-168 (7))
+
+```
+      - [ ] **T-148d** Category over the same texts (D29), measured against the owner's gold. → D24.
+```
+
+### TASKS paragraph of 2026-11-05, verbatim
+
+```
+**2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 were superseded (moved to `CHANGELOG.md`) (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
+```

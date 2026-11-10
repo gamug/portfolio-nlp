@@ -13,6 +13,11 @@ text meet on ``key`` (sentiment, extractor) with ``text_hash`` to check them:
   ``faithfulness_ids.csv`` on ``review_order`` (the text the owner read; the article body is not copied: it is in
   SOURCE under ``article_id``, and the Spanish columns are a tagging aid).
 
+* ``category_gold_v2_texts.csv`` <- ``gate240_to_tag.csv`` + ``sector_extra_to_tag.csv`` (284, the scope train set),
+  ``category_gold_v2_test_texts.csv`` <- ``heldout_to_tag.csv`` (200) and ``segment_check_gold_texts.csv`` <-
+  ``segment_check_to_tag.csv`` (200): the text the owner read, keyed by ``article_id`` and ``ticker`` (``key`` for the
+  segment check). Added 2026-11-10 (owner: copy them too).
+
 The run stops if a text's hash is not the recorded one (the owner read another text) or if a mark of ``gold/`` has no
 text. Nothing in ``gold/`` that already exists is changed.
 """
@@ -103,6 +108,51 @@ def main() -> None:
         print(
             f"{out / out_name}: {len(marks)} texts; {len(odd)} differ from their hash by a spreadsheet apostrophe or edit"
         )
+
+    scope_columns = (
+        "article_id",
+        "ticker",
+        "company",
+        "pub_date",
+        "source_domain",
+        "title",
+        "text",
+    )
+    for sources, gold_name, out_name in (
+        (
+            ("gate240_to_tag.csv", "sector_extra_to_tag.csv"),
+            "category_gold_v2.csv",
+            "category_gold_v2_texts.csv",
+        ),
+        (("heldout_to_tag.csv",), "category_gold_v2_test.csv", "category_gold_v2_test_texts.csv"),
+    ):
+        rows = [r for name in sources for r in read(args.data / name)]
+        marks = {(r["article_id"], r["ticker"]) for r in read(args.gold / gold_name)}
+        have = {(r["article_id"], r["ticker"]) for r in rows}
+        if marks - have:
+            sys.exit(f"{gold_name}: {len(marks - have)} marks have no text")
+        write(
+            out / out_name,
+            scope_columns,
+            [r for r in rows if (r["article_id"], r["ticker"]) in marks],
+        )
+        print(f"{out / out_name}: {len(marks)} texts")
+    seg = read(args.data / "segment_check_to_tag.csv")
+    ids = read(args.data / "segment_check_ids.csv")
+    if len(ids) != len(seg) or any(
+        a["article_id"] != b["article_id"] for a, b in zip(ids, seg, strict=True)
+    ):
+        sys.exit("segment_check: the ids file and the file to tag are not in the same order")
+    seg_rows = [{**r, "key": i["key"]} for r, i in zip(seg, ids, strict=True)]
+    marks = {r["key"] for r in read(args.gold / "segment_check_gold.csv")}
+    if marks - {r["key"] for r in seg_rows}:
+        sys.exit("segment_check_gold.csv: marks without text")
+    write(
+        out / "segment_check_gold_texts.csv",
+        ("key", "article_id", "ticker", "kind", "title", "text"),
+        [r for r in seg_rows if r["key"] in marks],
+    )
+    print(f"{out / 'segment_check_gold_texts.csv'}: {len(marks)} texts")
 
 
 if __name__ == "__main__":
