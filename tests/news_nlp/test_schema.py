@@ -187,3 +187,99 @@ def test_fetch_pending_sentiment_articles_sample_seed_requires_limit(
     conn.commit()
     with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
         db.fetch_pending_sentiment_articles(conn, sample_seed=1)
+
+
+_PIPELINE_TABLES = {
+    "body_scope",
+    "sub_news",
+    "news_summary",
+    "news_company",
+    "news_sentiment",
+    "news_category",
+    "pipeline_step_state",
+}
+
+
+def test_init_schema_creates_the_stepped_pipeline_tables(test_db_path: Path) -> None:
+    conn = sqlite3.connect(test_db_path)
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(article_entities)")}
+    conn.close()
+    assert names >= _PIPELINE_TABLES
+    assert {"sub_news_id", "ticker"} <= cols
+
+
+def test_an_existing_article_entities_gets_the_new_columns_once(tmp_path: Path) -> None:
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.execute(
+        "CREATE TABLE article_entities (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, "
+        "entity_type TEXT NOT NULL, text TEXT NOT NULL, start_char INTEGER NOT NULL, end_char INTEGER NOT NULL, "
+        "score REAL, model_name TEXT NOT NULL, processed_at TEXT NOT NULL)"
+    )
+    raw.execute("INSERT INTO article_entities VALUES (1, 1, 'ORG', 'Apple', 0, 5, 0.9, 'm', 't')")
+    raw.commit()
+    raw.close()
+    conn = db.connect(path)
+    db.init_schema(conn)
+    db.init_schema(conn)  # twice: no error, no duplicate column
+    conn.close()
+    check = sqlite3.connect(path)
+    cols = [r[1] for r in check.execute("PRAGMA table_info(article_entities)")]
+    row = check.execute("SELECT text, sub_news_id, ticker FROM article_entities").fetchone()
+    check.close()
+    assert cols.count("ticker") == 1 and cols.count("sub_news_id") == 1
+    assert row == ("Apple", None, None)  # the old row is kept, the new columns read NULL
+
+
+def test_each_new_table_keeps_one_row_for_the_same_key(test_db_path: Path) -> None:
+    conn = sqlite3.connect(test_db_path)
+    rows = {
+        "body_scope": "('h', 'r', 'single', '{}', 'title', 't')",
+        "news_summary": "('body', 'h', 'r', 's', 'summary', 1, 't')",
+        "news_company": "('body', 'h', 'AAPL', 'r', 0.9, 1, 3, 't')",
+        "news_sentiment": "('body', 'h', '', 'r', 'positive', 0.9, 0.9, 0.05, 0.05, 'm', 0, 't')",
+        "news_category": "('body', 'h', '', 'r', 'other', 0.5, '', 0.0, '{}', 'm', 't')",
+        "pipeline_step_state": "('body', 'h', 'scope', 'r', 'done', 1, NULL, NULL, NULL)",
+    }
+    for table, values in rows.items():
+        conn.execute(f"INSERT OR IGNORE INTO {table} VALUES {values}")  # noqa: S608 -- fixed test table names
+        conn.execute(f"INSERT OR IGNORE INTO {table} VALUES {values}")  # noqa: S608 -- fixed test table names
+        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1, table  # noqa: S608
+    conn.close()
+
+
+def test_the_status_column_refuses_an_unknown_status(test_db_path: Path) -> None:
+    conn = sqlite3.connect(test_db_path)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO pipeline_step_state VALUES ('body','h','scope','r','weird',0,NULL,NULL,NULL)"
+        )
+    conn.close()
+
+
+def test_the_join_keys_are_indexed_and_the_flags_are_checked(test_db_path: Path) -> None:
+    conn = sqlite3.connect(test_db_path)
+    indexes = {r[1] for r in conn.execute("SELECT * FROM sqlite_master WHERE type='index'")}
+    assert {
+        "idx_sub_news_article_id",
+        "idx_news_company_ticker",
+        "idx_article_entities_sub_news_id",
+    } <= indexes
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO news_company VALUES ('body','h','AAPL','r',0.9,2,1,'t')")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO body_scope VALUES ('h','r','market','{}','title','t')")
+    conn.close()
+
+
+def test_the_v1_entity_write_and_corrections_work_with_the_new_columns(
+    conn: db.NewsNlpDatabase,
+) -> None:
+    seed_article(conn, 1)
+    conn.execute(
+        "INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, "
+        "model_name, processed_at) VALUES (1, 'ORG', 'Apple', 0, 5, 0.9, 'm', 't')"
+    )
+    row = conn.execute("SELECT * FROM article_entities WHERE article_id = 1").fetchone()
+    assert row is not None and row[-2:] == (None, None)  # sub_news_id, ticker read back NULL

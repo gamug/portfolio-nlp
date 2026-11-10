@@ -269,6 +269,102 @@ CREATE TABLE IF NOT EXISTS eval_confusion (
 CREATE INDEX IF NOT EXISTS idx_eval_confusion_run_id ON eval_confusion(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_confusion_experiment_task
     ON eval_confusion(experiment, task);
+
+-- Stepped pipeline (PLAN D39/D40, SPEC target tables; T-162). One table per step, all RESULTS tables.
+-- A body is identified by its hash (T-132). `item_id` is text: the hash for a body, `sub_news.id` for a
+-- sub-news, `<item_kind>:<item_id>:<ticker>` for a text_company. `ticker` is '' for a sector item (never
+-- NULL: two NULLs do not collide in a key, and a rerun must add nothing).
+CREATE TABLE IF NOT EXISTS body_scope (
+    body_hash           TEXT NOT NULL,
+    classifier_revision TEXT NOT NULL,
+    scope               TEXT NOT NULL CHECK (scope IN ('single', 'multi', 'sector', 'out_of_scope')),
+    scores              TEXT NOT NULL DEFAULT '{}',  -- JSON, per-class score
+    text_used           TEXT NOT NULL,   -- title / title+N
+    processed_at        TEXT NOT NULL,
+    PRIMARY KEY (body_hash, classifier_revision)
+);
+
+CREATE TABLE IF NOT EXISTS sub_news (
+    id                 {autoincrement_pk},
+    body_hash          TEXT NOT NULL,
+    article_id         INTEGER NOT NULL REFERENCES articles(id),
+    segment_index      INTEGER NOT NULL,
+    text               TEXT NOT NULL,
+    extractor_revision TEXT NOT NULL,
+    processed_at       TEXT NOT NULL,
+    UNIQUE (body_hash, segment_index, extractor_revision)
+);
+
+CREATE TABLE IF NOT EXISTS news_summary (
+    item_kind      TEXT NOT NULL,   -- body / sub_news
+    item_id        TEXT NOT NULL,
+    model_revision TEXT NOT NULL,
+    summary_text   TEXT NOT NULL,
+    text_source    TEXT NOT NULL,   -- summary / original
+    num_chunks     INTEGER NOT NULL DEFAULT 0,
+    processed_at   TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS news_company (
+    item_kind       TEXT NOT NULL,
+    item_id         TEXT NOT NULL,
+    ticker          TEXT NOT NULL,
+    model_revision  TEXT NOT NULL,
+    relevance_score REAL NOT NULL,
+    is_main         INTEGER NOT NULL DEFAULT 0 CHECK (is_main IN (0, 1)),   -- the only source of the main ticker
+    mention_count   INTEGER NOT NULL DEFAULT 1,
+    processed_at    TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, ticker, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS news_sentiment (
+    item_kind         TEXT NOT NULL,
+    item_id           TEXT NOT NULL,
+    ticker            TEXT NOT NULL DEFAULT '',
+    model_revision    TEXT NOT NULL,
+    label             TEXT NOT NULL,
+    score             REAL NOT NULL,
+    positive          REAL NOT NULL,
+    negative          REAL NOT NULL,
+    neutral           REAL NOT NULL,
+    model_name        TEXT NOT NULL,
+    sentiment_checked INTEGER NOT NULL DEFAULT 1 CHECK (sentiment_checked IN (0, 1)),
+    processed_at      TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, ticker, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS news_category (
+    item_kind      TEXT NOT NULL,
+    item_id        TEXT NOT NULL,
+    ticker         TEXT NOT NULL DEFAULT '',
+    model_revision TEXT NOT NULL,
+    label          TEXT NOT NULL,
+    score          REAL NOT NULL,
+    group_label    TEXT NOT NULL DEFAULT '',
+    group_score    REAL NOT NULL DEFAULT 0.0,
+    slug_scores    TEXT NOT NULL DEFAULT '{}',   -- JSON, the per-slug audit trail
+    model_name     TEXT NOT NULL,
+    processed_at   TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, ticker, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_step_state (
+    item_kind      TEXT NOT NULL,   -- body / sub_news / text_company
+    item_id        TEXT NOT NULL,
+    step           TEXT NOT NULL,
+    model_revision TEXT NOT NULL,
+    status         TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed', 'skipped', 'review')),
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    error          TEXT,
+    started_at     TEXT,
+    finished_at    TEXT,
+    PRIMARY KEY (item_kind, item_id, step, model_revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_step_state_status ON pipeline_step_state(step, status);
+CREATE INDEX IF NOT EXISTS idx_sub_news_article_id ON sub_news(article_id);
+CREATE INDEX IF NOT EXISTS idx_news_company_ticker ON news_company(ticker, is_main);
 """
 
 
@@ -358,9 +454,22 @@ def _migrate_category_schema(conn: Database) -> None:
     conn.ensure_columns("article_category", _CATEGORY_ADDED_COLUMNS)
 
 
+_ENTITIES_ADDED_COLUMNS = {"sub_news_id": "INTEGER", "ticker": "TEXT"}
+
+
+def _migrate_entities_schema(conn: Database) -> None:
+    """Add the nullable `sub_news_id` and `ticker` (D39 (iii)) to an existing `article_entities`.
+    Additive and idempotent, like the other migrations; old rows read back NULL."""
+    conn.ensure_columns("article_entities", _ENTITIES_ADDED_COLUMNS)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_article_entities_sub_news_id ON article_entities(sub_news_id)"
+    )
+
+
 def init_schema(conn: Database) -> None:
     conn.create_schema(build_schema(conn.dialect))
     _migrate_sector_summary_schema(conn)
     _migrate_eval_run_schema(conn)
     _migrate_category_schema(conn)
+    _migrate_entities_schema(conn)
     conn.commit()
