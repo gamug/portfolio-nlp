@@ -1,17 +1,19 @@
 """Feasibility of T-147 (PLAN D40): how far does a title alone get on the scope?
 
-    uv run python scripts/scope_title_baseline_2026_11_10.py
+    uv run python scripts/scope_title_baseline_2026_11_10.py [--body-chars N]
 
 A TF-IDF (1-2 grams) + logistic regression on the **title** only, trained on ``gold/category_gold_v2.csv`` (284) and
 scored on ``gold/category_gold_v2_test.csv`` (200, never trained on). ``market_economy``, ``investing_general`` and
 ``unrelated`` are merged into ``out_of_scope``, for the model **and** for the rules it is compared with, so both are
 read in the same four classes. Every figure is **weighted to the corpus** (``stratum`` / ``frame`` of the 200, the same
 weights and the same seeded bootstrap as ``report_wi18 scope --gold``), with its 95% interval, and the plain agreement
-is printed beside it. This is a floor for the pinned model of T-147, not the model.
+is printed beside it. With ``--body-chars N`` the model also reads the first N characters of the body (owner,
+2026-11-10: title plus the first lines). This is a floor for the pinned model of T-147, not the model.
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import sys
 from collections import Counter
@@ -38,12 +40,18 @@ def read(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def titles(texts: str) -> dict[tuple[str, str], str]:
-    return {(r["article_id"], r["ticker"]): r["title"] for r in read(GOLD / "texts" / texts)}
+def titles(texts: str, body_chars: int = 0) -> dict[tuple[str, str], str]:
+    rows = read(GOLD / "texts" / texts)
+    return {
+        (r["article_id"], r["ticker"]): f"{r['title']} . {r['text'][:body_chars]}"
+        if body_chars
+        else r["title"]
+        for r in rows
+    }
 
 
-def load(marks: str, texts: str) -> tuple[list[dict[str, str]], list[str]]:
-    by_key = titles(texts)
+def load(marks: str, texts: str, body_chars: int = 0) -> tuple[list[dict[str, str]], list[str]]:
+    by_key = titles(texts, body_chars)
     rows = read(GOLD / marks)
     missing = [r["article_id"] for r in rows if (r["article_id"], r["ticker"]) not in by_key]
     if missing:
@@ -81,8 +89,11 @@ def lines(name: str, rows: Sequence[Mapping[str, str]], predicted: Sequence[str]
 
 def main() -> None:
     csv.field_size_limit(sys.maxsize)
-    train, x_train = load("category_gold_v2.csv", "category_gold_v2_texts.csv")
-    test, x_test = load("category_gold_v2_test.csv", "category_gold_v2_test_texts.csv")
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--body-chars", type=int, default=0)
+    chars = parser.parse_args().body_chars
+    train, x_train = load("category_gold_v2.csv", "category_gold_v2_texts.csv", chars)
+    test, x_test = load("category_gold_v2_test.csv", "category_gold_v2_test_texts.csv", chars)
     vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
     model = LogisticRegression(max_iter=2000, C=5).fit(
         vec.fit_transform(x_train), [merged(r["scope"]) for r in train]

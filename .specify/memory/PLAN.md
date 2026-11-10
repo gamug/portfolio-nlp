@@ -232,8 +232,10 @@ above, it says so; nothing else above is touched.
   hold these); step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **only** source of truth for the main ticker; there is no separate main-ticker table);
   sentiment `news_sentiment` and category `news_category`, both per (text, main ticker, read from `article_entities.is_main`). **Reads and writes:** step 1
   reads unique bodies of SOURCE; step 2 reads `body_scope` and `sub_news`; step 3 reads `news_summary`; each stops at
-  `--limit`. **Open for the owner:** whether the shared `pipeline_step_state` of D39 (v) stays beside these tables, or
-  each table carries its own status and `--status` reads them all (the owner's wish for tracking holds either way).
+  `--limit`. **Decided by the owner, 2026-11-10 (interactive session):** the shared `pipeline_step_state` of D39 (v) **stays**
+  beside the per-step tables, and **the schema of this paragraph and of D39 is approved as written** (AI #10); the size of
+  the rule is measured on the output of step 1 and then set by the owner (T-166); the scope classifier reads the title
+  **and the first lines of the body** (T-147).
 - **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
   model was fine-tuned on sentences, so it is checked on the pipeline's own texts before it is
   trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
