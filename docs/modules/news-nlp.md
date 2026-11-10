@@ -428,6 +428,12 @@ the validation score of a run is the mean of those nine figures; accuracy is a d
   replay, no validation slice, always logged to experiment `sentiment_pair_final_all` (`--mlflow` does not apply; the
   store is `MLFLOW_TRACKING_URI` or `./mlruns`, printed); the grid and `--final` read only the first file. The
   experiments after the grid are in `docs/sentiment_training.md`.
+- `scripts/final_models_2026_11_10.py` (T-169) — `relevance` (the final relevance model on the 809 pair rows; needs a GPU and
+  only tracked files, `--order-of` repeats the published key order) and `stack` (the logistic regression on the
+  out-of-fold scores -> `config/sentiment_stack.json`; `apply_stack` is the formula the model card shows).
+- `scripts/publish_final_models_2026_11_10.py` (T-169) — cards and the private upload of both models (`--dry-run`
+  needs no token); writes the revisions to `config/published_models.json`. Nothing is pinned. Details and limits:
+  `docs/sentiment_training.md`, "Published".
 - Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
   `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.
 

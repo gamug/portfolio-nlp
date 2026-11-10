@@ -143,8 +143,8 @@ shuffled-relevance control (20 shuffles) adds at most +0.005 to the stack, so th
 *Metric: nested weighted D37 on 809 texts.*
 
 **7. Where it stops.** The sentiment pair model on every row (`--final-all`, one run, seed 4) is the model to
-propose; the stack is not built (no final relevance model, nothing in `sentiment_stage`), its evaluation is not
-strictly nested, and **no figure of this story is held-out**. The pin is decided on the 180-text gold, by the rule
+propose; the final relevance model and the stack's coefficients are built and published, private (2026-11-10,
+"Published"), but the stack is not in `sentiment_stage`, its evaluation is not strictly nested, and **no figure of this story is held-out**. The pin is decided on the 180-text gold, by the rule
 of D35 (3), (4), (7) (T-148c4). The amendment of D35 to train on all rows is accepted (owner, 2026-11-10, "Amendment to
 D35", below), so T-148c3g trains the model on the whole dataset (see there).
 
@@ -157,9 +157,10 @@ pinned text-only model; neutral precision / recall 0.787 / 0.686 (0.634 / 0.442 
 0.747 / 0.748, above the D32 bar of 70% on cross-validation. The alternatives tried to improve it did not beat it: a larger replay
 (0.723), plain `ProsusAI/finbert` as the start (0.731 alone, 0.811 stacked: the same within noise), mention flags,
 thresholds and cues (0.737 to 0.740). From here the base case of every sentiment experiment includes the relevance
-model. What is left before a pin, in order: the final relevance model on the 809 rows and the strict nesting (T-148c3c);
-the stack in `sentiment_stage` (T-148c3d); the model on all rows as the candidate (T-148c3g); publishing both to the
-private Hub and scoring the 180-text gold once with the model and the stack (T-148c4); the pin in
+model. What was left before a pin, in order: the final relevance model on the 809 rows (done and published, T-169), the
+strict nesting of the stack (**not done**, T-148c3c stays open for it); the stack in `sentiment_stage` (T-148c3d); the
+model on all rows as the candidate (done, T-148c3g: the existing run); publishing both to the private Hub (done);
+scoring the 180-text gold once with the model and the stack (T-148c4); the pin in
 `config/pipeline_models.json` only if the rule of D35 passes on that score. The configuration is **not** changed by this
 selection or by the publication below: the pin waits for the gold score.
 
@@ -176,14 +177,38 @@ are those of "The assumptions" above):
 
 - **The sentiment model is the run that already existed** (the owner had left open whether to repeat it; it was not repeated,
   so there is no selection among runs). The relevance run is new, one run, seed 1, not logged to MLflow (its
-  `training_record.json` is in the repository).
+  `training_record.json` is in the Hub repository of the relevance model, not in this repository).
 - **The stack's coefficients** (`config/sentiment_stack.json`, also in the sentiment repository) are the logistic regression
   of the nested evaluation fitted once on the out-of-fold scores of both cross-validation repeats (1,618 rows, weighted by
   pool size / drawn, C = 1): `scripts/final_models_2026_11_10.py stack`.
 - **What was and was not measured.** The figures on the cards are the cross-validation ones above (recipe estimates). Neither
   final model has a held-out score, and **the 180-text gold has not been scored** (T-148c4: once, with the model and the stack
   together, on these revisions). The final models are more confident than the fold models the stack was fitted on (the
-  smoke test gives 0.99 on clear cases); the effect on the stack is not measured.
+  smoke test gives 0.99 on clear cases); the effect on the stack is not measured. **It is the main risk of the stack, so
+  the gold run of T-148c4 starts with a check:** the distribution of the final models' probabilities on the 180 texts
+  (before their marks are read) against that of the out-of-fold scores the stack saw; if the final model is clearly more
+  confident, the report says so beside the score, and the stack is read with that caveat.
+- **Strict nesting: not done.** T-169 (a) asked for it. The cards' "nested" is the earlier evaluation (the stack's
+  coefficients fitted on 4/5 of the out-of-fold rows and applied to the other 1/5); the final relevance model had no
+  check of its own, and it saw every row. T-148c3c stays open for it.
+- **Reproduce.** `relevance` needs a GPU and only tracked files (the 809 rows are the tracked rows with `rule_scope`
+  `single` or `multi_dominated`); the published run used the key order of the out-of-fold file (`--order-of`), so a repeat
+  without it differs in the last digits. `stack` reads two git-ignored inputs, recorded here: `data/sentiment_pair_relevance_cv/oof_relevance.json`
+  sha256 `94d1d0bf4bf582b1dbe9182184cb93fa4283aa4c69f156770cdcca3d87f310b1`; the 10 files `data/sentiment_pair_cv_all/predictions/cv_r[12]_f*__*.csv`,
+  concatenated in sorted name order, sha256 `3981a0170120ebd486c948127ce3da3dc2f978b303a271fee7cea487e8a5c12d`.
+- **Revisions** are recorded in `config/published_models.json` (written by the publish script; the table above is the same
+  data). Nothing reads it yet; the pin (T-148c4) will.
+- **Where the card figures come from** (checked against the tracked files, `gold/sentiment_train*.csv` and `gold/texts/`):
+  809 pair rows, 228 companies of the tracked universe of 507, mean text length 327 characters, publication years
+  2022 to 2026, classes 394 / 213 / 202; 121 of the 202 neutral texts (60%) name the company in their text (the card first
+  said "three quarters", which was wrong, and "S&P 500 universe", which the tracked universe is not).
+- **Licences.** Relevance: `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` is `mit` (checked on the Hub, 2026-11-10), so `mit`.
+  Sentiment: `ProsusAI/finbert` is `cc-by-nc-sa-4.0` and `gamug/FinBERT-financial-news` (a continued fine-tune of it) is
+  `cc-by-nc-4.0`; a further fine-tune of a share-alike work should carry the same share-alike, so the script now writes
+  `cc-by-nc-sa-4.0`. **The card on the Hub still says `cc-by-nc-4.0`, and the corrections above (licence, "three quarters",
+  universe) reach the Hub only with a new upload, which changes the revision; that waits for the owner's word.**
+  The owner should also decide whether `gamug/FinBERT-financial-news` itself needs its licence corrected; this PR does not
+  touch it. The repositories are private; nothing is public.
 - **Smoke test** (3 examples, local and from the Hub at these revisions): the stack turns a positive text about another company
   into neutral for the company asked (Apple, a Microsoft sentence: sentiment alone positive 0.97, stack neutral 0.91). Not a
   measurement.
@@ -391,8 +416,8 @@ only) stays the recorded run of the first D35 recipe.
   weights, no resampling): T-148c3e. The metric already weights by pool size, and neutral's weakness is mostly the label
   mixture, not its count, so the expected gain is small.
 - All figures are cross-validated on tags the recipe was tuned on; **none is a held-out score**.
-- Not done, with their TASKS entries: the final relevance model on the 809 rows and the strictly nested check
-  of the stack (T-148c3c); the stack in `sentiment_stage`, its cost per article, what is stored when the two
+- Not done, with their TASKS entries: the strictly nested check of the stack (T-148c3c; the final relevance model
+  is built); the stack in `sentiment_stage`, its cost per article, what is stored when the two
   models disagree, and the score on the 180-text gold (T-148c3d, T-148c4); class weights (T-148c3e). Nothing
   is pinned (both are published, private: "Published").
 

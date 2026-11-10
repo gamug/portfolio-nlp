@@ -1,6 +1,6 @@
 """The final relevance model and the stack's coefficients (T-169; owner 2026-11-10, PLAN D35/D40).
 
-    uv run python scripts/final_models_2026_11_10.py relevance [--out models/relevance_final] [--seed 1]
+    uv run python scripts/final_models_2026_11_10.py relevance [--out models/relevance_final] [--seed 1] [--order-of OOF.json]
     uv run python scripts/final_models_2026_11_10.py stack [--cv data/sentiment_pair_cv_all] \
         [--oof data/sentiment_pair_relevance_cv/oof_relevance.json] [--out config/sentiment_stack.json]
 
@@ -9,7 +9,11 @@ revision of ``config/pipeline_models.json``) on **every** one of the 809 pair ro
 ``gold/sentiment_train_2.csv`` (the texts are in ``gold/texts/``): premise = the text, hypothesis ``This text is mainly
 about <company>.``, entailment when the owner marked a direction, not-entailment when the mark is neutral. The recipe is
 the cross-validated one (3 epochs, lr 2e-5, batch 16, float32 weights, bf16 autocast, max length 320), which scored an
-out-of-fold weighted AUC of 0.896. The model is not evaluated on its own training rows.
+out-of-fold weighted AUC of 0.896. The model is not evaluated on its own training rows. **A GPU is required** (the run
+stops with a message when CUDA is missing). The 809 rows are the tracked rows whose ``rule_scope`` is ``single`` or
+``multi_dominated`` (the 46 company-less scopes are left out), so the command needs only tracked files; ``--order-of`` takes
+the key order of an out-of-fold file, which the published run used (the shuffle then repeats; without it the order is the
+file order and the weights differ in the last digits).
 
 ``stack`` fits the multinomial logistic regression of the nested evaluation (features: the log of the three sentiment
 probabilities and the logit of the relevance score; C = 1, rows weighted by ``pool size / drawn``) on the **out-of-fold**
@@ -44,6 +48,10 @@ SETS = (
 HYPOTHESIS = "This text is mainly about {}."
 RECIPE = {"epochs": 3, "lr": 2e-5, "batch": 16, "max_length": 320}
 PINNED = Path("config/pipeline_models.json")
+PAIR_SCOPES = (
+    "single",
+    "multi_dominated",
+)  # rows that read as a pair (company-less scopes are not)
 
 
 def read(path: str | Path) -> list[dict[str, str]]:
@@ -56,18 +64,35 @@ def company_name(company: str) -> str:
 
 
 def pair_rows(keys: list[str] | None = None) -> list[dict[str, str]]:
-    """The marked rows with their text. With *keys* (the 809 rows of the cross-validation) only those, in that order."""
+    """The marked rows with their text. With *keys* (the 809 rows of the cross-validation) only those, in that order.
+
+    Without *keys*: every row that reads as a pair (``rule_scope`` in ``PAIR_SCOPES``), in file order.
+    """
     rows: dict[str, dict[str, str]] = {}
     for draw, (marks, texts) in zip(("old", "new"), SETS, strict=True):
         text_of = {r["key"]: r for r in read(texts)}
         for r in read(marks):
             rows[r["key"]] = {**r, "draw": draw, "text": text_of[r["key"]]["text"]}
     if keys is None:
-        return list(rows.values())
+        return [r for r in rows.values() if r["rule_scope"] in PAIR_SCOPES]
     return [rows[k] for k in keys]
 
 
-def relevance(out: Path, seed: int) -> None:
+def feats(p: np.ndarray, r: np.ndarray) -> np.ndarray:
+    """The stack's four features: the log of the three sentiment probabilities and the logit of the relevance score."""
+    r = np.clip(r, 1e-6, 1 - 1e-6)
+    return np.column_stack([np.log(np.clip(p, 1e-6, 1)), np.log(r / (1 - r))])
+
+
+def apply_stack(coefficients: dict[str, Any], p: list[float], r: float) -> dict[str, float]:
+    """The stack's probabilities for one text (*p*: the sentiment model's, in ``CLASSES`` order; *r*: the relevance score)."""
+    z = np.array(coefficients["coef"]) @ feats(np.array([p]), np.array([r]))[0]
+    z = z + np.array(coefficients["intercept"])
+    e = np.exp(z - z.max())
+    return dict(zip(coefficients["classes"], (e / e.sum()).tolist(), strict=True))
+
+
+def relevance(out: Path, seed: int, order_of: Path | None = None) -> None:
     import torch  # noqa: PLC0415 -- heavy imports only for the command that needs them
     from transformers import (  # noqa: PLC0415
         AutoModelForSequenceClassification,
@@ -76,10 +101,10 @@ def relevance(out: Path, seed: int) -> None:
     )
 
     cfg = json.loads(PINNED.read_text(encoding="utf-8"))["category"]
-    saved = json.loads(
-        Path("data/sentiment_pair_relevance_cv/oof_relevance.json").read_text(encoding="utf-8")
-    )
-    rows = pair_rows(saved["keys"])  # the 809 rows that read as a pair (no company-less scope)
+    if not torch.cuda.is_available():
+        raise SystemExit("relevance needs a GPU (CUDA is not available)")
+    keys = json.loads(order_of.read_text(encoding="utf-8"))["keys"] if order_of else None
+    rows = pair_rows(keys)  # the 809 rows that read as a pair (no company-less scope)
     tok = AutoTokenizer.from_pretrained(cfg["model"], revision=cfg["revision"])
     torch.manual_seed(seed)
     rng = random.Random(seed)  # noqa: S311 -- a reproducible shuffle, not security
@@ -164,10 +189,6 @@ def stack(cv_dir: Path, oof: Path, out: Path) -> None:
                 got[r["key"]] = r
         probs.append(np.array([[float(got[k][f"p_{c}"]) for c in CLASSES] for k in keys]))
 
-    def feats(p: np.ndarray, r: np.ndarray) -> np.ndarray:
-        r = np.clip(r, 1e-6, 1 - 1e-6)
-        return np.column_stack([np.log(np.clip(p, 1e-6, 1)), np.log(r / (1 - r))])
-
     x = np.vstack([feats(probs[i], np.array(saved["R"][i])) for i in (0, 1)])
     y = np.concatenate([gold, gold])
     w = np.concatenate([weight, weight])
@@ -194,6 +215,7 @@ def main() -> None:
     a = sub.add_parser("relevance")
     a.add_argument("--out", type=Path, default=Path("models/relevance_final"))
     a.add_argument("--seed", type=int, default=1)
+    a.add_argument("--order-of", type=Path, default=None)
     b = sub.add_parser("stack")
     b.add_argument("--cv", type=Path, default=Path("data/sentiment_pair_cv_all"))
     b.add_argument(
@@ -202,7 +224,7 @@ def main() -> None:
     b.add_argument("--out", type=Path, default=Path("config/sentiment_stack.json"))
     args = parser.parse_args()
     if args.cmd == "relevance":
-        relevance(args.out, args.seed)
+        relevance(args.out, args.seed, args.order_of)
     else:
         stack(args.cv, args.oof, args.out)
 

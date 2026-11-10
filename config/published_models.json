@@ -1,0 +1,13 @@
+{
+  "what": "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)",
+  "sentiment": {
+    "repo": "gamug/FinBERT-company-sentiment",
+    "revision": "1d1942be4c756ffbcd8e33e768c4341839032d98",
+    "private": true
+  },
+  "relevance": {
+    "repo": "gamug/deberta-v3-company-relevance",
+    "revision": "1631bdace27245a793792d398fdfb05e3a79bff9",
+    "private": true
+  }
+}

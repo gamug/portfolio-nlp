@@ -2198,3 +2198,7 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 ### Work item 18 — T-148c3b, the second set of sentiment training marks (moved from `TASKS.md`, 2026-11-10)
 
 - [x] **T-148c3b** *(built 2026-11-10, PR #154; the owner's confirmation of the slice split is T-148c3f)* The second set of the owner's marks, `gold/sentiment_train_2.csv` (405 rows, batch "2": 270 `train`, 135 `validation`; the slice split was chosen by the assistant, not by the owner: say so if it should change), read with the first by `--final-all` and by the cross-validation (`MARK_SETS`); 855 rows, 809 read as a pair (46 sector, market and economy rows stay with the text-only model). Figures and limits: `docs/sentiment_training.md`.
+
+### Work item 18 — T-148c3g, the sentiment model on every row (moved from `TASKS.md`, 2026-11-10)
+
+- [x] **T-148c3g** *(done 2026-11-10; the owner chose the existing run as the candidate)* The sentiment pair model trained on the whole dataset: `--final-all`, 809 rows + 341 replay, seed 4, one run (MLflow `final_all__e2_lr3e-05_s4`), not repeated, so there is no selection among runs. Published private as `gamug/FinBERT-company-sentiment@1d1942be` with the stack file (T-169, #164). The gold score is T-148c4.

@@ -23,10 +23,15 @@ RELEVANCE_REPO = "gamug/deberta-v3-company-relevance"
 ENDPOINT = "gamug/FinBERT-financial-news@93863fcb7252874e7c0339081b34f691f9e17ff6"
 NLI = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
 
+STACK_SNIPPET = """\
+rc = np.clip(r, 1e-6, 1 - 1e-6)
+f = np.array([*np.log(np.clip(p, 1e-6, 1)), np.log(rc / (1 - rc))])
+z = np.array(s["coef"]) @ f + np.array(s["intercept"]); probs = np.exp(z - z.max()); probs /= probs.sum()   # s["classes"] order"""
+
 DATA = """\
 **Data.** 809 rows, each a *text* (a short summary of a financial-news article, about 330 characters on average, English,
-published 2022 to 2026; written by `sshleifer/distilbart-cnn-12-6`) and a *company* (228 companies of the S&P 500
-universe). The labels were made by one person, the project owner, who read each text **for that company**: the sentiment
+published 2022 to 2026; written by `sshleifer/distilbart-cnn-12-6`) and a *company* (228 companies of the project's tracked
+universe of 507). The labels were made by one person, the project owner, who read each text **for that company**: the sentiment
 an investor would read on the company's price (positive 394, negative 213, neutral 202). The rule: if the company is in
 the facts the text presents, the mark is the sentiment about it; if the text gives no fact about the company (it is absent,
 mentioned in passing, or the facts are about another company or the market), the mark is **neutral**. The rows come from two
@@ -35,7 +40,7 @@ to the pool each draw came from. The marks and their texts are tracked in the pr
 (`gold/sentiment_train.csv`, `gold/sentiment_train_2.csv`, `gold/texts/`); this model repository holds no news text."""
 
 SENTIMENT_CARD = f"""---
-license: cc-by-nc-4.0
+license: cc-by-nc-sa-4.0
 base_model: gamug/FinBERT-financial-news
 language:
 - en
@@ -95,7 +100,7 @@ revision, and decides the pin. Until then these figures are estimates of the *re
 - The stack's coefficients were fitted on out-of-fold scores; this final model is slightly stronger than the fold models, so
   its probabilities are a little more confident than the stack saw (the effect is not measured).
 - Summaries, English, 2022 to 2026; the labels have no date cut-off (look-ahead in a backtest is not excluded).
-- "Neutral because the company is absent" is learned from the pair; three quarters of neutral texts do name the company, so the
+- "Neutral because the company is absent" is learned from the pair; about 60% of the neutral texts (121 of 202) do name the company, so the
   model cannot rely on the name alone.
 
 ## Use
@@ -111,8 +116,7 @@ p = torch.softmax(model(**x).logits, -1)[0].tolist()          # order: positive,
 # stack with the relevance model's score r (probability of 'entailment', see its card):
 s = json.load(open(hf_hub_download("{SENTIMENT_REPO}", "sentiment_stack.json")))
 r = 0.9
-f = np.array([*np.log(np.clip(p, 1e-6, 1)), np.log(np.clip(r, 1e-6, 1 - 1e-6) / (1 - np.clip(r, 1e-6, 1 - 1e-6)))])
-z = np.array(s["coef"]) @ f + np.array(s["intercept"]); probs = np.exp(z - z.max()); probs /= probs.sum()   # s["classes"] order
+{STACK_SNIPPET}
 ```
 """
 
@@ -214,6 +218,7 @@ def main() -> None:
     )
     parser.add_argument("--relevance-dir", type=Path, default=Path("models/relevance_final"))
     parser.add_argument("--stack", type=Path, default=Path("config/sentiment_stack.json"))
+    parser.add_argument("--record", type=Path, default=Path("config/published_models.json"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     load_dotenv()
@@ -234,6 +239,13 @@ def main() -> None:
         ),
     }
     print(json.dumps(out))
+    if not args.dry_run:
+        record = {
+            "what": "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)",
+            "sentiment": {"repo": SENTIMENT_REPO, "revision": out["sentiment"], "private": True},
+            "relevance": {"repo": RELEVANCE_REPO, "revision": out["relevance"], "private": True},
+        }
+        args.record.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
