@@ -584,3 +584,10 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Feasibility (measured 2026-11-10, `scripts/scope_title_baseline_2026_11_10.py`, TF-IDF + logistic regression on the title, weighted to the corpus, four classes for every row):** title-only **66.4% [59.7, 73.3]**; the rules **68.2% [61.5, 74.7]** (68.0% in six classes); always `single` 58.2% [51.2, 64.3]. Recall, title-only against rules: `single` 76.7% against 91.0%, `multi` 51.0% against 52.5%, `sector` 79.3% [43.3, 97.7] against 2.6%, `out_of_scope` 44.6% [21.3, 68.6] against 6.8%. So the title is **level with the rules** overall (no gain), better on the small classes, worse on `single`, and the whole interval is far under 90%.
 ```
+
+
+### T-147 Data bullet, long form (two-stage PR)
+
+```
+      - **Data:** train `gold/category_gold_v2.csv` (284), held-out `gold/category_gold_v2_test.csv` (200, never trained on; the same split as T-174; a refit on all 484 only after the bar is shown). The two are different samples (sector 17% against 4.5%, `out_of_scope` 23% against 13%): figures are weighted to the corpus with the `stratum` and `frame` of the 200 (D33) and the priors are corrected, not learned from the 284.
+```
