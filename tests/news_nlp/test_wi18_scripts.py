@@ -3667,3 +3667,27 @@ def test_the_scope_sets_have_their_texts_in_gold_texts() -> None:
     marks_seg = {r["key"] for r in rows(gold / "segment_check_gold.csv")}
     texts_seg = rows(gold / "texts" / "segment_check_gold_texts.csv")
     assert marks_seg == {r["key"] for r in texts_seg} and len(texts_seg) == 200
+
+
+def test_the_scope_title_baseline_merges_the_out_of_scope_classes_and_names_a_missing_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    assert [baseline.merged(s) for s in ("single", "multi", "sector")] == [
+        "single",
+        "multi",
+        "sector",
+    ]
+    assert {baseline.merged(s) for s in ("market_economy", "investing_general", "unrelated")} == {
+        "out_of_scope"
+    }
+    (tmp_path / "texts").mkdir()
+    (tmp_path / "marks.csv").write_text(
+        "article_id,ticker,scope\n1,A,single\n2,B,multi\n", encoding="utf-8"
+    )
+    (tmp_path / "texts" / "t.csv").write_text(
+        "article_id,ticker,title,text\n1,A,Title,x\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(baseline, "GOLD", tmp_path)
+    with pytest.raises(SystemExit, match="1 marks have no title"):
+        baseline.load("marks.csv", "t.csv")
