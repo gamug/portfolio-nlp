@@ -17,6 +17,7 @@ from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -3168,7 +3169,7 @@ DEAD_REPLACEMENT = _script("dead_text_replacement_2026_11_10")
 def _replacement_dirs(
     tmp_path: Path,
     marks: list[str] | None = None,
-    stale: dict[str, dict[str, list[str]]] | None = None,
+    stale: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Path, Path]:
     out, earlier = tmp_path / "out", tmp_path / "earlier"
     out.mkdir()
@@ -3181,23 +3182,27 @@ def _replacement_dirs(
         "4,2#B#2,2,B,h4,baseline,r,2026",  # new
         "5,3#C#1,3,C,h5,units,r,2026",  # kept
     ]
+    # as the real files are written: a BOM, the owner's extra columns last
     (out / "faithfulness_ids.csv").write_text(
-        head + "\n" + "\n".join(rows) + "\n", encoding="utf-8"
+        head + "\n" + "\n".join(rows) + "\n", encoding="utf-8-sig"
     )
     (earlier / "faithfulness_ids.csv").write_text(
-        head + "\n" + "\n".join(rows[0:1] + rows[2:3] + rows[4:]) + "\n", encoding="utf-8"
+        head + "\n" + "\n".join(rows[0:1] + rows[2:3] + rows[4:]) + "\n", encoding="utf-8-sig"
     )
     given = marks or ["no", "yes", "yes", "yes", "no"]
     (out / "faithfulness_to_tag.csv").write_text(
-        "review_order,faithful\n" + "\n".join(f"{i + 1},{m}" for i, m in enumerate(given)) + "\n",
-        encoding="utf-8",
+        "review_order,title,spanish_text,faithful,notes\n"
+        + "\n".join(f'{i + 1},"A, b",texto,{m},' for i, m in enumerate(given))
+        + "\n",
+        encoding="utf-8-sig",
     )
+    dated = {"date": "2026-11-10", "revision": "extractor:x@abc"}
     record = stale or {
-        "units": {"stale": ["1#A#1 (units)", "2#B#1 (units)"], "new": ["x"]},
-        "baseline": {"stale": ["2#B#1 (baseline)"], "new": []},
+        "units": {**dated, "stale": ["1#A#1 (units)", "2#B#1 (units)"], "new": ["x"]},
+        "baseline": {**dated, "stale": ["2#B#1 (baseline)"], "new": []},
     }
     (out / "faithfulness_stale.json").write_text(
-        json.dumps({"extractors": record}), encoding="utf-8"
+        json.dumps({"extractors": record}), encoding="utf-8-sig"
     )
     return out, earlier
 
@@ -3227,6 +3232,15 @@ def test_the_replacement_script_stops_on_a_stale_key_the_ids_do_not_hold(tmp_pat
         tmp_path, stale={"units": {"stale": ["9#Z#1 (units)"], "new": []}}
     )
     with pytest.raises(MarkedFileError, match="9#Z#1"):
+        DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
+
+
+def test_the_replacement_script_stops_on_a_repeated_key(tmp_path: Path) -> None:
+    out, earlier = _replacement_dirs(tmp_path)
+    ids = out / "faithfulness_ids.csv"
+    text = ids.read_text(encoding="utf-8-sig").replace("3#C#1", "1#A#1")
+    ids.write_text(text, encoding="utf-8-sig")
+    with pytest.raises(MarkedFileError, match="repeats the key 1#A#1"):
         DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
 
 

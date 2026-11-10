@@ -265,7 +265,7 @@ the extractors that held it. The record used for every count in this section (97
 the replacement tables) is `faithfulness_stale.json` as `draw_faithfulness --stale` wrote it on 2026-11-10 with
 the code of `a568b97`, the model `local:8399ccf003c60143` and the revisions it prints (`units`
 `extractor:units@local:8399ccf003c60143@names:15e088eb@t0.5@21921ab953b1`; the other four are in the
-file); a first read-only run on 2026-11-09, outside `data/`, gave the same 97 and 96 rows. The Appendix A
+file). The Appendix A
 lines taken before that (the staleness line of A.1, A.2, A.5, A.6) come from the record of 2026-11-08: **97 rows of the first set and 96 of the confirmation set** (103 and 97 rows are
 dead for at least one extractor, 147 and 116 extractor marks). The 8 rows of the staleness caveat above are
 the record of 2026-11-08, before the change; the rest became dead after it (the commit that changed each

@@ -66,12 +66,25 @@ def _marks(out: Path, ids: list[Row]) -> dict[str, str]:
     return marks
 
 
+def _by_key(out: Path, ids: list[Row]) -> dict[str, Row]:
+    by_key = {r["key"]: r for r in ids}
+    if len(by_key) != len(ids):
+        repeated = sorted(k for k, n in Counter(r["key"] for r in ids).items() if n > 1)
+        raise MarkedFileError(
+            f"{out}: faithfulness_ids.csv repeats the key {', '.join(repeated[:SHOWN])}"
+        )
+    return by_key
+
+
+def _stale(out: Path) -> dict[str, dict[str, list[str]]]:
+    record = json.loads((out / "faithfulness_stale.json").read_text(encoding="utf-8-sig"))
+    stale: dict[str, dict[str, list[str]]] = record["extractors"]
+    return stale
+
+
 def _dead_for(
-    out: Path, by_key: dict[str, Row]
-) -> tuple[dict[str, dict[str, list[str]]], dict[str, set[str]]]:
-    stale = json.loads((out / "faithfulness_stale.json").read_text(encoding="utf-8-sig"))[
-        "extractors"
-    ]
+    out: Path, stale: dict[str, dict[str, list[str]]], by_key: dict[str, Row]
+) -> dict[str, set[str]]:
     dead_for: dict[str, set[str]] = defaultdict(set)
     for name, entry in stale.items():
         for tag in entry["stale"]:
@@ -82,14 +95,15 @@ def _dead_for(
             f"{out}: the stale record names {len(unknown)} rows the ids file does not hold "
             f"({', '.join(unknown[:SHOWN])}); run draw_faithfulness --stale again"
         )
-    return stale, dead_for
+    return dead_for
 
 
 def replacement_lines(label: str, out: Path, earlier: Path) -> list[str]:
     ids = _rows(out / "faithfulness_ids.csv")
     marks = _marks(out, ids)
-    by_key = {r["key"]: r for r in ids}
-    stale, dead_for = _dead_for(out, by_key)
+    by_key = _by_key(out, ids)
+    stale = _stale(out)
+    dead_for = _dead_for(out, stale, by_key)
     seen = {r["text_hash"] for r in _rows(earlier / "faithfulness_ids.csv")}
     new_of: dict[tuple[str, str], list[Row]] = defaultdict(list)
     kinds: dict[str, Counter[str]] = {"dead": Counter(), "kept": Counter(), "new": Counter()}
