@@ -261,8 +261,12 @@ so 16 and 43 rows are new (16 and 40 of them carry a text that was not in the ea
 earlier text under another key). Everything below is a read of those files with the code of `a568b97`.
 
 **What changed in the texts.** A marked row is "dead" when the code no longer writes its text for any of
-the extractors that held it (`draw_faithfulness --stale`, read-only, run on 2026-11-09 with the model
-`local:8399ccf003c60143`): **97 rows of the first set and 96 of the confirmation set** (103 and 97 rows are
+the extractors that held it. The record used for every count in this section (97 / 96 rows, 147 / 116 marks,
+the replacement tables) is `faithfulness_stale.json` as `draw_faithfulness --stale` wrote it on 2026-11-10 with
+the code of `a568b97`, the model `local:8399ccf003c60143` and the revisions it prints (`units`
+`extractor:units@local:8399ccf003c60143@names:15e088eb@t0.5@21921ab953b1`; the other four are in the
+file); a first read-only run on 2026-11-09, outside `data/`, gave the same 97 and 96 rows. The Appendix A
+lines taken before that (the staleness line of A.1, A.2, A.5, A.6) come from the record of 2026-11-08: **97 rows of the first set and 96 of the confirmation set** (103 and 97 rows are
 dead for at least one extractor, 147 and 116 extractor marks). The 8 rows of the staleness caveat above are
 the record of 2026-11-08, before the change; the rest became dead after it (the commit that changed each
 text was not isolated). Counts in this section are rows, each row once whatever the number of extractors
@@ -280,7 +284,9 @@ replacement). Command in "The official report counts those marks" below.
 |---|---|---|
 | Dead | 97 (51 `no`, 46 `yes`) | 96 (45 `no`, 51 `yes`) |
 | Kept (still written, not new) | 340 (50 `no`) | 302 (5 `no`) |
-| New | 16 (16 `yes`) | 40 with a new text (38 `yes`, 2 `no`); 43 more rows in all, 3 share an earlier text |
+| New (a text not in the earlier file) | 16 (16 `yes`) | 40 (38 `yes`, 2 `no`) |
+
+By key the confirmation file holds 43 new rows; 3 of them repeat a text that was already in the earlier file under another key, so they are not counted as new here. The new rows are therefore 16 + 40 = 56.
 
 | Extractor | Dead marks | With a new row of its own (old mark to new mark) | Texts it writes that nobody has marked |
 |---|---|---|---|
@@ -293,11 +299,13 @@ replacement). Command in "The official report counts those marks" below.
 | Confirmation `units2` / `units3` | 7 / 9 | 4 / 4 (`yes` to `yes`) | 0 / 0 |
 | Confirmation `model` | not marked | not marked | 73 (the extractor has no marks here) |
 
+The last column is the `new` list of the stale record (texts the code writes that no row holds), not a count of this method. For `model` an unmarked text cannot be counted as a replacement, so its 0 of 41 is a lower bound, not a finding.
+
 Reading: for the selected extractor the change mostly removed texts: of `units`' 52 and 49 dead marks, 4 and
 10 have a text of its own written in their place (all faithful but one). For the other dead marks the files
 cannot say whether the code now writes no text for that company or writes one that a row of another
 extractor already holds; only running the extractors can say. What the files do show: the dead texts were
-about half unfaithful (above); the rows the code writes now are 86% and 98% faithful by row; the
+about half unfaithful (above); by row (each row once, whatever the number of extractors that hold it; it includes the 6 first-set rows that are dead for one extractor but not for all) 86.0% and 98.0% of the rows the code writes now are `yes`; the
 rewritten texts are few and faithful, 54 of 56 new rows (6 of the 56 are for companies with no dead row, so
 they replace nothing). Small numbers (30 + 30 bodies). This does not measure the effect of the change: the
 old matcher was not re-run, and removing texts that were marked unfaithful raises the share by construction.
@@ -312,7 +320,7 @@ the repository at this commit**: it was made from copies of `faithfulness_ids.cs
 `uv run scripts/dead_text_replacement_2026_11_10.py --out data --earlier data/earlier_2026_11_09/first
 --out data/faithfulness_confirmation --earlier data/earlier_2026_11_09/confirmation`, where
 `data/earlier_2026_11_09/` holds copies of the two ids files as they were before the new marks (copied
-from the backup taken on 2026-11-09; the folder is local, git-ignored, like all of `data/`). PR #157 makes the report print it
+from the backup taken on 2026-11-09 at 23:10, before the redraws of the ids files at 23:20 and 23:39; the folder is local, git-ignored, like all of `data/`; recorded in `docs/gold_datasets.md`, set 4). PR #157 makes the report print it
 (`[current code: ...]` lines), and with it the appendix lines A.3 and A.4 are the report's own output. Merge
 #156 first: #157 carries this commit and updates the same page.
 
