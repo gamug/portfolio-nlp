@@ -440,3 +440,17 @@ owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 p
 ```
 **2026-11-05:** the owner fixed the 7-step pipeline order (D25–D30). P4 is split into T-148a–d, the snapshot tables are T-152, the reply to the backtest team is T-153, and the backtest cut for 2026-11-20 is T-154 (go/no-go 2026-11-12). T-127 and T-138 were superseded (moved to `CHANGELOG.md`) (their designs are replaced by D26–D28); T-132, T-131, T-129 and T-138b continue under Work item 18 unchanged.
 ```
+
+### PLAN D31 and the D35 GPU bullet, verbatim (review of PR #160)
+
+```
+- **D31 Training years: all years, disclosed.** The sentiment model, the category model and the
+  step-4 attribution model are trained on bodies of all years. About 30% of the sentiment training
+  sentences, of the gold bodies and of the held-out bodies are from 2022 on, and the labels have
+  no date cut-off, so nothing limits hindsight. The backtest team (decides on dates from
+  2021-12-31 to 2026-10-15) is told these facts and chooses: our models, base `ProsusAI/finbert`
+  for their runs, or "not evaluated" (T-153). A pre-2022 retrain stays possible later without a
+  redesign (about 2,200 of the 2,867 round-up bodies are from before 2022).
+
+  - **GPU (owner, 2026-11-07: the retraining goes before the attribution model T-148b3, accepted as proposed; how long T-148b3 occupies the GPU is not estimated yet):** the order of the three jobs is: (1) the summaries cut, which started on 2026-11-07 evening and occupies the GPU up to 6.8 h (D34, Runs); (2) the retraining, as soon as the 450 are marked (the owner expects them on 2026-11-07) and the cut has released the GPU, because the budget rule bounds it and the fallback of 2026-11-11 hangs on it; (3) the attribution model (T-148b3), which **replaces D34's "the model trains on 2026-11-08 on the same GPU after them"** (that sentence puts the attribution model right after the cut; if the owner chooses that order, D35 gives way and the retraining runs after it, with the grid reduced by the budget rule), its readiness rule (b) of 2026-11-09 unchanged (if it is not ready then, the baseline's texts are used). How long T-148b3 occupies the GPU is not estimated yet. **Timed 2026-11-07 (GPU idle, after the cut, RTX 4050, batch 8, fp16, 360 summaries plus 360 sentences, the predicted class as a placeholder label because the cost is the length): one epoch about 9 s (12.7 s the first), 2.1 GiB at the peak. The drawn summaries are short (median 73 tokens, longest 108, none over 512), so the 512 limit never cuts. The full grid is 81 epochs plus the final run's 4, about 13 minutes of training, about 20 minutes with loading and the validation scoring of each run; the budget rule's smaller grid will not be needed and the GPU order costs T-148b3 about 20 minutes, not a day: readiness rule (b) of 2026-11-09 is not endangered by the order.** The cost of the order for the rule (b), if T-148b3 were not ready, is the rule's own: the faithfulness texts are exported from the baseline and narrative multi bodies are left out and counted. Scoring the 180 takes about 9 seconds (measured 2026-11-07, model load included). 
+```
