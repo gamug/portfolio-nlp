@@ -35,8 +35,7 @@ Only files with no news text: the owner's tags or marks, the ids of a draw and t
 or a training set of ids and positions (`company_segments_train.csv`; and the owner's marks on the sentiment training summaries, `sentiment_train.csv`, set 6: not a gold, never mixed with set 5; written by its builder, so not scaffolded empty). In the order of the repository: the scope
 train and test files (#123), the three files of sets 3, 4 and 5 (added here at the owner's request of
 2026-11-06, one gold file per described set) and `company_segments_train.csv`. The earlier call that
-`gold/` holds only the train and the test file (2026-11-05) is superseded by this one. Anything with
-text, a cache or a translation stays in `data/`. The one file there that is neither a tag nor a draw is `sentiment_gold_scoring_log.csv` (T-148c2, D35): one row per run of a candidate model on set 5, with its figures, no text; its columns are `retag.SENTIMENT_SCORING_LOG_COLUMNS` and the test of the committed gold files checks them.
+`gold/` holds only the train and the test file (2026-11-05) is superseded by this one. **Amended by the owner on 2026-11-10: the repository and its data are public, and the texts behind the marks are tracked with them in `gold/texts/`** (`scripts/export_gold_texts_2026_11_10.py`, one file per set keyed by `key`, `text_hash` checked: sentiment gold 180, sentiment training 450 and 405, extractor faithfulness 453 and its confirmation set 438; the article bodies of the scope sets are not copied, they are in SOURCE under `article_id`). A cache or a translation still stays in `data/`. The one file there that is neither a tag nor a draw is `sentiment_gold_scoring_log.csv` (T-148c2, D35): one row per run of a candidate model on set 5, with its figures, no text; its columns are `retag.SENTIMENT_SCORING_LOG_COLUMNS` and the test of the committed gold files checks them.
 
 ## Empty files of the sets without a draw
 

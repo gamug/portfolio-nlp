@@ -3622,3 +3622,25 @@ def test_the_now_file_wants_strings_in_its_texts_and_its_list(tmp_path: Path) ->
         path.write_text(json.dumps({"extractors": {"baseline": bad}}), encoding="utf-8")
         with pytest.raises(MarkedFileError, match="malformed"):
             gold_metrics.read_now(path)
+
+
+def test_every_tracked_mark_has_its_text_in_gold_texts() -> None:
+    """Owner, 2026-11-10: the texts behind the marks are tracked with them (``gold/texts/``)."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+    pairs = {
+        "sentiment_gold.csv": ("sentiment_gold_texts.csv", 180),
+        "sentiment_train.csv": ("sentiment_train_texts.csv", 450),
+        "sentiment_train_2.csv": ("sentiment_train_2_texts.csv", 405),
+        "faithfulness_gold.csv": ("faithfulness_texts.csv", 453),
+        "faithfulness_confirmation/faithfulness_gold.csv": (
+            "faithfulness_confirmation_texts.csv",
+            438,
+        ),
+    }
+    for marks_name, (texts_name, count) in pairs.items():
+        marks = list(csv.DictReader((gold / marks_name).open(encoding="utf-8-sig")))
+        texts = list(csv.DictReader((gold / "texts" / texts_name).open(encoding="utf-8-sig")))
+        assert len(marks) == len(texts) == count
+        assert {r["key"] for r in marks} == {r["key"] for r in texts}
+        assert all(retag.text_hash(r["text"]) == r["text_hash"] for r in texts), texts_name
