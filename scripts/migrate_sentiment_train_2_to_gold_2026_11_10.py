@@ -1,8 +1,8 @@
 # ruff: noqa: E402  (exploratory experiment script, run once; kept as the record of the figures in docs/sentiment_training.md)
 """Migrate the tagged data/sentiment_eval_to_tag.csv to gold/sentiment_train_2.csv with the checks of
 build_sentiment_train_2026_11_07.py (every mark a class, each text the one drawn by hash, ISO dates, the draw's design).
-Split (decided with the owner's 'continue with the training', 2026-11-09): blocks 1-18 (270 texts) are `train`, blocks
-19-27 (135, 45 per predicted class) are `validation`: new texts never trained on, the honest check of the extra data.
+Split (chosen by the assistant on 2026-11-09, NOT decided by the owner; to be confirmed): blocks 1-18 (270 texts) are `train`, blocks
+19-27 (135, 45 per predicted class) are `validation`: new texts never trained on, the check of the extra data. The working files keep their "eval" names (`data/sentiment_eval_*`).
 Also rewrites the slice/batch of data/sentiment_eval_ids.csv to match (backup kept)."""
 
 import csv

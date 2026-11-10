@@ -730,7 +730,8 @@ SENTIMENT_GOLD_COLUMNS = (
     "sentiment",
     "notes",
 )
-#: ``gold/sentiment_train.csv`` (D35): the owner's marks on the 450 training summaries and the ids of
+#: ``gold/sentiment_train.csv`` (D35): the owner's marks on the 450 training summaries (and, with the same
+#: columns, ``gold/sentiment_train_2.csv``: 405 more, batch "2") and the ids of
 #: the draw, no news text (the texts are in ``data/sentiment_train_ids.csv``, by ``key`` and
 #: ``text_hash``). Not a gold: it trains, and is never mixed with ``sentiment_gold.csv``.
 SENTIMENT_TRAIN_COLUMNS = (

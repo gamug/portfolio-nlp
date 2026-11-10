@@ -55,6 +55,13 @@ from sentiment_stage import _text_mentions_subject
 
 MARKS = Path("gold/sentiment_train.csv")
 IDS = Path("data/sentiment_train_ids.csv")
+#: Every file of the owner's marks with the ids file that holds its texts. The grid and ``--final`` use the
+#: first only (the 450 rows PR #154 recorded); ``--final-all`` and the cross-validation scripts use all.
+MARK_SETS: dict[str, tuple[Path, Path]] = {
+    "old": (MARKS, IDS),
+    "new": (Path("gold/sentiment_train_2.csv"), Path("data/sentiment_eval_ids.csv")),
+}
+ALL_SETTING = (2, 3e-5)  # the grid's choice (D35 tie rule), used for the all-data model
 REPLAY_POOL = Path("data/sentiment_finetune/labeled_sentences_balanced_2026_09_14.jsonl")
 OUT = Path("data/sentiment_pair")
 MODELS = Path("models/sentiment_pair")
@@ -471,6 +478,74 @@ def summarise(rows: list[dict[str, Any]], n_validation: int = 0) -> spt.Choice:
     return choice
 
 
+def build_all_data(
+    conn: db.NewsNlpDatabase,
+) -> tuple[dict[str, spt.MarkedSummaries], spt.MarkedSummaries, list[spt.Example]]:
+    """The marks of every file in ``MARK_SETS``, merged, and the replay of the 450-row recipe (as large as
+    the first file's training rows, so it is the same 341 sentences) that excludes every marked body and
+    headline of all files. Rows that do not read as a pair stay with the text-only model, as in
+    ``build_data``; the counts are printed."""
+    by_set = {
+        name: spt.load_marked_summaries(read_csv(marks), read_csv(ids))
+        for name, (marks, ids) in MARK_SETS.items()
+    }
+    merged = spt.merge_marked(by_set.values())
+    print(
+        f"rows used {len(merged.train) + len(merged.validation)} "
+        f"({', '.join(f'{n} {len(m.train) + len(m.validation)}' for n, m in by_set.items())}); "
+        f"left out {merged.left_out or 'none'}"
+    )
+    ids_rows = [r for _, ids in MARK_SETS.values() for r in read_csv(ids)]
+    titles = {
+        key
+        for r in ids_rows
+        if r["body_hash"] in merged.body_hashes and (key := headline_key(r["title"]))
+    }
+    hashes, never_titles = exam_keys(conn, merged.body_hashes, titles)
+    sentences = [json.loads(line) for line in REPLAY_POOL.read_text(encoding="utf-8").splitlines()]
+    infos = article_infos(conn, {int(s["article_id"]) for s in sentences})
+    replay, report = spt.replay_examples(
+        sentences,
+        infos.get,
+        hashes,
+        _text_mentions_subject,
+        n=len(by_set["old"].train),
+        seed=REPLAY_SEED,
+        never_titles=never_titles,
+    )
+    print("\n".join(report.lines()))
+    return by_set, merged, replay
+
+
+class _NoScore:
+    """The all-data model has no held-out text: nothing to score."""
+
+    def __call__(self, model_dir: str) -> float:
+        return 0.0
+
+
+def run_final_all(mlflow_on: bool) -> None:
+    """One model on every row of every file in ``MARK_SETS`` (train and validation slices both) plus the
+    replay, the grid's setting, ``FINAL_SEED``. It has no held-out score of its own: the cross-validation
+    (``sentiment_cv_all``) is its estimate. Written to ``models/sentiment_pair_all/final``, not published."""
+    target = Path("models/sentiment_pair_all") / "final"
+    if target.exists():
+        sys.exit(f"{target} exists: a model is made once; delete it to make it again")
+    conn = connect_source()
+    _by_set, merged, replay = build_all_data(conn)
+    train = [*merged.train, *merged.validation, *replay]
+    settings = spt.RunSettings(*ALL_SETTING, seed=spt.FINAL_SEED)
+    scorer = _NoScore()
+    partial = target.with_name("final.partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    row = one_run(settings, train, scorer, keep=partial, mlflow_on=mlflow_on, tag="final_all")
+    partial.replace(target)
+    print(
+        f"\nall-data model ({settings.name}): {len(train)} examples, losses {row['epoch_losses']}\n"
+        f"model: {target} (not published, no held-out score)"
+    )
+
+
 def run_final(
     train: list[spt.Example],
     scorer: Any,
@@ -730,6 +805,11 @@ def main() -> None:
     mode.add_argument("--time-one", action="store_true")
     mode.add_argument("--grid", action="store_true")
     mode.add_argument("--final", action="store_true")
+    mode.add_argument(
+        "--final-all",
+        action="store_true",
+        help="one model on every row of every gold file of MARK_SETS (no validation slice)",
+    )
     mode.add_argument("--baseline", action="store_true")
     mode.add_argument("--report", action="store_true")
     parser.add_argument(
@@ -745,6 +825,9 @@ def main() -> None:
         parser.error("--fresh only applies to --grid")
     if not torch.cuda.is_available():
         print("no CUDA device: the runs will be slow", file=sys.stderr)
+    if args.final_all:
+        run_final_all(args.mlflow)
+        return
     if args.report:  # the predictions kept: no model, no SOURCE
         run_report()
         return

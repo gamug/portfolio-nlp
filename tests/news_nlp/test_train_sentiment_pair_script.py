@@ -738,3 +738,13 @@ def test_the_summary_of_the_grid_shows_the_score_and_the_macro_precision_recall_
     plain = [{k: v for k, v in r.items() if k != "validation_detail"} for r in rows]
     CMD.summarise(plain)
     assert "2 epochs, lr 3e-05: 0.700 [0.7, 0.7, 0.7]" in capsys.readouterr().out
+
+
+def test_the_all_data_entry_point_reads_both_gold_files_and_the_grid_keeps_the_first() -> None:
+    """``--final-all`` and the cross-validation read every file of ``MARK_SETS``; the grid and ``--final``
+    keep the 450-row file PR #154 recorded (``MARKS``), so their results stay reproducible."""
+    assert list(CMD.MARK_SETS) == ["old", "new"]
+    assert CMD.MARK_SETS["old"] == (CMD.MARKS, CMD.IDS)
+    assert CMD.MARK_SETS["new"][0] == Path("gold/sentiment_train_2.csv")
+    assert CMD.ALL_SETTING == (2, 3e-5)
+    assert callable(CMD.build_all_data) and callable(CMD.run_final_all)

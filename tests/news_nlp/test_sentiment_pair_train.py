@@ -121,6 +121,35 @@ def test_a_text_that_is_not_the_one_marked_or_a_bad_mark_stops_the_loading() -> 
         spt.load_marked_summaries([{**mark, "slice": "test"}], [ids])
 
 
+def test_two_gold_files_are_one_set_and_a_shared_key_or_body_stops_it() -> None:
+    first = spt.load_marked_summaries(*_split([_mark("1#summary", "Acme rose.", "positive")]))
+    second = spt.load_marked_summaries(
+        *_split(
+            [
+                _mark("2#summary", "Acme fell.", "negative", slice_="validation"),
+                _mark("3#summary", "Sector news.", "neutral", ticker="", scope="sector"),
+            ]
+        )
+    )
+    merged = spt.merge_marked([first, second])
+    assert [e.key for e in merged.train] == ["1#summary"]
+    assert [e.key for e in merged.validation] == ["2#summary"]
+    assert merged.left_out == {"no company (sector)": 1}
+    assert merged.body_hashes == first.body_hashes | second.body_hashes
+    with pytest.raises(spt.MarkedFileError, match="keys are in more than one file"):
+        spt.merge_marked([first, first])
+    twin_mark, twin_ids = _mark("9#summary", "Acme rose again.", "positive")
+    twin = spt.load_marked_summaries([{**twin_mark, "body_hash": "hash-1#summary"}], [twin_ids])
+    with pytest.raises(spt.MarkedFileError, match="a body is in more than one file"):
+        spt.merge_marked([first, twin])
+
+
+def _split(
+    pairs: list[tuple[dict[str, str], dict[str, str]]],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    return [m for m, _ in pairs], [i for _, i in pairs]
+
+
 # --- the replay ---------------------------------------------------------------------------------
 
 

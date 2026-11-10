@@ -6,8 +6,9 @@ the draw per predicted class, rows in blocks of 15 = 5 per class, same tagging f
 one change that matters: the **never** set also holds the 450 training/validation bodies (and their headlines), so
 the set is disjoint from everything the model was trained or validated on, and from the gold and held-out sets.
 
-    uv run python draw_sentiment_eval.py <PR #154 worktree> [--per-class 135] [--seed 20261109] [--yes]
+    uv run python scripts/draw_sentiment_train_2_2026_11_10.py <repository root> [--per-class 135] [--seed 20261109] [--yes]
 
+Draws the second SENTIMENT TRAINING set (not an exam; the "eval" in the data file names is from the draw's first name).
 Writes data/sentiment_eval_ids.csv (with the texts and the stratum: git-ignored record) and
 data/sentiment_eval_to_tag.csv (never overwritten); the Spanish cache is data/sentiment_eval/.
 """

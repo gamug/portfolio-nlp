@@ -12,10 +12,12 @@ import csv
 import glob
 import importlib.util
 import json
+import os
 import random
 import statistics as st
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -38,10 +40,7 @@ from transformers import (
 import sentiment_pair_report as rep
 
 cfg = json.load(open("config/pipeline_models.json"))["category"]
-sets = {
-    "old": ("gold/sentiment_train.csv", "data/sentiment_train_ids.csv"),
-    "new": ("gold/sentiment_train_2.csv", "data/sentiment_eval_ids.csv"),
-}
+sets = {d: (str(m), str(i)) for d, (m, i) in pair.MARK_SETS.items()}
 marks, ids = {}, {}
 for d, (mp, ip) in sets.items():
     for r in csv.DictReader(open(mp, encoding="utf-8-sig")):
@@ -139,18 +138,33 @@ def finetune_and_score(train_keys, test_keys, seed, epochs=3, lr=2e-5, bs=16):
     return out
 
 
-R = []  # per repeat: out-of-fold relevance score per key index
-for rpt in (1, 2):
-    fl = folds(random.Random(20261109 + rpt))
-    score = np.zeros(len(keys))
-    for f, held in enumerate(fl, 1):
-        hs = set(held)
-        tr = [k for k in keys if k not in hs]
-        got = finetune_and_score(tr, held, rpt)
-        for k, v in got.items():
-            score[idx_of[k]] = v
-        print(f"repeat {rpt} fold {f} done", flush=True)
-    R.append(score)
+#: CONTROL=1 reuses the saved out-of-fold relevance scores and shuffles them across the texts: the same nested
+#: procedure then has no relevance information left, so any gain over the sentiment model alone is the procedure's
+#: own (the stacking leak of docs/sentiment_training.md), not the relevance model's.
+CONTROL = os.environ.get("CONTROL") == "1"
+SAVED = Path("data/sentiment_pair_relevance_cv/oof_relevance.json")
+if CONTROL:
+    saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    assert saved["keys"] == list(keys), "the saved scores are for other texts"
+    perm = np.random.default_rng(31).permutation(len(keys))
+    R = [np.array(r_)[perm] for r_ in saved["R"]]
+else:
+    R = []  # per repeat: out-of-fold relevance score per key index
+    for rpt in (1, 2):
+        fl = folds(random.Random(20261109 + rpt))
+        score = np.zeros(len(keys))
+        for f, held in enumerate(fl, 1):
+            hs = set(held)
+            tr = [k for k in keys if k not in hs]
+            got = finetune_and_score(tr, held, rpt)
+            for k, v in got.items():
+                score[idx_of[k]] = v
+            print(f"repeat {rpt} fold {f} done", flush=True)
+        R.append(score)
+    SAVED.parent.mkdir(parents=True, exist_ok=True)
+    SAVED.write_text(
+        json.dumps({"keys": list(keys), "R": [r_.tolist() for r_ in R]}), encoding="utf-8"
+    )
 
 
 def wauc(s, pos):
@@ -304,8 +318,15 @@ for m in gains:
 mlflow.set_tracking_uri(sys.argv[2])
 mlflow.set_experiment("sentiment_pair_relevance_gate")
 for m in res:
-    with mlflow.start_run(run_name=f"nested_{m}"):
-        mlflow.set_tags({"stage": "sentiment", "kind": "relevance", "combination": m})
+    with mlflow.start_run(run_name=f"{'control_shuffled_' if CONTROL else ''}nested_{m}"):
+        mlflow.set_tags(
+            {
+                "stage": "sentiment",
+                "kind": "relevance",
+                "combination": m,
+                "control": str(CONTROL),
+            }
+        )
         mlflow.log_params(
             {
                 "relevance_model": f"{cfg['model']}@{cfg['revision'][:8]}",

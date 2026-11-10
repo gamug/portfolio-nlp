@@ -8,7 +8,7 @@ the text, so the model can learn the prior of the not-named texts instead of a h
 The flag is on `Example.company`, so training (`encode_batch`) and scoring (`predict_probs(pair=True)`) both
 carry it on every chunk. The flag is `sentiment_stage._text_mentions_subject(text, company, ticker)` on the
 summary; the replay sentences are all "named" by construction (the replay keeps only those that name the
-company). Run from the main checkout with PYTHONPATH=<PR #154 worktree>/src; reads data, writes only to
+company). Run from the repository root with `<root> <mlruns>`; reads data, writes only to
 data/sentiment_pair_company_yes_no/, models/sentiment_pair_company_yes_no/ (deleted after each run) and MLflow.
 """
 

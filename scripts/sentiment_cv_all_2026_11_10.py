@@ -34,13 +34,7 @@ pair.OUT = Path("data/sentiment_pair_cv_all")
 pair.MODELS = Path("models/sentiment_pair_all")
 env.load_env_file()
 conn = pair.connect_source()
-sets = {
-    "old": (pair.read_csv(pair.MARKS), pair.read_csv(pair.IDS)),
-    "new": (
-        pair.read_csv(Path("gold/sentiment_train_2.csv")),
-        pair.read_csv(Path("data/sentiment_eval_ids.csv")),
-    ),
-}
+sets = {d: (pair.read_csv(marks), pair.read_csv(ids)) for d, (marks, ids) in pair.MARK_SETS.items()}
 marked = {d: spt.load_marked_summaries(m, i) for d, (m, i) in sets.items()}
 meta = {
     r["key"]: (d, r["predicted"], int(r["pool_class_size"]))

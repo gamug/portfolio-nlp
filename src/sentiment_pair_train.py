@@ -118,6 +118,28 @@ def load_marked_summaries(
     return result
 
 
+def merge_marked(parts: Iterable[MarkedSummaries]) -> MarkedSummaries:
+    """The marked summaries of several gold files as one set (``gold/sentiment_train.csv`` and
+    ``gold/sentiment_train_2.csv``). A key or a body in two files is an error: the same text would be
+    trained on and checked on."""
+    merged = MarkedSummaries()
+    seen: set[str] = set()
+    left_out: Counter[str] = Counter()
+    for part in parts:
+        keys = {e.key for e in (*part.train, *part.validation)}
+        if keys & seen:
+            raise MarkedFileError(f"{len(keys & seen)} keys are in more than one file")
+        seen |= keys
+        if merged.body_hashes & part.body_hashes:
+            raise MarkedFileError("a body is in more than one file")
+        merged.train += part.train
+        merged.validation += part.validation
+        merged.body_hashes |= part.body_hashes
+        left_out.update(part.left_out)
+    merged.left_out = dict(left_out)
+    return merged
+
+
 # --- the replay -----------------------------------------------------------------------------------
 
 

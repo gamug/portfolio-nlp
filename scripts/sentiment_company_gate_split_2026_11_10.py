@@ -1,8 +1,8 @@
-# ruff: noqa: PLR0124, PLW2901  (exploratory experiment script, run once; kept as the record of the figures in docs/sentiment_training.md)
+# ruff: noqa: PLR2004, PLR0124, PLW2901  (exploratory experiment script, run once; kept as the record of the figures in docs/sentiment_training.md)
 """Company-mention split of the 450 sentiment marks + the "no mention -> neutral" gate on the 83
 validation texts. Read-only on data; logs to MLflow experiment `sentiment_pair_company_gate`.
 
-Run from the main checkout with PYTHONPATH=<PR #154 worktree>/src (the report module is on that branch).
+Run from the repository root: `<root> <mlruns>` as arguments, like the other scripts of this set.
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ for name, rows in readings.items():
         )
 
 # --- MLflow ------------------------------------------------------------------------------------
-uri = sys.argv[1] if len(sys.argv) > 1 else "mlruns"
+uri = sys.argv[2] if len(sys.argv) > 2 else "mlruns"
 mlflow.set_tracking_uri(uri)
 mlflow.set_experiment(EXPERIMENT)
 for key, stats in results.items():
