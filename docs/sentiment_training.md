@@ -208,6 +208,15 @@ Neutral recall stays at 0.44.
 [0.699, 0.748] against 0.737 [0.716, 0.764] (the intervals overlap; not a paired comparison), neutral recall 0.401
 against 0.442, positive recall 0.825 against 0.834. A bigger replay is not better, so the 341 stays.
 
+**Starting point: plain FinBERT.** Every run above starts from the project's own endpoint
+(`gamug/FinBERT-financial-news`, itself FinBERT fine-tuned on the silver sentence pool). The same CV (809 rows, 2
+repeats, same folds, seeds and replay) was run starting from `ProsusAI/finbert` (revision `0bc2ac10`;
+`BASE_MODEL=ProsusAI/finbert@0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031`, experiment
+`sentiment_pair_cv_all_data_base_finbert`): score 0.731 [0.706, 0.755] against 0.737 [0.716, 0.764] (intervals
+overlap; not a paired comparison), gain over the pinned text-only model +0.083 [+0.061, +0.108], neutral precision
+0.647, neutral recall 0.386 against 0.442, negative precision / recall 0.670 / 0.741, positive precision / recall
+0.743 / 0.845. Not better: the endpoint stays the starting point.
+
 **The model on all rows** (the one explanation of it; the amendment below and `Reproduce` point here).
 `train_sentiment_pair_2026_11_09.py --final-all` trains on every row of both gold files read as a pair (809
 summaries) and the 341 replay sentences (1,150 examples), grid setting, seed 4, no validation slice; epoch losses

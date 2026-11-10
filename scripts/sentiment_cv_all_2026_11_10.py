@@ -34,8 +34,10 @@ from news_nlp import env
 from sentiment_stage import _text_mentions_subject
 
 SUFFIX = f"_replay{os.environ['REPLAY_N']}" if os.environ.get("REPLAY_N") else ""
+if os.environ.get("BASE_MODEL"):  # another starting point, e.g. ProsusAI/finbert@<revision>
+    SUFFIX += "_base_" + os.environ["BASE_MODEL"].split("@")[0].split("/")[-1].lower()
 pair.OUT = Path(f"data/sentiment_pair_cv_all{SUFFIX}")
-pair.MODELS = Path("models/sentiment_pair_all")
+pair.MODELS = Path(f"models/sentiment_pair_all{SUFFIX}")
 env.load_env_file()
 conn = pair.connect_source()
 sets = {d: (pair.read_csv(marks), pair.read_csv(ids)) for d, (marks, ids) in pair.MARK_SETS.items()}

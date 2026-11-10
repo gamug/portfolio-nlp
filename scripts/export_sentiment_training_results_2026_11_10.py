@@ -22,6 +22,7 @@ EXPERIMENTS = (
     "sentiment_pair_more_data",
     "sentiment_pair_cv_all_data",
     "sentiment_pair_cv_all_data_replay809",
+    "sentiment_pair_cv_all_data_base_finbert",
     "sentiment_pair_final_all",
     "sentiment_pair_cv_threshold",
     "sentiment_pair_company_cues_cv",

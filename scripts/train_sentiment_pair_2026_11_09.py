@@ -39,6 +39,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 import statistics
@@ -269,6 +270,11 @@ def code_revision() -> str:
 
 
 def base_model() -> tuple[str, str]:
+    """The pinned model, or `BASE_MODEL=<repo>@<revision>` (an experiment from another starting point)."""
+    override = os.environ.get("BASE_MODEL")
+    if override:
+        model, _, revision = override.partition("@")
+        return model, revision or "main"
     cfg = json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))["sentiment"]
     return cfg["model"], cfg["revision"]
 
