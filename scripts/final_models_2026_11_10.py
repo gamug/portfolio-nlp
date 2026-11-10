@@ -2,7 +2,7 @@
 
     uv run python scripts/final_models_2026_11_10.py relevance [--out models/relevance_final] [--seed 1] [--order-of OOF.json]
     uv run python scripts/final_models_2026_11_10.py stack [--cv data/sentiment_pair_cv_all] \
-        [--oof data/sentiment_pair_relevance_cv/oof_relevance.json] [--out config/sentiment_stack.json]
+        [--oof data/sentiment_pair_relevance_cv/oof_relevance.json] [--out config/sentiment_stack.json] [--verify]
 
 ``relevance`` fine-tunes the category stage's NLI model (``MoritzLaurer/deberta-v3-base-zeroshot-v2.0`` at the pinned
 revision of ``config/pipeline_models.json``) on **every** one of the 809 pair rows of ``gold/sentiment_train.csv`` and
@@ -12,8 +12,9 @@ the cross-validated one (3 epochs, lr 2e-5, batch 16, float32 weights, bf16 auto
 out-of-fold weighted AUC of 0.896. The model is not evaluated on its own training rows. **A GPU is required** (the run
 stops with a message when CUDA is missing). The 809 rows are the tracked rows whose ``rule_scope`` is ``single`` or
 ``multi_dominated`` (the 46 company-less scopes are left out), so the command needs only tracked files; ``--order-of`` takes
-the key order of an out-of-fold file, which the published run used (the shuffle then repeats; without it the order is the
-file order and the weights differ in the last digits).
+the key order of an out-of-fold file, which the published run used: with it the run was repeated on 2026-11-10 and gave
+the same weights, bit for bit (sha256 of ``model.safetensors`` and ``final_loss`` 0.06313314288854599). Without it the
+order is the file order, so the shuffle differs and the weights are not those published (how much, not measured).
 
 ``stack`` fits the multinomial logistic regression of the nested evaluation (features: the log of the three sentiment
 probabilities and the logit of the relevance score; C = 1, rows weighted by ``pool size / drawn``) on the **out-of-fold**
@@ -26,6 +27,7 @@ from __future__ import annotations
 import argparse
 import csv
 import glob
+import hashlib
 import json
 import random
 import sys
@@ -168,6 +170,15 @@ def relevance(out: Path, seed: int, order_of: Path | None = None) -> None:
     print(f"saved {out} ({len(rows)} rows)")
 
 
+def input_hashes(cv_dir: Path, oof: Path) -> tuple[str, str]:
+    """sha256 of the out-of-fold file and of the ten prediction files (``cv_r[12]_f*__*.csv``) concatenated in sorted name order."""
+    files = sorted(glob.glob(f"{cv_dir}/predictions/cv_r[12]_f*__*.csv"))
+    joined = hashlib.sha256()
+    for name in files:
+        joined.update(Path(name).read_bytes())
+    return hashlib.sha256(oof.read_bytes()).hexdigest(), joined.hexdigest()
+
+
 def stack(cv_dir: Path, oof: Path, out: Path) -> None:
     from sklearn.linear_model import LogisticRegression  # noqa: PLC0415
 
@@ -222,9 +233,15 @@ def main() -> None:
         "--oof", type=Path, default=Path("data/sentiment_pair_relevance_cv/oof_relevance.json")
     )
     b.add_argument("--out", type=Path, default=Path("config/sentiment_stack.json"))
+    b.add_argument(
+        "--verify", action="store_true", help="print the sha256 of the two inputs and stop"
+    )
     args = parser.parse_args()
     if args.cmd == "relevance":
         relevance(args.out, args.seed, args.order_of)
+    elif args.verify:
+        oof_hash, predictions_hash = input_hashes(args.cv, args.oof)
+        print(f"oof file {oof_hash}\npredictions {predictions_hash}")
     else:
         stack(args.cv, args.oof, args.out)
 

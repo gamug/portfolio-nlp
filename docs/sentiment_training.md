@@ -146,7 +146,7 @@ shuffled-relevance control (20 shuffles) adds at most +0.005 to the stack, so th
 propose; the final relevance model and the stack's coefficients are built and published, private (2026-11-10,
 "Published"), but the stack is not in `sentiment_stage`, its evaluation is not strictly nested, and **no figure of this story is held-out**. The pin is decided on the 180-text gold, by the rule
 of D35 (3), (4), (7) (T-148c4). The amendment of D35 to train on all rows is accepted (owner, 2026-11-10, "Amendment to
-D35", below), so T-148c3g trains the model on the whole dataset (see there).
+D35", below), so T-148c3g (done, `CHANGELOG.md`) trains the model on the whole dataset (see there).
 
 ### The decision (owner, 2026-11-10)
 
@@ -185,15 +185,19 @@ are those of "The assumptions" above):
   final model has a held-out score, and **the 180-text gold has not been scored** (T-148c4: once, with the model and the stack
   together, on these revisions). The final models are more confident than the fold models the stack was fitted on (the
   smoke test gives 0.99 on clear cases); the effect on the stack is not measured. **It is the main risk of the stack, so
-  the gold run of T-148c4 starts with a check:** the distribution of the final models' probabilities on the 180 texts
-  (before their marks are read) against that of the out-of-fold scores the stack saw; if the final model is clearly more
-  confident, the report says so beside the score, and the stack is read with that caveat.
+  the gold run of T-148c4 starts with a check** (proposed to the owner; it is also in the T-148c4 entry): the mean of
+  the largest class probability of the sentiment model on the 180 texts, computed before their marks are read, against
+  0.862, the same mean over the 1,618 out-of-fold scores the stack saw. "Clearly more confident" = higher by more than 0.05
+  (above 0.912); then the report says so beside the score and the stack is read with that caveat. The gold is a different
+  set of texts, so a difference is a warning, not a measurement.
 - **Strict nesting: not done.** T-169 (a) asked for it. The cards' "nested" is the earlier evaluation (the stack's
   coefficients fitted on 4/5 of the out-of-fold rows and applied to the other 1/5); the final relevance model had no
   check of its own, and it saw every row. T-148c3c stays open for it.
 - **Reproduce.** `relevance` needs a GPU and only tracked files (the 809 rows are the tracked rows with `rule_scope`
-  `single` or `multi_dominated`); the published run used the key order of the out-of-fold file (`--order-of`), so a repeat
-  without it differs in the last digits. `stack` reads two git-ignored inputs, recorded here: `data/sentiment_pair_relevance_cv/oof_relevance.json`
+  `single` or `multi_dominated`); the published run used the key order of the out-of-fold file (`--order-of`). **Repeated on the GPU on 2026-11-10 with
+  `--order-of`: bit-identical** (`model.safetensors` sha256 `3389d6f2e736018edd33c53c902ee6dd4a0cfcba6718e0c645721d2f1e61515f`
+  in both; `final_loss` 0.06313314288854599; epoch mean losses 0.4970, 0.2934, 0.1684). Without it the order is the file
+  order and the weights are not the published ones (how much they differ was not measured). `stack` reads two git-ignored inputs, recorded here (`stack --verify` prints both hashes): `data/sentiment_pair_relevance_cv/oof_relevance.json`
   sha256 `94d1d0bf4bf582b1dbe9182184cb93fa4283aa4c69f156770cdcca3d87f310b1`; the 10 files `data/sentiment_pair_cv_all/predictions/cv_r[12]_f*__*.csv`,
   concatenated in sorted name order, sha256 `3981a0170120ebd486c948127ce3da3dc2f978b303a271fee7cea487e8a5c12d`.
 - **Revisions** are recorded in `config/published_models.json` (written by the publish script; the table above is the same
@@ -207,6 +211,10 @@ are those of "The assumptions" above):
   `cc-by-nc-4.0`; a further fine-tune of a share-alike work should carry the same share-alike, so the script now writes
   `cc-by-nc-sa-4.0`. **The card on the Hub still says `cc-by-nc-4.0`, and the corrections above (licence, "three quarters",
   universe) reach the Hub only with a new upload, which changes the revision; that waits for the owner's word.**
+  **Which text is live:** the `README.md` on the Hub at the published revisions was fetched on 2026-11-10: sentiment sha256
+  `5ae8268c8ad697e98c8940020cfc994e6e368329e2fe5247766b4a30b609cecd`, relevance `451b6cb9a512a9d7ce4315bfb9d17b0938663436fc4ce50e2bb503adae025c21`.
+  Both equal the cards the script generated at commit `fb28eb4`, not the current script's (which are the next upload); the
+  hashes are also in `config/published_models.json`, and the script records the hash of every card it uploads.
   The owner should also decide whether `gamug/FinBERT-financial-news` itself needs its licence corrected; this PR does not
   touch it. The repositories are private; nothing is public.
 - **Smoke test** (3 examples, local and from the Hub at these revisions): the stack turns a positive text about another company
@@ -380,7 +388,7 @@ gives less than the cross-validation (to be expected for a recipe tuned on these
 relevance model and the stack are in the same position: they are scored on the gold by the same rule before they are
 wired into `sentiment_stage` (T-148c3d).
 
-**What follows now that the owner has accepted it: T-148c3g.** Train the model on the whole dataset with `--final-all` (the 809 rows of
+**What followed once the owner accepted it: T-148c3g (done, `CHANGELOG.md`).** Train the model on the whole dataset with `--final-all` (the 809 rows of
 both gold files and the 341 replay sentences, the grid setting, seed 4, **one run, no selection among runs**), then publish
 it as the candidate and score it once on the 180-text gold (T-148c4). One run of that command already exists (MLflow
 `final_all__e2_lr3e-05_s4`, unpublished); because GPU training is not bit-reproducible, the owner says whether that run

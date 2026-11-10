@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -3853,3 +3854,63 @@ def test_the_published_revisions_are_recorded_and_private() -> None:
         assert re.fullmatch(r"[0-9a-f]{40}", published[name]["revision"])
     pinned = json.loads((path.parent / "pipeline_models.json").read_text(encoding="utf-8"))
     assert PUBLISH.SENTIMENT_REPO not in json.dumps(pinned)  # nothing is pinned (D35)
+
+
+def test_the_figures_on_the_cards_are_those_of_the_tracked_gold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.setattr(FINAL, "SETS", tuple((str(root / a), str(root / b)) for a, b in FINAL.SETS))
+    rows = FINAL.pair_rows()
+    assert len(rows) == 809
+    assert Counter(r["sentiment"] for r in rows) == {
+        "positive": 394,
+        "negative": 213,
+        "neutral": 202,
+    }
+    assert len({r["company"] for r in rows}) == 228
+    assert 320 <= sum(len(r["text"]) for r in rows) / len(rows) <= 335  # "about 330 characters"
+    assert {r["pub_date"][:4] for r in rows} == {"2022", "2023", "2024", "2025", "2026"}
+    neutral = [r for r in rows if r["sentiment"] == "neutral"]
+    naming = sum(FINAL.company_name(r["company"]).lower() in r["text"].lower() for r in neutral)
+    assert naming == 121  # "about 60% of the neutral texts (121 of 202)"
+    for figure in ("positive 394, negative 213, neutral 202", "228 companies", "121 of 202"):
+        assert figure in PUBLISH.SENTIMENT_CARD
+    assert "tracked\nuniverse of 507" in PUBLISH.RELEVANCE_CARD
+
+
+def test_a_revision_is_recorded_only_when_it_is_a_commit_sha(tmp_path: Path) -> None:
+    record = tmp_path / "published.json"
+    sha = "a" * 40
+    PUBLISH.record_upload(record, "sentiment", PUBLISH.SENTIMENT_REPO, sha, "card")
+    first = json.loads(record.read_text(encoding="utf-8"))
+    assert first["sentiment"]["revision"] == sha and first["sentiment"]["private"] is True
+    assert len(first["sentiment"]["card_sha256"]) == 64
+    with pytest.raises(SystemExit):  # an empty answer of the Hub is never written
+        PUBLISH.record_upload(record, "relevance", PUBLISH.RELEVANCE_REPO, "", "card")
+    assert "relevance" not in json.loads(record.read_text(encoding="utf-8"))
+    PUBLISH.record_upload(record, "relevance", PUBLISH.RELEVANCE_REPO, "b" * 40, "card")
+    both = json.loads(
+        record.read_text(encoding="utf-8")
+    )  # the first entry survives the second upload
+    assert both["sentiment"]["revision"] == sha and both["relevance"]["revision"] == "b" * 40
+
+
+def test_the_hashes_of_the_stack_inputs_are_those_of_the_files_in_name_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    predictions = tmp_path / "cv" / "predictions"
+    predictions.mkdir(parents=True)
+    (predictions / "cv_r2_f0__x.csv").write_bytes(b"two")
+    (predictions / "cv_r1_f0__x.csv").write_bytes(b"one")
+    (predictions / "other.csv").write_bytes(b"left out")
+    oof = tmp_path / "oof.json"
+    oof.write_bytes(b"{}")
+    oof_hash, joined = FINAL.input_hashes(tmp_path / "cv", oof)
+    assert oof_hash == hashlib.sha256(b"{}").hexdigest()
+    assert joined == hashlib.sha256(b"onetwo").hexdigest()  # r1 before r2, other files left out
+    monkeypatch.setattr(
+        sys, "argv", ["final", "stack", "--verify", "--cv", str(tmp_path / "cv"), "--oof", str(oof)]
+    )
+    FINAL.main()
+    assert joined in capsys.readouterr().out

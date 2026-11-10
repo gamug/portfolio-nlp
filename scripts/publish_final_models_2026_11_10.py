@@ -14,8 +14,10 @@ Needs ``HF_TOKEN`` (write scope) in the environment or ``.env``. The result, wit
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 SENTIMENT_REPO = "gamug/FinBERT-company-sentiment"
@@ -209,6 +211,28 @@ def publish(
     return str(sha)
 
 
+def record_upload(path: Path, key: str, repo: str, revision: str, card: str) -> None:
+    """Write one repository's entry (repo, revision, private, sha256 of the card uploaded) at once, merged with the file.
+
+    Stops when *revision* is not a 40-hex commit SHA (an empty answer of the Hub must never be recorded).
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise SystemExit(
+            f"{repo}: the upload returned no commit SHA ({revision!r}); nothing recorded"
+        )
+    current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    current["what"] = (
+        "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)"
+    )
+    current[key] = {
+        "repo": repo,
+        "revision": revision,
+        "private": True,
+        "card_sha256": hashlib.sha256(card.encode("utf-8")).hexdigest(),
+    }
+    path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     from dotenv import load_dotenv  # noqa: PLC0415
 
@@ -225,27 +249,21 @@ def main() -> None:
     token = os.environ.get("HF_TOKEN", "")
     if not token and not args.dry_run:
         raise SystemExit("HF_TOKEN (write scope) is not set")
-    out = {
-        "sentiment": publish(
-            token,
+    out: dict[str, str] = {}
+    for key, repo, folder, card, extra in (
+        (
+            "sentiment",
             SENTIMENT_REPO,
             args.sentiment_dir,
             SENTIMENT_CARD,
             {"sentiment_stack.json": args.stack},
-            args.dry_run,
         ),
-        "relevance": publish(
-            token, RELEVANCE_REPO, args.relevance_dir, RELEVANCE_CARD, {}, args.dry_run
-        ),
-    }
+        ("relevance", RELEVANCE_REPO, args.relevance_dir, RELEVANCE_CARD, {}),
+    ):
+        out[key] = publish(token, repo, folder, card, extra, args.dry_run)
+        if not args.dry_run:  # each repository is recorded as soon as its upload returns
+            record_upload(args.record, key, repo, out[key], card)
     print(json.dumps(out))
-    if not args.dry_run:
-        record = {
-            "what": "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)",
-            "sentiment": {"repo": SENTIMENT_REPO, "revision": out["sentiment"], "private": True},
-            "relevance": {"repo": RELEVANCE_REPO, "revision": out["relevance"], "private": True},
-        }
-        args.record.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
