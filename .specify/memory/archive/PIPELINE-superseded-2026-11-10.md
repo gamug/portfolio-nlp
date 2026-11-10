@@ -469,3 +469,23 @@ A company snapshot
 ```
 - [ ] **T-152** *(P5)* The company snapshot table (one row per (body, company): text, ticker, D15
 ```
+
+## Seventh cut (PR #161 review)
+
+### TASKS T-147 (classifier of the scope), verbatim
+
+```
+- [ ] **T-147** *(P3)* Triage stage on unique bodies: body-hash grouping (T-132), the scope first (the MVP handles `single`, `multi` and `sector`, D39), from a local classifier (a small fine-tuned encoder with the `news_nlp.triage` rule features as inputs) trained on silver and gold, with a calibrated confidence. **Accepted at >= 90% corpus-weighted agreement with the held-out gold on all bodies and recall >= 80% for each scope with >= 40 gold bodies** (D20 as amended by D33; the rest reported with their interval); complete metric set per scope (AI #12). Each round exports about 300 low-confidence bodies for the owner's tagging (D21) until the target holds. `unrelated` is flagged and skipped; tables proposed to the owner in the PR; its own FR. **Model governance (AI #1, #12, Work item 8):** a new pinned checkpoint in `config/pipeline_models.json` with its revision, selection justified against alternatives, the `ExperimentSpec` stage list extended deliberately (a snapshot test). → P3. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-147.
+```
+
+### TASKS T-163, verbatim
+
+```
+- [ ] **T-163** *(Build 1, D40)* *(D39 (1); P3)* Scope step: T-147's triage, limited in the MVP to `single`, `multi` and `sector`; `market_economy`, `investing_general` and `unrelated` are stored with their scope and stop there. → D39. **Closing check:** the share of a 500-body dry run per scope, and the MVP scopes only go on. **From D40:** the scope comes from the extractor step (the rules triage inside step 1, proposed); T-147's classifier is not in Build 1.
+```
+
+### SPEC FR-020, verbatim
+
+```
+| **FR-020** | **The pipeline (owner, 2026-11-10, PLAN D39), built in separate steps.** (1) Scope of the body: MVP `single`, `multi`, `sector`; `market_economy`, `investing_general`, `unrelated` are stored with their scope and stop. (2) single: summary, NER on it, the relevance model scores each company; those over a threshold are main (one stored row per main company, same text), the others go to mentions in `article_entities`; none over it: the review list. (3) multi: the extractor cuts sub-news; NER on each; the relevance model picks the main companies as in (2); a sub-news over a character size (not set) is summarised. (4) sector: sector identified, then summary. (6) Sentiment: the pair model + relevance stack for each summary or sub-news with its main company; a sector summary has no company and is read by `gamug/FinBERT-financial-news`; items on the review list have none. (7) Category of the same texts. After them, the snapshots (D28). | Each step reads the stored result of the previous one and writes its own table; for a fixed input and fixed model revisions each step gives one row per item; the main company of a text is stored with its relevance score (a text with two main companies is two `text_company` items, D39 (i)); an item with no company over the threshold is on the review list, not silently dropped. |
+```

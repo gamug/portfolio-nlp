@@ -224,13 +224,13 @@ above, it says so; nothing else above is touched.
   the category model while Build 1 runs. **Step 5, the company snapshots and company resumes, is undefined and is not
   built** (D28 and T-152 wait). **Size rule (step 2):** an item over the size (not set: measured first on the output of
   step 1, T-166) is summarised; a shorter one is used as it is and its row says `text_source = original`; steps 3 to 4
-  read the row's text, whichever the source. **The scope comes from the extractor step** (the rules triage of
-  `news_nlp.triage`, measured on the held-out 200, inside step 1; the classifier of T-147 is not part of Build 1: proposed,
-  to the owner). **Tables (the owner: each step its own table, sentiment included; names proposed, schema to the owner
+  read the row's text, whichever the source. **The scope comes from a classifier that reads the title** (owner,
+  2026-11-10; T-147; trained on `gold/category_gold_v2.csv`, bar on the held-out 200; the rules triage, 68.0% on the same
+  200, is the baseline); the `units` extractor cuts the `multi` bodies in the same step 1. **Tables (the owner: each step its own table, sentiment included; names proposed, schema to the owner
   first, AI #10):** step 1 `body_scope` (unique body, scope, rule revision) and `sub_news`; step 2 `news_summary`
   (item kind body or sub_news, text, `text_source`, model revision; `article_summary` is keyed by article and cannot
-  hold these); step 3 the `article_entities` columns of D39 (iii) and `news_main_ticker` (item, ticker, relevance score);
-  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker). **Reads and writes:** step 1
+  hold these); step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **only** source of truth for the main ticker; there is no separate main-ticker table);
+  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker, read from `article_entities.is_main`). **Reads and writes:** step 1
   reads unique bodies of SOURCE; step 2 reads `body_scope` and `sub_news`; step 3 reads `news_summary`; each stops at
   `--limit`. **Open for the owner:** whether the shared `pipeline_step_state` of D39 (v) stays beside these tables, or
   each table carries its own status and `--status` reads them all (the owner's wish for tracking holds either way).
