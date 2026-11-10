@@ -621,3 +621,10 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
       - **Report:** the confusion matrix and the recall of `multi` and `single` against each other (a `multi` body called `single` is summarised whole with one main company; a `single` called `multi` is cut into pieces with the same company). **Titles:** a missing, empty or unusable title sends the body to `body_scope` with status `review`; T-163's dry run prints the count over SOURCE.
       - **Feasibility (2026-11-10, `scope_title_baseline_2026_11_10.py`, weighted):** title only **66.4% [59.7, 73.3]**, rules 68.2% [61.5, 74.7], always `single` 58.2%; `multi` recall 51.0% / 52.5%. Level with the rules.
 ```
+
+
+### T-147 Reproduce bullet, long form (NLI PR)
+
+```
+      - **Reproduce:** `scope_title_baseline_2026_11_10.py` (title; `--body-chars N`; `--company-features`, PR #163), `scope_relevance_features_2026_11_10.py`, `scope_two_stage_2026_11_10.py` (PR #165); from `gold/` alone except the models. A measurement records the SHA-256 of `gold/universe.csv` (2026-11-09).
+```
