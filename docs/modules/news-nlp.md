@@ -395,7 +395,8 @@ lean `articles` rows itself.
   `faithfulness_exempt_to_read.csv`, and `report_wi18 faithfulness` gives the bar also with them
   counted as unfaithful (every company named) and, once read, on the real companies. Audit of the
   header rule: `scripts/audit_headers_2026_11_08.py`. Text measures of the company texts (characters, mixed and nameless sentences, paired
-  intervals): `scripts/text_measures_2026_11_08.py`.
+  intervals): `scripts/text_measures_2026_11_08.py`. What replaced the marked texts the code no longer writes (per
+  extractor, read-only, stops on an unfinished file): `scripts/dead_text_replacement_2026_11_10.py`.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 

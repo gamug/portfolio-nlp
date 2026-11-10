@@ -57,9 +57,11 @@ from news_nlp import (
     retag,
     triage,
 )
+from news_nlp.gold_metrics import MarkedFileError
 from news_nlp.triage import CompanyResolver
 
 BODIES_NAME = "faithfulness_bodies.csv"
+NOW_NAME_HINT = "the entries of extractors not run now are dropped until they are run again"
 IDS_NAME = "faithfulness_ids.csv"
 TO_TAG_NAME = "faithfulness_to_tag.csv"
 CACHE_DIR = "faithfulness"
@@ -316,7 +318,7 @@ def label_extractors(label: str) -> set[str]:
 
 def run_stale(args: argparse.Namespace) -> int:
     """``--stale``: free and read-only (it writes ``faithfulness_stale.json``, the result the report
-    quotes); run the registered extractors (``--only`` limits them) over the drawn bodies and say
+    quotes, and ``faithfulness_now.json``, what each extractor writes now); run the registered extractors (``--only`` limits them) over the drawn bodies and say
     which marked rows the code no longer reproduces. The file keeps the last check of every
     extractor: a run of some does not erase the others. Returns the exit code, a sum: 1 some marked
     row is stale, 2 some extractor of the ids was neither run nor excluded by ``--only`` (the model
@@ -329,7 +331,7 @@ def run_stale(args: argparse.Namespace) -> int:
         if unknown:
             sys.exit(f"--only {unknown}: not registered here ({sorted(EXTRACTORS)})")
     resolver = CompanyResolver(retag_cli.companies())
-    items, _ = collect_items(extra._read(out / BODIES_NAME), names, resolver)
+    items, omissions = collect_items(extra._read(out / BODIES_NAME), names, resolver)
     revisions = {n: extractor_revision(n) for n in names}
     ids = extra._read(out / IDS_NAME)
     result = stale_report(ids, items, names, revisions)
@@ -362,7 +364,35 @@ def run_stale(args: argparse.Namespace) -> int:
         for n in names
     }
     document = gold_metrics.merge_stale(gold_metrics.read_stale(path), ran)
-    gold_metrics.write_pair_atomically({path: json.dumps(document, indent=1) + "\n"})
+    now_path = out / gold_metrics.NOW_NAME
+    now = {
+        n: gold_metrics.NowEntry(
+            date=date.today().isoformat(),
+            revision=revisions[n],
+            bodies=gold_metrics.file_identity(out / BODIES_NAME),
+            texts={
+                f"{i['article_id']}#{i['ticker']}": i["text_hash"]
+                for i in items
+                if n in i["extractors"].split("|")
+            },
+            without=sorted(
+                {f"{o['article_id']}#{o['ticker']}" for o in omissions if o["extractor"] == n}
+            ),
+        )
+        for n in names
+    }
+    try:
+        kept_now = gold_metrics.read_now(now_path)
+    except MarkedFileError as error:  # an old format: only what this run found is kept
+        print(f"{error}; {NOW_NAME_HINT}")
+        kept_now = {}
+    now_document = {"extractors": {**kept_now, **now}}
+    gold_metrics.write_pair_atomically(
+        {
+            path: json.dumps(document, indent=1) + "\n",
+            now_path: json.dumps(now_document, indent=1) + "\n",
+        }
+    )
     return (1 if result["stale"] else 0) + (2 if unchecked else 0)
 
 
