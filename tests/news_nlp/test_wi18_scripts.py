@@ -3713,3 +3713,14 @@ def test_the_tracked_universe_is_the_507_companies_the_matcher_reads() -> None:
     assert list(rows[0]) == ["ticker", "company", "also_covers", "gics_sector"]
     assert len({r["ticker"] for r in rows}) == len(rows)
     assert all(r["ticker"] and r["company"] for r in rows)
+
+
+def test_the_stack_coefficients_are_a_three_class_logistic_regression_on_four_features() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "sentiment_stack.json"
+    stack = json.loads(path.read_text(encoding="utf-8"))
+    assert stack["classes"] == ["positive", "negative", "neutral"] == stack["class_order_of_coef"]
+    assert len(stack["coef"]) == len(stack["intercept"]) == 3
+    assert all(len(row) == len(stack["features"]) == 4 for row in stack["coef"])
+    assert stack["rows"] == 809
+    # more relevance pushes towards a direction and away from neutral
+    assert stack["coef"][2][-1] < 0 < stack["coef"][0][-1]
