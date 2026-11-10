@@ -5,9 +5,11 @@
     uv run scripts/train_sentiment_pair_2026_11_09.py --final       # the setting chosen, one run, the model kept
     uv run scripts/train_sentiment_pair_2026_11_09.py --baseline    # the pinned model on the validation slice, no training
     uv run scripts/train_sentiment_pair_2026_11_09.py --report      # the final run against the baseline: precision, recall, ROC OVR
+    uv run scripts/train_sentiment_pair_2026_11_09.py --final-all [--models DIR]  # one model on every row of every gold file
 
 The recipe and its checks are in ``src/sentiment_pair_train.py``. This script gives them the data: the 450
-marks (``gold/sentiment_train.csv``) with their texts (``data/sentiment_train_ids.csv``, git-ignored), the
+marks (``gold/sentiment_train.csv``; the grid and ``--final`` read only this file, so the recorded grid stays
+reproducible) with their texts (``data/sentiment_train_ids.csv``, git-ignored), the
 earlier balanced pool of sentences as the replay (``data/sentiment_finetune``, read for the company of each
 sentence from the SOURCE), and the scorer's own reading of a saved model for the validation slice
 (``draw_sentiment_gold_2026_11_05.predict_probs``, with the pair). It never reads the 180-text gold.
@@ -22,6 +24,13 @@ for ``--final``, the model to ``models/sentiment_pair/final`` (git-ignored). A r
 validation score is computed, except the final one. ``--mlflow`` logs every run (params, the validation score,
 the precision, recall and ROC OVR of each class, the epochs' losses) to the local MLflow store
 (``uv sync --group eval``).
+
+``--final-all`` (T-148c3b) is the model for the pin proposal of ``docs/sentiment_training.md``: every row read as a pair of
+every file of ``MARK_SETS`` (``gold/sentiment_train.csv`` and ``gold/sentiment_train_2.csv``, with the texts in
+``data/sentiment_train_ids.csv`` and ``data/sentiment_eval_ids.csv``), the 341 replay sentences, the grid's setting, seed 4,
+no validation slice. The model goes to ``models/sentiment_pair_all/final`` (or ``--models DIR``; git-ignored, not
+published) and the run is **always** logged (``--mlflow`` does not apply), to experiment ``sentiment_pair_final_all`` of
+the store MLflow resolves (``MLFLOW_TRACKING_URI``, else ``./mlruns`` of the working directory; the path is printed).
 """
 
 from __future__ import annotations
@@ -550,6 +559,7 @@ def log_final_all(
         mlflow.log_metric("train_seconds", row["train_seconds"])
         for epoch, loss in enumerate(row["epoch_losses"], 1):
             mlflow.log_metric("train_loss", loss, step=epoch)
+    print(f"logged to MLflow: {mlflow.get_tracking_uri()} / sentiment_pair_final_all")
 
 
 def run_final_all(models: Path | None = None) -> None:

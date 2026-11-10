@@ -75,18 +75,16 @@ Neutral recall stays at 0.44.
 [0.699, 0.748] against 0.737 [0.716, 0.764] (the intervals overlap; not a paired comparison), neutral recall 0.401
 against 0.442, positive recall 0.825 against 0.834. A bigger replay is not better, so the 341 stays.
 
-**The model on all rows.** `train_sentiment_pair_2026_11_09.py --final-all` (1,150 examples: 809 summaries and 341
-replay, grid setting, seed 4; epoch losses 0.820 and 0.394), written to `models/sentiment_pair_all/final` (local, git-ignored, not published) and
-**recorded** in MLflow experiment `sentiment_pair_final_all` (run `final_all__e2_lr3e-05_s4`: settings, 809 + 341 examples, the
-path, the losses). An earlier run of the same command, made before the mode logged, gave the same losses to three
-decimals but **different weights** (the training is not bit-reproducible on the GPU); it is kept, unrecorded, as
-`models/sentiment_pair_all_superseded/final_all_unrecorded` and is not the model of this page.
-The CV script made an earlier model the same way (losses 0.866 and 0.381) before `--final-all` existed (kept locally as
-`models/sentiment_pair_all_superseded/final_cv_script`, not to be used; its MLflow run `final_all_data__s4` is tagged
-`superseded`): the two are
-**not identical** (the examples are in a different order, so the shuffles differ), and their predictions were not
-compared. `--final-all` is the one implementation now; the CV script no longer trains a final model. The estimate of
-either is the CV figures; neither has a held-out score.
+**The model on all rows** (the one explanation of it; the amendment below and `Reproduce` point here).
+`train_sentiment_pair_2026_11_09.py --final-all` trains on every row of both gold files read as a pair (809
+summaries) and the 341 replay sentences (1,150 examples), grid setting, seed 4, no validation slice; epoch losses
+0.820 and 0.394. It writes `models/sentiment_pair_all/final` (local, git-ignored, not published) and **records** the run
+in MLflow experiment `sentiment_pair_final_all` (`final_all__e2_lr3e-05_s4`: settings, counts, path, losses). Its
+estimate is the CV figures above; it has no held-out score. GPU training is not bit-reproducible: an earlier run of the
+same command (before the mode logged) gave the same losses to three decimals but different weights, kept unrecorded as
+`models/sentiment_pair_all_superseded/final_all_unrecorded`; the CV script's earlier model (losses 0.866 and 0.381,
+different example order, run `final_all_data__s4` tagged `superseded`) is `.../final_cv_script`. Neither is the model of
+this page and none of the three was compared with another.
 
 ## Error analysis of the neutral misses
 
@@ -119,10 +117,12 @@ Same data and the same labels: relevant = the owner marked a direction, not rele
 | negative precision / recall | 0.680 / 0.745 | 0.756 / 0.734 | 0.747 / 0.748 |
 | positive precision / recall | 0.761 / 0.834 | **0.835** / 0.804 | 0.807 / **0.855** |
 
-Paired gain over the sentiment model alone (95% bootstrap interval): gate score +0.052 [+0.038, +0.065],
-neutral recall +0.312; stack score +0.077 [+0.058, +0.095], neutral precision +0.153, macro ROC OVR
-+0.053 [+0.037, +0.068]; negative recall unchanged. Negative precision and recall are above the D32 bar
-(70%) for the stack.
+Paired gain over the sentiment model alone (95% bootstrap interval, 400 resamples, the same number as the
+cross-validation above): gate score +0.052 [+0.038, +0.065], neutral recall +0.312 [+0.253, +0.378], **negative
+recall -0.011 [-0.026, -0.002]** (the gate costs a little negative recall; with 200 resamples the interval read
+[-0.023, +0.000] and hid it); stack score +0.077 [+0.057, +0.095], neutral precision +0.153 [+0.090, +0.209], macro
+ROC OVR +0.053 [+0.038, +0.068], negative recall +0.003 [-0.018, +0.015] (unchanged). Negative precision and recall
+are above the D32 bar (70%) for the stack, on the cross-validation.
 
 ## Amendment to D35 proposed for the owner
 
@@ -182,17 +182,17 @@ what it reads and writes:
 uv run --group eval python -I -c "import sys; sys.path[:0]=['src']; sys.argv=['x','.','mlruns']; exec(open('scripts/sentiment_cv_all_2026_11_10.py').read())"
 ```
 
-The model on all rows: `train_sentiment_pair_2026_11_09.py --final-all` (every file of `MARK_SETS`, no validation
-slice, grid setting, seed 4; written to `models/sentiment_pair_all/final`, not published). The grid and `--final`
-still read only the first file, so the PR's recorded grid stays reproducible.
+The model on all rows: `--final-all`, described in "More data" above (the grid and `--final` still read only the first
+file, so the PR's recorded grid stays reproducible).
 
 `sentiment_cv_all` writes the out-of-fold predictions the later scripts read (`data/sentiment_pair_cv_all/predictions/`);
 `sentiment_relevance_cv` needs them and `config/pipeline_models.json` (the NLI model); it saves its out-of-fold
 relevance scores to `data/sentiment_pair_relevance_cv/oof_relevance.json`, and the environment variables of the
 scripts: `REPLAY_N=<n>` (`sentiment_cv_all`: n replay sentences, outputs named `..._replay<n>`), `CONTROL=1`
 (`sentiment_relevance_cv`: reuse the saved scores, shuffle them once, rerun the nested procedure: the control above)
-and `CONTROL_SEEDS=<n>` (the same with n shuffles; it implies `CONTROL=1` and stops with a message if the saved scores
-are missing). The retraining of the relevance model reproduced the recorded figures exactly. Run order:
+`CONTROL_SEEDS=<n>` (the same with n shuffles; it implies `CONTROL=1` and stops with a message if the saved scores
+are missing) and `REUSE_SCORES=1` (the saved scores as they are: the nested evaluation and the bootstrap again, nothing
+logged). The retraining of the relevance model reproduced the recorded figures exactly. Run order:
 `company_gate_split`, `company_flag`, `learning_curve`, `neutral_threshold`, `draw_sentiment_train_2` and
 `migrate_sentiment_train_2_to_gold` (the new tags), `more_data`, `cv_all`, `cv_threshold`, `neutral_errors`,
 `cv_cues`, `zeroshot_relevance`, `relevance_cv`.

@@ -878,3 +878,27 @@ def test_the_all_data_model_is_always_logged_with_its_path_and_is_made_once(
     assert (n_summaries, n_replay, target) == (2, 1, tmp_path / "final")
     with pytest.raises(SystemExit, match="exists"):
         CMD.run_final_all(tmp_path)
+
+
+def test_the_all_data_record_goes_to_the_store_mlflow_resolves_and_says_which(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The record goes to the store MLflow resolves at that moment and the command prints which. (In the command
+    that is ``MLFLOW_TRACKING_URI`` or ``./mlruns``; here the store is set the way other tests of this suite do,
+    because MLflow's process-wide setting wins over the variable once something has set it.)"""
+    import mlflow  # noqa: PLC0415 -- the eval group
+
+    store = tmp_path / "store"
+    before = mlflow.get_tracking_uri()
+    mlflow.set_tracking_uri(store.as_uri())
+    monkeypatch.setattr(CMD, "base_model", lambda: ("base", "rev"))
+    row = {"epoch_losses": [0.9, 0.4], "train_seconds": 1.5}
+    try:
+        CMD.log_final_all(row, spt.RunSettings(2, 3e-5, seed=4), 809, 341, tmp_path / "final")
+        assert store.as_uri() in capsys.readouterr().out
+        runs = mlflow.search_runs(experiment_names=["sentiment_pair_final_all"])
+    finally:
+        mlflow.set_tracking_uri(before)
+    assert len(runs) == 1
+    assert runs.iloc[0]["params.output"] == str(tmp_path / "final")
+    assert runs.iloc[0]["params.n_train"] == "1150"

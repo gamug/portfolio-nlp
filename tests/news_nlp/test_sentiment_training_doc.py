@@ -25,7 +25,7 @@ HEADLINES = [
     ("sentiment_pair_relevance_gate", "nested_none", "relevance_auc", "0.896", r"\(mean 0\.896\)"),
     ("company_relevance_zeroshot", "zeroshot_relevance_auc", "auc_zs_summary_H2_about_company", "0.743", r"weighted AUC 0\.743 alone"),
     ("company_relevance_zeroshot", "zeroshot_relevance_auc", "auc_cv_sentiment_model", "0.795", r"against 0\.795"),
-    ("sentiment_pair_final_all", "final_all__e2_lr3e-05_s4", "train_loss", "0.394", r"epoch losses 0\.820 and 0\.394"),
+    ("sentiment_pair_final_all", "final_all__e2_lr3e-05_s4", "train_loss", "0.394", r"epoch losses\s+0\.820 and 0\.394"),
 ]  # fmt: skip
 
 

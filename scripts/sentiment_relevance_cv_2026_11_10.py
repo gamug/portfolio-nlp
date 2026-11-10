@@ -143,10 +143,19 @@ def finetune_and_score(train_keys, test_keys, seed, epochs=3, lr=2e-5, bs=16):
 #: own (the stacking leak of docs/sentiment_training.md), not the relevance model's.
 SAVED = Path("data/sentiment_pair_relevance_cv/oof_relevance.json")
 #: CONTROL_SEEDS=<n> (many shuffles, below) implies CONTROL=1: it needs the saved scores and never retrains.
+#: REUSE_SCORES=1 reruns the nested evaluation and the bootstrap on the saved scores as they are (no retraining, no
+#: shuffle, nothing logged to MLflow: the figures of the recorded run do not change, only the intervals are redrawn).
+REUSE = os.environ.get("REUSE_SCORES") == "1"
 CONTROL = os.environ.get("CONTROL") == "1" or int(os.environ.get("CONTROL_SEEDS") or 0) > 0
-if CONTROL and not SAVED.exists():
-    sys.exit(f"{SAVED} is missing: run this script once without CONTROL/CONTROL_SEEDS to make it")
-if CONTROL:
+if (CONTROL or REUSE) and not SAVED.exists():
+    sys.exit(
+        f"{SAVED} is missing: run this script once without CONTROL/CONTROL_SEEDS/REUSE_SCORES to make it"
+    )
+if REUSE:
+    saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    assert saved["keys"] == list(keys), "the saved scores are for other texts"
+    R = [np.array(r_) for r_ in saved["R"]]
+elif CONTROL:
     saved = json.loads(SAVED.read_text(encoding="utf-8"))
     assert saved["keys"] == list(keys), "the saved scores are for other texts"
     perm = np.random.default_rng(31).permutation(len(keys))
@@ -342,7 +351,10 @@ def bst(m, idx):
 
 
 gains = {m: defaultdict(list) for m in ("gate", "stack")}
-for _ in range(200):
+BOOTSTRAPS = (
+    400  # as in sentiment_cv_all (its `boot`): the intervals of this page rest on the same number
+)
+for _ in range(BOOTSTRAPS):
     idx = [rng.choice(v) for v in byc.values() for _ in v]
     b = bst("none", idx)
     for m in gains:
@@ -367,6 +379,9 @@ for m in gains:
         print(
             f"  {n:20} {avg[m][n] - avg['none'][n]:+.3f} [{q(g, 0.025):+.3f}, {q(g, 0.975):+.3f}]"
         )
+if REUSE:
+    print("\nREUSE_SCORES: nothing logged to MLflow (the recorded runs are unchanged)")
+    sys.exit(0)
 mlflow.set_tracking_uri(sys.argv[2])
 mlflow.set_experiment("sentiment_pair_relevance_gate")
 for m in res:

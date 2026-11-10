@@ -422,9 +422,13 @@ the validation score of a run is the mean of those nine figures; accuracy is a d
 - `scripts/train_sentiment_pair_2026_11_09.py` — `--baseline` (the pinned model on the validation slice),
   `--time-one`, `--grid [--fresh]` (27 runs, resumable over the same fingerprint), `--final` (one run, seed 4,
   the model kept), `--report` (from the predictions on disk), `--mlflow` (experiment
-  `sentiment_pair_summaries`, runs tagged with the fingerprint).
+  `sentiment_pair_summaries`, runs tagged with the fingerprint). `--final-all [--models DIR]` (T-148c3b): one run on
+  every row of **both** gold files (`MARK_SETS`: `gold/sentiment_train.csv` and `sentiment_train_2.csv`) plus the
+  replay, no validation slice, always logged to experiment `sentiment_pair_final_all` (`--mlflow` does not apply; the
+  store is `MLFLOW_TRACKING_URI` or `./mlruns`, printed); the grid and `--final` read only the first file. The
+  experiments after the grid are in `docs/sentiment_training.md`.
 - Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
-  `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `mlruns/`.
+  `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.
 
 ## Testing
 
