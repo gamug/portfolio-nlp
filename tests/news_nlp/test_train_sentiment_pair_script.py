@@ -896,9 +896,12 @@ def test_the_all_data_record_goes_to_the_store_mlflow_resolves_and_says_which(
     try:
         CMD.log_final_all(row, spt.RunSettings(2, 3e-5, seed=4), 809, 341, tmp_path / "final")
         assert store.as_uri() in capsys.readouterr().out
-        runs = mlflow.search_runs(experiment_names=["sentiment_pair_final_all"])
+        client = mlflow.MlflowClient()
+        experiment = client.get_experiment_by_name("sentiment_pair_final_all")
+        assert experiment is not None
+        runs = client.search_runs([experiment.experiment_id])
     finally:
         mlflow.set_tracking_uri(before)
     assert len(runs) == 1
-    assert runs.iloc[0]["params.output"] == str(tmp_path / "final")
-    assert runs.iloc[0]["params.n_train"] == "1150"
+    assert runs[0].data.params["output"] == str(tmp_path / "final")
+    assert runs[0].data.params["n_train"] == "1150"
