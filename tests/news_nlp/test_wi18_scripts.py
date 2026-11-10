@@ -3160,3 +3160,67 @@ def test_paired_difference_is_over_shared_companies_and_none_without_any() -> No
     n, mean, low, high = MEASURES.paired(rows, "baseline", "units", lambda r: float(r.chars))
     assert (n, mean, low, high) == (5, 200.0, 200.0, 200.0)
     assert MEASURES.paired(rows, "units2", "units", lambda r: float(r.chars)) is None
+
+
+def _two_marks_no(path: Path) -> None:
+    rows = list(csv.DictReader((path / "faithfulness_to_tag.csv").open(encoding="utf-8-sig")))
+    for row in rows:
+        row["faithful"] = "no" if row["review_order"] in ("1", "2") else "yes"
+    _csv(path / "faithfulness_to_tag.csv", rows)
+
+
+def test_the_report_gives_the_figures_without_the_marks_of_texts_the_code_no_longer_writes(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    _two_marks_no(tmp_path)
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    _stale_file(tmp_path, units=_units_entry(units))
+    clean = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert (
+        "[current code" not in clean and "current code: " not in clean
+    )  # nothing is stale: the figures would be the same
+    _stale_file(tmp_path, units=_units_entry(units, ["1#T#1 (units)", "2#T#1 (units)"]))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "[all]      units: 66.7%" in text and "[all]   baseline: 66.7%" in text
+    assert "2 marks of 2 marked rows" in text and "6 of 6 rows remain" in text
+    assert "[current code: all]      units: 100.0%" in text  # its 4 current texts are faithful
+    assert "[current code: all]   baseline: 66.7%" in text  # the baseline wrote all six
+    assert "[current code: 2022+]" in text
+
+
+def test_a_row_left_with_no_extractor_is_dropped_from_the_current_code_figures(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="units")
+    _two_marks_no(tmp_path)
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    _stale_file(tmp_path, units=_units_entry(units, ["1#T#1 (units)", "2#T#1 (units)"]))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "4 of 6 rows remain" in text
+    assert "[current code: all]      units: 100.0%" in text and "4 faithful of 4 texts" in text
+
+
+def test_the_current_code_figures_are_not_printed_from_a_check_that_is_out_of_date(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    rows = ["1#T#1 (units)"]
+    _stale_file(tmp_path, units=_units_entry("0123456789ab", rows))  # made with other code
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert (
+        "current code: not printed, the staleness check is made with other code for units" in text
+    )
+    assert "[current code: all]" not in text
+    _stale_file(tmp_path, baseline={**_stale_entry_baseline(), "stale": ["1#T#1 (baseline)"]})
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "missing for units" in text
+
+
+def _stale_entry_baseline() -> dict[str, object]:
+    return {
+        "date": "2026-11-08",
+        "revision": retag.extractor_revision("baseline"),
+        "stale": [],
+        "new": [],
+    }

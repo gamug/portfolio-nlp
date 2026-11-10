@@ -468,7 +468,8 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         notes.append(f"{changed}; the other readings of the bar are skipped")
     notes += _stale_lines(out, {n for names in owners.values() for n in names})
     read = gold_metrics.read_exempt_marks(out / gold_metrics.EXEMPT_READ_NAME)
-    return _faithfulness_lines(notes, marks, owners, dates, coverage, exempt, read)
+    lines = _faithfulness_lines(notes, marks, owners, dates, coverage, exempt, read)
+    return [*lines, *_current_code_lines(out, marks, owners, dates, coverage, exempt, read)]
 
 
 def _exempt_lines(
@@ -604,6 +605,70 @@ def _stale_lines(out: Path, marked: set[str]) -> list[str]:
     if missing:
         said += f"; never checked: {', '.join(missing)}"
     return [*lines, said]
+
+
+def _current_code_lines(
+    out: Path,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    dates: dict[str, dict[str, str]],
+    coverage: list[dict[str, str]],
+    exempt: Sequence[dict[str, str]],
+    read: dict[str, str] | None,
+) -> list[str]:
+    """The same figures without the marks of texts the current code no longer writes, as
+    ``draw_faithfulness --stale`` last found them (``faithfulness_stale.json``), labelled
+    ``[current code: ...]``. The mark of a row belongs to the text, so it is left out only for the
+    extractors whose text changed; a row left with no extractor is dropped. Nothing is printed when
+    no marked row is stale. When the check is missing for an extractor of the marks, or was made with
+    other code than the current one, one line says so and no figure is printed (a stale list that is
+    itself out of date would leave out the wrong marks)."""
+    entries = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
+    dead: dict[str, set[str]] = {}
+    for entry in entries.values():
+        for label in entry["stale"]:
+            key, _, extractor = label.rpartition(" (")
+            if key in owners and extractor.rstrip(")") in owners[key]:
+                dead.setdefault(key, set()).add(extractor.rstrip(")"))
+    if not dead:
+        return []
+    unchecked = sorted({n for names in owners.values() for n in names} - set(entries))
+    other = sorted(
+        n for n, e in entries.items() if _checked_with_current_code(n, e["revision"]) is False
+    )
+    if unchecked or other:
+        return [
+            "current code: not printed, the staleness check is "
+            + "; ".join(
+                part
+                for part in (
+                    f"missing for {', '.join(unchecked)}" if unchecked else "",
+                    f"made with other code for {', '.join(other)}" if other else "",
+                )
+                if part
+            )
+            + ": run draw_faithfulness --stale"
+        ]
+    kept = {
+        key: [n for n in names if n not in dead.get(key, set())] for key, names in owners.items()
+    }
+    kept = {key: names for key, names in kept.items() if names}
+    pairs = sum(len(v) for v in dead.values())
+    lines = [
+        f"current code: {pairs} marks of {len(dead)} marked rows are on texts the current code no "
+        f"longer writes ({gold_metrics.STALE_NAME}); the figures below leave them out, "
+        f"{len(kept)} of {len(owners)} rows remain"
+    ]
+    figures = _faithfulness_lines(
+        [],
+        {k: v for k, v in marks.items() if k in kept},
+        kept,
+        {k: v for k, v in dates.items() if k in kept},
+        coverage,
+        exempt,
+        read,
+    )
+    return [*lines, *(f"[current code: {x[1:]}" for x in figures if x.startswith("["))]
 
 
 def _faithfulness_lines(
