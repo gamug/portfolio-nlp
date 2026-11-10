@@ -6,6 +6,12 @@ The technical contract stays in `.specify/memory/PLAN.md` (D27, D32, D34) and `T
 the commands are in `docs/evaluation.md`; the tagged files are described one by one in
 `docs/gold_datasets.md`. When this page and those disagree, those win, and this page is wrong.
 
+**Which figures are current.** The selection below, "Why `units` and not the baseline", "The results" and
+"What the results say" give the figures read on 2026-11-08, before the matcher change of PR #155
+(`units` on the confirmation set: 86.1% on every company named, 570 characters per text). They are kept
+as the record of what the owner decided on. The figures after the change are in "Update of 2026-11-10"
+(`units`: 87.3% counting every mark, 97.1% on texts the current code writes; 620 characters per text).
+
 ## The selection (owner, 2026-11-08)
 
 **The owner selected `units` (called "units1" in conversation) as the base model of step 4.** The reason,
@@ -165,7 +171,8 @@ Everything is computed by `uv run scripts/report_wi18_2026_11_06.py faithfulness
 
 ## The results
 
-All figures use the owner's marks. Intervals in brackets.
+All figures use the owner's marks. Intervals in brackets. The tables in this section and in "What the
+results say" are the figures of 2026-11-08; the figures after PR #155 are in "Update of 2026-11-10".
 
 ### First set (development figures: the extractors were designed on these bodies)
 
@@ -245,34 +252,55 @@ same faithful share with about 40% less text.
 
 ### Update of 2026-11-10: the matcher change (PR #155) and the new marks
 
-**Is this about the extractor? Yes.** PR #155 changed `CompanyResolver`, the matcher that finds which
-company a sentence names. `baseline` and the `units` family read the companies of a body through it, so the
-texts they write changed (the models were not touched). The owner then marked the new texts: the first set
-has 453 marked rows (437 before) and the confirmation set 438 (395 before); 59 rows are new (16 and 43).
-Everything below is a read of those files with the code of `a568b97`.
+PR #155 changed `CompanyResolver`, the matcher that finds which company a sentence names. `baseline` and
+the three `units` extractors read the companies of a body through it, and so does `model` (it uses the
+matcher to find the companies a sentence names and to mask the company it scores; `attribution_model.py`).
+Their texts changed; the trained model was not touched. The owner then marked the texts that were
+missing marks: the first set has 453 marked rows (437 before) and the confirmation set 438 (395 before),
+so 16 and 43 rows are new (16 and 40 of them carry a text that was not in the earlier files; 3 rows share an
+earlier text under another key). Everything below is a read of those files with the code of `a568b97`.
 
-**What changed in the texts.** Marked rows whose text the code no longer writes ("dead" rows, from
-`draw_faithfulness --stale` run read-only on 2026-11-09 and re-run into `data/` on 2026-11-10 with the
-current code and the model `local:8399ccf003c60143`): **97 rows of the first set and 96 of the
-confirmation set** are dead for every extractor that held them (103 and 97 rows are dead for at least one;
-the report counts **147 and 116 marks** of an extractor on a dead text, per extractor: first set baseline
-40, model 41, units 52, units2 7, units3 7; confirmation set baseline 51, units 49, units2 7, units3 9).
-The 8 of the staleness caveat above is the record of 2026-11-08, before the change; the rest became dead
-after it (my reading, the commit that changed each text was not isolated). By the owner's marks the dead
-texts were unfaithful about half the time: 51 `no` of 97 (53%) in the first set and 45 of 96 (47%) in the
-confirmation set, against 22% `no` over all marked rows of the first set. The change dropped more bad
-texts than good ones, and it still dropped good ones.
+**What changed in the texts.** A marked row is "dead" when the code no longer writes its text for any of
+the extractors that held it (`draw_faithfulness --stale`, read-only, run on 2026-11-09 with the model
+`local:8399ccf003c60143`): **97 rows of the first set and 96 of the confirmation set** (103 and 97 rows are
+dead for at least one extractor, 147 and 116 extractor marks). The 8 rows of the staleness caveat above are
+the record of 2026-11-08, before the change; the rest became dead after it (the commit that changed each
+text was not isolated). Counts in this section are rows, each row once whatever the number of extractors
+that hold it. By the owner's marks the dead texts were unfaithful about half the time: 51 `no` of 97 (53%)
+in the first set and 45 of 96 (47%) in the confirmation set, against 14.7% (50 of 340) `no` on the rows the
+code still writes in the first set and 1.7% (5 of 302) in the confirmation set; over every marked row of the
+first set it is 22.3% (101 of 453).
+
+**What replaced the dead texts** (new marks against the dead rows they replace, matched on article and
+company; this is the direct evidence on the effect of the change):
+
+| | First set | Confirmation set |
+|---|---|---|
+| Dead rows | 97 (51 `no`, 46 `yes`) | 96 (45 `no`, 51 `yes`) |
+| Dead rows with a rewritten text for the same company (new row) | 28 | 41 |
+| Of those, the old mark and the new mark | 24 `yes` to `yes`, 4 `no` to `yes` | 39 `yes` to `yes`, 2 `no` to `no` |
+| Dead rows with no new text for that company | 69 (47 `no`, 22 `yes`) | 55 (43 `no`, 12 `yes`) |
+| New rows in all | 16 (16 `yes`) | 43 net, 40 with a new text (38 `yes`, 2 `no`) |
+
+Reading: most of what the change did was to stop writing texts for companies that were not there (47 and
+43 unfaithful texts gone with no replacement); where the code kept the company and wrote a different text,
+the new texts (the 56 rows with a text that was not in the earlier files; 6 of them are for companies with no dead row) are faithful in 54 of 56 rows (96%), and the two bad ones were bad before too. It also dropped
+good texts (22 and 12 with no replacement). Small numbers: 56 new texts, from 30 + 30 bodies.
+This supports "the change helped", it does not measure it: the new texts were drawn into the files and
+marked, and the dead ones were left out of the second table below, without re-running the old matcher.
 
 **The report counts those marks, and since PR #157 it also prints the figures without them.**
 `report_wi18_2026_11_06.py faithfulness` counts every marked row (the blocks `[all]`, `[all, real]`,
 `[2022+]`) and notes how many are on dead texts (it reads `faithfulness_stale.json`, which `--stale`
-rewrote on 2026-11-10 for both sets). After those blocks it prints the same figures labelled
-`[current code: ...]`, with each extractor's marks on dead texts left out (a row left with no extractor is
-dropped: 356 of 453 rows remain in the first set, 342 of 438 in the confirmation set). Nothing extra is
-printed when no marked row is dead; when the check is missing for an extractor or was made with other code
-than the current one, one line says so and no figure is printed. The tables below give both views; the
-"current code" columns equal the `[current code: ...]` lines of the report (Appendix A.3, A.4). Before the
-PR the same view was made by hand from copies of the two files (the owner's files are untouched).
+rewrote on 2026-11-10 for both sets: **147 and 116 marks** of an extractor on a dead text; first set
+baseline 40, model 41, units 52, units2 7, units3 7; confirmation set baseline 51, units 49, units2 7,
+units3 9). After those blocks it prints the same figures labelled `[current code: ...]`, with each
+extractor's marks on dead texts left out (a row left with no extractor is dropped: 356 of 453 rows remain in
+the first set, 342 of 438 in the confirmation set). Nothing extra is printed when no marked row is dead;
+when the check is missing for an extractor or was made with other code than the current one, one line says
+so and no figure is printed. The first table below is the `[all]` view, the second the `[current code]`
+view (Appendix A.3, A.4 are the report's own lines). Before the PR the same view was made by hand from
+copies of the two files (the owner's files are untouched).
 
 Faithful share, every company named (the bar: lower end of the interval at or above 80%):
 
@@ -293,25 +321,33 @@ then confirmation set). Gains on the same companies, current code: `units` minus
 `units` -11.6 [-24.4, 0.0] not decided and -4.3 [-9.4, -0.6] not better; `units3` minus `units` -4.1
 [-7.4, 0.0] not decided and -1.8 [-4.0, 0.0] not decided. With all marks the same gains are +22.2
 [+10.2, +37.2] better and -0.5 not decided (`units` minus `baseline`), -11.1 and -4.1 not better
-(`units2` minus `units`), -3.9 and -1.8 (`units3` minus `units`).
+(`units2` minus `units`), -3.9 and -1.8 (`units3` minus `units`). The 2022+ rows (7 and 9 bodies) are in
+Appendix A.3 to A.6; they cannot decide, as elsewhere on this page, and no conclusion below rests on them.
 
 What this adds to "What the results say":
-1. **`units` is the only extractor that passes the bar on both sets on every company named**, on current
-   code and with the strictest count of unwritten companies. No extractor beats it on a paired comparison.
-2. **The matcher change most likely helped the extractors**, mostly by dropping bad texts (above): on
-   current code `units` is about 10 points higher than with all marks on both sets (87.3% to 97.5% and
-   87.3% to 97.1%). This is not a clean before and after: the new texts were marked together with the old
-   ones, and the comparison removes the dead texts, it does not re-run the old matcher.
+1. **Among the extractors marked on both sets, `units` is the only one whose lower bound stays at or above
+   80% on every company named under the strictest count of unwritten companies**, on current code
+   (`units2` and `units3` are *not decided* on the first set under that count; `baseline` is *not decided*
+   on the first set; `model` has no confirmation marks). On the plain count `units3` also passes both sets,
+   and `baseline` passes the confirmation set. No extractor beats `units` on a paired comparison.
+2. **The matcher change helped the extractors, mainly by no longer writing texts for companies that are not
+   there**: of the 97 and 96 dead rows, 47 and 43 unfaithful texts have no replacement, and the 56 new-text
+   rows are 96% faithful (table above). On current code `units` is about 10 points higher than counting
+   every mark (87.3% to 97.5% and 87.3% to 97.1%); that rise is mostly this removal, so it measures the
+   change only together with the removal. The old matcher was not re-run.
 3. **`baseline` is the unstable one**: it fails on the first set and passes on the confirmation set.
 4. **`units2` and `units3` do not beat `units`**; they look close on the bar only because they leave 4 to 19
    companies without a text.
-5. **`model`** has no marks on the confirmation set and none on the new first-set texts; it stays
-   provisional until the attribution checkpoint is retrained.
+5. **`model`** has no marks on the confirmation set; on the first set it lost 41 texts to the change
+   (190 to 149) and has 10 texts the code now writes that nobody has marked (`faithfulness_stale.json`). It
+   stays provisional until the attribution checkpoint is retrained.
 
 #### Text measures after the change (characters per text)
 
 Same script (`scripts/text_measures_2026_11_08.py`), run on 2026-11-10. "All rows" reads every row of the
-files (dead texts included); "current code" reads the same copies as the second table above.
+files (dead texts included); "current code" reads the same copies as the second table above. The script
+measures the four extractors the owner compares (`baseline`, `units`, `units2`, `units3`); it has no `model`
+column because `model` was not part of the 2026-11-08 comparison of texts and has no confirmation marks.
 
 | | `baseline` | `units` | `units2` | `units3` |
 |---|---|---|---|---|
@@ -329,10 +365,12 @@ Paired on the same company and body, current code: the baseline writes **+381 ch
 [+159, +700] on the first set and +438 [+325, +562] on the confirmation set** (about 1.8 and 1.7 times as
 long); `units2` and `units3` differ from `units` by +4 [-7, +16] and +4 [-7, +14] (first set), +3 [-4, +12]
 and 0 [-10, +9] (confirmation set), that is, none. Before the change the same gaps were +370 and +385
-(Appendix B.1, B.2). `units` still reaches the best faithful share with about 41 to 45% less text than the
-baseline (453 against 829 and 620 against 1,058 characters on current code). The share of sentences naming
-the company and another did not move in a way the intervals can tell from zero for `units2`; for `units3`
-minus `units` it is +3.3 points [+0.2, +7.3] on the first set and +2.3 [-1.9, +7.7] on the confirmation set.
+(Appendix B.1, B.2). `units` reaches the same faithful share as the baseline on the confirmation set (97.1%
+against 97.7% on current code) and a higher one on the first (97.5% against 71.3%), with about 41 to 45%
+less text (453 against 829 and 620 against 1,058 characters on current code). The share of sentences naming
+the company and another does not differ from `units` for `units2`; for `units3` minus `units` it is +3.3
+points [+0.2, +7.3] on the first set, an interval that excludes zero (`units3` writes slightly more mixed
+text), and +2.3 [-1.9, +7.7] on the confirmation set.
 Every figure is in Appendix B.3 to B.6.
 
 ### Known limits of `units` (so nobody is surprised later)
@@ -366,8 +404,8 @@ the owner said the tagging on this front is finished, so options that need more 
 | 10 | **Match one-word names** ("JPMorgan") and header names with the plain resolver (T-148b9, out of scope so far) | fewer missed companies | code |
 | 11 | **More data for the model**: the `continuation` labels (38% right) are out; a cleaner way to use them, or more `lead` bodies | a better model | training time on the GPU; the exam sets must not be trained on |
 | 12 | **A larger 2022+ sample** (9 bodies per set cannot decide) | a verdict for the period that matters | new bodies and tagging; no pool is left in the drawn sets |
-| 13 | ~~**Make the report leave out the marks of dead texts** (and print both views), and refresh `faithfulness_stale.json`~~ **done 2026-11-10 (PR #157, not merged)**: the report prints `[current code: ...]`; `--stale` re-run into `data/` for both sets | the official figures measure the current code | done |
 | 13 | **Publish the model to the Hub and pin its revision** | the cut and the report run from a pinned checkpoint, not a local directory | the owner's explicit word |
+| 14 | ~~**Make the report leave out the marks of dead texts** (and print both views), and refresh `faithfulness_stale.json`~~ **done 2026-11-10 (PR #157, not merged)**: the report prints `[current code: ...]`; `--stale` re-run into `data/` for both sets | the official figures measure the current code | done |
 
 A reasonable order, as a proposal only: 2 (so the evidence is not
 lost), 4 and 5, then a free re-score of what is already tagged; 3 and 13 when the owner wants the selection to take effect and the model fixed.
@@ -580,6 +618,8 @@ current code: 147 marks of 103 marked rows are on texts the current code no long
 
 ### A.4 Confirmation set, current code (342 of 438 rows)
 
+The report's own lines (record of 2026-11-10).
+
 ```
 current code: 116 marks of 97 marked rows are on texts the current code no longer writes (faithfulness_stale.json); the figures below leave them out, 342 of 438 rows remain
 [current code: all]   baseline: 97.7% [94.5%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 168 faithful of 171 texts + 1 companies left without one)
@@ -628,6 +668,8 @@ current code: 116 marks of 97 marked rows are on texts the current code no longe
 
 ### A.5 First set, all marks (453 rows, the report as it is, 2026-11-10)
 
+The first line of the block is the report's own staleness line, read from the record of 2026-11-08, before PR #155: it is out of date (97 rows are dead for the current code and this view still counts them).
+
 ```
 staleness check (baseline 2026-11-08, model 2026-11-08, units 2026-11-08, units2 2026-11-08, units3 2026-11-08): 8 marked rows are on texts the current code no longer writes (...); the figures include their marks
 the intervals are a bootstrap over bodies, not over texts (D32)
@@ -674,6 +716,8 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 ```
 
 ### A.6 Confirmation set, all marks (438 rows)
+
+The first line of the block is the report's own staleness line, read from the record of 2026-11-08, before PR #155: it is out of date (96 rows are dead for the current code and this view still counts them).
 
 ```
 staleness check (baseline 2026-11-08, model 2026-11-08, units 2026-11-08, units2 2026-11-08, units3 2026-11-08): no marked row is on a text the current code no longer writes
