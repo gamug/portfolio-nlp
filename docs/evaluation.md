@@ -2396,6 +2396,19 @@ of scope, since it's deterministic composition (§9/§13, `SPEC.md`).
 | `c_summary` | `mean_faithfulness` ² | mean coverage / conciseness (1-5), `pct_with_hallucination` |
 | `sector_summary` | `mean_faithfulness` ² | `pct_with_hallucination` — faithfulness-only (no coverage/conciseness), full population every run, not a sample (see the 2026-09-14 follow-up above) |
 
+> **Metrics of record and of model selection (owner, 2026-11-09; `PLAN.md` D37, `SPEC.md` FR-019).** The
+> metrics to record, and to use in model selection, are **Precision, Recall and ROC OVR**, per class
+> (ROC OVR is the AUC of one class against the rest, from the model's probability of that class). They
+> are what `news_nlp.eval` already logs per class for `sentiment` and `category` (`precision_<class>`,
+> `recall_<class>`, `roc_auc_<class>`, below), and what the sentiment fine-tune on the owner's summaries
+> records for every run and selects by (`src/sentiment_pair_report.py`: the selection score is the mean of
+> the nine figures of the three classes; the pin rule reads their paired gain). **Accuracy (agreement) is a
+> description, not a selection metric.** The `headline metric` column below is the older judge-based
+> headline of this module and is not a selection rule; where the two disagree, D37 decides.
+>
+> The experiments after the pair trainer (cross-validation over all tags, the relevance model and the
+> stack) and their figures are in `docs/sentiment_training.md`.
+
 Every run also logs `n` (rows judged) and `parse_fail_rate` (judge replies that
 were not valid JSON after one repair attempt — excluded from the accuracy
 numbers).

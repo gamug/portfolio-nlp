@@ -1306,6 +1306,37 @@ def test_the_training_file_has_its_columns_once_it_is_committed() -> None:
         assert tuple(next(csv.reader(fh))) == retag.SENTIMENT_TRAIN_COLUMNS
 
 
+def test_the_second_training_file_is_what_the_docs_say_it_is() -> None:
+    """``gold/sentiment_train_2.csv`` (batch "2"): 405 rows, 270 `train` (blocks 1-18) and 135 `validation`
+    (blocks 19-27), 135 of each predicted class, tags only (no text column), and not one key, body or
+    text shared with ``sentiment_train.csv`` (a shared body would be trained on and checked on). 20 rows are
+    sector, market or economy tags with no company: they stay with the text-only model."""
+    rows = {}
+    for name in ("sentiment_train.csv", "sentiment_train_2.csv"):
+        with (ROOT / "gold" / name).open(encoding="utf-8-sig", newline="") as fh:
+            reader = csv.DictReader(fh)
+            assert tuple(reader.fieldnames or ()) == retag.SENTIMENT_TRAIN_COLUMNS, name
+            rows[name] = list(reader)
+    first, second = rows["sentiment_train.csv"], rows["sentiment_train_2.csv"]
+    assert len(second) == 405
+    assert Counter((r["slice"], r["batch"]) for r in second) == {
+        ("train", "2"): 270,
+        ("validation", "2"): 135,
+    }
+    assert Counter(r["predicted"] for r in second) == {
+        c: 135 for c in ("positive", "negative", "neutral")
+    }
+    assert {r["sentiment"] for r in second} == {"positive", "negative", "neutral"}
+    for column in ("key", "body_hash", "text_hash"):
+        assert not {r[column] for r in first} & {r[column] for r in second}, column
+        assert len({r[column] for r in second}) == len(second), column
+    no_company = [r for r in second if r["rule_scope"] in ("sector", "market", "economy")]
+    assert (
+        len(no_company) == 20
+        and len([r for r in first if r["rule_scope"] in ("sector", "market", "economy")]) == 26
+    )
+
+
 def test_the_scaffold_writes_the_draw_columns_and_never_touches_a_file(tmp_path: Path) -> None:
     scaffold = _script("scaffold_gold_sets_2026_11_06")
     out, gold = tmp_path / "data", tmp_path / "gold"

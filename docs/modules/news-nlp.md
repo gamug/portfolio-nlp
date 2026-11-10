@@ -400,6 +400,37 @@ lean `articles` rows itself.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 
+## Sentiment on the owner's summaries (Work item 18, T-148c, development only)
+
+A candidate sentiment model, fine-tuned from the pinned one on the owner's tagged summaries and read as the
+**pair** `[CLS] company [SEP] text [SEP]` (D35). It is not in the pipeline: the stage still runs the pinned
+model, and the gold is scored once, by `scripts/score_sentiment_gold_2026_11_07.py --pair` (T-148c4). Numbers
+and decisions are in `TASKS.md` T-148c3 and `PLAN.md` D35, not copied here. **The metrics that are
+recorded and that select a model are Precision, Recall and ROC OVR per class (owner, 2026-11-09, `PLAN.md` D37):
+the validation score of a run is the mean of those nine figures; accuracy is a description only.**
+
+- `src/sentiment_pair.py` — the pair's encoding and the routing rule (`reads_as_pair`), shared by the trainer,
+  the draw's `predict` and the scorer; the stage will use it in PR C (T-148c5, proposed, not built).
+- `src/sentiment_pair_train.py` — the recipe: the loader of the 450 marks, the replay of earlier sentences (only
+  those that name their article's company, not of a gold, held-out or marked body or headline), batches that
+  never mix summaries with sentences, one run, the grid of 27, D35's tie rule, and a fingerprint of the data,
+  recipe and code. Its revision is part of the fingerprint, so a change to it invalidates the runs.
+- `src/sentiment_pair_report.py` — how a run is *shown*, kept apart so that changing it does not invalidate
+  the runs: the precision, recall and ROC OVR of each class and the selection score (weighted, with a bootstrap
+  interval, because the slice is drawn per class the pinned model predicted), the paired weighted gain over the
+  pinned model, D32's verdicts on the negative class, the pin rule (`pin_decision`), and the raw description
+  of the slice (confusion matrix, McNemar).
+- `scripts/train_sentiment_pair_2026_11_09.py` — `--baseline` (the pinned model on the validation slice),
+  `--time-one`, `--grid [--fresh]` (27 runs, resumable over the same fingerprint), `--final` (one run, seed 4,
+  the model kept), `--report` (from the predictions on disk), `--mlflow` (experiment
+  `sentiment_pair_summaries`, runs tagged with the fingerprint). `--final-all [--models DIR]` (T-148c3b): one run on
+  every row of **both** gold files (`MARK_SETS`: `gold/sentiment_train.csv` and `sentiment_train_2.csv`) plus the
+  replay, no validation slice, always logged to experiment `sentiment_pair_final_all` (`--mlflow` does not apply; the
+  store is `MLFLOW_TRACKING_URI` or `./mlruns`, printed); the grid and `--final` read only the first file. The
+  experiments after the grid are in `docs/sentiment_training.md`.
+- Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
+  `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.
+
 ## Testing
 
 ```bash
@@ -409,6 +440,20 @@ uv run pytest tests/news_nlp -q
 The suite is hermetic — every model load is monkeypatched, so no torch download, GPU, or
 network is needed at test time. All tests pass (part of the repo's CI gate; see
 `.github/workflows/ci.yml`).
+
+**Reproducing CI exactly.** CI installs `--group dev --group eval` and runs, in this order, ruff, `ruff format --check`,
+mypy and pytest (`.github/workflows/ci.yml`):
+
+```bash
+uv sync --group dev --group eval
+uv run --no-sync mypy --config-file=.code_quality/mypy.ini
+```
+
+The pre-commit mypy hook runs `uv run mypy`, which installs only the default `dev` group: in a checkout or worktree
+whose environment has no `eval` group (`mlflow`, `strands-agents`) mypy sees those packages as untyped, so the hook
+can pass where CI fails (it did on #154: `mlflow.search_runs` is `list | DataFrame` to the typed package). Before
+pushing code that imports `mlflow`, run the two commands above. A stale `.mypy_cache` after installing the group can
+make mypy stop with an internal error; delete it and run again.
 
 ## Evaluation
 
