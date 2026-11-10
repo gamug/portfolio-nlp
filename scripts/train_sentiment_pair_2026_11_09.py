@@ -826,6 +826,8 @@ def main() -> None:
         "--mlflow", action="store_true", help="log every run to the local MLflow store"
     )
     args = parser.parse_args()
+    if args.models and not args.final_all:
+        parser.error("--models only applies to --final-all")
     if args.fresh and not args.grid:
         parser.error("--fresh only applies to --grid")
     if not torch.cuda.is_available():

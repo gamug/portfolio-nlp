@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Container, Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -59,6 +60,14 @@ _WORD_TICKERS = frozenset(
     [
         "ALL",
         "ARE",
+        "COO",
+        "MET",
+        "FANG",
+        "RMD",
+        "APP",
+        "MAS",
+        "AFL",
+        "PEG",
         "BALL",
         "BEN",
         "CAT",
@@ -95,6 +104,73 @@ _WORD_NAMES = frozenset(
         "waters",
         "pool",
         "mosaic",
+        "block",
+        "travelers",
+        "williams",
+        "workday",
+        "booking",
+        "visa",
+        "flex",
+        "cognizant",
+        "coherent",
+    ]
+)
+#: First words of company names that are everyday words, places or first names (measured on a body
+#: sample, PR #155): "Federal Reserve", "Boston Globe", "Ralph" said. The company is named by the
+#: short form of its name ("Federal Realty", "Palo Alto") or in full.
+_COMMON_FIRST_WORDS = frozenset(
+    [
+        "federal",
+        "state",
+        "union",
+        "trade",
+        "west",
+        "home",
+        "take",
+        "universal",
+        "boston",
+        "illinois",
+        "republic",
+        "equity",
+        "live",
+        "realty",
+        "fair",
+        "builders",
+        "extra",
+        "globe",
+        "iron",
+        "steel",
+        "consolidated",
+        "principal",
+        "citizens",
+        "arch",
+        "snap",
+        "fifth",
+        "palo",
+        "alexandria",
+        "cincinnati",
+        "camden",
+        "monster",
+        "marathon",
+        "ralph",
+        "philip",
+        "arthur",
+        "stanley",
+        "henry",
+        "casey",
+        "phillips",
+        "fidelity",
+        "crown",
+        "automatic",
+        "packaging",
+        "comfort",
+        "church",
+        "kimberly",
+        "essex",
+        "walt",
+        "bristol",
+        "lowe",
+        "moody",
     ]
 )
 #: First words of company names that name nothing by themselves (several companies share them or
@@ -132,8 +208,62 @@ _ALIAS_STOP = frozenset(
         "western",
         "charles",
         "western",
+        *_COMMON_FIRST_WORDS,
     ]
 )
+#: Names and first-word aliases that are also surnames, first names or everyday nouns ("Wilbur
+#: Ross", "block trade", "Williams said"): a mention counts only when the same text also names the
+#: company some other way (its full name or a ticker form). Lower case.
+_CORROBORATED = frozenset(
+    [
+        "bloom",
+        "ross",
+        "jack",
+        "martin",
+        "block",
+        "travelers",
+        "williams",
+        "edwards",
+        "simon",
+        "baker",
+        "jacobs",
+        "parker",
+        "wells",
+        "morgan",
+        "ferguson",
+        "tyson",
+        "duke",
+        "franklin",
+        "apollo",
+        "kraft",
+        "rockwell",
+        "dominion",
+        "warner",
+        "edison",
+        "intuitive",
+        "abbott",
+        "pinnacle",
+        "motorola",
+        "darden",
+        "hewlett",
+        "emerson",
+        "tyler",
+        "marsh",
+        "avery",
+    ]
+)
+#: The first words of company names (stop-listed ones and the ``_CORROBORATED`` words) that name
+#: their company in a short form of two words: "Federal Realty", "Take-Two", "Jack Henry".
+_SHORT_FORMS = _COMMON_FIRST_WORDS | _CORROBORATED
+#: Names a company is known by that are neither its name nor the first words of it: "Abbott Labs", a
+#: former name. ``(ticker, form)``; read where the ticker is in the universe, capitalised, as a short
+#: form. Found by reading what the corroboration rule dropped (PLAN D38). Not here, on purpose:
+#: "Time Warner" and "Motorola Mobility" (another company, or a predecessor) and "Hewlett-Packard"
+#: (HP Inc. as much as Hewlett Packard Enterprise).
+_KNOWN_NAMES = (("ABT", "Abbott Labs"), ("D", "Dominion Resources"))
+#: ...except where the short form is itself a place ("Palo Alto", the city, not "Palo Alto Networks") or
+#: names another company too ("Hewlett-Packard" is HP Inc. as much as Hewlett Packard Enterprise).
+_NO_SHORT_FORM = frozenset(["palo", "hewlett"])
 _EXCHANGES = r"(?:NYSE|NASDAQ|Nasdaq|NYSEARCA|NYSE American|AMEX|BATS|Cboe)"
 #: Keywords of a body that names no company (whole words, case-insensitive).
 MARKET_TERMS = (
@@ -192,11 +322,22 @@ def body_hash(text: str) -> str:
     return hashlib.sha256(" ".join(text.split()).encode("utf-8")).hexdigest()
 
 
+def _fold_accents(text: str) -> str:
+    """*text* without the accents of its letters ("Estée" -> "Estee")."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def squash_initials(key: str) -> str:
+    """*key* with the spaces between one-letter words taken out ("j b hunt" -> "jb hunt"), so that
+    "J.B. Hunt", "J. B. Hunt" and "JB Hunt" are one name."""
+    return re.sub(r"\b([a-z0-9]) (?=[a-z0-9]\b)", r"\1", key)
+
+
 def normalize_name(name: str) -> str:
     """Lower case, share class, punctuation and legal-form words dropped:
     ``"Alphabet Inc. (Class A)"`` -> ``"alphabet"``.
     Returns ``""`` if nothing is left."""
-    lowered = re.sub(r"\bclass\s+[a-z]\b", " ", name.lower().replace(".com", ""))
+    lowered = re.sub(r"\bclass\s+[a-z]\b", " ", _fold_accents(name).lower().replace(".com", ""))
     words = re.sub(r"[^a-z0-9& ]+", " ", lowered).split()
     return " ".join(w for w in words if w not in _LEGAL_WORDS)
 
@@ -208,8 +349,85 @@ class Company(NamedTuple):
     gics_sub_industry: str
 
 
+#: What may stand between the words of a name: spaces, a hyphen or a dash, an apostrophe (never a
+#: line break).
+_NAME_GAP = r"[ \u00a0\t'`\u00b4\u2019\u2013\u2014-]+"
+
+
+def _canonical(form: str) -> str:
+    """A short form as the key it is looked up by: lower case, one space where the text had spaces,
+    a comma, a hyphen or an apostrophe."""
+    return re.sub(r"[ \u00a0\t,'`\u00b4\u2019\u2013\u2014-]+", " ", form.lower()).strip()
+
+
+def _short_form_pattern(tokens: Sequence[str]) -> str:
+    """The pattern of a short form given as its words: a hyphen or a space between name words, a
+    comma allowed only before a legal word ("Block, Inc."), never a full stop or a line break."""
+    parts = [re.escape(tokens[0])]
+    for token in tokens[1:]:
+        gap = r",?[ \u00a0\t]+" if token.lower() in _LEGAL_WORDS else r"[ \u00a0\t-]+"
+        parts += [gap, re.escape(token)]
+    return "".join(parts)
+
+
+#: The letters that may carry an accent in the text of a name written without it.
+_ACCENTED = {
+    "a": "a\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5",
+    "c": "c\u00e7",
+    "e": "e\u00e8\u00e9\u00ea\u00eb",
+    "i": "i\u00ec\u00ed\u00ee\u00ef",
+    "n": "n\u00f1",
+    "o": "o\u00f2\u00f3\u00f4\u00f5\u00f6",
+    "u": "u\u00f9\u00fa\u00fb\u00fc",
+}
+#: Between initials a full stop and spaces are optional ("J.B.", "A. O.", "JB").
+_INITIALS_GAP = r"\.?[ \u00a0\t]*"
+
+
+def _word_pattern(word: str, *, initial: bool = False) -> str:
+    """The pattern of one word of a name: an initial is upper case ("us" is not "U.S."); a letter
+    that may carry an accent matches the accented letter, or the plain one followed by a combining
+    mark (the decomposed form), whichever the text has."""
+    if initial:
+        return f"(?-i:{word.upper()})"
+    return "".join(
+        f"[{_ACCENTED[c]}][\u0300-\u036f]?" if c in _ACCENTED else re.escape(c) for c in word
+    )
+
+
+def _initials(words: list[str]) -> list[bool]:
+    """Which words of a name are initials: one letter, first or after an initial ("j b hunt"); the
+    "s" of "casey s general stores" is a possessive, not an initial."""
+    flags: list[bool] = []
+    for i, word in enumerate(words):
+        flags.append(len(word) == 1 and word.isalpha() and (i == 0 or flags[i - 1]))
+    return flags
+
+
+def _name_pattern(phrase: str) -> str:
+    """The pattern of the normalized name *phrase*: a hyphen, a dash or an apostrophe reads as the
+    space it replaced ("Coca-Cola", "Casey's General Stores"), an exclamation mark may follow a word
+    ("Yum! Brands"), a full stop follows an initial ("J.B. Hunt", "U.S. Bancorp"), an accent may be
+    missing or present ("Estee Lauder"); a line break or a full stop between words does not read as
+    a space: a name is on one line and in one sentence."""
+    words = phrase.split(" ")
+    initial = _initials(words)
+    parts = [_word_pattern(words[0], initial=initial[0])]
+    for i in range(1, len(words)):
+        if initial[i - 1] and initial[i]:
+            parts.append(_INITIALS_GAP)
+        elif initial[i - 1]:
+            parts.append(r"\.?" + _NAME_GAP)
+        else:
+            parts.append("!?" + _NAME_GAP)
+        parts.append(_word_pattern(words[i], initial=initial[i]))
+    if initial[-1]:
+        parts.append(r"\.?")
+    return "".join(parts)
+
+
 def _words_pattern(phrases: Iterable[str]) -> re.Pattern[str]:
-    alternatives = sorted({re.escape(p) for p in phrases if p}, key=len, reverse=True)
+    alternatives = sorted({_name_pattern(p) for p in phrases if p}, key=len, reverse=True)
     if (
         not alternatives
     ):  # an empty universe matches nothing (an empty alternation matches everywhere)
@@ -253,10 +471,93 @@ ROUNDUP_TITLE_COMPANIES = 3
 ROUNDUP_TICKER_FORMS = 5
 
 
+def _weak(match: re.Match[str]) -> bool:
+    """Whether *match* is one of the ``_CORROBORATED`` words alone."""
+    return match.group(0).lower() in _CORROBORATED
+
+
+def _placed(found: list[tuple[re.Match[str], str]]) -> list[tuple[int, int, str]]:
+    """``(start, end, ticker)`` of *found*, in order, the longest kept where two overlap."""
+    spans = sorted(
+        ((*match.span(), ticker) for match, ticker in found), key=lambda m: (m[0], -m[1])
+    )
+    kept: list[tuple[int, int, str]] = []
+    for start, end, ticker in spans:
+        if not kept or start >= kept[-1][1]:
+            kept.append((start, end, ticker))
+    return kept
+
+
+#: The genre of a disclosure or a ticker list, in the 160 characters around a ticker form (PLAN D38):
+#: the phrases of the footers ("is long X", "makes a market in X"), the form of "Owns" that is
+#: followed by a ticker ("Owns (INTC)", "Owns INTC;"), and a comma list of tickers. Not any use of
+#: the word "owns" ("Disney owns ESPN"), not any run of upper-case words (an all-caps transcript, a
+#: calendar of "ADP, CPI, GDP, ISM, PMI").
+_UPPER = r"(?-i:[A-Z]{1,5}(?:\.[A-Z]{1,4})?)"
+_NEXT = rf"\(?\s*{_UPPER}\b"  # a ticker, in parentheses or not, directly after a phrase
+_PAREN = rf"\(\s*{_UPPER}\s*\)"  # a ticker in parentheses
+_POSITION = r"(?:\s+(?:stock|shares|options?|calls?|puts?|(?:call|put)\s+spreads?))*"
+# Every phrase is anchored to what follows it in a footer: a ticker, directly or in parentheses. A
+# phrase alone is ordinary English ("compensation for", "partners own", "banking services to").
+_GENRE = re.compile(
+    rf"\b(?:is|are|has|have)\s+(?:\w+\s+)?(?:long|short)\b{_POSITION}\s+{_NEXT}"
+    rf"|\b(?:has|have)\s+(?:an?\s+)?(?:options?\s+)?positions?\s+in\s+{_NEXT}"
+    rf"|\b(?:long|short)\s*:|\boptions?\s+position\s+in\s+{_NEXT}|\bmarket\s+maker\s+(?:in|of)\s+{_NEXT}"
+    rf"|\bdisclosures?\s*:|\bmakes?\s+a\s+market\s+in\s+{_NEXT}|\bcalls?\s+against\s+{_NEXT}"
+    rf"|\b(?:is|are|was|were)\s+an?\s+(?:buyer|seller)s?\s+of\s+{_NEXT}"
+    rf"|\b(?:co-?manager\s+of\s+(?:an\s+)?offering|managed\s+an\s+offering|securities\s+offering)"
+    rf"\s+of\s+(?:securities\s+of\s+)?{_NEXT}"
+    rf"|\bbeneficially\s+owns?\s+\d|\bis\s+a\s+holding\s+of\b[^:.]{{0,40}}:\s*{_NEXT}"
+    rf"|\b{_UPPER}\s+long\s+(?:\w+\s+){{0,2}}(?:calls?|puts?)\b|\blong\s+{_NEXT}\s+(?:calls?|puts?)\b"
+    rf"|\bcompensation\s+(?:in\s+(?:the\s+)?past\s+12\s+months\s+)?(?:from|for\s+(?:services|investment\s+banking))\b[^()]{{0,80}}{_PAREN}"
+    rf"|\b(?:investment\s+banking\s+(?:services|clients)|banking\s+services\s+(?:to|from))\b"
+    rf"[^()]{{0,80}}{_PAREN}"
+    rf"|\bpartners\s+own\s+{_UPPER}\b",
+    re.IGNORECASE,
+)
+_OWNS = re.compile(
+    r"\bowns?\s*\("
+    r"|\bowns?\s+(?:more\s+than\s+)?\d+(?:\.\d+)?%"
+    r"|\bowns?\s+\(?(?-i:[A-Z]{1,5})\)?\s*(?:[;,.]|\bcalls?\b|\bputs?\b|\b(?:call|put)\s+spreads?\b|\bleaps?\b)",
+    re.IGNORECASE,
+)
+_TICKER = _UPPER
+_TICKER_LIST = re.compile(rf"(?<![\w.])\(?{_TICKER}\)?(?:\s*[,;]\s*\(?{_TICKER}\)?(?![\w])){{4,}}")
+_LIST_TICKERS = 3  # of a list of five or more, at least this many are tickers of the universe
+
+
+def disclosure_branch(
+    text: str, start: int, end: int, known: Container[str] | None = None
+) -> str | None:
+    """What makes the ticker form at ``text[start:end]`` part of a disclosure or a ticker list:
+    ``"genre"``, ``"owns"`` or ``"list"`` (a comma list that holds at least three tickers of *known*,
+    any if *known* is not given), or ``None``."""
+    low = max(0, start - 160)
+    window = text[low : end + 160]
+    if _GENRE.search(window):
+        return "genre"
+    if _OWNS.search(window):
+        return "owns"
+    for run in _TICKER_LIST.finditer(window):
+        if run.start() <= start - low and end - low <= run.end():
+            tokens = re.findall(_TICKER, run.group(0))
+            if known is None or sum(token in known for token in tokens) >= _LIST_TICKERS:
+                return "list"
+    return None
+
+
+def in_disclosure(text: str, start: int, end: int, known: Container[str] | None = None) -> bool:
+    """Whether the ticker form at ``text[start:end]`` sits in a disclosure or a ticker list."""
+    return disclosure_branch(text, start, end, known) is not None
+
+
 @dataclass
 class CompanyResolver:
     """Finds the universe companies a body names. Share classes of one company (``GOOG`` /
-    ``GOOGL``) resolve to the first ticker seen for that normalized name."""
+    ``GOOGL``) resolve to the first ticker seen for that normalized name. :meth:`resolve` counts a
+    body (a surname or a noun counts only with another form of the company in the body, PLAN D38);
+    :meth:`mention_spans` places the mentions of one text (all aliases, for the attribution masks);
+    :meth:`firm_spans` gives the mentions that need no corroboration (what the guard asks)."""
 
     companies: Sequence[Company]
     _by_name: dict[str, str] = field(init=False)
@@ -266,6 +567,9 @@ class CompanyResolver:
     _aliases: re.Pattern[str] = field(init=False)
     _alias_to: dict[str, str] = field(init=False)
     _tickers: re.Pattern[str] = field(init=False)
+    _short: dict[str, str] = field(init=False)
+    _by_squashed: dict[str, str] = field(init=False)
+    _short_forms: re.Pattern[str] = field(init=False)
 
     def __post_init__(self) -> None:
         self._by_name = {}
@@ -277,12 +581,49 @@ class CompanyResolver:
             else:
                 canonical = company.ticker
             self._by_ticker[company.ticker.upper()] = canonical
+        self._by_squashed = {squash_initials(k): k for k in self._by_name}
         self._names = _words_pattern(k for k in self._by_name if k not in _WORD_NAMES)
         capitalised = sorted(k.capitalize() for k in self._by_name if k in _WORD_NAMES)
         self._word_names = re.compile(
             r"(?<![\w&])(?:"
             + "|".join([re.escape(c) for c in capitalised] or ["(?!)"])
             + r")(?![\w&])"
+        )
+        # the words that, alone, are not enough (stop-listed or _CORROBORATED) still name their
+        # company in the short form of its name: "Federal Realty", "Take-Two", "Jack Henry",
+        # "Block, Inc." Matched capitalised, as a mention in itself.
+        self._short = {}
+        short_tokens: dict[str, tuple[str, ...]] = {}
+        for company in self.companies:
+            key = normalize_name(company.name)
+            tokens = re.findall(
+                r"[A-Za-z0-9&]+(?:-[A-Za-z0-9]+)*", re.sub(r"\(.*?\)", " ", company.name)
+            )
+            tokens = tokens[1:] if tokens[:1] == ["The"] else tokens
+            if (
+                key
+                and key.split()[0] in _SHORT_FORMS - _NO_SHORT_FORM
+                and len(tokens) > 1
+                and key in self._by_name
+            ):
+                head = tokens[:1] if "-" in tokens[0] else tokens[:2]
+                if " ".join(head).lower() != key:
+                    # the first company of a head keeps it (none shares one in the S&P universe)
+                    self._short.setdefault(_canonical(" ".join(head)), self._by_name[key])
+                    short_tokens.setdefault(_canonical(" ".join(head)), tuple(head))
+        for ticker, form in _KNOWN_NAMES:
+            if ticker in self._by_ticker:
+                self._short.setdefault(_canonical(form), self._by_ticker[ticker])
+                short_tokens.setdefault(_canonical(form), tuple(form.split()))
+        self._short_forms = re.compile(
+            r"(?<![\w&])(?:"
+            + "|".join(
+                _short_form_pattern(short_tokens[form])
+                for form in sorted(self._short, key=len, reverse=True)
+            )
+            + r")(?![\w&])"
+            if self._short
+            else r"(?!)"
         )
         # a company is also known by the first word of its name when that word is unique, not a
         # generic word and not an everyday word: "Meta", "Alphabet" (matched capitalised only)
@@ -322,23 +663,96 @@ class CompanyResolver:
         """How many explicit ticker forms (``$X``, ``(NYSE: X)``) *text* carries."""
         return sum(1 for m in self._tickers.finditer(text) if m.group(1) or m.group(2))
 
-    def _matches(self, text: str, *, aliases: bool = True) -> list[tuple[re.Match[str], str]]:
+    def _matches(
+        self, text: str, *, aliases: bool = True, short_forms: bool | None = None
+    ) -> list[tuple[re.Match[str], str]]:
         """Every mention in *text* as ``(match, ticker)``: names, short aliases (not the first word
-        of a full name already found; none without *aliases*) and explicit or bare ticker forms. The
-        one place the patterns are applied: :meth:`_text_mentions` counts them,
-        :meth:`mention_spans` places them."""
+        of a full name already found; none without *aliases*), short forms (as *aliases* unless
+        *short_forms* says) and explicit or bare ticker forms. The one place the patterns are
+        applied: :meth:`_text_mentions` counts them, :meth:`mention_spans` places them."""
+        short_forms = aliases if short_forms is None else short_forms
         found: list[tuple[re.Match[str], str]] = []
         spans = []
         for pattern in (self._names, self._word_names):
             for match in pattern.finditer(text):
                 spans.append(match.span())
-                found.append((match, self._by_name[normalize_name(match.group(0))]))
+                found.append((match, self._ticker_of_name(match.group(0))))
         for match in self._aliases.finditer(text) if aliases else ():
             if not any(start <= match.start() and match.end() <= end for start, end in spans):
                 found.append((match, self._alias_to[match.group(0)]))
+        for match in self._short_forms.finditer(text) if short_forms else ():
+            if not any(start <= match.start() and match.end() <= end for start, end in spans):
+                found.append((match, self._short[_canonical(match.group(0))]))
         for match in self._tickers.finditer(text):
             found.append((match, self._by_ticker[next(g for g in match.groups() if g).upper()]))
         return found
+
+    def _corroborated(
+        self, text: str, found: list[tuple[re.Match[str], str]]
+    ) -> list[tuple[re.Match[str], str]]:
+        """*found* without the ``_CORROBORATED`` words of a company the text names no other way (its
+        full name, its short form, a ticker form). Counting
+        is per body, so this is applied here and not in :meth:`_matches`: the spans the attribution
+        masks place are of single sentences, where the full name is often absent (the guard of
+        ``attribution_units`` decides those with the whole body in hand)."""
+
+        firm = {ticker for match, ticker in found if not _weak(match)}
+        kept = [(match, ticker) for match, ticker in found if ticker in firm or not _weak(match)]
+        # one mention is counted once: a short form that sits inside a longer form of the same company
+        return [
+            (match, ticker)
+            for match, ticker in kept
+            if not any(
+                t == ticker
+                and other.span() != match.span()
+                and other.start() <= match.start()
+                and match.end() <= other.end()
+                for other, t in kept
+            )
+        ]
+
+    def _name_key(self, text: str) -> str:
+        """The key of ``_by_name`` that *text* names ("" if none): its normalized form, or that form
+        with the spaces between initials taken out ("JB Hunt")."""
+        key = normalize_name(text)
+        if key in self._by_name:
+            return key
+        return self._by_squashed.get(squash_initials(key), key)
+
+    def _ticker_of_name(self, text: str) -> str:
+        return self._by_name[self._name_key(text)]
+
+    def counted_matches(self, text: str) -> list[tuple[re.Match[str], str]]:
+        """The mentions :meth:`resolve` counts in *text* (before the attribution and the NER
+        spans), as ``(match, ticker)``: for the diagnostics that need to say what kind each is."""
+        return self._corroborated(text, self._matches(text))
+
+    def is_ticker_form(self, match: re.Match[str]) -> bool:
+        """Whether *match* came from the ticker patterns (``$X``, ``(NYSE: X)``, bare ``X``)."""
+        return match.re is self._tickers
+
+    def disclosure_branches(self, text: str, counted: Iterable[str]) -> dict[str, frozenset[str]]:
+        """For each ticker of *counted* that *text* names only by ticker forms inside a disclosure or
+        a ticker list ("Trader A Owns (INTC)"), the branches of the genre that put its mentions
+        there (``genre``, ``owns``, ``list``): named, but not what the body is about (PLAN D38)."""
+        found: dict[str, list[str | None]] = {}
+        wanted = set(counted)
+        for match, ticker in self.counted_matches(text):
+            if ticker in wanted:
+                found.setdefault(ticker, []).append(
+                    disclosure_branch(text, *match.span(), self._by_ticker)
+                    if self.is_ticker_form(match)
+                    else None
+                )
+        return {
+            ticker: frozenset(b for b in branches if b)
+            for ticker, branches in found.items()
+            if all(branches)
+        }
+
+    def disclosure_only(self, text: str, counted: Iterable[str]) -> frozenset[str]:
+        """The tickers of *counted* that *text* names only inside a disclosure or a ticker list."""
+        return frozenset(self.disclosure_branches(text, counted))
 
     def _text_mentions(
         self, text: str, skip_attribution: bool
@@ -347,7 +761,7 @@ class CompanyResolver:
         the source of an opinion when *skip_attribution*."""
         plain: Counter[str] = Counter()
         quoted: Counter[str] = Counter()
-        for match, ticker in self._matches(text):
+        for match, ticker in self.counted_matches(text):
             is_quoted = skip_attribution and _attributed(text, match)
             (quoted if is_quoted else plain)[ticker] += 1
         return plain, quoted
@@ -357,15 +771,15 @@ class CompanyResolver:
         longest wins where two overlap, e.g. a ticker form inside a name). The same matches as
         :meth:`resolve` counts, with positions: what the attribution model masks. Without *aliases*
         the first word of a company's name does not count as a mention."""
-        found = sorted(
-            ((*match.span(), ticker) for match, ticker in self._matches(text, aliases=aliases)),
-            key=lambda m: (m[0], -m[1]),
-        )
-        kept: list[tuple[int, int, str]] = []
-        for start, end, ticker in found:
-            if not kept or start >= kept[-1][1]:
-                kept.append((start, end, ticker))
-        return kept
+        return _placed(self._matches(text, aliases=aliases))
+
+    def firm_spans(self, text: str) -> list[tuple[int, int, str]]:
+        """The mentions of *text* that name a company by more than a word that is also a surname
+        or an everyday word: full names, short forms, ticker forms. Not the first word of a name
+        (``aliases``) and not a ``_CORROBORATED`` word alone ("Williams", "Block"). What a body must
+        hold before those words count for the company (the guard of ``attribution_units``)."""
+        found = self._matches(text, aliases=False, short_forms=True)
+        return _placed([(match, ticker) for match, ticker in found if not _weak(match)])
 
     def resolve(
         self, text: str, org_spans: Iterable[str] = (), *, skip_attribution: bool = True
@@ -378,8 +792,13 @@ class CompanyResolver:
         plain, quoted = self._text_mentions(text, skip_attribution)
         ner = Counter(
             self._by_name[key]
-            for key in (normalize_name(span) for span in org_spans)
+            for key in (self._name_key(span) for span in org_spans)
             if key in self._by_name
+            and (
+                key not in _CORROBORATED
+                or self._by_name[key] in plain
+                or self._by_name[key] in quoted
+            )
         )
         return Counter(
             {

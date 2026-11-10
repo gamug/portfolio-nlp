@@ -3,10 +3,13 @@
 **Status: written 2026-11-10.** What was tried to improve the sentiment "pair" model after PR #154's grid, in
 the order it was tried, with the figures. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
 experiment named in each section. The scripts that produced the figures are `scripts/*_2026_11_10.py`
-(exploratory, run once; they carry a file-level `ruff: noqa`, and no test covers them beyond the gold file's guard test). The MLflow store is local and git-ignored: the metrics of every cited run are exported to
+(exploratory, run once; they carry a file-level `ruff: noqa`). Tests cover the gold file (counts, slices, no shared key or
+body), `merge_marked`, `build_all_data`, the `--final-all` and `--models` options, and that the headline figures of this
+page are the recorded runs of the export below; they do **not** cover the 13 experiment scripts themselves. The MLflow store is local and git-ignored: the metrics of every cited run are exported to
 [sentiment_training_results.csv](sentiment_training_results.csv)
 (`scripts/export_sentiment_training_results_2026_11_10.py`); the relevance experiment was run twice on 2026-11-10 (the
-rerun reproduced the first figures exactly), so each of its runs appears twice there, with its own start time.
+rerun reproduced the first figures exactly), so each of its runs appears twice there, with its own start time; the `recorded` column is `yes` for the earliest run of each
+name, the one this page quotes.
 Nothing here is pinned or published: the
 pin is decided only on the 180-text gold (T-148c4) and only with the owner's word.
 
@@ -91,11 +94,11 @@ Same data and the same labels: relevant = the owner marked a direction, not rele
 `This text is mainly about <company>.` (premise = the summary).
 
 1. **Zero-shot** (`company_relevance_zeroshot`, the category stage's NLI model
-   `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, pinned revision): weighted AUC 0.743 alone against 0.795 for
+   `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, pinned revision): weighted AUC 0.743 alone (**the best of nine variants**: three hypotheses x three premises, summary / title + body / title + summary, 0.618 to 0.743, all nine in the export; the wording used later was chosen with this AUC in sight, on the same 809 texts) against 0.795 for
    the sentiment model's own `1 - p_neutral`; 0.84 when the two are rank-averaged.
 2. **Fine-tuned** (`sentiment_pair_relevance_gate`, the same 5-fold x 2 splits, 3 epochs, lr 2e-5, batch 16,
    **float32**; the checkpoint loads as fp16 in transformers 5 and the optimizer then gives NaN): out-of-fold
-   weighted AUC **0.902 / 0.890**.
+   weighted AUC **0.902 / 0.890** (mean 0.896).
 3. **Combined with the sentiment model**, evaluated nested (the rule fitted on 4/5 of the out-of-fold rows,
    applied to the other 1/5; 10 outer repeats x 2 CV repeats; weighted):
    *gate* = `argmax(p)`, neutral if the relevance score is under a threshold (median 0.525);
@@ -167,8 +170,11 @@ still read only the first file, so the PR's recorded grid stays reproducible.
 
 `sentiment_cv_all` writes the out-of-fold predictions the later scripts read (`data/sentiment_pair_cv_all/predictions/`);
 `sentiment_relevance_cv` needs them and `config/pipeline_models.json` (the NLI model); it saves its out-of-fold
-relevance scores to `data/sentiment_pair_relevance_cv/oof_relevance.json`, and `CONTROL=1` reruns the nested
-procedure on those scores shuffled (the control above; the retraining reproduced the recorded figures exactly). Run order:
+relevance scores to `data/sentiment_pair_relevance_cv/oof_relevance.json`, and the environment variables of the
+scripts: `REPLAY_N=<n>` (`sentiment_cv_all`: n replay sentences, outputs named `..._replay<n>`), `CONTROL=1`
+(`sentiment_relevance_cv`: reuse the saved scores, shuffle them once, rerun the nested procedure: the control above)
+and `CONTROL_SEEDS=<n>` (the same with n shuffles; it implies `CONTROL=1` and stops with a message if the saved scores
+are missing). The retraining of the relevance model reproduced the recorded figures exactly. Run order:
 `company_gate_split`, `company_flag`, `learning_curve`, `neutral_threshold`, `draw_sentiment_train_2` and
 `migrate_sentiment_train_2_to_gold` (the new tags), `more_data`, `cv_all`, `cv_threshold`, `neutral_errors`,
 `cv_cues`, `zeroshot_relevance`, `relevance_cv`.

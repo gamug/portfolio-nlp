@@ -141,8 +141,11 @@ def finetune_and_score(train_keys, test_keys, seed, epochs=3, lr=2e-5, bs=16):
 #: CONTROL=1 reuses the saved out-of-fold relevance scores and shuffles them across the texts: the same nested
 #: procedure then has no relevance information left, so any gain over the sentiment model alone is the procedure's
 #: own (the stacking leak of docs/sentiment_training.md), not the relevance model's.
-CONTROL = os.environ.get("CONTROL") == "1"
 SAVED = Path("data/sentiment_pair_relevance_cv/oof_relevance.json")
+#: CONTROL_SEEDS=<n> (many shuffles, below) implies CONTROL=1: it needs the saved scores and never retrains.
+CONTROL = os.environ.get("CONTROL") == "1" or int(os.environ.get("CONTROL_SEEDS") or 0) > 0
+if CONTROL and not SAVED.exists():
+    sys.exit(f"{SAVED} is missing: run this script once without CONTROL/CONTROL_SEEDS to make it")
 if CONTROL:
     saved = json.loads(SAVED.read_text(encoding="utf-8"))
     assert saved["keys"] == list(keys), "the saved scores are for other texts"

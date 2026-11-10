@@ -315,6 +315,14 @@ def test_fresh_is_only_for_the_grid(monkeypatch: pytest.MonkeyPatch) -> None:
         assert stopped.value.code == 2  # argparse's own refusal
 
 
+def test_models_is_only_for_the_all_data_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    for mode in ("--grid", "--final", "--time-one", "--baseline", "--report"):
+        _argv(monkeypatch, mode, "--models", "somewhere")
+        with pytest.raises(SystemExit) as stopped:
+            CMD.main()
+        assert stopped.value.code == 2  # argparse's own refusal
+
+
 def test_the_baseline_and_the_report_never_open_the_source(monkeypatch: pytest.MonkeyPatch) -> None:
     def opened() -> Any:
         raise AssertionError("the SOURCE was opened")

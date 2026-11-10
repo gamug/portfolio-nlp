@@ -2,7 +2,8 @@
 (docs/sentiment_training_results.csv), so the figures can be checked without the local, git-ignored `mlruns/`.
 One row per (run, metric): experiment, run name, start time (UTC), run id, metric, value. A run that was made
 twice (the relevance experiment was rerun on 2026-11-10 and reproduced the figures exactly) appears twice, with
-its own start time. Usage: `python scripts/export_sentiment_training_results_2026_11_10.py <mlruns> [out.csv]`."""
+its own start time and a `recorded` column: `yes` for the earliest run of each name (the one
+docs/sentiment_training.md quotes), `no` for a later rerun. Usage: `python scripts/export_sentiment_training_results_2026_11_10.py <mlruns> [out.csv]`."""
 
 import csv
 import math
@@ -49,9 +50,18 @@ def main() -> None:
                         }
                     )
     rows.sort(key=lambda r: (r["experiment"], r["started_utc"], r["run_name"], r["metric"]))
+    first: dict[
+        tuple[str, str], str
+    ] = {}  # the earliest run of each (experiment, run name) is the recorded one
+    for row in rows:
+        first.setdefault((row["experiment"], row["run_name"]), row["run_id"])
+    for row in rows:
+        row["recorded"] = (
+            "yes" if first[(row["experiment"], row["run_name"])] == row["run_id"] else "no"
+        )
     with out.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(
-            fh, ["experiment", "run_name", "started_utc", "run_id", "metric", "value"]
+            fh, ["experiment", "run_name", "started_utc", "run_id", "recorded", "metric", "value"]
         )
         writer.writeheader()
         writer.writerows(rows)

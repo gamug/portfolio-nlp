@@ -20,6 +20,7 @@ lists a file's sections; read that range). Do not load whole files by default.
 - **Closed work items:** 1, 5, 6, 8–14, 16 (and 15, superseded by 18). Their plan is in `archive/PLAN-closed-work-items-2026-11-08.md` (grep `## Work item N`), their tasks in `CHANGELOG.md`. **A reference such as "PLAN.md Work item 10 step 3" in a doc or a code comment resolves in that archive file.**
 - **Work items 3, 4, 7:** resolved except T-022, T-032, T-062 (in `TASKS.md`); their plan and **acceptance criteria are only in the archive**.
 - **Resolved risks:** `SPEC.md` §13 keeps one short paragraph per item; the long text is in `archive/SPEC-open-questions-2026-11-08.md`.
+- **D35 "Order of the end" (long form):** `archive/PLAN-d35-order-of-the-end-2026-11-10.md` (`PLAN.md` keeps a short form).
 - **Long open-task histories:** `archive/TASKS-open-entries-2026-11-08.md`, one section per task ID.
 - **Evidence, figures, review history:** `docs/evaluation.md` (dated follow-ups), `docs/extractor_training.md`, `docs/gold_datasets.md`, and the PR bodies. A task entry points there; it does not repeat it.
 

@@ -133,7 +133,17 @@ def test_the_readme_says_which_corpus_each_column_is_of_and_marks_a_smoke_run() 
         revision="abc",
         elapsed=60.0,
     )
-    for phrase in ("ok_*", "quarantined_only_*", "all_*", "UNIQUE BODIES", "SMOKE RUN", "floor"):
+    for phrase in (
+        "ok_*",
+        "quarantined_only_*",
+        "all_*",
+        "UNIQUE BODIES",
+        "SMOKE RUN",
+        "floor",
+        "*_bodies_disclosure",
+        "Trader A Owns (INTC)",
+        "READING BY PATTERNS",
+    ):
         assert phrase in text
 
 
@@ -615,3 +625,83 @@ def test_a_checkpoint_gives_back_the_bodies_it_was_given(tmp_path: Path) -> None
     (before,), (after,) = entries.values(), back.values()
     assert (before.reading, before.is_ok) == (after.reading, after.is_ok)
     assert COUNTS.load_checkpoint(path, "another") != loaded  # other code or universe: not used
+
+
+DISCLOSURE_FOOTER = "Trader A Owns (ZEN); Trader A Owns (GS) Calls; Trader B Is Short (F)."
+
+
+def test_a_company_named_only_in_a_disclosure_is_counted_as_named_and_as_disclosure() -> None:
+    """The owner's decision of 2026-11-09 (PLAN D38): a separate column, the naming count unchanged."""
+    universe = [Company("ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace")]
+    resolver = CompanyResolver(universe)
+    bodies = [
+        _row(1, "ok", "Market notes", "Stocks rose on Friday. " + DISCLOSURE_FOOTER),
+        _row(2, "ok", "Zenith up", ZENITH_STORY + " " + DISCLOSURE_FOOTER),  # named in the text too
+        _row(3, "quarantined", "Market notes", "Stocks fell on Monday. " + DISCLOSURE_FOOTER),
+    ]
+    entries = COUNTS.read_corpus(bodies, resolver, TERMS)
+    zen = COUNTS.count_by_company(entries.values(), resolver, universe)[0]
+    assert zen["ok_bodies_naming"] == 2 and zen["ok_bodies_disclosure"] == 1
+    assert (
+        zen["quarantined_only_bodies_naming"] == 1
+        and zen["quarantined_only_bodies_disclosure"] == 1
+    )
+    assert zen["all_bodies_naming"] == 3 and zen["all_bodies_disclosure"] == 2
+    COUNTS.check_invariants([zen])
+
+
+def test_the_disclosure_column_cannot_exceed_the_naming_column() -> None:
+    broken = _good_rows()
+    broken[0]["ok_bodies_disclosure"] = broken[0]["ok_bodies_naming"] + 1  # type: ignore[operator]
+    broken[0]["all_bodies_disclosure"] = broken[0]["ok_bodies_disclosure"]
+    with pytest.raises(COUNTS.CheckFailed, match="disclosure <= naming"):
+        COUNTS.check_invariants(broken)
+
+
+def test_a_body_that_names_the_company_in_its_text_has_no_disclosure_reading() -> None:
+    entries = COUNTS.read_corpus([_row(1, "ok", "Zenith up", ZENITH_STORY)], RESOLVER, TERMS)
+    assert next(iter(entries.values())).reading.disclosure == frozenset()
+
+
+def test_the_readme_lists_exactly_the_measures_and_gives_the_runs_own_disclosure_share() -> None:
+    entries = COUNTS.read_corpus(
+        [
+            _row(1, "ok", "Zenith up", ZENITH_STORY),
+            _row(2, "ok", "Market notes", "Stocks rose on Friday. " + DISCLOSURE_FOOTER),
+        ],
+        RESOLVER,
+        TERMS,
+    )
+    rows = COUNTS.count_by_company(entries.values(), RESOLVER, UNIVERSE)
+    text = COUNTS.readme_text(
+        entries,
+        rows,
+        universe_size=4,
+        row_total=2,
+        new_rows=2,
+        everything=2,
+        day="2026-11-09",
+        revision="abc",
+        elapsed=60.0,
+    )
+    measures = text.split("THE FOUR MEASURES")[1].split("THE TAG IS NOT USED")[0]
+    for measure in COUNTS.MEASURES:
+        assert f"*_bodies_{measure}" in measures
+    assert measures.count("*_bodies_") == len(COUNTS.MEASURES)
+    assert "THREE MEASURES" not in text and "Najarian" not in text and "fifth" not in text
+    assert "(of them 1 only in a disclosure)" in text
+    assert "naming 1 of 2 (50.0%)" in text and "subject 0 of 1 (0.0%)" in text
+
+
+def test_the_disclosure_is_read_before_the_boilerplate_rules_cut_its_words() -> None:
+    """``strip_boilerplate`` removes the sentence with "Disclosure:" and leaves tickers bare: the
+    reading of the genre is on the body as it was."""
+    universe = [Company("ZEN", "Zenith Dynamics Inc", "Industrials", "Aerospace")]
+    resolver = CompanyResolver(universe)
+    body = (
+        "Stocks rose on Friday. Sign up for our newsletter. Trader A Owns (ZEN), (AAA), (BBB), "
+        "(CCC), (DDD), (EEE), (FFF) Disclosure: Click here for more. See (ZEN)"
+    )
+    reading = COUNTS.read_body(resolver, "Market notes", body, "", TERMS)
+    assert "ZEN" in reading.named
+    assert "ZEN" in reading.disclosure
