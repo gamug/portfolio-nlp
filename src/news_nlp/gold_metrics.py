@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import hashlib
 import io
 import json
 import math
@@ -57,6 +58,9 @@ EXEMPT_READ_COLUMNS = (
 )
 # what ``draw_faithfulness --stale`` found: the marked rows the current code no longer writes
 STALE_NAME = "faithfulness_stale.json"
+# what each extractor writes now, by company (the same run): the texts as hashes, and the companies it
+# writes nothing for
+NOW_NAME = "faithfulness_now.json"
 KNOWN_EXTRACTORS = ("baseline", "model", "units", "units2", "units3")
 
 
@@ -461,6 +465,57 @@ class StaleEntry(TypedDict):
     revision: str  # the extractor's revision when it was checked
     stale: list[str]  # marked rows (``<key> (<extractor>)``) on texts it no longer writes
     new: list[str]  # texts it writes now that no row holds
+
+
+class NowEntry(TypedDict):
+    """What the last ``--stale`` run found each extractor writes now."""
+
+    date: str
+    revision: str
+    bodies: str  # the identity of the drawn bodies file the run read (``file_identity``)
+    texts: dict[str, str]  # ``<article_id>#<ticker>`` -> the hash of the text written now
+    without: list[str]  # ``<article_id>#<ticker>`` it is asked about and writes nothing for
+
+
+def file_identity(path: Path) -> str:
+    """A short hash of a file's bytes: it says whether the file is the one a run read."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def read_now(path: Path) -> dict[str, NowEntry]:
+    """The result of the last ``--stale`` per extractor (``{}`` if the file does not exist)."""
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    entries = data.get("extractors") if isinstance(data, dict) else None
+    if not isinstance(entries, dict):
+        raise MarkedFileError(f"{path.name} is not in the current format: run --stale again")
+    out: dict[str, NowEntry] = {}
+    for name, entry in entries.items():
+        texts = entry.get("texts") if isinstance(entry, dict) else None
+        without = entry.get("without") if isinstance(entry, dict) else None
+        ok = (
+            isinstance(entry, dict)
+            and isinstance(entry.get("date"), str)
+            and isinstance(entry.get("revision"), str)
+            and isinstance(entry.get("bodies"), str)
+            and isinstance(texts, dict)
+            and all(isinstance(k, str) and isinstance(v, str) for k, v in texts.items())
+            and isinstance(without, list)
+            and all(isinstance(w, str) for w in without)
+        )
+        if not ok:
+            raise MarkedFileError(
+                f"{path.name}: the entry of {name!r} is malformed: run --stale again"
+            )
+        out[name] = NowEntry(
+            date=entry["date"],
+            revision=entry["revision"],
+            bodies=entry["bodies"],
+            texts=entry["texts"],
+            without=entry["without"],
+        )
+    return out
 
 
 def read_stale(path: Path) -> dict[str, StaleEntry]:
