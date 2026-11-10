@@ -221,7 +221,7 @@ only at >= 90% corpus-weighted agreement with the owner's held-out gold on all b
 recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
 (at 40 bodies the per-scope interval is about +/-13 points; D33 amends: a scope with fewer than 40 gold bodies is reported with its interval, not gated); D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
-(active learning); D22 six scopes: single company, several companies, sector, market / economy,
+(active learning); D22 six scopes (the MVP handles three, D39): single company, several companies, sector, market / economy,
 `investing_general` (investing or market-advice content about no company and no sector, the owner's
 `other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`; D23 a
 body where one company holds more than half of the subject mentions is *single + mentions*: scope
@@ -237,11 +237,29 @@ gate the owner fixed the order the stages run in, and the backtest team (`portfo
 `to_nlp_backtest.md`) asked what the final tables will hold. Where a call below changes a decision
 above, it says so; nothing else above is touched.
 
-- **D25 Order of the stages.** (1) the scope of the body; (2) NER, only for `single` and `multi`
-  bodies; (3) a summary of every `single`, `sector`, `market_economy` and `investing_general` body (not `multi`, not `unrelated`); (4) for a `multi` body, the text each
-  mentioned company gets; (5) sentiment, and the D15 category (D29), over the texts of steps 3 and 4;
-  (6) company snapshots; (7) sector snapshots. `unrelated` stops at step 1 (D16). NER no longer
-  runs on every body: sector, market / economy and `investing_general` bodies skip it.
+- **D25 Order of the stages: replaced by D39** (the old text: `archive/PIPELINE-superseded-2026-11-10.md`).
+- **D39 The pipeline (owner, 2026-11-10; replaces D25; amends D22, D27, D28).** The steps, in the owner's numbering:
+  (1) **Scope** of the body. The MVP works on `single`, `multi` and `sector` only; `market_economy` and
+  `investing_general` are **out of scope** (the scope is stored, no later step runs) and `unrelated` is out by
+  definition (D16). (2) **single**: a summary (`c_summary`); NER on the summary; the relevance model scores (summary,
+  company) for each company NER found, and the **main company** is the one the article mainly speaks about; the other
+  companies of the summary go to a separate place (mentions). (3) **multi**: the extractor (`units`, D27) cuts the body
+  into **sub-news**, company-agnostic; (3.1) NER on each sub-news; (3.2) the relevance model picks the main company or
+  companies of each; (3.3) a sub-news over a character size is summarised (the size is not set: T-166). (4) **sector**:
+  the sector (GICS) is identified, then the text is summarised. (5) market: out of scope. (6) **Sentiment**: the pair
+  model + the relevance stack (`docs/sentiment_training.md`) reads each summary or sub-news with its main company.
+  (7) **Category** (D29) of each summary or sub-news. After the seven, a separate step writes the snapshots (D28, T-152).
+  **Conditions on the development:** (a) the advance of a run is **tracked** (per step and per item: pending, done,
+  failed; counts, times, a status command); (b) every step is **idempotent** (it processes only the items without its own
+  result row for the same model revisions; a rerun adds and changes nothing); (c) the process is **broken into small
+  steps**: one command per step, with a limit, each reading the stored result of the previous one; steps 1 to 7 are never
+  run in one pass, so there is no huge queue. **Effects on earlier decisions:** D22 stays as the triage's labels, the MVP
+  handles three of them; D27's attribution model (which company a sentence is about) is replaced in the MVP by NER +
+  relevance model (3.1, 3.2), the `units` cut and its faithfulness check stay as the cut into sub-news; D28's snapshots
+  are the step after 7; D26 and D29 stand, with the relevance model in the sentiment path. **Open, for the owner (no
+  guess):** the sub-news size of 3.3; the rule for "main company(ies)" (best one, or every one over a relevance
+  threshold, how many); whether a sector summary gets a sentiment (step 6 names a main company, a sector has none);
+  where mentions are stored; the run-tracking tables (AI #10). Tasks: T-162 to T-168.
 - **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
   model was fine-tuned on sentences, so it is checked on the pipeline's own texts before it is
   trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
@@ -419,74 +437,7 @@ above, it says so; nothing else above is touched.
 
 - **D37 Metrics of evaluation and of model selection (owner, 2026-11-09).** **The metrics to record, and to use in model selection, are Precision, Recall and ROC OVR** (the ROC AUC of each class against the rest, one-vs-rest, from the model's probability of the class). Read as the owner answered in the session of 2026-11-09: (a) they **replace agreement (accuracy)** as the selection, bar and pin metric; agreement stays a description only (the confusion matrix); (b) they are recorded **per class** (positive, negative, neutral) for every run, the pinned model's readings included; the **selection score** is their macro mean: the mean over the three classes of each metric, then the mean of the three metrics, equal weights, an undefined figure counting 0 (D34 (a)); D35's tie rule (4 epochs at 2e-5 stays unless the best setting beats it by more than 1 SE of this score) reads it; (c) the thresholds stay: D32's bar of 70% for the negative class's precision and recall; ROC OVR is recorded and used, with no bar until the owner gives one; the pin rule reads the paired gain of these metrics. **Proposed, for the owner to confirm (the answers did not settle them):** the D32 agreement bar of 80% no longer gates (it follows from (a)); the pin rule reads (3) the paired gain of the selection score `better` and (4) no pin if the negative class's precision, recall or ROC OVR gain is `not better` (an `undefined` one blocks, D35 (7)); and the rule stands for the other stages' model selection (NER, category, summaries), where `news_nlp.eval` already logs per-class precision, recall and `roc_auc_<class>` (`docs/evaluation.md`), only when each is next evaluated. Built for the sentiment validation slice in T-148c3 (`predict_probs` returns the class probabilities; the report is `src/sentiment_pair_report.py`); the gold scorer logs the same in T-148c2c (proposed).
 - **D38 Common words and surnames are not companies in the counts (T-161, PR #155; follows D37 of #154).** 15 tickers had counts far too high (FRT, STT, UNP, BE, XYZ, ...). **Cause:** the text matcher `CompanyResolver` (not the NER model, decision (k)): first-word aliases ("Federal", "Bloom") and one-word names ("Block"); retraining the NER would not change them. **Owner, 2026-11-09:** fold the other aliases into #155; CSV re-run after #155; redraw the gold pool and marks after the last matcher PR.
-  **Change (built; the owner decides by merging):** (1) a hyphen, dash or apostrophe in a name reads as the space it replaced, a line break does not; (2) `_COMMON_FIRST_WORDS` join `_ALIAS_STOP`; (3) short forms and `_KNOWN_NAMES` count in themselves; (4) `_CORROBORATED` count only with another form of the company in the body, in `resolve` and `GuardedResolver` (`firm_spans`); (5) `_WORD_NAMES` capitalised only; (6) `_WORD_TICKERS` only with an explicit form; (7) stored NER spans obey the same rule; (8) names with upper-case initials, "!" and accents are found (AOS, CHRW, DHI, JBHT, SJM, TROW, USB, WRB, YUM, EL).
-  **Measured** (everything, with the label file, in `docs/matcher_measurements_2026-11-09.md`): pairs 12,352 to 9,807 on a sample of 4,001 bodies (FRT 579 to 0, BE 97 to 2); precision of what is kept 94-97% by rule, the first-word alias rule 63% before the last edit and 88% on a sample no edit was chosen from; scope agreement on the 720: 0.696 to 0.700. **The disclosure column** `*_bodies_disclosure` (owner's decision (a)): 11.7-12.9% of the counted pairs, a reading by patterns (on a clean sample 40 of 40 flagged were disclosures, about 1 in 10 missed); `subject` and `single` not adjusted (5.2-7.3%, 0.3-0.7%).
-  **The scope moves (round 8):** on the backtest window 5.6% of bodies change rule scope, 12.5% their subject companies, 1.0% enter the set that gets a summary and 0.3% leave it; on every `ok` body single +3.8 points, single + mentions -3.0. Figures documented with the old matcher (`docs/evaluation.md` sizing table, the held-out `frame` weights, T-148a) are marked "matcher at 786766f", not recomputed; the held-out gold keeps its strata. **The cut:** see (e).
-  **Decided (owner, 2026-11-09, second session):** (a) the separate column; (b) the ten names fixed in #155; (c) no more list edits; (d) the attribution checkpoint `data/models/attribution_2026_11_08` (unpublished; old masks) is retrained after the CSV run and T-153; (e) **the cut is frozen as built** (manifest rules `f0a251aaf437`; reading it does not check them; the ~290 bodies the new rules would summarise get none); (f) #155 is not merged yet: one more review round. **Open:** USB, MSCI, ICE, MPC, DRI are tickers or acronyms, mixed; the CSV (T-160) is re-run after #155, before T-153 (D36 (j)).
-
-**Owner answers for P2/P3 (2026-10-29), folded into D18/D20 above. No question is open.**
-- *Q1* gate on a fixed 240 of the 720, at most 5 iterations; *Q2* point estimate with interval; *Q3*
-  the held-out gold is drawn once before any training and excluded from every active-learning round
-  (its tags are training data never); the one exception is Q4's second pass on about 50 of its
-  bodies, which measures the label ceiling and is not used for training; *Q4* the owner re-tags all
-  720 under the new taxonomy with the tags v1 shown as guidance: gold v2, not an independent
-  consistency measure, so the ceiling is measured on the ~50 held-out bodies tagged twice a week
-  apart (the owner agrees when they are drawn); order: labelling spec v2, re-tag file, then the
-  gate on gold v2; the rules' 0.70 is re-measured on gold v2; *Q5* if the classifier stalls below
-  its target the work stops and the owner decides; no LLM is added to the pipeline (D12).
-- **Answered 2026-10-29.** *Q6 sampling frame:* custom rules prefilter the candidates for each rare
-  scope (sector, market / economy, unrelated, `investing_general`), and the owner verifies a sample of
-  **50 prefiltered articles** by hand before the held-out gold is drawn from them. Caveat recorded:
-  the 50 check the filter's precision; its recall (rare-scope bodies the filter misses) stays
-  unmeasured unless a random check sample is also read, and the inverse-sampling-fraction weights are
-  valid only for strata defined before the draw, so rare-scope recall figures from this gold are
-  conditional on the filter. *Q7 rounds:* **2 active-learning rounds** (about 300 bodies each) before
-  the owner is asked again; owner effort about 1,070 bodies before round 1 plus about 600. *Q8 silver
-  beyond scope:* per-company category and sub-industry silver labels are bought only at **>= 80%
-  agreement with gold v2 on the 240** (the D24 bar); below it silver stays scope-only. *Q9 filter
-  misses:* the held-out gold adds **~60 bodies drawn at random from outside the prefilter**, weighted
-  by inverse sampling fraction, so per-scope recall (D20) includes what the filter misses; these
-  are a third set of bodies, separate from the 50-article filter check and the 50 double-tagged.
-  *Q10 calls per body:* **one call per body**; the reply lists every company with its D15 label, so
-  the 240-call iteration and the 4,320 ceiling hold. Owner tagging tally: 720 re-tag + ~300
-  held-out + ~60 misses + 50 filter check + 50 double-tag = about 1,180 bodies before round 1
-  (the heavier tagging: scope, companies, D15 label per company, sub-industry), then 2 x ~300.
-
-**Approach** (one PR per phase; each new table is proposed to the owner in the PR that needs it):
-
-1. **P1 — foundations and sizing (T-144, T-145).** A read-only script counts unique bodies and
-   resolves the companies each one names (name and explicit ticker forms, NER `ORG` spans matched
-   to universe names; the upstream alias table of T-132 when it arrives), then gives rule-based scope
-   candidates and a GICS guess, and scores the rules against the owner's 720 tagged articles. No
-   spend, no schema change.
-2. **P2 — labels (T-146).** Labelling spec v2, the revised prompt, the D18 silver labels and the
-   owner's ~300 gold bodies.
-3. **P3 — triage stage (T-147).** On unique bodies: the scope first (single company,
-   several companies, sector, market / economy, `investing_general`, `unrelated`) from a local classifier (a fine-tuned
-   small encoder over the text, the P1 rule features as inputs) trained on silver and gold, with
-   active-learning rounds on its low-confidence bodies (D21) until it reaches >= 90% on the
-   held-out gold (D20). Sketch of the tables: a body table keyed by body hash with its member pairs, and a
-   per-body triage row (scope, companies, confidence). NER then runs on `single` and `multi`
-   bodies only (D25).
-4. **P4 — texts, sentiment and category (T-148).** The summary of every non-multi body (the pinned
-   local summariser, step 3); for a multi body, the text of each company (step 4, D27: the
-   one-segment-per-company parser, then the trained attribution model); then sentiment and the D15
-   category over those texts (D26, D29), with the 180-text sentiment gold.
-5. **P5 — sector, market and economy news, and the snapshots (T-149, T-152).** GICS sector /
-   sub-industry detection, summaries of those bodies into `sector_summary` with `MARKET` /
-   `ECONOMY` rows, and the company and sector snapshot tables (D28).
-6. **P6 — backfill and close-out (T-150).** Re-process the stored corpus, update the
-   knowledge-graph export contract, close Work items 15, 17 and 18 into `CHANGELOG.md`.
-
-**Acceptance.** Every body has a scope, which agrees with the owner's held-out gold on >= 90% of
-bodies (corpus-weighted point estimate, interval reported) and reaches recall >= 80% in each of the six
-scopes (point estimate, interval reported; the floor applies to a scope with at least 40 gold bodies, D20 as amended by D33), measured with the
-complete metric set (AI #12); the per-company category (P4) and the sector sub-industry (P5) each agree
-with the held-out gold on >= 80% (D24, confirmed); no multi-company, sector, market or economy body is labelled `other`;
-per-company sentiment and category exist for every company a body is about, computed on its
-summary or company text (D26); company and sector snapshots exist, one row per body (D28); `sector_summary`
-carries sector articles and `MARKET` / `ECONOMY` rows; the knowledge-graph export is updated and
-documented; SPEC gains one FR per behaviour shipped.
+  **The rest (changes (1) to (8), the measurements, the disclosure and the open items):** `archive/PIPELINE-superseded-2026-11-10.md`, `docs/matcher_measurements_2026-11-09.md`, T-161.
 
 ## Sequencing
 

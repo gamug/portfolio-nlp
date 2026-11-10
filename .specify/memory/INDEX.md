@@ -21,6 +21,7 @@ lists a file's sections; read that range). Do not load whole files by default.
 - **Work items 3, 4, 7:** resolved except T-022, T-032, T-062 (in `TASKS.md`); their plan and **acceptance criteria are only in the archive**.
 - **Resolved risks:** `SPEC.md` §13 keeps one short paragraph per item; the long text is in `archive/SPEC-open-questions-2026-11-08.md`.
 - **D35 "Order of the end" (long form):** `archive/PLAN-d35-order-of-the-end-2026-11-10.md` (`PLAN.md` keeps a short form).
+- **The pipeline (D39, owner 2026-11-10):** `PLAN.md` D39 (the steps, the three conditions, the open questions), `SPEC.md` FR-020/FR-021, `TASKS.md` T-162 to T-168. The replaced text (D25, T-148, T-149, the v1 diagram and workflow, two FR sentences): `archive/PIPELINE-superseded-2026-11-10.md`.
 - **Long open-task histories:** `archive/TASKS-open-entries-2026-11-08.md`, one section per task ID.
 - **Evidence, figures, review history:** `docs/evaluation.md` (dated follow-ups), `docs/extractor_training.md`, `docs/gold_datasets.md`, and the PR bodies. A task entry points there; it does not repeat it.
 
