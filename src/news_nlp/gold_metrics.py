@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import hashlib
 import io
 import json
 import math
@@ -471,8 +472,14 @@ class NowEntry(TypedDict):
 
     date: str
     revision: str
+    bodies: str  # the identity of the drawn bodies file the run read (``file_identity``)
     texts: dict[str, str]  # ``<article_id>#<ticker>`` -> the hash of the text written now
     without: list[str]  # ``<article_id>#<ticker>`` it is asked about and writes nothing for
+
+
+def file_identity(path: Path) -> str:
+    """A short hash of a file's bytes: it says whether the file is the one a run read."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
 def read_now(path: Path) -> dict[str, NowEntry]:
@@ -485,12 +492,17 @@ def read_now(path: Path) -> dict[str, NowEntry]:
         raise MarkedFileError(f"{path.name} is not in the current format: run --stale again")
     out: dict[str, NowEntry] = {}
     for name, entry in entries.items():
+        texts = entry.get("texts") if isinstance(entry, dict) else None
+        without = entry.get("without") if isinstance(entry, dict) else None
         ok = (
             isinstance(entry, dict)
             and isinstance(entry.get("date"), str)
             and isinstance(entry.get("revision"), str)
-            and isinstance(entry.get("texts"), dict)
-            and isinstance(entry.get("without"), list)
+            and isinstance(entry.get("bodies"), str)
+            and isinstance(texts, dict)
+            and all(isinstance(k, str) and isinstance(v, str) for k, v in texts.items())
+            and isinstance(without, list)
+            and all(isinstance(w, str) for w in without)
         )
         if not ok:
             raise MarkedFileError(
@@ -499,6 +511,7 @@ def read_now(path: Path) -> dict[str, NowEntry]:
         out[name] = NowEntry(
             date=entry["date"],
             revision=entry["revision"],
+            bodies=entry["bodies"],
             texts=entry["texts"],
             without=entry["without"],
         )

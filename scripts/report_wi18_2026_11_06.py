@@ -468,6 +468,7 @@ def faithfulness_report(out: Path, partial: int | None = None) -> list[str]:
         exempt = []
         notes.append(f"{changed}; the other readings of the bar are skipped")
     notes += _stale_lines(out, {n for names in owners.values() for n in names})
+    notes += _coverage_drift_lines(out, coverage, {n for names in owners.values() for n in names})
     read = gold_metrics.read_exempt_marks(out / gold_metrics.EXEMPT_READ_NAME)
     lines = _faithfulness_lines(notes, marks, owners, dates, coverage, exempt, read)
     return [*lines, *_current_code_lines(out, marks, owners, dates, coverage, exempt, read)]
@@ -702,6 +703,38 @@ def _lower_bound_lines(
     ]
 
 
+def _coverage_drift(
+    out: Path, coverage: list[dict[str, str]], marked: set[str]
+) -> dict[str, tuple[int, list[str], list[str]]]:
+    """Per extractor of the marks that has an entry in ``faithfulness_now.json``, when the coverage
+    file (written at the draw) and the code disagree about the companies left without a text: how
+    many both list, the ones only the file lists, the ones only the code leaves without a text now."""
+    now = gold_metrics.read_now(out / gold_metrics.NOW_NAME)
+    drift: dict[str, tuple[int, list[str], list[str]]] = {}
+    for name in sorted(marked & set(now)):
+        in_file = {f"{c['article_id']}#{c['ticker']}" for c in coverage if c["extractor"] == name}
+        in_code = set(now[name]["without"])
+        if in_file != in_code:
+            drift[name] = (
+                len(in_file & in_code),
+                sorted(in_file - in_code),
+                sorted(in_code - in_file),
+            )
+    return drift
+
+
+def _coverage_drift_lines(out: Path, coverage: list[dict[str, str]], marked: set[str]) -> list[str]:
+    """The note of the report when the coverage file does not say what the code leaves without a
+    text today: the ``[all]`` figures use the file."""
+    return [
+        f"warning: {COVERAGE_NAME} and the code disagree on the companies {name} leaves without a "
+        f"text ({both + len(only_file)} in the file, {both + len(only_code)} now; {len(only_file)} "
+        f"only in the file, {len(only_code)} only now): the figures above use the file; see the "
+        "exact block"
+        for name, (both, only_file, only_code) in _coverage_drift(out, coverage, marked).items()
+    ]
+
+
 def _exact_lines(
     out: Path,
     marks: dict[str, bool],
@@ -722,20 +755,33 @@ def _exact_lines(
     marked = {n for names in owners.values() for n in names}
     if not now:
         return []
+    bodies = out / "faithfulness_bodies.csv"
+    identity = gold_metrics.file_identity(bodies) if bodies.exists() else ""
     off = sorted(
         n
         for n in marked
         if n not in now
         or n not in entries
         or (now[n]["date"], now[n]["revision"]) != (entries[n]["date"], entries[n]["revision"])
+        or now[n]["bodies"] != identity
     )
     if off:
         return [
-            "current code, exact: not printed, faithfulness_now.json is missing or from another run "
-            f"than {gold_metrics.STALE_NAME} for {', '.join(off)}: run draw_faithfulness --stale"
+            "current code, exact: not printed, faithfulness_now.json is missing, from another run "
+            f"than {gold_metrics.STALE_NAME}, or from other drawn bodies than faithfulness_bodies.csv "
+            f"for {', '.join(off)}: run draw_faithfulness --stale"
         ]
     pair = lambda key: key.rsplit("#", 1)[0]  # noqa: E731
-    holder = {(pair(k), r["text_hash"]): k for k, r in dates.items() if r.get("text_hash")}
+    holder: dict[tuple[str, str], str] = {}
+    twins: dict[tuple[str, str], list[str]] = {}
+    for k in sorted(dates):
+        if not dates[k].get("text_hash"):
+            continue
+        at = (pair(k), dates[k]["text_hash"])
+        twins.setdefault(at, []).append(k)
+        holder.setdefault(at, k)
+    repeated = [keys for keys in twins.values() if len(keys) > 1]
+    differ = [keys for keys in repeated if len({marks.get(k) for k in keys}) > 1]
     owners_now: dict[str, list[str]] = {}
     unheld: Counter[str] = Counter()
     for name in sorted(marked):
@@ -762,6 +808,11 @@ def _exact_lines(
         f"{len(owners_now)} of {len(owners)} rows), and the companies it writes nothing for now "
         f"counted as left without a text ({len(omitted)})"
     ]
+    if repeated:
+        lines.append(
+            f"current code, exact: {len(repeated)} texts are held by more than one row ({len(differ)} "
+            "with different marks): the extractor's text takes the first row in key order"
+        )
     if unheld:
         lines.append(
             "current code, exact: texts written now that no marked row holds (in no figure): "
@@ -802,12 +853,15 @@ def _current_code_lines(
     dead mark counted as a company left without a text (``_lower_bound_lines``)."""
     entries = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
     dead, foreign = _dead_marks(entries, owners)
-    if not dead:
-        return []
     marked = {n for names in owners.values() for n in names}
+    drift = _coverage_drift(out, coverage, marked)
+    if not dead and not (drift and entries):
+        return []
     refusal = _current_code_refusal(entries, marked)
     if refusal:
         return refusal
+    if not dead:  # no dead mark, but the coverage file is out of date: the exact figures only
+        return _exact_lines(out, marks, owners, dates, entries, exempt, read)
     kept = {
         key: [n for n in names if n not in dead.get(key, set())] for key, names in owners.items()
     }

@@ -326,8 +326,8 @@ dead mark a company left without a text: ...]`, and ends with **the exact figure
 `faithfulness_now.json` (written by the same `--stale` run; not printed when it is missing or from another
 run than the record), labelled `[current code, exact: ...]`. Nothing extra is printed when no marked row is dead; when the check
 is missing for an extractor of the marks, was made with other code than the current one, or cannot be
-compared with it, one line says so and no figure is printed. The first table below is the `[all]` view,
-the second the `[current code]` view (Appendix A.3, A.4 are the report's own lines, with both readings). The tracked `gold/` has no staleness record, so `report ... --gold` does not print this block: the
+compared with it, one line says so and no figure is printed. The table below gives the `[all]` view and
+the exact current-code view (Appendix A.3, A.4 are the report's own lines, with the three readings). When the coverage file differs from what the code leaves without a text today, the report says so in its notes and gives the exact block even if no mark is dead. The tracked `gold/` has no staleness record, so `report ... --gold` does not print this block: the
 official figures from `gold/` still count the dead marks until the record is kept with the gold (T-148b11). Before the PR the same view was made by hand from
 copies of the two files (the owner's files are untouched). The replacement tables above are reproduced with
 `uv run scripts/dead_text_replacement_2026_11_10.py --out data --earlier data/earlier_2026_11_09/first
@@ -335,51 +335,56 @@ copies of the two files (the owner's files are untouched). The replacement table
 `data/earlier_2026_11_09/` holds copies of the two ids files as they were before the new marks (copied
 from the backup taken on 2026-11-09 at 23:10, before the redraws of the ids files at 23:20 and 23:39; the folder is local, git-ignored, like all of `data/`; recorded in `docs/gold_datasets.md`, set 4).
 
-Faithful share, every company named (the bar: lower end of the interval at or above 80%):
+Faithful share, every company named (the bar: lower end of the interval at or above 80%). "Current code" is
+the exact reading below (`[current code, exact: ...]` of the report), the one with no assumption:
 
 | Extractor | First set, all marks | First set, current code | Confirmation, all marks | Confirmation, current code |
 |---|---|---|---|---|
-| `baseline` | 63.2% [49.1, 75.5] fail | 71.3% [55.5, 84.6] not decided | 87.4% [81.4, 92.2] pass | 97.7% [94.5, 100] pass |
-| `model` | 76.3% [61.8, 88.1] not decided | 85.2% [68.6, 99.1] not decided | not marked | not marked |
-| **`units`** | 87.3% [79.8, 93.0] not decided | **97.5% [93.3, 100] pass** | 87.3% [82.5, 91.5] pass | **97.1% [94.0, 99.4] pass** |
-| `units2` | 84.4% [72.5, 97.2] not decided | 85.7% [73.5, 99.1] not decided | 91.4% [86.2, 96.0] pass | 92.2% [86.7, 96.9] pass |
-| `units3` | 91.6% [84.7, 97.8] pass | 93.2% [86.7, 99.2] pass | 93.7% [90.3, 96.9] pass | 95.8% [92.5, 98.6] pass |
-| Companies left without a text (`units` / `units2` / `units3`) | 0 / 19 / 6 | 0 / 19 / 6 | 1 / 10 / 4 | 1 / 10 / 4 |
+| `baseline` | 63.2% [49.1, 75.5] fail | 71.3% [56.1, 84.7] not decided | 87.4% [81.4, 92.2] pass | 97.7% [94.4, 100] pass |
+| `model` | 76.3% [61.8, 88.1] not decided | 85.7% [69.2, 99.0] not decided | not marked | not marked |
+| **`units`** | 87.3% [79.8, 93.0] not decided | **97.5% [93.3, 100] pass** | 87.3% [82.5, 91.5] pass | **97.1% [93.9, 99.4] pass** |
+| `units2` | 84.4% [72.5, 97.2] not decided | 86.3% [73.8, 99.1] not decided | 91.4% [86.2, 96.0] pass | 93.3% [88.4, 97.7] pass |
+| `units3` | 91.6% [84.7, 97.8] pass | 93.5% [87.2, 99.2] pass | 93.7% [90.3, 96.9] pass | 95.8% [92.5, 98.6] pass |
+| Companies left without a text (`units` / `units2` / `units3`) | 0 / 19 / 6 | 0 / 19 / 6 | 1 / 10 / 4 | 1 / 8 / 4 |
 
 **Is the current-code figure flattered?** Leaving a dead mark out takes its company out of the bar's
 denominator, which would flatter the share if the matcher still names the company and the extractor now
-writes nothing for it. Two readings were made. The first counts every dead mark as a company left without
-a text (the pessimistic reading: `units` 84.3% on both sets, *not decided*). The second is exact: the
-`--stale` run also saves what each extractor writes now (`faithfulness_now.json`, by company, the text as a
-hash) and the report looks each text up among the marked rows by its hash, so a text that another
-extractor's row already holds counts for the extractor that writes it now, and the companies it writes
-nothing for now are the ones left without a text (`[current code, exact: ...]`, Appendix A.3, A.4).
-**The exact figures equal the current-code ones** (`units` 97.5% [93.3, 100] on the first set and 97.1%
-[93.9, 99.4] on the confirmation set, both pass; `baseline` 71.3% and 97.7%; `model` 85.7% on the first
-set; `units2` 86.3% and 93.3%; `units3` 93.5% and 95.8%): `units` leaves no company without a text on the
-first set and 1 on the confirmation set, so the denominator did not shrink behind the figure. The
-pessimistic reading assumed something the extractors do not do (the still-named companies of the dead
-marks have a text now, held by another marked row). Texts written now that no marked row holds are in no
-figure: none for `units`, 10 for `model` on the first set.
+writes nothing for it. Three readings were made. The view that only leaves the dead marks out (`[current
+code: ...]`) and the pessimistic reading that counts every dead mark as a company left without a text
+(`units` 84.3% on both sets, *not decided*) bracket the answer but assume something. The exact reading
+assumes nothing: the `--stale` run also saves what each extractor writes now (`faithfulness_now.json`, by
+company, the text as a hash, and the identity of the drawn bodies file) and the report looks each text up
+among the marked rows by its hash, so a text that another extractor's row already holds counts for the
+extractor that writes it now, and the companies it writes nothing for now are the ones left without a text
+(`[current code, exact: ...]`, Appendix A.3, A.4). For `units` it equals the view that leaves the dead marks
+out (97.5% on the first set, 97.1% on the confirmation set; it leaves no company without a text on the first
+set and 1 on the confirmation set), so the denominator did not shrink behind its figure. For the others it
+differs a little (the table gives the exact figures: for example `units2` 93.3% against 92.2% on the
+confirmation set, because the code leaves 8 companies without a text and not the 10 of the coverage file).
+The pessimistic reading assumed something the extractors do not do: the still-named companies of the dead
+marks have a text now, held by another marked row. Texts written now that no marked row holds are in no
+figure: none for `units`, 10 for `model` on the first set. The coverage file used by the `[all]` blocks is
+older than the code: the report now says where it differs from what the code leaves without a text today.
 
-Counting the companies an extractor was not asked about as unfaithful (the strict reading) on current code:
-`units` 95.1% [89.3, 99.3] pass and 97.1% [94.0, 99.4] pass; `units2` 79.7% [67.0, 94.2] not decided and
-88.5% [82.8, 93.7] pass; `units3` 86.7% [79.3, 94.7] not decided and 91.9% [87.5, 95.8] pass (first set,
-then confirmation set). Gains on the same companies, current code: `units` minus `baseline` +25.6 [+12.6,
-+43.0] better on the first set and -0.6 [-1.7, 0.0] not decided on the confirmation set; `units2` minus
-`units` -11.6 [-24.4, 0.0] not decided and -4.3 [-9.4, -0.6] not better; `units3` minus `units` -4.1
-[-7.4, 0.0] not decided and -1.8 [-4.0, 0.0] not decided. With all marks the same gains are +22.2
-[+10.2, +37.2] better and -0.5 not decided (`units` minus `baseline`), -11.1 and -4.1 not better
-(`units2` minus `units`), -3.9 and -1.8 (`units3` minus `units`). The 2022+ rows (7 and 9 bodies) are in
-Appendix A.3 to A.6; they cannot decide, as elsewhere on this page, and no conclusion below rests on them.
+Counting the companies an extractor was not asked about as unfaithful (the strict reading) on the exact
+current-code figures: `units` 95.1% [89.7, 99.3] pass on the first set (97.1% [93.9, 99.4] pass on the
+confirmation set, where none is exempt); `units2` 80.5% [67.8, 94.6] not decided and 89.5% [84.4, 94.7] pass;
+`units3` 87.2% [80.5, 94.9] pass and 91.9% [87.5, 96.0] pass (first set, then confirmation set). Gains on the
+same companies, exact current code: `units` minus `baseline` +25.6 [+12.4, +42.0] better on the first set and
+-0.6 [-1.6, 0.0] not decided on the confirmation set; `units2` minus `units` -11.1 [-23.2, 0.0] not decided and
+-4.3 [-9.2, -0.6] not better; `units3` minus `units` -3.9 [-7.2, 0.0] not decided and -1.8 [-3.9, 0.0] not
+decided. With all marks the same gains are +22.2 [+10.2, +37.2] better and -0.5 not decided (`units` minus
+`baseline`), -11.1 and -4.1 not better (`units2` minus `units`), -3.9 and -1.8 (`units3` minus `units`). The 2022+
+rows (7 and 9 bodies) are in Appendix A.3 to A.6; they cannot decide, as elsewhere on this page, and no
+conclusion below rests on them.
 
 What this adds to "What the results say":
-1. **Among the extractors marked on both sets, `units` is the only one whose lower bound stays at or above
-   80% on every company named under the strictest count of unwritten companies**, on the exact current-code
-   figures (`units2` and `units3` are *not decided* on the first set under that count: 80.5% and 87.2%;
-   `baseline` is *not decided* on the first set; `model` has no confirmation marks). On the plain count
-   `units3` also passes both sets, and `baseline` passes the confirmation set. No extractor beats `units`
-   on a paired comparison.
+1. **`units` and `units3` pass the bar on both sets on every company named, also under the strictest count
+   of unwritten companies** (exact current code: `units` 95.1% and 97.1%, `units3` 87.2% and 91.9%, lower
+   ends at or above 80%). `units2` passes the confirmation set (89.5%) and is *not decided* on the first
+   (80.5% [67.8, 94.6]); `baseline` passes the confirmation set and is *not decided* on the first; `model` has
+   no confirmation marks. No extractor beats `units` on a paired comparison, and `units` has the higher
+   figure on every reading above; `units3` is within 4 points of it.
 2. **What the change did to the extractors is a removal, and what it did beyond that is small and not
    measured.** The 97 and 96 dead rows were about half unfaithful and are no longer written (or were
    rewritten: `units` 4 of 52 and 10 of 49 dead marks). On current code `units` is about 10 points higher
@@ -770,6 +775,7 @@ current code, exact: texts written now that no marked row holds (in no figure): 
 The report's own lines (record of 2026-11-10).
 
 ```
+warning: faithfulness_coverage.csv and the code disagree on the companies units2 leaves without a text (10 in the file, 8 now; 2 only in the file, 0 only now): the figures above use the file; see the exact block
 current code: 116 marks of 97 marked rows are on texts the current code no longer writes (faithfulness_stale.json); the figures below leave them out, 342 of 438 rows remain
 current code: dead marks per extractor baseline 51, units 49, units2 7, units3 9
 current code: leaving a dead mark out takes its company out of the bar's denominator; that flatters the share when the matcher still names the company and the extractor now writes nothing for it (the pessimistic reading and, when the run saved it, the exact figures follow)

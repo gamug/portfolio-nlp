@@ -1191,6 +1191,15 @@ def test_stale_exits_with_a_sum_of_what_is_stale_and_what_was_not_checked(
         now["baseline"]["texts"] == {"1#T": retag.text_hash("text")}
         and now["baseline"]["without"] == []
     )
+    assert now["baseline"]["bodies"] == gold_metrics.file_identity(
+        tmp_path / "faithfulness_bodies.csv"
+    )
+    # an old now file (no `bodies`) does not stop a new run: its entries are replaced
+    (tmp_path / gold_metrics.NOW_NAME).write_text(
+        json.dumps({"extractors": {"units": {"date": "d"}}}), encoding="utf-8"
+    )
+    FAITH.run_stale(args)
+    assert set(gold_metrics.read_now(tmp_path / gold_metrics.NOW_NAME)) == {"baseline", "model"}
     # an extractor in the ids that is not registered is unchecked (2); with stale rows, 3
     _csv(tmp_path / "faithfulness_ids.csv", [*ids, *_stale_ids(("1#V#1", "v", "units9", "r"))])
     assert FAITH.run_stale(args) == 3
@@ -3400,7 +3409,11 @@ def test_the_current_code_block_is_not_printed_when_the_check_cannot_be_compared
 
 
 def _now_file(path: Path, **entries: dict[str, object]) -> None:
-    (path / gold_metrics.NOW_NAME).write_text(json.dumps({"extractors": entries}), encoding="utf-8")
+    identity = gold_metrics.file_identity(path / "faithfulness_bodies.csv")
+    document = {name: {"bodies": identity, **entry} for name, entry in entries.items()}
+    (path / gold_metrics.NOW_NAME).write_text(
+        json.dumps({"extractors": document}), encoding="utf-8"
+    )
 
 
 def _now_entry(
@@ -3490,7 +3503,13 @@ def test_the_exact_block_is_not_printed_from_a_file_of_another_run(tmp_path: Pat
 def test_the_now_file_is_read_strictly(tmp_path: Path) -> None:
     document = {
         "extractors": {
-            "baseline": {"date": "d", "revision": "r", "texts": {"1#A": "h1"}, "without": []}
+            "baseline": {
+                "date": "d",
+                "revision": "r",
+                "bodies": "b",
+                "texts": {"1#A": "h1"},
+                "without": [],
+            }
         }
     }
     path = tmp_path / gold_metrics.NOW_NAME
@@ -3500,3 +3519,70 @@ def test_the_now_file_is_read_strictly(tmp_path: Path) -> None:
     with pytest.raises(MarkedFileError, match="malformed"):
         gold_metrics.read_now(path)
     assert gold_metrics.read_now(tmp_path / "nothing.json") == {}
+
+
+def _exact_setup(
+    tmp_path: Path, skipped: list[dict[str, str]]
+) -> tuple[dict[str, object], dict[str, object]]:
+    _faith_files(tmp_path, skipped, extractors="baseline|units")
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    u, b = _units_entry(units), _stale_entry_baseline()
+    _stale_file(tmp_path, units=u, baseline=b)  # nothing is stale
+    return u, b
+
+
+def test_the_report_warns_when_the_coverage_file_differs_from_what_the_code_leaves_out_now(
+    tmp_path: Path,
+) -> None:
+    u, b = _exact_setup(
+        tmp_path, [_skip(1, "units")]
+    )  # the file says units left 1#U without a text
+    every = {f"{a}#T": f"h{a}" for a in range(1, 7)}
+    _now_file(tmp_path, baseline=_now_entry(b, every, []), units=_now_entry(u, every, []))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "disagree on the companies units leaves without a text (1 in the file, 0 now" in text
+    # no mark is stale, but the file is out of date: the exact figures are given
+    assert "current code: dead marks per extractor" not in text
+    assert "[current code, exact: all]      units: 100.0%" in text
+    assert "0 companies left without one" in text
+
+
+def test_no_drift_and_no_dead_mark_prints_nothing_more(tmp_path: Path) -> None:
+    u, b = _exact_setup(tmp_path, [])
+    every = {f"{a}#T": f"h{a}" for a in range(1, 7)}
+    _now_file(tmp_path, baseline=_now_entry(b, every, []), units=_now_entry(u, every, []))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "disagree" not in text and "[current code" not in text and "current code:" not in text
+
+
+def test_the_exact_block_names_texts_held_by_two_rows_and_refuses_other_bodies(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    ids = list(csv.DictReader((tmp_path / "faithfulness_ids.csv").open(encoding="utf-8-sig")))
+    tags = list(csv.DictReader((tmp_path / "faithfulness_to_tag.csv").open(encoding="utf-8-sig")))
+    ids.append({**ids[0], "review_order": "7", "key": "1#T#2", "extractors": "baseline"})
+    tags.append({**tags[0], "review_order": "7", "faithful": "no"})  # same text as row 1, marked no
+    _csv(tmp_path / "faithfulness_ids.csv", ids)
+    _csv(tmp_path / "faithfulness_to_tag.csv", tags)
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    u = _units_entry(units, ["2#T#1 (units)"])
+    b = _stale_entry_baseline()
+    _stale_file(tmp_path, units=u, baseline=b)
+    every = {f"{a}#T": f"h{a}" for a in range(1, 7)}
+    _now_file(tmp_path, baseline=_now_entry(b, every, []), units=_now_entry(u, every, []))
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "1 texts are held by more than one row (1 with different marks)" in text
+    _csv(tmp_path / "faithfulness_bodies.csv", [{"article_id": "1", "segments": "9"}])
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "from other drawn bodies than faithfulness_bodies.csv" in text
+    assert "[current code, exact: all]" not in text
+
+
+def test_the_now_file_wants_strings_in_its_texts_and_its_list(tmp_path: Path) -> None:
+    path = tmp_path / gold_metrics.NOW_NAME
+    good = {"date": "d", "revision": "r", "bodies": "b", "texts": {"1#A": "h"}, "without": ["2#B"]}
+    for bad in ({**good, "texts": {"1#A": 5}}, {**good, "without": [3]}, {**good, "bodies": 1}):
+        path.write_text(json.dumps({"extractors": {"baseline": bad}}), encoding="utf-8")
+        with pytest.raises(MarkedFileError, match="malformed"):
+            gold_metrics.read_now(path)

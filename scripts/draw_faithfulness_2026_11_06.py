@@ -57,9 +57,11 @@ from news_nlp import (
     retag,
     triage,
 )
+from news_nlp.gold_metrics import MarkedFileError
 from news_nlp.triage import CompanyResolver
 
 BODIES_NAME = "faithfulness_bodies.csv"
+NOW_NAME_HINT = "the entries of extractors not run now are dropped until they are run again"
 IDS_NAME = "faithfulness_ids.csv"
 TO_TAG_NAME = "faithfulness_to_tag.csv"
 CACHE_DIR = "faithfulness"
@@ -367,6 +369,7 @@ def run_stale(args: argparse.Namespace) -> int:
         n: gold_metrics.NowEntry(
             date=date.today().isoformat(),
             revision=revisions[n],
+            bodies=gold_metrics.file_identity(out / BODIES_NAME),
             texts={
                 f"{i['article_id']}#{i['ticker']}": i["text_hash"]
                 for i in items
@@ -378,7 +381,12 @@ def run_stale(args: argparse.Namespace) -> int:
         )
         for n in names
     }
-    now_document = {"extractors": {**gold_metrics.read_now(now_path), **now}}
+    try:
+        kept_now = gold_metrics.read_now(now_path)
+    except MarkedFileError as error:  # an old format: only what this run found is kept
+        print(f"{error}; {NOW_NAME_HINT}")
+        kept_now = {}
+    now_document = {"extractors": {**kept_now, **now}}
     gold_metrics.write_pair_atomically(
         {
             path: json.dumps(document, indent=1) + "\n",
