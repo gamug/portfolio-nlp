@@ -66,9 +66,7 @@ or time into portfolio-level signals (`financial-analysis` and
 
 ### 2.1 In scope
 
-- Five batch NLP stages over pre-populated article text (sentiment, NER,
-  category always run; per-article and per-sector-week summarization
-  opt-in), each writing its own result table, idempotent and resumable.
+- Batch NLP over pre-populated article text. **Target (D39, FR-020/FR-021): a stepped pipeline** (scope, summary, NER, relevance, sub-news extractor, sentiment, category, snapshots), one command per step, tracked and idempotent. **Code today (v1):** five stages (sentiment, NER, category always run; summaries opt-in), each writing its own result table, idempotent and resumable, until the backfill (T-150).
 - The two-tier SOURCE (read-only)/RESULTS (read-write) database contract.
 - A FastAPI serving layer (query + human-correction endpoints) that works
   off the RESULTS store alone.
@@ -88,10 +86,10 @@ or time into portfolio-level signals (`financial-analysis` and
 
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
-| **FR-001** | The sentiment stage runs `gamug/FinBERT-financial-news` (a continued fine-tune of `ProsusAI/finbert`, selected 2026-09-13 — §13 item 1) over every pending article's `body_text` (chunked, entity-scoped weighted average across chunks — full weight for chunks naming the article's own `company`/`ticker`, a lower baseline otherwise) and writes exactly one `article_sentiment` row per article. **Superseded for the new pipeline 2026-11-05 (PLAN D25/D26, T-148c): sentiment will read the summary or the company text, not the body, with no subject weighting; this FR describes the v1 tables until the backfill (T-150).** | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
+| **FR-001** | The sentiment stage runs `gamug/FinBERT-financial-news` (a continued fine-tune of `ProsusAI/finbert`, selected 2026-09-13 — §13 item 1) over every pending article's `body_text` (chunked, entity-scoped weighted average across chunks — full weight for chunks naming the article's own `company`/`ticker`, a lower baseline otherwise) and writes exactly one `article_sentiment` row per article. **Superseded for the new pipeline (PLAN D39, FR-020): sentiment reads the summary or the sub-news with its main company, not the body; this FR describes the v1 tables until the backfill (T-150). **Still used by the new pipeline only for `sector` summaries (D39 (iv)), run as a step of `news_nlp_steps.py` with its revision pinned in `pipeline_step_state`; those rows are marked `sentiment_checked = false` (the 180-text gold has no sector text, D26) until T-170 adds some.** | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
 | **FR-002** | The NER stage runs `gamug/sec-bert-finer-ord-ner`, merges BIO-tagged sub-token predictions **word-boundary aware**, and writes one `article_entities` row per detected span with a char offset and confidence. | No emitted span starts or ends mid-word (regression test for the fixed "3"-as-`ORG` subword-fragmentation bug, `82c5e6a`); every row has `entity_type ∈ {PER, LOC, ORG}`, valid `start_char < end_char` into the source text, and a `score`. |
 | **FR-003** | The category stage classifies each article via two-level hierarchical zero-shot NLI (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) against the fixed taxonomy in `news_nlp.taxonomy` (3 groups → 9 leaf labels + `other`), on the title + lead chunk only, and writes one `article_category` row. | `label` is one of the 9 taxonomy slugs or `other`; `group_label`/`group_score` are populated even when `label = other`; all 9 raw NLI distribution columns are populated (audit trail for threshold retuning); `label = other` iff the winning slug's score is below `CATEGORY_CONFIDENCE_THRESHOLD`. |
-| **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. **Superseded for the new pipeline 2026-11-05 (PLAN D25, T-148a): the summary becomes a required step for every `single`, `sector`, `market_economy` and `investing_general` body, made before and not after sentiment, with no entity gate; this FR describes the v1 stage until the backfill (T-150).** | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
+| **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. **Superseded for the new pipeline (PLAN D39, FR-020): a summary is made for each `single` and `sector` body and for each sub-news over a size, before sentiment, with no entity gate; this FR describes the v1 stage until the backfill (T-150).** | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
 | **FR-005** | The `sector_summary` stage (opt-in) composes one row per `(gics_sector, gics_sub_industry, week_start)` for each **closed** calendar week, deterministically concatenating member companies' `c_summary` text attributed by ticker. The stats-only intro sentence (`build_sector_intro_seed`) is itself fully deterministic as of 2026-09-14 (previously run through a model as a "paraphrase" step — dropped after that step was found to hallucinate on 42-50% of rows; see `docs/evaluation.md`'s 2026-09-14 follow-up) — the entire `sector_summary` stage is now non-generative, no model or GPU involved. | `build_sector_intro_seed`'s output never contains a ticker, company name, or summary text (unit-testable — cross-company blending is structurally impossible, not just avoided); `UNIQUE(gics_sector, gics_sub_industry, week_start)` holds; `facts_json` carries the structured (non-narrative) aggregate; `run_sector_summary_stage` never calls `AutoTokenizer`/`AutoModelForSeq2SeqLM.from_pretrained` (test-asserted). |
 | **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |
 | **FR-007** | The pipeline reads article text from a read-only-ATTACHed SOURCE store and writes results (plus a lean `articles` row per touched article) to a separate RESULTS store; SOURCE is never written. | `db.require_source_text` raises before any model loads if SOURCE is unset or has no usable `body_text` (constitution: Security & Data #2); an attached SOURCE is checked read-only before any query (`db.check_schema`: `PRAGMA user_version` at least 3 and the columns read, never cached, `test_schema_guard.py  # FR-007`; `POST /pipeline/run` answers 503 on a failure); a write attempt against schema `source` is not exercised by any code path (`grep` for `source\.` write statements returns none outside read paths). |
@@ -107,6 +105,9 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-017** | A single JSON file (`ExperimentSpec`, schema-validated) fully specifies one model experiment for any of the four ML stages — whether it trains a new checkpoint and from which base model/dataset/train-test-split+stratify strategy, how many articles the LLM judge samples and how (direct reuse of `EvalSettings`' own shape), the experiment's name, and whether to publish the result — and one command runs it end to end (train if requested, evaluate, optionally publish), reusing `news_nlp.eval.runner.run_eval` unchanged rather than reimplementing it. Validation is a reproducibility guarantee (no unpinned base model, no ambiguous `pretrain`/`candidate_model` combination, no unknown per-stage hyperparameter key, `publish` never without `pretrain`) — the config cannot describe a run that would be ambiguous or unreproducible. `pretrain` is always rejected for category/`c_summary` (no trainable checkpoint exists, or ever will, for either — both ship pretrained/zero-shot as-is, FR-011). | `uv run cli/run_experiment.py --config <path>.json` is the only command needed to reproduce a backfilled historical experiment's train+evaluate sequence; an invalid/ambiguous spec fails validation before any training or eval work starts, naming exactly what's wrong; a JSON spec exists for every real historical experiment with a runnable equivalent today (sentiment v2/v3/v4/v5 + base-FinBERT; one production spec each for NER/category/`c_summary`), with the two genuine gaps (the removed "title-only" sentiment code path; category/`c_summary`'s inference-time-hyperparameter experiments, a different axis than this schema) named in `experiments/README.md`, not silently omitted; `stratified_split`'s split seed/fractions/stratify key are spec-overridable with defaults matching today's exact hardcoded behavior, so no existing call site's behavior changes. |
 | **FR-018** | The production pipeline's model selection (name, commit SHA, and batch size for each of the four ML stages) is schema-validated (`pipeline_config.PipelineModelsConfig`, `extra="forbid"`) and lives in one git-tracked file, `config/pipeline_models.json`, loaded by `pipeline.py` at import time — not a Python literal constant and not runtime-overridable via any CLI flag or env var. This is a format change only, not a relaxation of constitution AI-behavior #1 ("model selection is pinned, not dynamic"): changing a model still requires editing this file and going through normal PR review, same as editing a `.py` constant did before. `sentiment` has no `batch_size` field (nothing in `sentiment_stage.py` reads one — its batch size is hardcoded to 1). | `pipeline.py` continues to expose `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/`MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` as real, monkeypatchable module attributes whose values match `config/pipeline_models.json` (regression-tested); an unknown key, a missing stage, or a non-positive `batch_size` in the JSON fails `PipelineModelsConfig` validation with pydantic's own message; a malformed `config/pipeline_models.json` fails on `import pipeline` itself (every entrypoint, `pytest` included) rather than silently degrading; no CLI flag or env var in this repo can point the pipeline at a different config file. |
 | **FR-019** | For model selection and evaluation the metrics recorded, and used to choose between settings or models, are **Precision, Recall and ROC OVR** (the AUC of each class against the rest), per class (owner, 2026-11-09, `PLAN.md` D37). Accuracy is a description, not a selection metric. Built for the sentiment fine-tune's validation slice (`src/sentiment_pair_report.py`: per-class figures weighted by the draw's strata, the selection score as the macro mean of the nine, the paired gain with the gold's interval and verdict); the same metrics are already logged per class by `news_nlp.eval` for sentiment and category. |
+
+| **FR-020** | **The pipeline (owner, 2026-11-10, PLAN D39), built in separate steps.** (1) Scope of the body: MVP `single`, `multi`, `sector`; `market_economy`, `investing_general`, `unrelated` are stored with their scope and stop. (2) single: summary, NER on it, the relevance model scores each company; those over a threshold are main (one stored row per main company, same text), the others go to mentions in `article_entities`; none over it: the review list. (3) multi: the extractor cuts sub-news; NER on each; the relevance model picks the main companies as in (2); a sub-news over a character size (not set) is summarised. (4) sector: sector identified, then summary. (6) Sentiment: the pair model + relevance stack for each summary or sub-news with its main company; a sector summary has no company and is read by `gamug/FinBERT-financial-news`; items on the review list have none. (7) Category of the same texts. After them, the snapshots (D28). | Each step reads the stored result of the previous one and writes its own table; for a fixed input and fixed model revisions each step gives one row per item; the main company of a text is stored with its relevance score (a text with two main companies is two `text_company` items, D39 (i)); an item with no company over the threshold is on the review list, not silently dropped. |
+| **FR-021** | **Conditions of the pipeline (D39).** The advance of a run is tracked; every step is idempotent; steps are run one command each, with a limit, never 1 to 7 in one pass. | A status command (`cli/news_nlp_steps.py --status`, a query on `pipeline_step_state`) reports pending, done, failed, skipped and review per step and item (`review` is neither done nor failed: the run is not complete while items wait, T-172); a new model revision adds a row and the latest is read; running a step twice on unchanged input adds and changes no row; no command runs all steps (a test asserts the step list is run one at a time); a step stopped halfway resumes without redoing finished items. |
 
 ### 2.4 Non-functional requirements
 
@@ -165,46 +166,25 @@ module instead.
 
 ## 4. System Architecture
 
+**Target pipeline (PLAN D39, FR-020; not built).** Each arrow is a separate command; a step reads the stored result of
+the one before it (never one pass 1 to 7), and run state is tracked (FR-021).
+
 ```mermaid
 flowchart TB
-    SRC[("SOURCE db (urls.db)<br/>read-only · articles.body_text")]
-    CHUNK["chunking.py<br/>sentence-boundary packing"]
-    S1["1 · Sentiment<br/>FinBERT<br/>(mandatory)"]
-    S2["2 · NER<br/>SEC-BERT / FiNER-ORD<br/>(mandatory)"]
-    S3["3 · Category<br/>DeBERTa-v3 zero-shot<br/>(mandatory)"]
-    S4["4 · c_summary<br/>distilbart, gated<br/>(--summarize)"]
-    S5["5 · sector_summary<br/>deterministic compose<br/>(--summarize, weekly)"]
-    RES[("RESULTS db (nlp.db)<br/>read/write · article_* tables<br/>+ lean articles")]
-    API["FastAPI :8003<br/>query + correction endpoints"]
-    EVAL["news_nlp.eval<br/>LLM-as-judge (opt-in)"]
-
-    SRC -->|body_text| CHUNK --> S1 --> S2 --> S3
-    S1 -.->|sentiment + entities| S4
-    S3 -.->|category| S4
-    S4 -.->|c_summary| S5
-    S3 -.->|category| S5
-    S1 --> RES
-    S2 --> RES
-    S3 --> RES
-    S4 -.-> RES
-    S5 -.-> RES
-    RES --> API
-    RES -.-> EVAL
+    SRC[("SOURCE db<br/>read-only · body_text")] --> S1["1 · Scope<br/>single / multi / sector<br/>(market, investing, unrelated stop)"]
+    S1 -->|single| A2["2 · Summary + NER on summary<br/>relevance → main company<br/>(others → mentions)"]
+    S1 -->|multi| B3["3 · Extractor → sub-news<br/>3.1 NER · 3.2 relevance → main company(ies)<br/>3.3 summary if over a size"]
+    S1 -->|sector| C4["4 · Sector (GICS) + summary"]
+    A2 --> S6["6 · Sentiment<br/>pair model + relevance stack"]
+    B3 --> S6
+    C4 -.-> S6
+    S6 --> S7["7 · Category"]
+    S7 --> SNAP["Snapshots<br/>(body, company) · (body, sector)"]
+    RUN[("run state<br/>pending · done · failed")] -.- S1
 ```
 
-**Reading this diagram**: solid arrows are the mandatory chain every
-downstream consumer can rely on (stages 1–3, always run); dashed arrows are
-the opt-in path (stages 4–5, only under `--summarize`) and the evaluation
-subsystem (runs independently, off the same RESULTS store). `run_pipeline`
-(`src/pipeline.py`) executes stages 1→2→3 unconditionally, then 4→5 only if
-`summarize=True`, inside one process/one connection, `ATTACH`ing SOURCE
-read-only and detaching it in a `finally` block.
-
-Full detail, with hover tooltips per component: [the repository
-artifact](https://claude.ai/code/artifact/65e62819-28dd-495b-b6ec-64f9c1751235)
-referenced from `CLAUDE.md`. System-level placement of this repo among the
-other five: [the architecture
-overview](https://claude.ai/code/artifact/d3865a63-2894-4e20-b38a-7e50cf0d4040).
+**The code of today (v1)**, until the backfill (T-150): `run_pipeline` runs sentiment, NER and category over every article in one
+process; its diagram and reading are in `archive/PIPELINE-superseded-2026-11-10.md` (section 4).
 
 ## 5. Data Model
 
@@ -238,6 +218,9 @@ depends on is assumed, not checked — a SOURCE missing `gics_sector`/
 |---|---|---|---|
 | `article_sentiment` | `article_id` (PK) | `label`, `score`, `positive`/`negative`/`neutral`, `model_name`, `processed_at` | Stage 1 |
 | `article_entities` | `id` (PK, autoincrement) | `article_id` (FK, indexed), `entity_type` (`PER`/`LOC`/`ORG`), `text`, `start_char`/`end_char`, `score` | Stage 2 |
+| `article_entities` target columns (D39 (iii), proposed) | same key | adds `sub_news_id` (NULL for a single body), `ticker` (the universe ticker the span matched; spans with none are not written), `relevance_score`, `is_main`; a mention that is not main stays here | Steps 2, 3.1, 3.2 |
+| `sub_news` (target, proposed) | `id` (PK) | `article_id` (FK), `segment_index`, `text`, `extractor_revision`; unique (`article_id`, `segment_index`, `extractor_revision`); a new extractor revision writes new rows and leaves the old ones, which are not read downstream and whose dependent steps are re-queued | Step 3 |
+| `pipeline_step_state` (target, proposed, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (a **unique body**, by body hash, T-132: a body that reaches us under five tickers runs once), `sub_news` or `text_company` (a text and one main company: steps 6 and 7 run per pair, so a text with two main companies has two rows and its category is computed once per pair) | `cli/news_nlp_steps.py` |
 | `article_category` | `article_id` (PK) | `label` (9 slugs or `other`), `score`, `group_label`/`group_score` (level-1 hierarchy), 9 raw per-slug NLI scores (audit trail) | Stage 3 |
 | `article_summary` | `article_id` (PK) | `summary_text`, `num_chunks`, `model_name`, `processed_at` | Stage 4 (opt-in) |
 | `sector_summary` | `id` (PK); `UNIQUE(gics_sector, gics_sub_industry, week_start)` | `summary_text`, `facts_json` (structured, non-narrative), `intro_text` (deterministic template as of 2026-09-14, `model_name` reads `"deterministic-template"`), `format_version` (self-heal marker), `num_articles`/`num_companies` | Stage 5 (opt-in) |
@@ -273,17 +256,11 @@ knows the two-table `eval_run`/`eval_judgement` shape above is the
 
 ## 6. Core Workflows
 
-**Batch pipeline run** (`cli/news_nlp_cli.py` → `pipeline.run_pipeline`):
-
-1. Open RESULTS (`$DATABASE_URL`/`--results-db`), `ATTACH` SOURCE
-   (`$SOURCE_DATABASE_URL`/`--source-db`) read-only.
-2. `init_schema` (create-if-missing + additive migrations), then
-   `require_source_text` — fail fast if SOURCE has no usable text.
-3. Run sentiment → NER → category, each bounded by `--limit` if given, each
-   skipping rows already present in its result table.
-4. If `--summarize`: run `c_summary` (gated per-article), then
-   `sector_summary` (closed weeks only).
-5. Detach SOURCE, close the connection, print completion.
+**Batch pipeline run, target (D39, FR-020/FR-021):** one command per step (`cli/news_nlp_steps.py`: `--step`, `--limit`, `--status`; the v1 CLI is not changed); a step opens RESULTS and
+attaches SOURCE read-only, takes the items with no row of its own for the pinned model revisions, writes them and records
+their state; a rerun redoes nothing; no command runs every step. **Code of today (v1)** (`cli/news_nlp_cli.py` ->
+`pipeline.run_pipeline`: sentiment, NER, category, then optional summaries, in one process): the steps are in
+`archive/PIPELINE-superseded-2026-11-10.md` (section 6) until the backfill (T-150).
 
 **Serving/query** (FastAPI, no SOURCE needed): a request opens a RESULTS-only
 connection (`db.connect`, no `ATTACH`), reads/writes the result tables

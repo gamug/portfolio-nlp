@@ -2018,14 +2018,17 @@ def test_faithfulness_gold_refuses_unmarked_rows_edited_texts_and_other_rows(
     assert not gold.exists()
 
 
-def test_the_committed_faithfulness_gold_is_the_owners_190_marks() -> None:
+def test_the_committed_faithfulness_gold_is_the_owners_453_marks() -> None:
     gold = Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv"
     rows = list(csv.DictReader(gold.open(encoding="utf-8-sig")))
     assert tuple(rows[0]) == retag.FAITHFULNESS_GOLD_COLUMNS
-    assert len(rows) == 190
-    assert Counter(r["faithful"] for r in rows) == {"yes": 115, "no": 75}
-    assert len({r["key"] for r in rows}) == 190  # one mark per text
-    assert {r["extractors"] for r in rows} == {"baseline"}
+    assert (
+        len(rows) == 453
+    )  # the 190 baseline texts of 2026-11-06 and the texts of the later extractors
+    assert Counter(r["faithful"] for r in rows) == {"yes": 352, "no": 101}
+    assert len({r["key"] for r in rows}) == 453  # one mark per text
+    named = Counter(e for r in rows for e in r["extractors"].split("|"))
+    assert named == {"units": 212, "baseline": 204, "model": 190, "units3": 148, "units2": 135}
     assert len({r["article_id"] for r in rows}) == 30  # the 30 bodies drawn
 
 
@@ -2062,9 +2065,11 @@ def test_faithfulness_gold_copies_the_coverage_and_the_report_reads_the_tracked_
 def test_the_report_reads_the_committed_gold_and_gives_the_figures_of_the_decision() -> None:
     gold = Path(__file__).resolve().parents[2] / "gold"
     text = "\n".join(REPORT.faithfulness_gold_report(gold))
-    assert "190 texts, 0 companies left without a text" in text
-    assert "[all]   baseline: 60.5% [45.2%, 73.8%] -> fail" in text  # PLAN D32, 2026-11-06
-    assert "[2022+]   baseline: 60.6% [27.6%, 86.1%] -> not decided" in text
+    assert "453 texts, 25 companies left without a text" in text
+    assert (
+        "[all]   baseline: 63.2% [49.1%, 75.5%] -> fail" in text
+    )  # 60.5% on the 190 texts of 2026-11-06 (PLAN D32)
+    assert "[2022+]   baseline: 62.9% [34.6%, 86.1%] -> not decided" in text
 
 
 def test_faithfulness_gold_needs_the_coverage_file(
@@ -3617,3 +3622,48 @@ def test_the_now_file_wants_strings_in_its_texts_and_its_list(tmp_path: Path) ->
         path.write_text(json.dumps({"extractors": {"baseline": bad}}), encoding="utf-8")
         with pytest.raises(MarkedFileError, match="malformed"):
             gold_metrics.read_now(path)
+
+
+def test_every_tracked_mark_has_its_text_in_gold_texts() -> None:
+    """Owner, 2026-11-10: the texts behind the marks are tracked with them (``gold/texts/``)."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+    pairs = {
+        "sentiment_gold.csv": ("sentiment_gold_texts.csv", 180),
+        "sentiment_train.csv": ("sentiment_train_texts.csv", 450),
+        "sentiment_train_2.csv": ("sentiment_train_2_texts.csv", 405),
+        "faithfulness_gold.csv": ("faithfulness_texts.csv", 453),
+        "faithfulness_confirmation/faithfulness_gold.csv": (
+            "faithfulness_confirmation_texts.csv",
+            438,
+        ),
+    }
+    for marks_name, (texts_name, count) in pairs.items():
+        marks = list(csv.DictReader((gold / marks_name).open(encoding="utf-8-sig")))
+        texts = list(csv.DictReader((gold / "texts" / texts_name).open(encoding="utf-8-sig")))
+        assert len(marks) == len(texts) == count
+        assert {r["key"] for r in marks} == {r["key"] for r in texts}
+        assert all(retag.text_hash(r["text"]) == r["text_hash"] for r in texts), texts_name
+
+
+def test_the_scope_sets_have_their_texts_in_gold_texts() -> None:
+    """Owner, 2026-11-10: the scope train, test and label-check texts are copied too."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+
+    def rows(path: Path) -> list[dict[str, str]]:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            return list(csv.DictReader(fh))
+
+    for marks_name, texts_name, count in (
+        ("category_gold_v2.csv", "category_gold_v2_texts.csv", 284),
+        ("category_gold_v2_test.csv", "category_gold_v2_test_texts.csv", 200),
+    ):
+        marks = {(r["article_id"], r["ticker"]) for r in rows(gold / marks_name)}
+        texts = rows(gold / "texts" / texts_name)
+        assert len(marks) == len(texts) == count
+        assert marks == {(r["article_id"], r["ticker"]) for r in texts}
+        assert all(r["text"].strip() for r in texts)
+    marks_seg = {r["key"] for r in rows(gold / "segment_check_gold.csv")}
+    texts_seg = rows(gold / "texts" / "segment_check_gold_texts.csv")
+    assert marks_seg == {r["key"] for r in texts_seg} and len(texts_seg) == 200
