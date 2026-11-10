@@ -205,7 +205,7 @@ above, it says so; nothing else above is touched.
   scores of the 809 rows, T-169); the item is **stored once per main company** (a news with two main companies has two
   rows, same text, one per company), so each row has a single main company and step 6 reads one (text, company) pair per
   row. (ii) **No company found, or no score over the threshold:** the item goes to a **review list** for the owner
-  (no sentiment until it is read). (iii) **Mentions** (the companies that are not main): stored in `article_entities`
+  (no sentiment until it is read; T-172 builds the list, status `review`). (iii) **Mentions** (the companies that are not main): stored in `article_entities`
   (new columns: item, relevance score, is_main), not in a new table. (iv) **Sector summary:** it gets a sentiment, from
   `gamug/FinBERT-financial-news` (the pinned chunk-level stage, no company). (v) **Tracking:** one table
   `pipeline_step_state` (item, kind, step, status `pending/done/failed/skipped`, model revision, attempts, error,
@@ -215,7 +215,7 @@ above, it says so; nothing else above is touched.
   **Sub-news size (3.3):** measured first (character lengths of the units output on the 438 confirmation texts), then
   the owner sets it (T-166). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
   the relevance model, trained on summaries, holds on sub-news (not measured: a risk of T-165, T-169). Tasks: T-162
-  to T-169.
+  to T-172.
 - **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
   model was fine-tuned on sentences, so it is checked on the pipeline's own texts before it is
   trusted there: a sentiment gold of **180 texts, 60 per class** (positive, negative, neutral;
@@ -261,10 +261,10 @@ above, it says so; nothing else above is touched.
   by sentence and gives a sentence to every company it names, the structured parser by paragraph; the gain
   therefore measures the extractor as a whole (cut and attribution), not the attribution alone. The model is a new pinned checkpoint (constitution AI #1, #7, #12), **built 2026-11-07 (T-148b3, merged in #141; not published or pinned)**: a pair classifier, *is this sentence about this company?*, on the encoder of the pinned sentiment model (a new 2-label head; input the company's name, the previous sentence and the sentence, max 160 tokens), trained on the `lead` paragraphs only (19,724 paragraphs, 74,512 pairs, 2 epochs, 15.5 minutes; the run refuses unless `train_on_lead_only` holds), `val` 270 bodies never trained on. At run time a sentence that names universe companies belongs to them (the baseline's rule, so a named company always has its text); a sentence naming none goes to the best-scoring company if the score is at least 0.5, else to nobody. Automatic figures on `val` (parser labels, they decide nothing): the right company is ranked above a wrong one 90.1% of the time against 63.7% for the mention-and-recency baseline. **The faithfulness reading (D32) decides.** First set (190 texts of 30 bodies, owner 2026-11-07): baseline 60.5% [45.2, 73.8]; model 76.3% [61.8, 88.1]; `units` (T-148b4: footer stripped, cut at lines, bullets, semicolons and clauses) 85.4% [76.5, 92.2] on its 185 texts, `better` than the baseline (+24.3 [12.9, 39.4]). The confirmation set and the selection of `units` are in (e) below and in `docs/extractor_training.md`. **Open:** the model has not learned to answer "none of these" (a sentence about a company outside the universe goes to the nearest one at a score of 0.5 or more; the wrong cases score 0.9 or more, so a higher threshold does not help): TASKS T-148b3. The build record, the `val` figures, the abstention counts and the second reading of the bar (companies named only in the footer): `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, "D27 build record".
 - **D28 Snapshots.** New tables in RESULTS, the old ones kept as v1 (D19). A company snapshot
-  is one row per (body, company): text, ticker, D15 label, sentiment, `pub_date`; a sector
+  is one row per (text, main company), where the text is a summary or a sub-news (D39 (i)): text, ticker, D15 label, sentiment, `pub_date`, `body_hash`; a sector
   snapshot is one row per (body, sector): text and sentiment. This repository does not aggregate
   per day: the per-(asset, day) signal of D14 is built downstream from the per-body rows, which
-  also keeps one count per unique body for the backtest. Sketch only: the schema is proposed to
+  also keeps one count per unique body for the backtest (a company counts a body once, whatever its number of sub-news). Sketch only: the schema is proposed to
   the owner in the P5 PR (constitution AI #10).
 - **D29 Category** is computed on the same texts as sentiment (step 5): the summary of a
   non-multi body, the company text of a multi body. The D24 target (>= 80% with the held-out gold)
