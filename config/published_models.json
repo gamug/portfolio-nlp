@@ -1,0 +1,16 @@
+{
+  "what": "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)",
+  "sentiment": {
+    "repo": "gamug/FinBERT-company-sentiment",
+    "revision": "9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e",
+    "private": true,
+    "card_sha256": "7ff6111f3651b6ab154c6082abf8c54b5210bf1368ef567e97ed2200f8dad9c6"
+  },
+  "relevance": {
+    "repo": "gamug/deberta-v3-company-relevance",
+    "revision": "8812c8bc551158f5aa6a9fc3f4ae1895e904e972",
+    "private": true,
+    "card_sha256": "a85c9a4d4a65ae088c1b11a04fb553501c5bbdbc3e9d61622ba4a6eeedd41bf8"
+  },
+  "card_note": "card_sha256 is that of the README.md uploaded by scripts/publish_final_models_2026_11_10.py (checked live on the Hub, 2026-11-10); first upload revisions 1d1942be (sentiment, card sha 5ae8268c) and 1631bdac (relevance, card sha 451b6cb9) had the cards of commit fb28eb4; the weights are the same in both uploads"
+}

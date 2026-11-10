@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import csv
+import hashlib
 import importlib.util
 import json
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import numpy as np
 import pytest
 
 from news_nlp import gold_metrics, retag
@@ -3713,3 +3715,312 @@ def test_the_tracked_universe_is_the_507_companies_the_matcher_reads() -> None:
     assert list(rows[0]) == ["ticker", "company", "also_covers", "gics_sector"]
     assert len({r["ticker"] for r in rows}) == len(rows)
     assert all(r["ticker"] and r["company"] for r in rows)
+
+
+def test_the_stack_coefficients_are_a_three_class_logistic_regression_on_four_features() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "sentiment_stack.json"
+    stack = json.loads(path.read_text(encoding="utf-8"))
+    assert stack["classes"] == ["positive", "negative", "neutral"] == stack["class_order_of_coef"]
+    assert len(stack["coef"]) == len(stack["intercept"]) == 3
+    assert all(len(row) == len(stack["features"]) == 4 for row in stack["coef"])
+    assert stack["rows"] == 809
+    # more relevance pushes towards a direction and away from neutral
+    assert stack["coef"][2][-1] < 0 < stack["coef"][0][-1]
+
+
+FINAL = _script("final_models_2026_11_10")
+PUBLISH = _script("publish_final_models_2026_11_10")
+
+
+def _toy_pair_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Six pair rows (two per class) and one company-less row, in two sets; returns the pair keys."""
+    marks = [
+        ("a1", "Acme Corp (Class A)", "positive", "single", "negative", "10"),
+        ("a2", "Beta Inc.", "negative", "single", "negative", "10"),
+        ("a3", "Gamma Co.", "neutral", "multi_dominated", "negative", "10"),
+        ("b1", "Delta Ltd.", "positive", "single", "positive", "20"),
+        ("b2", "Eps Inc.", "negative", "single", "positive", "20"),
+        ("b3", "Zeta Co.", "neutral", "multi_dominated", "positive", "20"),
+        ("b4", "", "neutral", "market", "positive", "20"),
+    ]
+    names = ["key", "company", "sentiment", "rule_scope", "predicted", "pool_class_size"]
+    paths = []
+    for tag, rows in (("1", marks[:3]), ("2", marks[3:])):
+        mark_path, text_path = tmp_path / f"marks{tag}.csv", tmp_path / f"texts{tag}.csv"
+        with mark_path.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(names)
+            writer.writerows(rows)
+        with text_path.open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["key", "text"])
+            writer.writerows((r[0], f"text of {r[0]}") for r in rows)
+        paths.append((str(mark_path), str(text_path)))
+    monkeypatch.setattr(FINAL, "SETS", tuple(paths))
+    return [m[0] for m in marks if m[3] != "market"]
+
+
+def test_the_pair_rows_are_the_tracked_rows_that_read_as_a_pair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys = _toy_pair_files(tmp_path, monkeypatch)
+    rows = FINAL.pair_rows()
+    assert [r["key"] for r in rows] == keys  # file order, the company-less row left out
+    assert rows[0]["text"] == "text of a1" and rows[0]["draw"] == "old"
+    assert [r["key"] for r in FINAL.pair_rows(["b2", "a1"])] == ["b2", "a1"]  # the order asked
+    assert FINAL.company_name("Acme Corp (Class A)") == "Acme Corp"
+
+
+def test_the_stack_is_fitted_on_the_out_of_fold_scores_and_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys = _toy_pair_files(tmp_path, monkeypatch)
+    classes = FINAL.CLASSES
+    gold = {"a1": 0, "a2": 1, "a3": 2, "b1": 0, "b2": 1, "b3": 2}
+    cv = tmp_path / "cv" / "predictions"
+    cv.mkdir(parents=True)
+    for rpt in (1, 2):
+        with (cv / f"cv_r{rpt}_f0__x.csv").open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["key", *[f"p_{c}" for c in classes]])
+            for k in keys:
+                p = [0.1, 0.1, 0.1]
+                p[gold[k]] = 0.8
+                writer.writerow([k, *p])
+    relevance = [0.1 if gold[k] == 2 else 0.9 for k in keys]
+    oof = tmp_path / "oof.json"
+    oof.write_text(json.dumps({"keys": keys, "R": [relevance, relevance]}), encoding="utf-8")
+    out = tmp_path / "out" / "stack.json"
+    FINAL.stack(tmp_path / "cv", oof, out)
+    record = json.loads(out.read_text(encoding="utf-8"))
+    assert record["rows"] == 6 and record["classes"] == list(classes)
+    assert record["class_order_of_coef"] == list(classes)
+    assert len(record["coef"]) == 3 and all(len(c) == 4 for c in record["coef"])
+    # the fitted stack reads a clear positive, relevant text as positive, and a low relevance as neutral
+    assert (
+        max(FINAL.apply_stack(record, [0.8, 0.1, 0.1], 0.9).items(), key=lambda kv: kv[1])[0]
+        == "positive"
+    )
+    assert (
+        max(FINAL.apply_stack(record, [0.1, 0.1, 0.8], 0.1).items(), key=lambda kv: kv[1])[0]
+        == "neutral"
+    )
+
+
+def test_the_card_snippet_gives_the_probabilities_of_the_stack_code() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "sentiment_stack.json"
+    s = json.loads(path.read_text(encoding="utf-8"))
+    p, r = [0.2, 0.7, 0.1], 0.35
+    namespace: dict[str, Any] = {"np": np, "p": p, "r": r, "s": s}
+    exec(PUBLISH.STACK_SNIPPET, namespace)  # noqa: S102 -- the snippet the card shows, run as written
+    expected = FINAL.apply_stack(s, p, r)
+    assert list(namespace["probs"]) == pytest.approx([expected[c] for c in s["classes"]])
+    assert PUBLISH.STACK_SNIPPET in PUBLISH.SENTIMENT_CARD
+
+
+def test_the_cards_state_the_licence_the_figures_and_that_the_gold_is_not_scored() -> None:
+    assert "license: cc-by-nc-sa-4.0" in PUBLISH.SENTIMENT_CARD  # ProsusAI/finbert is share-alike
+    assert "license: mit" in PUBLISH.RELEVANCE_CARD
+    for card in (PUBLISH.SENTIMENT_CARD, PUBLISH.RELEVANCE_CARD):
+        assert "The 180-text gold has not been scored" in card
+        assert "S&P 500" not in card and "three quarters" not in card
+        assert "(private)" in card
+
+
+def test_a_dry_run_names_both_repositories_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = tmp_path / "published.json"
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["publish", "--dry-run", "--record", str(record), "--sentiment-dir", str(tmp_path)],
+    )
+    PUBLISH.main()
+    out = capsys.readouterr().out
+    assert PUBLISH.SENTIMENT_REPO in out and PUBLISH.RELEVANCE_REPO in out
+    assert not record.exists()
+
+
+def test_the_published_revisions_are_recorded_and_private() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "published_models.json"
+    published = json.loads(path.read_text(encoding="utf-8"))
+    for name, repo in (
+        ("sentiment", PUBLISH.SENTIMENT_REPO),
+        ("relevance", PUBLISH.RELEVANCE_REPO),
+    ):
+        assert published[name]["repo"] == repo and published[name]["private"] is True
+        assert re.fullmatch(r"[0-9a-f]{40}", published[name]["revision"])
+    pinned = json.loads((path.parent / "pipeline_models.json").read_text(encoding="utf-8"))
+    assert PUBLISH.SENTIMENT_REPO not in json.dumps(pinned)  # nothing is pinned (D35)
+
+
+def test_the_figures_on_the_cards_are_those_of_the_tracked_gold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.setattr(FINAL, "SETS", tuple((str(root / a), str(root / b)) for a, b in FINAL.SETS))
+    rows = FINAL.pair_rows()
+    assert len(rows) == 809
+    assert Counter(r["sentiment"] for r in rows) == {
+        "positive": 394,
+        "negative": 213,
+        "neutral": 202,
+    }
+    assert len({r["company"] for r in rows}) == 228
+    assert 320 <= sum(len(r["text"]) for r in rows) / len(rows) <= 335  # "about 330 characters"
+    assert {r["pub_date"][:4] for r in rows} == {"2022", "2023", "2024", "2025", "2026"}
+    neutral = [r for r in rows if r["sentiment"] == "neutral"]
+    naming = sum(FINAL.company_name(r["company"]).lower() in r["text"].lower() for r in neutral)
+    assert naming == 121  # "about 60% of the neutral texts (121 of 202)"
+    for figure in ("positive 394, negative 213, neutral 202", "228 companies", "121 of 202"):
+        assert figure in PUBLISH.SENTIMENT_CARD
+    assert "tracked\nuniverse of 507" in PUBLISH.RELEVANCE_CARD
+
+
+def test_a_revision_is_recorded_only_when_it_is_a_commit_sha(tmp_path: Path) -> None:
+    record = tmp_path / "published.json"
+    sha = "a" * 40
+    PUBLISH.record_upload(record, "sentiment", PUBLISH.SENTIMENT_REPO, sha, "card")
+    first = json.loads(record.read_text(encoding="utf-8"))
+    assert first["sentiment"]["revision"] == sha and first["sentiment"]["private"] is True
+    assert len(first["sentiment"]["card_sha256"]) == 64
+    with pytest.raises(SystemExit):  # an empty answer of the Hub is never written
+        PUBLISH.record_upload(record, "relevance", PUBLISH.RELEVANCE_REPO, "", "card")
+    assert "relevance" not in json.loads(record.read_text(encoding="utf-8"))
+    PUBLISH.record_upload(record, "relevance", PUBLISH.RELEVANCE_REPO, "b" * 40, "card")
+    both = json.loads(
+        record.read_text(encoding="utf-8")
+    )  # the first entry survives the second upload
+    assert both["sentiment"]["revision"] == sha and both["relevance"]["revision"] == "b" * 40
+
+
+def test_the_hashes_of_the_stack_inputs_are_those_of_the_files_in_name_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    predictions = tmp_path / "cv" / "predictions"
+    predictions.mkdir(parents=True)
+    (predictions / "cv_r2_f0__x.csv").write_bytes(b"two")
+    (predictions / "cv_r1_f0__x.csv").write_bytes(b"one")
+    (predictions / "other.csv").write_bytes(b"left out")
+    oof = tmp_path / "oof.json"
+    oof.write_bytes(b"{}")
+    oof_hash, joined = FINAL.input_hashes(tmp_path / "cv", oof)
+    assert oof_hash == hashlib.sha256(b"{}").hexdigest()
+    assert joined == hashlib.sha256(b"onetwo").hexdigest()  # r1 before r2, other files left out
+    monkeypatch.setattr(
+        sys, "argv", ["final", "stack", "--verify", "--cv", str(tmp_path / "cv"), "--oof", str(oof)]
+    )
+    FINAL.main()
+    assert joined in capsys.readouterr().out
+
+
+def test_the_recorded_card_hashes_are_those_of_the_scripts_cards() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "published_models.json"
+    published = json.loads(path.read_text(encoding="utf-8"))
+    for key, card in (("sentiment", PUBLISH.SENTIMENT_CARD), ("relevance", PUBLISH.RELEVANCE_CARD)):
+        assert hashlib.sha256(card.encode("utf-8")).hexdigest() == published[key]["card_sha256"], (
+            f"the {key} card changed: re-upload it (needs the owner's word) and record the new hashes "
+            "(publish_final_models_2026_11_10.py does both)"
+        )
+
+
+class _FakeApi:
+    def __init__(self, private: bool, weights: str, head: str = "c" * 40) -> None:
+        self.private, self.weights, self.head = private, weights, head
+
+    def model_info(
+        self, repo: str, revision: str | None = None, files_metadata: bool = False
+    ) -> Any:
+        sibling = types.SimpleNamespace(
+            rfilename="model.safetensors", lfs=types.SimpleNamespace(sha256=self.weights)
+        )
+        return types.SimpleNamespace(private=self.private, siblings=[sibling], sha=self.head)
+
+
+def _check(
+    tmp_path: Path,
+    *,
+    private: bool,
+    status: int,
+    card_ok: bool = True,
+    head: str = "c" * 40,
+    with_weights: bool = True,
+) -> dict[str, dict[str, bool | None]]:
+    weights = b"weights"
+    dirs = {}
+    for key in ("sentiment", "relevance"):
+        (tmp_path / key).mkdir(exist_ok=True)
+        if with_weights:
+            (tmp_path / key / "model.safetensors").write_bytes(weights)
+        dirs[key] = tmp_path / key
+    record = tmp_path / "published.json"
+    for key, repo, card in (
+        ("sentiment", PUBLISH.SENTIMENT_REPO, PUBLISH.SENTIMENT_CARD),
+        ("relevance", PUBLISH.RELEVANCE_REPO, PUBLISH.RELEVANCE_CARD),
+    ):
+        PUBLISH.record_upload(record, key, repo, "c" * 40, card)
+    stack = tmp_path / "stack.json"
+    stack.write_text('{"a": 1}', encoding="utf-8")
+
+    def download(repo: str, name: str, rev: str) -> str:
+        path = tmp_path / f"dl_{name}"
+        if name == "README.md":
+            card = (
+                PUBLISH.SENTIMENT_CARD if repo == PUBLISH.SENTIMENT_REPO else PUBLISH.RELEVANCE_CARD
+            )
+            path.write_text(card if card_ok else card + "edited", encoding="utf-8")
+        else:
+            path.write_text('{"a": 1}', encoding="utf-8")
+        return str(path)
+
+    results: dict[str, dict[str, bool | None]] = PUBLISH.check_published(
+        record,
+        "token",
+        dirs,
+        stack,
+        api=_FakeApi(private, hashlib.sha256(weights).hexdigest(), head),
+        download=download,
+        anonymous_status=lambda url: status,
+    )
+    return results
+
+
+def test_the_check_of_the_published_repositories_passes_when_everything_matches(
+    tmp_path: Path,
+) -> None:
+    results = _check(tmp_path, private=True, status=401)
+    assert all(all(checks.values()) for checks in results.values())
+    assert "stack file is the tracked one" in results["sentiment"]
+    assert "stack file is the tracked one" not in results["relevance"]
+
+
+def test_the_check_fails_on_a_public_repository_or_a_changed_card(tmp_path: Path) -> None:
+    public = _check(tmp_path, private=False, status=200)
+    assert not public["sentiment"]["private"]
+    assert not public["sentiment"]["anonymous request refused"]
+    edited = _check(tmp_path, private=True, status=401, card_ok=False)
+    assert not edited["relevance"]["card on the Hub is the recorded one"]
+
+
+def test_the_check_does_not_fail_without_local_weights_and_fails_on_a_moved_head(
+    tmp_path: Path,
+) -> None:
+    missing = _check(tmp_path, private=True, status=401, with_weights=False)
+    assert missing["sentiment"]["weights are the local ones"] is None  # not compared, not a failure
+    assert all(ok is not False for checks in missing.values() for ok in checks.values())
+    moved = _check(tmp_path, private=True, status=401, head="d" * 40)
+    assert moved["relevance"]["recorded revision is the head of the repository"] is False
+
+
+def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unreachable = _check(tmp_path, private=True, status=0)
+    assert unreachable["sentiment"]["anonymous request refused"] is None
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(sys, "argv", ["publish", "--check"])
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    with pytest.raises(SystemExit, match="needs HF_TOKEN"):
+        PUBLISH.main()

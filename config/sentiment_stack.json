@@ -1,0 +1,47 @@
+{
+  "what": "stack of the sentiment pair model and the relevance model (T-169, docs/sentiment_training.md)",
+  "classes": [
+    "positive",
+    "negative",
+    "neutral"
+  ],
+  "features": [
+    "log p_positive",
+    "log p_negative",
+    "log p_neutral",
+    "logit relevance"
+  ],
+  "coef": [
+    [
+      0.28066195443928077,
+      -0.22390115693975268,
+      -0.050254802470977945,
+      0.10966707082913799
+    ],
+    [
+      -0.19959863764810035,
+      0.3496511439819739,
+      -0.03063473432008827,
+      0.1736178073817496
+    ],
+    [
+      -0.08106331679118199,
+      -0.12574998704222465,
+      0.08088953679106627,
+      -0.28328487821088544
+    ]
+  ],
+  "intercept": [
+    0.006902805673314615,
+    -0.2740271337822712,
+    0.2671243281089573
+  ],
+  "fitted_on": "out-of-fold scores of the 5-fold x 2 cross-validation over 809 rows, both repeats, weighted by pool size / drawn",
+  "rows": 809,
+  "regularisation_C": 1.0,
+  "class_order_of_coef": [
+    "positive",
+    "negative",
+    "neutral"
+  ]
+}
