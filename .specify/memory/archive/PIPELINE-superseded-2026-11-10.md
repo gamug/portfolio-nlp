@@ -628,3 +628,10 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Reproduce:** `scope_title_baseline_2026_11_10.py` (title; `--body-chars N`; `--company-features`, PR #163), `scope_relevance_features_2026_11_10.py`, `scope_two_stage_2026_11_10.py` (PR #165); from `gold/` alone except the models. A measurement records the SHA-256 of `gold/universe.csv` (2026-11-09).
 ```
+
+
+### T-147 two-stage bullet, long form (single/multi NLI PR)
+
+```
+      - **Owner's two-stage route (2026-11-10, `scope_two_stage_2026_11_10.py --embedder`):** topic by embeddings (company / sector / not_related), then single or multi on companies. Weighted: bge-small **71.3%** [65.0, 77.8], bge-base **74.5%** [68.3, 80.3], bge-large **70.7%** [64.1, 77.2]: size does not help in a line (noise about 3 points; base chosen after seeing three on the same 200). Base: `single` 83%, `multi` 67%, `sector` 36% (9 gold), `out_of_scope` 60%. Stage B 84% on true company bodies. Learning curve flat from 71 rows to 284 (more labels of this kind do not help); PCA on the embedding (`--pca`, 64 components chosen by CV) gives 72.0%, no gain: cross-validated topic accuracy 0.761 with PCA, 0.747 without.
+```
