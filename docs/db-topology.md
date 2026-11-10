@@ -211,6 +211,10 @@ repo needs a second shared read.
 
 The rule (`PLAN.md` D36): a properly fetched article is preserved and stays eligible for the pipeline; the pair class decides which company a stored result may be attributed to, not whether the body exists. Nothing here changes the read-only contract of SOURCE. The default articles selection still reads `ok`: the 2026-11-16 cut stays on it and the preserved corpus joins after the delivery, its scope decided from the counts of `TASKS.md` T-160. `thin_content` rows are preserved but are not part of the properly fetched corpus (owner, 2026-11-08).
 
+## Target tables of the stepped pipeline (D39, D40; approved 2026-11-10)
+
+Not created yet; the schema was approved by the owner on 2026-11-10 (constitution AI #10). `sub_news` (one row per piece the `units` extractor cuts), `pipeline_step_state` (status per item and step, with the model revision) and `news_company` (the result per text and ticker) and two columns on `article_entities` (`sub_news_id`, `ticker`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
+
 ## Caveats
 
 - **Orphaned WAL on the SOURCE.** As of `portfolio-common` v1.2.2, `attach_source`
