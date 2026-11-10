@@ -25,58 +25,9 @@ Everything else in `SPEC.md` §13 stays exactly as §14 disposed of it —
 
 Closed. Plan, steps and acceptance criteria: `.specify/memory/archive/PLAN-closed-work-items-2026-11-08.md`, section "Work item 1"; the tasks are in `CHANGELOG.md`.
 
-## Work item 2 — Make the `--check-regression` gate runnable
+## Work item 2 — Make the `--check-regression` gate runnable (out of the MVP, owner 2026-11-10)
 
-**Why**: `.github/workflows/eval.yml` already invokes
-`cli/news_nlp_eval.py … --check-regression` — the code-level gate
-`SPEC.md` §13 item 8 was originally written as missing already exists.
-What's actually missing is the *infrastructure* the workflow's own header
-comment says it assumes and doesn't have: a self-hosted runner with
-`$SOURCE_DATABASE_URL`/`$DATABASE_URL` mounted, a persistent
-`$MLFLOW_TRACKING_URI` for `--check-regression` to have a prior run to
-compare against, and the `LLM_API_KEY`/`LLM_MODEL`/`LLM_URL` repo secrets.
-On the current `runs-on: ubuntu-latest`, the workflow has no data to run
-against — it's a template, not a working gate, and its `schedule:` trigger
-is presently running (or failing) against nothing.
-
-**This is an operational task, not a code task** — constitution AI
-behavior #10 ("ask before expanding scope") applies: standing up a
-self-hosted runner and provisioning secrets is an infrastructure decision
-for the repo owner to make and execute, not something to do
-unilaterally inside a PR. This plan documents what's needed; a human
-completes it.
-
-**Steps** (for the repo owner/maintainer):
-
-1. Stand up (or designate) a runner with persistent access to the working
-   SOURCE/RESULTS SQLite files and a durable `mlruns` directory (or a real
-   MLflow tracking server) — the same machine the manual
-   `uv run cli/news_nlp_eval.py` invocations already run on is the
-   simplest choice.
-2. Register it as a GitHub self-hosted runner with (at least) the
-   `thesis-data` label `eval.yml` already references in its commented-out
-   `runs-on:` line.
-3. Add the six repo secrets `eval.yml` reads:
-   `LLM_API_KEY`, `LLM_MODEL`, `LLM_URL`, `MLFLOW_TRACKING_URI`,
-   `SOURCE_DATABASE_URL`, `DATABASE_URL`.
-4. Uncomment `runs-on: [self-hosted, thesis-data]` and remove/replace the
-   `runs-on: ubuntu-latest` line beneath it.
-5. Trigger once via `workflow_dispatch` to confirm the run completes,
-   produces an `eval_run` row, and (on a second manual run) that
-   `--check-regression` actually compares against the first.
-
-**Acceptance criteria**:
-
-- A `workflow_dispatch` run of `eval.yml` completes successfully on the
-  designated runner and produces a real MLflow run + `eval_run` row.
-- A deliberately-induced regression (e.g. temporarily lowering
-  `--regression-tolerance` below a known noise level, or comparing against
-  a run with a known worse metric) causes the workflow to fail — proving
-  the gate actually gates, not just runs.
-- `SPEC.md` §13 item 8 updated to reflect the new state (resolved, or
-  re-scoped if the maintainer decides differently — e.g. keeping it
-  scheduled-only rather than PR-blocking, which is a legitimate choice
-  given the LLM cost of running this on every PR).
+Text: `archive/PIPELINE-superseded-2026-11-10.md`.
 
 ## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
@@ -209,12 +160,7 @@ labels; settled 2026-10-29: the investing news about no company that D15 first n
 `investing_general`, D22, and carries no category), `uncertain` (no confident category: a
 category-level label only, the scope never abstains, D20) and `unrelated` (not about the economy); D16 `unrelated` bodies are
 flagged and skipped by every later stage; D17 a multi-company body gets sentiment + category per
-company; D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
-task, the run stops at it), the owner re-tags the 720 under the new taxonomy (v1 was tagged blind to the LLM label: the review file had no LLM column; the v2 file keeps it hidden and shows only the owner's v1 tag) (gold v2; the first tagging is "tags v1", a development
-set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
-with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
-1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
-owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope (D30 drew 200 instead; D33: no top-up, and no recall floor for a scope under 40 gold bodies); D19 full backfill of the **81,961 unique `ok` bodies** (not the
+company; D18 (silver labelling with LLM calls: out of the MVP, owner 2026-11-10); D19 full backfill of the **81,961 unique `ok` bodies** (not the
 459,112 stored rows): the stored rows are moved aside as v1 until the new tables are validated, and
 the stored results of the quarantined pairs are moved aside, reversibly, not destroyed (T-131; owner 2026-11-09, D36 (h1), D36 (b): the first wording said "purged"; 377,010 are SOURCE rows, the RESULTS has 365,782 `reject` and `review` rows); D20 the scope triage is accepted
 only at >= 90% corpus-weighted agreement with the owner's held-out gold on all bodies (no abstention) and

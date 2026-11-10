@@ -15,32 +15,9 @@ Task IDs are stable, same rule as `SPEC.md`'s `FR-0xx`/`NR-0xx`: never renumbere
 reused. A cancelled or superseded task is checked, its closure noted, and moved to
 `CHANGELOG.md` (constitution AI behavior #15).
 
-## Work item 2 — Make the regression gate runnable (ops, blocked on maintainer)
+## Work item 2 — Make the regression gate runnable (out of the MVP, owner 2026-11-10)
 
-- [ ] **T-010** *(maintainer)* Designate/stand up a machine with durable
-      access to `$SOURCE_DATABASE_URL`/`$DATABASE_URL` and a persistent
-      `mlruns` dir or MLflow server. → `PLAN.md` Work item 2, step 1.
-- [ ] **T-011** *(maintainer)* Register it as a GitHub self-hosted runner
-      labeled `thesis-data`. → step 2.
-- [ ] **T-012** *(maintainer)* Add repo secrets: `LLM_API_KEY`,
-      `LLM_MODEL`, `LLM_URL`, `MLFLOW_TRACKING_URI`,
-      `SOURCE_DATABASE_URL`, `DATABASE_URL`. → step 3.
-- [ ] **T-013** Edit `.github/workflows/eval.yml`: uncomment
-      `runs-on: [self-hosted, thesis-data]`, remove the
-      `runs-on: ubuntu-latest` placeholder. → step 4. (Code change, but
-      meaningless without T-010–T-012 done first — don't land this alone
-      expecting it to work.)
-- [ ] **T-014** *(maintainer)* Trigger `workflow_dispatch` once; confirm a
-      real MLflow run + `eval_run` row is produced. → step 5 / first
-      acceptance criterion.
-- [ ] **T-015** *(maintainer)* Confirm the gate actually gates: induce a
-      regression (temporarily lowered `--regression-tolerance`, or a
-      second run compared against a known-worse one) and confirm the
-      workflow fails. → second acceptance criterion.
-- [ ] **T-016** Update `SPEC.md` §13 item 8 to reflect the resolved (or
-      deliberately re-scoped) state. → third acceptance criterion. Also
-      update the two architecture artifacts per constitution AI behavior
-      #11 — reconcile, never rename.
+Its tasks (T-010 to T-016) and plan are in `archive/PIPELINE-superseded-2026-11-10.md`.
 
 ## Work item 3 — NER: validate the subword-fragmentation fix (resolved 2026-09-12)
 
@@ -67,12 +44,7 @@ left in this work item, and it's a non-blocking maintainer scope call, not
 a defect. See `docs/evaluation.md`'s 2026-09-12 follow-ups for full
 findings.
 
-- [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
-      remaining ~439,000 pre-fix `article_entities_v1` articles (not
-      resampled by T-025) is worth doing — the fix is future-runs-only by
-      design (`docs/evaluation.md` 2026-09-10 follow-up, "Scope"). No
-      longer blocking T-020 (T-025 unblocked it with a smaller sample);
-      this is now purely about full-corpus coverage. → step 3.
+- **T-022** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 ## Work item 4 — Sentiment: close the entity/net-signal reasoning gap (resolved 2026-09-13: fine-tuned + chunk-level selected and merged)
 
 *3 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
@@ -92,14 +64,7 @@ Hugging Face Hub). **None of the three is merged to `master` yet** — which
 (if any) ships is left to the repo owner. → `PLAN.md` Work item 4, `SPEC.md`
 §13 item 1.
 
-- [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
-      estimates using T-031's actual measured per-stratum agreement
-      (`strata_json` / `agreement_rate_target_negative` etc.) instead of
-      today's planning-only estimates, before locking in a permanent
-      `--sample-size` default. → step 3. **Still open** — not done as
-      part of the 2026-09-13 fine-tuning work; the four real evals give
-      more empirical grounding than before but the purity-estimate
-      re-solve itself hasn't been done.
+- **T-032** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 ## Work item 7 — NER: develop batch processing (code done 2026-09-12; T-062 needs a real GPU)
 
 *3 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
@@ -114,17 +79,7 @@ pre-fix articles (the open T-022 question) would take ~5+ hours at that
 rate on hardware with headroom to go faster. → `PLAN.md` Work item 7,
 `SPEC.md` §13 item 11.
 
-- [ ] **T-062** Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM
-      budget (SPEC.md NR-001) and measure the real throughput improvement
-      (articles/sec) on a real sample (mirrors T-025's resample as a
-      before/after comparison) — don't assume batching helps without
-      measuring it, and don't copy `CATEGORY_BATCH_SIZE`/
-      `SUMMARY_BATCH_SIZE`'s values blind (NER's per-chunk sequence
-      length and variable chunks-per-article shape a different memory
-      profile). **Not done — needs the project's actual GPU**, which the
-      environment T-060/T-061 shipped from doesn't have (CPU-only
-      sandbox); `NER_BATCH_SIZE=8` is an untested starting guess, not a
-      measured value. → steps 5, 7.
+- **T-062** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 ## Work item 15 — Category: fix the `other` bucket (**superseded by Work item 18, 2026-10-28**; filed 2026-10-14)
 
 *20 done tasks of this work item moved to `CHANGELOG.md`, section "Tasks closed while their work item is still open" (task IDs unchanged; moved 2026-11-08).*
@@ -169,12 +124,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       - Built (`news_nlp.retag`, `scripts/retag_gold_2026_10_29.py export|check|normalise|guide|migrate|translate`): `check` verifies all 720 ids once and tickers/sub-industries against SOURCE; `normalise` turns typed names into tickers; `migrate` converts an old-format file into a new one; `sub_industry` takes the 8-digit GICS code or the name.
       - Every file to tag carries `spanish_title` / `spanish_text` after `text` (`news_nlp.translate`, cache `data/gold_translations_es.csv`, paid DeepSeek translation, about 1 USD per 720 bodies; buys nothing without `--yes`, at most `--max-new`; a failed run writes nothing and a re-run pays only for the missing ones).
       - Open (owner): run `guide` after closing `data/category_gold_v2_guide.csv` in Excel, then tag; the re-measure on gold v2 runs once it is tagged. → P2, D18. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-146b.
-- [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of gold v2 (at most 5 iterations, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. Silver D15 labels and sub-industries are bought in P2 only if a second gate on the 240 (per-company category and sub-industry agreement with gold v2, >= 80%) passes; otherwise silver is scope-only. Budget: silver <= 6,000 - 240k - 480 for k iterations; judge repairs count against the 6,000.
-      - The 240 is drawn once by `scripts/draw_gate240_2026_11_04.py` (quotas in `retag.GATE_QUOTAS`; local `data/gate240_ids.csv`); the owner tags it in `data/gate240_to_tag.csv`. The tracked gold files are `gold/category_gold_v2.csv` (240 + 44 sector) and `gold/category_gold_v2_test.csv` (200 held-out, #142), built by `scripts/build_gold_2026_11_05.py`; the article text stays out of git. Workflow: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".
-      - Owner calls 2026-11-05: company labels on sector/market_economy/investing_general bodies, several labels per company, `sub_industry` as GICS codes of any level; 44 more sector-like bodies were drawn for the sub-industry gate. → P2, D18. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-146c.
-      - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
-        the candidates for the rare scopes.
-      - T-146e1 (prefilter rules for market, economy, unrelated, `investing_general`): out of the MVP, D39 (`archive/PIPELINE-superseded-2026-11-10.md`).
+- **T-146c** *(out of the MVP, owner 2026-11-10; D18's silver labelling)*
+      - **T-146d** *(out of the MVP, owner 2026-11-10)*
       - [ ] **T-146e2** Export/import of the 50 prefiltered articles the owner checks (protected like
         `gold_review`); a separate set from the ~50 double-tagged and the ~60 random misses.
       - [ ] **T-146e** *(drawn 2026-11-05 as 200 bodies, D30: `gold/category_gold_v2_test.csv`; **tagged by the owner and migrated 2026-11-07, PR #142: 200 of 200 valid (118 single, 47 multi, 11 market_economy, 9 sector, 8 unrelated, 7 investing_general); measured on it (`report_wi18 scope --gold --out gold`): the rules' scope agreement 68.0% [61.3, 74.5] weighted to the corpus, single recall 91.0% [87.1, 94.4] pass, multi recall 52.5% [42.8, 63.5] fails the 80% bar, the other four scopes not gated (9, 11, 8 and 7 gold bodies, D33)**; a scope under 40 gold bodies is not topped up and has no recall floor, D33; the "about 300 bodies, at least 40 per scope" below is the original plan)* Held-out gold, drawn once before
@@ -185,11 +136,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       - Measured 2026-11-06 (`scripts/cut_spans_effect_2026_11_07.py`, 500 bodies): the rule scope is the same with and without the stored NER spans (500 of 500; matcher at 786766f), so the missing spans (none for 2026-09 and 2026-10) do not change the cut's scope; each chunk row records `spans`.
       - **Open (owner to decide before the long run), the order against NER on the window:** (a) NER first, then this job; or (b) run now and let T-154 recompute scope and mentions from the final spans (`--accept-new-spans` keeps the chunks; their `rule_scope` stays the old one; mentions differ in about 4% of bodies). Until decided, T-154 must not read `rule_scope` from the chunks. → D25, D26. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148a.
       - [ ] **T-148b** Step 4, the text of each company in a multi body (D27). Split:
-- [ ] **T-148b2** Training set for the attribution model from the structured bodies (company name masked, previous sentence as context, all years). **Built** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 33,624 segments (21,682 `lead`, 11,942 `continuation`), 1 body in 10 as `val` (205 before 2022, 65 from 2022 on, reported apart); the 33 bodies that share text with a tagged or held-out article are left out; `tests/news_nlp/test_company_texts.py` pins the parser constants and counts. Built 2026-11-06: the mention-and-recency baseline (`news_nlp.attribution_baseline`) and the label check (100 `lead` + 100 `continuation`, `gold/segment_check_gold.csv`).
-      - **Rule fixed before the check (owner, 2026-11-06):** `continuation` is dropped from training if at most 80% are right. **Read:** `lead` 88.0% [80.2, 93.0], `continuation` 38.0% [29.1, 47.8], so the model trains on `lead` only (PLAN D27). Acceptance (D32): at least 80% of the companies named in the faithfulness bodies with a faithful text, and better than the baseline on the same bodies; read in T-148b10. → D27, D32. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b2.
-- [ ] **T-148b3** *(trained model, merged, #141; **not published, not pinned**)* The trained attribution model (`src/news_nlp/attribution_model.py`, `scripts/train_attribution_2026_11_08.py`, `CompanyResolver.mention_spans`, `draw_faithfulness --attribution-model`). Trains on `lead` rows only (D27, label check 2026-11-06; the run refuses to start unless `gold_metrics.train_on_lead_only` is true); bodies it cannot attribute are flagged `unextracted`, never given a default text.
-      - **Left (owner's word):** publish, the pin in `config/pipeline_models.json` under `attribution` with its revision, the `ExperimentSpec` stage. The model behind every `units` figure is the local directory `data/models/attribution_2026_11_08` (`local:8399ccf003c60143`).
-      - **Open question (proposed, not decided):** the model has not learned to answer "none of these": a sentence about a company outside the universe goes to the nearest one (wrong cases scored 0.9 or more, so a higher threshold does not help; (c) is not supported). Options: (a) retrain with negatives that belong to nobody; (b) measure again after the stricter cuts of #143 and #144. One-word names (`JPMorgan`) are not read by the resolver (T-148b7). → D27. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b3.
+- **T-148b2** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
+- **T-148b3** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 - [ ] **T-148b4** *(owner's reading 2026-11-07, PLAN D27; merged, #143)* The `units` extractor: the attribution reads units cut at lines, bullets and clauses, without the site's footer.
       - Built: `src/news_nlp/attribution_units.py` (`strip_footer`, `attribution_units`), `model_company_texts(..., units=True)`, the extractor `units` in the faithfulness draw, `units` minus `baseline` / `model` in the report, the footer audit (`scripts/audit_footer_2026_11_08.py`, 4,000 bodies, seed 20261108), the `--stale` check (`faithfulness_stale.json`; exit code a sum, 1 stale and 2 unchecked; `--only`) and per-extractor code revisions. `chunking.split_sentences` is not changed.
       - Read by the owner (402 rows): 85.4% [76.5, 92.2] on the first set (not decided, D32), gain over the baseline +24.3 [12.9, 39.4] `better`; 21 of its 27 unfaithful texts came from first-word names (→ T-148b5). The figures that matter now are in T-148b10 (9).
@@ -207,7 +155,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 - [ ] **T-161** *(D38; PR #155, proposed fix built)* **Matcher: common words and surnames are not companies.** Merge #155, then re-run T-160's CSV (owner, ~4.4 h CPU) before T-153 (D36 (j)); redraw the gold pool and marks only after the last matcher PR merges (stale on master already; the matcher changes the revisions again). Then retrain the attribution checkpoint (T-148b3, D38 (d)); the cut stays frozen (D38 (e)).
 - [ ] **T-148b8** *(manager's review of #144, 2026-11-08; the evidence under `units3` as the candidate)* (a) **The denominator:** the 91.6% of `units3` left out 36 companies the extractors are not asked about; on every company named it is 74.2% [66.0, 81.5] (`units2` 68.4%, `units` 83.2%). `draw_faithfulness --exempt` lists them (`faithfulness_exempt.json`, `faithfulness_exempt_to_read.csv`); the owner read the 37 of the first set (23 not companies, 14 are) and the 30 of the confirmation (25 not companies, 5 are); `report_wi18 faithfulness` gives the bar on real companies. (b) **A confirmation:** done (T-148b10). (c) The header audit (`scripts/audit_headers_2026_11_08.py`): datelines and labels in capitals and a dash inside a sentence are not headers (fixed, no text of the 30 bodies changes); 67 lines given to nobody still name a universe company after the dash (7 behind a short form the guard rejects: T-148b7), 15 headers are missed for a full stop in the first part. → D32, D34 (e). Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b8.
         - [ ] **T-148b9** *(proposed improvement, **out of scope** by the owner's decision of 2026-11-08: the performance of `units` as it is is acceptable; after the owner's reading of the 37 exempt companies, 2026-11-08)* The guard loses 13 real companies on the 30 bodies, mostly lines headed by short forms ("Merck - Merck shares retreated...", "Colgate-Palmolive - Colgate named...", "United Airlines, American Airlines - ... Delta ...", "Molson Coors - ..."): the header rule gives such a line to nobody because the guard does not accept the short form in the head. Option, to be measured as a new reading (not a change of `units3`, whose texts the owner read): match the part before the dash with the plain resolver, since a name before a dash is deliberate; the owner would read the texts that change. Not built; whether it is worth building depends on the decision between `units` and a guarded reading for the cut.
-- [ ] **T-148b7** *(owner's decision 2026-11-07)* Person names and common words ("home", "union") that the guard does not stop: an item of its own, **after the cut** (not before it), to be measured against the owner's next tagging round. Nothing is built for it now.
+- **T-148b7** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 - [ ] **T-148c** Sentiment over the texts of T-148a and T-148b (D26): the 180-text gold (`scripts/draw_sentiment_gold_2026_11_05.py`: 120 from summaries and structured multi texts, 60 from the extractor's texts) is tagged and the current model is measured on it; fine-tuning on summaries only if it misses the D32 bar (agreement >= 80%, negative precision and recall >= 70%). **Measured 2026-11-06 (PR #131): 60.4% [52.8, 67.6], fails; the owner chose fine-tuning on summaries (2026-11-07, PLAN D35):** 450 summaries tagged (`scripts/draw_sentiment_train_2026_11_07.py`, 150 per predicted class, a validation slice of 90, never a gold or held-out body); the gold is scored once per run that could ship. Fallback if it still fails on 2026-11-11: the cut goes with sentiment marked as measured. Covers T-127's question on real output. Sub-tasks: T-148c1b, T-148c2b, T-148c3, T-148c4. → D26, D35. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148c.
         - [ ] **T-148c1b** (proposed 2026-11-08, not started, not decided) Namesake companies in the 450 training summaries: the owner's notes name four rows whose `company` is probably a namesake (listed in `docs/gold_datasets.md`, set 6). Measure how many rows of `gold/sentiment_train.csv` carry a company the text does not speak of, with the resolver the draw used (first-word and ticker matches; the same family the faithfulness reading of PR #144 found: first-word and namesake matches), no tagging asked and no mark changed. What to do with them (keep, drop from the training, relabel) is the owner's.
 - [ ] **T-148c2b** *(built, #148, 2026-11-08; the owner's review is left)* Scorer hardening for the sentiment scoring: a Hub model needs a 40-hex `--revision`; `--redo-role` needs `--redo-reason`; the log gains `retag.SENTIMENT_SCORING_LOG_COLUMNS`; the report gives the agreement apart for texts over 128 tokens; a `final` run gives the paired gain of agreement and of negative precision and recall over the last `baseline` row (`gold_metrics.paired_stratified_gain`) with the gold's verdicts (T-148c4 reads them; the scorer decides no pin). `--pair` scores a model that reads the pair company + text (`src/sentiment_pair.py`); the 37 of 180 rows with no ticker go to the text-only model, and the row logs `input_format` and the rows each model read; `--pair` cannot be the baseline. The pin key for a second model is PR C. → D35. Full text before 2026-11-09: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148c2b.
@@ -228,6 +176,7 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
 - [ ] **T-166** *(D39 (3.3))* Sub-news summary over a character size: the owner sets the size (decide later); then the summary step of T-148a on those sub-news. → D39.
 - [ ] **T-167** *(D39 (4); was T-149)* Sector path: GICS sector (and sub-industry, >= 80% with the held-out gold, D24) identified, then the summary. `market_economy` and `investing_general` are not in the MVP. → D39.
 - [ ] **T-168** *(D39 (6), (7))* Sentiment (pair + relevance stack: T-148c3c, T-148c3d, T-148c4) and category over each summary or sub-news with its main company; whether a sector summary gets a sentiment is the owner's call. → D39, D26, D29.
+- [ ] **T-169** *(final training; owner 2026-11-10)* **Final training of the two models of step 6:** (a) the relevance model on the 809 rows (T-148c3c) with its strict nesting check; (b) the sentiment pair model on every row from `gamug/FinBERT-financial-news` (`--final-all`, T-148c3g: the existing run `final_all__e2_lr3e-05_s4` or a repeat, the owner chooses). Then the stack's coefficients on out-of-fold scores, both published to the private Hub and scored once on the 180-text gold (T-148c3d, T-148c4). Both are also what step 3.2 and step 2 use as the relevance model (T-164, T-165). → D39, `docs/sentiment_training.md`.
 - [ ] **T-150** *(P6, close-out)* Full backfill (old tables to v1, T-131), knowledge-graph export
       contract update (`portfolio_common.news_export`), `SPEC.md` §13 items 19 and 21, both
       architecture artifacts (AI #11), then Work items 15, 17 and 18 to `CHANGELOG.md` (AI #15,
@@ -243,8 +192,8 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       summary, extractor and sentiment model with their revisions, `provisional` (1), `run_id`. The types,
       the keys and the migration are proposed to the owner in the P5 PR (constitution AI #10); its own FR. → P5.
 - [ ] **T-153** *(coordination)* Reply to `portfolio-financial-analysis` (`to_nlp_backtest.md`, their 8 questions). **Owner, 2026-11-09: sent after the company CSV run of T-160 (PR #152).** Since 2026-11-10 the final tables follow the pipeline of D39 (T-162 to T-168, snapshots T-152): `to_nlp_backtest.md` is to be updated with them. Full text and the proposed dates: `archive/PIPELINE-superseded-2026-11-10.md`.
-- [ ] **T-156** *(test hygiene, 2026-11-06)* Flaky test `tests/news_nlp/test_eval_calibration_judge.py::test_an_interrupt_cancels_the_queue_instead_of_paying_for_it`: failed once in CI (PR #129, `assert 4 <= 3`), passed on the next run. It counts calls made by worker threads against a 0.05 s sleep, so the bound depends on timing. Fix: bound by the number of workers plus one, or stop the queue with an event instead of a sleep.
-- [ ] **T-157** *(Windows, T-148a, 2026-11-07; PR #134, `docs/db-topology.md`)* The summaries cut's run lock probed a pid with `os.kill(pid, 0)`, which terminates on Windows. **Done:** the probe uses `OpenProcess` + `WaitForSingleObject`; the lock holds the pid and the process start time; Ctrl-Break stops like Ctrl-C; a `win32`-only test. Decision: no Windows CI job. **Closes when** the owner has resumed the cut once on Windows with a leftover lock and got no refusal. **Open:** taking over a stale lock is not atomic (chunk files are, so only work is duplicated); a lock of this version reads as stale to an older script; closing the console window cannot be caught. → T-148a. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-157.
+- **T-156** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
+- **T-157** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 - [ ] **T-155** *(gold sets, `docs/gold_datasets.md`)* Move the tagged sets from `data/` to `gold/` with builders that write marks and ids only (no news text), refuse unless every row is marked and valid, protect the tracked marks from silent change (`--overwrite-marks`), and let `report_wi18 ... --gold` reproduce the figures.
       - **Done:** label check (`build_segment_check_gold_2026_11_06.py`, 200 rows), extractor sample (`build_faithfulness_gold_2026_11_06.py`, 190 baseline rows + coverage), sentiment (`build_sentiment_gold_2026_11_06.py`, 180 rows, agreement 60.4% [52.8, 67.6]), held-out scope (#142, 200 rows, row hashes in `tests/news_nlp/heldout_gold_row_hashes.csv`).
       - **Left:** a typed reader per gold file in `news_nlp.retag` (today only the column tuples exist); where the only copy of the 180 texts (`data/sentiment_gold_ids.csv`) is kept (nothing enforces a backup); the extractor evidence of T-148b11 (the `units*` marks, the confirmation set, the exempt readings). → `docs/gold_datasets.md`, D31–D33. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-155.

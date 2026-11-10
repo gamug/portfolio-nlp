@@ -200,3 +200,149 @@ TASKS.md T-146e1 (verbatim):
       - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`
         (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
 
+
+## Out of the MVP, second cut (owner 2026-11-10): ops and test hygiene; the replaced attribution model and the LLM silver labelling
+
+### TASKS.md entries, verbatim
+
+- [ ] **T-022** *(maintainer)* Decide whether a bulk re-extraction of the
+      remaining ~439,000 pre-fix `article_entities_v1` articles (not
+      resampled by T-025) is worth doing — the fix is future-runs-only by
+      design (`docs/evaluation.md` 2026-09-10 follow-up, "Scope"). No
+      longer blocking T-020 (T-025 unblocked it with a smaller sample);
+      this is now purely about full-corpus coverage. → step 3.
+
+- [ ] **T-032** Re-solve `docs/evaluation.md`'s "Sample-size floor" purity
+      estimates using T-031's actual measured per-stratum agreement
+      (`strata_json` / `agreement_rate_target_negative` etc.) instead of
+      today's planning-only estimates, before locking in a permanent
+      `--sample-size` default. → step 3. **Still open** — not done as
+      part of the 2026-09-13 fine-tuning work; the four real evals give
+      more empirical grounding than before but the purity-estimate
+      re-solve itself hasn't been done.
+
+- [ ] **T-062** Tune `NER_BATCH_SIZE` empirically against the 6GB VRAM
+      budget (SPEC.md NR-001) and measure the real throughput improvement
+      (articles/sec) on a real sample (mirrors T-025's resample as a
+      before/after comparison) — don't assume batching helps without
+      measuring it, and don't copy `CATEGORY_BATCH_SIZE`/
+      `SUMMARY_BATCH_SIZE`'s values blind (NER's per-chunk sequence
+      length and variable chunks-per-article shape a different memory
+      profile). **Not done — needs the project's actual GPU**, which the
+      environment T-060/T-061 shipped from doesn't have (CPU-only
+      sandbox); `NER_BATCH_SIZE=8` is an untested starting guess, not a
+      measured value. → steps 5, 7.
+
+- [ ] **T-156** *(test hygiene, 2026-11-06)* Flaky test `tests/news_nlp/test_eval_calibration_judge.py::test_an_interrupt_cancels_the_queue_instead_of_paying_for_it`: failed once in CI (PR #129, `assert 4 <= 3`), passed on the next run. It counts calls made by worker threads against a 0.05 s sleep, so the bound depends on timing. Fix: bound by the number of workers plus one, or stop the queue with an event instead of a sleep.
+
+- [ ] **T-157** *(Windows, T-148a, 2026-11-07; PR #134, `docs/db-topology.md`)* The summaries cut's run lock probed a pid with `os.kill(pid, 0)`, which terminates on Windows. **Done:** the probe uses `OpenProcess` + `WaitForSingleObject`; the lock holds the pid and the process start time; Ctrl-Break stops like Ctrl-C; a `win32`-only test. Decision: no Windows CI job. **Closes when** the owner has resumed the cut once on Windows with a leftover lock and got no refusal. **Open:** taking over a stale lock is not atomic (chunk files are, so only work is duplicated); a lock of this version reads as stale to an older script; closing the console window cannot be caught. → T-148a. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-157.
+
+- [ ] **T-148b2** Training set for the attribution model from the structured bodies (company name masked, previous sentence as context, all years). **Built** (`scripts/build_company_segments_2026_11_05.py`, `gold/company_segments_train.csv`, ids and positions only): 2,834 bodies, 33,624 segments (21,682 `lead`, 11,942 `continuation`), 1 body in 10 as `val` (205 before 2022, 65 from 2022 on, reported apart); the 33 bodies that share text with a tagged or held-out article are left out; `tests/news_nlp/test_company_texts.py` pins the parser constants and counts. Built 2026-11-06: the mention-and-recency baseline (`news_nlp.attribution_baseline`) and the label check (100 `lead` + 100 `continuation`, `gold/segment_check_gold.csv`).
+      - **Rule fixed before the check (owner, 2026-11-06):** `continuation` is dropped from training if at most 80% are right. **Read:** `lead` 88.0% [80.2, 93.0], `continuation` 38.0% [29.1, 47.8], so the model trains on `lead` only (PLAN D27). Acceptance (D32): at least 80% of the companies named in the faithfulness bodies with a faithful text, and better than the baseline on the same bodies; read in T-148b10. → D27, D32. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b2.
+
+- [ ] **T-148b3** *(trained model, merged, #141; **not published, not pinned**)* The trained attribution model (`src/news_nlp/attribution_model.py`, `scripts/train_attribution_2026_11_08.py`, `CompanyResolver.mention_spans`, `draw_faithfulness --attribution-model`). Trains on `lead` rows only (D27, label check 2026-11-06; the run refuses to start unless `gold_metrics.train_on_lead_only` is true); bodies it cannot attribute are flagged `unextracted`, never given a default text.
+      - **Left (owner's word):** publish, the pin in `config/pipeline_models.json` under `attribution` with its revision, the `ExperimentSpec` stage. The model behind every `units` figure is the local directory `data/models/attribution_2026_11_08` (`local:8399ccf003c60143`).
+      - **Open question (proposed, not decided):** the model has not learned to answer "none of these": a sentence about a company outside the universe goes to the nearest one (wrong cases scored 0.9 or more, so a higher threshold does not help; (c) is not supported). Options: (a) retrain with negatives that belong to nobody; (b) measure again after the stricter cuts of #143 and #144. One-word names (`JPMorgan`) are not read by the resolver (T-148b7). → D27. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-148b3.
+
+- [ ] **T-148b7** *(owner's decision 2026-11-07)* Person names and common words ("home", "union") that the guard does not stop: an item of its own, **after the cut** (not before it), to be measured against the owner's next tagging round. Nothing is built for it now.
+
+- [ ] **T-146c** Revised LLM labelling prompt and gate: iterate on a fixed stratified 240 of gold v2 (at most 5 iterations, about 240 calls each), then the full 720 (480 new calls) at >= 90% scope agreement. Silver D15 labels and sub-industries are bought in P2 only if a second gate on the 240 (per-company category and sub-industry agreement with gold v2, >= 80%) passes; otherwise silver is scope-only. Budget: silver <= 6,000 - 240k - 480 for k iterations; judge repairs count against the 6,000.
+      - The 240 is drawn once by `scripts/draw_gate240_2026_11_04.py` (quotas in `retag.GATE_QUOTAS`; local `data/gate240_ids.csv`); the owner tags it in `data/gate240_to_tag.csv`. The tracked gold files are `gold/category_gold_v2.csv` (240 + 44 sector) and `gold/category_gold_v2_test.csv` (200 held-out, #142), built by `scripts/build_gold_2026_11_05.py`; the article text stays out of git. Workflow: `docs/labelling-spec-v2.md`, "The fixed 240 of the prompt gate".
+      - Owner calls 2026-11-05: company labels on sector/market_economy/investing_general bodies, several labels per company, `sub_industry` as GICS codes of any level; 44 more sector-like bodies were drawn for the sub-industry gate. → P2, D18. Full text before 2026-11-08: `.specify/memory/archive/TASKS-open-entries-2026-11-08.md` § T-146c.
+
+      - [ ] **T-146d** Silver: at most 4,320 bodies, bought only after T-146c passes, oversampling
+        the candidates for the rare scopes.
+      - T-146e1 (prefilter rules for market, economy, unrelated, `investing_general`): out of the MVP, D39 (`archive/PIPELINE-superseded-2026-11-10.md`).
+
+## Work item 2 — Make the regression gate runnable (ops, blocked on maintainer)
+
+- [ ] **T-010** *(maintainer)* Designate/stand up a machine with durable
+      access to `$SOURCE_DATABASE_URL`/`$DATABASE_URL` and a persistent
+      `mlruns` dir or MLflow server. → `PLAN.md` Work item 2, step 1.
+- [ ] **T-011** *(maintainer)* Register it as a GitHub self-hosted runner
+      labeled `thesis-data`. → step 2.
+- [ ] **T-012** *(maintainer)* Add repo secrets: `LLM_API_KEY`,
+      `LLM_MODEL`, `LLM_URL`, `MLFLOW_TRACKING_URI`,
+      `SOURCE_DATABASE_URL`, `DATABASE_URL`. → step 3.
+- [ ] **T-013** Edit `.github/workflows/eval.yml`: uncomment
+      `runs-on: [self-hosted, thesis-data]`, remove the
+      `runs-on: ubuntu-latest` placeholder. → step 4. (Code change, but
+      meaningless without T-010–T-012 done first — don't land this alone
+      expecting it to work.)
+- [ ] **T-014** *(maintainer)* Trigger `workflow_dispatch` once; confirm a
+      real MLflow run + `eval_run` row is produced. → step 5 / first
+      acceptance criterion.
+- [ ] **T-015** *(maintainer)* Confirm the gate actually gates: induce a
+      regression (temporarily lowered `--regression-tolerance`, or a
+      second run compared against a known-worse one) and confirm the
+      workflow fails. → second acceptance criterion.
+- [ ] **T-016** Update `SPEC.md` §13 item 8 to reflect the resolved (or
+      deliberately re-scoped) state. → third acceptance criterion. Also
+      update the two architecture artifacts per constitution AI behavior
+      #11 — reconcile, never rename.
+
+
+### PLAN.md Work item 2, verbatim
+
+## Work item 2 — Make the `--check-regression` gate runnable
+
+**Why**: `.github/workflows/eval.yml` already invokes
+`cli/news_nlp_eval.py … --check-regression` — the code-level gate
+`SPEC.md` §13 item 8 was originally written as missing already exists.
+What's actually missing is the *infrastructure* the workflow's own header
+comment says it assumes and doesn't have: a self-hosted runner with
+`$SOURCE_DATABASE_URL`/`$DATABASE_URL` mounted, a persistent
+`$MLFLOW_TRACKING_URI` for `--check-regression` to have a prior run to
+compare against, and the `LLM_API_KEY`/`LLM_MODEL`/`LLM_URL` repo secrets.
+On the current `runs-on: ubuntu-latest`, the workflow has no data to run
+against — it's a template, not a working gate, and its `schedule:` trigger
+is presently running (or failing) against nothing.
+
+**This is an operational task, not a code task** — constitution AI
+behavior #10 ("ask before expanding scope") applies: standing up a
+self-hosted runner and provisioning secrets is an infrastructure decision
+for the repo owner to make and execute, not something to do
+unilaterally inside a PR. This plan documents what's needed; a human
+completes it.
+
+**Steps** (for the repo owner/maintainer):
+
+1. Stand up (or designate) a runner with persistent access to the working
+   SOURCE/RESULTS SQLite files and a durable `mlruns` directory (or a real
+   MLflow tracking server) — the same machine the manual
+   `uv run cli/news_nlp_eval.py` invocations already run on is the
+   simplest choice.
+2. Register it as a GitHub self-hosted runner with (at least) the
+   `thesis-data` label `eval.yml` already references in its commented-out
+   `runs-on:` line.
+3. Add the six repo secrets `eval.yml` reads:
+   `LLM_API_KEY`, `LLM_MODEL`, `LLM_URL`, `MLFLOW_TRACKING_URI`,
+   `SOURCE_DATABASE_URL`, `DATABASE_URL`.
+4. Uncomment `runs-on: [self-hosted, thesis-data]` and remove/replace the
+   `runs-on: ubuntu-latest` line beneath it.
+5. Trigger once via `workflow_dispatch` to confirm the run completes,
+   produces an `eval_run` row, and (on a second manual run) that
+   `--check-regression` actually compares against the first.
+
+**Acceptance criteria**:
+
+- A `workflow_dispatch` run of `eval.yml` completes successfully on the
+  designated runner and produces a real MLflow run + `eval_run` row.
+- A deliberately-induced regression (e.g. temporarily lowering
+  `--regression-tolerance` below a known noise level, or comparing against
+  a run with a known worse metric) causes the workflow to fail — proving
+  the gate actually gates, not just runs.
+- `SPEC.md` §13 item 8 updated to reflect the new state (resolved, or
+  re-scoped if the maintainer decides differently — e.g. keeping it
+  scheduled-only rather than PR-blocking, which is a legitimate choice
+  given the LLM cost of running this on every PR).
+
+
+### PLAN.md D18, verbatim
+
+D18 about 6,000 LLM labelling calls (a hard cap, logged in `docs/evaluation.md`, counted per
+task, the run stops at it), the owner re-tags the 720 under the new taxonomy (v1 was tagged blind to the LLM label: the review file had no LLM column; the v2 file keeps it hidden and shows only the owner's v1 tag) (gold v2; the first tagging is "tags v1", a development
+set), the revised prompt iterates on a fixed stratified 240 of them (at most 5 iterations) and must agree
+with the owner's scope on >= 90% of the full 720 before silver is bought (at most 4,320 bodies: 6,000 minus
+1,200 iteration calls minus 480 for the full pass; a 6th iteration is never spent without asking), and the
+owner tags about 300 held-out gold bodies drawn across the corpus, at least 40 per scope (D30 drew 200 instead; D33: no top-up, and no recall floor for a scope under 40 gold bodies)
