@@ -267,27 +267,40 @@ dead for at least one extractor, 147 and 116 extractor marks). The 8 rows of the
 the record of 2026-11-08, before the change; the rest became dead after it (the commit that changed each
 text was not isolated). Counts in this section are rows, each row once whatever the number of extractors
 that hold it. By the owner's marks the dead texts were unfaithful about half the time: 51 `no` of 97 (53%)
-in the first set and 45 of 96 (47%) in the confirmation set, against 14.7% (50 of 340) `no` on the rows the
-code still writes in the first set and 1.7% (5 of 302) in the confirmation set; over every marked row of the
-first set it is 22.3% (101 of 453).
+in the first set and 45 of 96 (47%) in the confirmation set, against 14.0% (50 of 356) `no` on the rows the
+code writes now (kept rows plus the 16 new ones) in the first set and 2.0% (7 of 342, with the 40 new
+ones) in the confirmation set; over every marked row of the first set it is 22.3% (101 of 453).
 
-**What replaced the dead texts** (new marks against the dead rows they replace, matched on article and
-company; this is the direct evidence on the effect of the change):
+**What replaced the dead texts.** The earlier ids files are compared with the current ones: a row is *new*
+when its text is not in the earlier file. A dead mark counts as replaced only by a new row **of the same
+extractor** for the same article and company (a new row of another extractor for that company is not a
+replacement). Command in "The official report counts those marks" below.
 
-| | First set | Confirmation set |
+| Rows | First set | Confirmation set |
 |---|---|---|
-| Dead rows | 97 (51 `no`, 46 `yes`) | 96 (45 `no`, 51 `yes`) |
-| Dead rows with a rewritten text for the same company (new row) | 28 | 41 |
-| Of those, the old mark and the new mark | 24 `yes` to `yes`, 4 `no` to `yes` | 39 `yes` to `yes`, 2 `no` to `no` |
-| Dead rows with no new text for that company | 69 (47 `no`, 22 `yes`) | 55 (43 `no`, 12 `yes`) |
-| New rows in all | 16 (16 `yes`) | 43 net, 40 with a new text (38 `yes`, 2 `no`) |
+| Dead | 97 (51 `no`, 46 `yes`) | 96 (45 `no`, 51 `yes`) |
+| Kept (still written, not new) | 340 (50 `no`) | 302 (5 `no`) |
+| New | 16 (16 `yes`) | 40 with a new text (38 `yes`, 2 `no`); 43 more rows in all, 3 share an earlier text |
 
-Reading: most of what the change did was to stop writing texts for companies that were not there (47 and
-43 unfaithful texts gone with no replacement); where the code kept the company and wrote a different text,
-the new texts (the 56 rows with a text that was not in the earlier files; 6 of them are for companies with no dead row) are faithful in 54 of 56 rows (96%), and the two bad ones were bad before too. It also dropped
-good texts (22 and 12 with no replacement). Small numbers: 56 new texts, from 30 + 30 bodies.
-This supports "the change helped", it does not measure it: the new texts were drawn into the files and
-marked, and the dead ones were left out of the second table below, without re-running the old matcher.
+| Extractor | Dead marks | With a new row of its own (old mark to new mark) | Texts it writes that nobody has marked |
+|---|---|---|---|
+| First set `baseline` | 40 | 12 (4 `no` to `yes`, 8 `yes` to `yes`) | 0 |
+| First set `model` | 41 | 0 | 10 |
+| First set `units` | 52 | 4 (4 `yes` to `yes`) | 0 |
+| First set `units2` / `units3` | 7 / 7 | 0 / 0 | 0 / 0 |
+| Confirmation `baseline` | 51 | 24 (1 `no` to `no`, 23 `yes` to `yes`) | 0 |
+| Confirmation `units` | 49 | 10 (1 `no` to `no`, 9 `yes` to `yes`) | 0 |
+| Confirmation `units2` / `units3` | 7 / 9 | 4 / 4 (`yes` to `yes`) | 0 / 0 |
+| Confirmation `model` | not marked | not marked | 73 (the extractor has no marks here) |
+
+Reading: for the selected extractor the change mostly removed texts: of `units`' 52 and 49 dead marks, 4 and
+10 have a text of its own written in their place (all faithful but one). For the other dead marks the files
+cannot say whether the code now writes no text for that company or writes one that a row of another
+extractor already holds; only running the extractors can say. What the files do show: the dead texts were
+about half unfaithful (above); the rows the code writes now are 86% and 98% faithful by row; the
+rewritten texts are few and faithful, 54 of 56 new rows (6 of the 56 are for companies with no dead row, so
+they replace nothing). Small numbers (30 + 30 bodies). This does not measure the effect of the change: the
+old matcher was not re-run, and removing texts that were marked unfaithful raises the share by construction.
 
 **The report counts those marks, and since PR #157 it also prints the figures without them.**
 `report_wi18_2026_11_06.py faithfulness` counts every marked row (the blocks `[all]`, `[all, real]`,
@@ -300,7 +313,11 @@ the first set, 342 of 438 in the confirmation set). Nothing extra is printed whe
 when the check is missing for an extractor or was made with other code than the current one, one line says
 so and no figure is printed. The first table below is the `[all]` view, the second the `[current code]`
 view (Appendix A.3, A.4 are the report's own lines). Before the PR the same view was made by hand from
-copies of the two files (the owner's files are untouched).
+copies of the two files (the owner's files are untouched). The replacement tables above are reproduced with
+`uv run scripts/dead_text_replacement_2026_11_10.py --out data --earlier data/earlier_2026_11_09/first
+--out data/faithfulness_confirmation --earlier data/earlier_2026_11_09/confirmation`, where
+`data/earlier_2026_11_09/` holds copies of the two ids files as they were before the new marks (copied
+from the backup taken on 2026-11-09; the folder is local, git-ignored, like all of `data/`).
 
 Faithful share, every company named (the bar: lower end of the interval at or above 80%):
 
@@ -330,24 +347,28 @@ What this adds to "What the results say":
    (`units2` and `units3` are *not decided* on the first set under that count; `baseline` is *not decided*
    on the first set; `model` has no confirmation marks). On the plain count `units3` also passes both sets,
    and `baseline` passes the confirmation set. No extractor beats `units` on a paired comparison.
-2. **The matcher change helped the extractors, mainly by no longer writing texts for companies that are not
-   there**: of the 97 and 96 dead rows, 47 and 43 unfaithful texts have no replacement, and the 56 new-text
-   rows are 96% faithful (table above). On current code `units` is about 10 points higher than counting
-   every mark (87.3% to 97.5% and 87.3% to 97.1%); that rise is mostly this removal, so it measures the
-   change only together with the removal. The old matcher was not re-run.
+2. **What the change did to the extractors is a removal, and what it did beyond that is small and not
+   measured.** The 97 and 96 dead rows were about half unfaithful and are no longer written (or were
+   rewritten: `units` 4 of 52 and 10 of 49 dead marks). On current code `units` is about 10 points higher
+   than counting every mark (87.3% to 97.5% and 87.3% to 97.1%); that rise is the removal of those marks,
+   and the evidence does not separate "the matcher stopped finding companies that were not there" from
+   "the texts got better". The old matcher was not re-run.
 3. **`baseline` is the unstable one**: it fails on the first set and passes on the confirmation set.
 4. **`units2` and `units3` do not beat `units`**; they look close on the bar only because they leave 4 to 19
    companies without a text.
-5. **`model`** has no marks on the confirmation set; on the first set it lost 41 texts to the change
-   (190 to 149) and has 10 texts the code now writes that nobody has marked (`faithfulness_stale.json`). It
-   stays provisional until the attribution checkpoint is retrained.
+5. **`model`** has no marks on the confirmation set; on the first set 41 of its 190 marked texts are dead
+   (190 to 149 in the current-code view) and none of them has a new row of its own. It also writes 10 texts
+   nobody has marked (`faithfulness_stale.json`); its current-code figure (85.2%) leaves those 10 out, so it
+   is on an incomplete set of its current texts and may be biased either way. It stays provisional until the
+   attribution checkpoint is retrained.
 
 #### Text measures after the change (characters per text)
 
 Same script (`scripts/text_measures_2026_11_08.py`), run on 2026-11-10. "All rows" reads every row of the
 files (dead texts included); "current code" reads the same copies as the second table above. The script
-measures the four extractors the owner compares (`baseline`, `units`, `units2`, `units3`); it has no `model`
-column because `model` was not part of the 2026-11-08 comparison of texts and has no confirmation marks.
+lists its extractors in a constant (`EXTRACTORS` = `baseline`, `units`, `units2`, `units3`), so it has no
+`model` column. That is a limit of the script, not a decision: `model` has 190 texts on the first set and
+none marked on the confirmation set; adding it is one line and a test, and is not done here.
 
 | | `baseline` | `units` | `units2` | `units3` |
 |---|---|---|---|---|

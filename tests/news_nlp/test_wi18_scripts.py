@@ -3224,3 +3224,44 @@ def _stale_entry_baseline() -> dict[str, object]:
         "stale": [],
         "new": [],
     }
+
+
+DEAD_REPLACEMENT = _script("dead_text_replacement_2026_11_10")
+
+
+def test_a_dead_text_counts_as_replaced_only_by_a_new_row_of_the_same_extractor(
+    tmp_path: Path,
+) -> None:
+    out, earlier = tmp_path / "out", tmp_path / "earlier"
+    out.mkdir()
+    earlier.mkdir()
+    head = "review_order,key,article_id,ticker,text_hash,extractors,revisions,pub_date"
+    rows = [
+        "1,1#A#1,1,A,h1,units,r,2026",  # dead for units, replaced by row 2 (units)
+        "2,1#A#2,1,A,h2,units,r,2026",  # new
+        "3,2#B#1,2,B,h3,units,r,2026",  # dead for units; the new row of B is baseline's
+        "4,2#B#2,2,B,h4,baseline,r,2026",  # new
+        "5,3#C#1,3,C,h5,units,r,2026",  # kept
+    ]
+    (out / "faithfulness_ids.csv").write_text(
+        head + "\n" + "\n".join(rows) + "\n", encoding="utf-8"
+    )
+    (earlier / "faithfulness_ids.csv").write_text(
+        head + "\n" + "\n".join(rows[0:1] + rows[2:3] + rows[4:]) + "\n", encoding="utf-8"
+    )
+    marks = ["no", "yes", "yes", "yes", "no"]
+    (out / "faithfulness_to_tag.csv").write_text(
+        "review_order,faithful\n" + "\n".join(f"{i + 1},{m}" for i, m in enumerate(marks)) + "\n",
+        encoding="utf-8",
+    )
+    stale = {"units": {"stale": ["1#A#1 (units)", "2#B#1 (units)"], "new": ["x"]}}
+    (out / "faithfulness_stale.json").write_text(
+        json.dumps({"extractors": stale}), encoding="utf-8"
+    )
+    lines = DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
+    assert "dead 2 (1 no, 1 yes), kept 1 (1 no), new 2 (0 no, 2 yes)" in lines[0]
+    assert "the rows the code writes (kept + new): 3, 1 no (33.3%)" in lines[1]
+    assert (
+        "2 dead marks, 1 with a new row of its own (no to yes: 1); 1 texts it writes that nobody has marked"
+        in lines[2]
+    )
