@@ -1865,6 +1865,7 @@ dev = [
 ]
 eval = [
     { name = "mlflow" },
+    { name = "scikit-learn" },
     { name = "strands-agents", extra = ["openai"] },
 ]
 notebook = [
@@ -1888,7 +1889,7 @@ requires-dist = [
     { name = "seqeval", specifier = ">=1.2" },
     { name = "torch", specifier = ">=2.4,<2.7", index = "https://download.pytorch.org/whl/cu124" },
     { name = "tqdm", specifier = ">=4.66" },
-    { name = "transformers", specifier = ">=4.40" },
+    { name = "transformers", specifier = ">=4.56" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.52.1" },
 ]
 
@@ -1902,6 +1903,7 @@ dev = [
 ]
 eval = [
     { name = "mlflow", specifier = ">=2.16,<3" },
+    { name = "scikit-learn", specifier = ">=1.3" },
     { name = "strands-agents", extras = ["openai"], specifier = ">=1.54,<2" },
 ]
 notebook = [

@@ -243,7 +243,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   are not balanced). Working files, git-ignored: `data/sentiment_eval_ids.csv` (the draw and the only copy of the
   texts) and `data/sentiment_eval_to_tag.csv` (the owner's file); the names say "eval" from the draw and were not
   changed. The slice split (blocks 1-18 `train`, 19-27 `validation`) was chosen by the assistant, not by the owner.
-  No key, body or text is in both files (a test checks it). 20 rows (26 in the first file) are sector, market or
+  Copies of both working files are in `data/backup/` (`sentiment_eval_ids_2026-11-10.csv`, `sentiment_eval_to_tag_2026-11-10.csv`): the ids file is the **only copy of the 405 texts the owner read**, so keep it with the owner's other backups of `data/` (the repository does not hold it). No key, body or text is in both files (a test checks it). 20 rows (26 in the first file) are sector, market or
   economy tags with no company and are left out of the pair model; the pair model reads 809 of the 855 rows.
 - **Label: anchored to the tagged company (owner's rule, 2026-11-08; a design feature to preserve).** The
   mark is what the text says **about the company of the row** (`company`, `ticker`): the price impact an
