@@ -666,7 +666,7 @@ def _lower_bound_lines(
     read: dict[str, str] | None,
 ) -> list[str]:
     """The bar with every dead mark counted as a company left without a text, unless the extractor
-    still has a kept text for that company. It is the lower bound: right if the matcher still names
+    still has a kept text for that company. It is a pessimistic reading, not a bound: right if the matcher still names
     every one of those companies and the extractor writes nothing for it now."""
     pair = lambda key: key.rsplit("#", 1)[0]  # noqa: E731
     still = {(pair(k), n) for k, names in kept.items() for n in names}
@@ -700,6 +700,83 @@ def _lower_bound_lines(
         for x in figures
         if _BAR_LINE.match(x)
     ]
+
+
+def _exact_lines(
+    out: Path,
+    marks: dict[str, bool],
+    owners: dict[str, list[str]],
+    dates: dict[str, dict[str, str]],
+    entries: dict[str, gold_metrics.StaleEntry],
+    exempt: Sequence[dict[str, str]],
+    read: dict[str, str] | None,
+) -> list[str]:
+    """The figures from what each extractor writes now (``faithfulness_now.json``, written by the
+    same ``--stale`` run as the record): the text it writes for a company is looked up by its hash
+    among the marked rows, so a text that another extractor's row already holds counts for it, and
+    the companies it writes nothing for now are the ones left without a text. Nothing in these
+    figures is assumed; a text no row holds is counted per extractor and is in no figure. Not printed
+    when the file is missing, or an extractor of the marks has no entry or an entry from another run
+    than its record entry."""
+    now = gold_metrics.read_now(out / gold_metrics.NOW_NAME)
+    marked = {n for names in owners.values() for n in names}
+    if not now:
+        return []
+    off = sorted(
+        n
+        for n in marked
+        if n not in now
+        or n not in entries
+        or (now[n]["date"], now[n]["revision"]) != (entries[n]["date"], entries[n]["revision"])
+    )
+    if off:
+        return [
+            "current code, exact: not printed, faithfulness_now.json is missing or from another run "
+            f"than {gold_metrics.STALE_NAME} for {', '.join(off)}: run draw_faithfulness --stale"
+        ]
+    pair = lambda key: key.rsplit("#", 1)[0]  # noqa: E731
+    holder = {(pair(k), r["text_hash"]): k for k, r in dates.items() if r.get("text_hash")}
+    owners_now: dict[str, list[str]] = {}
+    unheld: Counter[str] = Counter()
+    for name in sorted(marked):
+        for where, text_hash in now[name]["texts"].items():
+            key = holder.get((where, text_hash))
+            if key is None:
+                unheld[name] += 1
+            else:
+                owners_now.setdefault(key, []).append(name)
+    when = {pair(k).split("#", 1)[0]: r.get("pub_date", "") for k, r in dates.items()}
+    omitted = [
+        {
+            "article_id": where.split("#", 1)[0],
+            "ticker": where.split("#", 1)[1],
+            "extractor": name,
+            "pub_date": when.get(where.split("#", 1)[0], ""),
+        }
+        for name in sorted(marked)
+        for where in now[name]["without"]
+    ]
+    lines = [
+        "current code, exact: what each extractor writes now, a text looked up by its hash among the "
+        f"marked rows ({sum(len(v) for v in owners_now.values())} extractor texts found, "
+        f"{len(owners_now)} of {len(owners)} rows), and the companies it writes nothing for now "
+        f"counted as left without a text ({len(omitted)})"
+    ]
+    if unheld:
+        lines.append(
+            "current code, exact: texts written now that no marked row holds (in no figure): "
+            + ", ".join(f"{n} {c}" for n, c in sorted(unheld.items()))
+        )
+    figures = _faithfulness_lines(
+        [],
+        {k: v for k, v in marks.items() if k in owners_now},
+        owners_now,
+        {k: v for k, v in dates.items() if k in owners_now},
+        omitted,
+        exempt,
+        read,
+    )
+    return [*lines, *(f"[current code, exact: {x[1:]}" for x in figures if x.startswith("["))]
 
 
 def _current_code_lines(
@@ -746,7 +823,7 @@ def _current_code_lines(
         + ", ".join(f"{n} {c}" for n, c in sorted(per.items())),
         "current code: leaving a dead mark out takes its company out of the bar's denominator; that "
         "flatters the share when the matcher still names the company and the extractor now writes "
-        "nothing for it (the lower bound is below)",
+        "nothing for it (the pessimistic reading and, when the run saved it, the exact figures follow)",
     ]
     if unmarked:
         lines.append(
@@ -768,7 +845,11 @@ def _current_code_lines(
         read,
     )
     lines += [f"[current code: {x[1:]}" for x in figures if x.startswith("[")]
-    return [*lines, *_lower_bound_lines(dead, kept, marks, dates, coverage, exempt, read)]
+    return [
+        *lines,
+        *_lower_bound_lines(dead, kept, marks, dates, coverage, exempt, read),
+        *_exact_lines(out, marks, owners, dates, entries, exempt, read),
+    ]
 
 
 def _faithfulness_lines(
