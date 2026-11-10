@@ -205,15 +205,15 @@ above, it says so; nothing else above is touched.
   scores of the 809 rows, T-169); the item is **stored once per main company** (a news with two main companies has two
   rows, same text, one per company), so each row has a single main company and step 6 reads one (text, company) pair per
   row. (ii) **No company found, or no score over the threshold:** the item goes to a **review list** for the owner
-  (no sentiment until it is read; T-172 builds the list, status `review`). (iii) **Mentions** (the companies that are not main): stored in `article_entities`
+  (no sentiment until it is read; T-172 builds the list, status `review`). (iii) **A company is a universe ticker.** A NER span is matched to the universe by the matcher of `news_nlp.triage` (D38); a span that matches no ticker is **ignored** (not stored as a mention, never main), and every comparison in this feature (the relevance score, `is_main`, the crawl's ticker against the model's pick) is by ticker only. **Mentions** (the companies that are not main): stored in `article_entities`
   (new columns: item, relevance score, is_main), not in a new table. (iv) **Sector summary:** it gets a sentiment, from
   `gamug/FinBERT-financial-news` (the pinned chunk-level stage, no company). (v) **Tracking:** one table
-  `pipeline_step_state` (item, kind, step, status `pending/done/failed/skipped`, model revision, attempts, error,
+  `pipeline_step_state` (item, kind, step, status `pending/done/failed/skipped/review`, model revision, attempts, error,
   times), key (item, step, revision); `--status` is a query on it. (vi) **A new model revision** adds a new result row and
   the latest revision is the one read downstream; old rows stay. (vii) **CLI:** a new `cli/news_nlp_steps.py` with
   `--step`, `--limit`, `--status`; the v1 `cli/news_nlp_cli.py` is not touched until the backfill (T-150). (viii)
   **Sub-news size (3.3):** measured first (character lengths of the units output on the 438 confirmation texts), then
-  the owner sets it (T-166). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
+  the owner sets it (T-166). **The crawl's tickers** (D36) are kept as a column of the body's result and compared with the model's main tickers by ticker; they do not decide the main company (proposed, to the owner). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
   the relevance model, trained on summaries, holds on sub-news (not measured: a risk of T-165, T-169). Tasks: T-162
   to T-172.
 - **D26 Sentiment reads the summary or the company text, not the body.** The pinned sentiment
