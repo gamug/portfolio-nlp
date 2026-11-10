@@ -598,3 +598,26 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
 ```
+
+
+### T-147 two-stage bullet (bge-small only), long form
+
+```
+      - **Owner's two-stage route (2026-11-10, `scope_two_stage_2026_11_10.py`, bge-small embeddings: company / sector / not_related, then single or multi on companies):** end to end **71.3% [65.0, 77.8]** weighted (plain 69.5%, one-stage 64.0%); `single` 78%, `multi` 67%, `sector` 49% (9 gold), `out_of_scope` 53%. Stage A topic 80% plain (company 87%, sector 3 of 9, not_related 50%); stage B 84% on true company bodies. Same weighted score, better balance.
+```
+
+
+### T-147 relevance-features bullet, long form
+
+```
+      - **Owner's route, relevance features (2026-11-10, `scripts/scope_relevance_features_2026_11_10.py`):** title + first 800 characters, NER, ticker match, relevance model on the top companies; top-4 scores and counts into a logistic regression: **71.1% [64.6, 77.2]** (rules 68.2%); with title words **72.9% [66.6, 78.9]** (one extra variant, tried after seeing the first). `multi` recall 65-67% (rules 52.5%), `sector` 22.9% (9 gold), `out_of_scope` 37-52%. **Cost measured:** 0.053 s per body (NER 0.014 + relevance 0.039, one by one) = ~4.6 h for 310k bodies, less batched. Better than the rules, not at the bar; the owner decides how to go on.
+```
+
+
+### T-147 bullets shortened (long forms)
+
+```
+      - **Title + first lines (measured 2026-11-10, same script, `--body-chars N`, TF-IDF + logistic regression, weighted):** N = 300: 65.7% [58.9, 72.9] (`multi` recall 32.2%); N = 600: 62.5% [55.4, 69.8]; N = 1500: 57.1% [49.7, 64.2]. No gain over the title alone (66.4%): the body text dilutes the title with 284 training rows.
+      - **Report:** the confusion matrix and the recall of `multi` and `single` against each other (a `multi` body called `single` is summarised whole with one main company; a `single` called `multi` is cut into pieces with the same company). **Titles:** a missing, empty or unusable title sends the body to `body_scope` with status `review`; T-163's dry run prints the count over SOURCE.
+      - **Feasibility (2026-11-10, `scope_title_baseline_2026_11_10.py`, weighted):** title only **66.4% [59.7, 73.3]**, rules 68.2% [61.5, 74.7], always `single` 58.2%; `multi` recall 51.0% / 52.5%. Level with the rules.
+```

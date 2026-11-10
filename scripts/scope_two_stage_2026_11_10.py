@@ -2,7 +2,7 @@
 
     uv run python scripts/scope_two_stage_2026_11_10.py [--features data/scope_relevance_features.json] [--chars 800]
 
-Stage A: a small embedding model (``BAAI/bge-small-en-v1.5``, pinned) turns the title + first ``--chars`` characters into a
+Stage A: an embedding model (``--embedder``: bge small, base or large, pinned) turns the title + first ``--chars`` characters into a
 vector; a logistic regression (C = 10, fixed in advance) sorts it into ``company`` (single or multi), ``sector`` or
 ``not_related`` (market_economy, investing_general, unrelated). Stage B: the relevance features of
 ``scope_relevance_features_2026_11_10.py`` (read from its cache), a logistic regression trained **only on the company
@@ -27,8 +27,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import scope_relevance_features_2026_11_10 as feat
 import scope_title_baseline_2026_11_10 as base
 
-EMBEDDER = "BAAI/bge-small-en-v1.5"
-EMBEDDER_REVISION = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+#: The pinned embedders tried (the smallest is the first measurement, the others the owner's "larger model").
+EMBEDDERS = {
+    "BAAI/bge-small-en-v1.5": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "BAAI/bge-base-en-v1.5": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+    "BAAI/bge-large-en-v1.5": "d4aa6901d3a41ba39fb536a557fa166f842b0e09",
+}
 TOPIC = {"single": "company", "multi": "company", "sector": "sector"}
 
 
@@ -36,12 +40,13 @@ def topic(scope: str) -> str:
     return TOPIC.get(scope, "not_related")
 
 
-def embed(texts: list[str]) -> np.ndarray:
+def embed(texts: list[str], embedder: str = "BAAI/bge-small-en-v1.5") -> np.ndarray:
     import torch  # noqa: PLC0415 -- the heavy imports only where the model runs
     from transformers import AutoModel, AutoTokenizer  # noqa: PLC0415
 
-    tok = AutoTokenizer.from_pretrained(EMBEDDER, revision=EMBEDDER_REVISION)
-    model = AutoModel.from_pretrained(EMBEDDER, revision=EMBEDDER_REVISION).cuda().eval()
+    revision = EMBEDDERS[embedder]
+    tok = AutoTokenizer.from_pretrained(embedder, revision=revision)
+    model = AutoModel.from_pretrained(embedder, revision=revision).cuda().eval()
     out = []
     for i in range(0, len(texts), 32):
         x = tok(
@@ -57,6 +62,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--features", type=Path, default=Path("data/scope_relevance_features.json"))
     parser.add_argument("--chars", type=int, default=800)
+    parser.add_argument("--embedder", choices=sorted(EMBEDDERS), default="BAAI/bge-small-en-v1.5")
     args = parser.parse_args()
     sets = {}
     for name, marks, texts in (
@@ -74,7 +80,7 @@ def main() -> None:
     names = feat.FEATURES
     f_tr = np.array([[f[n] for n in names] for f in cached["train"]])
     f_te = np.array([[f[n] for n in names] for f in cached["test"]])
-    vec = embed([feat.fragment(r, args.chars) for r in train + test])
+    vec = embed([feat.fragment(r, args.chars) for r in train + test], args.embedder)
     e_tr, e_te = vec[: len(train)], vec[len(train) :]
     # stage A: topic
     a_model = LogisticRegression(max_iter=3000, C=10.0).fit(
@@ -93,7 +99,7 @@ def main() -> None:
         b if a == "company" else ("sector" if a == "sector" else "out_of_scope")
         for a, b in zip(a_pred, b_pred, strict=True)
     ]
-    print(f"two-stage ({EMBEDDER}):")
+    print(f"two-stage ({args.embedder}):")
     print("\n".join(base.lines("end to end", test, pred)), end="\n\n")
     gold_topic = [topic(r["scope"]) for r in test]
     print(
