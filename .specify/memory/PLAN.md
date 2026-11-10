@@ -205,8 +205,7 @@ above, it says so; nothing else above is touched.
   scores of the 809 rows, T-169); the item is **stored once per main company** (a news with two main companies has two
   rows, same text, one per company), so each row has a single main company and step 6 reads one (text, company) pair per
   row. (ii) **No company found, or no score over the threshold:** the item goes to a **review list** for the owner
-  (no sentiment until it is read; T-172 builds the list, status `review`). (iii) **A company is a universe ticker.** A NER span is matched to the universe by the matcher of `news_nlp.triage` (D38); a span that matches no ticker is **ignored** (not stored as a mention, never main), and every comparison in this feature (the relevance score, `is_main`, the crawl's ticker against the model's pick) is by ticker only. **Mentions** (the companies that are not main): stored in `article_entities`
-  (new columns: item, relevance score, is_main), not in a new table. (iv) **Sector summary:** it gets a sentiment, from
+  (no sentiment until it is read; T-172 builds the list, status `review`). (iii) **A company is a universe ticker.** A NER span is matched to the universe by the matcher of `news_nlp.triage` (D38); a span that matches no ticker is **ignored** (not stored as a mention, never main), and every comparison in this feature (the relevance score, `is_main`, the crawl's ticker against the model's pick) is by ticker only. **Mentions** (the companies that are not main): the raw spans stay in `article_entities` (new nullable `sub_news_id` and `ticker`); the **result per (text, ticker)** (relevance score, `is_main`, mention count) is its own table `news_company` (owner, 2026-11-10, interactive session: a ticker named three times is three span rows, so the pair needs its own row). (iv) **Sector summary:** it gets a sentiment, from
   `gamug/FinBERT-financial-news` (the pinned chunk-level stage, no company). (v) **Tracking:** one table
   `pipeline_step_state` (item, kind, step, status `pending/done/failed/skipped/review`, model revision, attempts, error,
   times), key (item, step, revision); `--status` is a query on it. (vi) **A new model revision** adds a new result row and
@@ -229,8 +228,8 @@ above, it says so; nothing else above is touched.
   200, is the baseline); the `units` extractor cuts the `multi` bodies in the same step 1. **Tables (the owner: each step its own table, sentiment included; names proposed, schema to the owner
   first, AI #10):** step 1 `body_scope` (unique body, scope, rule revision) and `sub_news`; step 2 `news_summary`
   (item kind body or sub_news, text, `text_source`, model revision; `article_summary` is keyed by article and cannot
-  hold these); step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **only** source of truth for the main ticker; there is no separate main-ticker table);
-  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker, read from `article_entities.is_main`). **Reads and writes:** step 1
+  hold these); step 3 `news_company` (one row per item and ticker: `relevance_score`, `is_main`, `mention_count`; **`news_company.is_main` is the only source of truth for the main ticker**; the spans stay in `article_entities`, whose `score` stays the NER confidence);
+  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker, read from `news_company.is_main`). **Reads and writes:** step 1
   reads unique bodies of SOURCE; step 2 reads `body_scope` and `sub_news`; step 3 reads `news_summary`; each stops at
   `--limit`. **Decided by the owner, 2026-11-10 (interactive session):** the shared `pipeline_step_state` of D39 (v) **stays**
   beside the per-step tables, and **the schema of this paragraph and of D39 is approved as written** (AI #10); the size of

@@ -519,3 +519,29 @@ A company snapshot
 ```
 - [ ] **T-147** *(P3, Build 1, D40; owner 2026-11-10)* **Scope classifier from the title.** **Owner's choice, open:** the title-only floor is level with the rules and far under the bar (below), so the pinned model does not start until the owner picks: (a) a stronger title model (an encoder), (b) the body's first lines added to the title, (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. → D40, D20, D33.
 ```
+
+## Tenth cut (PR #161 review, round 5; owner's answer on the mentions grain)
+
+### PLAN D39 (iii) mentions sentence, verbatim
+
+```
+**Mentions** (the companies that are not main): stored in `article_entities`
+  (new columns: item, relevance score, is_main), not in a new table. 
+```
+
+### PLAN D40, step 3 and sentiment/category table sentences, verbatim
+
+```
+step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **only** source of truth for the main ticker; there is no separate main-ticker table);
+  sentiment `news_sentiment` and category `news_category`, both per (text, main ticker, read from `article_entities.is_main`). 
+```
+
+### SPEC target table rows, verbatim
+
+```
+| `article_entities` target columns (D39 (iii), approved 2026-11-10) | same key | adds `sub_news_id` (NULL for a single body), `ticker` (the universe ticker the span matched; spans with none are not written), `relevance_score`, `is_main`; a mention that is not main stays here | Steps 2, 3.1, 3.2 |
+| Per-step result tables (target, approved 2026-11-10, D40) | per step | `body_scope`, `news_summary` (item kind, `text_source`), `news_sentiment`, `news_category`; each its own table; the main ticker is `article_entities.is_main` | Steps 1 to 4 |
+| `sub_news` (target, approved 2026-11-10) | `id` (PK) | `article_id` (FK), `segment_index`, `text`, `extractor_revision`; unique (`article_id`, `segment_index`, `extractor_revision`); a new extractor revision writes new rows and leaves the old ones, which are not read downstream and whose dependent steps are re-queued | Step 3 |
+| `pipeline_step_state` (target, approved 2026-11-10, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (a **unique body**, by body hash, T-132: a body that reaches us under five tickers runs once), `sub_news` or `text_company` (a text and one main company: steps 6 and 7 run per pair, so a text with two main companies has two rows and its category is computed once per pair) | `cli/news_nlp_steps.py` |
+
+```

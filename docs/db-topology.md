@@ -213,7 +213,7 @@ The rule (`PLAN.md` D36): a properly fetched article is preserved and stays elig
 
 ## Target tables of the stepped pipeline (D39, D40; approved 2026-11-10)
 
-Not created yet; the schema was approved by the owner on 2026-11-10 (constitution AI #10). `sub_news` (one row per piece the `units` extractor cuts), `pipeline_step_state` (status per item and step, with the model revision) and three columns on `article_entities` (`sub_news_id`, `relevance_score`, `is_main`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
+Not created yet; the schema was approved by the owner on 2026-11-10 (constitution AI #10). `sub_news` (one row per piece the `units` extractor cuts), `pipeline_step_state` (status per item and step, with the model revision) and `news_company` (the result per text and ticker) and two columns on `article_entities` (`sub_news_id`, `ticker`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
 
 ## Caveats
 

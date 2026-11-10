@@ -3691,3 +3691,24 @@ def test_the_scope_title_baseline_merges_the_out_of_scope_classes_and_names_a_mi
     monkeypatch.setattr(baseline, "GOLD", tmp_path)
     with pytest.raises(SystemExit, match="1 marks have no title"):
         baseline.load("marks.csv", "t.csv")
+
+
+def test_the_title_baseline_adds_the_first_characters_of_the_body_only_when_asked(
+    tmp_path: Path,
+) -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    (tmp_path / "texts").mkdir()
+    (tmp_path / "texts" / "t.csv").write_text(
+        "article_id,ticker,title,text\n1,A,Title,abcdefghij\n", encoding="utf-8"
+    )
+    assert baseline.titles("t.csv") == {("1", "A"): "Title"}
+    assert baseline.titles("t.csv", 4) == {("1", "A"): "Title . abcd"}
+
+
+def test_the_tracked_universe_is_the_507_companies_the_matcher_reads() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    rows = list(csv.DictReader((gold / "universe.csv").open(encoding="utf-8", newline="")))
+    assert len(rows) == 507
+    assert list(rows[0]) == ["ticker", "company", "also_covers", "gics_sector"]
+    assert len({r["ticker"] for r in rows}) == len(rows)
+    assert all(r["ticker"] and r["company"] for r in rows)
