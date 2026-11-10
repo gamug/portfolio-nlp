@@ -144,7 +144,7 @@ shuffled-relevance control (20 shuffles) adds at most +0.005 to the stack, so th
 propose; the stack is not built (no final relevance model, nothing in `sentiment_stage`), its evaluation is not
 strictly nested, and **no figure of this story is held-out**. The pin is decided only on the 180-text gold with the
 owner's word (T-148c4), by the rule of D35 (3), (4), (7). The amendment of D35 to train on all rows is for the owner
-to accept ("Amendment to D35", below).
+to accept ("Amendment to D35", below); **once it is accepted, T-148c3g trains the model on the whole dataset** (see there).
 
 ## The recipe and the metric (unchanged)
 
@@ -293,6 +293,13 @@ have pinned. So the cross-validated figures are the reason to publish a candidat
 gives less than the cross-validation (to be expected for a recipe tuned on these tags) the rule decides as written. The
 relevance model and the stack are in the same position: they are scored on the gold by the same rule before they are
 wired into `sentiment_stage` (T-148c3d).
+
+**What follows when the owner accepts it: T-148c3g.** Train the model on the whole dataset with `--final-all` (the 809 rows of
+both gold files and the 341 replay sentences, the grid setting, seed 4, **one run, no selection among runs**), then publish
+it as the candidate and score it once on the 180-text gold (T-148c4). One run of that command already exists (MLflow
+`final_all__e2_lr3e-05_s4`, unpublished); because GPU training is not bit-reproducible, the owner says whether that run
+is the candidate or the command is repeated after the acceptance. Until the amendment is accepted the task is blocked and
+the grid's `--final` run (450 rows, train slice only) stays the recorded D35 final run.
 
 ## Limits of these figures (read before using them)
 
