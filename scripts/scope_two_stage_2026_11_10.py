@@ -19,7 +19,10 @@ from collections import Counter
 from pathlib import Path
 
 import numpy as np
+from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,6 +36,7 @@ EMBEDDERS = {
     "BAAI/bge-base-en-v1.5": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
     "BAAI/bge-large-en-v1.5": "d4aa6901d3a41ba39fb536a557fa166f842b0e09",
 }
+PCA_COMPONENTS = (8, 16, 32, 64, 128)
 TOPIC = {"single": "company", "multi": "company", "sector": "sector"}
 
 
@@ -62,6 +66,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--features", type=Path, default=Path("data/scope_relevance_features.json"))
     parser.add_argument("--chars", type=int, default=800)
+    parser.add_argument(
+        "--pca",
+        action="store_true",
+        help="PCA on the embedding; components and C chosen by 5-fold CV on the 284 only",
+    )
     parser.add_argument("--embedder", choices=sorted(EMBEDDERS), default="BAAI/bge-small-en-v1.5")
     args = parser.parse_args()
     sets = {}
@@ -83,9 +92,32 @@ def main() -> None:
     vec = embed([feat.fragment(r, args.chars) for r in train + test], args.embedder)
     e_tr, e_te = vec[: len(train)], vec[len(train) :]
     # stage A: topic
-    a_model = LogisticRegression(max_iter=3000, C=10.0).fit(
-        e_tr, [topic(r["scope"]) for r in train]
-    )
+    y_topic = [topic(r["scope"]) for r in train]
+    if args.pca:
+        # no label is used by PCA, and it is fitted inside each fold; components and C are chosen by cross-validated
+        # topic accuracy on the 284, and the 200 are scored once with the winner
+        folds = StratifiedKFold(5, shuffle=True, random_state=1)
+        grid = [(k, c) for k in PCA_COMPONENTS for c in (1.0, 10.0)]
+        cv = {
+            g: cross_val_score(
+                make_pipeline(PCA(g[0], random_state=1), LogisticRegression(max_iter=3000, C=g[1])),
+                e_tr,
+                y_topic,
+                cv=folds,
+            ).mean()
+            for g in grid
+        }
+        k, c = max(cv, key=lambda g: cv[g])
+        print(
+            "cross-validated topic accuracy on the 284 (components, C):",
+            {g: round(v, 3) for g, v in cv.items()},
+        )
+        print(f"chosen: {k} components, C = {c}")
+        a_model = make_pipeline(PCA(k, random_state=1), LogisticRegression(max_iter=3000, C=c)).fit(
+            e_tr, y_topic
+        )
+    else:
+        a_model = LogisticRegression(max_iter=3000, C=10.0).fit(e_tr, y_topic)
     a_pred = [str(p) for p in a_model.predict(e_te)]
     # stage B: single or multi, trained on the company bodies only
     company = np.array([topic(r["scope"]) == "company" for r in train])
