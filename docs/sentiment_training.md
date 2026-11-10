@@ -11,15 +11,17 @@ page are the recorded runs of the export below; they do **not** cover the 13 exp
 (`scripts/export_sentiment_training_results_2026_11_10.py`); the relevance experiment was run twice on 2026-11-10 (the
 rerun reproduced the first figures exactly), so each of its runs appears twice there, with its own start time; the `recorded` column is `yes` for the earliest run of each
 name, the one this page quotes.
-Nothing here is pinned or published: the
-pin is decided only on the 180-text gold (T-148c4) and only with the owner's word.
+**Selected (owner, 2026-11-10): the final model is the pair model trained from `gamug/FinBERT-financial-news` on every
+tagged row, stacked with the relevance model** ("The decision", below). Nothing here is pinned or published yet: the
+pin is decided on the 180-text gold (T-148c4), by the rule of D35, on the published revision.
 
 ## The history: how we arrived at the final model
 
 This section tells the story in order, with the databases, the assumptions and the metrics of each step. The sections
 after it are the detail and the figures; the numbers here are the ones they give. "The final model" is, at the end of
 the story, **the sentiment pair model trained on every tagged row, and, on top of it, a relevance model combined with it
-(a "stack")**; the first is built and recorded, the second is proposed and cross-validated, and nothing is pinned.
+(a "stack")**; the first is built and recorded, the second is cross-validated but not built, and nothing is pinned.
+The owner selected it on 2026-11-10; "The decision" at the end of this section says why and what is left.
 
 ### How the tags were made (read this before any figure)
 
@@ -48,7 +50,7 @@ later tags, which are read as made under the same rule. What the earlier sentenc
 
 | Set | Where | What it is | Size | Labelled by and how | Used for |
 |---|---|---|---|---|---|
-| Sentence pool (silver) | `data/sentiment_finetune/`, git-ignored | sentences from the project's own articles | 5,800 merged, 3,865 after balancing (1,321 negative / 1,321 neutral / 1,223 positive) | an LLM (DeepSeek), one sentence at a time, price-impact view, **not tied to a company**; silver, not human | trained the pinned model; the **replay** of every pair run |
+| Sentence pool (silver) | `data/sentiment_finetune/`, git-ignored | sentences from the project's own articles | 5,800 merged, 3,865 after balancing (1,321 negative / 1,321 neutral / 1,223 positive) | an LLM (DeepSeek), one sentence at a time, price-impact view, **not tied to a company**; silver, not human, **not part of the 855 tags** | trained the pinned model (the starting point of every pair run); the source of the **replay** (next rows) |
 | 180-text gold | `gold/sentiment_gold.csv` | the pipeline's own texts: summaries and company texts (120) and extractor texts (60) | 180 | the owner, company-anchored | the exam of D32 and the pin; never tuned on; **not scored in this story** (T-148c4) |
 | Training set 1 | `gold/sentiment_train.csv` | summaries, 450 in 3 batches of 150, **150 per class the pinned model predicted** | 450 (232 positive / 113 negative / 105 neutral); 424 read as a pair | the owner, company-anchored | train (341) and validation (83) |
 | Training set 2 | `gold/sentiment_train_2.csv` | summaries, the same design, 135 per predicted class | 405 (178 / 116 / 111); 385 read as a pair | the owner, company-anchored | all of it, by cross-validation (the 270/135 slice split is the assistant's, T-148c3f) |
@@ -142,9 +144,24 @@ shuffled-relevance control (20 shuffles) adds at most +0.005 to the stack, so th
 
 **7. Where it stops.** The sentiment pair model on every row (`--final-all`, one run, seed 4) is the model to
 propose; the stack is not built (no final relevance model, nothing in `sentiment_stage`), its evaluation is not
-strictly nested, and **no figure of this story is held-out**. The pin is decided only on the 180-text gold with the
-owner's word (T-148c4), by the rule of D35 (3), (4), (7). The amendment of D35 to train on all rows is for the owner
-to accept ("Amendment to D35", below); **once it is accepted, T-148c3g trains the model on the whole dataset** (see there).
+strictly nested, and **no figure of this story is held-out**. The pin is decided on the 180-text gold, by the rule
+of D35 (3), (4), (7) (T-148c4). The amendment of D35 to train on all rows is accepted (owner, 2026-11-10, "Amendment to
+D35", below), so T-148c3g trains the model on the whole dataset (see there).
+
+### The decision (owner, 2026-11-10)
+
+**Final model: the pair model started from the project's own endpoint `gamug/FinBERT-financial-news`, trained on all
+809 rows plus the 341 replay sentences, stacked with the fine-tuned relevance model.** Why this one, in figures (nested,
+weighted, not held-out): the stack scores **0.814** against 0.737 for the sentiment model alone and 0.648 for the
+pinned text-only model; neutral precision / recall 0.787 / 0.686 (0.634 / 0.442 alone); negative precision and recall
+0.747 / 0.748, above the D32 bar of 70% on cross-validation. The alternatives tried to improve it did not beat it: a larger replay
+(0.723), plain `ProsusAI/finbert` as the start (0.731 alone, 0.811 stacked: the same within noise), mention flags,
+thresholds and cues (0.737 to 0.740). From here the base case of every sentiment experiment includes the relevance
+model. What is left before a pin, in order: the final relevance model on the 809 rows and the strict nesting (T-148c3c);
+the stack in `sentiment_stage` (T-148c3d); the model on all rows as the candidate (T-148c3g); publishing both to the
+private Hub and scoring the 180-text gold once with the model and the stack (T-148c4); the pin in
+`config/pipeline_models.json` only if the rule of D35 passes on that score. The configuration is **not** changed by this
+selection: there is no published revision to pin yet.
 
 ## The recipe and the metric (unchanged)
 
@@ -297,7 +314,7 @@ are above the D32 bar (70%) for the stack, on the cross-validation.
 
 ## Amendment to D35 proposed for the owner
 
-(`PLAN.md` D35 points here; the owner has not accepted it.) 405 more marks (`gold/sentiment_train_2.csv`; 809 of the 855 read as a pair); the recipe is judged by 5-fold cross-validation over them (D37 figures: `docs/sentiment_training.md`), the model for the pin trains on all rows (`--final-all`, replay stays 341; a 809 replay scored worse); a relevance model plus stack (CV 0.814 against 0.737, not held-out) is proposed (T-148c3c/d); nothing is pinned (T-148c4); the 270/135 split of the new file is the assistant's (T-148c3f).
+(`PLAN.md` D35 points here; **accepted by the owner, 2026-11-10**.) 405 more marks (`gold/sentiment_train_2.csv`; 809 of the 855 read as a pair); the recipe is judged by 5-fold cross-validation over them (D37 figures: `docs/sentiment_training.md`), the model for the pin trains on all rows (`--final-all`, replay stays 341; a 809 replay scored worse); the relevance model plus stack (CV 0.814 against 0.737, not held-out) is selected as part of the final model (T-148c3c/d); nothing is pinned (T-148c4); the 270/135 split of the new file is the assistant's (T-148c3f).
 
 **Which D35 answers this amends, and which stand.** It amends **D35 (6)**, which the owner accepted: "the final run trains
 on the 360 train rows plus the replay, a fourth fixed seed". Proposed instead: the candidate is **one run** of the grid
@@ -311,12 +328,12 @@ gives less than the cross-validation (to be expected for a recipe tuned on these
 relevance model and the stack are in the same position: they are scored on the gold by the same rule before they are
 wired into `sentiment_stage` (T-148c3d).
 
-**What follows when the owner accepts it: T-148c3g.** Train the model on the whole dataset with `--final-all` (the 809 rows of
+**What follows now that the owner has accepted it: T-148c3g.** Train the model on the whole dataset with `--final-all` (the 809 rows of
 both gold files and the 341 replay sentences, the grid setting, seed 4, **one run, no selection among runs**), then publish
 it as the candidate and score it once on the 180-text gold (T-148c4). One run of that command already exists (MLflow
 `final_all__e2_lr3e-05_s4`, unpublished); because GPU training is not bit-reproducible, the owner says whether that run
-is the candidate or the command is repeated after the acceptance. Until the amendment is accepted the task is blocked and
-the grid's `--final` run (450 rows, train slice only) stays the recorded D35 final run.
+is the candidate or the command is repeated (the owner's choice; no selection among runs either way). The grid's `--final` run (450 rows, train slice
+only) stays the recorded run of the first D35 recipe.
 
 ## Limits of these figures (read before using them)
 
@@ -343,12 +360,14 @@ the grid's `--final` run (450 rows, train slice only) stays the recorded D35 fin
   seed spread and no alternative wording were measured. Its target is "the owner marked a direction", so it is
   built from the sentiment labels: it learns which texts the owner found neutral, which is the point, but it
   is not independent evidence about the sentiment.
-- **Class imbalance** of the tags was not addressed (no class weights, no resampling): T-148c3e.
+- **Class imbalance** of the tags (about 410 positive / 229 negative / 216 neutral of the 855) was not addressed (no class
+  weights, no resampling): T-148c3e. The metric already weights by pool size, and neutral's weakness is mostly the label
+  mixture, not its count, so the expected gain is small.
 - All figures are cross-validated on tags the recipe was tuned on; **none is a held-out score**.
 - Not done, with their TASKS entries: the final relevance model on the 809 rows and the strictly nested check
   of the stack (T-148c3c); the stack in `sentiment_stage`, its cost per article, what is stored when the two
   models disagree, and the score on the 180-text gold (T-148c3d, T-148c4); class weights (T-148c3e). Nothing
-  is pinned or published.
+  is pinned or published (selected by the owner, not yet built: "The decision").
 
 ## Reproduce
 
