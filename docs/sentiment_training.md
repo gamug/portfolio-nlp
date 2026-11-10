@@ -1,7 +1,8 @@
 # Sentiment training: the experiments after the pair trainer (PR #154)
 
 **Status: written 2026-11-10.** What was tried to improve the sentiment "pair" model after PR #154's grid, in
-the order it was tried, with the figures. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
+the order it was tried, with the figures. **It opens with the history** (how the tags were made, the databases, the
+assumptions, the metrics, and the story in seven steps); the sections after it are the detail. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
 experiment named in each section. The scripts that produced the figures are `scripts/*_2026_11_10.py`
 (exploratory, run once; they carry a file-level `ruff: noqa`). Tests cover the gold file (counts, slices, no shared key or
 body), `merge_marked`, `build_all_data`, the `--final-all` and `--models` options, and that the headline figures of this
@@ -12,6 +13,138 @@ rerun reproduced the first figures exactly), so each of its runs appears twice t
 name, the one this page quotes.
 Nothing here is pinned or published: the
 pin is decided only on the 180-text gold (T-148c4) and only with the owner's word.
+
+## The history: how we arrived at the final model
+
+This section tells the story in order, with the databases, the assumptions and the metrics of each step. The sections
+after it are the detail and the figures; the numbers here are the ones they give. "The final model" is, at the end of
+the story, **the sentiment pair model trained on every tagged row, and, on top of it, a relevance model combined with it
+(a "stack")**; the first is built and recorded, the second is proposed and cross-validated, and nothing is pinned.
+
+### How the tags were made (read this before any figure)
+
+What the owner tagged is **not the sentiment of the sentences. It is what a text says about one company.** Every row is
+a text (a summary of an article, a few sentences) **and a company** (`company`, `ticker`); the mark is the price impact
+an investor would read on **that company** (owner's rule, 2026-11-08, `docs/gold_datasets.md` set 6):
+
+- If the company is in the facts the text presents, the mark is the sentiment about it: positive, negative or neutral.
+- If the text gives **no fact about the company** (the company is absent, only mentioned in passing, or the facts are about
+  another company or the market), the mark is **neutral**, even when the text is strongly positive or negative about
+  something else. A positive sentence about another company does not make the text positive for this row.
+- The title is context, not ownership: it helps to know whether a text speaks about the company, but a sentence is the
+  company's because of what it says, not because the headline names the company.
+- Rows with no company (sector, market and economy texts, 26 + 20 of them) are tagged for that scope; the pair model
+  cannot read them and leaves them out.
+
+So "neutral" is **a mixture of two different things**: (a) the text states facts about the company that have no
+direction for its price, and (b) the text states no fact about the company. A model has to learn *relevance to the
+company* as well as *polarity*, and the weak class of this story (neutral) is where the two meet. Two limits of the
+record: the rule was given on 2026-11-08, after the first 450 marks were in, and whether it was followed on every row is
+not recorded (the owner's notes show the same practice, for instance "the company appears but the real fact is not
+about the company"; 37 of the 405 later rows carry a note, several of this kind); and no different instruction was recorded for the 405
+later tags, which are read as made under the same rule. What the earlier sentence labels are (below) is **not** this.
+
+### The databases
+
+| Set | Where | What it is | Size | Labelled by and how | Used for |
+|---|---|---|---|---|---|
+| Sentence pool (silver) | `data/sentiment_finetune/`, git-ignored | sentences from the project's own articles | 5,800 merged, 3,865 after balancing (1,321 negative / 1,321 neutral / 1,223 positive) | an LLM (DeepSeek), one sentence at a time, price-impact view, **not tied to a company**; silver, not human | trained the pinned model; the **replay** of every pair run |
+| 180-text gold | `gold/sentiment_gold.csv` | the pipeline's own texts: summaries and company texts (120) and extractor texts (60) | 180 | the owner, company-anchored | the exam of D32 and the pin; never tuned on; **not scored in this story** (T-148c4) |
+| Training set 1 | `gold/sentiment_train.csv` | summaries, 450 in 3 batches of 150, **150 per class the pinned model predicted** | 450 (232 positive / 113 negative / 105 neutral); 424 read as a pair | the owner, company-anchored | train (341) and validation (83) |
+| Training set 2 | `gold/sentiment_train_2.csv` | summaries, the same design, 135 per predicted class | 405 (178 / 116 / 111); 385 read as a pair | the owner, company-anchored | all of it, by cross-validation (the 270/135 slice split is the assistant's, T-148c3f) |
+| Replay as used | derived | the pool's sentences that **name their article's company**, read as pair with that company | 925 eligible of 3,865; 341 drawn | the LLM labels of the pool | mixed into every training set |
+
+The draws balance the classes the *pinned model predicted*, not the owner's classes (the owner never saw the
+prediction), so the owner's classes are not balanced and the figures need weights (below). No text of the gold or of the
+held-out set, by body hash or headline, is in any training set or in the replay.
+
+### The assumptions
+
+1. **The company anchor can be learned from the pair `company + text`.** The pinned model never saw the company; the pair
+   gives it the anchor of the tagging rule. (Tested only together with the fine-tuning: the trained pair model beats the pinned text-only model on the same texts,
+   0.737 against 0.648. The pinned model read as a pair, **without** training, agreed no better than read as text, 61.3%
+   against 60.9% on the validation slice, so the pair input alone does nothing.)
+2. **A labelled sentence that names the company is a fact about it.** The replay keeps the pool's sentences that name
+   the company (925 of 3,865: 2,915 do not name it) and reads them for that company. The labels are the LLM's
+   sentence-level reading, not the anchored rule, so a sentence that names company A and states a fact about B is
+   mislabelled for A. **Not tested.**
+3. **Replay keeps the sentence-level knowledge** while the model learns summaries (341 sentences: half of the grid's
+   examples, 341 of 682, and 30% of the model on all rows, 341 of 1,150). A larger replay (809) was tested and was not better (0.723 against 0.737).
+4. **"The company is not named, so neutral" is the rule's practical consequence.** Tested as a hard gate, a flag, a
+   threshold and a set of cues: it does not help, because three quarters of the neutral texts **do** name the company
+   (151 of 202).
+5. **The tags of two draws, by two prediction-balanced designs, can be pooled** with weights per draw and stratum.
+6. **Cross-validation over the tags stands in for a held-out score** when there are about 800 rows (the owner's call,
+   "crossvalidation is better given the lack of data"). It is an estimate of the recipe, not of one model, and it is
+   not an exam: the 180-text gold is.
+7. **Relevance ("is the text about this company") is what neutral lacks.** Read from the neutral misses (analyst or
+   broker actions, the company as a comparator or an incidental mention, tags that look wrong); a reading of 30 texts,
+   not a count. The relevance model's labels are derived from the tags (a direction means relevant, neutral means not),
+   so they carry the same mixture.
+
+### The metrics
+
+- **Agreement (accuracy)** was the headline of D32: 80% on the 180-text gold, and negative precision and recall of at
+  least 70%. It is kept as a description.
+- **From 2026-11-09 (D37, owner): precision, recall and ROC OVR per class**, nine figures; the **score** (selection) is
+  their mean. ROC OVR is the AUC of one class against the other two, from the model's probability of the class.
+- **Weighted.** The pool is not the sample: each text weighs *pool size of its predicted class / texts drawn from it*, per
+  draw (first draw pools 1,878 negative / 1,582 neutral / 2,540 positive, second 1,895 / 1,606 / 2,499). The figures
+  estimate the pool the draw came from.
+- **Intervals and gains:** bootstrap within strata (400 resamples in the cross-validation and the stack); a gain is **paired** (the same texts under two models)
+  and read as `better`, `not better` or `not decided` by its interval.
+- **Three evaluation protocols**, which are **not comparable with each other**: the 83 validation texts of training set 1
+  (a seed moves the score by 0.02 to 0.04), the 809-row 5-fold cross-validation twice (out-of-fold), and the nested
+  version of it for any rule fitted on predictions (gate, stack).
+
+### The story
+
+**1. The starting point.** The pinned `gamug/FinBERT-financial-news` is FinBERT fine-tuned on the silver sentence pool,
+and it scores chunks of a text and weighs them by the entity. On the 180-text gold, the owner's company-anchored marks,
+it agreed 60.4% [52.8, 67.6] against the 80% bar (D32). The recipe's condition to fine-tune on summaries was met (D26,
+D35). *Data: pool, 180 gold. Assumption: none yet. Metric: agreement.*
+
+**2. The owner tags 450 summaries; PR #154 builds the trainer.** The recipe (D35) fixed before any mark was read:
+the pair `company + summary`, from the pinned model, the 341 replay sentences, a grid of 27 runs (epochs 2, 3, 4;
+learning rate 1e-5, 2e-5, 3e-5; 3 seeds) chosen on the validation slice with a tie rule. It chose 2 epochs and 3e-5
+(score 0.646 to 0.668 over the grid), and the final run (seed 4) scored **0.678 [0.580, 0.768]** on the 83 validation
+texts: neutral recall only 0.20 to 0.44 across the seeds, negative precision under the bar (46%), the paired gain of the
+score over the pinned model `not decided` (only negative recall was `better`). *Data: set 1 and the replay. Assumptions 1, 2, 3. Metric: D37 on 83 texts.* The model was not
+good enough on the class the owner cared about, and the 83 texts could not say why.
+
+**3. Is it the company? Four cheap tests on the 83 texts.** The owner suspected the model did not give the company its
+weight, and proposed "company not named, so neutral". Tested as a hard gate (neutral recall 0.27 to 0.52, but neutral
+precision 0.47 to 0.38, score 0.678 to 0.664), as a flag in the input (0.673 against 0.671), as weights on the
+neutral and negative probabilities (0.699 against 0.671, not decided in 3 of 4 seeds), and with more data (the
+learning curve: +0.005 per quarter of the rows). *Assumption 4. Metric: score on 83 texts.* None fixed neutral, and
+the matcher of "named" was strict, so these were weak tests.
+
+**4. More tags, and cross-validation.** The owner tagged 405 more summaries (second draw, same design, same rule): 855
+rows, 809 read as a pair. A validation slice of 83 or even 135 texts is too small to judge a recipe, so the recipe is
+judged by **5-fold cross-validation over the 809 rows**, twice, out-of-fold. The recipe scored **0.737** against 0.648
+for the pinned model on the same texts (paired gain +0.089), with neutral precision 0.634 and **neutral recall still
+0.442**. *Data: sets 1 and 2. Assumptions 5, 6. Metric: weighted D37 on 809 texts.*
+
+**5. Looking at what neutral is.** The same tests on the larger evaluation (a mention flag at two levels, a neutral
+prior fitted on out-of-fold predictions) gave nothing (score 0.737 to 0.740; 0.74), and the error analysis counted
+where the company is named: of the 202 neutral texts, 151 name it in the summary, and the model recalls 56% of
+those and 11% of the ones named only in the body. So **the miss is not "the company is absent"**: the model hears a
+company and a polarity and does not tell whether the text is *about* the company. *Assumption 7.*
+
+**6. A relevance model.** A zero-shot reading of the category stage's NLI model ("this text is mainly about
+<company>") already ranks relevant above neutral texts (AUC 0.743, the best of nine variants; the sentiment model's own
+ranking is 0.795). Fine-tuned on the tags the same way (relevant = the owner marked a direction), with the same
+folds, its out-of-fold AUC is **0.90**. Combined with the sentiment model, nested: a **gate** (neutral when relevance is
+under a threshold) scores **0.789** and a **stack** (logistic regression on the sentiment log-probabilities and the
+relevance) **0.814**, with neutral precision 0.787 and recall 0.686 and negative precision and recall near 0.75. A
+shuffled-relevance control (20 shuffles) adds at most +0.005 to the stack, so the gain is the relevance information's.
+*Metric: nested weighted D37 on 809 texts.*
+
+**7. Where it stops.** The sentiment pair model on every row (`--final-all`, one run, seed 4) is the model to
+propose; the stack is not built (no final relevance model, nothing in `sentiment_stage`), its evaluation is not
+strictly nested, and **no figure of this story is held-out**. The pin is decided only on the 180-text gold with the
+owner's word (T-148c4), by the rule of D35 (3), (4), (7). The amendment of D35 to train on all rows is for the owner
+to accept ("Amendment to D35", below).
 
 ## The recipe and the metric (unchanged)
 
