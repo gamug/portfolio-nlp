@@ -1,6 +1,6 @@
 """Feasibility of T-147 (PLAN D40): how far does a title alone get on the scope?
 
-    uv run python scripts/scope_title_baseline_2026_11_10.py [--body-chars N]
+    uv run python scripts/scope_title_baseline_2026_11_10.py [--body-chars N] [--company-features]
 
 A TF-IDF (1-2 grams) + logistic regression on the **title** only, trained on ``gold/category_gold_v2.csv`` (284) and
 scored on ``gold/category_gold_v2_test.csv`` (200, never trained on). ``market_economy``, ``investing_general`` and
@@ -8,23 +8,29 @@ scored on ``gold/category_gold_v2_test.csv`` (200, never trained on). ``market_e
 read in the same four classes. Every figure is **weighted to the corpus** (``stratum`` / ``frame`` of the 200, the same
 weights and the same seeded bootstrap as ``report_wi18 scope --gold``), with its 95% interval, and the plain agreement
 is printed beside it. With ``--body-chars N`` the model also reads the first N characters of the body (owner,
-2026-11-10: title plus the first lines). This is a floor for the pinned model of T-147, not the model.
+2026-11-10: title plus the first lines). With ``--company-features`` the model also gets the number of distinct universe companies the matcher finds in the
+title, in the first N characters (default 600) and in the whole body (``gold/universe.csv``, whose SHA-256 is printed),
+as capped counts: what tells ``single`` from ``multi``. This is a floor for the pinned model of T-147, not the model.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import numpy as np
+from scipy.sparse import csr_matrix, hstack
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from news_nlp import gold_metrics, triage
+from news_nlp.triage import Company
 
 GOLD = Path("gold")
 LABELS = ("single", "multi", "sector", "out_of_scope")
@@ -61,6 +67,30 @@ def load(marks: str, texts: str, body_chars: int = 0) -> tuple[list[dict[str, st
     return rows, [by_key[(r["article_id"], r["ticker"])] for r in rows]
 
 
+CAP = 4  # counts above this are one bucket
+
+
+def universe_resolver() -> tuple[triage.CompanyResolver, str]:
+    path = GOLD / "universe.csv"
+    rows = read(path)
+    companies = [Company(r["ticker"], r["company"], r["gics_sector"], "") for r in rows]
+    return triage.CompanyResolver(companies), hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def company_features(
+    resolver: triage.CompanyResolver, rows: Sequence[Mapping[str, str]], texts: str, first: int
+) -> csr_matrix:
+    """One-hot of the capped number of distinct companies in the title, the first *first* characters and the body."""
+    by_key = {(r["article_id"], r["ticker"]): r for r in read(GOLD / "texts" / texts)}
+    out = np.zeros((len(rows), 3 * (CAP + 1)))
+    for i, row in enumerate(rows):
+        src = by_key[(row["article_id"], row["ticker"])]
+        parts = (src["title"], src["text"][:first], src["text"])
+        for j, part in enumerate(parts):
+            out[i, j * (CAP + 1) + min(len(resolver.resolve(part)), CAP)] = 1.0
+    return csr_matrix(out)
+
+
 def lines(name: str, rows: Sequence[Mapping[str, str]], predicted: Sequence[str]) -> list[str]:
     populations: dict[str, int] = {}
     for r in rows:
@@ -91,14 +121,24 @@ def main() -> None:
     csv.field_size_limit(sys.maxsize)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--body-chars", type=int, default=0)
-    chars = parser.parse_args().body_chars
+    parser.add_argument("--company-features", action="store_true")
+    args = parser.parse_args()
+    chars = args.body_chars
     train, x_train = load("category_gold_v2.csv", "category_gold_v2_texts.csv", chars)
     test, x_test = load("category_gold_v2_test.csv", "category_gold_v2_test_texts.csv", chars)
     vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
-    model = LogisticRegression(max_iter=2000, C=5).fit(
-        vec.fit_transform(x_train), [merged(r["scope"]) for r in train]
-    )
-    title_pred = [str(p) for p in model.predict(vec.transform(x_test))]
+    a_train, a_test = vec.fit_transform(x_train), vec.transform(x_test)
+    if args.company_features:
+        resolver, digest = universe_resolver()
+        print(f"universe sha256 {digest}")
+        a_train = hstack(
+            [a_train, company_features(resolver, train, "category_gold_v2_texts.csv", 600)]
+        ).tocsr()
+        a_test = hstack(
+            [a_test, company_features(resolver, test, "category_gold_v2_test_texts.csv", 600)]
+        ).tocsr()
+    model = LogisticRegression(max_iter=2000, C=5).fit(a_train, [merged(r["scope"]) for r in train])
+    title_pred = [str(p) for p in model.predict(a_test)]
     rules_pred = [merged(triage.RULE_SCOPE_TO_GOLD[r["stratum"]]) for r in test]
     single = ["single"] * len(test)
     for name, pred in (

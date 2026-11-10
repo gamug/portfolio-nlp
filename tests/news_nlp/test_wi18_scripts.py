@@ -4024,3 +4024,21 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     with pytest.raises(SystemExit, match="needs HF_TOKEN"):
         PUBLISH.main()
+
+
+def test_the_company_features_count_distinct_universe_companies_per_part() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    resolver, digest = baseline.universe_resolver()
+    assert len(digest) == 64
+    rows = [{"article_id": "1", "ticker": "AAPL"}]
+    texts = Path(__file__).resolve().parents[2] / "gold" / "texts"
+    first = next(csv.DictReader((texts / "category_gold_v2_texts.csv").open(encoding="utf-8")))
+    feats = baseline.company_features(
+        resolver,
+        [{"article_id": first["article_id"], "ticker": first["ticker"]}],
+        "category_gold_v2_texts.csv",
+        600,
+    )
+    assert feats.shape == (1, 3 * (baseline.CAP + 1))
+    assert feats.sum() == 3
+    assert rows

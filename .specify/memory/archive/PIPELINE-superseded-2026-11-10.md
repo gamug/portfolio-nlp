@@ -577,3 +577,17 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
 | **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. **Superseded for the new pipeline (PLAN D39, FR-020): a summary is made for each `single` and `sector` body and for each sub-news over a size, before sentiment, with no entity gate; this FR describes the v1 stage until the backfill (T-150).** | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
 ```
+
+
+## Twelfth cut (T-147 matcher-features line, long form)
+
+```
+      - **Title + matcher features (measured 2026-11-10, `--company-features`, universe SHA-256 `2c127242...ed55d3`, one run, not tuned on the 200):** title text + one-hot of the number of distinct universe companies in the title, in the first 600 characters and in the body (capped at 4): **66.9% [60.2, 73.4]** weighted. Level with the title alone (66.4%) and the rules (68.2%); `multi` recall 59.8% [48.7, 71.9] (title alone 51.0%, rules 52.5%), `single` 79.4%, `sector` 17.9% (9 gold), `out_of_scope` 34.3%. The company count helps `multi` a little and costs `sector`; the bar (90%) is not near. **Owner to decide again:** (a) a stronger model (an encoder) on title + counts, (c) more tags, (d) the rules with their error shown; (b) is now measured twice and does not gain.
+```
+
+
+### T-147 title + first lines, long form
+
+```
+      - **Title + first lines (measured 2026-11-10, same script, `--body-chars N`, TF-IDF + logistic regression, weighted):** N = 300: 65.7% [58.9, 72.9] (`multi` recall 32.2%); N = 600: 62.5% [55.4, 69.8]; N = 1500: 57.1% [49.7, 64.2]. No gain over the title alone (66.4%): the body text dilutes the title with 284 training rows.
+```
