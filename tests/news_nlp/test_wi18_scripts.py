@@ -4024,3 +4024,23 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     with pytest.raises(SystemExit, match="needs HF_TOKEN"):
         PUBLISH.main()
+
+def test_the_rare_scope_set_is_tagged_and_has_its_texts() -> None:
+    """Owner, 2026-11-10: 51 bodies drawn by rules for sector and out-of-scope (set 7), tracked with their texts."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+    with (gold / "scope_enrich.csv").open(encoding="utf-8", newline="") as fh:
+        marks = list(csv.DictReader(fh))
+    with (gold / "texts" / "scope_enrich_texts.csv").open(encoding="utf-8", newline="") as fh:
+        texts = list(csv.DictReader(fh))
+    assert len(marks) == len(texts) == 51
+    assert {r["article_id"] for r in marks} == {r["article_id"] for r in texts}
+    assert Counter(r["scope"] for r in marks)["sector"] == 27
+    assert all(r["scope"] for r in marks) and all(r["text"].strip() for r in texts)
+    with (gold / "category_gold_v2_test.csv").open(encoding="utf-8-sig", newline="") as fh:
+        held_out = {r["article_id"] for r in csv.DictReader(fh)}
+    with (gold / "category_gold_v2.csv").open(encoding="utf-8-sig", newline="") as fh:
+        train = {r["article_id"] for r in csv.DictReader(fh)}
+    assert not {r["article_id"] for r in marks} & (
+        held_out | train
+    )  # none of the 484 is drawn again

@@ -1,0 +1,52 @@
+article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,rule
+88810,scope_enrich,GOOGL,market_economy,,,,,market
+92553,scope_enrich,AMZN,sector,,,"50, 25",,sector:Information Technology
+94971,scope_enrich,AMZN,single,Drift:product_innovation,,,,sector:Utilities
+114510,scope_enrich,AAPL,market_economy,,,,,market
+132172,scope_enrich,BAC,sector,,,4010,,sector:Financials
+158699,scope_enrich,BKNG,sector,,,203020,,sector:Industrials
+182224,scope_enrich,DAL,sector,,,203020,,sector:Industrials
+231150,scope_enrich,FLEX,investing_general,,,,,market
+246630,scope_enrich,GE,single,GE:earnings_performance,,,,sector:Energy
+246930,scope_enrich,GE,single,GE:market_analyst_sentiment,,,,market
+252093,scope_enrich,GM,sector,,,2510,,sector:Consumer Discretionary
+265496,scope_enrich,GS,sector,,,4010,,sector:Financials
+278362,scope_enrich,HD,sector,,,301010,,sector:Consumer Discretionary
+295570,scope_enrich,JPM,single,JPMorgan Chase:labor_human_capital,,,,no_company
+295586,scope_enrich,JPM,sector,,,4530,,sector:Information Technology
+295710,scope_enrich,JPM,market_economy,,,,,economy
+295723,scope_enrich,JPM,sector,,,4010,,sector:Financials
+295745,scope_enrich,JPM,multi,"Cullen Frost:product_innovation, Cullen Frost:market_analyst_sentiment, Live Oak Bank:product_innovation, Live Oak Bank:market_analyst_sentiment",,,,sector:Financials
+295930,scope_enrich,JPM,single,JPMorgan Chase:legal_regulatory,,,,no_company
+295983,scope_enrich,JPM,sector,,,1010,,sector:Energy
+296063,scope_enrich,JPM,sector,,,4010,,sector:Financials
+296370,scope_enrich,JPM,market_economy,,,,,economy
+296442,scope_enrich,JPM,sector,,,4010,,sector:Financials
+296444,scope_enrich,JPM,sector,,,4010,,sector:Financials
+296514,scope_enrich,JPM,sector,,,4010,,sector:Financials
+296580,scope_enrich,JPM,sector,,,4030,,sector:Financials
+296709,scope_enrich,JPM,single,"American Airlines:investor_activity, American Airlines:market_analyst_sentiment",,,,sector:Industrials
+296850,scope_enrich,JPM,single,"META:product_innovation, META:market_analyst_sentiment",,,,no_company
+297159,scope_enrich,JPM,sector,,,4010,,sector:Financials
+297370,scope_enrich,JPM,single,JPMorgan Chase:legal_regulatory,,,,market
+297710,scope_enrich,JPM,single,JPMorgan:mergers_acquisitions,,,,economy
+301542,scope_enrich,KIM,sector,,,3010,,sector:Consumer Discretionary
+313610,scope_enrich,MAS,market_economy,,,,,economy
+414565,scope_enrich,PFE,sector,,,4010,,sector:Financials
+422175,scope_enrich,RL,sector,,,3010,,sector:Consumer Discretionary
+432785,scope_enrich,SPG,sector,,,3010,,sector:Consumer Discretionary
+465069,scope_enrich,UBER,sector,,,"50, 25",,sector:Information Technology
+468176,scope_enrich,UAL,single,United Airlines:labor_human_capital,,,,sector:Industrials
+468242,scope_enrich,UAL,sector,,,203020,,sector:Industrials
+468418,scope_enrich,UAL,sector,,,203020,,sector:Industrials
+475586,scope_enrich,V,unrelated,,,,,sector:Information Technology
+483310,scope_enrich,WY,market_economy,,,,,economy
+1074630,scope_enrich,GOOGL,single,Alphabet:labor_human_capital,,,,no_company
+1074950,scope_enrich,GOOGL,single,Alphabet:product_innovation,,,,no_company
+1075010,scope_enrich,GOOGL,sector,,,"45301020, 45202030, 45102030, 50203010, 45103010, 45103020",,no_company
+1076650,scope_enrich,GOOG,single,Alphabet:product_innovation,,,,economy
+1082585,scope_enrich,XYZ,single,American Airlines:legal_regulatory,,,,sector:Industrials
+1101210,scope_enrich,NDAQ,market_economy,,,,,market
+1110060,scope_enrich,TSLA,sector,,,2510,,sector:Consumer Discretionary
+1111526,scope_enrich,TSLA,sector,,,2510,,sector:Consumer Discretionary
+1111560,scope_enrich,TSLA,sector,,,2510,,sector:Consumer Discretionary

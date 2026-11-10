@@ -635,3 +635,12 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Owner's two-stage route (2026-11-10, `scope_two_stage_2026_11_10.py --embedder`):** topic by embeddings (company / sector / not_related), then single or multi on companies. Weighted: bge-small **71.3%** [65.0, 77.8], bge-base **74.5%** [68.3, 80.3], bge-large **70.7%** [64.1, 77.2]: size does not help in a line (noise about 3 points; base chosen after seeing three on the same 200). Base: `single` 83%, `multi` 67%, `sector` 36% (9 gold), `out_of_scope` 60%. Stage B 84% on true company bodies. Learning curve flat from 71 rows to 284 (more labels of this kind do not help); PCA on the embedding (`--pca`, 64 components chosen by CV) gives 72.0%, no gain: cross-validated topic accuracy 0.761 with PCA, 0.747 without.
 ```
+
+
+### T-147 NLI and rare-scope bullets, long forms
+
+```
+      - **NLI for the topic stage (`scope_nli_topic_2026_11_10.py`, the category model, no embeddings):** zero-shot topic accuracy 0.84 (end to end 72.4%); fine-tuned on the 284: 0.85, **73.4% [66.9, 79.7]**, `sector` 64% (9), `out_of_scope` 56%. Same level as the embeddings: the topic ceiling is ~0.85 and stage B (84%) caps the rest.
+      - **NLI for single or multi (`scope_nli_single_multi_2026_11_10.py`, 165 true company bodies of the 200, plain):** current 84.2% (multi recall 31/47); zero-shot 73%; **fine-tuned NLI 800 chars 90.9%** (single 111/118, multi 39/47, precision 85%); zero-shot + relevance features 2,000 chars 91.5% (multi 36/47). Seven variants tried on the same 165, no paired test yet.
+      - **To measure the rare scopes (owner, 2026-11-10):** `draw_scope_enrich_2026_11_10.py` drew 51 untagged bodies (33 sector, 18 out_of_scope candidates by rules) into `data/scope_enrich_to_tag.csv` (Spanish columns); the owner tags `scope`; reported apart (class-conditional recall, unweighted), to reach the 40 gold bodies of D33.
+```
