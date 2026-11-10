@@ -2201,4 +2201,4 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 
 ### Work item 18 — T-148c3g, the sentiment model on every row (moved from `TASKS.md`, 2026-11-10)
 
-- [x] **T-148c3g** *(done 2026-11-10; the owner chose the existing run as the candidate)* The sentiment pair model trained on the whole dataset: `--final-all`, 809 rows + 341 replay, seed 4, one run (MLflow `final_all__e2_lr3e-05_s4`), not repeated, so there is no selection among runs. Published private as `gamug/FinBERT-company-sentiment@1d1942be` with the stack file (T-169, #164). The gold score is T-148c4.
+- [x] **T-148c3g** *(done 2026-11-10; the owner chose the existing run as the candidate)* The sentiment pair model trained on the whole dataset: `--final-all`, 809 rows + 341 replay, seed 4, one run (MLflow `final_all__e2_lr3e-05_s4`), not repeated, so there is no selection among runs. Published private as `gamug/FinBERT-company-sentiment@9a7b1eb3` with the stack file (T-169, #164). The gold score is T-148c4.

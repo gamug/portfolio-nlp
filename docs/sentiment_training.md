@@ -172,8 +172,8 @@ are those of "The assumptions" above):
 
 | Model | Repository @ revision | What it is |
 |---|---|---|
-| Sentiment (pair + stack file) | `gamug/FinBERT-company-sentiment@1d1942be4c756ffbcd8e33e768c4341839032d98` | the run `final_all__e2_lr3e-05_s4` (start `gamug/FinBERT-financial-news@93863fcb`, 809 rows + 341 replay, 2 epochs, lr 3e-5, seed 4), plus `sentiment_stack.json` |
-| Relevance | `gamug/deberta-v3-company-relevance@1631bdace27245a793792d398fdfb05e3a79bff9` | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5` fine-tuned on the 809 rows (3 epochs, lr 2e-5, batch 16, seed 1; `scripts/final_models_2026_11_10.py relevance`) |
+| Sentiment (pair + stack file) | `gamug/FinBERT-company-sentiment@9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e` | the run `final_all__e2_lr3e-05_s4` (start `gamug/FinBERT-financial-news@93863fcb`, 809 rows + 341 replay, 2 epochs, lr 3e-5, seed 4), plus `sentiment_stack.json` |
+| Relevance | `gamug/deberta-v3-company-relevance@8812c8bc551158f5aa6a9fc3f4ae1895e904e972` | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5` fine-tuned on the 809 rows (3 epochs, lr 2e-5, batch 16, seed 1; `scripts/final_models_2026_11_10.py relevance`) |
 
 - **The sentiment model is the run that already existed** (the owner had left open whether to repeat it; it was not repeated,
   so there is no selection among runs). The relevance run is new, one run, seed 1, not logged to MLflow (its
@@ -185,14 +185,14 @@ are those of "The assumptions" above):
   final model has a held-out score, and **the 180-text gold has not been scored** (T-148c4: once, with the model and the stack
   together, on these revisions). The final models are more confident than the fold models the stack was fitted on (the
   smoke test gives 0.99 on clear cases); the effect on the stack is not measured. **It is the main risk of the stack, so
-  the gold run of T-148c4 starts with a check** (proposed to the owner; it is also in the T-148c4 entry): the mean of
+  the gold run of T-148c4 starts with a check** (accepted by the owner, 2026-11-10; it is also in the T-148c4 entry): the mean of
   the largest class probability of the sentiment model on the 180 texts, computed before their marks are read, against
   0.862, the same mean over the 1,618 out-of-fold scores the stack saw. "Clearly more confident" = higher by more than 0.05
   (above 0.912); then the report says so beside the score and the stack is read with that caveat. The gold is a different
   set of texts, so a difference is a warning, not a measurement.
 - **Strict nesting: not done.** T-169 (a) asked for it. The cards' "nested" is the earlier evaluation (the stack's
   coefficients fitted on 4/5 of the out-of-fold rows and applied to the other 1/5); the final relevance model had no
-  check of its own, and it saw every row. T-148c3c stays open for it.
+  check of its own, and it saw every row. **Owner, 2026-11-10: accepted as a limit of the gold score, to be stated beside it; T-148c3c stays open as optional, after T-148c4.**
 - **Reproduce.** `relevance` needs a GPU and only tracked files (the 809 rows are the tracked rows with `rule_scope`
   `single` or `multi_dominated`); the published run used the key order of the out-of-fold file (`--order-of`). **Repeated on the GPU on 2026-11-10 with
   `--order-of`: bit-identical** (`model.safetensors` sha256 `3389d6f2e736018edd33c53c902ee6dd4a0cfcba6718e0c645721d2f1e61515f`
@@ -209,12 +209,12 @@ are those of "The assumptions" above):
 - **Licences.** Relevance: `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` is `mit` (checked on the Hub, 2026-11-10), so `mit`.
   Sentiment: `ProsusAI/finbert` is `cc-by-nc-sa-4.0` and `gamug/FinBERT-financial-news` (a continued fine-tune of it) is
   `cc-by-nc-4.0`; a further fine-tune of a share-alike work should carry the same share-alike, so the script now writes
-  `cc-by-nc-sa-4.0`. **The card on the Hub still says `cc-by-nc-4.0`, and the corrections above (licence, "three quarters",
-  universe) reach the Hub only with a new upload, which changes the revision; that waits for the owner's word.**
-  **Which text is live:** the `README.md` on the Hub at the published revisions was fetched on 2026-11-10: sentiment sha256
-  `5ae8268c8ad697e98c8940020cfc994e6e368329e2fe5247766b4a30b609cecd`, relevance `451b6cb9a512a9d7ce4315bfb9d17b0938663436fc4ce50e2bb503adae025c21`.
-  Both equal the cards the script generated at commit `fb28eb4`, not the current script's (which are the next upload); the
-  hashes are also in `config/published_models.json`, and the script records the hash of every card it uploads.
+  `cc-by-nc-sa-4.0`. **The corrections above (licence, "three quarters", universe) were uploaded on 2026-11-10 with the owner's word:
+  a second revision of each repository (the table above); the weights are the same files as in the first upload (LFS
+  sha256 compared), both repositories are still private (anonymous request: 401), and `sentiment_stack.json` on the Hub equals the tracked one.**
+  **Which text is live:** the `README.md` at the first revisions (`1d1942be`, `1631bdac`) was the script's text of commit
+  `fb28eb4` (sha256 `5ae8268c…cecd` and `451b6cb9…5c21`); at the revisions in the table it is the current script's
+  (sentiment `7ff6111f…d9c6`, relevance `a85c9a4d…1bf8`, fetched from the Hub). The hashes are in `config/published_models.json`.
   The owner should also decide whether `gamug/FinBERT-financial-news` itself needs its licence corrected; this PR does not
   touch it. The repositories are private; nothing is public.
 - **Smoke test** (3 examples, local and from the Hub at these revisions): the stack turns a positive text about another company
