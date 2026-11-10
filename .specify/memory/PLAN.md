@@ -202,7 +202,7 @@ article were about that ticker. Round-ups, sector and macro news have no correct
 D11 the unit is the unique article body (body hash), its subjects found in the content; D12 LLMs
 only label and evaluate, the pipeline keeps local pinned models (constitution AI #1/#2); D13 GICS
 sector + sub-industry; D14 the knowledge graph keeps per-(asset, day) signals, sector news feeds the
-weekly `sector_summary`, market and economy news become `MARKET` / `ECONOMY` rows there; D15 the
+weekly `sector_summary`, market and economy news are out of the MVP (D39); D15 the
 per-(body, company) taxonomy is the 9 labels + `reputational_harm`, `competitive_actions`,
 `investor_activity`, `peer_comparison`, with `other` (company content that fits none of the 13
 labels; settled 2026-10-29: the investing news about no company that D15 first named is the scope
@@ -221,9 +221,7 @@ only at >= 90% corpus-weighted agreement with the owner's held-out gold on all b
 recall >= 80% for each of the six scopes (including a random sample of ~60 bodies the prefilter misses, Q9), both judged on the point estimate with the 95% interval reported
 (at 40 bodies the per-scope interval is about +/-13 points; D33 amends: a scope with fewer than 40 gold bodies is reported with its interval, not gated); D21 each
 training round sends a stratified sample of about 300 low-confidence bodies to the owner for tagging
-(active learning); D22 six scopes (the MVP handles three, D39): single company, several companies, sector, market / economy,
-`investing_general` (investing or market-advice content about no company and no sector, the owner's
-`other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`; D23 a
+(active learning); D22 six scopes (the MVP handles single, multi and sector; market / economy, `investing_general` and `unrelated` stop after the scope, D39); D23 a
 body where one company holds more than half of the subject mentions is *single + mentions*: scope
 single on the dominant company, the others stored as mentions only; (the gold v2 defines analysed vs mention by content, a sentence of its own, `docs/labelling-spec-v2.md`; the >50% count is the automatic rules' feature) D24 P4 (per-company category) and
 P5 (sector sub-industry) are each accepted at >= 80% agreement with the owner's held-out gold (the

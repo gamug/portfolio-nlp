@@ -186,3 +186,17 @@ documented; SPEC gains one FR per behaviour shipped.
         prefiltered by custom rules, 50 of them checked by the owner first (Q6), ~60 random bodies from
         outside the filter (Q9), about 50 held-out bodies tagged twice (Q4)) is not what was drawn.*
 
+
+## Out of the MVP (market, economy, investing_general, unrelated; D39)
+
+PLAN.md D14 clause: market and economy news become `MARKET` / `ECONOMY` rows there;
+
+PLAN.md D22 clause: D22 six scopes (the MVP handles three, D39): single company, several companies, sector, market / economy,
+`investing_general` (investing or market-advice content about no company and no sector, the owner's
+`other` tag: no per-company analysis, summarised in the `MARKET` row of `sector_summary`) and `unrelated`;
+
+TASKS.md T-146e1 (verbatim):
+
+      - [ ] **T-146e1** Prefilter rules for sector / market-economy / unrelated / `investing_general`
+        (tests; measured on gold v2); the same candidates feed T-146d's oversampling.
+
