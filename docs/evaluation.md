@@ -2405,6 +2405,9 @@ of scope, since it's deterministic composition (§9/§13, `SPEC.md`).
 > the nine figures of the three classes; the pin rule reads their paired gain). **Accuracy (agreement) is a
 > description, not a selection metric.** The `headline metric` column below is the older judge-based
 > headline of this module and is not a selection rule; where the two disagree, D37 decides.
+>
+> The experiments after the pair trainer (cross-validation over all tags, the relevance model and the
+> stack) and their figures are in `docs/sentiment_training.md`.
 
 Every run also logs `n` (rows judged) and `parse_fail_rate` (judge replies that
 were not valid JSON after one repair attempt — excluded from the accuracy
