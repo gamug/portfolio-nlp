@@ -3694,9 +3694,10 @@ def test_the_scope_title_baseline_merges_the_out_of_scope_classes_and_names_a_mi
 
 
 def test_the_title_baseline_adds_the_first_characters_of_the_body_only_when_asked(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     baseline = _script("scope_title_baseline_2026_11_10")
+    monkeypatch.setattr(baseline, "GOLD", tmp_path)
     (tmp_path / "texts").mkdir()
     (tmp_path / "texts" / "t.csv").write_text(
         "article_id,ticker,title,text\n1,A,Title,abcdefghij\n", encoding="utf-8"
