@@ -3914,3 +3914,82 @@ def test_the_hashes_of_the_stack_inputs_are_those_of_the_files_in_name_order(
     )
     FINAL.main()
     assert joined in capsys.readouterr().out
+
+
+def test_the_recorded_card_hashes_are_those_of_the_scripts_cards() -> None:
+    path = Path(__file__).resolve().parents[2] / "config" / "published_models.json"
+    published = json.loads(path.read_text(encoding="utf-8"))
+    for key, card in (("sentiment", PUBLISH.SENTIMENT_CARD), ("relevance", PUBLISH.RELEVANCE_CARD)):
+        assert hashlib.sha256(card.encode("utf-8")).hexdigest() == published[key]["card_sha256"], (
+            f"the {key} card changed: re-upload it (needs the owner's word) and record the new hashes "
+            "(publish_final_models_2026_11_10.py does both)"
+        )
+
+
+class _FakeApi:
+    def __init__(self, private: bool, weights: str) -> None:
+        self.private, self.weights = private, weights
+
+    def model_info(self, repo: str, revision: str, files_metadata: bool) -> Any:
+        sibling = types.SimpleNamespace(
+            rfilename="model.safetensors", lfs=types.SimpleNamespace(sha256=self.weights)
+        )
+        return types.SimpleNamespace(private=self.private, siblings=[sibling])
+
+
+def _check(
+    tmp_path: Path, *, private: bool, status: int, card_ok: bool = True
+) -> dict[str, dict[str, bool]]:
+    weights = b"weights"
+    dirs = {}
+    for key in ("sentiment", "relevance"):
+        (tmp_path / key).mkdir(exist_ok=True)
+        (tmp_path / key / "model.safetensors").write_bytes(weights)
+        dirs[key] = tmp_path / key
+    record = tmp_path / "published.json"
+    for key, repo, card in (
+        ("sentiment", PUBLISH.SENTIMENT_REPO, PUBLISH.SENTIMENT_CARD),
+        ("relevance", PUBLISH.RELEVANCE_REPO, PUBLISH.RELEVANCE_CARD),
+    ):
+        PUBLISH.record_upload(record, key, repo, "c" * 40, card)
+    stack = tmp_path / "stack.json"
+    stack.write_text('{"a": 1}', encoding="utf-8")
+
+    def download(repo: str, name: str, rev: str) -> str:
+        path = tmp_path / f"dl_{name}"
+        if name == "README.md":
+            card = (
+                PUBLISH.SENTIMENT_CARD if repo == PUBLISH.SENTIMENT_REPO else PUBLISH.RELEVANCE_CARD
+            )
+            path.write_text(card if card_ok else card + "edited", encoding="utf-8")
+        else:
+            path.write_text('{"a": 1}', encoding="utf-8")
+        return str(path)
+
+    results: dict[str, dict[str, bool]] = PUBLISH.check_published(
+        record,
+        "token",
+        dirs,
+        stack,
+        api=_FakeApi(private, hashlib.sha256(weights).hexdigest()),
+        download=download,
+        anonymous_status=lambda url: status,
+    )
+    return results
+
+
+def test_the_check_of_the_published_repositories_passes_when_everything_matches(
+    tmp_path: Path,
+) -> None:
+    results = _check(tmp_path, private=True, status=401)
+    assert all(all(checks.values()) for checks in results.values())
+    assert "stack file is the tracked one" in results["sentiment"]
+    assert "stack file is the tracked one" not in results["relevance"]
+
+
+def test_the_check_fails_on_a_public_repository_or_a_changed_card(tmp_path: Path) -> None:
+    public = _check(tmp_path, private=False, status=200)
+    assert not public["sentiment"]["private"]
+    assert not public["sentiment"]["anonymous request refused"]
+    edited = _check(tmp_path, private=True, status=401, card_ok=False)
+    assert not edited["relevance"]["card on the Hub is the recorded one"]

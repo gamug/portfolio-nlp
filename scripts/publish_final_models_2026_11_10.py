@@ -2,13 +2,16 @@
 
     uv run python scripts/publish_final_models_2026_11_10.py [--sentiment-dir models/sentiment_pair_all/final] \
         [--relevance-dir models/relevance_final] [--dry-run]
+    uv run python scripts/publish_final_models_2026_11_10.py --check [--sentiment-dir ...] [--relevance-dir ...]
 
 Two repositories under ``gamug/``: ``FinBERT-company-sentiment`` (the pair model + ``sentiment_stack.json``) and
 ``deberta-v3-company-relevance``. Each gets a model card that says what the model is trained for, on which data, with
 which recipe, which figures were measured and how, and what is not known. The figures are those of
 ``docs/sentiment_training.md`` (cross-validation over the owner's tags); **the 180-text gold has not been scored** and the
 cards say so. Nothing is pinned: ``config/pipeline_models.json`` is not touched (the pin is decided on the gold, D35).
-Needs ``HF_TOKEN`` (write scope) in the environment or ``.env``. The result, with the commit SHAs, is printed.
+``--check`` is read-only: for the revisions in ``config/published_models.json`` it prints whether each repository is
+private (and refuses an anonymous request), whether the card on the Hub is the recorded one, whether the weights are the
+local ones, and whether the stack file is the tracked one. Needs ``HF_TOKEN`` (write scope) in the environment or ``.env``. The result, with the commit SHAs, is printed.
 """
 
 from __future__ import annotations
@@ -19,7 +22,9 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any
 
+UNAUTHORIZED = 401  # what an anonymous request to a private repository gets
 SENTIMENT_REPO = "gamug/FinBERT-company-sentiment"
 RELEVANCE_REPO = "gamug/deberta-v3-company-relevance"
 ENDPOINT = "gamug/FinBERT-financial-news@93863fcb7252874e7c0339081b34f691f9e17ff6"
@@ -233,6 +238,67 @@ def record_upload(path: Path, key: str, repo: str, revision: str, card: str) -> 
     path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
 
 
+def check_published(
+    record: Path,
+    token: str,
+    dirs: dict[str, Path],
+    stack_path: Path,
+    api: Any = None,
+    download: Any = None,
+    anonymous_status: Any = None,
+) -> dict[str, dict[str, bool]]:
+    """Read-only: for each recorded revision, five yes/no results. The three callables are injectable for tests."""
+    import urllib.error  # noqa: PLC0415 -- only the check needs these
+    import urllib.request  # noqa: PLC0415
+
+    from huggingface_hub import HfApi, hf_hub_download  # noqa: PLC0415
+
+    api = api or HfApi(token=token)
+    download = download or (
+        lambda repo, name, rev: hf_hub_download(repo, name, revision=rev, token=token)
+    )
+
+    def status(url: str) -> int:
+        try:
+            urllib.request.urlopen(url)  # noqa: S310 -- fixed https URL; an anonymous request must fail
+        except urllib.error.HTTPError as err:
+            return int(err.code)
+        return 200
+
+    anonymous_status = anonymous_status or status
+    cards = {"sentiment": SENTIMENT_CARD, "relevance": RELEVANCE_CARD}
+    published = json.loads(record.read_text(encoding="utf-8"))
+    out: dict[str, dict[str, bool]] = {}
+    for key in ("sentiment", "relevance"):
+        repo, rev = published[key]["repo"], published[key]["revision"]
+        info = api.model_info(repo, revision=rev, files_metadata=True)
+        weights = {s.rfilename: s.lfs.sha256 for s in info.siblings if s.lfs}
+        local = dirs[key] / "model.safetensors"
+        live_card = Path(download(repo, "README.md", rev)).read_bytes()
+        result = {
+            "private": bool(info.private),
+            "anonymous request refused": anonymous_status(
+                f"https://huggingface.co/{repo}/resolve/{rev}/README.md"
+            )
+            == UNAUTHORIZED,
+            "card on the Hub is the recorded one": hashlib.sha256(live_card).hexdigest()
+            == published[key]["card_sha256"],
+            "card recorded is the script's": hashlib.sha256(cards[key].encode("utf-8")).hexdigest()
+            == published[key]["card_sha256"],
+            "weights are the local ones": local.exists()
+            and weights.get("model.safetensors") == hashlib.sha256(local.read_bytes()).hexdigest(),
+        }
+        if key == "sentiment":
+            on_hub = json.loads(
+                Path(download(repo, "sentiment_stack.json", rev)).read_text(encoding="utf-8")
+            )
+            result["stack file is the tracked one"] = on_hub == json.loads(
+                stack_path.read_text(encoding="utf-8")
+            )
+        out[key] = result
+    return out
+
+
 def main() -> None:
     from dotenv import load_dotenv  # noqa: PLC0415
 
@@ -244,9 +310,19 @@ def main() -> None:
     parser.add_argument("--stack", type=Path, default=Path("config/sentiment_stack.json"))
     parser.add_argument("--record", type=Path, default=Path("config/published_models.json"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--check", action="store_true", help="read-only check of the recorded revisions"
+    )
     args = parser.parse_args()
     load_dotenv()
     token = os.environ.get("HF_TOKEN", "")
+    if args.check:
+        dirs = {"sentiment": args.sentiment_dir, "relevance": args.relevance_dir}
+        results = check_published(args.record, token, dirs, args.stack)
+        for key, checks in results.items():
+            for name, ok in checks.items():
+                print(f"{key}: {name}: {'yes' if ok else 'NO'}")
+        raise SystemExit(0 if all(all(c.values()) for c in results.values()) else 1)
     if not token and not args.dry_run:
         raise SystemExit("HF_TOKEN (write scope) is not set")
     out: dict[str, str] = {}
