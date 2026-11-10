@@ -47,10 +47,16 @@ for d, (mp, ip) in sets.items():
         marks[r["key"]] = {**r, "draw": d}
     for r in csv.DictReader(open(ip, encoding="utf-8-sig")):
         ids[r["key"]] = r
+#: SENTIMENT_RUN=<name> takes the sentiment model's out-of-fold predictions of `data/sentiment_pair_cv_all_<name>/`
+#: (e.g. `base_finbert`) instead of the endpoint's, stacks them with the SAVED relevance scores (same folds, same texts;
+#: nothing is retrained) and logs to the MLflow experiment `sentiment_pair_relevance_gate_<name>`.
+SENT = os.environ.get("SENTIMENT_RUN", "")
+PRED_DIR = f"data/sentiment_pair_cv_all_{SENT}" if SENT else "data/sentiment_pair_cv_all"
+EXPERIMENT = f"sentiment_pair_relevance_gate_{SENT}" if SENT else "sentiment_pair_relevance_gate"
 oof = []
 for rpt in (1, 2):
     rows = {}
-    for p in glob.glob(f"data/sentiment_pair_cv_all/predictions/cv_r{rpt}_f*__*.csv"):
+    for p in glob.glob(f"{PRED_DIR}/predictions/cv_r{rpt}_f*__*.csv"):
         for r in csv.DictReader(open(p)):
             rows[r["key"]] = r
     oof.append(rows)
@@ -147,7 +153,7 @@ SAVED = Path("data/sentiment_pair_relevance_cv/oof_relevance.json")
 #: CONTROL_SEEDS=<n> (many shuffles, below) implies CONTROL=1: it needs the saved scores and never retrains.
 #: REUSE_SCORES=1 reruns the nested evaluation and the bootstrap on the saved scores as they are (no retraining, no
 #: shuffle, nothing logged to MLflow: the figures of the recorded run do not change, only the intervals are redrawn).
-REUSE = os.environ.get("REUSE_SCORES") == "1"
+REUSE = os.environ.get("REUSE_SCORES") == "1" or bool(SENT)
 CONTROL = os.environ.get("CONTROL") == "1" or int(os.environ.get("CONTROL_SEEDS") or 0) > 0
 if (CONTROL or REUSE) and not SAVED.exists():
     sys.exit(
@@ -314,7 +320,7 @@ if (
                 f"{m:6} {n:20} mean {st.mean(v):+.3f}  sd {st.stdev(v):.3f}  range [{min(v):+.3f}, {max(v):+.3f}]"
             )
     mlflow.set_tracking_uri(sys.argv[2])
-    mlflow.set_experiment("sentiment_pair_relevance_gate")
+    mlflow.set_experiment(EXPERIMENT)
     with mlflow.start_run(run_name=f"control_shuffled_{SEEDS}_seeds"):
         mlflow.set_tags({"stage": "sentiment", "kind": "relevance", "control": "True"})
         for m, per in gains_by_seed.items():
@@ -381,11 +387,11 @@ for m in gains:
         print(
             f"  {n:20} {avg[m][n] - avg['none'][n]:+.3f} [{q(g, 0.025):+.3f}, {q(g, 0.975):+.3f}]"
         )
-if REUSE:
+if REUSE and not SENT:
     print("\nREUSE_SCORES: nothing logged to MLflow (the recorded runs are unchanged)")
     sys.exit(0)
 mlflow.set_tracking_uri(sys.argv[2])
-mlflow.set_experiment("sentiment_pair_relevance_gate")
+mlflow.set_experiment(EXPERIMENT)
 for m in res:
     with mlflow.start_run(run_name=f"{'control_shuffled_' if CONTROL else ''}nested_{m}"):
         mlflow.set_tags(

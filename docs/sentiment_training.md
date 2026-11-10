@@ -215,7 +215,15 @@ repeats, same folds, seeds and replay) was run starting from `ProsusAI/finbert` 
 `sentiment_pair_cv_all_data_base_finbert`): score 0.731 [0.706, 0.755] against 0.737 [0.716, 0.764] (intervals
 overlap; not a paired comparison), gain over the pinned text-only model +0.083 [+0.061, +0.108], neutral precision
 0.647, neutral recall 0.386 against 0.442, negative precision / recall 0.670 / 0.741, positive precision / recall
-0.743 / 0.845. Not better: the endpoint stays the starting point.
+0.743 / 0.845. Not better on its own.
+
+With the relevance model stacked (the base case from now on; `SENTIMENT_RUN=base_finbert` on
+`sentiment_relevance_cv`, the saved out-of-fold relevance scores of the same folds, nothing retrained, experiment
+`sentiment_pair_relevance_gate_base_finbert`, nested evaluation as above): plain-FinBERT start, gate 0.788 and stack
+**0.811** (sentiment alone 0.731), against the endpoint start's 0.789 and 0.814. Stack neutral precision 0.787 and
+recall 0.689, negative precision / recall 0.738 / 0.748, positive precision / recall 0.803 / 0.845; paired gain of the
+stack over the sentiment model alone +0.080 [+0.059, +0.098]. The same, within noise: the endpoint stays the
+starting point. Not held-out, as the figures above.
 
 **The model on all rows** (the one explanation of it; the amendment below and `Reproduce` point here).
 `train_sentiment_pair_2026_11_09.py --final-all` trains on every row of both gold files read as a pair (809

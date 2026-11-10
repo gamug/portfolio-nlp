@@ -28,6 +28,7 @@ EXPERIMENTS = (
     "sentiment_pair_company_cues_cv",
     "company_relevance_zeroshot",
     "sentiment_pair_relevance_gate",
+    "sentiment_pair_relevance_gate_base_finbert",
 )
 
 
