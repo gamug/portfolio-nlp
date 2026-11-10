@@ -2018,14 +2018,17 @@ def test_faithfulness_gold_refuses_unmarked_rows_edited_texts_and_other_rows(
     assert not gold.exists()
 
 
-def test_the_committed_faithfulness_gold_is_the_owners_190_marks() -> None:
+def test_the_committed_faithfulness_gold_is_the_owners_453_marks() -> None:
     gold = Path(__file__).resolve().parents[2] / "gold" / "faithfulness_gold.csv"
     rows = list(csv.DictReader(gold.open(encoding="utf-8-sig")))
     assert tuple(rows[0]) == retag.FAITHFULNESS_GOLD_COLUMNS
-    assert len(rows) == 190
-    assert Counter(r["faithful"] for r in rows) == {"yes": 115, "no": 75}
-    assert len({r["key"] for r in rows}) == 190  # one mark per text
-    assert {r["extractors"] for r in rows} == {"baseline"}
+    assert (
+        len(rows) == 453
+    )  # the 190 baseline texts of 2026-11-06 and the texts of the later extractors
+    assert Counter(r["faithful"] for r in rows) == {"yes": 352, "no": 101}
+    assert len({r["key"] for r in rows}) == 453  # one mark per text
+    named = Counter(e for r in rows for e in r["extractors"].split("|"))
+    assert named == {"units": 212, "baseline": 204, "model": 190, "units3": 148, "units2": 135}
     assert len({r["article_id"] for r in rows}) == 30  # the 30 bodies drawn
 
 
@@ -2062,9 +2065,11 @@ def test_faithfulness_gold_copies_the_coverage_and_the_report_reads_the_tracked_
 def test_the_report_reads_the_committed_gold_and_gives_the_figures_of_the_decision() -> None:
     gold = Path(__file__).resolve().parents[2] / "gold"
     text = "\n".join(REPORT.faithfulness_gold_report(gold))
-    assert "190 texts, 0 companies left without a text" in text
-    assert "[all]   baseline: 60.5% [45.2%, 73.8%] -> fail" in text  # PLAN D32, 2026-11-06
-    assert "[2022+]   baseline: 60.6% [27.6%, 86.1%] -> not decided" in text
+    assert "453 texts, 25 companies left without a text" in text
+    assert (
+        "[all]   baseline: 63.2% [49.1%, 75.5%] -> fail" in text
+    )  # 60.5% on the 190 texts of 2026-11-06 (PLAN D32)
+    assert "[2022+]   baseline: 62.9% [34.6%, 86.1%] -> not decided" in text
 
 
 def test_faithfulness_gold_needs_the_coverage_file(
