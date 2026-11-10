@@ -76,9 +76,14 @@ Neutral recall stays at 0.44.
 against 0.442, positive recall 0.825 against 0.834. A bigger replay is not better, so the 341 stays.
 
 **The model on all rows.** `train_sentiment_pair_2026_11_09.py --final-all` (1,150 examples: 809 summaries and 341
-replay, grid setting, seed 4; epoch losses 0.820 and 0.394), written to `models/sentiment_pair_all/final` (local, git-ignored, not published).
+replay, grid setting, seed 4; epoch losses 0.820 and 0.394), written to `models/sentiment_pair_all/final` (local, git-ignored, not published) and
+**recorded** in MLflow experiment `sentiment_pair_final_all` (run `final_all__e2_lr3e-05_s4`: settings, 809 + 341 examples, the
+path, the losses). An earlier run of the same command, made before the mode logged, gave the same losses to three
+decimals but **different weights** (the training is not bit-reproducible on the GPU); it is kept, unrecorded, as
+`models/sentiment_pair_all_superseded/final_all_unrecorded` and is not the model of this page.
 The CV script made an earlier model the same way (losses 0.866 and 0.381) before `--final-all` existed (kept locally as
-`models/sentiment_pair_all_superseded/final_cv_script`, not to be used): the two are
+`models/sentiment_pair_all_superseded/final_cv_script`, not to be used; its MLflow run `final_all_data__s4` is tagged
+`superseded`): the two are
 **not identical** (the examples are in a different order, so the shuffles differ), and their predictions were not
 compared. `--final-all` is the one implementation now; the CV script no longer trains a final model. The estimate of
 either is the CV figures; neither has a held-out score.
@@ -123,16 +128,17 @@ neutral recall +0.312; stack score +0.077 [+0.058, +0.095], neutral precision +0
 
 (`PLAN.md` D35 points here; the owner has not accepted it.) 405 more marks (`gold/sentiment_train_2.csv`; 809 of the 855 read as a pair); the recipe is judged by 5-fold cross-validation over them (D37 figures: `docs/sentiment_training.md`), the model for the pin trains on all rows (`--final-all`, replay stays 341; a 809 replay scored worse); a relevance model plus stack (CV 0.814 against 0.737, not held-out) is proposed (T-148c3c/d); nothing is pinned (T-148c4); the 270/135 split of the new file is the assistant's (T-148c3f).
 
-**What the pin rule becomes (the consequence of "trained on all rows").** D35 (3) and (4) read the paired gain of the
-candidate over the pinned model on the validation slice. A model trained on every row has no validation slice, and
-the cross-validation estimates the *recipe* (each CV model saw 4/5 of the rows), not this model. Proposed:
-(i) the candidate is **one run** of the grid setting (2 epochs, 3e-5, seed 4, the 341 replay sentences) on all rows,
-no selection among runs; (ii) the pin is decided **only on the 180-text gold** (T-148c4): D32's bar and the paired
-gain over the pinned model there (the rule of D35 (3) and (4), moved from the validation slice to the gold);
-(iii) the cross-validated figures are the reason to publish a candidate, not a pin criterion; (iv) if the gold gives
-less than the cross-validation (to be expected for a recipe tuned on these tags), the rule decides as written and the
-candidate is not pinned; the relevance model and the stack, which are in the same position, are scored on the gold by
-the same rule before they are wired into `sentiment_stage` (T-148c3d).
+**Which D35 answers this amends, and which stand.** It amends **D35 (6)**, which the owner accepted: "the final run trains
+on the 360 train rows plus the replay, a fourth fixed seed". Proposed instead: the candidate is **one run** of the grid
+setting (2 epochs, 3e-5, seed 4, the 341 replay sentences) on **every row read as a pair of both gold files** (809 rows),
+with no selection among runs. A model trained on every row has no validation figure of its own; the 809-row
+cross-validation estimates the *recipe* (each CV model saw 4/5 of the rows), not this model. **D35 (3), (4) and (7)
+stand unchanged**: they already apply to the published revision scored on the 180-text gold (T-148c4), not to the
+validation slice; the validation score of the earlier final run (67.8%) was only a preview that the rule would not
+have pinned. So the cross-validated figures are the reason to publish a candidate, not a pin criterion, and if the gold
+gives less than the cross-validation (to be expected for a recipe tuned on these tags) the rule decides as written. The
+relevance model and the stack are in the same position: they are scored on the gold by the same rule before they are
+wired into `sentiment_stage` (T-148c3d).
 
 ## Limits of these figures (read before using them)
 

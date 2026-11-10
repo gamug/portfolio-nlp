@@ -524,10 +524,40 @@ class _NoScore:
         return 0.0
 
 
-def run_final_all(mlflow_on: bool, models: Path | None = None) -> None:
+def log_final_all(
+    row: dict[str, Any], settings: spt.RunSettings, n_summaries: int, n_replay: int, target: Path
+) -> None:
+    """The record of the all-data model: its settings, the data counts, the path of the model and the losses.
+    No validation score (it has no held-out text)."""
+    import mlflow  # noqa: PLC0415 -- the ``eval`` group
+
+    mlflow.set_experiment("sentiment_pair_final_all")
+    with mlflow.start_run(run_name=f"final_all__{settings.name}"):
+        mlflow.set_tags({"stage": "sentiment", "recipe": "D35 pair", "kind": "final_all"})
+        mlflow.log_params(
+            {
+                "epochs": settings.epochs,
+                "learning_rate": settings.learning_rate,
+                "seed": settings.seed,
+                "n_summaries": n_summaries,
+                "n_replay": n_replay,
+                "n_train": n_summaries + n_replay,
+                "base_model": "{}@{}".format(*base_model()),
+                "output": str(target),
+                "mark_sets": ", ".join(str(m) for m, _ in MARK_SETS.values()),
+            }
+        )
+        mlflow.log_metric("train_seconds", row["train_seconds"])
+        for epoch, loss in enumerate(row["epoch_losses"], 1):
+            mlflow.log_metric("train_loss", loss, step=epoch)
+
+
+def run_final_all(models: Path | None = None) -> None:
     """One model on every row of every file in ``MARK_SETS`` (train and validation slices both) plus the
     replay, the grid's setting, ``FINAL_SEED``. It has no held-out score of its own: the cross-validation
-    (``sentiment_cv_all``) is its estimate. Written to ``models/sentiment_pair_all/final``, not published."""
+    (``sentiment_cv_all``) is its estimate. Written to ``models/sentiment_pair_all/final``, not published.
+    The run is **always** logged to MLflow (experiment ``sentiment_pair_final_all``, with the path of the model): a
+    model with no record is what this mode would otherwise leave."""
     target = (models or Path("models/sentiment_pair_all")) / "final"
     if target.exists():
         sys.exit(f"{target} exists: a model is made once; delete it to make it again")
@@ -538,8 +568,9 @@ def run_final_all(mlflow_on: bool, models: Path | None = None) -> None:
     scorer = _NoScore()
     partial = target.with_name("final.partial")
     shutil.rmtree(partial, ignore_errors=True)
-    row = one_run(settings, train, scorer, keep=partial, mlflow_on=mlflow_on, tag="final_all")
+    row = one_run(settings, train, scorer, keep=partial, mlflow_on=False, tag="final_all")
     partial.replace(target)
+    log_final_all(row, settings, len(merged.train) + len(merged.validation), len(replay), target)
     print(
         f"\nall-data model ({settings.name}): {len(train)} examples, losses {row['epoch_losses']}\n"
         f"model: {target} (not published, no held-out score)"
@@ -833,7 +864,7 @@ def main() -> None:
     if not torch.cuda.is_available():
         print("no CUDA device: the runs will be slow", file=sys.stderr)
     if args.final_all:
-        run_final_all(args.mlflow, args.models)
+        run_final_all(args.models)
         return
     if args.report:  # the predictions kept: no model, no SOURCE
         run_report()

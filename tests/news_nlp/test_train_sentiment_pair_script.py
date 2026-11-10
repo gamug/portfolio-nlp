@@ -840,3 +840,41 @@ def test_build_all_data_merges_both_files_and_keeps_every_marked_body_out_of_the
     )  # as large as the FIRST file's training rows
     assert all(not e.key.startswith("1#") for e in replay)
     assert "body-n9" in merged.body_hashes  # a no-company body is still kept out of the replay
+
+
+def test_the_all_data_model_is_always_logged_with_its_path_and_is_made_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model with no MLflow run is what ``--final-all`` would otherwise leave: it logs without ``--mlflow``,
+    with the number of summaries and replay sentences and the path of the model."""
+    merged = spt.MarkedSummaries(
+        train=[spt.Example("a#summary", "Acme", "Acme rose.", 0, "summary")],
+        validation=[spt.Example("b#summary", "Acme", "Acme fell.", 1, "summary")],
+    )
+    replay = [spt.Example("1#x", "Acme", "Acme sentence.", 2, "sentence")]
+    monkeypatch.setattr(CMD, "connect_source", object)
+    monkeypatch.setattr(CMD, "build_all_data", lambda _conn: ({}, merged, replay))
+    seen: dict[str, Any] = {}
+
+    def one_run(
+        settings: Any, train: Any, scorer: Any, *, keep: Path, **kwargs: Any
+    ) -> dict[str, Any]:
+        keep.mkdir(parents=True)
+        seen["train"], seen["mlflow_on"] = list(train), kwargs.get("mlflow_on")
+        return {"epoch_losses": [0.9, 0.4], "train_seconds": 1.0}
+
+    logged: list[tuple[Any, ...]] = []
+    monkeypatch.setattr(CMD, "one_run", one_run)
+    monkeypatch.setattr(CMD, "log_final_all", lambda *args: logged.append(args))
+    CMD.run_final_all(tmp_path)
+    assert (tmp_path / "final").is_dir() and not (tmp_path / "final.partial").exists()
+    assert [e.key for e in seen["train"]] == [
+        "a#summary",
+        "b#summary",
+        "1#x",
+    ]  # both slices and the replay
+    assert seen["mlflow_on"] is False  # the generic per-run log is not the record: log_final_all is
+    (_row, _settings, n_summaries, n_replay, target) = logged[0]
+    assert (n_summaries, n_replay, target) == (2, 1, tmp_path / "final")
+    with pytest.raises(SystemExit, match="exists"):
+        CMD.run_final_all(tmp_path)

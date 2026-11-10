@@ -3,7 +3,7 @@
 One row per (run, metric): experiment, run name, start time (UTC), run id, metric, value. A run that was made
 twice (the relevance experiment was rerun on 2026-11-10 and reproduced the figures exactly) appears twice, with
 its own start time and a `recorded` column: `yes` for the earliest run of each name (the one
-docs/sentiment_training.md quotes), `no` for a later rerun. Usage: `python scripts/export_sentiment_training_results_2026_11_10.py <mlruns> [out.csv]`."""
+docs/sentiment_training.md quotes), `no` for a later rerun or for a run tagged `superseded` (its model was replaced). Usage: `python scripts/export_sentiment_training_results_2026_11_10.py <mlruns> [out.csv]`."""
 
 import csv
 import math
@@ -22,6 +22,7 @@ EXPERIMENTS = (
     "sentiment_pair_more_data",
     "sentiment_pair_cv_all_data",
     "sentiment_pair_cv_all_data_replay809",
+    "sentiment_pair_final_all",
     "sentiment_pair_cv_threshold",
     "sentiment_pair_company_cues_cv",
     "company_relevance_zeroshot",
@@ -43,6 +44,7 @@ def main() -> None:
                         {
                             "experiment": name,
                             "run_name": run.get("tags.mlflow.runName", ""),
+                            "superseded": run.get("tags.superseded") == "true",
                             "started_utc": started.strftime("%Y-%m-%d %H:%M"),
                             "run_id": run["run_id"],
                             "metric": str(column).removeprefix("metrics."),
@@ -56,12 +58,13 @@ def main() -> None:
     for row in rows:
         first.setdefault((row["experiment"], row["run_name"]), row["run_id"])
     for row in rows:
-        row["recorded"] = (
-            "yes" if first[(row["experiment"], row["run_name"])] == row["run_id"] else "no"
-        )
+        is_first = first[(row["experiment"], row["run_name"])] == row["run_id"]
+        row["recorded"] = "yes" if is_first and not row["superseded"] else "no"
     with out.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(
-            fh, ["experiment", "run_name", "started_utc", "run_id", "recorded", "metric", "value"]
+            fh,
+            ["experiment", "run_name", "started_utc", "run_id", "recorded", "metric", "value"],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(rows)

@@ -234,8 +234,8 @@ sentiment_pair_cv_all_data,cv_summary,2026-11-09 23:35,7f411ced591542709c152f8c2
 sentiment_pair_cv_all_data,cv_summary,2026-11-09 23:35,7f411ced591542709c152f8c209dcf0c,yes,pinned_positive_recall,0.612549
 sentiment_pair_cv_all_data,cv_summary,2026-11-09 23:35,7f411ced591542709c152f8c209dcf0c,yes,pinned_positive_roc_ovr,0.779597
 sentiment_pair_cv_all_data,cv_summary,2026-11-09 23:35,7f411ced591542709c152f8c209dcf0c,yes,pinned_score,0.6479
-sentiment_pair_cv_all_data,final_all_data__s4,2026-11-09 23:36,48cfca62946b41d6837b5de00adeae29,yes,train_loss,0.380969
-sentiment_pair_cv_all_data,final_all_data__s4,2026-11-09 23:36,48cfca62946b41d6837b5de00adeae29,yes,train_seconds,31.1957
+sentiment_pair_cv_all_data,final_all_data__s4,2026-11-09 23:36,48cfca62946b41d6837b5de00adeae29,no,train_loss,0.380969
+sentiment_pair_cv_all_data,final_all_data__s4,2026-11-09 23:36,48cfca62946b41d6837b5de00adeae29,no,train_seconds,31.1957
 sentiment_pair_cv_all_data_replay809,cv_summary,2026-11-10 04:04,cf4857efabb24f96be324d9f858ac3dc,yes,cv_macro_precision,0.677942
 sentiment_pair_cv_all_data_replay809,cv_summary,2026-11-10 04:04,cf4857efabb24f96be324d9f858ac3dc,yes,cv_macro_recall,0.660056
 sentiment_pair_cv_all_data_replay809,cv_summary,2026-11-10 04:04,cf4857efabb24f96be324d9f858ac3dc,yes,cv_macro_roc_ovr,0.830337
@@ -311,6 +311,8 @@ sentiment_pair_cv_threshold,threshold_free,2026-11-09 23:45,65ee1fb85431426189c8
 sentiment_pair_cv_threshold,threshold_free,2026-11-09 23:45,65ee1fb85431426189c890f978ca8a8e,yes,nested_positive_precision,0.784152
 sentiment_pair_cv_threshold,threshold_free,2026-11-09 23:45,65ee1fb85431426189c890f978ca8a8e,yes,nested_positive_recall,0.798482
 sentiment_pair_cv_threshold,threshold_free,2026-11-09 23:45,65ee1fb85431426189c890f978ca8a8e,yes,nested_score,0.740237
+sentiment_pair_final_all,final_all__e2_lr3e-05_s4,2026-11-10 11:05,2885f847c9404b80b000de407bb7f94e,yes,train_loss,0.393521
+sentiment_pair_final_all,final_all__e2_lr3e-05_s4,2026-11-10 11:05,2885f847c9404b80b000de407bb7f94e,yes,train_seconds,23.5339
 sentiment_pair_learning_curve,frac25__e2_lr3e-05_s1,2026-11-09 17:31,68aaecdef7f44ada91b1343587e37e5d,yes,precision_macro,0.545432
 sentiment_pair_learning_curve,frac25__e2_lr3e-05_s1,2026-11-09 17:31,68aaecdef7f44ada91b1343587e37e5d,yes,precision_negative,0.438059
 sentiment_pair_learning_curve,frac25__e2_lr3e-05_s1,2026-11-09 17:31,68aaecdef7f44ada91b1343587e37e5d,yes,precision_neutral,0.4
