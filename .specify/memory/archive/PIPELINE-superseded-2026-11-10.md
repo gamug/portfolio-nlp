@@ -591,3 +591,10 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Data:** train `gold/category_gold_v2.csv` (284), held-out `gold/category_gold_v2_test.csv` (200, never trained on; the same split as T-174; a refit on all 484 only after the bar is shown). The two are different samples (sector 17% against 4.5%, `out_of_scope` 23% against 13%): figures are weighted to the corpus with the `stratum` and `frame` of the 200 (D33) and the priors are corrected, not learned from the 284.
 ```
+
+
+### T-147 Reproduce bullet, long form
+
+```
+      - **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
+```
