@@ -4025,6 +4025,7 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
     with pytest.raises(SystemExit, match="needs HF_TOKEN"):
         PUBLISH.main()
 
+
 def test_the_rare_scope_set_is_tagged_and_has_its_texts() -> None:
     """Owner, 2026-11-10: 51 bodies drawn by rules for sector and out-of-scope (set 7), tracked with their texts."""
     gold = Path(__file__).resolve().parents[2] / "gold"
