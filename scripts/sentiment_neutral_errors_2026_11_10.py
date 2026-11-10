@@ -1,4 +1,15 @@
 # ruff: noqa: B007, E402, S311, SIM115  (exploratory experiment script, run once; kept as the record of the figures in docs/sentiment_training.md)
+"""Error analysis of the neutral class on the 809-row cross-validation (`sentiment_cv_all_2026_11_10.py` must have run: it
+reads its out-of-fold predictions, the mean of the 2 repeats). Prints, as raw counts (not weighted):
+  - the neutral texts of the owner, how many the model recalled and where the misses went;
+  - neutral recall by where the company is named, in four groups that do not overlap (summary; not the summary but the
+    title; neither but the body; none of the three), by the strict matcher `sentiment_stage._text_mentions_subject`, and
+    the neutral share of each group;
+  - the precision side (what the owner says of the texts predicted neutral) and how many neutral rows carry a note;
+  - 30 of the missed neutral texts, with their text (**news text: do not commit this output**).
+The three categories of misses quoted in docs/sentiment_training.md are a reading of those 30 texts, not counts.
+Usage: run from the repository root with `<root>` as the only argument (it reads the SOURCE for the body)."""
+
 import collections
 import csv
 import glob
@@ -67,6 +78,7 @@ print(
     dict(collections.Counter(r["pred"] for r in neu if r["pred"] != "neutral")),
 )
 print("\n== neutral recall by where the company is named (raw counts, not weighted) ==")
+groups_seen: list[int] = []
 for name, f in (
     ("summary names company", lambda r: r["in_s"]),
     ("summary does NOT, title does", lambda r: not r["in_s"] and r["in_t"]),
@@ -74,14 +86,19 @@ for name, f in (
         "neither summary nor title, body does",
         lambda r: not r["in_s"] and not r["in_t"] and r["in_b"],
     ),
-    ("not even the body (string match)", lambda r: not r["in_b"]),
+    (
+        "not even the body (string match)",
+        lambda r: not r["in_s"] and not r["in_t"] and not r["in_b"],
+    ),
 ):
     g = [r for r in neu if f(r)]
     h = sum(r["pred"] == "neutral" for r in g)
     allg = [r for r in rec if f(r)]
+    groups_seen.append(len(allg))
     print(
         f"  {name:38} neutral gold {len(g):3}, recalled {h:3} ({h / max(len(g), 1):.0%}) | of all {len(allg)} texts in this group, {len(g) / max(len(allg), 1):.0%} are neutral"
     )
+assert sum(groups_seen) == len(rec), (groups_seen, len(rec))  # the four groups partition the texts
 print("\n== precision side: predicted neutral ==")
 pn = [r for r in rec if r["pred"] == "neutral"]
 print(

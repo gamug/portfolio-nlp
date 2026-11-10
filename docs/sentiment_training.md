@@ -88,9 +88,30 @@ this page and none of the three was compared with another.
 
 ## Error analysis of the neutral misses
 
-`sentiment_neutral_errors_2026_11_10.py`. The neutral texts the model calls positive or negative are mostly
-"the company is not the subject": an analyst or broker action, the company as a comparator or an incidental
-mention, or a wrong tag. The sentiment of the text is real; its relevance to the company is not.
+`sentiment_neutral_errors_2026_11_10.py`, on the out-of-fold predictions of the cross-validation (raw counts, not
+weighted; the model's reading is the mean of the 2 repeats). Of the 809 texts, the owner marked **202 neutral**; the
+model recalled **101 (50%)**, and the 101 misses went to positive (62) and negative (39). Of the 150 texts it
+called neutral, 101 are neutral for the owner, 31 positive and 18 negative. The owner left a note on 63 of the
+202 neutral rows (22 of them recalled).
+
+Neutral recall by where the company is named, by the strict matcher `sentiment_stage._text_mentions_subject` (four
+groups that do not overlap and add up to the 809 texts):
+
+| the company is named in | texts | neutral | share neutral | neutral recalled |
+|---|---|---|---|---|
+| the summary | 696 | 151 | 22% | 85 (56%) |
+| not the summary, but the title | 56 | 25 | 45% | 12 (48%) |
+| neither, but the body | 35 | 19 | 54% | 2 (11%) |
+| none of the three | 22 | 7 | 32% | 2 (29%) |
+
+Three quarters of the neutral texts (151 of 202) **do** name the company in the summary, so "the company is not
+named" explains about a quarter of them. That is why the rule "not named, therefore neutral" did not work (the first row of "What did not work"). The matcher is strict and misses aliases, so the last two groups are upper bounds of "not named".
+
+**What the misses look like is a reading, not a count.** The 30 missed neutral texts the script prints (not kept:
+they are news text) were read by the developer: most are an analyst or broker action, the company as a comparator or
+an incidental mention, or a tag that looks wrong. None of those categories was counted, and the relevance model
+below is built on that reading ("is the news about the company"), which the page never measured apart from the
+fact that the model does separate the two (the AUC of the relevance model).
 
 ## A relevance model ("does this news belong to this company")
 

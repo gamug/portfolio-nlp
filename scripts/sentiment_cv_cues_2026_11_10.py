@@ -1,5 +1,5 @@
 # ruff: noqa: E402, E731, E741, PLC0206, PLR0124, PLR2004, S311, SIM115  (exploratory experiment script, run once; kept as the record of the figures in docs/sentiment_training.md)
-"""Experiment `sentiment_pair_company_cues_cv`: the 809-text cross-validation of cv_all.py (same folds, same seeds, same
+"""Experiment `sentiment_pair_company_cues_cv`: the 809-text cross-validation of sentiment_cv_all_2026_11_10.py (same folds, same seeds, same
 replay) with cues about the company written into segment A, computed alias-aware by the stage's own CompanyResolver:
   V1  "<company> | company named in text" / "not named in text"
   V2  "<company> | <not named | named only as the source of an opinion | named once | named 2+ times> | other companies: <none | 1-2 | 3+>"

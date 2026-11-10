@@ -440,6 +440,20 @@ The suite is hermetic — every model load is monkeypatched, so no torch downloa
 network is needed at test time. All tests pass (part of the repo's CI gate; see
 `.github/workflows/ci.yml`).
 
+**Reproducing CI exactly.** CI installs `--group dev --group eval` and runs, in this order, ruff, `ruff format --check`,
+mypy and pytest (`.github/workflows/ci.yml`):
+
+```bash
+uv sync --group dev --group eval
+uv run --no-sync mypy --config-file=.code_quality/mypy.ini
+```
+
+The pre-commit mypy hook runs `uv run mypy`, which installs only the default `dev` group: in a checkout or worktree
+whose environment has no `eval` group (`mlflow`, `strands-agents`) mypy sees those packages as untyped, so the hook
+can pass where CI fails (it did on #154: `mlflow.search_runs` is `list | DataFrame` to the typed package). Before
+pushing code that imports `mlflow`, run the two commands above. A stale `.mypy_cache` after installing the group can
+make mypy stop with an internal error; delete it and run again.
+
 ## Evaluation
 
 `news_nlp.eval` measures how good the stage outputs actually are, using an

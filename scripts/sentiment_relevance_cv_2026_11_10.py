@@ -2,7 +2,7 @@
 """Experiment `sentiment_pair_relevance_gate`: (1) fine-tune the category stage's NLI model (deberta-v3-base-zeroshot-v2.0)
 on "is the story about the company": premise = summary, hypothesis = "This text is mainly about <company>.",
 entailment = the owner marked a direction, not_entailment = neutral. Same 5-fold splits and seeds as the sentiment
-cross-validation (cv_all.py), so every text gets an out-of-fold relevance score AND an out-of-fold sentiment reading.
+cross-validation (sentiment_cv_all_2026_11_10.py), so every text gets an out-of-fold relevance score AND an out-of-fold sentiment reading.
 (2) Combine them, evaluated NESTED (rule fitted on 4/5 of the out-of-fold rows, applied to the other 1/5):
   gate   label = argmax(p) unless relevance < t, then neutral          (t fitted)
   stack  multinomial logistic regression on [log p_pos, log p_neg, log p_neu, logit(relevance)]
@@ -68,7 +68,9 @@ rel = np.array([marks[k]["sentiment"] != "neutral" for k in keys])
 idx_of = {k: i for i, k in enumerate(keys)}
 
 
-def folds(rng, k=5):  # identical to cv_all.py: sorted keys, grouped by (draw, stratum)
+def folds(
+    rng, k=5
+):  # identical to sentiment_cv_all_2026_11_10.py: sorted keys, grouped by (draw, stratum)
     by = defaultdict(list)
     for key in keys:
         by[cell[key]].append(key)
