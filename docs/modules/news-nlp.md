@@ -513,3 +513,10 @@ historical sentiment/NER/category/`c_summary` experiment
 equivalent). Full detail — the schema's own validation rules, the one
 command, and the disclosed gaps — in `docs/evaluation.md`'s "Experiments"
 section.
+
+
+## Stepped-pipeline tables (D39/D40, #162)
+
+`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
+and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
+`article_entities`. Its `score` stays the NER confidence. Nothing writes the new tables yet (T-162 continues, T-163).

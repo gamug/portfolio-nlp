@@ -277,7 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_eval_confusion_experiment_task
 CREATE TABLE IF NOT EXISTS body_scope (
     body_hash           TEXT NOT NULL,
     classifier_revision TEXT NOT NULL,
-    scope               TEXT NOT NULL,   -- single / multi / sector / out_of_scope
+    scope               TEXT NOT NULL CHECK (scope IN ('single', 'multi', 'sector', 'out_of_scope')),
     scores              TEXT NOT NULL DEFAULT '{}',  -- JSON, per-class score
     text_used           TEXT NOT NULL,   -- title / title+N
     processed_at        TEXT NOT NULL,
@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS news_company (
     ticker          TEXT NOT NULL,
     model_revision  TEXT NOT NULL,
     relevance_score REAL NOT NULL,
-    is_main         INTEGER NOT NULL DEFAULT 0,   -- the only source of the main ticker
+    is_main         INTEGER NOT NULL DEFAULT 0 CHECK (is_main IN (0, 1)),   -- the only source of the main ticker
     mention_count   INTEGER NOT NULL DEFAULT 1,
     processed_at    TEXT NOT NULL,
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS news_sentiment (
     negative          REAL NOT NULL,
     neutral           REAL NOT NULL,
     model_name        TEXT NOT NULL,
-    sentiment_checked INTEGER NOT NULL DEFAULT 1,
+    sentiment_checked INTEGER NOT NULL DEFAULT 1 CHECK (sentiment_checked IN (0, 1)),
     processed_at      TEXT NOT NULL,
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
 );
@@ -363,6 +363,8 @@ CREATE TABLE IF NOT EXISTS pipeline_step_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_step_state_status ON pipeline_step_state(step, status);
+CREATE INDEX IF NOT EXISTS idx_sub_news_article_id ON sub_news(article_id);
+CREATE INDEX IF NOT EXISTS idx_news_company_ticker ON news_company(ticker, is_main);
 """
 
 
@@ -459,6 +461,9 @@ def _migrate_entities_schema(conn: Database) -> None:
     """Add the nullable `sub_news_id` and `ticker` (D39 (iii)) to an existing `article_entities`.
     Additive and idempotent, like the other migrations; old rows read back NULL."""
     conn.ensure_columns("article_entities", _ENTITIES_ADDED_COLUMNS)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_article_entities_sub_news_id ON article_entities(sub_news_id)"
+    )
 
 
 def init_schema(conn: Database) -> None:

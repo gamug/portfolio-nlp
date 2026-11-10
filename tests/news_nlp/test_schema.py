@@ -256,3 +256,30 @@ def test_the_status_column_refuses_an_unknown_status(test_db_path: Path) -> None
             "INSERT INTO pipeline_step_state VALUES ('body','h','scope','r','weird',0,NULL,NULL,NULL)"
         )
     conn.close()
+
+
+def test_the_join_keys_are_indexed_and_the_flags_are_checked(test_db_path: Path) -> None:
+    conn = sqlite3.connect(test_db_path)
+    indexes = {r[1] for r in conn.execute("SELECT * FROM sqlite_master WHERE type='index'")}
+    assert {
+        "idx_sub_news_article_id",
+        "idx_news_company_ticker",
+        "idx_article_entities_sub_news_id",
+    } <= indexes
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO news_company VALUES ('body','h','AAPL','r',0.9,2,1,'t')")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO body_scope VALUES ('h','r','market','{}','title','t')")
+    conn.close()
+
+
+def test_the_v1_entity_write_and_corrections_work_with_the_new_columns(
+    conn: db.NewsNlpDatabase,
+) -> None:
+    seed_article(conn, 1)
+    conn.execute(
+        "INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, "
+        "model_name, processed_at) VALUES (1, 'ORG', 'Apple', 0, 5, 0.9, 'm', 't')"
+    )
+    row = conn.execute("SELECT * FROM article_entities WHERE article_id = 1").fetchone()
+    assert row is not None and row[-2:] == (None, None)  # sub_news_id, ticker read back NULL
