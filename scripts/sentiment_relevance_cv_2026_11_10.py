@@ -225,40 +225,89 @@ SHOW = (
     "positive precision",
     "positive recall",
 )
-res = {"none": [], "gate": [], "stack": []}
-dec_keep = {"none": [], "gate": [], "stack": []}
-prob_keep = {"none": [], "gate": [], "stack": []}
-chosen_t = []
-for r in (0, 1):
-    res["none"].append(full_stats(P[r], P[r].argmax(1)))
-    dec_keep["none"].append(P[r].argmax(1))
-    prob_keep["none"].append(P[r])
-    for o in range(10):
-        rng = random.Random(900 * r + o)
-        fl = folds(rng)
-        dg = np.zeros(len(keys), int)
-        ds = np.zeros(len(keys), int)
-        Ps = np.zeros_like(P[r])
-        for held in fl:
-            hi = np.array([idx_of[k] for k in held])
-            mask = np.ones(len(keys), bool)
-            mask[hi] = False
-            t = max(TS, key=lambda t: (pr_fig(gate_dec(P[r], R[r], t), mask), -abs(t - 0.5)))
-            chosen_t.append(t)
-            dg[hi] = gate_dec(P[r][hi], R[r][hi], t)
-            X = feats(P[r], R[r])
-            lr = LogisticRegression(C=1.0, max_iter=500).fit(
-                X[mask], gold[mask], sample_weight=W[mask] / W[mask].mean()
+
+
+def nested(Rr, outer=10):
+    res = {"none": [], "gate": [], "stack": []}
+    dec_keep = {"none": [], "gate": [], "stack": []}
+    prob_keep = {"none": [], "gate": [], "stack": []}
+    chosen_t = []
+    for r in (0, 1):
+        res["none"].append(full_stats(P[r], P[r].argmax(1)))
+        dec_keep["none"].append(P[r].argmax(1))
+        prob_keep["none"].append(P[r])
+        for o in range(outer):
+            rng = random.Random(900 * r + o)
+            fl = folds(rng)
+            dg = np.zeros(len(keys), int)
+            ds = np.zeros(len(keys), int)
+            Ps = np.zeros_like(P[r])
+            for held in fl:
+                hi = np.array([idx_of[k] for k in held])
+                mask = np.ones(len(keys), bool)
+                mask[hi] = False
+                t = max(TS, key=lambda t: (pr_fig(gate_dec(P[r], Rr[r], t), mask), -abs(t - 0.5)))
+                chosen_t.append(t)
+                dg[hi] = gate_dec(P[r][hi], Rr[r][hi], t)
+                X = feats(P[r], Rr[r])
+                lr = LogisticRegression(C=1.0, max_iter=500).fit(
+                    X[mask], gold[mask], sample_weight=W[mask] / W[mask].mean()
+                )
+                Ps[hi] = lr.predict_proba(X[hi])
+                ds[hi] = Ps[hi].argmax(1)
+            if o == 0:
+                dec_keep["gate"].append(dg)
+                dec_keep["stack"].append(ds)
+                prob_keep["gate"].append(P[r])
+                prob_keep["stack"].append(Ps)
+            res["gate"].append(full_stats(P[r], dg))
+            res["stack"].append(full_stats(Ps, ds))
+    return res, dec_keep, prob_keep, chosen_t
+
+
+res, dec_keep, prob_keep, chosen_t = nested(R)
+SEEDS = int(os.environ.get("CONTROL_SEEDS", "0"))
+if (
+    SEEDS
+):  # many shuffles of the saved scores: the spread of the gain a signal-free relevance score gives
+    saved = json.loads(SAVED.read_text(encoding="utf-8"))
+    assert saved["keys"] == list(keys), "the saved scores are for other texts"
+    gains_by_seed = {m: {n: [] for n in SHOW} for m in ("gate", "stack")}
+    for seed in range(SEEDS):
+        perm = np.random.default_rng(1000 + seed).permutation(len(keys))
+        rs, *_ = nested([np.array(r_)[perm] for r_ in saved["R"]], outer=2)
+        base = {n: st.mean(x[n] for x in rs["none"]) for n in SHOW}
+        for m in gains_by_seed:
+            for n in SHOW:
+                gains_by_seed[m][n].append(st.mean(x[n] for x in rs[m]) - base[n])
+        print(
+            f"shuffle {seed + 1}/{SEEDS}: stack score {gains_by_seed['stack']['score'][-1]:+.3f}",
+            flush=True,
+        )
+    print(
+        f"\n== gain over the sentiment model alone with SHUFFLED relevance, {SEEDS} shuffles (2 outer x 2 CV repeats each) =="
+    )
+    for m, per in gains_by_seed.items():
+        for n in (
+            "score",
+            "neutral recall",
+            "neutral precision",
+            "negative recall",
+            "negative precision",
+        ):
+            v = per[n]
+            print(
+                f"{m:6} {n:20} mean {st.mean(v):+.3f}  sd {st.stdev(v):.3f}  range [{min(v):+.3f}, {max(v):+.3f}]"
             )
-            Ps[hi] = lr.predict_proba(X[hi])
-            ds[hi] = Ps[hi].argmax(1)
-        if o == 0:
-            dec_keep["gate"].append(dg)
-            dec_keep["stack"].append(ds)
-            prob_keep["gate"].append(P[r])
-            prob_keep["stack"].append(Ps)
-        res["gate"].append(full_stats(P[r], dg))
-        res["stack"].append(full_stats(Ps, ds))
+    mlflow.set_tracking_uri(sys.argv[2])
+    mlflow.set_experiment("sentiment_pair_relevance_gate")
+    with mlflow.start_run(run_name=f"control_shuffled_{SEEDS}_seeds"):
+        mlflow.set_tags({"stage": "sentiment", "kind": "relevance", "control": "True"})
+        for m, per in gains_by_seed.items():
+            for n in SHOW:
+                mlflow.log_metric(f"gain_{m}_{n.replace(' ', '_')}_mean", st.mean(per[n]))
+                mlflow.log_metric(f"gain_{m}_{n.replace(' ', '_')}_sd", st.stdev(per[n]))
+    sys.exit(0)
 avg = {m: {n: st.mean(s[n] for s in v) for n in SHOW} for m, v in res.items()}
 print(
     f"\n== nested held-out, weighted (809 texts; 2 CV repeats x 10 outer repeats) ==   gate threshold chosen: median {st.median(chosen_t)}, range {min(chosen_t)}-{max(chosen_t)}"

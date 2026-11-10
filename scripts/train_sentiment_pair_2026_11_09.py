@@ -524,11 +524,11 @@ class _NoScore:
         return 0.0
 
 
-def run_final_all(mlflow_on: bool) -> None:
+def run_final_all(mlflow_on: bool, models: Path | None = None) -> None:
     """One model on every row of every file in ``MARK_SETS`` (train and validation slices both) plus the
     replay, the grid's setting, ``FINAL_SEED``. It has no held-out score of its own: the cross-validation
     (``sentiment_cv_all``) is its estimate. Written to ``models/sentiment_pair_all/final``, not published."""
-    target = Path("models/sentiment_pair_all") / "final"
+    target = (models or Path("models/sentiment_pair_all")) / "final"
     if target.exists():
         sys.exit(f"{target} exists: a model is made once; delete it to make it again")
     conn = connect_source()
@@ -805,6 +805,11 @@ def main() -> None:
     mode.add_argument("--time-one", action="store_true")
     mode.add_argument("--grid", action="store_true")
     mode.add_argument("--final", action="store_true")
+    parser.add_argument(
+        "--models",
+        type=Path,
+        help="with --final-all: the directory of the model (default models/sentiment_pair_all)",
+    )
     mode.add_argument(
         "--final-all",
         action="store_true",
@@ -826,7 +831,7 @@ def main() -> None:
     if not torch.cuda.is_available():
         print("no CUDA device: the runs will be slow", file=sys.stderr)
     if args.final_all:
-        run_final_all(args.mlflow)
+        run_final_all(args.mlflow, args.models)
         return
     if args.report:  # the predictions kept: no model, no SOURCE
         run_report()

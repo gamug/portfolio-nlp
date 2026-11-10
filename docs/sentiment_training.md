@@ -3,7 +3,11 @@
 **Status: written 2026-11-10.** What was tried to improve the sentiment "pair" model after PR #154's grid, in
 the order it was tried, with the figures. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
 experiment named in each section. The scripts that produced the figures are `scripts/*_2026_11_10.py`
-(exploratory, run once; they carry a file-level `ruff: noqa`, and no test covers them beyond the gold file's guard test). Nothing here is pinned or published: the
+(exploratory, run once; they carry a file-level `ruff: noqa`, and no test covers them beyond the gold file's guard test). The MLflow store is local and git-ignored: the metrics of every cited run are exported to
+[sentiment_training_results.csv](sentiment_training_results.csv)
+(`scripts/export_sentiment_training_results_2026_11_10.py`); the relevance experiment was run twice on 2026-11-10 (the
+rerun reproduced the first figures exactly), so each of its runs appears twice there, with its own start time.
+Nothing here is pinned or published: the
 pin is decided only on the 180-text gold (T-148c4) and only with the owner's word.
 
 ## The recipe and the metric (unchanged)
@@ -22,15 +26,17 @@ news is "the company is not what the news is about".
 
 ## What did not work
 
-| Experiment (MLflow) | What | Result |
-|---|---|---|
-| `sentiment_pair_company_gate` | Hard rule "company not named in the summary -> neutral", on the 83 validation texts | Neutral recall 0.27 -> 0.52, neutral precision 0.47 -> 0.38, score 0.678 -> 0.664 (final model). Not better. The matcher is strict (`_text_mentions_subject` misses aliases), so the groups are noisy |
-| `sentiment_pair_company_yes_no` | Segment A says "company named in text / not named" so the model can learn the prior | Seeds 1-4 mean 0.673 against 0.671 without the flag. No effect |
-| `sentiment_pair_neutral_threshold` | Weights on the neutral/negative probabilities (`argmax(p*w)`), fitted on the 83, out-of-fold | Mean 0.699 against 0.671, paired gain not decided in 3 of 4 seeds |
-| `sentiment_pair_learning_curve` | 25/50/75/100% of the training rows | 0.649 / 0.657 / 0.663 / 0.668: more data helps a little (about +0.005 per 25%) |
-| `sentiment_pair_more_data` | Add the new 270 rows (old 83 / new 135 validation) | Old validation 0.671 -> 0.695, new 0.680 -> 0.690 |
-| `sentiment_pair_company_cues_cv` | A mention flag (V1 yes/no, V2 levels, alias-aware via `triage.CompanyResolver`) in the pair, cross-validated | Score 0.737 / 0.737 / 0.740 (none / V1 / V2), paired gain +0.000 [-0.015, +0.011]; neutral precision up 0.05, neutral recall down 0.06 |
-| `sentiment_pair_cv_threshold` | The neutral prior on the cross-validated predictions, nested | Nested score 0.74 against 0.737; neutral recall 0.53 but negative recall 0.72 and precision 0.71. Not useful |
+**The rows are not comparable with each other**: the first five were judged on validation texts (the 83 of the first file, and for `more_data` also the 135 of the second) (small, noisy slices: a seed moves the score by 0.02-0.04), the last two on the 809-row cross-validation. Read each result against its own baseline in the third column.
+
+| Experiment (MLflow) | What | Evaluated on; compared with | Result |
+|---|---|---|---|
+| `sentiment_pair_company_gate` | Hard rule "company not named in the summary -> neutral", on the 83 validation texts | 83 validation texts (450-row recipe); the same model without the gate | Neutral recall 0.27 -> 0.52, neutral precision 0.47 -> 0.38, score 0.678 -> 0.664 (final model). Not better. The matcher is strict (`_text_mentions_subject` misses aliases), so the groups are noisy |
+| `sentiment_pair_company_yes_no` | Segment A says "company named in text / not named" so the model can learn the prior | 83 validation texts, 4 seeds; the grid's 0.671 (no flag) | Seeds 1-4 mean 0.673 against 0.671 without the flag. No effect |
+| `sentiment_pair_neutral_threshold` | Weights on the neutral/negative probabilities (`argmax(p*w)`), fitted on the 83, out-of-fold | 83 validation texts, out-of-fold on the 83, 4 seeds; the same models without the weights (0.671) | Mean 0.699 against 0.671, paired gain not decided in 3 of 4 seeds |
+| `sentiment_pair_learning_curve` | 25/50/75/100% of the training rows | 83 validation texts, 3 seeds per fraction; 100% of the 367 rows = 0.668 | 0.649 / 0.657 / 0.663 / 0.668: more data helps a little (about +0.005 per 25%) |
+| `sentiment_pair_more_data` | Add the new 270 rows (old 83 / new 135 validation) | the old 83 and the new 135 validation texts, 4 seeds; trained on the first file only (0.671 / 0.680) | Old validation 0.671 -> 0.695, new 0.680 -> 0.690 |
+| `sentiment_pair_company_cues_cv` | A mention flag (V1 yes/no, V2 levels, alias-aware via `triage.CompanyResolver`) in the pair, cross-validated | 809-row cross-validation, out-of-fold; the no-cue CV model (0.737) | Score 0.737 / 0.737 / 0.740 (none / V1 / V2), paired gain +0.000 [-0.015, +0.011]; neutral precision up 0.05, neutral recall down 0.06 |
+| `sentiment_pair_cv_threshold` | The neutral prior on the cross-validated predictions, nested | 809-row cross-validation, nested; the no-cue CV model (0.737) | Nested score 0.74 against 0.737; neutral recall 0.53 but negative recall 0.72 and precision 0.71. Not useful |
 
 ## More data: 405 new tags and cross-validation
 
@@ -58,8 +64,20 @@ cross-validation over the 809 rows read as a pair** (2 repeats, folds stratified
 | negative precision / recall | 0.680 / 0.745 | 0.597 / 0.748 | +0.083 / -0.003 |
 | positive precision / recall | 0.761 / 0.834 | 0.743 / 0.613 | +0.018 / +0.221 |
 
-Neutral recall stays at 0.44. The final model on all 809 rows (+341 replay, seed 4) is
-`models/sentiment_pair_all/final` (local, git-ignored, not published; its estimate is the CV figures).
+Neutral recall stays at 0.44.
+
+**Replay share.** The grid mixed the 341 replay sentences with 341 summaries (50%); with 809 summaries the same
+341 sentences are about 30% of the mix, and that is what the CV above used. The 50% mix was run too
+(`REPLAY_N=809`, `sentiment_pair_cv_all_data_replay809`, 809 replay sentences from the 925 eligible): score 0.723
+[0.699, 0.748] against 0.737 [0.716, 0.764] (the intervals overlap; not a paired comparison), neutral recall 0.401
+against 0.442, positive recall 0.825 against 0.834. A bigger replay is not better, so the 341 stays.
+
+**The model on all rows.** `train_sentiment_pair_2026_11_09.py --final-all` (1,150 examples: 809 summaries and 341
+replay, grid setting, seed 4; epoch losses 0.820 and 0.394), written to a local, git-ignored directory, not published.
+The CV script made an earlier model the same way (losses 0.866 and 0.381) before `--final-all` existed: the two are
+**not identical** (the examples are in a different order, so the shuffles differ), and their predictions were not
+compared. `--final-all` is the one implementation now; the CV script no longer trains a final model. The estimate of
+either is the CV figures; neither has a held-out score.
 
 ## Error analysis of the neutral misses
 
@@ -97,18 +115,25 @@ neutral recall +0.312; stack score +0.077 [+0.058, +0.095], neutral precision +0
 +0.053 [+0.037, +0.068]; negative recall unchanged. Negative precision and recall are above the D32 bar
 (70%) for the stack.
 
+## Amendment to D35 proposed for the owner
+
+(`PLAN.md` D35 points here; the owner has not accepted it.) 405 more marks (`gold/sentiment_train_2.csv`; 809 of the 855 read as a pair); the recipe is judged by 5-fold cross-validation over them (D37 figures: `docs/sentiment_training.md`), the model for the pin trains on all rows (`--final-all`, replay stays 341; a 809 replay scored worse); a relevance model plus stack (CV 0.814 against 0.737, not held-out) is proposed (T-148c3c/d); nothing is pinned (T-148c4); the 270/135 split of the new file is the assistant's (T-148c3f).
+
 ## Limits of these figures (read before using them)
 
 - **Not strictly nested.** The base models are out-of-fold (a text is never scored by a model that saw it),
   but the gate threshold and the stack were fitted on out-of-fold predictions of 4/5 of the texts and scored
   on the other 1/5 with a random outer split, not the CV folds. Those base models saw some of the scored
   texts in training (the usual stacking leak). The rule has one threshold or four coefficients. **Control (2026-11-10):** the same
-  nested procedure, with the relevance scores shuffled across the texts (weighted AUC 0.50), gives a stack
-  score gain of +0.001 [-0.005, +0.008] and a gate gain of -0.039 [-0.052, -0.027] over the sentiment model
-  alone (MLflow `sentiment_pair_relevance_gate`, runs `control_shuffled_nested_*`). So the procedure does not
-  manufacture a gain from the way the rule is fitted; the gain of the real scores (+0.077 stack, +0.052 gate)
-  comes from the relevance information. The control does not test whether the *base models* are optimistic
-  for texts they were trained near (duplicates, same company); the strictly nested retraining of T-148c3c does.
+  nested procedure with the relevance scores shuffled across the texts (weighted AUC 0.50). One shuffle
+  (`control_shuffled_nested_*`): stack score gain +0.001 [-0.005, +0.008], gate -0.039. **20 shuffles** (2 outer x 2 CV
+  repeats each, `control_shuffled_20_seeds`): stack score gain mean +0.002 (sd 0.001, range [+0.000, +0.005]), neutral
+  precision +0.034, neutral recall -0.013; gate score gain mean -0.041 (sd 0.005): with no signal the gate's
+  threshold falls to its lowest value (0.05) and it turns a share of the true positives and negatives into
+  neutral. So the way the rule is fitted adds at most about +0.005 to the stack and none to the gate; the
+  real gain (+0.077 stack, +0.052 gate) comes from the relevance information. The control does not test whether
+  the *base models* are optimistic for texts they were trained near (duplicates, same company); the strictly
+  nested retraining of T-148c3c does.
 - **Selection optimism.** About a dozen variants were judged on the same 809 rows (company gate, flag,
   neutral threshold twice, two cue sets, three zero-shot hypotheses, the fine-tuned relevance model, gate and
   stack), and the recipe was tuned on the same tags. The intervals are per comparison, not corrected for that.

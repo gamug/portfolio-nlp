@@ -15,7 +15,7 @@ import pytest
 
 import sentiment_pair_train as spt
 from fti import TrainedArtifact
-from news_nlp import triage
+from news_nlp import retag, triage
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
@@ -748,3 +748,87 @@ def test_the_all_data_entry_point_reads_both_gold_files_and_the_grid_keeps_the_f
     assert CMD.MARK_SETS["new"][0] == Path("gold/sentiment_train_2.csv")
     assert CMD.ALL_SETTING == (2, 3e-5)
     assert callable(CMD.build_all_data) and callable(CMD.run_final_all)
+
+
+def test_build_all_data_merges_both_files_and_keeps_every_marked_body_out_of_the_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both files' rows are one set (the no-company rows counted, not trained), the replay is as large as the
+    FIRST file's training rows, and a replay sentence of a body marked in the SECOND file is left out."""
+    old_marks: list[dict[str, str]] = []
+    old_ids: list[dict[str, str]] = []
+    new_marks: list[dict[str, str]] = []
+    new_ids: list[dict[str, str]] = []
+    for i in range(3):
+        for marks, ids, tag, slice_ in (
+            (old_marks, old_ids, "o", "train"),
+            (new_marks, new_ids, "n", "validation" if i == 2 else "train"),
+        ):
+            text = f"Acme item {tag}{i}."
+            marks.append(
+                {
+                    "key": f"{tag}{i}#summary",
+                    "text_hash": retag.text_hash(text),
+                    "sentiment": ("positive", "negative", "neutral")[i],
+                    "slice": slice_,
+                    "ticker": "AAA",
+                    "company": "Acme Corp",
+                    "rule_scope": "single",
+                    "body_hash": f"body-{tag}{i}",
+                }
+            )
+            ids.append(
+                {
+                    "key": f"{tag}{i}#summary",
+                    "text": text,
+                    "body_hash": f"body-{tag}{i}",
+                    "title": "",
+                }
+            )
+    new_marks.append(
+        {
+            **new_marks[0],
+            "key": "n9#summary",
+            "ticker": "",
+            "rule_scope": "sector",
+            "body_hash": "body-n9",
+            "text_hash": retag.text_hash("Sector news."),
+        }
+    )
+    new_ids.append(
+        {"key": "n9#summary", "text": "Sector news.", "body_hash": "body-n9", "title": ""}
+    )
+    files = {
+        Path("o_marks"): old_marks, Path("o_ids"): old_ids, Path("n_marks"): new_marks, Path("n_ids"): new_ids,
+    }  # fmt: skip
+    monkeypatch.setattr(
+        CMD,
+        "MARK_SETS",
+        {"old": (Path("o_marks"), Path("o_ids")), "new": (Path("n_marks"), Path("n_ids"))},
+    )
+    monkeypatch.setattr(CMD, "read_csv", lambda path: files[path])
+    pool = tmp_path / "pool.jsonl"
+    labels = ("positive", "negative", "neutral")
+    sentences = [
+        {"article_id": a, "sentence": f"Acme sentence {a}.", "label": labels[a % 3]}
+        for a in range(1, 13)
+    ]
+    pool.write_text("\n".join(json.dumps(s) for s in sentences), encoding="utf-8")
+    monkeypatch.setattr(CMD, "REPLAY_POOL", pool)
+    # article 1 is the body marked in the second file: its sentence must not be in the replay
+    infos = {
+        a: spt.ArticleInfo("body-n0" if a == 1 else f"other-{a}", "AAA", "Acme Corp")
+        for a in range(1, 13)
+    }
+    monkeypatch.setattr(CMD, "article_infos", lambda _conn, _ids: infos)
+    monkeypatch.setattr(CMD, "exam_keys", lambda _conn, hashes, titles: (hashes, titles))
+    monkeypatch.setattr(CMD, "OUT", tmp_path / "out")
+    by_set, merged, replay = CMD.build_all_data(object())  # type: ignore[arg-type]
+    assert {k: len(v.train) + len(v.validation) for k, v in by_set.items()} == {"old": 3, "new": 3}
+    assert len(merged.train) + len(merged.validation) == 6
+    assert merged.left_out == {"no company (sector)": 1}
+    assert (
+        len(replay) == len(by_set["old"].train) == 3
+    )  # as large as the FIRST file's training rows
+    assert all(not e.key.startswith("1#") for e in replay)
+    assert "body-n9" in merged.body_hashes  # a no-company body is still kept out of the replay
