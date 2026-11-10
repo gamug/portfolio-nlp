@@ -3927,24 +3927,33 @@ def test_the_recorded_card_hashes_are_those_of_the_scripts_cards() -> None:
 
 
 class _FakeApi:
-    def __init__(self, private: bool, weights: str) -> None:
-        self.private, self.weights = private, weights
+    def __init__(self, private: bool, weights: str, head: str = "c" * 40) -> None:
+        self.private, self.weights, self.head = private, weights, head
 
-    def model_info(self, repo: str, revision: str, files_metadata: bool) -> Any:
+    def model_info(
+        self, repo: str, revision: str | None = None, files_metadata: bool = False
+    ) -> Any:
         sibling = types.SimpleNamespace(
             rfilename="model.safetensors", lfs=types.SimpleNamespace(sha256=self.weights)
         )
-        return types.SimpleNamespace(private=self.private, siblings=[sibling])
+        return types.SimpleNamespace(private=self.private, siblings=[sibling], sha=self.head)
 
 
 def _check(
-    tmp_path: Path, *, private: bool, status: int, card_ok: bool = True
-) -> dict[str, dict[str, bool]]:
+    tmp_path: Path,
+    *,
+    private: bool,
+    status: int,
+    card_ok: bool = True,
+    head: str = "c" * 40,
+    with_weights: bool = True,
+) -> dict[str, dict[str, bool | None]]:
     weights = b"weights"
     dirs = {}
     for key in ("sentiment", "relevance"):
         (tmp_path / key).mkdir(exist_ok=True)
-        (tmp_path / key / "model.safetensors").write_bytes(weights)
+        if with_weights:
+            (tmp_path / key / "model.safetensors").write_bytes(weights)
         dirs[key] = tmp_path / key
     record = tmp_path / "published.json"
     for key, repo, card in (
@@ -3966,12 +3975,12 @@ def _check(
             path.write_text('{"a": 1}', encoding="utf-8")
         return str(path)
 
-    results: dict[str, dict[str, bool]] = PUBLISH.check_published(
+    results: dict[str, dict[str, bool | None]] = PUBLISH.check_published(
         record,
         "token",
         dirs,
         stack,
-        api=_FakeApi(private, hashlib.sha256(weights).hexdigest()),
+        api=_FakeApi(private, hashlib.sha256(weights).hexdigest(), head),
         download=download,
         anonymous_status=lambda url: status,
     )
@@ -3993,3 +4002,25 @@ def test_the_check_fails_on_a_public_repository_or_a_changed_card(tmp_path: Path
     assert not public["sentiment"]["anonymous request refused"]
     edited = _check(tmp_path, private=True, status=401, card_ok=False)
     assert not edited["relevance"]["card on the Hub is the recorded one"]
+
+
+def test_the_check_does_not_fail_without_local_weights_and_fails_on_a_moved_head(
+    tmp_path: Path,
+) -> None:
+    missing = _check(tmp_path, private=True, status=401, with_weights=False)
+    assert missing["sentiment"]["weights are the local ones"] is None  # not compared, not a failure
+    assert all(ok is not False for checks in missing.values() for ok in checks.values())
+    moved = _check(tmp_path, private=True, status=401, head="d" * 40)
+    assert moved["relevance"]["recorded revision is the head of the repository"] is False
+
+
+def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unreachable = _check(tmp_path, private=True, status=0)
+    assert unreachable["sentiment"]["anonymous request refused"] is None
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setattr(sys, "argv", ["publish", "--check"])
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
+    with pytest.raises(SystemExit, match="needs HF_TOKEN"):
+        PUBLISH.main()

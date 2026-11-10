@@ -218,7 +218,7 @@ are those of "The assumptions" above):
   **Repeatable check:** `publish_final_models_2026_11_10.py --check` (read-only, needs `HF_TOKEN`) prints, for the recorded
   revisions, whether each repository is private and refuses an anonymous request, whether the card on the Hub is the
   recorded one and the script's, whether the weights are the local ones, and whether the stack file is the tracked one
-  (all yes on 2026-11-10). A test fails if a card in the script changes without the recorded hash.
+  (all yes on 2026-11-10); it also checks that the recorded revision is still the head of the repository, reports "not compared" (not a failure) for the local weights when the git-ignored `models/` is absent and for an unreachable Hub, and stops with a message without `HF_TOKEN`. A test fails if a card in the script changes without the recorded hash.
   **History:** the first revisions keep the wrong text ("three quarters", "S&P 500", `cc-by-nc-4.0`); harmless while the
   repositories are private, but a repository must be recreated before it is made public (T-148c4).
   The owner should also decide whether `gamug/FinBERT-financial-news` itself needs its licence corrected; this PR does not

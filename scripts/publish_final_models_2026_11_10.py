@@ -246,8 +246,9 @@ def check_published(
     api: Any = None,
     download: Any = None,
     anonymous_status: Any = None,
-) -> dict[str, dict[str, bool]]:
-    """Read-only: for each recorded revision, five yes/no results. The three callables are injectable for tests."""
+) -> dict[str, dict[str, bool | None]]:
+    """Read-only: for each recorded revision, yes/no results; ``None`` = could not be compared (no local weights, no
+    network for the anonymous request). The three callables are injectable for tests."""
     import urllib.error  # noqa: PLC0415 -- only the check needs these
     import urllib.request  # noqa: PLC0415
 
@@ -263,30 +264,34 @@ def check_published(
             urllib.request.urlopen(url)  # noqa: S310 -- fixed https URL; an anonymous request must fail
         except urllib.error.HTTPError as err:
             return int(err.code)
+        except urllib.error.URLError:
+            return 0  # the Hub could not be reached: not an answer
         return 200
 
     anonymous_status = anonymous_status or status
     cards = {"sentiment": SENTIMENT_CARD, "relevance": RELEVANCE_CARD}
     published = json.loads(record.read_text(encoding="utf-8"))
-    out: dict[str, dict[str, bool]] = {}
+    out: dict[str, dict[str, bool | None]] = {}
     for key in ("sentiment", "relevance"):
         repo, rev = published[key]["repo"], published[key]["revision"]
         info = api.model_info(repo, revision=rev, files_metadata=True)
         weights = {s.rfilename: s.lfs.sha256 for s in info.siblings if s.lfs}
         local = dirs[key] / "model.safetensors"
         live_card = Path(download(repo, "README.md", rev)).read_bytes()
-        result = {
+        answer = anonymous_status(f"https://huggingface.co/{repo}/resolve/{rev}/README.md")
+        result: dict[str, bool | None] = {
             "private": bool(info.private),
-            "anonymous request refused": anonymous_status(
-                f"https://huggingface.co/{repo}/resolve/{rev}/README.md"
-            )
-            == UNAUTHORIZED,
+            "recorded revision is the head of the repository": api.model_info(repo).sha == rev,
+            "anonymous request refused": None if answer == 0 else answer == UNAUTHORIZED,
             "card on the Hub is the recorded one": hashlib.sha256(live_card).hexdigest()
             == published[key]["card_sha256"],
             "card recorded is the script's": hashlib.sha256(cards[key].encode("utf-8")).hexdigest()
             == published[key]["card_sha256"],
-            "weights are the local ones": local.exists()
-            and weights.get("model.safetensors") == hashlib.sha256(local.read_bytes()).hexdigest(),
+            "weights are the local ones": (
+                weights.get("model.safetensors") == hashlib.sha256(local.read_bytes()).hexdigest()
+                if local.exists()
+                else None  # the local weights are git-ignored: not on every machine
+            ),
         }
         if key == "sentiment":
             on_hub = json.loads(
@@ -317,12 +322,21 @@ def main() -> None:
     load_dotenv()
     token = os.environ.get("HF_TOKEN", "")
     if args.check:
+        if not token:
+            raise SystemExit("--check needs HF_TOKEN (the repositories are private)")
         dirs = {"sentiment": args.sentiment_dir, "relevance": args.relevance_dir}
-        results = check_published(args.record, token, dirs, args.stack)
+        try:
+            results = check_published(args.record, token, dirs, args.stack)
+        except (
+            OSError
+        ) as err:  # no network, DNS, TLS (huggingface_hub's HTTP errors are OSErrors too)
+            raise SystemExit(f"could not reach the Hub: {err}") from err
         for key, checks in results.items():
             for name, ok in checks.items():
-                print(f"{key}: {name}: {'yes' if ok else 'NO'}")
-        raise SystemExit(0 if all(all(c.values()) for c in results.values()) else 1)
+                print(f"{key}: {name}: {'not compared' if ok is None else 'yes' if ok else 'NO'}")
+        raise SystemExit(
+            0 if all(ok is not False for c in results.values() for ok in c.values()) else 1
+        )
     if not token and not args.dry_run:
         raise SystemExit("HF_TOKEN (write scope) is not set")
     out: dict[str, str] = {}
