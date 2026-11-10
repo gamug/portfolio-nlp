@@ -545,3 +545,35 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 | `pipeline_step_state` (target, approved 2026-11-10, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (a **unique body**, by body hash, T-132: a body that reaches us under five tickers runs once), `sub_news` or `text_company` (a text and one main company: steps 6 and 7 run per pair, so a text with two main companies has two rows and its category is computed once per pair) | `cli/news_nlp_steps.py` |
 
 ```
+
+## Eleventh cut (PR #161 review, round 6)
+
+### SPEC rows before the round-6 key fixes, verbatim
+
+```
+| `news_sentiment` (target, approved 2026-11-10) | (`item_kind`, `item_id`, `ticker` or none for a sector, `model_revision`) | `label`, `score`, `positive`/`negative`/`neutral` (D37 reads them per class), `model_name`, `sentiment_checked`, `processed_at` | Sentiment |
+```
+
+```
+| `sub_news` (target, approved 2026-11-10) | `id` (PK) | `article_id` (FK), `segment_index`, `text`, `extractor_revision`; unique (`article_id`, `segment_index`, `extractor_revision`); a new revision writes new rows, the old ones are not read and their dependent steps are re-queued | Step 1 |
+```
+
+```
+| `pipeline_step_state` (target, approved 2026-11-10, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (a **unique body**, by body hash, T-132: a body under five tickers runs once), `sub_news` or `text_company` (a text and one main company: sentiment and category run per pair, so a text with two main companies has two rows) | `cli/news_nlp_steps.py` |
+```
+
+```
+| `news_category` (target, approved 2026-11-10) | (`item_kind`, `item_id`, `ticker`, `model_revision`) | `label`, `score`, `group_label`/`group_score`, the per-slug scores (audit trail), `model_name`, `processed_at` | Category |
+```
+
+### SPEC FR-001, verbatim
+
+```
+| **FR-001** | The sentiment stage runs `gamug/FinBERT-financial-news` (a continued fine-tune of `ProsusAI/finbert`, selected 2026-09-13 — §13 item 1) over every pending article's `body_text` (chunked, entity-scoped weighted average across chunks — full weight for chunks naming the article's own `company`/`ticker`, a lower baseline otherwise) and writes exactly one `article_sentiment` row per article. **Superseded for the new pipeline (PLAN D39, FR-020): sentiment reads the summary or the sub-news with its main company, not the body; this FR describes the v1 tables until the backfill (T-150). **Still used by the new pipeline only for `sector` summaries (D39 (iv)), run as a step of `news_nlp_steps.py` with its revision pinned in `pipeline_step_state`; those rows are marked `sentiment_checked = false` (the 180-text gold has no sector text, D26) until T-170 adds some.** | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
+```
+
+### SPEC FR-004, verbatim
+
+```
+| **FR-004** | The `c_summary` stage (opt-in, `--summarize`) generates one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`, hierarchical reduce over chunks) **only** for articles that already have a sentiment row **and** at least one entity scoring `> 0.8`, writing `article_summary`. **Superseded for the new pipeline (PLAN D39, FR-020): a summary is made for each `single` and `sector` body and for each sub-news over a size, before sentiment, with no entity gate; this FR describes the v1 stage until the backfill (T-150).** | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
+```
