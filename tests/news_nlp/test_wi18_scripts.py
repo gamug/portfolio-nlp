@@ -3320,3 +3320,67 @@ def test_the_replacement_script_wants_the_two_directories_in_pairs(
     (out / "faithfulness_to_tag.csv").write_text("review_order,faithful\n1,yes\n", encoding="utf-8")
     assert DEAD_REPLACEMENT.main(["--out", str(out), "--earlier", str(earlier)]) == 1
     assert "stopped:" in capsys.readouterr().err
+
+
+def _dead_units_report(tmp_path: Path, **extra: object) -> str:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    _two_marks_no(tmp_path)
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    entry = {**_units_entry(units, ["1#T#1 (units)", "2#T#1 (units)"]), **extra}
+    _stale_file(tmp_path, units=entry)
+    return "\n".join(REPORT.faithfulness_report(tmp_path))
+
+
+def test_the_current_code_block_gives_the_bar_with_every_dead_mark_as_a_company_without_a_text(
+    tmp_path: Path,
+) -> None:
+    text = _dead_units_report(tmp_path)
+    lower = "[current code, every dead mark a company left without a text: all]"
+    assert "current code: dead marks per extractor units 2" in text
+    assert "takes its company out of the bar's denominator" in text
+    # the 4 kept texts are faithful; the 2 dead companies, which the extractor may still be asked
+    # about, count against it
+    assert f"{lower}      units: 66.7%" in text and "4 faithful of 4 texts + 2 companies" in text
+    assert "[current code: all]      units: 100.0%" in text  # the figure that leaves them out
+
+
+def test_the_current_code_block_names_unmarked_texts_and_labels_of_another_file(
+    tmp_path: Path,
+) -> None:
+    text = _dead_units_report(tmp_path, new=["x", "y", "z"])
+    assert "nobody has marked (not in any figure): units 3" in text
+    assert "labels of faithfulness_stale.json are not in this file" not in text
+    other = tmp_path / "other"
+    other.mkdir()
+    text = _dead_units_report(other, stale=["1#T#1 (units)", "2#T#1 (units)", "99#X#1 (units)"])
+    assert "1 labels of faithfulness_stale.json are not in this file" in text
+
+
+def test_an_old_entry_of_an_extractor_with_no_marks_does_not_stop_the_current_code_block(
+    tmp_path: Path,
+) -> None:
+    _faith_files(tmp_path, [], extractors="baseline|units")
+    _two_marks_no(tmp_path)
+    units = retag.code_revision(*REPORT.attribution_model.UNITS_CODE_MODULES)
+    old_model: dict[str, object] = {
+        "date": "2026-11-01",
+        "revision": "extractor:model@local:x@names:y@t0.5@0123456789ab",
+        "stale": [],
+        "new": [],
+    }
+    _stale_file(
+        tmp_path,
+        units=_units_entry(units, ["1#T#1 (units)", "2#T#1 (units)"]),
+        model=old_model,
+    )
+    text = "\n".join(REPORT.faithfulness_report(tmp_path))
+    assert "[current code: all]      units: 100.0%" in text and "not printed" not in text
+
+
+def test_the_current_code_block_is_not_printed_when_the_check_cannot_be_compared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(REPORT, "_current_code", lambda name: None if name == "units" else "x")
+    text = _dead_units_report(tmp_path)
+    assert "not comparable with the current code for units" in text
+    assert "[current code: all]" not in text

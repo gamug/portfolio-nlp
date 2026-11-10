@@ -10,7 +10,7 @@ the commands are in `docs/evaluation.md`; the tagged files are described one by 
 "What the results say" give the figures read on 2026-11-08, before the matcher change of PR #155
 (`units` on the confirmation set: 86.1% on every company named, 570 characters per text). They are kept
 as the record of what the owner decided on. The figures after the change are in "Update of 2026-11-10"
-(`units`: 87.3% counting every mark, 97.1% on texts the current code writes; 620 characters per text).
+(`units`: 87.3% counting every mark; on texts the current code writes between 84.3% and 97.1%, depending on whether the matcher still names the companies of the dead marks; 620 characters per text).
 
 ## The selection (owner, 2026-11-08)
 
@@ -317,10 +317,17 @@ rewrote on 2026-11-10 for both sets: **147 and 116 marks** of an extractor on a 
 baseline 40, model 41, units 52, units2 7, units3 7; confirmation set baseline 51, units 49, units2 7,
 units3 9). After those blocks it prints the same figures labelled `[current code: ...]`, with each
 extractor's marks on dead texts left out (a row left with no extractor is dropped: 356 of 453 rows remain in
-the first set, 342 of 438 in the confirmation set). Nothing extra is printed when no marked row is dead;
-when the check is missing for an extractor or was made with other code than the current one, one line says
-so and no figure is printed. The first table below is the `[all]` view, the second the `[current code]`
-view (Appendix A.3, A.4 are the report's own lines). Before the PR the same view was made by hand from
+the first set, 342 of 438 in the confirmation set). The block starts with the dead marks per extractor, a
+warning that leaving a mark out takes its company out of the bar's denominator, the texts the code writes
+that nobody has marked (the record's `new` list), and the labels of the record that are not in this file.
+It ends with **the lower bound**: the bar with every dead mark counted as a company left without a text
+(unless the extractor still has a kept text for that company), labelled `[current code, every dead mark a
+company left without a text: ...]`. Nothing extra is printed when no marked row is dead; when the check
+is missing for an extractor of the marks, was made with other code than the current one, or cannot be
+compared with it, one line says so and no figure is printed. The first table below is the `[all]` view,
+the second the `[current code]` view, the third its lower bound (Appendix A.3, A.4 are the report's own
+lines). The tracked `gold/` has no staleness record, so `report ... --gold` does not print this block: the
+official figures from `gold/` still count the dead marks until the record is kept with the gold (T-148b11). Before the PR the same view was made by hand from
 copies of the two files (the owner's files are untouched). The replacement tables above are reproduced with
 `uv run scripts/dead_text_replacement_2026_11_10.py --out data --earlier data/earlier_2026_11_09/first
 --out data/faithfulness_confirmation --earlier data/earlier_2026_11_09/confirmation`, where
@@ -338,6 +345,24 @@ Faithful share, every company named (the bar: lower end of the interval at or ab
 | `units3` | 91.6% [84.7, 97.8] pass | 93.2% [86.7, 99.2] pass | 93.7% [90.3, 96.9] pass | 95.8% [92.5, 98.6] pass |
 | Companies left without a text (`units` / `units2` / `units3`) | 0 / 19 / 6 | 0 / 19 / 6 | 1 / 10 / 4 | 1 / 10 / 4 |
 
+**The current-code figure is an upper end.** Leaving a dead mark out takes its company out of the
+denominator. That is right when the matcher no longer names the company, and flatters the share when it
+still does and the extractor now writes nothing for it; the files cannot tell the two apart (only
+running the extractors can). The lower end counts every dead mark with no kept text of the extractor for
+its company as a company left without a text (`[all]`, every company named):
+
+| Extractor | First set, lower end | Confirmation, lower end |
+|---|---|---|
+| `baseline` | 61.6% [47.5, 74.9] fail | 84.4% [78.5, 89.7] not decided |
+| `model` | 66.8% [52.4, 79.7] fail | not marked |
+| **`units`** | **84.3% [75.4, 90.6] not decided** | **84.3% [79.1, 89.3] not decided** |
+| `units2` | 81.8% [69.8, 95.0] not decided | 90.6% [85.3, 95.4] pass |
+| `units3` | 89.0% [79.7, 96.6] not decided | 92.9% [89.1, 96.5] pass |
+
+So `units` is somewhere between 84.3% and 97.5% on the first set and between 84.3% and 97.1% on the
+confirmation set; the bar (lower end of the interval at or above 80%) is passed at the upper end and not
+decided at the lower end. The truth is in between and is not known from these files.
+
 Counting the companies an extractor was not asked about as unfaithful (the strict reading) on current code:
 `units` 95.1% [89.3, 99.3] pass and 97.1% [94.0, 99.4] pass; `units2` 79.7% [67.0, 94.2] not decided and
 88.5% [82.8, 93.7] pass; `units3` 86.7% [79.3, 94.7] not decided and 91.9% [87.5, 95.8] pass (first set,
@@ -350,15 +375,18 @@ then confirmation set). Gains on the same companies, current code: `units` minus
 Appendix A.3 to A.6; they cannot decide, as elsewhere on this page, and no conclusion below rests on them.
 
 What this adds to "What the results say":
-1. **Among the extractors marked on both sets, `units` is the only one whose lower bound stays at or above
-   80% on every company named under the strictest count of unwritten companies**, on current code
-   (`units2` and `units3` are *not decided* on the first set under that count; `baseline` is *not decided*
-   on the first set; `model` has no confirmation marks). On the plain count `units3` also passes both sets,
-   and `baseline` passes the confirmation set. No extractor beats `units` on a paired comparison.
+1. **On the upper end of the current-code figure (above), `units` passes both sets on every company
+   named, also under the strictest count of unwritten companies; on the lower end it passes neither**
+   (84.3% on both sets, *not decided*). At the upper end `units3` also passes both sets on the plain count
+   and `baseline` passes the confirmation set; at the lower end `units2` and `units3` pass the
+   confirmation set and `units` does not. `model` has no confirmation marks. No extractor beats `units`
+   on a paired comparison. The claim "`units` clears the bar on current code" therefore needs the answer
+   to one question the files cannot give: does the matcher still name the companies of the dead marks?
 2. **What the change did to the extractors is a removal, and what it did beyond that is small and not
    measured.** The 97 and 96 dead rows were about half unfaithful and are no longer written (or were
    rewritten: `units` 4 of 52 and 10 of 49 dead marks). On current code `units` is about 10 points higher
-   than counting every mark (87.3% to 97.5% and 87.3% to 97.1%); that rise is the removal of those marks,
+   than counting every mark (87.3% to 97.5% and 87.3% to 97.1%); that rise is the removal of those marks
+   (and the lower end is 84.3% on both sets, below the all-marks figure),
    and the evidence does not separate "the matcher stopped finding companies that were not there" from
    "the texts got better". The old matcher was not re-run.
 3. **`baseline` is the unstable one**: it fails on the first set and passes on the confirmation set.
@@ -599,15 +627,23 @@ the intervals are a bootstrap over bodies, not over texts (D32)
 
 ### A.3 First set, current code (dead marks left out; 356 of 453 rows, 2026-11-10)
 
-The `[current code: ...]` lines of the report as of PR #157, with `faithfulness_stale.json` re-run on 2026-11-10 (the "informative" lines are left out).
+The `current code` lines of the report as of PR #157 (the header, the `[current code: ...]` figures and the lower bound), with `faithfulness_stale.json` re-run on 2026-11-10.
 
 ```
 current code: 147 marks of 103 marked rows are on texts the current code no longer writes (faithfulness_stale.json); the figures below leave them out, 356 of 453 rows remain
+current code: dead marks per extractor baseline 40, model 41, units 52, units2 7, units3 7
+current code: leaving a dead mark out takes its company out of the bar's denominator; that flatters the share when the matcher still names the company and the extractor now writes nothing for it (the lower bound is below)
+current code: texts the code writes that nobody has marked (not in any figure): model 10
 [current code: all]   baseline: 71.3% [55.5%, 84.6%] -> not decided (the bar: of the companies named, those with a faithful text; 117 faithful of 164 texts + 0 companies left without one)
+[current code: all]   baseline: of the texts it wrote, 71.3% [64.0%, 77.7%] (informative; omissions not counted)
 [current code: all]      model: 85.2% [68.6%, 99.1%] -> not decided (the bar: of the companies named, those with a faithful text; 127 faithful of 149 texts + 0 companies left without one)
+[current code: all]      model: of the texts it wrote, 85.2% [78.7%, 90.0%] (informative; omissions not counted)
 [current code: all]      units: 97.5% [93.3%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 156 faithful of 160 texts + 0 companies left without one)
+[current code: all]      units: of the texts it wrote, 97.5% [93.7%, 99.0%] (informative; omissions not counted)
 [current code: all]     units2: 85.7% [73.5%, 99.1%] -> not decided (the bar: of the companies named, those with a faithful text; 126 faithful of 128 texts + 19 companies left without one)
+[current code: all]     units2: of the texts it wrote, 98.4% [94.5%, 99.6%] (informative; omissions not counted)
 [current code: all]     units3: 93.2% [86.7%, 99.2%] -> pass (the bar: of the companies named, those with a faithful text; 137 faithful of 141 texts + 6 companies left without one)
+[current code: all]     units3: of the texts it wrote, 97.2% [92.9%, 98.9%] (informative; omissions not counted)
 [current code: all] model minus baseline on 149 company texts of 25 bodies: 16.1% [9.4%, 27.0%] -> better
 [current code: all] units minus baseline on 160 company texts of 29 bodies: 25.6% [12.6%, 43.0%] -> better
 [current code: all] units minus model on 146 company texts of 25 bodies: 11.6% [0.0%, 29.2%] -> not decided
@@ -619,11 +655,21 @@ current code: 147 marks of 103 marked rows are on texts the current code no long
 [current code: all] units2: the 11 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 79.7% [67.0%, 94.2%] -> not decided
 [current code: all] units3: the 11 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 86.7% [79.3%, 94.7%] -> not decided
 [current code: all] real companies: 1 of the 11 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[current code: all] baseline: 1 of the 164 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] model: 1 of the 149 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units: 1 of the 160 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units2: 0 of the 128 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units3: 0 of the 141 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [current code: all, real]   baseline: 71.8% [56.3%, 84.6%] -> not decided (the bar: of the companies named, those with a faithful text; 117 faithful of 163 texts + 0 companies left without one)
+[current code: all, real]   baseline: of the texts it wrote, 71.8% [64.4%, 78.1%] (informative; omissions not counted)
 [current code: all, real]      model: 85.8% [69.8%, 99.1%] -> not decided (the bar: of the companies named, those with a faithful text; 127 faithful of 148 texts + 0 companies left without one)
+[current code: all, real]      model: of the texts it wrote, 85.8% [79.3%, 90.5%] (informative; omissions not counted)
 [current code: all, real]      units: 95.1% [89.3%, 99.3%] -> pass (the bar: of the companies named, those with a faithful text; 155 faithful of 159 texts + 4 companies left without one)
+[current code: all, real]      units: of the texts it wrote, 97.5% [93.7%, 99.0%] (informative; omissions not counted)
 [current code: all, real]     units2: 80.3% [67.2%, 95.0%] -> not decided (the bar: of the companies named, those with a faithful text; 126 faithful of 128 texts + 29 companies left without one)
+[current code: all, real]     units2: of the texts it wrote, 98.4% [94.5%, 99.6%] (informative; omissions not counted)
 [current code: all, real]     units3: 87.3% [79.6%, 95.7%] -> not decided (the bar: of the companies named, those with a faithful text; 137 faithful of 141 texts + 16 companies left without one)
+[current code: all, real]     units3: of the texts it wrote, 97.2% [92.9%, 98.9%] (informative; omissions not counted)
 [current code: all, real] model minus baseline on 148 company texts of 25 bodies: 16.2% [9.5%, 27.1%] -> better
 [current code: all, real] units minus baseline on 163 company texts of 29 bodies: 23.3% [10.0%, 39.2%] -> better
 [current code: all, real] units minus model on 148 company texts of 25 bodies: 9.5% [-2.3%, 26.4%] -> not decided
@@ -632,10 +678,15 @@ current code: 147 marks of 103 marked rows are on texts the current code no long
 [current code: all, real] units3 minus units2 on 157 company texts of 28 bodies: 7.0% [0.0%, 15.6%] -> not decided
 [current code: all, real] units3 minus units on 157 company texts of 28 bodies: -7.6% [-13.3%, -1.0%] -> not better
 [current code: 2022+]   baseline: 75.9% [40.9%, 98.0%] -> not decided (the bar: of the companies named, those with a faithful text; 22 faithful of 29 texts + 0 companies left without one)
+[current code: 2022+]   baseline: of the texts it wrote, 75.9% [57.9%, 87.8%] (informative; omissions not counted)
 [current code: 2022+]      model: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 27 faithful of 27 texts + 0 companies left without one)
+[current code: 2022+]      model: of the texts it wrote, 100.0% [87.5%, 100.0%] (informative; omissions not counted)
 [current code: 2022+]      units: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
+[current code: 2022+]      units: of the texts it wrote, 100.0% [88.3%, 100.0%] (informative; omissions not counted)
 [current code: 2022+]     units2: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
+[current code: 2022+]     units2: of the texts it wrote, 100.0% [88.3%, 100.0%] (informative; omissions not counted)
 [current code: 2022+]     units3: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
+[current code: 2022+]     units3: of the texts it wrote, 100.0% [88.3%, 100.0%] (informative; omissions not counted)
 [current code: 2022+] model minus baseline on 27 company texts of 6 bodies: 25.9% [3.1%, 60.0%] -> better
 [current code: 2022+] units minus baseline on 29 company texts of 7 bodies: 24.1% [2.0%, 59.1%] -> better
 [current code: 2022+] units minus model on 27 company texts of 6 bodies: 0.0% [0.0%, 0.0%] -> not decided
@@ -643,6 +694,16 @@ current code: 147 marks of 103 marked rows are on texts the current code no long
 [current code: 2022+] units2 minus baseline on 29 company texts of 7 bodies: 24.1% [2.0%, 59.1%] -> better
 [current code: 2022+] units3 minus units2 on 29 company texts of 7 bodies: 0.0% [0.0%, 0.0%] -> not decided
 [current code: 2022+] units3 minus units on 29 company texts of 7 bodies: 0.0% [0.0%, 0.0%] -> not decided
+[current code, every dead mark a company left without a text: all]   baseline: 61.6% [47.5%, 74.9%] -> fail (the bar: of the companies named, those with a faithful text; 117 faithful of 164 texts + 26 companies left without one)
+[current code, every dead mark a company left without a text: all]      model: 66.8% [52.4%, 79.7%] -> fail (the bar: of the companies named, those with a faithful text; 127 faithful of 149 texts + 41 companies left without one)
+[current code, every dead mark a company left without a text: all]      units: 84.3% [75.4%, 90.6%] -> not decided (the bar: of the companies named, those with a faithful text; 156 faithful of 160 texts + 25 companies left without one)
+[current code, every dead mark a company left without a text: all]     units2: 81.8% [69.8%, 95.0%] -> not decided (the bar: of the companies named, those with a faithful text; 126 faithful of 128 texts + 26 companies left without one)
+[current code, every dead mark a company left without a text: all]     units3: 89.0% [79.7%, 96.6%] -> not decided (the bar: of the companies named, those with a faithful text; 137 faithful of 141 texts + 13 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]   baseline: 66.7% [37.5%, 87.5%] -> not decided (the bar: of the companies named, those with a faithful text; 22 faithful of 29 texts + 4 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]      model: 81.8% [52.0%, 100.0%] -> not decided (the bar: of the companies named, those with a faithful text; 27 faithful of 27 texts + 6 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]      units: 87.9% [69.2%, 100.0%] -> not decided (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 4 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]     units2: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]     units3: 100.0% [100.0%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 29 faithful of 29 texts + 0 companies left without one)
 ```
 
 ### A.4 Confirmation set, current code (342 of 438 rows)
@@ -651,10 +712,16 @@ The report's own lines (record of 2026-11-10).
 
 ```
 current code: 116 marks of 97 marked rows are on texts the current code no longer writes (faithfulness_stale.json); the figures below leave them out, 342 of 438 rows remain
+current code: dead marks per extractor baseline 51, units 49, units2 7, units3 9
+current code: leaving a dead mark out takes its company out of the bar's denominator; that flatters the share when the matcher still names the company and the extractor now writes nothing for it (the lower bound is below)
 [current code: all]   baseline: 97.7% [94.5%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 168 faithful of 171 texts + 1 companies left without one)
+[current code: all]   baseline: of the texts it wrote, 98.2% [95.0%, 99.4%] (informative; omissions not counted)
 [current code: all]      units: 97.1% [94.0%, 99.4%] -> pass (the bar: of the companies named, those with a faithful text; 167 faithful of 171 texts + 1 companies left without one)
+[current code: all]      units: of the texts it wrote, 97.7% [94.1%, 99.1%] (informative; omissions not counted)
 [current code: all]     units2: 92.2% [86.7%, 96.9%] -> pass (the bar: of the companies named, those with a faithful text; 154 faithful of 157 texts + 10 companies left without one)
+[current code: all]     units2: of the texts it wrote, 98.1% [94.5%, 99.3%] (informative; omissions not counted)
 [current code: all]     units3: 95.8% [92.5%, 98.6%] -> pass (the bar: of the companies named, those with a faithful text; 158 faithful of 161 texts + 4 companies left without one)
+[current code: all]     units3: of the texts it wrote, 98.1% [94.7%, 99.4%] (informative; omissions not counted)
 [current code: all] units minus baseline on 171 company texts of 30 bodies: -0.6% [-1.7%, 0.0%] -> not decided
 [current code: all] units2 minus units on 164 company texts of 30 bodies: -4.3% [-9.4%, -0.6%] -> not better
 [current code: all] units2 minus baseline on 164 company texts of 30 bodies: -4.9% [-9.7%, -1.2%] -> not better
@@ -663,19 +730,31 @@ current code: 116 marks of 97 marked rows are on texts the current code no longe
 [current code: all] units2: the 7 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 88.5% [82.8%, 93.7%] -> pass
 [current code: all] units3: the 7 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 91.9% [87.5%, 95.8%] -> pass
 [current code: all] real companies: 6 of the 7 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[current code: all] baseline: 6 of the 171 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units: 6 of the 171 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units2: 0 of the 157 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: all] units3: 0 of the 161 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [current code: all, real]   baseline: 98.2% [95.1%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 163 faithful of 165 texts + 1 companies left without one)
+[current code: all, real]   baseline: of the texts it wrote, 98.8% [95.7%, 99.7%] (informative; omissions not counted)
 [current code: all, real]      units: 97.6% [94.7%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 162 faithful of 165 texts + 1 companies left without one)
+[current code: all, real]      units: of the texts it wrote, 98.2% [94.8%, 99.4%] (informative; omissions not counted)
 [current code: all, real]     units2: 91.7% [86.3%, 96.2%] -> pass (the bar: of the companies named, those with a faithful text; 154 faithful of 157 texts + 11 companies left without one)
+[current code: all, real]     units2: of the texts it wrote, 98.1% [94.5%, 99.3%] (informative; omissions not counted)
 [current code: all, real]     units3: 95.2% [91.8%, 98.0%] -> pass (the bar: of the companies named, those with a faithful text; 158 faithful of 161 texts + 5 companies left without one)
+[current code: all, real]     units3: of the texts it wrote, 98.1% [94.7%, 99.4%] (informative; omissions not counted)
 [current code: all, real] units minus baseline on 165 company texts of 30 bodies: -0.6% [-1.8%, 0.0%] -> not decided
 [current code: all, real] units2 minus units on 165 company texts of 30 bodies: -4.8% [-9.8%, -1.1%] -> not better
 [current code: all, real] units2 minus baseline on 165 company texts of 30 bodies: -5.5% [-10.2%, -1.6%] -> not better
 [current code: all, real] units3 minus units2 on 165 company texts of 30 bodies: 2.4% [0.0%, 7.1%] -> not decided
 [current code: all, real] units3 minus units on 165 company texts of 30 bodies: -2.4% [-4.8%, -0.6%] -> not better
 [current code: 2022+]   baseline: 98.4% [92.9%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 60 faithful of 61 texts + 0 companies left without one)
+[current code: 2022+]   baseline: of the texts it wrote, 98.4% [91.3%, 99.7%] (informative; omissions not counted)
 [current code: 2022+]      units: 96.7% [91.7%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 59 faithful of 61 texts + 0 companies left without one)
+[current code: 2022+]      units: of the texts it wrote, 96.7% [88.8%, 99.1%] (informative; omissions not counted)
 [current code: 2022+]     units2: 90.9% [77.4%, 100.0%] -> not decided (the bar: of the companies named, those with a faithful text; 50 faithful of 52 texts + 3 companies left without one)
+[current code: 2022+]     units2: of the texts it wrote, 96.2% [87.0%, 98.9%] (informative; omissions not counted)
 [current code: 2022+]     units3: 96.4% [91.7%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 53 faithful of 55 texts + 0 companies left without one)
+[current code: 2022+]     units3: of the texts it wrote, 96.4% [87.7%, 99.0%] (informative; omissions not counted)
 [current code: 2022+] units minus baseline on 61 company texts of 9 bodies: -1.6% [-3.7%, 0.0%] -> not decided
 [current code: 2022+] units2 minus units on 55 company texts of 9 bodies: -5.5% [-18.4%, 0.0%] -> not decided
 [current code: 2022+] units2 minus baseline on 55 company texts of 9 bodies: -7.3% [-18.8%, 0.0%] -> not decided
@@ -684,15 +763,31 @@ current code: 116 marks of 97 marked rows are on texts the current code no longe
 [current code: 2022+] units2: the 6 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 82.0% [69.4%, 90.9%] -> not decided
 [current code: 2022+] units3: the 6 companies it wrote no text for and is not asked about counted as unfaithful (the bar on every company named): 86.9% [78.3%, 94.9%] -> not decided
 [current code: 2022+] real companies: 5 of the 6 exempt companies are not companies (owner's reading); they are out of every extractor's share, the others count
+[current code: 2022+] baseline: 5 of the 61 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: 2022+] units: 5 of the 61 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: 2022+] units2: 0 of the 52 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
+[current code: 2022+] units3: 0 of the 55 texts it wrote are for a company that is not one (informative: the bar on real companies leaves them out, a cut ships them)
 [current code: 2022+, real]   baseline: 98.2% [92.1%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 55 faithful of 56 texts + 0 companies left without one)
+[current code: 2022+, real]   baseline: of the texts it wrote, 98.2% [90.6%, 99.7%] (informative; omissions not counted)
 [current code: 2022+, real]      units: 96.4% [91.7%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 54 faithful of 56 texts + 0 companies left without one)
+[current code: 2022+, real]      units: of the texts it wrote, 96.4% [87.9%, 99.0%] (informative; omissions not counted)
 [current code: 2022+, real]     units2: 89.3% [76.6%, 97.1%] -> not decided (the bar: of the companies named, those with a faithful text; 50 faithful of 52 texts + 4 companies left without one)
+[current code: 2022+, real]     units2: of the texts it wrote, 96.2% [87.0%, 98.9%] (informative; omissions not counted)
 [current code: 2022+, real]     units3: 94.6% [89.5%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 53 faithful of 55 texts + 1 companies left without one)
+[current code: 2022+, real]     units3: of the texts it wrote, 96.4% [87.7%, 99.0%] (informative; omissions not counted)
 [current code: 2022+, real] units minus baseline on 56 company texts of 9 bodies: -1.8% [-4.1%, 0.0%] -> not decided
 [current code: 2022+, real] units2 minus units on 56 company texts of 9 bodies: -7.1% [-20.0%, 0.0%] -> not decided
 [current code: 2022+, real] units2 minus baseline on 56 company texts of 9 bodies: -8.9% [-20.0%, 0.0%] -> not decided
 [current code: 2022+, real] units3 minus units2 on 56 company texts of 9 bodies: 5.4% [0.0%, 18.0%] -> not decided
 [current code: 2022+, real] units3 minus units on 56 company texts of 9 bodies: -1.8% [-5.8%, 0.0%] -> not decided
+[current code, every dead mark a company left without a text: all]   baseline: 84.4% [78.5%, 89.7%] -> not decided (the bar: of the companies named, those with a faithful text; 168 faithful of 171 texts + 28 companies left without one)
+[current code, every dead mark a company left without a text: all]      units: 84.3% [79.1%, 89.3%] -> not decided (the bar: of the companies named, those with a faithful text; 167 faithful of 171 texts + 27 companies left without one)
+[current code, every dead mark a company left without a text: all]     units2: 90.6% [85.3%, 95.4%] -> pass (the bar: of the companies named, those with a faithful text; 154 faithful of 157 texts + 13 companies left without one)
+[current code, every dead mark a company left without a text: all]     units3: 92.9% [89.1%, 96.5%] -> pass (the bar: of the companies named, those with a faithful text; 158 faithful of 161 texts + 9 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]   baseline: 89.6% [76.2%, 96.2%] -> not decided (the bar: of the companies named, those with a faithful text; 60 faithful of 61 texts + 6 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]      units: 89.4% [79.1%, 95.5%] -> not decided (the bar: of the companies named, those with a faithful text; 59 faithful of 61 texts + 5 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]     units2: 90.9% [77.4%, 100.0%] -> not decided (the bar: of the companies named, those with a faithful text; 50 faithful of 52 texts + 3 companies left without one)
+[current code, every dead mark a company left without a text: 2022+]     units3: 96.4% [91.7%, 100.0%] -> pass (the bar: of the companies named, those with a faithful text; 53 faithful of 55 texts + 0 companies left without one)
 ```
 
 ### A.5 First set, all marks (453 rows, the report as it is, 2026-11-10)

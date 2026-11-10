@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import re
 import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -607,6 +608,100 @@ def _stale_lines(out: Path, marked: set[str]) -> list[str]:
     return [*lines, said]
 
 
+def _dead_marks(
+    entries: dict[str, gold_metrics.StaleEntry], owners: dict[str, list[str]]
+) -> tuple[dict[str, set[str]], int]:
+    """The marks on texts the code no longer writes, ``{key: {extractors}}``, and the number of
+    labels of the record that are not in this file (a key it lacks, or an extractor that does not
+    hold the row: the record may belong to another file)."""
+    dead: dict[str, set[str]] = {}
+    foreign = 0
+    for entry in entries.values():
+        for label in entry["stale"]:
+            key, _, extractor = label.rpartition(" (")
+            extractor = extractor.removesuffix(")")
+            if key in owners and extractor in owners[key]:
+                dead.setdefault(key, set()).add(extractor)
+            else:
+                foreign += 1
+    return dead, foreign
+
+
+def _current_code_refusal(
+    entries: dict[str, gold_metrics.StaleEntry], marked: set[str]
+) -> list[str]:
+    """One line when the record cannot be trusted for the extractors of the marks (missing, made
+    with other code, or impossible to compare with the current code), else nothing. An entry of an
+    extractor that has no marks in this file does not matter."""
+    unchecked = sorted(marked - set(entries))
+    checks = {
+        n: _checked_with_current_code(n, e["revision"]) for n, e in entries.items() if n in marked
+    }
+    other = sorted(n for n, ok in checks.items() if ok is False)
+    unknown = sorted(n for n, ok in checks.items() if ok is None)
+    parts = [
+        f"missing for {', '.join(unchecked)}" if unchecked else "",
+        f"made with other code for {', '.join(other)}" if other else "",
+        f"not comparable with the current code for {', '.join(unknown)}" if unknown else "",
+    ]
+    if not any(parts):
+        return []
+    return [
+        "current code: not printed, the staleness check is "
+        + "; ".join(p for p in parts if p)
+        + ": run draw_faithfulness --stale"
+    ]
+
+
+_BAR_LINE = re.compile(r"^\[(all|2022\+)\] +\w+: [0-9.]+%")
+
+
+def _lower_bound_lines(
+    dead: dict[str, set[str]],
+    kept: dict[str, list[str]],
+    marks: dict[str, bool],
+    dates: dict[str, dict[str, str]],
+    coverage: list[dict[str, str]],
+    exempt: Sequence[dict[str, str]],
+    read: dict[str, str] | None,
+) -> list[str]:
+    """The bar with every dead mark counted as a company left without a text, unless the extractor
+    still has a kept text for that company. It is the lower bound: right if the matcher still names
+    every one of those companies and the extractor writes nothing for it now."""
+    pair = lambda key: key.rsplit("#", 1)[0]  # noqa: E731
+    still = {(pair(k), n) for k, names in kept.items() for n in names}
+    extra_rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for key, names in sorted(dead.items()):
+        for name in sorted(names):
+            if (pair(key), name) in still or (pair(key), name) in seen:
+                continue
+            seen.add((pair(key), name))
+            article_id, ticker = pair(key).split("#", 1)
+            extra_rows.append(
+                {
+                    "article_id": article_id,
+                    "ticker": ticker,
+                    "extractor": name,
+                    "pub_date": dates[key].get("pub_date", ""),
+                }
+            )
+    figures = _faithfulness_lines(
+        [],
+        {k: v for k, v in marks.items() if k in kept},
+        kept,
+        {k: v for k, v in dates.items() if k in kept},
+        [*coverage, *extra_rows],
+        exempt,
+        read,
+    )
+    return [
+        f"[current code, every dead mark a company left without a text: {x[1:]}"
+        for x in figures
+        if _BAR_LINE.match(x)
+    ]
+
+
 def _current_code_lines(
     out: Path,
     marks: dict[str, bool],
@@ -620,45 +715,49 @@ def _current_code_lines(
     ``draw_faithfulness --stale`` last found them (``faithfulness_stale.json``), labelled
     ``[current code: ...]``. The mark of a row belongs to the text, so it is left out only for the
     extractors whose text changed; a row left with no extractor is dropped. Nothing is printed when
-    no marked row is stale. When the check is missing for an extractor of the marks, or was made with
-    other code than the current one, one line says so and no figure is printed (a stale list that is
-    itself out of date would leave out the wrong marks)."""
+    no marked row is stale. When the check is missing for an extractor of the marks, was made with
+    other code than the current one, or cannot be compared with it, one line says so and no figure is
+    printed (a stale list that is itself out of date would leave out the wrong marks).
+
+    Leaving a dead mark out takes its company out of the denominator. That is right when the matcher
+    no longer names the company and flatters the share when it still does and the extractor now writes
+    nothing for it; the files cannot tell the two apart. So the block also gives the bar with every such
+    dead mark counted as a company left without a text (``_lower_bound_lines``)."""
     entries = gold_metrics.read_stale(out / gold_metrics.STALE_NAME)
-    dead: dict[str, set[str]] = {}
-    for entry in entries.values():
-        for label in entry["stale"]:
-            key, _, extractor = label.rpartition(" (")
-            if key in owners and extractor.rstrip(")") in owners[key]:
-                dead.setdefault(key, set()).add(extractor.rstrip(")"))
+    dead, foreign = _dead_marks(entries, owners)
     if not dead:
         return []
-    unchecked = sorted({n for names in owners.values() for n in names} - set(entries))
-    other = sorted(
-        n for n, e in entries.items() if _checked_with_current_code(n, e["revision"]) is False
-    )
-    if unchecked or other:
-        return [
-            "current code: not printed, the staleness check is "
-            + "; ".join(
-                part
-                for part in (
-                    f"missing for {', '.join(unchecked)}" if unchecked else "",
-                    f"made with other code for {', '.join(other)}" if other else "",
-                )
-                if part
-            )
-            + ": run draw_faithfulness --stale"
-        ]
+    marked = {n for names in owners.values() for n in names}
+    refusal = _current_code_refusal(entries, marked)
+    if refusal:
+        return refusal
     kept = {
         key: [n for n in names if n not in dead.get(key, set())] for key, names in owners.items()
     }
     kept = {key: names for key, names in kept.items() if names}
     pairs = sum(len(v) for v in dead.values())
+    per = Counter(n for names in dead.values() for n in names)
+    unmarked = {n: len(e["new"]) for n, e in entries.items() if n in marked and e["new"]}
     lines = [
         f"current code: {pairs} marks of {len(dead)} marked rows are on texts the current code no "
         f"longer writes ({gold_metrics.STALE_NAME}); the figures below leave them out, "
-        f"{len(kept)} of {len(owners)} rows remain"
+        f"{len(kept)} of {len(owners)} rows remain",
+        "current code: dead marks per extractor "
+        + ", ".join(f"{n} {c}" for n, c in sorted(per.items())),
+        "current code: leaving a dead mark out takes its company out of the bar's denominator; that "
+        "flatters the share when the matcher still names the company and the extractor now writes "
+        "nothing for it (the lower bound is below)",
     ]
+    if unmarked:
+        lines.append(
+            "current code: texts the code writes that nobody has marked (not in any figure): "
+            + ", ".join(f"{n} {c}" for n, c in sorted(unmarked.items()))
+        )
+    if foreign:
+        lines.append(
+            f"current code: {foreign} labels of {gold_metrics.STALE_NAME} are not in this file "
+            "(a record of another file?)"
+        )
     figures = _faithfulness_lines(
         [],
         {k: v for k, v in marks.items() if k in kept},
@@ -668,7 +767,8 @@ def _current_code_lines(
         exempt,
         read,
     )
-    return [*lines, *(f"[current code: {x[1:]}" for x in figures if x.startswith("["))]
+    lines += [f"[current code: {x[1:]}" for x in figures if x.startswith("[")]
+    return [*lines, *_lower_bound_lines(dead, kept, marks, dates, coverage, exempt, read)]
 
 
 def _faithfulness_lines(
