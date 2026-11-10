@@ -3229,9 +3229,11 @@ def _stale_entry_baseline() -> dict[str, object]:
 DEAD_REPLACEMENT = _script("dead_text_replacement_2026_11_10")
 
 
-def test_a_dead_text_counts_as_replaced_only_by_a_new_row_of_the_same_extractor(
+def _replacement_dirs(
     tmp_path: Path,
-) -> None:
+    marks: list[str] | None = None,
+    stale: dict[str, dict[str, list[str]]] | None = None,
+) -> tuple[Path, Path]:
     out, earlier = tmp_path / "out", tmp_path / "earlier"
     out.mkdir()
     earlier.mkdir()
@@ -3239,7 +3241,7 @@ def test_a_dead_text_counts_as_replaced_only_by_a_new_row_of_the_same_extractor(
     rows = [
         "1,1#A#1,1,A,h1,units,r,2026",  # dead for units, replaced by row 2 (units)
         "2,1#A#2,1,A,h2,units,r,2026",  # new
-        "3,2#B#1,2,B,h3,units,r,2026",  # dead for units; the new row of B is baseline's
+        "3,2#B#1,2,B,h3,units,r,2026",  # dead for units and baseline; row 4 is baseline's
         "4,2#B#2,2,B,h4,baseline,r,2026",  # new
         "5,3#C#1,3,C,h5,units,r,2026",  # kept
     ]
@@ -3249,19 +3251,58 @@ def test_a_dead_text_counts_as_replaced_only_by_a_new_row_of_the_same_extractor(
     (earlier / "faithfulness_ids.csv").write_text(
         head + "\n" + "\n".join(rows[0:1] + rows[2:3] + rows[4:]) + "\n", encoding="utf-8"
     )
-    marks = ["no", "yes", "yes", "yes", "no"]
+    given = marks or ["no", "yes", "yes", "yes", "no"]
     (out / "faithfulness_to_tag.csv").write_text(
-        "review_order,faithful\n" + "\n".join(f"{i + 1},{m}" for i, m in enumerate(marks)) + "\n",
+        "review_order,faithful\n" + "\n".join(f"{i + 1},{m}" for i, m in enumerate(given)) + "\n",
         encoding="utf-8",
     )
-    stale = {"units": {"stale": ["1#A#1 (units)", "2#B#1 (units)"], "new": ["x"]}}
+    record = stale or {
+        "units": {"stale": ["1#A#1 (units)", "2#B#1 (units)"], "new": ["x"]},
+        "baseline": {"stale": ["2#B#1 (baseline)"], "new": []},
+    }
     (out / "faithfulness_stale.json").write_text(
-        json.dumps({"extractors": stale}), encoding="utf-8"
+        json.dumps({"extractors": record}), encoding="utf-8"
     )
+    return out, earlier
+
+
+def test_a_dead_text_counts_as_replaced_only_by_a_new_row_of_the_same_extractor(
+    tmp_path: Path,
+) -> None:
+    out, earlier = _replacement_dirs(tmp_path)
     lines = DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
     assert "dead 2 (1 no, 1 yes), kept 1 (1 no), new 2 (0 no, 2 yes)" in lines[0]
     assert "the rows the code writes (kept + new): 3, 1 no (33.3%)" in lines[1]
+    # units: row 3 shares its company with baseline's new row 4, which is not a replacement for units
+    assert "units: 2 dead marks, 1 with a new row of its own (no to yes: 1); 1 texts" in lines[2]
     assert (
-        "2 dead marks, 1 with a new row of its own (no to yes: 1); 1 texts it writes that nobody has marked"
-        in lines[2]
+        "baseline: 1 dead marks, 1 with a new row of its own (yes to yes: 1); 0 texts" in lines[3]
     )
+
+
+def test_the_replacement_script_stops_on_an_unmarked_row(tmp_path: Path) -> None:
+    out, earlier = _replacement_dirs(tmp_path, marks=["no", "", "yes", "yes", "no"])
+    with pytest.raises(MarkedFileError, match="1 rows are not marked yes or no"):
+        DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
+
+
+def test_the_replacement_script_stops_on_a_stale_key_the_ids_do_not_hold(tmp_path: Path) -> None:
+    out, earlier = _replacement_dirs(
+        tmp_path, stale={"units": {"stale": ["9#Z#1 (units)"], "new": []}}
+    )
+    with pytest.raises(MarkedFileError, match="9#Z#1"):
+        DEAD_REPLACEMENT.replacement_lines("set", out, earlier)
+
+
+def test_the_replacement_script_wants_the_two_directories_in_pairs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out, earlier = _replacement_dirs(tmp_path)
+    with pytest.raises(SystemExit):
+        DEAD_REPLACEMENT.main(["--out", str(out), "--out", str(out), "--earlier", str(earlier)])
+    assert "in pairs" in capsys.readouterr().err
+    assert DEAD_REPLACEMENT.main(["--out", str(out), "--earlier", str(earlier)]) == 0
+    assert "out: 5 rows" in capsys.readouterr().out
+    (out / "faithfulness_to_tag.csv").write_text("review_order,faithful\n1,yes\n", encoding="utf-8")
+    assert DEAD_REPLACEMENT.main(["--out", str(out), "--earlier", str(earlier)]) == 1
+    assert "stopped:" in capsys.readouterr().err
