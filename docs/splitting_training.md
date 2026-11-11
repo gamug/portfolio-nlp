@@ -369,6 +369,53 @@ share of `yes` per predicted class with its 95% interval and the share of all qu
 how many company stories the step would stop; 50 `single` give ±10, 25 `multi` or `sector` ±14 (at a precision near 85%). Read the 100 `out_of_scope`
 first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 85 or fewer, read all 200.
 
+### 8.1 Step 1.2: the cut (T-163)
+
+`uv run cli/news_nlp_steps.py --step cut [--limit N]` cuts the `multi` bodies of step 1 with the `units` extractor the owner
+selected on 2026-11-08 (T-148b10) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
+
+**Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
+232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
+About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies of
+the corpus take about 2.5 to 3 h** on the GPU. The full run is for the owner to start; no speed-up is included (fp16 or pair
+pruning could change the output).
+
+**Quality check (`scripts/cut_quality_check_2026_11_11.py`, read-only):**
+- *Sub-news per body:* min 1, median 7, mean 7.1, p90 13, max 24; 24 bodies (10%) give a single sub-news.
+- *Length:* median 268 characters, p10 94, p90 590, max 7,843; **128 of the 1,639 (7.8%) are under 80 characters**.
+- *Not cut:* 11 bodies (4.7%) have a sub-news that is 80% or more of the body. **All 11 were read: every one is a story
+  about two companies (3M and Avery Dennison ending a deal, Ford and 3M making respirators, Shire and AbbVie, Seattle Genetics
+  and Abbott…), written as one piece.** The cut is right to leave them whole: the text is one sub-news that both companies
+  read (the sub-news keeps no ticker). They are not a step 1 error.
+- *Short pieces:* 128 pieces (7.8%) are under 80 characters, **but only 50 of them end like a sentence; 78 (4.8%) are
+  fragments** ("Marvell Technology rallied 12%,", "Nvidia — The chipmaker rose more than 3%,"), a clause cut in half. 27 are
+  under 30 characters and 6 are only a name and a dash ("Micron Technology —"); 19 bodies (8.2%) have a piece under 30.
+- *Where the sentence of a heading-only piece went (all 6 traced in the body):* it is **not lost from the body**; it sits in
+  another piece in all 6. In 5 of 6 that piece does not name the company (Quest Diagnostics, Eli Lilly, Abbott Labs, Micron,
+  Qorvo/Skyworks): the heading is the only unit that names the company, the sentence names none and went to the company the
+  model chose, so **the company keeps a heading and its sentence is read as another company's news**. In 1 (Norwegian…) the
+  sentence's piece starts with the full heading and the heading-only piece is a duplicate. (Pieces are in the order of the
+  companies, not of the body, so "the next piece" says nothing; an earlier version of this paragraph read it that way.)
+- *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
+  (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
+  read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
+  all five are real (a text with three to six companies in it). **Both faults go to T-176; with 34% of the bodies touched I
+  would not start the full run before the owner decides whether T-176 comes first** (a rerun at a new revision is 2.5 to 3 h).
+- *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
+- *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
+  one process: **0 of 30 differ in both**, at the same revision `units-75642e3f4f72`. (An earlier dry run gave 1,683 rows on
+  a set of 232 bodies that was not kept; it cannot be compared, and nothing in this check suggests a difference.)
+- *Reading 4 bodies first, then the flagged ones:* a "stocks making moves" list is cut well, one sub-news per company; a deal
+  story with two companies stays whole; a one-company story stays whole.
+- *Reading file:* `--sample N --out data/cut_sample_to_read.csv` writes every flagged body (not cut, or with a tiny piece)
+  and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
+
+**Before the full run.** (1) T-176: the two faults above touch about a third of the bodies; the owner decides if the extractor is
+fixed first. (2) The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
+(`data/scope_quarantined_to_validate.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
+later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until that
+validation is in** (the condition is also in T-165). The run writes a new revision of rows and nothing else.
+
 ## 9. Index of the work
 
 | What | Where |
