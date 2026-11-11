@@ -35,8 +35,7 @@ article away from `single` unless the market or the industry is the point (see s
 6).
 
 1. **`unrelated`**: not about business, finance or the economy (health news without a company
-   angle, politics, lifestyle, career tips). *Examples:* 414317 (Israeli Covid study),
-   286933 (House Intel Committee), 91934 (a job-interview question). A company named only as the
+   angle, politics, lifestyle, career tips). *Examples:* 286933 (House Intel Committee), 91934 (a job-interview question). A company named only as the
    setting does not make an article related (**[owner call 1]**: 61309, squatters in an Airbnb
    condo, is `unrelated`). Flagged and skipped by every later stage (D16).
 2. **`market_economy`**: about the market as a whole or the economy: indices, S&P 500, rates,
@@ -126,6 +125,29 @@ Three more:
   labels (e.g. a company's anniversary celebration or an office relocation). A CEO's opinion
   on the economy is not `other`: it is `market_economy`, with no company label.
 - (`unrelated` is a scope, not a company label.)
+
+**Rules fixed in the review of the gold files, 2026-11-11 (owner calls 14 to 21).** They settle the
+cases where two similar articles had been tagged differently; each id is the case that decided it.
+
+14. A company's charity, awareness or sponsorship press release (a campaign, a charity golf
+    tournament, a donation drive) is `unrelated` (247481, 436322, 469085, 417325).
+15. News about a company's product that the public consumes, even when a regulator or a health body
+    is the actor, is `single` with `product_innovation` and `legal_regulatory` (414161, 321594,
+    414029).
+16. A CEO interview, transcript or media alert is `investing_general` (247144, 266467, 106198,
+    169817, 321562, 414334, 266351).
+17. A Cramer or analyst piece that uses a company as the hook for a lesson on portfolios or the market
+    is `investing_general` (121050, 164940, 179104); a macro story with a company as the hook is
+    `market_economy` (328763, 126761 is the opposite: the stock is the story, so `single`).
+    Crypto is an asset, not an industry: `market_economy` (296388, 296056, 479545).
+18. An investor or counterpart (3G Capital, Carl Icahn) is a mention, not a second analysed
+    company: the article is `single` (302476, 344029). The two parties of a deal stay `multi`
+    (155716, 414812, 246663).
+19. A company outside the universe is analysed like any other, so a press release about one is
+    `single` (479469, 95652); that is why 255269 stays labelled with GM.
+20. A study that ranks brands and gives no financial fact is `unrelated` (1110708).
+21. Several analysed companies in a list of picks are `multi` (263942); a list under a theme the
+    article states (growth stocks, a Cramer lesson) is `investing_general` (343609, 264983).
 
 **Which label when two apply?** Take the dimension the headline event belongs to; an analyst's
 reaction to that event does not change it (the reaction is `market_analyst_sentiment` only when

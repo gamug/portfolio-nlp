@@ -2909,12 +2909,12 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
     assert len(rows) == 200 and len({r["article_id"] for r in rows}) == 200
     assert {r["session"] for r in rows} == {"heldout"}
     assert Counter(r["scope"] for r in rows) == {
-        "single": 118,
-        "multi": 47,
-        "market_economy": 11,
-        "sector": 9,
-        "unrelated": 8,
-        "investing_general": 7,
+        "single": 116,
+        "multi": 44,
+        "market_economy": 14,
+        "sector": 7,
+        "unrelated": 10,
+        "investing_general": 9,
     }
     bad = {r["article_id"]: errors for r in rows if (errors := retag.check_row(r)[1])}
     assert (
@@ -4026,6 +4026,27 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
         PUBLISH.main()
 
 
+def test_the_rare_scope_set_is_tagged_and_has_its_texts() -> None:
+    """Owner, 2026-11-10: 51 bodies drawn by rules for sector and out-of-scope (set 7), tracked with their texts."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+    with (gold / "scope_enrich.csv").open(encoding="utf-8", newline="") as fh:
+        marks = list(csv.DictReader(fh))
+    with (gold / "texts" / "scope_enrich_texts.csv").open(encoding="utf-8", newline="") as fh:
+        texts = list(csv.DictReader(fh))
+    assert len(marks) == len(texts) == 51
+    assert {r["article_id"] for r in marks} == {r["article_id"] for r in texts}
+    assert Counter(r["scope"] for r in marks)["sector"] == 27
+    assert all(r["scope"] for r in marks) and all(r["text"].strip() for r in texts)
+    with (gold / "category_gold_v2_test.csv").open(encoding="utf-8-sig", newline="") as fh:
+        held_out = {r["article_id"] for r in csv.DictReader(fh)}
+    with (gold / "category_gold_v2.csv").open(encoding="utf-8-sig", newline="") as fh:
+        train = {r["article_id"] for r in csv.DictReader(fh)}
+    assert not {r["article_id"] for r in marks} & (
+        held_out | train
+    )  # none of the 484 is drawn again
+
+
 UNIVERSE_SHA256 = "2c1272429c6945012dcc797b128a78fc437136bcd7f90e1d4414e9a45aed55d3"
 TOY_NAMES = (
     "Zorblax Holdings",
@@ -4162,3 +4183,26 @@ def test_the_training_cross_validation_of_the_count_scale_reads_only_the_trainin
             sum(recalls[c] for c in ("single", "multi", "sector", "out_of_scope")) / 4
         )
     assert out[0.0]["macro"] == 1.0  # the title words alone separate the classes
+
+
+def test_the_company_as_hook_set_is_tagged_and_disjoint() -> None:
+    """Owner, 2026-11-11: 30 bodies drawn for 'the company is the hook' (set 8) train the scope classifier; none may be in the 484 or in set 7."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+
+    def ids(path: Path, encoding: str = "utf-8-sig") -> list[dict[str, str]]:
+        with path.open(encoding=encoding, newline="") as fh:
+            return list(csv.DictReader(fh))
+
+    marks = ids(gold / "scope_hook.csv")
+    texts = ids(gold / "texts" / "scope_hook_texts.csv")
+    assert len(marks) == len(texts) == 30
+    assert {r["article_id"] for r in marks} == {r["article_id"] for r in texts}
+    assert all(r["scope"] for r in marks) and all(r["text"].strip() for r in texts)
+    hook = {r["article_id"] for r in marks}
+    others = {
+        r["article_id"]
+        for name in ("category_gold_v2.csv", "category_gold_v2_test.csv", "scope_enrich.csv")
+        for r in ids(gold / name)
+    }
+    assert not hook & others

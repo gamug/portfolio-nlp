@@ -579,6 +579,77 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
 
 
+### T-147 feasibility bullet, long form (relevance-features PR)
+
+```
+      - **Feasibility (measured 2026-11-10, `scripts/scope_title_baseline_2026_11_10.py`, TF-IDF + logistic regression on the title, weighted to the corpus, four classes for every row):** title-only **66.4% [59.7, 73.3]**; the rules **68.2% [61.5, 74.7]** (68.0% in six classes); always `single` 58.2% [51.2, 64.3]. Recall, title-only against rules: `single` 76.7% against 91.0%, `multi` 51.0% against 52.5%, `sector` 79.3% [43.3, 97.7] against 2.6%, `out_of_scope` 44.6% [21.3, 68.6] against 6.8%. So the title is **level with the rules** overall (no gain), better on the small classes, worse on `single`, and the whole interval is far under 90%.
+```
+
+
+### T-147 Data bullet, long form (two-stage PR)
+
+```
+      - **Data:** train `gold/category_gold_v2.csv` (284), held-out `gold/category_gold_v2_test.csv` (200, never trained on; the same split as T-174; a refit on all 484 only after the bar is shown). The two are different samples (sector 17% against 4.5%, `out_of_scope` 23% against 13%): figures are weighted to the corpus with the `stratum` and `frame` of the 200 (D33) and the priors are corrected, not learned from the 284.
+```
+
+
+### T-147 Reproduce bullet, long form
+
+```
+      - **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
+```
+
+
+### T-147 two-stage bullet (bge-small only), long form
+
+```
+      - **Owner's two-stage route (2026-11-10, `scope_two_stage_2026_11_10.py`, bge-small embeddings: company / sector / not_related, then single or multi on companies):** end to end **71.3% [65.0, 77.8]** weighted (plain 69.5%, one-stage 64.0%); `single` 78%, `multi` 67%, `sector` 49% (9 gold), `out_of_scope` 53%. Stage A topic 80% plain (company 87%, sector 3 of 9, not_related 50%); stage B 84% on true company bodies. Same weighted score, better balance.
+```
+
+
+### T-147 relevance-features bullet, long form
+
+```
+      - **Owner's route, relevance features (2026-11-10, `scripts/scope_relevance_features_2026_11_10.py`):** title + first 800 characters, NER, ticker match, relevance model on the top companies; top-4 scores and counts into a logistic regression: **71.1% [64.6, 77.2]** (rules 68.2%); with title words **72.9% [66.6, 78.9]** (one extra variant, tried after seeing the first). `multi` recall 65-67% (rules 52.5%), `sector` 22.9% (9 gold), `out_of_scope` 37-52%. **Cost measured:** 0.053 s per body (NER 0.014 + relevance 0.039, one by one) = ~4.6 h for 310k bodies, less batched. Better than the rules, not at the bar; the owner decides how to go on.
+```
+
+
+### T-147 bullets shortened (long forms)
+
+```
+      - **Title + first lines (measured 2026-11-10, same script, `--body-chars N`, TF-IDF + logistic regression, weighted):** N = 300: 65.7% [58.9, 72.9] (`multi` recall 32.2%); N = 600: 62.5% [55.4, 69.8]; N = 1500: 57.1% [49.7, 64.2]. No gain over the title alone (66.4%): the body text dilutes the title with 284 training rows.
+      - **Report:** the confusion matrix and the recall of `multi` and `single` against each other (a `multi` body called `single` is summarised whole with one main company; a `single` called `multi` is cut into pieces with the same company). **Titles:** a missing, empty or unusable title sends the body to `body_scope` with status `review`; T-163's dry run prints the count over SOURCE.
+      - **Feasibility (2026-11-10, `scope_title_baseline_2026_11_10.py`, weighted):** title only **66.4% [59.7, 73.3]**, rules 68.2% [61.5, 74.7], always `single` 58.2%; `multi` recall 51.0% / 52.5%. Level with the rules.
+```
+
+
+### T-147 Reproduce bullet, long form (NLI PR)
+
+```
+      - **Reproduce:** `scope_title_baseline_2026_11_10.py` (title; `--body-chars N`; `--company-features`, PR #163), `scope_relevance_features_2026_11_10.py`, `scope_two_stage_2026_11_10.py` (PR #165); from `gold/` alone except the models. A measurement records the SHA-256 of `gold/universe.csv` (2026-11-09).
+```
+
+
+### T-147 two-stage bullet, long form (single/multi NLI PR)
+
+```
+      - **Owner's two-stage route (2026-11-10, `scope_two_stage_2026_11_10.py --embedder`):** topic by embeddings (company / sector / not_related), then single or multi on companies. Weighted: bge-small **71.3%** [65.0, 77.8], bge-base **74.5%** [68.3, 80.3], bge-large **70.7%** [64.1, 77.2]: size does not help in a line (noise about 3 points; base chosen after seeing three on the same 200). Base: `single` 83%, `multi` 67%, `sector` 36% (9 gold), `out_of_scope` 60%. Stage B 84% on true company bodies. Learning curve flat from 71 rows to 284 (more labels of this kind do not help); PCA on the embedding (`--pca`, 64 components chosen by CV) gives 72.0%, no gain: cross-validated topic accuracy 0.761 with PCA, 0.747 without.
+```
+
+
+### T-147 NLI and rare-scope bullets, long forms
+
+```
+      - **NLI for the topic stage (`scope_nli_topic_2026_11_10.py`, the category model, no embeddings):** zero-shot topic accuracy 0.84 (end to end 72.4%); fine-tuned on the 284: 0.85, **73.4% [66.9, 79.7]**, `sector` 64% (9), `out_of_scope` 56%. Same level as the embeddings: the topic ceiling is ~0.85 and stage B (84%) caps the rest.
+      - **NLI for single or multi (`scope_nli_single_multi_2026_11_10.py`, 165 true company bodies of the 200, plain):** current 84.2% (multi recall 31/47); zero-shot 73%; **fine-tuned NLI 800 chars 90.9%** (single 111/118, multi 39/47, precision 85%); zero-shot + relevance features 2,000 chars 91.5% (multi 36/47). Seven variants tried on the same 165, no paired test yet.
+      - **To measure the rare scopes (owner, 2026-11-10):** `draw_scope_enrich_2026_11_10.py` drew 51 untagged bodies (33 sector, 18 out_of_scope candidates by rules) into `data/scope_enrich_to_tag.csv` (Spanish columns); the owner tags `scope`; reported apart (class-conditional recall, unweighted), to reach the 40 gold bodies of D33.
+```
+
+
+### T-147 END TO END bullet, long form (replaced 2026-11-11 by the SELECTED bullet)
+
+```
+      - **END TO END (2026-11-10, `scope_end_to_end_2026_11_10.py`, choices fixed in advance, models trained on the 284 only):** two fine-tuned NLI models (topic, then single/multi), title + 800 chars: **79.9% [73.8, 85.5]** weighted on the 200 (rules 68.2%); paired gain **+11.7 [4.3, 19.2], better**. `single` 85%, `multi` 79.5%, `sector` 64% (4/9), `out_of_scope` 56% (17/26). On the 51 rare-scope bodies: sector 16/27, out_of_scope 8/9; pooled with the 200: sector 20/36 = 56%, out_of_scope 25/35 = 71%. Under the 90% bar, at the 80% mark; sector is the weak class. Not in MLflow, not on the FTI pattern yet.
 ## Twelfth cut (T-147 matcher-features line, long form)
 
 ```
@@ -631,4 +702,16 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 
 ```
 - **Title + matcher features (2026-11-10, `--company-features`, one run; `gold/universe.csv` SHA-256 `2c1272429c694501…`, `triage.py` `7a55574035f461e5…`, informational):** **66.9% [60.2, 73.4]**. Paired and weighted, against title-only / the rules: agreement +0.5% [-7.5, +8.2] / -1.3% [-7.2, +4.7], `multi` recall +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3]: not decided. **Decided worse:** `sector` recall -61.4% [-96.1, -15.3] against title-only (9 gold) and `single` recall -11.6% [-18.9, -4.7] against the rules; better only on `out_of_scope` against the rules. So **no gain overall, and the counts cost `sector`**. The gold sees differences of about ±8 points (agreement), ±14 (`multi`), ±40 (`sector`) and below that nothing, so (a) and (d) cannot be ranked against the rules here; the bar is 23 points away. All classes: archive. **Owner's options:** (a) a stronger title model (an encoder, on title + counts), (b) first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+```
+
+
+### T-147 bullets, long forms (shortened 2026-11-11 when the scope classifier was selected)
+
+```
+      - **Title + matcher features (2026-11-10, `--company-features`; universe `2c1272429c694501…`, `triage.py` `7a55574035f461e5…`):** count block scaled by S, **S = 0.3 chosen by 5-fold CV on the 284 training rows only** (there the counts help `sector`: 58% against 31%). **On the 200: 68.1% [61.3, 74.6]** (S = 1, first run: 66.9%). Paired, weighted, against title-only / the rules: agreement +1.6% [-5.8, +8.9] / -0.1% [-6.5, +6.1]; `sector` -41.0% [-80.2, +5.7] / +35.7% [-0.3, +79.4]: not decided (at S = 1 `sector` was -61.4%, decided: **"the counts cost `sector`" is withdrawn**, it depended on S; 9 gold). Decided worse at both S: `single` recall against the rules (-9.3% [-16.3, -3.1]). Per-class lines are exploratory (10 comparisons, no correction): `out_of_scope` +24.5% [+2.4, +46.8] against the rules is a lead. The gold sees about ±7 points; the bar is 22 away, so (a) and (d) cannot be ranked here. All figures: archive. **Owner's options:** (a) an encoder on title + counts, (b) first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+      - **Owner's route, relevance features (`scope_relevance_features_2026_11_10.py`, title + 800 characters, NER, relevance on the top companies, logistic regression):** **71.1% [64.6, 77.2]** weighted; `multi` 65%, `sector` 23%, `out_of_scope` 37%. Cost measured: 0.053 s per body (NER 0.014 + relevance 0.039) = ~4.6 h for 310k bodies, less batched.
+      - **Owner's two-stage route (`scope_two_stage_2026_11_10.py --embedder`):** topic by embeddings, then single or multi. bge-small 71.3%, **bge-base 74.5%** [68.3, 80.3], bge-large 70.7% (weighted; base picked after seeing three on the same 200). Stage B 84%. Learning curve flat 71 to 284 rows; PCA (`--pca`) no gain (72.0%).
+      - **NLI topic stage:** zero-shot topic accuracy 0.84; fine-tuned 0.85 (`scope_nli_topic_2026_11_10.py`).
+      - **NLI single or multi** (165 true company bodies): relevance features 84.2% (multi 31/47); fine-tuned NLI 90.9% (multi 39/47, precision 85%) (`scope_nli_single_multi_2026_11_10.py`).
+      - **Rare-scope set (gold set 7, `scope_enrich.csv`, 51 bodies, 27 sector, 9 out-of-scope):** class-conditional recall, unweighted, apart from the 200.
 ```
