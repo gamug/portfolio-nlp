@@ -3,6 +3,7 @@
 **Status:** selected 2026-11-11 by the owner. The measured model is the one described in
 [The selected model](#the-selected-model). Its weights are saved, pinned and public
 (section 7); step 1 runs on them (section 8) and its output was validated on `quarantined` bodies (section 9).
+**The scope validation is closed (owner, 2026-11-11, section 9.1):** the model stays as it is, with no further audit or measurement of the scope step.
 
 This page collects every experiment that led to the scope classifier of step 1 of the pipeline
 (PLAN D40): what each one assumed, how it was measured, what came out, and what we learned from
@@ -534,8 +535,8 @@ a list of picks with no stated theme is `multi` (call 21; #26, a "Fast Money" fi
 `multi`, not `out_of_scope`; #10 ("6 cheapest stocks") and #45 ("most price target hikes") are lists under a stated theme, so `investing_general` (`multi` 20 -> 18 right on the first 25). Every changed row has a note in the file with its reason.
 **The 25 extra rows** were checked against the same calls: the deals (JVs, takeovers, a sale to two buyers) are `multi`, the movers, analyst-call and Fast Money lists are `multi`, the two `no` are market wraps (`market_economy`); no row breaks calls 17, 18 or 21.
 Two are borderline and were left as tagged (the Pfizer trial, rivals moving; an Eli Lilly deal story). **Still borderline, left as tagged in the main draw:** #39, #85, #199 (Cramer lightning round / two picks) and #76, #154.
-The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone" `multi`), so part of the `multi`/`single` confusion is label noise, not model error. Auditing the gold under calls 17, 18 and 21
-and settling the borderline rows is T-178; the figures here are not to be compared with the 83.6% before it is done.
+The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone" `multi`), so part of the `multi`/`single` confusion is label noise, not model error. The gold was not audited under calls 17, 18 and 21 (closed
+as a decision, section 9.1): the figures here are not to be compared like for like with the 83.6%.
 
 **What it says about the confidence in the model.**
 1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone, 85 or fewer and all 200 are read. The result is 93, between the two, with the lower bound (86.3%) above the second line. About 7% of the bodies the step stops
@@ -550,10 +551,19 @@ trusting the results above. The cost of a wrong `multi` is GPU time and sub-news
 
 **What it does not say.**
 - It is **precision** (of what the step called X, how much is X). The sample was drawn by predicted class, so it cannot give the **recall** of `out_of_scope` among quarantined bodies (the held-out recall of 53% is a different measure on a different population). Company stories the step called `single` and that
-  are really `out_of_scope` count against `single`; the share of true company news hidden in the other classes needs a sample drawn by tag (T-179).
+  are really `out_of_scope` count against `single`; the share of true company news hidden in the other classes would need a sample drawn by tag; it is not measured (closed, section 9.1).
 - One reader plus an audit (above); the owner's calls on the line cases (a stock-picking show, a market wrap with a takeover) decide part of the `no` answers.
 - 25 to 50 bodies per small class: the intervals are 20 to 33 points wide.
 - The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
+
+### 9.1 Closing the scope validation (owner, 2026-11-11)
+
+After the audits above and the release of the gate, the owner closed the validation of the scope step: **the model is left as it is.** The reasoning, in the owner's words: even with some noise in the tags, the agreement is good; the numbers
+(90.8% [86.9, 94.7] on the quarantined sample, 83.6% [78.1, 88.9] on the held-out 200) were reached after two audits of the tags, and more validation would not change what is done next.
+Two tasks that were open at that point are **closed by decision, not done**:
+- **Audit of the gold under calls 17, 18 and 21** (was T-178): the 365 training and 200 held-out tags are not re-read, and the five borderline rows (#39, #85, #199, #76, #154) stay as tagged. The cost is known: part of the `multi`/`single` confusion may be label noise on deals and pick lists, and the 90.8% and the 83.6% are not comparable like for like (different population, mix and key).
+- **Recall of `out_of_scope` among quarantined bodies** (was T-179): not measured. The share of true company news hidden in `single`/`multi`/`sector` among them stays unknown; precision (93.0% [86.3, 96.6]) is the only figure.
+What stays open on the scope model is only T-147b (FTI pattern, MLflow, three seeds), which is training hygiene, not validation. The tags in `gold/scope_quarantined_validation.csv` are final. If the gold is ever re-tagged, the pinned figures in `tests/news_nlp/test_scope_publish.py` change with it.
 
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; keep the 10,274 low-margin bodies as the review queue. The Hub card of the scope model named this file under its old name and was republished on 2026-11-11
 (card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).
@@ -569,4 +579,4 @@ trusting the results above. The cost of a wrong `multi` is GPU time and sub-news
 | Tagging rules | `docs/labelling-spec-v2.md` (owner calls 14 to 21) |
 | Gold sets | `docs/gold_datasets.md` (sets 1, 2, 7, 8; set 9, `gold/scope_quarantined_validation.csv`, is section 9) |
 | Validation of step 1 (section 9) | `scripts/draw_scope_quarantined_check_2026_11_11.py`, `scripts/score_scope_validation_2026_11_11.py`, `gold/scope_quarantined_validation.csv` |
-| Pull requests | #160 to #162 (pipeline, schema), #163 (matcher features), #164 (relevance and sentiment models), #165 (scope model), #166 (step 1), #167 (pin), #168 and #169 (the cut), #170 (validation on quarantined bodies, this rename) |
+| Pull requests | #160 to #162 (pipeline, schema), #163 (matcher features), #164 (relevance and sentiment models), #165 (scope model), #166 (step 1), #167 (pin), #168 and #169 (the cut), #170 (validation on quarantined bodies, this rename), #171 (the closing of the scope validation, section 9.1) |

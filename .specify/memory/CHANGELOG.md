@@ -2212,3 +2212,9 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 ### Work item 18 — T-180, the Hub card of the scope model (moved from `TASKS.md`, 2026-11-11)
 
 - [x] **T-180** *(Build 1, D40; #170's review)* **Republish the Hub card of `gamug/deberta-v3-news-scope-nli`:** its README line 29 names `docs/scope_training.md` (now `scope_training.md`). Needs the owner's word and a write `HF_TOKEN`; a card commit changes the revision: re-pin `config/scope_model.json`. → T-147b. **Done 2026-11-11 (owner's word):** `publish_scope_model_2026_11_11.py --card-only` committed `README.md` alone as `gamug/deberta-v3-news-scope-nli@58e4af4b`; the card differs from the live one in one line (the doc path); `--check` passes (weights and tokenizers equal to local); the pin and `published_models.json` moved to the new commit.
+
+### Work item 18 — T-178 and T-179, the scope validation closed (moved from `TASKS.md`, 2026-11-11)
+
+- [x] **T-178** *(Build 1, D40; #170's review)* **Audit the gold under calls 17, 18 and 21** (crypto, deals, pick lists; §9) and settle the borderline rows #39, #85, #199, #76, #154 of `gold/scope_quarantined_validation.csv`: count the `gold/` rows (365 training, held-out 200) that break them, list them for the owner, write the decisions as owner calls in the spec. **Until then 83.6% and 90.1% are not compared; no refit on the gold as it is.** **Closed by decision, not done (owner, 2026-11-11, `docs/scope_training.md` §9.1): the scope model is left as it is.**
+
+- [x] **T-179** *(Build 1, D40; #170's review)* **Recall of `out_of_scope` among quarantined bodies:** a sample drawn by the owner's tag (`docs/scope_training.md` §9 measures precision only); the owner sets the size. **Closed by decision, not done (owner, 2026-11-11, `docs/scope_training.md` §9.1): the scope model is left as it is.**
