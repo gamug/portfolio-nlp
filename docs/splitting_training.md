@@ -454,6 +454,21 @@ split and the company that owns the text was looked for in every one (`scripts/s
   (BOX) –", "Fox Corp. (FOXA) –"; `_HEADER` excludes `.` from the head, checked on the regex)** and 5 with lowercase text after the dash ("American Express
   (AXP) — solid momentum…"). The last two causes are added to T-177.
 
+**The 25 texts of `data/units4_to_read.csv`, read (owner, interactive session 2026-11-11).** The 7 changed texts without a mark: faithful
+for `units4` AMD, Newmont, Keurig Dr Pepper and Marvell; **not** faithful for Raymond James (the text is Nvidia's, Raymond James is the
+analyst that upgrades it), Morgan Stanley (the same: a freight carrier that Morgan Stanley upgraded) and Home Depot (its results, then a
+"Crypto stocks —" paragraph and a byline: a label with a lowercase word that is not read as a header, the T-177 cause). The owner's note on the
+first two: an analyst or investor that only tracks an action is tagged on the other company (`investor_activity`); the sentence is there
+because it names the analyst. With the 7 counted, `units4` is **302 of 313, 96.5% [93.8, 98.0]** (Wilson, texts taken as independent) against
+97.6% [95.3, 98.8] for `units`.
+**The 18 lost companies, traced** (articles 436438 and 448725 in the pieces; the rest by reading): **9 are the subject of a line**: Carnival,
+Norwegian, Royal Caribbean, United, Delta, Dow/LyondellBasell, Nike, Simon Property, Kroger. After a header of nobody ("Airlines —", "Cruise
+lines —", "Zoom Video –") the next sentences inherit "nobody", and `attribution_pieces` drops the universe companies they name (`tuple(... if
+owners else ())`: an empty owners list discards the named ones). **8 are named in passing** in another company's line (Cisco, Marriott,
+Norfolk Southern, Apple, AbbVie, NXP, CF Industries, Tesla). **1 is a matcher gap**: "International Business Machines —" finds no company, so
+IBM's own line goes to nobody (T-178). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
+no header of its own, after a header of nobody, goes to the universe companies it names; a header line that names one in passing still does not.
+
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
 
