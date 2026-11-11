@@ -1,16 +1,16 @@
-"""Publish the scope model of step 1 to the Hugging Face Hub, **private**, and pin it (T-147b; owner's word, 2026-11-11).
+"""Publish the scope model of step 1 to the Hugging Face Hub, **public**, and pin it (T-147b; owner's word, 2026-11-11).
 
     uv run python scripts/publish_scope_model_2026_11_11.py [--model-dir models/scope_final] [--dry-run]
     uv run python scripts/publish_scope_model_2026_11_11.py --check [--model-dir models/scope_final]
 
 One repository, ``gamug/deberta-v3-news-scope-nli``: ``stage_a/`` and ``stage_b/`` (the two fine-tuned NLI models), the
 ``training_record.json`` that names the data, the recipe and the hypotheses, and a model card. The owner asked for the upload
-"to trace it for future reference and usage" while step 1 runs on these weights; it is private like the other final models
-(making it public is a separate word of the owner). After the upload the commit SHA is written to
-``config/published_models.json`` (key ``scope``) and to ``config/scope_model.json``, the **pin**: the repository, the commit and
-the step revision (``scope-nli-<12 hex>``, the hash stored in every ``body_scope`` row) it corresponds to. ``--check`` is read-only:
-whether the repository is private, the card and the weights on the Hub are the recorded and local ones, and the local folder
-has the pinned step revision. Needs ``HF_TOKEN`` (write scope) in the environment or ``.env``.
+"to trace it for future reference and usage" and then for the repository to be **public** (2026-11-11). The files are uploaded
+and verified first (the weights must be on the Hub); only then is the repository made public. After the upload the commit SHA is
+written to ``config/published_models.json`` (key ``scope``) and to ``config/scope_model.json``, the **pin**: the repository, the
+commit and the step revision (``scope-nli-<12 hex>``, the hash stored in every ``body_scope`` row) it corresponds to. ``--check``
+is read-only: whether the repository is public and served to an anonymous request, the card, the weights and the small files on
+the Hub are the recorded and local ones, and the local folder has the pinned step revision. Needs ``HF_TOKEN`` (write scope) in the environment or ``.env``.
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from scope_stage import revision_of
 
-UNAUTHORIZED = 401  # what an anonymous request to a private repository gets
+OK = 200  # what an anonymous request to a public repository gets
 REPO = "gamug/deberta-v3-news-scope-nli"
 BASE = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
 STAGES = ("stage_a", "stage_b")
 SMALL_FILES = ("config.json", "tokenizer.json", "tokenizer_config.json")
 WHAT = (
-    "Hub repositories of the final models (T-169, T-147b); all private. Pinned: scope (config/scope_model.json); "
-    "sentiment and relevance are not pinned (config/pipeline_models.json)"
+    "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); "
+    "sentiment and relevance: private, not pinned (config/pipeline_models.json)"
 )
 
 #: The held-out 200 scored from the saved weights (``scripts/score_scope_heldout_2026_11_11.py``), filled from its output.
@@ -60,7 +60,7 @@ tags:
 - natural-language-inference
 - deberta-v3
 ---
-# deberta-v3-news-scope-nli (private)
+# deberta-v3-news-scope-nli
 
 **What it is for.** Step 1 of the news pipeline of `gamug/portfolio-nlp` (PLAN D39/D40): the **scope of a news body** from its
 title and its first 800 characters, in four classes: `single` (one company is the subject), `multi` (several companies are
@@ -98,7 +98,7 @@ through the step's own classifier (`scripts/score_scope_heldout_2026_11_11.py`):
   other sources or on bodies written in other languages.
 
 ## Use
-The repository is private: `HF_TOKEN` (read scope) must be set. The function below is the whole classifier.
+No token is needed. The function below is the whole classifier.
 ```python
 import json, torch
 from huggingface_hub import snapshot_download
@@ -162,7 +162,7 @@ def record_upload(
     current["scope"] = {
         "repo": REPO,
         "revision": revision,
-        "private": True,
+        "private": False,
         "card_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "weights_sha256": weights,
         "step_revision": step_revision,
@@ -192,7 +192,7 @@ def publish(token: str, model_dir: Path, text: str, dry: bool) -> str:
         print(f"[dry run] {REPO}: {model_dir} + README.md ({len(text)} characters)")
         return "dry-run"
     api = HfApi(token=token)
-    api.create_repo(REPO, private=True, exist_ok=True)
+    api.create_repo(REPO, private=True, exist_ok=True)  # public only after the upload is verified
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)
         (stage / "training_record.json").symlink_to((model_dir / "training_record.json").resolve())
@@ -211,7 +211,8 @@ def publish(token: str, model_dir: Path, text: str, dry: bool) -> str:
         raise SystemExit(
             f"{REPO}@{sha}: the weights are not on the Hub ({sorted(missing)}); nothing recorded"
         )
-    print(f"{REPO} (private): {sha}")
+    api.update_repo_settings(REPO, private=False)
+    print(f"{REPO} (public): {sha}")
     return sha
 
 
@@ -229,9 +230,9 @@ def check_published(
 
     from huggingface_hub import HfApi, hf_hub_download  # noqa: PLC0415
 
-    api = api or HfApi(token=token)
+    api = api or HfApi(token=token or None)
     download = download or (
-        lambda repo, name, rev: hf_hub_download(repo, name, revision=rev, token=token)
+        lambda repo, name, rev: hf_hub_download(repo, name, revision=rev, token=token or None)
     )
 
     def status(url: str) -> int:
@@ -251,9 +252,9 @@ def check_published(
     answer = anonymous_status(f"https://huggingface.co/{REPO}/resolve/{rev}/README.md")
     live_card = Path(download(REPO, "README.md", rev)).read_bytes()
     results: dict[str, bool | None] = {
-        "private": bool(info.private),
+        "public": not info.private,
         "recorded revision is the head of the repository": api.model_info(REPO).sha == rev,
-        "anonymous request refused": None if answer == 0 else answer == UNAUTHORIZED,
+        "anonymous request served": None if answer == 0 else answer == OK,
         "card on the Hub is the recorded one": hashlib.sha256(live_card).hexdigest()
         == recorded["card_sha256"],
     }
@@ -298,8 +299,6 @@ def main() -> None:
     load_dotenv()
     token = os.environ.get("HF_TOKEN", "")
     if args.check:
-        if not token:
-            raise SystemExit("--check needs HF_TOKEN (the repository is private)")
         try:
             results = check_published(args.record, args.model_dir, token)
         except OSError as err:

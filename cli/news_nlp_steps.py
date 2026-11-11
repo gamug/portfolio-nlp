@@ -109,7 +109,7 @@ def main() -> None:
     parser.add_argument(
         "--fetch",
         action="store_true",
-        help="download the pinned model (config/scope_model.json, private repository: needs HF_TOKEN) into --model-dir first",
+        help="download the pinned model (config/scope_model.json, public repository) into an empty --model-dir first",
     )
     parser.add_argument(
         "--allow-unpinned",

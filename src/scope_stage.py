@@ -111,7 +111,7 @@ def pin_status(revision: str, pin_path: Path | None = None) -> str:
 def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
     """Download the pinned scope model from the Hub into *model_dir* (empty or new) and check its step revision.
 
-    The repository is private: ``HF_TOKEN`` (read scope) must be set. The files are downloaded to a temporary folder next to
+    The repository is public: no token is needed. The files are downloaded to a temporary folder next to
     *model_dir* and moved in only when they hash to the revision recorded in the pin; a wrong or altered copy is deleted, never
     left where a run would use it. A folder that already holds files is refused (move it away first).
     """

@@ -59,7 +59,7 @@ def test_the_upload_is_recorded_and_pinned(tmp_path: Path) -> None:
     )
     got = json.loads(published.read_text(encoding="utf-8"))
     assert got["sentiment"] == {"repo": "r"}  # the others are kept
-    assert got["scope"]["revision"] == SHA and got["scope"]["private"] is True
+    assert got["scope"]["revision"] == SHA and got["scope"]["private"] is False
     assert got["scope"]["card_sha256"] == hashlib.sha256(b"card").hexdigest()
     assert json.loads(pin.read_text(encoding="utf-8"))["step_revision"] == "scope-nli-abc"
 
@@ -78,7 +78,7 @@ def test_the_pin_says_whether_the_running_model_is_the_pinned_one(tmp_path: Path
 def test_the_card_names_the_revision_the_limit_and_fills_the_figures() -> None:
     text = publish.card("scope-nli-abc")
     assert "scope-nli-abc" in text and "out_of_scope` recall" in text and "not** met" in text
-    assert "(private)" in text
+    assert "(private)" not in text and "HF_TOKEN" not in text.split("## Use")[1].split("```")[0]
 
 
 def test_the_upload_refuses_while_the_card_has_no_figures(
@@ -110,7 +110,7 @@ class _Api:
 
 
 def _check(
-    tmp_path: Path, api: _Api, answer: int = 401, changed: bool = False
+    tmp_path: Path, api: _Api, answer: int = 200, changed: bool = False
 ) -> dict[str, bool | None]:
     model_dir = _folder(tmp_path / "m")
     weights = {s: hashlib.sha256(s.encode()).hexdigest() for s in publish.STAGES}
@@ -132,19 +132,19 @@ def _check(
     )
 
 
-def test_the_check_passes_for_a_private_repository_with_the_local_weights(tmp_path: Path) -> None:
+def test_the_check_passes_for_a_public_repository_with_the_local_weights(tmp_path: Path) -> None:
     on_hub = {
         f"{s}/model.safetensors": hashlib.sha256(s.encode()).hexdigest() for s in publish.STAGES
     }
-    got = _check(tmp_path, _Api(True, SHA, on_hub))
+    got = _check(tmp_path, _Api(False, SHA, on_hub))
     assert all(v is True for v in got.values()), got
 
 
-def test_the_check_fails_when_the_repository_is_public_or_the_weights_differ(
+def test_the_check_fails_when_the_repository_is_private_or_the_weights_differ(
     tmp_path: Path,
 ) -> None:
-    got = _check(tmp_path, _Api(False, "b" * 40, {"stage_a/model.safetensors": "0"}), answer=200)
-    assert got["private"] is False and got["anonymous request refused"] is False
+    got = _check(tmp_path, _Api(True, "b" * 40, {"stage_a/model.safetensors": "0"}), answer=401)
+    assert got["public"] is False and got["anonymous request served"] is False
     assert got["recorded revision is the head of the repository"] is False
     assert got["stage_a weights on the Hub are the recorded ones"] is False
 
@@ -170,11 +170,16 @@ def test_the_heldout_scoring_reads_the_classifier_in_batches_and_reports() -> No
 class _LosingApi:
     """An upload that returns a commit but without the stage folders, as the first real upload did."""
 
+    public_calls: list[bool] = []  # noqa: RUF012 -- a test spy
+
     def __init__(self, token: str) -> None:
         pass
 
     def create_repo(self, *args: object, **kwargs: object) -> None:
         pass
+
+    def update_repo_settings(self, *args: object, **kwargs: object) -> None:
+        _LosingApi.public_calls.append(kwargs.get("private") is False)
 
     def upload_folder(self, **kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(oid=SHA)
@@ -287,7 +292,9 @@ def test_the_upload_records_the_pin_and_the_dry_run_records_nothing(
     args = ["--model-dir", str(folder), "--record", str(record), "--pin", str(pin)]
     _main(monkeypatch, *args, "--dry-run")
     assert not record.exists() and not pin.exists()
+    _LosingApi.public_calls.clear()
     _main(monkeypatch, *args)
+    assert _LosingApi.public_calls == [True]  # made public once, after the files were verified
     assert json.loads(pin.read_text(encoding="utf-8"))["revision"] == SHA
     assert json.loads(record.read_text(encoding="utf-8"))["scope"]["step_revision"] == revision_of(
         folder
@@ -357,7 +364,7 @@ def test_the_check_sees_a_small_file_that_differs_from_the_hub_copy(tmp_path: Pa
     on_hub = {
         f"{s}/model.safetensors": hashlib.sha256(s.encode()).hexdigest() for s in publish.STAGES
     }
-    got = _check(tmp_path, _Api(True, SHA, on_hub), changed=True)
+    got = _check(tmp_path, _Api(False, SHA, on_hub), changed=True)
     assert got["stage_a/tokenizer.json on the Hub is the local one"] is False
     assert got["stage_b/tokenizer.json on the Hub is the local one"] is True
 
@@ -453,3 +460,37 @@ def test_the_corpus_breakdown_counts_unique_bodies_by_status_and_year() -> None:
     assert "?" not in by_year  # the body without a scope is not counted
     assert breakdown_script.sample_oos(bodies, scope_of, "quarantined", 5)[0][0] == 3
     assert any("quarantined" in line for line in breakdown_script.lines(by_status, "by status"))
+
+
+quality_script = _load("scope_quality_check_2026_11_11")
+
+
+def test_the_quality_check_finds_a_scope_that_its_scores_do_not_give_and_bad_scores() -> None:
+    good = json.dumps(
+        {
+            "topic:company": 3.0,
+            "topic:sector": -1.0,
+            "topic:not_related": -2.0,
+            "count:single": 1.0,
+            "count:multi": -1.0,
+        }
+    )
+    sector = json.dumps({"topic:company": -3.0, "topic:sector": 2.0, "topic:not_related": -2.0})
+    nan = '{"topic:company": NaN, "topic:sector": 0.0, "topic:not_related": 0.0}'
+    rows = [
+        ("a", "single", good),
+        ("b", "sector", sector),
+        ("c", "multi", good),
+        ("d", "single", nan),
+        ("a", "single", good),
+    ]
+    assert quality_script.integrity(rows) == {
+        "duplicates": 1,
+        "non_finite": 1,
+        "scope_not_from_scores": 1,
+    }
+    assert (
+        quality_script.length_bucket(299) == "<300"
+        and quality_script.length_bucket(3000) == ">=3000"
+    )
+    assert quality_script.PAGE.search("Security Verification For help please visit")

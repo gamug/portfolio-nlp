@@ -222,7 +222,7 @@ Production model selection (name, commit SHA, and batch size per ML stage) lives
 | Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
 | Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
 
-The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, commit, and the step revision stored in every `body_scope` row), on purpose: the repository is private and `python -m setup` would try to download it. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into `models/scope_final` and refuses a copy whose step revision is not the pinned one (needs `HF_TOKEN`); the step prints whether the model it runs is the pinned one.
+The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, public; commit; and the step revision stored in every `body_scope` row), because no stage of the v1 pipeline uses it and the pin carries a step revision the four stages do not have. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into an empty `models/scope_final` (no token needed) and deletes a copy whose step revision is not the pinned one; the step refuses a model that is not the pinned one unless `--allow-unpinned`.
 
 Sentiment has no `batch_size` entry — `sentiment_stage.SentimentInference.batch_size()` is a hardcoded `1`, not a tunable constant `pipeline.py` reads, so there is nothing for a config field to move.
 
@@ -543,6 +543,6 @@ and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullab
 `uv run cli/news_nlp_steps.py --step scope [--limit N] [--status [--titles]] [--model-dir DIR]` classifies the unique
 bodies of the properly fetched corpus (`ok` and `quarantined`) into single / multi / sector / out_of_scope with the two
 NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
-`models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the private Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
+`models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the public Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
 nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
 record and the weights. Measurements and the dry run: `docs/splitting_training.md`, section 8.

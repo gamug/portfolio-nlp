@@ -279,9 +279,9 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
   scores the held-out 200 through the step's own classifier: **83.6% [78.1, 88.9]** weighted (rules 67.2%), paired gain
   **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
   (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
-  so the saved weights reproduce it; it is still one seed. The weights are in the private repository
-  `gamug/deberta-v3-news-scope-nli@59964ab7` and pinned in `config/scope_model.json` with the step revision
-  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Four uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` corrected the card; `59964ab7` is the same weights with the card that says the share of out-of-scope bodies that continue is not known, and is the pin. The first three stay in the history. Public release needs the owner's word.
+  so the saved weights reproduce it; it is still one seed. The weights are in the public repository
+  `gamug/deberta-v3-news-scope-nli@d14a4d20` and pinned in `config/scope_model.json` with the step revision
+  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Five uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` and `59964ab7` corrected the card; `d14a4d20` is the same weights with the card for a public repository, and is the pin. The first four stay in the history. The repository was made public on the owner's word (2026-11-11), after the upload was verified.
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
@@ -340,6 +340,24 @@ on the line; **2 are clear errors**: an EADS-BAE merger story, and a Paramount-S
 measured there; whether that sample covers the `quarantined` bodies is not stated in D30, and the `quarantined` bodies are
 79% of what step 1 now classifies. The share that continues in the corpus is therefore not known; the owner should decide
 whether a sample of `quarantined` bodies is tagged and scored before step 2.
+
+**Quality check of the corpus run (2026-11-11, `scripts/scope_quality_check_2026_11_11.py`, read-only, no GPU).**
+- *Integrity:* 309,914 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
+  score; **the stored scope is what its stored scores give in 100% of the rows**; the state table has 309,914 `done`, no
+  `failed`, no result without a state and no state without a result; no scope for a body outside the corpus.
+- *Not done:* 58 corpus bodies have no scope (44 `ok`, 14 `quarantined`, the tail of the article ids, where the run was stopped);
+  `uv run cli/news_nlp_steps.py --step scope` finishes them in seconds.
+- *Short bodies:* under 300 characters (1,915 bodies) 73% are `out_of_scope`; from 3,000 characters 56%; between, 41 to 43%.
+  Length moves the share but does not explain it.
+- *Unusable bodies:* **204 bodies look like a paywall or a bot page** ("security verification", "enable JavaScript", "subscribe
+  to read"…); 61 of them still get `single` (53), `multi` (8) or `sector` (3) because the headline reads as company news.
+  Later steps (NER, summary, sentiment) would run on that page text: they should be filtered or flagged before step 2.
+- *No title:* 90 bodies, 89 `out_of_scope`. T-147's report asks for a missing title to be stored with the status `review`;
+  **the step does not do it yet**, they are decided by the body alone.
+- *Low confidence:* 10,274 bodies (3.3%) have a margin under 1 between the two best topics: a ready list for a review queue.
+- *Reading* 14 `single`, 14 `multi` and 14 `sector` bodies at random: all 14 `single` plausible; 12 of 14 `multi` (two on the line);
+  about 10 of 14 `sector` (a social-media story about Uber, an analyst's two bank picks and a stock-picking segment read as
+  sector). One reader, 42 bodies: it agrees with the measured 80 to 90% and finds nothing of another kind.
 
 ## 9. Index of the work
 
