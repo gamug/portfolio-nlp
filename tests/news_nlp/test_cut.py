@@ -196,7 +196,7 @@ def test_the_revision_follows_the_model_and_the_names_the_model_is_asked_about()
     names = {c.ticker: c.name for c in UNIVERSE}
     base = revision_of("local:one", names)
     assert base == revision_of("local:one", dict(names))
-    assert base.startswith("units-")
+    assert base.startswith("units4-")
     assert revision_of("local:two", names) != base
     assert revision_of("local:one", {**names, "ORCL": "Oracle Corporation"}) != base
 
@@ -500,7 +500,7 @@ def test_fragments_and_several_headings_are_told_apart() -> None:
     assert quality.flag_of([two], 100000) == "several_headings"
 
 
-def test_the_cut_command_reads_with_units_unless_it_is_told_otherwise(
+def test_the_cut_command_reads_with_units4_unless_it_is_told_otherwise(
     pair: db_module.NewsNlpDatabase,
     tmp_path: Path,
     results_db_path: Path,
@@ -509,21 +509,22 @@ def test_the_cut_command_reads_with_units_unless_it_is_told_otherwise(
 ) -> None:
     common = [*_model(tmp_path), *_paths(pair, tmp_path, results_db_path)]
     _argv(monkeypatch, "--step", "cut", "--limit", "1", *common)
-    _argv(monkeypatch, "--step", "cut", "--limit", "1", "--reading", "units4", *common)
-    assert READINGS_ASKED == ["units", "units4"]
+    _argv(monkeypatch, "--step", "cut", "--limit", "1", "--reading", "units", *common)
+    assert READINGS_ASKED == ["units4", "units"]
 
 
-def test_the_reading_is_part_of_the_revision_and_the_units_one_is_unchanged() -> None:
+def test_the_reading_is_part_of_the_revision() -> None:
     names = {c.ticker: c.name for c in UNIVERSE}
     base = revision_of("local:one", names)
-    assert base == revision_of("local:one", names, "units")
-    other = revision_of("local:one", names, "units4")
-    assert other != base and other.startswith("units4-")
+    assert base == revision_of("local:one", names, "units4") and base.startswith("units4-")
+    other = revision_of("local:one", names, "units")
+    assert other != base and other.startswith("units-")
     with pytest.raises(ValueError, match="reading 'units2'"):
         UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units2")  # type: ignore[arg-type]
-    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units4").revision != (
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units").revision != (
         UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").revision
     )
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").reading == "units4"
 
 
 def test_the_comparison_of_two_readings_counts_faults_and_movements() -> None:

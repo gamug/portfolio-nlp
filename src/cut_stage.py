@@ -1,6 +1,7 @@
 """Step 1.2, the cut: the ``units`` extractor turns a ``multi`` body into the texts of its companies (PLAN D34 (e), D40; T-163).
 
-The extractor is the one the owner selected on 2026-11-08 (``reading="units"`` of ``news_nlp.attribution_model``): the body
+The extractor is the one the owner selected on 2026-11-08 (``reading="units"`` of ``news_nlp.attribution_model``), in the form
+``units4`` of T-176 (owner, 2026-11-11: a line is not given to another company, a header is not cut off its text): the body
 without its footer is cut at lines, bullets and clauses; a piece that names a company goes to it, and the pieces that name
 none go to the company the trained model chooses, or to nobody. Each company's text is one sub-news. The sub-news does not
 store the ticker (the schema of ``sub_news`` has no such column): the company is found again downstream, by NER and the
@@ -22,11 +23,13 @@ from news_nlp import retag
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.triage import Company, CompanyResolver
 
-DEFAULT_READING: am.Reading = "units"  # the owner's selection of 2026-11-08 (T-148b10)
+DEFAULT_READING: am.Reading = (
+    "units4"  # owner, 2026-11-11 (T-176); `units` was the selection of 2026-11-08 (T-148b10)
+)
 CUT_READINGS: tuple[am.Reading, ...] = (
     "units",
     "units4",
-)  # units4: T-176, a candidate until the owner reads it
+)  # `units` is kept to cut as before
 
 
 def companies_of(conn: NewsNlpDatabase) -> list[Company]:
@@ -42,7 +45,7 @@ def revision_of(
     model_identity: str, names: dict[str, str], reading: am.Reading = DEFAULT_READING
 ) -> str:
     """The revision of a cut: the model, the names it is asked about, its threshold, the code that cuts and, when it is
-    not the selected ``units``, the reading (so the revision of ``units`` does not change with this argument)."""
+    not the default reading, the reading."""
     code = retag.code_revision(*am.UNITS_CODE_MODULES)
     names_hash = hashlib.sha256(json.dumps(sorted(names.items())).encode()).hexdigest()[:8]
     key = f"{model_identity}@names:{names_hash}@t{am.THRESHOLD}@{code}"

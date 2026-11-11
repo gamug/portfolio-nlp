@@ -455,8 +455,8 @@ when the sentence also named another company.
 `units4` (`reading="units4"`, `--reading units4` of the cut) is `units` with: the plain resolver (no guard), the header of a
 "Names – text" sentence read **per sentence** (also in the middle of a paragraph) and with a bracketed ticker taken as part of
 the head, the sentence given to the universe companies of the head **and** to those its text names (as `units3`), and to
-nobody when the head names no universe company; a headed sentence is not cut into clauses. `units` stays the default and
-the owner's selection (2026-11-08); nothing is switched.
+nobody when the head names no universe company; a headed sentence is not cut into clauses. `units` was the owner's selection of
+2026-11-08; `units4` became the default of the cut on 2026-11-11 (below).
 
 | On the 232 bodies (GPU, `scripts/compare_cut_readings_2026_11_11.py`) | `units` | `units4` |
 |---|---|---|
@@ -473,9 +473,11 @@ against 97.6% for `units` (323 of 331): **no measured loss in faithfulness; the 
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
 companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10.
 
-**Not decided.** `units4` fixes the structure and keeps the measured faithfulness, but it is not read: the 7 unread texts and the
-18 lost ones are in `data/units4_to_read.csv`. The switch (`DEFAULT_READING` in `src/cut_stage.py`) is the owner's, after
-reading them.
+**Decision (owner, 2026-11-11).** The results are accepted and `units4` is the default of the cut (`DEFAULT_READING` in
+`src/cut_stage.py`; `--reading units` cuts as before). The 18 companies without a text are not a worry: they are named in
+passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
+sub-news; if the company is part of that news, the fragment is copied to it there. The 7 unread texts and the 18 lost ones are
+in `data/units4_to_read.csv` for whenever the owner wants to read them; the decision does not wait for it.
 
 ## What is next
 
