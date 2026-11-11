@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import random
 import sqlite3
 import sys
 from collections import Counter
@@ -24,6 +25,42 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 TEXT_CAP = 6000  # what the owner read (draw_sector_extra.TEXT_CAP)
+RESAMPLES = 10_000
+Tally = dict[str, list[int]]  # body -> [faithful, marked] of one reading
+
+
+def share(tally: Tally, bodies: list[str]) -> float:
+    """Faithful share of the marked texts of ``bodies`` (a body may repeat: it is a bootstrap draw)."""
+    yes = sum(tally[b][0] for b in bodies)
+    marked = sum(tally[b][1] for b in bodies)
+    return yes / marked if marked else float("nan")
+
+
+def body_intervals(a: Tally, b: Tally, seed: int = 1) -> dict[str, tuple[float, float, float]]:
+    """Point and 95% percentile interval of each reading's faithful share and of ``b - a``, redrawing **bodies** (the
+    texts of one body are not independent, D32). The two readings are redrawn together, so the difference is paired."""
+    bodies = sorted(set(a) | set(b))
+    for t in (a, b):
+        for body in bodies:
+            t.setdefault(body, [0, 0])
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible interval, not security
+    draws: dict[str, list[float]] = {"A": [], "B": [], "B-A": []}
+    for _ in range(RESAMPLES):
+        pick = [rng.choice(bodies) for _ in bodies]
+        x, y = share(a, pick), share(b, pick)
+        draws["A"].append(x)
+        draws["B"].append(y)
+        draws["B-A"].append(y - x)
+
+    def interval(values: list[float]) -> tuple[float, float]:
+        ordered = sorted(values)
+        return ordered[round(0.025 * (len(ordered) - 1))], ordered[
+            round(0.975 * (len(ordered) - 1))
+        ]
+
+    points = {"A": share(a, bodies), "B": share(b, bodies)}
+    points["B-A"] = points["B"] - points["A"]
+    return {k: (points[k], *interval(draws[k])) for k in draws}
 
 
 def text_hash(text: str) -> str:
@@ -61,6 +98,28 @@ def classify(
     return "changed", mark(a), mark(b)
 
 
+def add_mark(tally: Tally, body: str, mark: str | None) -> None:
+    """Count one text of ``body`` with a mark (a text without one is not in the figure)."""
+    if mark in ("yes", "no"):
+        cell = tally.setdefault(body, [0, 0])
+        cell[0] += mark == "yes"
+        cell[1] += 1
+
+
+def print_intervals(tally_a: Tally, tally_b: Tally) -> None:
+    """The faithful share of each reading on the marked texts, with the body bootstrap and the Wilson interval for contrast."""
+    from news_nlp.gold_metrics import wilson  # noqa: PLC0415 -- after the path set-up
+
+    print("== faithful share of the texts with a mark (bootstrap over bodies, 95%)")
+    for name, tally in (("units", tally_a), ("units4", tally_b)):
+        yes = sum(c[0] for c in tally.values())
+        marked = sum(c[1] for c in tally.values())
+        print(f"  {name}: {yes}/{marked}; if the texts were independent: {wilson(yes, marked)}")
+    for key, (point, low, high) in body_intervals(tally_a, tally_b).items():
+        label = {"A": "units", "B": "units4", "B-A": "units4 minus units (paired)"}[key]
+        print(f"  {label}: {point:.1%} [{low:.1%}, {high:.1%}]")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source-db", required=True)
@@ -90,6 +149,8 @@ def main() -> None:
     resolver = CompanyResolver(companies)
     first = UnitsExtractor.load(args.model_dir, companies, "units")
     second = UnitsExtractor(first.scorer, companies, "local:x", "units4")
+    tally_a: Tally = {}
+    tally_b: Tally = {}
     for data_dir in args.data_dir:
         marks = read_marks(data_dir)
         articles = sorted({k[0] for k in marks})
@@ -113,6 +174,8 @@ def main() -> None:
                 if not ta.get(ticker) and not tb.get(ticker):
                     continue
                 count[f"{outcome}"] += 1
+                add_mark(tally_a, f"{data_dir.name}/{article}", ma)
+                add_mark(tally_b, f"{data_dir.name}/{article}", mb)
                 count[f"{outcome}: units mark {ma or 'none (stale or unread)'}"] += 1
                 if outcome in ("changed", "gained"):
                     count[f"{outcome}: units4 text {'marked ' + mb if mb else 'UNREAD'}"] += 1
@@ -130,6 +193,8 @@ def main() -> None:
         print(f"== {data_dir} ({len(articles)} bodies, {len(marks)} marks)")
         for k in sorted(count):
             print(f"  {k}: {count[k]}")
+
+    print_intervals(tally_a, tally_b)
 
     if args.out:
         with args.out.open("w", newline="", encoding="utf-8") as f:

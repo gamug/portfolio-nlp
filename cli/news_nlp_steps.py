@@ -231,8 +231,23 @@ def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, args.step, revision), indent=2))
 
 
+RERUN_HELP = """\
+To run a step again on bodies it already did: a finished body is found in `pipeline_step_state`, not in the result table,
+so `DELETE FROM sub_news` alone does not make the cut run again. At the same revision (the code, the model and the reading
+are the same), in the RESULTS database:
+  DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
+  DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
+A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
+`--status` prints the revisions (the latest first). The recipe: docs/splitting_training.md, section 8.1.
+"""
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        epilog=RERUN_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--step", choices=STEPS, required=True)
     parser.add_argument("--limit", type=int, default=None, help="touch at most this many bodies")
     parser.add_argument("--status", action="store_true", help="print the counts and exit")

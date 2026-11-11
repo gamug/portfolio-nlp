@@ -469,14 +469,18 @@ nobody when the head names no universe company; a headed sentence is not cut int
 and that have a mark; `scripts/units4_vs_owner_marks_2026_11_11.py`): 259 texts are the same (252 yes, 7 no); 54 change, and
 all 54 were `yes` under `units`: the `units4` text is already marked `yes` for 46, `no` for 1, and **7 are unread**; 18
 companies lose their text (17 marked `yes`, 1 `no`). On the texts that have a mark, `units4` is 97.4% faithful (298 of 306)
-against 97.6% for `units` (323 of 331): **no measured loss in faithfulness; the price is 18 companies without a text (5.4%),
+against 97.6% for `units` (323 of 331). **With intervals** (a bootstrap over the 60 bodies, as the confirmation set's, because the texts of a body
+are not independent): `units4` **97.4% [94.8, 99.3]**, `units` **97.6% [95.2, 99.4]**, the difference (paired, same bodies) **−0.2 points [−0.5, 0.0]**
+(10,000 redraws; `scripts/units4_vs_owner_marks_2026_11_11.py` prints them; as if the texts were independent the intervals are [94.9, 98.7] and [95.3, 98.8]). Read as a range: the two
+are the same within about a point, and the difference touches zero from below, so "same faithfulness" is what the data allow, not "better". Two limits of the figure: it is over the texts that have a mark
+(the 7 unread changed texts and the 18 lost ones are not in it), and the bar is on the 306. **The price is 18 companies without a text (5.4%),
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
-companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10.
+companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10; the result is evidence, not a proof, and the owner decided on it (below).
 
-**Decision (owner, 2026-11-11).** The results are accepted and `units4` is the default of the cut (`DEFAULT_READING` in
+**Decision (owner, 2026-11-11).** The owner accepts the results as they are, small sample and unread texts included (that is the "not decided" of the statistical reading above: the data do not decide it; the owner's word does), and `units4` is the default of the cut (`DEFAULT_READING` in
 `src/cut_stage.py`; `--reading units` cuts as before). The 18 companies without a text are not a worry: they are named in
 passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
-sub-news; if the company is part of that news, the fragment is copied to it there. The 7 unread texts and the 18 lost ones are
+sub-news; if the company is part of that news, the fragment is copied to it there. **This is an assumption, not a measurement:** T-165's closing check counts, of the companies `units4` leaves without a text, how many NER finds in a sub-news of the same body. The 23 texts that still hold several headings are read in `docs/splitting_training.md` §8.1 (10 overlap, 13 a third fault, T-177). The 7 unread texts and the 18 lost ones are
 in `data/units4_to_read.csv` for whenever the owner wants to read them; the decision does not wait for it.
 
 ## What is next

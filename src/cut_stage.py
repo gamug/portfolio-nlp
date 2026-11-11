@@ -7,8 +7,10 @@ none go to the company the trained model chooses, or to nobody. Each company's t
 store the ticker (the schema of ``sub_news`` has no such column): the company is found again downstream, by NER and the
 matcher (D39 (iii)).
 
-The revision of a cut is ``units-`` plus 12 hex digits of the SHA-256 of: the model directory's identity, the company names
-the model is asked about, the model's threshold and the revision of the code that cuts. Any of them changing starts new rows.
+The revision of a cut is the reading (``units4`` by default, ``units`` with ``--reading units``) plus ``-`` and 12 hex digits of
+the SHA-256 of: the model directory's identity, the company names the model is asked about, the model's threshold, the revision of
+the code that cuts and, when it is not the default, the reading. Any of them changing starts new rows. Rows written before
+T-176 are ``units-75642e3f4f72``-style: a different set, not rewritten, and a reader must name the revision it wants.
 """
 
 from __future__ import annotations

@@ -372,7 +372,7 @@ first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 
 ### 8.1 Step 1.2: the cut (T-163)
 
 `uv run cli/news_nlp_steps.py --step cut [--limit N]` cuts the `multi` bodies of step 1 with the `units` extractor the owner
-selected on 2026-11-08 (T-148b10) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
+selected on 2026-11-08 (T-148b10), read as `units4` (T-176, default since 2026-11-11; `--reading units` cuts as before) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
 
 **Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
 232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
@@ -410,8 +410,55 @@ pruning could change the output).
 - *Reading file:* `--sample N --out data/cut_sample_to_read.csv` writes every flagged body (not cut, or with a tiny piece)
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
+**The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
+`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
+`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24`, then the two checks on that revision:
+- *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
+  first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
+- *`cut_determinism_check -n 30`:* **0 of 30 differ** from the stored rows and between two runs.
+- *`cut_quality_check`:* sub-news per body min 1, median 5, p90 11, max 26; 41 bodies (8.2%) give a single one; length median
+  268, p10 103, p90 672; 222 pieces (7.1%) under 80 characters, 122 of them fragments; 21 bodies "not cut" (4.2%); **heading-only
+  pieces 0**; pieces under 30 characters 48 (32 bodies); **50 of 3,300 company texts (1.5%) hold several headings (42 bodies)**, in line with the
+  23 of 1,589 (1.4%) of the 232.
+- *The 48 pieces under 30 characters are almost none a heading (one, "Eli Lilly — The", is a cut in the middle of a sentence):* they are the end of a name cut at an abbreviation ("J.B.", "C.H.", "T.",
+  "Citigroup upgrades Arthur J."), a dateline or a place after a name ("Apple, Cupertino, Calif."), and the owner-of-position notes
+  of a TV roundup ("Terranova owns (XOM)", "Finerman Owns (WMT)", "(HPQ)"). The first group is the abbreviation-split fault
+  already known for clauses; none is a company's news. Not a task of this PR; the quality check counts them as tiny, as before.
+
+**The 23 texts that still hold several headings (18 bodies of the 232), read.** For each text the headed sentences were
+split and the company that owns the text was looked for in every one (`scripts/several_headings_owner_2026_11_11.py`, same bodies, same model):
+- **10 are legitimate overlap.** The owner of the text is named in each line: Goldman Sachs in the Corning and Quest
+  lines, Apple in Intel's (examples from the 500-body run). By the rule of
+  `units4` ("and those its text names") that text is the company's.
+- **13 are a third fault: a line given to a company it does not name.** The header of the next line is not read, so the line stays
+  with the owner before it. 8 are a head in **capitals that names no universe company**, taken for a dateline or label by
+  `header_owners` ("SAP —" into General Motors' text, "BP —" into Allstate's and J. M. Smucker's, "UBS –" into Tesla's, "ASML —" into
+  Eli Lilly's, "WPP (WPP) –" into Dollar Tree's, "DSW –" into Quest Diagnostics', "AT & T —" into Delta's); 5 are a **head with lowercase words**
+  ("Memory stocks —" into Intel's, "Cruise operators —" into Accenture's, "China electric vehicle stocks —" into Moderna's twice, "Jack in the Box —"
+  into Darden's). Over the 500 bodies of the real command: 19 overlap, 31 this fault (a few of them a dash inside a sentence that the
+  quality check takes for a heading, for example "The company's bet on Reels is facing hurdles — Instagram users…"). **Opened as T-177**
+  (a header read for these two shapes, as a new reading with its own revision, measured on the same 232 bodies and the owner's marks
+  before it replaces the default). It does not block this PR: the fault is under 1% of the texts (13 of 1,589), and the 162 → 23 stands.
+
+**Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
+`DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
+
+```sql
+DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
+DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- written with INSERT OR IGNORE: delete them too to have them rewritten
+```
+
+or keep the old rows under their own revision: a new reading, model or code changes the revision and starts new rows by itself, and
+nothing is deleted. The same text is in `uv run cli/news_nlp_steps.py --help`.
+
+**Which revision the later steps read.** The default changes the revision of the cut from `units-<12 hex>` (the `units` reading,
+for example `units-75642e3f4f72` of the dry run above) to `units4-<12 hex>` (this PR's real run: `units4-e1dff4f90b24` on a scratch copy; it changes if
+the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script read `extractor_revision` of the `units4` set
+by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, so after the full run
+the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
+
 **Before the full run.** (1) T-176 is done: the cut runs with `units4`, which removes most of the two faults above (162 texts with
-several companies become 23). (2) The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
+several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
 (`data/scope_quarantined_to_validate.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until that
 validation is in** (the condition is also in T-165). The run writes a new revision of rows and nothing else.
