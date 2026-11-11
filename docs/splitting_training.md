@@ -369,6 +369,29 @@ share of `yes` per predicted class with its 95% interval and the share of all qu
 how many company stories the step would stop; 50 `single` give ±10, 25 `multi` or `sector` ±14 (at a precision near 85%). Read the 100 `out_of_scope`
 first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 85 or fewer, read all 200.
 
+### 8.1 Step 1.2: the cut (T-163)
+
+`uv run cli/news_nlp_steps.py --step cut [--limit N]` cuts the `multi` bodies of step 1 with the `units` extractor the owner
+selected on 2026-11-08 (T-148b10) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
+
+**Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
+232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
+About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies of
+the corpus take about 2.5 to 3 h** on the GPU. The full run is for the owner to start; no speed-up is included (fp16 or pair
+pruning could change the output).
+
+**Quality check (`scripts/cut_quality_check_2026_11_11.py`, read-only):**
+- *Sub-news per body:* min 1, median 7, mean 7.1, p90 13, max 24; 24 bodies (10%) give a single sub-news.
+- *Length:* median 268 characters, p10 94, p90 590, max 7,843; **128 of the 1,639 (7.8%) are under 80 characters**.
+- *Not cut:* 11 bodies (4.7%) have a sub-news that is 80% or more of the body.
+- *Skipped:* none in this sample, so the "no company text" path is only covered by tests.
+- *Reading 4 bodies:* a "stocks making moves" list is cut well, one sub-news per company (two lists give 8 and 12 pieces);
+  a deal story with two companies keeps its paragraphs; a one-company story stays whole. **Where a list is written in one
+  paragraph ("Micron Technology — Shares ticked up…"), a heading can be left alone as a piece ("Micron Technology —") and the
+  sentence that follows goes to another piece**: that is the main source of the short pieces. It is the selected extractor's
+  behaviour, not a bug of the step; fixing it means a new extractor revision (T-148b).
+- A sample of 12 cut bodies for reading: `--sample 12 --out cut_sample.csv`.
+
 ## 9. Index of the work
 
 | What | Where |

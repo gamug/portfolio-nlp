@@ -172,6 +172,33 @@ def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str
     conn.commit()
 
 
+def error_text(exc: BaseException) -> str:
+    """The reason stored with a failed body, the same for every step: ``Type: message``."""
+    return f"{type(exc).__name__}: {exc}"
+
+
+def latest_revision(conn: NewsNlpDatabase, step: str) -> str | None:
+    """The model revision of the step's most recent state row, or None when the step has not run."""
+    row = conn.execute(
+        "SELECT model_revision FROM pipeline_step_state WHERE step = ? "
+        "ORDER BY finished_at DESC, rowid DESC LIMIT 1",
+        (step,),
+    ).fetchone()
+    return None if row is None else str(row[0])
+
+
+def revisions(conn: NewsNlpDatabase, step: str) -> list[str]:
+    """Every model revision the step has state for, oldest first."""
+    return [
+        str(r[0])
+        for r in conn.execute(
+            "SELECT model_revision FROM pipeline_step_state WHERE step = ? "
+            "GROUP BY model_revision ORDER BY MIN(rowid)",
+            (step,),
+        )
+    ]
+
+
 def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, error: str) -> None:
     """Mark a body failed with the reason; it is retried by the next run."""
     now = _now()

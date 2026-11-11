@@ -546,3 +546,16 @@ NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/tra
 `models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the public Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
 nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
 record and the weights. Measurements and the dry run: `docs/splitting_training.md`, section 8.
+
+### Step 1.2: the cut (T-163)
+
+`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
+bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
+step 1) and cuts each with the `units` extractor and the attribution checkpoint (`data/models/attribution_2026_11_08`,
+git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is `units-` plus a hash of
+the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
+and leaves the old rows. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
+`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--fetch`,
+`--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
+revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
+reproduced from the repository alone.** Measurements and the quality check: `docs/splitting_training.md`, section 8.1.

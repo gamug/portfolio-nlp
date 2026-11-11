@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
 
+import cut_stage
 import news_nlp as db_module
 from cut_stage import UnitsExtractor, companies_of, distinct, revision_of
 from news_nlp import attribution_model as am
 from news_nlp import steps
 from news_nlp.triage import Company
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
+from tests.news_nlp.test_steps import _cli
 
 SCOPE_REV = "scope-nli-test"
 CUT_REV = "units-test"
@@ -200,3 +203,194 @@ def test_the_revision_follows_the_model_and_the_names_the_model_is_asked_about()
 
 def test_the_universe_is_read_from_the_source(pair: db_module.NewsNlpDatabase) -> None:
     assert all(isinstance(c, Company) for c in companies_of(pair))
+
+
+class _Stub:
+    """An extractor that cuts every body into two texts, or fails for the bodies it is told to."""
+
+    revision = "units-stub"
+
+    def __init__(self, fail_on: str | None = None) -> None:
+        self.fail_on = fail_on
+
+    def cut(self, body: str) -> list[str]:
+        if self.fail_on is not None and (self.fail_on == "*" or self.fail_on in body):
+            raise ValueError("bad piece")
+        return ["one", "two"] if "multi" in body else []
+
+
+def test_run_cut_counts_and_a_failed_body_does_not_stop_the_run(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _cli()
+    counts = cli.run_cut(pair, _Stub(fail_on="Third"), SCOPE_REV, None)  # type: ignore[attr-defined]
+    assert counts == {"done": 3, "no_company_text": 0, "failed": 1, "sub_news": 6}
+    got = steps.status(pair, steps.STEP_CUT, "units-stub")
+    assert got["by_state"] == {"done": 3, "failed": 1}
+    # the stored reason has the format of step 1: Type: message
+    assert got["failed_examples"][0]["error"] == "ValueError: bad piece"  # type: ignore[index]
+    # a rerun retries the failed body only
+    again = cli.run_cut(pair, _Stub(), SCOPE_REV, None)  # type: ignore[attr-defined]
+    assert again["done"] == 1 and pair.execute("SELECT COUNT(*) FROM sub_news").fetchone()[0] == 8
+
+
+def test_run_cut_stops_when_body_after_body_fails(tmp_path: Path, results_db_path: Path) -> None:
+    cli = _cli()
+    source = tmp_path / "many.db"
+    raw = sqlite3.connect(source)
+    raw.executescript(ARTICLES_SCHEMA)
+    stamp_source(raw)
+    for i in range(1, 30):
+        seed_article(raw, id=i, body_text=f"Multi body number {i}. " * 5)
+    raw.commit()
+    raw.close()
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    try:
+        for body in steps.pending_bodies(conn, steps.STEP_SCOPE, SCOPE_REV):
+            steps.record_scope(conn, body, SCOPE_REV, "multi", {}, "title+800")
+        with pytest.raises(cli.RunAborted, match="in a row"):  # type: ignore[attr-defined]
+            cli.run_cut(conn, _Stub(fail_on="*"), SCOPE_REV, None)  # type: ignore[attr-defined]
+        got = steps.status(conn, steps.STEP_CUT, "units-stub")
+        assert got["by_state"] == {"failed": cli.MAX_FAILED_BODIES}  # type: ignore[attr-defined]
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+
+def _argv(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", *argv])
+    _cli().main()  # type: ignore[attr-defined]
+
+
+@pytest.fixture
+def stub_model(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """``UnitsExtractor.load`` returns a stub and records the folder it was asked for."""
+    asked: list[Path] = []
+
+    def load(model_dir: Path, companies: Sequence[Company]) -> _Stub:
+        asked.append(model_dir)
+        return _Stub()
+
+    monkeypatch.setattr(cut_stage.UnitsExtractor, "load", staticmethod(load))
+    return asked
+
+
+def _paths(pair: db_module.NewsNlpDatabase, tmp_path: Path, results_db_path: Path) -> list[str]:
+    return ["--results-db", str(results_db_path), "--source-db", str(tmp_path / "src.db")]
+
+
+def test_the_cut_command_writes_sub_news_and_prints_the_counts(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stub_model: list[Path],
+) -> None:
+    _argv(monkeypatch, "--step", "cut", "--limit", "2", *_paths(pair, tmp_path, results_db_path))
+    out = capsys.readouterr().out
+    assert f'"scope_revision": "{SCOPE_REV}"' in out and '"sub_news": 4' in out
+    assert stub_model[0].name == "attribution_2026_11_08"  # the default model folder
+    assert pair.execute("SELECT COUNT(*) FROM sub_news").fetchone()[0] == 4
+
+
+def test_the_cut_command_reads_the_scope_revision_it_is_given(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stub_model: list[Path],
+) -> None:
+    _argv(
+        monkeypatch, "--step", "cut", "--scope-revision", "scope-nli-other",
+        *_paths(pair, tmp_path, results_db_path),
+    )  # fmt: skip
+    assert '"done": 0' in capsys.readouterr().out
+    assert pair.execute("SELECT COUNT(*) FROM sub_news").fetchone()[0] == 0
+
+
+def test_the_cut_command_stops_when_step_one_has_not_run(
+    tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch, stub_model: list[Path]
+) -> None:
+    source = tmp_path / "e.db"
+    raw = sqlite3.connect(source)
+    raw.executescript(ARTICLES_SCHEMA)
+    stamp_source(raw)
+    raw.commit()
+    raw.close()
+    with pytest.raises(SystemExit, match="run --step scope first"):
+        _argv(
+            monkeypatch,
+            "--step",
+            "cut",
+            "--results-db",
+            str(results_db_path),
+            "--source-db",
+            str(source),
+        )
+    assert stub_model == []  # the model was not loaded
+
+
+def test_the_cut_command_stops_without_the_articles_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_model: list[Path]
+) -> None:
+    source = tmp_path / "e2.db"
+    raw = sqlite3.connect(source)
+    raw.executescript(ARTICLES_SCHEMA)
+    stamp_source(raw)
+    raw.commit()
+    raw.close()
+    bare = (
+        tmp_path / "bare.db"
+    )  # init_schema runs, the crawler's lean articles table does not exist
+    with pytest.raises(SystemExit, match="no articles table"):
+        _argv(
+            monkeypatch, "--step", "cut", "--scope-revision", "x",
+            "--results-db", str(bare), "--source-db", str(source),
+        )  # fmt: skip
+    assert stub_model == []
+
+
+def test_cut_status_needs_no_model_and_shows_the_latest_revision(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stub_model: list[Path],
+) -> None:
+    first, second, *_ = list(steps.pending_multi_bodies(pair, SCOPE_REV, "units-old"))
+    steps.record_cut(pair, first, "units-old", ["a"])
+    steps.record_cut(pair, second, "units-new", ["a", "b"])
+    _argv(monkeypatch, "--step", "cut", "--status", *_paths(pair, tmp_path, results_db_path))
+    out = capsys.readouterr().out
+    assert '"revision": "units-new"' in out and '"rows": 2' in out  # old rows are not added in
+    assert '"units-old"' in out  # but the revision is listed
+    assert stub_model == []
+
+
+def test_scope_only_flags_are_refused_for_the_cut(monkeypatch: pytest.MonkeyPatch) -> None:
+    for flag in ("--fetch", "--allow-unpinned", "--titles"):
+        with pytest.raises(SystemExit) as stop:
+            _argv(monkeypatch, "--step", "cut", flag)
+        assert stop.value.code == 2
+
+
+def test_the_default_model_folder_of_each_step() -> None:
+    cli = _cli()
+    assert cli.default_model_dir("cut").name == "attribution_2026_11_08"  # type: ignore[attr-defined]
+    assert cli.default_model_dir("scope").name == "scope_final"  # type: ignore[attr-defined]
+
+
+def test_the_quality_breakdown_counts_what_a_reader_would_worry_about() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import cut_quality_check_2026_11_11 as quality  # noqa: PLC0415 -- a script, not a package
+
+    per_body = {"a": ["x" * 100, "y" * 200], "b": ["z" * 50], "c": ["w" * 900]}
+    got = quality.summarise(per_body, {"a": 1000, "b": 60, "c": 1000}, skipped=1)
+    assert got["bodies_done"] == 3 and got["skipped_share"] == 0.25
+    assert got["sub_news_total"] == 4 and got["bodies_with_one_sub_news"] == 2
+    assert got["sub_news_under_80_chars"] == 1  # the 50-character one
+    assert got["bodies_not_cut_(longest>=80%_of_body)"] == 2  # b (50 of 60) and c (900 of 1000)
+    assert quality.quantiles([])["max"] == 0.0
