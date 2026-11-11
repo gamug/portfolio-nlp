@@ -280,7 +280,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
   **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
   (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
   so the saved weights reproduce it; it is still one seed. The weights are in the public repository
-  `gamug/deberta-v3-news-scope-nli@d14a4d20` and pinned in `config/scope_model.json` with the step revision
+  `gamug/deberta-v3-news-scope-nli@d14a4d20` (moved to `@58e4af4b` on 2026-11-11 by a card-only commit, same weights; see below) and pinned in `config/scope_model.json` with the step revision
   (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Five uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` and `59964ab7` corrected the card; `d14a4d20` is the same weights with the card for a public repository, and is the pin. The first four stay in the history. The repository was made public on the owner's word (2026-11-11), after the upload was verified.
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
@@ -539,7 +539,7 @@ bodies with `multi` flagged as the least certain class, after the remaining 50 e
 - 25 bodies per small class: the intervals are 26 to 33 points wide.
 - The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
 
-**Suggested next steps** (the owner decides): filter the paywall pages before step 2; read the other 50 extra `multi` bodies; keep the 10,274 low-margin bodies as the review queue; republish the Hub card of the scope model (it still names this file under its old name, T-180).
+**Suggested next steps** (the owner decides): filter the paywall pages before step 2; read the other 50 extra `multi` bodies; keep the 10,274 low-margin bodies as the review queue; the Hub card named this file under its old name and was republished on 2026-11-11 (card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).
 
 ## 10. Index of the work
 

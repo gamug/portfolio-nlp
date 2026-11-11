@@ -597,6 +597,35 @@ def test_the_committed_tags_reproduce_both_readings() -> None:
     assert round(final[1]["multi"].point, 2) == 0.72 and round(first[1]["multi"].point, 2) == 0.64
 
 
+def test_a_card_only_commit_moves_the_pin_and_keeps_the_weights(tmp_path: Path) -> None:
+    pub = _load("publish_scope_model_2026_11_11")
+    record, pin = tmp_path / "published.json", tmp_path / "pin.json"
+    record.write_text(
+        json.dumps(
+            {
+                "scope": {
+                    "revision": "a" * 40,
+                    "card_sha256": "x",
+                    "weights_sha256": {"stage_a": "w"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    pin.write_text(
+        json.dumps({"model": "m", "revision": "a" * 40, "step_revision": "scope-nli-1"}),
+        encoding="utf-8",
+    )
+    pub.record_card(record, pin, "b" * 40, "card text")
+    got = json.loads(record.read_text(encoding="utf-8"))["scope"]
+    assert got["revision"] == "b" * 40 and got["weights_sha256"] == {"stage_a": "w"}
+    assert got["card_sha256"] == hashlib.sha256(b"card text").hexdigest()
+    pinned = json.loads(pin.read_text(encoding="utf-8"))
+    assert pinned["revision"] == "b" * 40 and pinned["step_revision"] == "scope-nli-1"
+    with pytest.raises(SystemExit):
+        pub.record_card(record, pin, "not-a-sha", "card text")
+
+
 def test_the_weighted_precision_has_an_interval_that_covers_its_point() -> None:
     counts = {"a": (9, 10), "b": (5, 10)}
     point, low, high = validation.weighted_precision(counts, {"a": 300, "b": 100})
