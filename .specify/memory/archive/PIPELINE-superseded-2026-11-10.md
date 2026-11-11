@@ -650,4 +650,68 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 
 ```
       - **END TO END (2026-11-10, `scope_end_to_end_2026_11_10.py`, choices fixed in advance, models trained on the 284 only):** two fine-tuned NLI models (topic, then single/multi), title + 800 chars: **79.9% [73.8, 85.5]** weighted on the 200 (rules 68.2%); paired gain **+11.7 [4.3, 19.2], better**. `single` 85%, `multi` 79.5%, `sector` 64% (4/9), `out_of_scope` 56% (17/26). On the 51 rare-scope bodies: sector 16/27, out_of_scope 8/9; pooled with the 200: sector 20/36 = 56%, out_of_scope 25/35 = 71%. Under the 90% bar, at the 80% mark; sector is the weak class. Not in MLflow, not on the FTI pattern yet.
+## Twelfth cut (T-147 matcher-features line, long form)
+
+```
+      - **Title + matcher features (measured 2026-11-10, `--company-features`, universe SHA-256 `2c127242...ed55d3`, one run, not tuned on the 200):** title text + one-hot of the number of distinct universe companies in the title, in the first 600 characters and in the body (capped at 4): **66.9% [60.2, 73.4]** weighted. Level with the title alone (66.4%) and the rules (68.2%); `multi` recall 59.8% [48.7, 71.9] (title alone 51.0%, rules 52.5%), `single` 79.4%, `sector` 17.9% (9 gold), `out_of_scope` 34.3%. The company count helps `multi` a little and costs `sector`; the bar (90%) is not near. **Owner to decide again:** (a) a stronger model (an encoder) on title + counts, (c) more tags, (d) the rules with their error shown; (b) is now measured twice and does not gain.
+```
+
+
+### T-147 title + first lines, long form
+
+```
+      - **Title + first lines (measured 2026-11-10, same script, `--body-chars N`, TF-IDF + logistic regression, weighted):** N = 300: 65.7% [58.9, 72.9] (`multi` recall 32.2%); N = 600: 62.5% [55.4, 69.8]; N = 1500: 57.1% [49.7, 64.2]. No gain over the title alone (66.4%): the body text dilutes the title with 284 training rows.
+```
+
+
+## Thirteenth cut (T-147: feasibility long form, matcher-features paired figures, fingerprints)
+
+```
+- **Feasibility (measured 2026-11-10, `scripts/scope_title_baseline_2026_11_10.py`, TF-IDF + logistic regression on the title, weighted to the corpus, four classes for every row):** title-only **66.4% [59.7, 73.3]**; the rules **68.2% [61.5, 74.7]** (68.0% in six classes); always `single` 58.2% [51.2, 64.3]. Recall, title-only against rules: `single` 76.7% against 91.0%, `multi` 51.0% against 52.5%, `sector` 79.3% [43.3, 97.7] against 2.6%, `out_of_scope` 44.6% [21.3, 68.6] against 6.8%. So the title is **level with the rules** overall (no gain), better on the small classes, worse on `single`, and the whole interval is far under 90%.
+      - **Title + matcher features, paired (2026-11-10, `--company-features`, one run, not tuned on the 200, after #163's review):** universe SHA-256 `2c1272429c6945012dcc797b128a78fc437136bcd7f90e1d4414e9a45aed55d3`; matcher (`src/news_nlp/triage.py` as of master 6b35483) SHA-256 `7a55574035f461e575a7e24e8f775ba1c1f1f816b8b1e04419b42623ab7c2d1a`; counts of the title, of the first 600 characters (`--first`) and of the body (the gold texts are capped at 6,020 characters; 33 of the 484 reach it), capped at 4. Weighted agreement 66.9% [60.2, 73.4]. Paired weighted differences (the same resample feeds both): agreement against title-only +0.5% [-7.5, +8.2] (not decided), against the rules -1.3% [-7.2, +4.7] (not decided); recall of `multi` against title-only +8.8% [-4.5, +22.8] (not decided), against the rules +7.3% [-1.4, +16.3] (not decided).
+```
+
+### T-147 reproduce bullet, long form
+
+```
+- **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
+```
+
+### T-147 matcher features, per-class paired figures (review of #163, round 2)
+
+```
+      - **Supersedes the sentence "The company count helps `multi` a little and costs `sector`" of the Twelfth cut: the paired figures do not support the first half (`multi` +8.8% [-4.5, +22.8], not decided); the second half is confirmed and decided.** Paired weighted differences of the recall, against the title-only model / against the rules: `single` +2.7% [-7.0, +12.5] (not decided) / -11.6% [-18.9, -4.7] (not better); `multi` +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3] (not decided); `sector` -61.4% [-96.1, -15.3] (not better) / +15.3% [-10.5, +52.5] (not decided); `out_of_scope` -10.3% [-32.1, +13.6] (not decided) / +27.5% [+6.5, +49.6] (better). Agreement +0.5% [-7.5, +8.2] / -1.3% [-7.2, +4.7] (not decided).
+```
+
+### T-147 matcher-features line of TASKS.md before the trim (round 2 of #163)
+
+```
+- **Title + matcher features (2026-11-10, `--company-features`, one run; universe `gold/universe.csv` SHA-256 `2c1272429c694501…`, matcher `triage.py` `7a55574035f461e5…`; informational):** **66.9% [60.2, 73.4]**. Paired and weighted, against title-only / against the rules: agreement **+0.5% [-7.5, +8.2]** / **-1.3% [-7.2, +4.7]** (not decided); `multi` recall +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3] (not decided). **Decided, both worse:** `sector` recall **-61.4% [-96.1, -15.3] against title-only** (9 gold, wide, whole interval below 0) and `single` recall **-11.6% [-18.9, -4.7] against the rules**; better only on `out_of_scope` against the rules (+27.5%). So **no gain is shown overall, and the counts cost `sector`**. **What this gold can see:** intervals of ±8 points (agreement), ±14 (`multi`), ±40 (`sector`): a gain under ~8 points is invisible, so (a) and (d) cannot be ranked against the rules here; the bar is 23 points away. **Owner's options:** (a) a stronger title model (an encoder, here on title + counts), (b) the body's first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+```
+
+### T-147 matcher features with a scaled count block (review of #163, round 3)
+
+```
+      - **Why:** `sector` recall fell from 79.3% to 17.9% at S = 1 although zero companies in the title is what a `sector` article looks like (learned weight of "0 companies in the title" for `sector`: +1.71 at S = 1, +3.21 at S = 0.3). The count columns have norm sqrt(3) next to TF-IDF rows of norm 1.
+      - **Choice of S on the 284 training rows only (5-fold, shuffled, seed 20261110, the vectorizer refitted per fold, `--choose-scale`), recall single / multi / sector / out_of_scope / macro:** S = 1: 80.6 / 66.2 / 60.4 / 34.8 / 60.5; S = 0.3: 80.6 / 71.4 / 58.3 / 34.8 / **61.3**; S = 0.1: 83.9 / 62.3 / 35.4 / 40.9 / 55.6; S = 0.03: 84.9 / 54.5 / 33.3 / 43.9 / 54.2; S = 0 (title-only): 82.8 / 54.5 / 31.2 / 43.9 / 53.1. S = 0.3 has the best macro recall: chosen, once.
+      - **On the 200, S = 0.3:** agreement 68.1% [61.3, 74.6] (plain 60.5%); recall single 81.7% [75.3, 87.7], multi 57.2% [44.5, 70.4], sector 38.3% [5.3, 77.4], out_of_scope 31.4% [10.0, 54.0]. Paired against the title-only model: agreement +1.6% [-5.8, +8.9], single +5.0% [-4.6, +14.3], multi +6.2% [-4.8, +18.4], sector -41.0% [-80.2, +5.7], out_of_scope -13.2% [-35.3, +10.5] (all not decided). Against the rules: agreement -0.1% [-6.5, +6.1], single -9.3% [-16.3, -3.1] (not better), multi +4.7% [-7.3, +16.6], sector +35.7% [-0.3, +79.4], out_of_scope +24.5% [+2.4, +46.8] (better).
+      - Confusion matrix at S = 0.3, rows gold single / multi / sector / out_of_scope, columns the same: [86, 14, 13, 5] / [19, 24, 4, 0] / [4, 1, 4, 0] / [8, 3, 8, 7].
+```
+
+### T-147 matcher-features line of TASKS.md before the S = 0.3 rewrite
+
+```
+- **Title + matcher features (2026-11-10, `--company-features`, one run; `gold/universe.csv` SHA-256 `2c1272429c694501…`, `triage.py` `7a55574035f461e5…`, informational):** **66.9% [60.2, 73.4]**. Paired and weighted, against title-only / the rules: agreement +0.5% [-7.5, +8.2] / -1.3% [-7.2, +4.7], `multi` recall +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3]: not decided. **Decided worse:** `sector` recall -61.4% [-96.1, -15.3] against title-only (9 gold) and `single` recall -11.6% [-18.9, -4.7] against the rules; better only on `out_of_scope` against the rules. So **no gain overall, and the counts cost `sector`**. The gold sees differences of about ±8 points (agreement), ±14 (`multi`), ±40 (`sector`) and below that nothing, so (a) and (d) cannot be ranked against the rules here; the bar is 23 points away. All classes: archive. **Owner's options:** (a) a stronger title model (an encoder, on title + counts), (b) first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+```
+
+
+### T-147 bullets, long forms (shortened 2026-11-11 when the scope classifier was selected)
+
+```
+      - **Title + matcher features (2026-11-10, `--company-features`; universe `2c1272429c694501…`, `triage.py` `7a55574035f461e5…`):** count block scaled by S, **S = 0.3 chosen by 5-fold CV on the 284 training rows only** (there the counts help `sector`: 58% against 31%). **On the 200: 68.1% [61.3, 74.6]** (S = 1, first run: 66.9%). Paired, weighted, against title-only / the rules: agreement +1.6% [-5.8, +8.9] / -0.1% [-6.5, +6.1]; `sector` -41.0% [-80.2, +5.7] / +35.7% [-0.3, +79.4]: not decided (at S = 1 `sector` was -61.4%, decided: **"the counts cost `sector`" is withdrawn**, it depended on S; 9 gold). Decided worse at both S: `single` recall against the rules (-9.3% [-16.3, -3.1]). Per-class lines are exploratory (10 comparisons, no correction): `out_of_scope` +24.5% [+2.4, +46.8] against the rules is a lead. The gold sees about ±7 points; the bar is 22 away, so (a) and (d) cannot be ranked here. All figures: archive. **Owner's options:** (a) an encoder on title + counts, (b) first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+      - **Owner's route, relevance features (`scope_relevance_features_2026_11_10.py`, title + 800 characters, NER, relevance on the top companies, logistic regression):** **71.1% [64.6, 77.2]** weighted; `multi` 65%, `sector` 23%, `out_of_scope` 37%. Cost measured: 0.053 s per body (NER 0.014 + relevance 0.039) = ~4.6 h for 310k bodies, less batched.
+      - **Owner's two-stage route (`scope_two_stage_2026_11_10.py --embedder`):** topic by embeddings, then single or multi. bge-small 71.3%, **bge-base 74.5%** [68.3, 80.3], bge-large 70.7% (weighted; base picked after seeing three on the same 200). Stage B 84%. Learning curve flat 71 to 284 rows; PCA (`--pca`) no gain (72.0%).
+      - **NLI topic stage:** zero-shot topic accuracy 0.84; fine-tuned 0.85 (`scope_nli_topic_2026_11_10.py`).
+      - **NLI single or multi** (165 true company bodies): relevance features 84.2% (multi 31/47); fine-tuned NLI 90.9% (multi 39/47, precision 85%) (`scope_nli_single_multi_2026_11_10.py`).
+      - **Rare-scope set (gold set 7, `scope_enrich.csv`, 51 bodies, 27 sector, 9 out-of-scope):** class-conditional recall, unweighted, apart from the 200.
 ```
