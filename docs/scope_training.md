@@ -372,7 +372,7 @@ first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 
 ### 8.1 Step 1.2: the cut (T-163)
 
 `uv run cli/news_nlp_steps.py --step cut [--limit N]` cuts the `multi` bodies of step 1 with the `units` extractor the owner
-selected on 2026-11-08 (T-148b10) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
+selected on 2026-11-08 (T-148b10), read as `units4` (T-176, default since 2026-11-11; `--reading units` cuts as before) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
 
 **Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
 232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
@@ -399,8 +399,8 @@ pruning could change the output).
 - *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
   (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
   read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
-  all five are real (a text with three to six companies in it). **Both faults go to T-176; with 34% of the bodies touched I
-  would not start the full run before the owner decides whether T-176 comes first** (a rerun at a new revision is 2.5 to 3 h).
+  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and is the default of the cut since 2026-11-11 (`docs/extractor_training.md`,
+  "Update of 2026-11-11"); the numbers of this section are those of `units`.
 - *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
 - *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
   one process: **0 of 30 differ in both**, at the same revision `units-75642e3f4f72`. (An earlier dry run gave 1,683 rows on
@@ -410,8 +410,69 @@ pruning could change the output).
 - *Reading file:* `--sample N --out data/cut_sample_to_read.csv` writes every flagged body (not cut, or with a tiny piece)
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
-**Before the full run.** (1) T-176: the two faults above touch about a third of the bodies; the owner decides if the extractor is
-fixed first. (2) The scope of the `quarantined` bodies (79% of the corpus) was validated by the owner (section 9; the tags are in
+**The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
+`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
+`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24`, then the two checks on that revision:
+- *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
+  first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
+- *`cut_determinism_check -n 30`:* **0 of 30 differ** from the stored rows and between two runs.
+- *`cut_quality_check`:* sub-news per body min 1, median 5, p90 11, max 26; 41 bodies (8.2%) give a single one; length median
+  268, p10 103, p90 672; 222 pieces (7.1%) under 80 characters, 122 of them fragments; 21 bodies "not cut" (4.2%); **heading-only
+  pieces 0**; pieces under 30 characters 48 (32 bodies); **50 of 3,300 company texts (1.5%) hold several headings (42 bodies)**, in line with the
+  23 of 1,589 (1.4%) of the 232.
+- *The 48 pieces under 30 characters are almost none a heading (one, "Eli Lilly — The", is a cut in the middle of a sentence):* they are the end of a name cut at an abbreviation ("J.B.", "C.H.", "T.",
+  "Citigroup upgrades Arthur J."), a dateline or a place after a name ("Apple, Cupertino, Calif."), and the owner-of-position notes
+  of a TV roundup ("Terranova owns (XOM)", "Finerman Owns (WMT)", "(HPQ)"). The first group is the abbreviation-split fault
+  already known for clauses; none is a company's news. Not a task of this PR; the quality check counts them as tiny, as before.
+
+**The 23 texts that still hold several headings (18 bodies of the 232), read.** For each text the headed sentences were
+split and the company that owns the text was looked for in every one (`scripts/several_headings_owner_2026_11_11.py`, same bodies, same model):
+- **10 are legitimate overlap.** The owner of the text is named in each line: Goldman Sachs in the Corning and Quest
+  lines, Apple in Intel's (examples from the 500-body run). By the rule of
+  `units4` ("and those its text names") that text is the company's.
+- **13 are a third fault: a line given to a company it does not name.** The header of the next line is not read, so the line stays
+  with the owner before it. 8 are a head in **capitals that names no universe company**, taken for a dateline or label by
+  `header_owners` ("SAP —" into General Motors' text, "BP —" into Allstate's and J. M. Smucker's, "UBS –" into Tesla's, "ASML —" into
+  Eli Lilly's, "WPP (WPP) –" into Dollar Tree's, "DSW –" into Quest Diagnostics', "AT & T —" into Delta's); 5 are a **head with lowercase words**
+  ("Memory stocks —" into Intel's, "Cruise operators —" into Accenture's, "China electric vehicle stocks —" into Moderna's twice, "Jack in the Box —"
+  into Darden's). Over the 500 bodies of the real command: 19 overlap, 31 this fault (a few of them a dash inside a sentence that the
+  quality check takes for a heading, for example "The company's bet on Reels is facing hurdles — Instagram users…"). **Opened as T-177**
+  (a header read for these two shapes, as a new reading with its own revision, measured on the same 232 bodies and the owner's marks
+  before it replaces the default). It does not block this PR: the fault is under 1% of the texts (13 of 1,589), and the 162 → 23 stands.
+
+**Two risks of the code review of #169, measured (2026-11-11, same copies; no code changed).**
+- *A mid-line "Name — text" whose name is of no universe company gives the rest of the line to nobody.* In 500 bodies there are 352 such
+  headers (232 distinct heads, 89 bodies, among 13,333 sentences). Read in full, **none is a prose dash** ("Analysts - X said"): they are
+  companies outside the universe (Utz Brands, Zions Bancorporation, Pinterest) and a few group labels (Airlines, Semiconductors, Steel).
+  The rule is what keeps their lines out of universe companies' texts: cutting 500 bodies again with mid-line headers of nobody ignored
+  changes 297 of 3,300 company texts (9.0%, 82 bodies): 0 lose text, 110 gain another company's lines (a Utz Brands line in Danaher's text).
+  Open: some heads look like universe companies the resolver did not match (Disney, JPMorgan, Bank of New York Mellon, Walgreens Boots
+  Alliance, Zions); not checked whether they are quarantined-only companies (not in the universe by construction) or a matching gap.
+- *A bracketed ticker may keep the header from being read.* In 3,000 bodies, 353 sentences have "(…) –" in their first 90 characters; 321 (91%) are read as
+  headers. Of the 32 not read, 13 are not headers (Reuters datelines, "(from Outperform) –", prose; the `(NYSE: X)` form appears once and is prose) and
+  **about 17 are headers missed (0.6% of bodies)**: 6 all-caps names ("BP (BP) –", the T-177 cause), **6 names with a period ("Amazon.com (AMZN) –", "Box Inc.
+  (BOX) –", "Fox Corp. (FOXA) –"; `_HEADER` excludes `.` from the head, checked on the regex)** and 5 with lowercase text after the dash ("American Express
+  (AXP) — solid momentum…"). The last two causes are added to T-177.
+
+**Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
+`DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
+
+```sql
+DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
+DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- written with INSERT OR IGNORE: delete them too to have them rewritten
+```
+
+or keep the old rows under their own revision: a new reading, model or code changes the revision and starts new rows by itself, and
+nothing is deleted. The same text is in `uv run cli/news_nlp_steps.py --help`.
+
+**Which revision the later steps read.** The default changes the revision of the cut from `units-<12 hex>` (the `units` reading,
+for example `units-75642e3f4f72` of the dry run above) to `units4-<12 hex>` (this PR's real run: `units4-e1dff4f90b24` on a scratch copy; it changes if
+the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script read `extractor_revision` of the `units4` set
+by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, so after the full run
+the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
+
+**Before the full run.** (1) T-176 is done: the cut runs with `units4`, which removes most of the two faults above (162 texts with
+several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) was validated by the owner (section 9; the tags are in
 `gold/scope_quarantined_validation.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until the owner
 releases the gate** (section 9, "The gate of section 8.1"; the condition is also in T-165). The run writes a new revision of rows and nothing else.
@@ -452,7 +513,7 @@ a list of picks with no stated theme is `multi` (call 21; #26, a "Fast Money" fi
 #147 (the Sky bid, read as an industry-wide push to merge) stays `sector`. First audit: `multi` 16 -> 20 right, `sector` 21 -> 22, overall 91.2%. Second audit: #66 ("Your First Move For Friday", the same format as #26) is a list of picks with no theme, so
 `multi`, not `out_of_scope` (`out_of_scope` 94 -> 93); #10 ("6 cheapest stocks") and #45 ("most price target hikes") are lists under a stated theme, so `investing_general` (`multi` 20 -> 18). Each changed row carries its reason in `notes`.
 **Still borderline, left as tagged:** #39, #85, #199 (Cramer lightning round / two picks) and #76, #154. The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone"
-`multi`), so part of the `multi`/`single` confusion is label noise, not model error. Auditing the gold under calls 17, 18 and 21 and settling the borderline rows is T-177; the figures here are not to be compared with the 83.6% before it is done.
+`multi`), so part of the `multi`/`single` confusion is label noise, not model error. Auditing the gold under calls 17, 18 and 21 and settling the borderline rows is T-178; the figures here are not to be compared with the 83.6% before it is done.
 
 **More `multi` bodies.** A second draw of 75 `multi` bodies (`--counts multi=75 --exclude data/scope_quarantined_to_validate.csv --out data/multi_extra --seed 20261112`; 81,251 tokens of paid translation, 75 calls, 0 failed) was drawn so the weak class
 would not rest on 25 bodies. The owner has read 25 of them (the first 25 of the shuffled order, so a random subset): 23 `yes`, the two `no` are `market_economy` market wraps. **Pooled with the main draw's 25 (final key): 41 of 50 = 82.0% [69.2, 90.2];
@@ -473,12 +534,12 @@ bodies with `multi` flagged as the least certain class, after the remaining 50 e
 
 **What it does not say.**
 - It is **precision** (of what the step called X, how much is X). The sample was drawn by predicted class, so it cannot give the **recall** of `out_of_scope` among quarantined bodies (the held-out recall of 53% is a different measure on a different population). Company stories the step called `single` and that
-  are really `out_of_scope` count against `single`; the share of true company news hidden in the other classes needs a sample drawn by tag (T-178).
+  are really `out_of_scope` count against `single`; the share of true company news hidden in the other classes needs a sample drawn by tag (T-179).
 - One reader plus an audit (above); the owner's calls on the line cases (a stock-picking show, a market wrap with a takeover) decide part of the `no` answers.
 - 25 bodies per small class: the intervals are 26 to 33 points wide.
 - The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
 
-**Suggested next steps** (the owner decides): filter the paywall pages before step 2; read the other 50 extra `multi` bodies; keep the 10,274 low-margin bodies as the review queue; republish the Hub card of the scope model (it still names this file under its old name, T-179).
+**Suggested next steps** (the owner decides): filter the paywall pages before step 2; read the other 50 extra `multi` bodies; keep the 10,274 low-margin bodies as the review queue; republish the Hub card of the scope model (it still names this file under its old name, T-180).
 
 ## 10. Index of the work
 

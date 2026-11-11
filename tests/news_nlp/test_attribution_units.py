@@ -335,7 +335,7 @@ def test_a_dateline_or_a_label_in_capitals_is_not_a_header_that_takes_the_line_a
     assert texts["AAPL"].startswith("DETROIT — Apple sold more phones.")  # not lost
 
 
-def test_a_reading_that_is_not_one_of_the_four_is_an_error() -> None:
+def test_a_reading_that_is_not_one_of_the_readings_is_an_error() -> None:
     with pytest.raises(ValueError, match="reading 'unit3'"):
         am.model_company_texts(STORY, RESOLVER, NAMES, _Scorer(0.0), reading="unit3")  # type: ignore[arg-type]
     for reading in am.READINGS:
@@ -407,3 +407,45 @@ def test_the_guard_keeps_them_once_the_body_names_the_company_otherwise() -> Non
 def test_the_guard_counts_the_short_form_of_a_name_as_a_mention_in_itself() -> None:
     body = "Federal Realty rose on Monday."
     assert _spans(body, au.GuardedResolver(COMMON, body)) == [("Federal Realty", "FRT")]
+
+
+PARAGRAPH = (
+    "Check out the companies making headlines. Apple \u2013 Shares rose 3% after the quarter. "
+    "Wendy's (WEN) \u2013 Trian raised its stake to 23%. Microsoft \u2013 Shares fell 2% on weak cloud growth."
+)
+
+
+def test_units4_gives_the_sentence_of_a_company_outside_the_universe_to_nobody() -> None:
+    # a scorer that likes every pair: with `units` the Wendy's sentence goes to the best candidate
+    old = am.model_company_texts(PARAGRAPH, RESOLVER, NAMES, _Scorer(0.9), reading="units")
+    new = am.model_company_texts(PARAGRAPH, RESOLVER, NAMES, _Scorer(0.9), reading="units4")
+    assert "Wendy's" in " ".join(old.values())
+    assert "Wendy's" not in " ".join(new.values())
+    assert set(new) == {"AAPL", "MSFT"}
+    assert "Microsoft" not in new["AAPL"] and "Apple" not in new["MSFT"]
+
+
+def test_units4_keeps_a_header_with_its_text_when_the_sentence_names_another_company() -> None:
+    body = "Apple \u2013 Shares rose after Microsoft raised its price target on the stock."
+    old = au.attribution_pieces(body, RESOLVER)
+    new = au.attribution_pieces(body, RESOLVER, headers=True, named_after=True, per_sentence=True)
+    assert old[0].text == "Apple \u2013"  # the fault: the header cut off its text
+    assert [u.text for u in new] == [body]
+    assert new[0].owners == ("AAPL", "MSFT")  # the header's company, and the one the text names
+
+
+def test_units4_a_header_in_the_middle_of_a_line_opens_a_new_owner_for_what_follows() -> None:
+    body = "Apple \u2013 Shares rose 3%. Microsoft \u2013 Shares fell 2%. It was the worst day since May."
+    pieces = au.attribution_pieces(
+        body, RESOLVER, headers=True, named_after=True, per_sentence=True
+    )
+    assert [u.owners for u in pieces] == [("AAPL",), ("MSFT",), ("MSFT",)]
+    # without per_sentence the whole line belongs to the first header
+    old = au.attribution_pieces(body, RESOLVER, headers=True)
+    assert {u.owners for u in old} == {("AAPL",)}
+
+
+def test_units4_leaves_a_line_without_a_header_to_the_attribution() -> None:
+    body = "Apple rose 3% and Microsoft fell 2%.\nThe market was quiet."
+    pieces = au.attribution_pieces(body, RESOLVER, headers=True, per_sentence=True)
+    assert all(u.owners is None for u in pieces)

@@ -196,7 +196,7 @@ def test_the_revision_follows_the_model_and_the_names_the_model_is_asked_about()
     names = {c.ticker: c.name for c in UNIVERSE}
     base = revision_of("local:one", names)
     assert base == revision_of("local:one", dict(names))
-    assert base.startswith("units-")
+    assert base.startswith("units4-")
     assert revision_of("local:two", names) != base
     assert revision_of("local:one", {**names, "ORCL": "Oracle Corporation"}) != base
 
@@ -262,13 +262,18 @@ def _argv(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     _cli().main()  # type: ignore[attr-defined]
 
 
+READINGS_ASKED: list[str] = []  # the reading each `--step cut` run asked the extractor for
+
+
 @pytest.fixture
 def stub_model(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """``UnitsExtractor.load`` returns a stub and records the folder it was asked for."""
     asked: list[Path] = []
+    READINGS_ASKED.clear()
 
-    def load(model_dir: Path, companies: Sequence[Company]) -> _Stub:
+    def load(model_dir: Path, companies: Sequence[Company], reading: str = "units") -> _Stub:
         asked.append(model_dir)
+        READINGS_ASKED.append(reading)
         return _Stub()
 
     monkeypatch.setattr(cut_stage.UnitsExtractor, "load", staticmethod(load))
@@ -493,3 +498,127 @@ def test_fragments_and_several_headings_are_told_apart() -> None:
         "Micron Technology — Shares ticked up after an upgrade."
     )
     assert quality.flag_of([two], 100000) == "several_headings"
+
+
+def test_the_cut_command_reads_with_units4_unless_it_is_told_otherwise(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model: list[Path],
+) -> None:
+    common = [*_model(tmp_path), *_paths(pair, tmp_path, results_db_path)]
+    _argv(monkeypatch, "--step", "cut", "--limit", "1", *common)
+    _argv(monkeypatch, "--step", "cut", "--limit", "1", "--reading", "units", *common)
+    assert READINGS_ASKED == ["units4", "units"]
+
+
+def test_the_reading_is_part_of_the_revision() -> None:
+    names = {c.ticker: c.name for c in UNIVERSE}
+    base = revision_of("local:one", names)
+    assert base == revision_of("local:one", names, "units4") and base.startswith("units4-")
+    other = revision_of("local:one", names, "units")
+    assert other != base and other.startswith("units-")
+    with pytest.raises(ValueError, match="reading 'units2'"):
+        UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units2")  # type: ignore[arg-type]
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units").revision != (
+        UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").revision
+    )
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").reading == "units4"
+
+
+def test_the_comparison_of_two_readings_counts_faults_and_movements() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import compare_cut_readings_2026_11_11 as cmp  # noqa: PLC0415 -- a script, not a package
+
+    two = "RTX — The defense name sank. Calix — The technology company jumped."
+    a = {"b1": {"AAA": two, "BBB": "Alpha rose 3% on the day."}, "b2": {"CCC": "Gamma fell."}}
+    b = {
+        "b1": {"AAA": "RTX — The defense name sank.", "BBB": "Alpha rose 3% on the day."},
+        "b2": {},
+    }
+    old = cmp.fault_counts({h: list(v.values()) for h, v in a.items()})
+    new = cmp.fault_counts({h: list(v.values()) for h, v in b.items()})
+    assert old["texts_with_several_headings"] == 1 and new["texts_with_several_headings"] == 0
+    assert old["bodies_with_such_a_text"] == 1 and new["bodies_with_such_a_text"] == 0
+    moved = cmp.movement(a, b)
+    assert moved == {"lost": [("b2", "CCC")], "gained": [], "changed": [("b1", "AAA")]}
+    assert cmp.compare(lambda t: {"X": t}, lambda t: {"Y": t}, [("h", "text")]) == (
+        {"h": {"X": "text"}},
+        {"h": {"Y": "text"}},
+    )
+
+
+def test_the_owner_marks_are_looked_up_by_text_and_the_outcomes_are_told_apart(
+    tmp_path: Path,
+) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import units4_vs_owner_marks_2026_11_11 as marks_script  # noqa: PLC0415 -- a script, not a package
+
+    (tmp_path / "faithfulness_ids.csv").write_text(
+        "review_order,key,article_id,ticker,text_hash\n"
+        f"1,1#AAA#1,1,AAA,{marks_script.text_hash('same text')}\n"
+        f"2,1#BBB#1,1,BBB,{marks_script.text_hash('old text')}\n"
+        f"3,1#CCC#1,1,CCC,{marks_script.text_hash('read already')}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "faithfulness_to_tag.csv").write_text(
+        "review_order,faithful\n1,yes\n2,no\n3,YES\n", encoding="utf-8"
+    )
+    marks = marks_script.read_marks(tmp_path)
+    assert marks[("1", "AAA", marks_script.text_hash("same text"))] == "yes"
+    assert (
+        marks[("1", "CCC", marks_script.text_hash("read already"))] == "yes"
+    )  # case is not a difference
+    classify = marks_script.classify
+    assert classify("same text", "same text", marks, "1", "AAA") == ("same", "yes", "yes")
+    assert classify("old text", None, marks, "1", "BBB") == ("lost", "no", None)
+    assert classify("old text", "read already", marks, "1", "CCC") == ("changed", None, "yes")
+    assert classify("old text", "new text", marks, "1", "BBB") == (
+        "changed",
+        "no",
+        None,
+    )  # B unread
+    assert classify(None, "new text", marks, "1", "BBB") == ("gained", None, None)
+
+
+def test_the_interval_of_the_marks_redraws_bodies_and_pairs_the_two_readings() -> None:
+    import units4_vs_owner_marks_2026_11_11 as marks_script  # noqa: PLC0415 -- a script, not a package
+
+    a: dict[str, list[int]] = {}
+    b: dict[str, list[int]] = {}
+    for body in ("x", "y", "z"):
+        marks_script.add_mark(a, body, "yes")
+        marks_script.add_mark(b, body, "yes")
+    marks_script.add_mark(a, "x", "no")
+    marks_script.add_mark(a, "y", None)  # a text without a mark is not in the figure
+    assert a == {"x": [1, 2], "y": [1, 1], "z": [1, 1]}
+    same = marks_script.body_intervals(b, {k: list(v) for k, v in b.items()})
+    assert same["B-A"] == (0.0, 0.0, 0.0)  # the same marks: no difference, no width
+    out = marks_script.body_intervals(a, b)
+    point, low, high = out["B-A"]
+    assert low <= point <= high
+    assert out["A"][0] == pytest.approx(3 / 4)
+    assert out["B"][0] == 1.0
+
+
+def test_the_help_of_the_steps_command_says_how_to_cut_again(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pending set comes from `pipeline_step_state`, so deleting `sub_news` is not enough (review of #169)."""
+    monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", "--help"])
+    with pytest.raises(SystemExit):
+        _cli().main()  # type: ignore[attr-defined]
+    out = capsys.readouterr().out
+    assert "DELETE FROM pipeline_step_state WHERE step = 'cut'" in out
+    assert "DELETE FROM sub_news WHERE extractor_revision" in out
+
+
+def test_reading_is_refused_outside_the_cut(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--reading` is read only by the cut: for the scope step it must not pass silently (review of #169)."""
+    monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", "--step", "scope", "--reading", "units"])
+    with pytest.raises(SystemExit):
+        _cli().main()  # type: ignore[attr-defined]
+    assert "--reading only applies to --step cut" in capsys.readouterr().err

@@ -174,14 +174,20 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         sys.exit(
             "the RESULTS store has no articles table: sub_news cannot reference an article (see schema.py)"
         )
-    from cut_stage import UnitsExtractor, companies_of  # noqa: PLC0415 -- loads torch
+    from cut_stage import (  # noqa: PLC0415 -- loads torch
+        DEFAULT_READING,
+        UnitsExtractor,
+        companies_of,
+    )
 
     if not args.model_dir.is_dir():
         sys.exit(
             f"{args.model_dir} is not a folder: the attribution checkpoint is local (T-148b12), copy it there or pass --model-dir"
         )
     try:
-        extractor = UnitsExtractor.load(args.model_dir, companies_of(conn))
+        extractor = UnitsExtractor.load(
+            args.model_dir, companies_of(conn), args.reading or DEFAULT_READING
+        )
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
     try:
@@ -225,8 +231,24 @@ def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, args.step, revision), indent=2))
 
 
+RERUN_HELP = """\
+To run a step again on bodies it already did: a finished body is found in `pipeline_step_state`, not in the result table,
+so `DELETE FROM sub_news` alone does not make the cut run again. At the same revision (the code, the model and the reading
+are the same), in the RESULTS database:
+  DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
+  DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
+Nothing reads `sub_news` yet (T-165 will): once something does, delete its rows first, because new `sub_news.id`s leave them pointing at nothing.
+A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
+`--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
+"""
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        epilog=RERUN_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--step", choices=STEPS, required=True)
     parser.add_argument("--limit", type=int, default=None, help="touch at most this many bodies")
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
@@ -256,6 +278,12 @@ def main() -> None:
         default=None,
         help="cut: the classifier revision whose multi bodies are cut (default the latest)",
     )
+    parser.add_argument(
+        "--reading",
+        choices=("units", "units4"),
+        default=None,
+        help="cut: how the body is read (default `units4`, T-176; `units` is the cut as it was before)",
+    )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
     args = parser.parse_args()
@@ -265,6 +293,8 @@ def main() -> None:
         used = [f"--{n.replace('_', '-')}" for n in SCOPE_ONLY_FLAGS if getattr(args, n)]
         if used:
             parser.error(f"{', '.join(used)} only apply to --step scope")
+    elif args.reading is not None:
+        parser.error("--reading only applies to --step cut")
     args.model_dir = args.model_dir or default_model_dir(args.step)
     db.env.load_env_file()
     if args.fetch:

@@ -157,20 +157,29 @@ def starts_a_sentence(text: str) -> bool:
     return first.isupper() or first.isdigit() or first in "\"'\u201c\u2018(["
 
 
-def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
+#: "Wendy's (WEN)": a ticker in brackets after a name, as the news roundups write it.
+_TICKER_BRACKET = re.compile(r"\([A-Z][A-Z.\-]{0,5}\)")
+
+
+def header_owners(
+    line: str, resolver: Mentions, *, tickers_in_head: bool = False
+) -> tuple[str, ...] | None:
     """The companies a "NAMES - text" line belongs to: the universe companies named before the
     dash, when what comes before it is a short list of capitalised names. ``()`` when the names
     are of no company of the universe (the line is about somebody else); ``None`` when the line
     has no such header, when what comes before the dash is written in capitals and names no company
     of the universe (a dateline such as "DETROIT" or a label such as "REFINING"), or when what
-    follows the dash does not start like a sentence (a dash inside a sentence)."""
+    follows the dash does not start like a sentence (a dash inside a sentence). With
+    *tickers_in_head* a ticker in brackets after a name ("Wendy's (WEN) - ...") is part of the
+    head, as the roundups write it; the other readings do not take it for one (T-176)."""
     match = _HEADER.match(line)
     if not match:
         return None
     if not starts_a_sentence(match["rest"]):
         return None  # a dash inside a sentence ("Volkswagen - synonymous with ... - has spawned")
     head = match["head"].strip()
-    words = [w for w in re.split(r"[\s,]+", head) if w]
+    shown = _TICKER_BRACKET.sub(" ", head) if tickers_in_head else head
+    words = [w for w in re.split(r"[\s,]+", shown) if w]
     if len(words) > MAX_HEAD_WORDS or not all(
         w[:1].isupper() or w[:1].isdigit() or w.lower() in _HEAD_JOIN for w in words
     ):
@@ -184,7 +193,12 @@ def header_owners(line: str, resolver: Mentions) -> tuple[str, ...] | None:
 
 
 def attribution_pieces(
-    body: str, resolver: Mentions, *, headers: bool = False, named_after: bool = False
+    body: str,
+    resolver: Mentions,
+    *,
+    headers: bool = False,
+    named_after: bool = False,
+    per_sentence: bool = False,
 ) -> list[Unit]:
     """The pieces of *body* (footer removed) that are attributed one by one: a line, a bullet, a
     sentence, a part between semicolons, and a sentence that names several companies cut where one
@@ -192,14 +206,22 @@ def attribution_pieces(
     With *headers* a line that opens with a list of names and a dash belongs to those names alone
     (its pieces carry them as ``owners``). With *named_after* a piece of a line headed by universe
     companies also belongs to the universe companies it names itself (a roundup line that lists
-    several, T-148b6); a line headed by somebody else still belongs to nobody."""
+    several, T-148b6); a line headed by somebody else still belongs to nobody. With *per_sentence*
+    (with *headers*) a sentence in the middle of a line that opens with a header of its own ("A - x.
+    B - y." written as one paragraph) starts a new owner, and the sentences after it belong to that
+    one (T-176): a header is not read once for a whole line. A headed sentence is not cut into
+    clauses, so a header stays with its text."""
     units: list[Unit] = []
     for raw in strip_footer(body).split("\n"):
         line = _BULLET.sub("", raw.strip())
         if not line:
             continue
-        owners = header_owners(line, resolver) if headers else None
+        owners = header_owners(line, resolver, tickers_in_head=per_sentence) if headers else None
         for sentence, _, _ in split_sentences(line):
+            if headers and per_sentence:
+                own = header_owners(sentence.strip(), resolver, tickers_in_head=True)
+                if own is not None:
+                    owners = own  # "B - text" in the middle of a line: B owns it and what follows
             for piece in _PIECE_BREAK.split(sentence):
                 if not piece.strip():
                     continue

@@ -250,8 +250,8 @@ def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[
     }
 
 
-READINGS = ("sentences", "units", "units2", "units3")
-Reading = Literal["sentences", "units", "units2", "units3"]
+READINGS = ("sentences", "units", "units2", "units3", "units4")
+Reading = Literal["sentences", "units", "units2", "units3", "units4"]
 Resolving = CompanyResolver | attribution_units.GuardedResolver
 
 
@@ -272,7 +272,11 @@ def _pieces(
     if guarded and isinstance(resolver, CompanyResolver):
         resolver = attribution_units.GuardedResolver(resolver, story)
     pieces = attribution_units.attribution_pieces(
-        body, resolver, headers=guarded, named_after=reading == "units3"
+        body,
+        resolver,
+        headers=guarded or reading == "units4",
+        named_after=reading in ("units3", "units4"),
+        per_sentence=reading == "units4",
     )
     return resolver, [p.text for p in pieces], [p.owners for p in pieces], story
 
@@ -295,8 +299,14 @@ def scored_sentences(
     ``units2`` (``units`` with the guarded resolver, which does not take the first word of a name
     for a company, and with the lines headed by a list of names given to those names) or
     ``units3`` (``units2`` where such a line also belongs to the universe companies its text
-    names). In the ``units`` readings the candidates are the companies of the body without its
-    footer, found by the same resolver as the pieces: a company named only in the footer, or (from
+    names). ``units4`` (T-176) is ``units`` with the plain resolver (no guard) where a line, or a
+    sentence in the middle of a line, headed by names and a dash belongs to the universe companies
+    among those names and to the universe companies its text names, or to nobody when the names are
+    of no universe company: the sentence of a company that is not in the universe is not given to
+    the universe company the model prefers, and a header is not cut off its text.
+
+    In the ``units`` readings the candidates are the companies of the body without its footer,
+    found by the same resolver as the pieces: a company named only in the footer, or (from
     ``units2``) only by the first word of its name, is not asked about."""
     resolver, sentences, owners, story = _pieces(body, resolver, reading)
     candidates = sorted(t for t in resolver.resolve(story, skip_attribution=False) if t in names)
