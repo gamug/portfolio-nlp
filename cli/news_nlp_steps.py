@@ -17,6 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from tqdm import tqdm
+
 import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
@@ -32,6 +34,7 @@ def run_scope(conn: db.NewsNlpDatabase, model_dir: Path, limit: int | None) -> d
     classifier = ScopeClassifier(model_dir)
     todo = list(steps.pending_bodies(conn, steps.STEP_SCOPE, classifier.revision, limit))
     counts: dict[str, int] = {"done": 0, "failed": 0}
+    bar = tqdm(total=len(todo), desc="scope", unit="body")  # progress and time left
     for i in range(0, len(todo), BATCH):
         batch = todo[i : i + BATCH]
         try:
@@ -40,6 +43,7 @@ def run_scope(conn: db.NewsNlpDatabase, model_dir: Path, limit: int | None) -> d
             for body in batch:
                 steps.record_failure(conn, body, steps.STEP_SCOPE, classifier.revision, repr(exc))
             counts["failed"] += len(batch)
+            bar.update(len(batch))
             continue
         for body, result in zip(batch, results, strict=True):
             steps.record_scope(
@@ -52,7 +56,8 @@ def run_scope(conn: db.NewsNlpDatabase, model_dir: Path, limit: int | None) -> d
             )
             counts["done"] += 1
             counts[result.scope] = counts.get(result.scope, 0) + 1
-        print(f"{counts['done'] + counts['failed']}/{len(todo)}", flush=True)
+        bar.update(len(batch))
+    bar.close()
     return counts
 
 
