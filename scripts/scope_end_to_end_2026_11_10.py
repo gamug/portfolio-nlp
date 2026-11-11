@@ -2,13 +2,17 @@
 
     uv run python scripts/scope_end_to_end_2026_11_10.py [--chars 800] [--out data/scope_end_to_end_predictions.csv]
 
-The choices were fixed **before** this run: stage A is the category model (``deberta-v3-base-zeroshot-v2.0``, pinned) fine-tuned on
-the 284 as an NLI over three topics (company / sector / not_related); stage B is the same model fine-tuned on the 170 company
-bodies of the 284 as an NLI over single / multi; both read the title + the first 800 characters, the relevance model's recipe
-(3 epochs, lr 2e-5, float32 weights, bf16), seed 1. Scored on the 200 held-out the way the other scope scripts are (weighted to
-the corpus, four classes) with a paired gain over the rules triage, and on the 51 bodies of ``gold/scope_enrich.csv`` (drawn by
-rules for the rare scopes; class-conditional recall, unweighted, reported apart). Nothing is tuned on either set. The models are
-trained on the 284 only (the held-out and the 51 stay unseen); a refit on every tag comes after the bar is shown.
+Two modes. Default (the first measurement, 2026-11-10): the models are trained on the 284 only and the 51 rare-scope bodies
+(``gold/scope_enrich.csv``) are scored apart. ``--train-on-enrich`` (the **selected model**, whose figures are in
+``docs/splitting_training.md``): the same models trained on 365 bodies (the 284 + the 51 + the 30 of ``gold/scope_hook.csv``);
+the 200 stay held out and are scored, the 51 and the 30 are not. Needs a GPU.
+
+Stage A is the category model (``deberta-v3-base-zeroshot-v2.0``, pinned) fine-tuned as an NLI over three topics (company /
+sector / not_related); stage B is the same model fine-tuned on the company bodies as an NLI over single / multi; both read the
+title + the first 800 characters, the relevance model's recipe (3 epochs, lr 2e-5, float32 weights, bf16), seed 1. Scored on the
+held-out 200 the way the other scope scripts are (weighted to the corpus, four classes) with a paired gain over the rules triage.
+The choices were fixed before the first run; nothing is tuned on the 200 here (they were seen in earlier experiments: see the
+limitations in the doc). The weights are not saved.
 """
 
 from __future__ import annotations

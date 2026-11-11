@@ -17,7 +17,7 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the category model, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
 | **Trained on** | 365 tagged bodies: `category_gold_v2.csv` (284) + `scope_enrich.csv` (51) + `scope_hook.csv` (30). |
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
-| **Result** | **83.0% [77.5, 88.3]** weighted agreement; the current rules reach 67.2% on the same key; paired gain **+15.9 [9.1, 22.6]**. |
+| **Result** | **83.0% [77.5, 88.3]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+15.9 [9.1, 22.6]**. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
 | **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
 | **Known trade-off** | `out_of_scope` recall is about 48% (11 of 33 are read as `single`) while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
@@ -55,7 +55,7 @@ seeded bootstrap intervals). Plain (unweighted) numbers are reported only where 
 **Paired gain over the rules** (`gold_metrics.paired_stratified_gain`) tells whether a model is better than
 the current rules triage on the same bodies, not just by a higher point estimate.
 
-**Two keys.** The held-out tags were reviewed on 2026-11-11 (15 changed, see
+**Two keys.** The held-out tags were reviewed on 2026-11-11 (14 scope changes in 15 touched rows, see
 [section 4](#4-the-review-of-the-tags)). Figures are given on the **new key** unless a column says
 "old key". Do not compare numbers across keys.
 
@@ -80,7 +80,7 @@ because the whole body is expensive and the title is what a reader sees first.
 |---|---|---|---|---|
 | 2 | TF-IDF (1-2 grams) + logistic regression on the **title** | The headline carries the scope. | 66.4% [59.7, 73.3] | Level with the rules. |
 | 3 | The same, title + first 300 / 600 / 1500 characters | More text, more signal. | 65.7% / 62.5% / 57.1% | **No gain:** with 284 rows the body text dilutes the title. A bag of words cannot count companies, which is what tells `single` from `multi`. |
-| 4 | Title + **matcher features** (distinct universe companies named in the title and the first lines) | Counting companies fixes `multi`. | 66.9% | Still level with the rules. (PR #163.) |
+| 4 | Title + **matcher features** (distinct universe companies named in the title and the first lines) | Counting companies fixes `multi`. | **68.1%** [61.3, 74.6] at S = 0.3, chosen by cross-validation on the 284 (S = 1, the first run: 66.9%) | Level with the rules and with the title alone; `single` recall worse than the rules. "No gain" means the intervals overlap, not a ranking. (PR #163.) |
 
 *Lesson: the information is there, but cheap lexical models on 284 rows do not extract it. The ceiling
 is about 67% for this family.*
@@ -127,7 +127,7 @@ file.
 |---|---|---|
 | 15 | The owner corrected the contradictory tags of the 30 hook articles and retrained | Accuracy back to **83.5%** (old key): the noise explained the drop. |
 | 16 | Read all 284 training tags against the guide and against each other (title scans, v1 tags, similar articles) | **12 scope changes** in `category_gold_v2.csv`; one in `scope_hook.csv`. |
-| 17 | Read all 200 held-out tags, **blind to the model's calls** (grouped by tag to compare like with like) | **15 scope changes** in `category_gold_v2_test.csv`. The key itself had inconsistencies: crypto tagged three ways, a charity campaign tagged `single`, hook articles tagged `single`. |
+| 17 | Read all 200 held-out tags, **blind to the model's calls** (grouped by tag to compare like with like) | **14 scope changes** (15 rows touched) in `category_gold_v2_test.csv`. The key itself had inconsistencies: crypto tagged three ways, a charity campaign tagged `single`, hook articles tagged `single`. |
 | 18 | Recorded the rules the owner settled (labelling spec, owner calls 14 to 21; see [section 4](#4-the-review-of-the-tags)) | Rules now documented. |
 | 19 | **Retrained on the corrected training tags** (284 + 51 + 30) and scored on both keys | See the table below. |
 
@@ -164,11 +164,11 @@ The decisions the owner made while reviewing, which now live in `docs/labelling-
 
 Changes: **training** `category_gold_v2.csv` 12 scope changes (126761, 139632, 169716, 255218, 263942,
 264983, 321594, 327116, 341135, 413001, 414161, 421789) and `scope_hook.csv` 266351; **held-out**
-`category_gold_v2_test.csv` 15 scope changes (121050, 164940, 165364, 179104, 247481, 252938, 285334,
+`category_gold_v2_test.csv` 14 scope changes in 15 touched rows (414029 gained a second company label and kept `single`) (121050, 164940, 165364, 179104, 247481, 252938, 285334,
 296056, 296388, 302476, 328763, 344029, 414029, 479545, 1110708). Some `sub_industry` cells were mangled by the
 editor (GICS codes read as numbers) and were restored on a copy; the owner's files were not edited.
 
-**A caution about the held-out key.** The held-out tags are the measuring stick, and 15 were changed after
+**A caution about the held-out key.** The held-out tags are the measuring stick, and 14 scope labels were changed after
 we had seen the model's mistakes. To limit selection bias, a tag was changed only when it broke a written rule or
 contradicted a similar article, the model's calls were not shown while reading the 200, and figures are
 reported on **both** keys. The old key is the more conservative one.
@@ -201,7 +201,9 @@ uv run python scripts/scope_end_to_end_2026_11_10.py --train-on-enrich --out dat
 ```
 
 It trains both stages on the 284 + 51 + 30, scores the held-out 200 (weighted, with the paired gain over the
-rules) and writes the predictions. It takes 15 to 20 minutes on one GPU. The scripts of every experiment are
+rules) and writes the predictions. It takes 15 to 20 minutes on one GPU.
+
+**Rerun (2026-11-11, same command, same seed, same machine): not bit for bit.** It gave **83.6% [78.1, 88.9]** (the doc's run: 83.0%), paired gain +16.5 [9.6, 23.4] (+15.9), `out_of_scope` recall 19/33 (18/33); one held-out body changed its call. So the setup reproduces within about 1 point, and the two figures are one sample of the run-to-run noise (GPU kernels, bf16). Unlike the relevance model (T-169), the weights are not pinned for a bit-for-bit check; T-147b adds that and the three seeds. The scripts of every experiment are
 `scripts/scope_*_2026_11_10.py`; the gold builders are `scripts/build_gold_2026_11_05.py` (`--set train|test`)
 and `scripts/build_scope_enrich_gold_2026_11_10.py` (`--set scope_enrich|scope_hook`).
 
@@ -249,14 +251,14 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
    it (D40: a body with no ticker over the relevance threshold goes to the review list). A `single` read as
    out-of-scope **stops at step 1 and never reaches the company views**. The first error costs some compute and
    perhaps a review item; the second costs a news item. We prefer the first.
-   *What it means in numbers:* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Do not
+   *What it means in numbers:* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). Do not
    present step 1 as a filter of out-of-scope news.
 2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3). The owner decided to go with it; a model that
    clears 90% would need more data in the thin classes or a larger model.
 3. **Small evaluation for the rare classes.** The held-out 200 has 7 `sector` and 33 `out_of_scope` bodies, so
    their intervals are wide (`sector` recall [51, 98], `out_of_scope` recall [27, 69]). D33 does not gate recall
    below 40 gold bodies. We cannot claim more.
-4. **Seed noise was not measured.** Every figure is one training run with seed 1. A 2-point difference
+4. **Seed noise was barely measured.** One rerun of the selected setup moved the score by 0.6 points (83.0% to 83.6%) with one body changed; three seeds are in T-147b. Every figure is one training run with seed 1. A 2-point difference
    between two runs is not evidence of anything.
 5. **Some selection optimism.** Several design choices (the embedding size, the NLI variants of stage B) were made
    on the same held-out 200 earlier; the final end-to-end choices were fixed in advance, but the sample was seen.
@@ -271,6 +273,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 
 ## 7. What is not done
 
+- **Owner of this list: T-147b** (refit, saved checkpoints, FTI + MLflow, pin, three seeds); step 1 uses the rules until it is done (T-163). The scripts need a GPU (`.cuda()` is fixed in them).
 - **The weights are not saved, pinned or published.** The experiment script trains in memory and writes only
   predictions. Pinning needs a refit and a saved checkpoint, and no model is published without the owner's word.
 - **Not on the FTI pattern and not logged in MLflow.** Like the relevance model, the scope scripts are plain

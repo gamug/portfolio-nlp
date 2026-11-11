@@ -4183,3 +4183,26 @@ def test_the_training_cross_validation_of_the_count_scale_reads_only_the_trainin
             sum(recalls[c] for c in ("single", "multi", "sector", "out_of_scope")) / 4
         )
     assert out[0.0]["macro"] == 1.0  # the title words alone separate the classes
+
+
+def test_the_company_as_hook_set_is_tagged_and_disjoint() -> None:
+    """Owner, 2026-11-11: 30 bodies drawn for 'the company is the hook' (set 8) train the scope classifier; none may be in the 484 or in set 7."""
+    gold = Path(__file__).resolve().parents[2] / "gold"
+    csv.field_size_limit(sys.maxsize)
+
+    def ids(path: Path, encoding: str = "utf-8-sig") -> list[dict[str, str]]:
+        with path.open(encoding=encoding, newline="") as fh:
+            return list(csv.DictReader(fh))
+
+    marks = ids(gold / "scope_hook.csv")
+    texts = ids(gold / "texts" / "scope_hook_texts.csv")
+    assert len(marks) == len(texts) == 30
+    assert {r["article_id"] for r in marks} == {r["article_id"] for r in texts}
+    assert all(r["scope"] for r in marks) and all(r["text"].strip() for r in texts)
+    hook = {r["article_id"] for r in marks}
+    others = {
+        r["article_id"]
+        for name in ("category_gold_v2.csv", "category_gold_v2_test.csv", "scope_enrich.csv")
+        for r in ids(gold / name)
+    }
+    assert not hook & others
