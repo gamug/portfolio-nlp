@@ -86,12 +86,21 @@ def assemble(
 PIN_PATH = Path(__file__).resolve().parent.parent / "config" / "scope_model.json"
 
 
-def pin_status(revision: str, pin_path: Path = PIN_PATH) -> str:
+def is_pinned(revision: str, pin_path: Path | None = None) -> bool | None:
+    """Whether *revision* is the pinned scope model; ``None`` when no pin is recorded."""
+    path = pin_path or PIN_PATH
+    if not path.exists():
+        return None
+    return bool(json.loads(path.read_text(encoding="utf-8")).get("step_revision") == revision)
+
+
+def pin_status(revision: str, pin_path: Path | None = None) -> str:
     """One line saying whether *revision* is the pinned scope model (``config/scope_model.json``, T-147b)."""
-    if not pin_path.exists():
+    pinned = is_pinned(revision, pin_path)
+    if pinned is None:
         return f"model revision {revision}: no pin recorded"
-    pin = json.loads(pin_path.read_text(encoding="utf-8"))
-    if pin.get("step_revision") == revision:
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if pinned:
         return f"model revision {revision}: pinned ({pin['model']}@{pin['revision'][:8]})"
     return (
         f"model revision {revision}: NOT the pinned one ({pin.get('step_revision')}); "
@@ -99,22 +108,40 @@ def pin_status(revision: str, pin_path: Path = PIN_PATH) -> str:
     )
 
 
-def fetch_pinned(model_dir: Path, pin_path: Path = PIN_PATH) -> str:
-    """Download the pinned scope model from the Hub into *model_dir* and check it is the pinned step revision.
+def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
+    """Download the pinned scope model from the Hub into *model_dir* (empty or new) and check its step revision.
 
-    The repository is private: ``HF_TOKEN`` (read scope) must be set. Returns the step revision; raises when the downloaded
-    files do not hash to the revision recorded in the pin (a wrong or altered copy is never used silently).
+    The repository is private: ``HF_TOKEN`` (read scope) must be set. The files are downloaded to a temporary folder next to
+    *model_dir* and moved in only when they hash to the revision recorded in the pin; a wrong or altered copy is deleted, never
+    left where a run would use it. A folder that already holds files is refused (move it away first).
     """
-    from huggingface_hub import snapshot_download  # noqa: PLC0415 -- only the download needs it
+    import shutil  # noqa: PLC0415 -- only the download needs these
 
-    pin = json.loads(pin_path.read_text(encoding="utf-8"))
-    snapshot_download(pin["model"], revision=pin["revision"], local_dir=str(model_dir))
-    got = revision_of(model_dir)
-    if got != pin["step_revision"]:
-        raise RuntimeError(
-            f"{pin['model']}@{pin['revision'][:8]} downloaded to {model_dir} has the step revision {got}, "
-            f"not the pinned {pin['step_revision']}"
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if model_dir.exists() and any(model_dir.iterdir()):
+        raise FileExistsError(
+            f"{model_dir} is not empty: move it away before fetching the pinned model"
         )
+    model_dir.parent.mkdir(parents=True, exist_ok=True)
+    tmp = model_dir.parent / f".{model_dir.name}.fetching"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        snapshot_download(pin["model"], revision=pin["revision"], local_dir=str(tmp))
+        got = revision_of(tmp)
+        if got != pin["step_revision"]:
+            raise RuntimeError(
+                f"{pin['model']}@{pin['revision'][:8]} has the step revision {got}, not the pinned "
+                f"{pin['step_revision']}; the download was deleted"
+            )
+        shutil.rmtree(tmp / ".cache", ignore_errors=True)
+        (tmp / "README.md").unlink(missing_ok=True)
+        if model_dir.exists():
+            model_dir.rmdir()
+        tmp.rename(model_dir)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return got
 
 

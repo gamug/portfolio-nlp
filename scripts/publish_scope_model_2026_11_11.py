@@ -31,6 +31,7 @@ UNAUTHORIZED = 401  # what an anonymous request to a private repository gets
 REPO = "gamug/deberta-v3-news-scope-nli"
 BASE = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
 STAGES = ("stage_a", "stage_b")
+SMALL_FILES = ("config.json", "tokenizer.json", "tokenizer_config.json")
 WHAT = (
     "Hub repositories of the final models (T-169, T-147b); all private. Pinned: scope (config/scope_model.json); "
     "sentiment and relevance are not pinned (config/pipeline_models.json)"
@@ -84,10 +85,12 @@ through the step's own classifier (`scripts/score_scope_heldout_2026_11_11.py`):
 {HELD_OUT["single_recall"]}, **`out_of_scope` recall {HELD_OUT["out_of_scope_recall"]}**. Three fits of this recipe (seed 1) scored 83.0%, 83.6% and 83.6%; this is one seed and not a noise estimate.
 
 ## Limits (read before use)
-- **`out_of_scope` is the weak class.** About half of the out-of-scope bodies are read as `single` or `multi` and continue
-  in the pipeline; this was accepted on purpose by the owner (a body wrongly kept costs a review, a body wrongly stopped is
-  lost). The share that continues is about 6.7% of all bodies, on the assumption that the 1,000-body sample of the draw
-  mirrors the corpus.
+- **`out_of_scope` is the weak class.** In the held-out 200, about half of the out-of-scope bodies are read as `single` or
+  `multi` and continue in the pipeline; the owner accepted this on purpose (a body wrongly kept costs a review, a body wrongly
+  stopped is lost). **How many bodies continue in the corpus is not known.** An estimate from a 1,000-body sample said about
+  6.7% of all bodies, but over the 309,972 unique bodies of the corpus the model calls 49% `out_of_scope`: 11% of the `ok`
+  bodies and 59% of the `quarantined` ones (those pairs are 79% of the corpus). A read of 50 of the latter found most not about
+  a company, a few with a company hook and two clear errors. The held-out gold may not represent the quarantined bodies.
 - The 90% bar of the project (D20/D33) is **not** met; the owner accepted the model below it (PLAN D40 amendment).
 - `sector` has 7 gold bodies in the held-out 200: its recall is reported, not gated.
 - The figure is optimistic: several design choices were made while looking at the same 200 bodies (docs, section 6). One seed.
@@ -262,6 +265,16 @@ def check_published(
         results[f"{stage} weights are the local ones"] = (
             sha256_file(local) == recorded["weights_sha256"][stage] if local.exists() else None
         )
+    for stage in (
+        STAGES
+    ):  # the step revision hashes the record and the weights; the small files are compared here
+        for name in SMALL_FILES:
+            local_file = model_dir / stage / name
+            results[f"{stage}/{name} on the Hub is the local one"] = (
+                Path(download(REPO, f"{stage}/{name}", rev)).read_bytes() == local_file.read_bytes()
+                if local_file.exists()
+                else None
+            )
     results["local folder has the pinned step revision"] = (
         revision_of(model_dir) == recorded["step_revision"]
         if (model_dir / "training_record.json").exists()

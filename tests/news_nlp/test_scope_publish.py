@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -35,6 +36,8 @@ def _folder(root: Path) -> Path:
     for stage in publish.STAGES:
         (root / stage).mkdir(parents=True)
         (root / stage / "model.safetensors").write_bytes(stage.encode())
+        for name in publish.SMALL_FILES:
+            (root / stage / name).write_bytes(f"{stage}/{name}".encode())
     (root / "training_record.json").write_text('{"x": 1}', encoding="utf-8")
     return root
 
@@ -106,22 +109,26 @@ class _Api:
         return self._info
 
 
-def _check(tmp_path: Path, api: _Api, answer: int = 401) -> dict[str, bool | None]:
+def _check(
+    tmp_path: Path, api: _Api, answer: int = 401, changed: bool = False
+) -> dict[str, bool | None]:
     model_dir = _folder(tmp_path / "m")
     weights = {s: hashlib.sha256(s.encode()).hexdigest() for s in publish.STAGES}
     published = tmp_path / "p.json"
     publish.record_upload(
         published, tmp_path / "pin.json", SHA, "card", revision_of(model_dir), weights
     )
-    card_file = tmp_path / "card.md"
-    card_file.write_text("card", encoding="utf-8")
+    hub = tmp_path / "hub_files"
+    shutil.copytree(model_dir, hub)
+    (hub / "README.md").write_text("card", encoding="utf-8")
+    if changed:
+        (hub / "stage_a" / "tokenizer.json").write_bytes(b"another tokenizer")
+
+    def download(repo: str, name: str, revision: str) -> Path:
+        return hub / name
+
     return publish.check_published(  # type: ignore[no-any-return]
-        published,
-        model_dir,
-        "t",
-        api=api,
-        download=lambda *a: card_file,
-        anonymous_status=lambda url: answer,
+        published, model_dir, "t", api=api, download=download, anonymous_status=lambda url: answer
     )
 
 
@@ -344,3 +351,105 @@ def test_the_steps_cli_fetches_before_it_reports(
     )  # fmt: skip
     module.main()
     assert called == [tmp_path / "m"] and "fetched the pinned model" in capsys.readouterr().out
+
+
+def test_the_check_sees_a_small_file_that_differs_from_the_hub_copy(tmp_path: Path) -> None:
+    on_hub = {
+        f"{s}/model.safetensors": hashlib.sha256(s.encode()).hexdigest() for s in publish.STAGES
+    }
+    got = _check(tmp_path, _Api(True, SHA, on_hub), changed=True)
+    assert got["stage_a/tokenizer.json on the Hub is the local one"] is False
+    assert got["stage_b/tokenizer.json on the Hub is the local one"] is True
+
+
+def test_fetch_pinned_refuses_a_folder_that_holds_files_and_deletes_a_wrong_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import huggingface_hub  # noqa: PLC0415
+
+    from scope_stage import fetch_pinned  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", _fake_download(_folder(tmp_path / "hub"))
+    )
+    busy = tmp_path / "busy"
+    busy.mkdir()
+    (busy / "old.txt").write_text("x", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="not empty"):
+        fetch_pinned(busy, _pin(tmp_path, "scope-nli-other"))
+    target = tmp_path / "models" / "scope_final"
+    with pytest.raises(RuntimeError, match="deleted"):
+        fetch_pinned(target, _pin(tmp_path, "scope-nli-other"))
+    assert not target.exists() and not list((tmp_path / "models").glob(".*"))
+
+
+def test_the_step_refuses_a_model_that_is_not_the_pinned_one_unless_allowed(
+    tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scope_stage  # noqa: PLC0415
+    from tests.news_nlp.test_steps import _source_with  # noqa: PLC0415
+
+    source = tmp_path / "s.db"
+    _source_with(source, [(1, "A", "One. " * 5)])
+    folder = _folder(tmp_path / "m")
+    monkeypatch.setattr(scope_stage, "PIN_PATH", _pin(tmp_path, "scope-nli-other"))
+    spec = importlib.util.spec_from_file_location(
+        "steps_cli_167b", Path(__file__).resolve().parents[2] / "cli" / "news_nlp_steps.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    base = [
+        "steps",
+        "--step",
+        "scope",
+        "--model-dir",
+        str(folder),
+        "--results-db",
+        str(results_db_path),
+    ]
+    monkeypatch.setattr(sys, "argv", [*base, "--source-db", str(source)])
+    with pytest.raises(SystemExit, match="not the pinned model"):
+        module.main()
+    # --allow-unpinned lets it go on to load the model (a GPU; here the load is stubbed to stop)
+    monkeypatch.setattr(
+        scope_stage, "ScopeClassifier", lambda d: (_ for _ in ()).throw(RuntimeError("loaded"))
+    )
+    monkeypatch.setattr(sys, "argv", [*base, "--source-db", str(source), "--allow-unpinned"])
+    with pytest.raises(RuntimeError, match="loaded"):
+        module.main()
+
+
+breakdown_script = _load("scope_corpus_breakdown_2026_11_11")
+
+
+def test_the_corpus_breakdown_counts_unique_bodies_by_status_and_year() -> None:
+    rows = [
+        (1, "ok", "2020-01-01", "A", "Body one. " * 5),
+        (
+            2,
+            "quarantined",
+            "2021-05-05",
+            "A again",
+            "Body one.  " * 5,
+        ),  # same body: the first article counts
+        (3, "quarantined", "2021-06-06", "B", "Body two. " * 5),
+        (4, "quarantined", None, "C", "Body three. " * 5),
+        (5, "ok", "2020-02-02", "D", ""),  # no body
+    ]
+    bodies = breakdown_script.unique_bodies(rows)
+    assert len(bodies) == 3
+    from news_nlp import triage  # noqa: PLC0415
+
+    scope_of = {
+        triage.body_hash("Body one. " * 5): "single",
+        triage.body_hash("Body two. " * 5): "out_of_scope",
+    }
+    by_status, by_year = breakdown_script.breakdown(bodies, scope_of)
+    assert dict(by_status["ok"]) == {"single": 1} and dict(by_status["quarantined"]) == {
+        "out_of_scope": 1
+    }
+    assert "?" not in by_year  # the body without a scope is not counted
+    assert breakdown_script.sample_oos(bodies, scope_of, "quarantined", 5)[0][0] == 3
+    assert any("quarantined" in line for line in breakdown_script.lines(by_status, "by status"))

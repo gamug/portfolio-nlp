@@ -251,7 +251,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
    it (D40: a body with no ticker over the relevance threshold goes to the review list). A `single` read as
    out-of-scope **stops at step 1 and never reaches the company views**. The first error costs some compute and
    perhaps a review item; the second costs a news item. We prefer the first.
-   *What it means in numbers (the corpus run of section 8 found 49.7% out_of_scope, not 12.8%: read it first):* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
+   *What it means in numbers (the corpus run of section 8: 11.3% of the `ok` bodies and 58.8% of the `quarantined` ones; read it first):* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
    present step 1 as a filter of out-of-scope news.
 2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3). The owner decided to go with it; a model that
    clears 90% would need more data in the thin classes or a larger model.
@@ -280,8 +280,8 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
   **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
   (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
   so the saved weights reproduce it; it is still one seed. The weights are in the private repository
-  `gamug/deberta-v3-news-scope-nli@2621fb4a` and pinned in `config/scope_model.json` with the step revision
-  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Three uploads: `5f5b2c27` lost the weights (the script did not follow folders), `3f5a85f9` had them, `2621fb4a` is the same weights with the corrected card and is the pin; the first two stay in the history. Public release needs the owner's word.
+  `gamug/deberta-v3-news-scope-nli@59964ab7` and pinned in `config/scope_model.json` with the step revision
+  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Four uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` corrected the card; `59964ab7` is the same weights with the card that says the share of out-of-scope bodies that continue is not known, and is the pin. The first three stay in the history. Public release needs the owner's word.
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
@@ -319,15 +319,27 @@ the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with
 The held-out figures are not printed by the command: `scripts/score_scope_heldout_2026_11_11.py` scores the saved weights
 (section 7). The command prints whether its model is the pinned one.
 
-**The corpus run (read 2026-11-11 from the RESULTS file with the step stopped; the file was opened read-only without its
-write-ahead log, so the counts can be a few hundred rows behind):**
-`SELECT classifier_revision, COUNT(*) FROM body_scope GROUP BY 1` gives one revision, `scope-nli-8ff21e50796b`, the pinned one, with
-**298,967** bodies (the state table says 299,353 done): about 10,500 of the 309,882 unique bodies are left. By scope: out_of_scope
-148,616 (49.7%), single 87,540 (29.3%), sector 32,243 (10.8%), multi 30,808 (10.3%). **The share of `out_of_scope` is four times the
-12.8% that the cost estimate of limitation 1 assumed** (which came from the 1,000-body sample of the draw, D30). The sample does not
-mirror the corpus in this class, or the model reads many bodies of the quarantined pairs as out of scope (in the first 500 bodies,
-42% of the quarantined and 9% of the `ok` ones); this is not yet separated and it changes the cost of the accepted trade-off.
-The owner should look at it before step 2 starts.
+**The corpus run (2026-11-11, the pinned revision `scope-nli-8ff21e50796b`).** The RESULTS file has **309,914** bodies with a scope
+of the 309,972 unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title); 58 have none yet. The
+breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
+
+| Status | Bodies | single | multi | sector | out_of_scope |
+|---|---|---|---|---|---|
+| `ok` | 64,857 (21%) | 58.6% | 26.4% | 3.7% | **11.3%** |
+| `quarantined` | 245,057 (79%) | 22.4% | 6.3% | 12.4% | **58.8%** |
+| all | 309,914 | | | | about 49% |
+
+By year `out_of_scope` runs from 29% (2026) to 56% (2020); no single year explains it. **The 12.8% of the
+cost estimate (limitation 1) is the share of the `ok` bodies (11.3% here); the corpus is 79% `quarantined`, whose pairs were
+judged not to be about the tagged company (D36), so most of their bodies are not company news.** I read a random 50 of the
+`quarantined` bodies called `out_of_scope` (one reader, not a measurement): about 40 are macro, market, politics or lifestyle
+news with no company (correct); about 8 have a company hook (a stock-picking show, a market wrap with a takeover, a company
+CEO interview, a company's award press release) that the tagging rules treat as `investing_general` or `multi`, so they sit
+on the line; **2 are clear errors**: an EADS-BAE merger story, and a Paramount-Skydance headline whose body is a paywall page.
+**What stays open:** the held-out gold was drawn from the 1,000-body sample (D30) and its `out_of_scope` recall (53%) is
+measured there; whether that sample covers the `quarantined` bodies is not stated in D30, and the `quarantined` bodies are
+79% of what step 1 now classifies. The share that continues in the corpus is therefore not known; the owner should decide
+whether a sample of `quarantined` bodies is tagged and scored before step 2.
 
 ## 9. Index of the work
 

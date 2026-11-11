@@ -112,6 +112,11 @@ def main() -> None:
         help="download the pinned model (config/scope_model.json, private repository: needs HF_TOKEN) into --model-dir first",
     )
     parser.add_argument(
+        "--allow-unpinned",
+        action="store_true",
+        help="run on a model whose revision is not the pinned one (a refit, a development copy); the rows are not traceable to the Hub",
+    )
+    parser.add_argument(
         "--titles",
         action="store_true",
         help="with --status: also count the unique bodies with no title (reads the whole corpus: minutes)",
@@ -148,9 +153,14 @@ def main() -> None:
         return
     if revision is None:
         sys.exit(f"{args.model_dir}/training_record.json is missing: train the models first")
-    from scope_stage import ScopeClassifier, pin_status  # noqa: PLC0415 -- loads torch
+    from scope_stage import ScopeClassifier, is_pinned, pin_status  # noqa: PLC0415 -- loads torch
 
     print(pin_status(revision), file=sys.stderr)
+    if is_pinned(revision) is False and not args.allow_unpinned:
+        sys.exit(
+            f"refused: {revision} is not the pinned model (config/scope_model.json). "
+            "Use --fetch into an empty --model-dir, or --allow-unpinned for a development copy"
+        )
 
     try:
         counts = run_scope(conn, ScopeClassifier(args.model_dir), args.limit)
