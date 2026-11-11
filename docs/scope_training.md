@@ -434,13 +434,13 @@ therefore had no measured quality on most of its output. This section closes tha
 
 | Predicted scope | Read | Right | Precision on quarantined bodies [95% CI] | The wrong ones should have been |
 |---|---|---|---|---|
-| `out_of_scope` | 100 | 94 | **94.0% [87.5, 97.2]** | `sector` 4, `single` 2 |
+| `out_of_scope` | 100 | 93 | **93.0% [86.3, 96.6]** | `sector` 4, `single` 2, `multi` 1 |
 | `single` | 50 | 45 | 90.0% [78.6, 95.7] | `investing_general` 3, `market_economy` 1, `unrelated` 1 |
-| `multi` | 25 | 20 | **80.0% [60.9, 91.1]** | `single` 4, `sector` 1 |
+| `multi` | 25 | 18 | **72.0% [52.4, 85.7]** | `single` 4, `investing_general` 2, `sector` 1 |
 | `sector` | 25 | 22 | 88.0% [70.0, 95.8] | `market_economy` 2, `unrelated` 1 |
-| **All quarantined (weighted)** | 200 | 181 | **91.2%** [87.4, 95.1] | |
+| **All quarantined (weighted)** | 200 | 178 | **90.1%** [86.0, 94.1] | |
 
-These are the figures **after the owner's audit of 2026-11-11** (below). The first reading gave `multi` 64.0% [44.5, 79.8], `sector` 84.0% and 89.6% [85.5, 93.6] overall.
+These are the figures **after the owner's two audits of 2026-11-11** (below). The first reading gave `out_of_scope` 94.0%, `multi` 64.0% [44.5, 79.8], `sector` 84.0% and 89.6% [85.5, 93.6] overall.
 
 The weighted figure uses the class sizes that are the script's defaults (260,356 bodies). The interval is a stratified normal
 approximation I added (the script prints the point estimate only). Those sizes do not match the 245,071 quarantined bodies of
@@ -449,21 +449,21 @@ The draw's own pool (unique quarantined bodies with a stored scope, none in a go
 
 **Audit of the tags (owner, 2026-11-11).** Reading the first-pass `no` answers against `docs/labelling-spec-v2.md` found calls that contradicted its rules:
 a deal between two companies is `multi` (call 18; 161 CPI/Comtech, 141 Goldman/AmEx), a list of picks with no stated theme is `multi` (call 21; 26, a "Fast Money" first-trade list), crypto is
-`market_economy`, not a sector (call 17; 65). The owner agreed and changed those tags; 12 (French lenders) and 147 (the Sky bid, read as an industry-wide push to merge) stay `sector`. Net effect: `multi` 16 -> 20 right,
-`sector` 21 -> 22, overall 89.6% -> 91.2%. **Still open:** 66 ("Your First Move For Friday", the same Fast Money format as 26) is tagged `out_of_scope` and 26 `multi`: one of them is wrong under any single rule.
-10 ("6 cheapest stocks") and 45 ("most price target hikes") are lists under a stated theme, which call 21 makes `investing_general`, and are still `multi`. 39, 85 and 199 (Cramer lightning round / two picks) and 76, 154 are also borderline.
+`market_economy`, not a sector (call 17; 65). The owner agreed and changed those tags; 12 (French lenders) and 147 (the Sky bid, read as an industry-wide push to merge) stay `sector`. After the first audit: `multi` 16 -> 20 right, `sector` 21 -> 22, overall 91.2%. **Second audit (owner: "change it"):** 66 ("Your First Move For Friday", the same Fast Money format as 26) is a list of picks with no theme, so
+`multi`, not `out_of_scope` (`out_of_scope` 94 -> 93 right); 10 ("6 cheapest stocks") and 45 ("most price target hikes") are lists under a stated theme, so `investing_general` (`multi` 20 -> 18 right).
+Both answers were changed in the file with a note citing call 21. Net: `multi` 72.0%, overall 90.1% [86.0, 94.1]. **Still borderline, left as tagged:** 39, 85 and 199 (Cramer lightning round / two picks) and 76, 154.
 The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone" `multi`), so part of the `multi`/`single` confusion is label noise, not model error.
-These rows should be settled and written down as owner calls before the numbers are used as a bar.
+The borderline rows should be settled and written down as owner calls before the numbers are used as a bar.
 
 **More `multi` bodies (owner, 25 of 75 read).** 23 of 25 `yes`; the two `no` are `market_economy` (market wrap, meme stocks). Pooled with the first 25: **43 of 50 = 86.0% [73.8, 93.0]**. The other 50 are not read yet.
 
 **What it says about the confidence in the model.**
 1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone,
-   85 or fewer and all 200 are read. The result is 94, between the two, with the lower bound (87.5%) above the second line. About 6% of the bodies the step stops
-   (roughly 9,000 of 146,000; 4,000 to 18,000 within the interval) are company or sector news that will not reach steps 2 and later. Four of the six are `sector` stories, not
+   85 or fewer and all 200 are read. The result is 93, between the two, with the lower bound (86.3%) above the second line. About 7% of the bodies the step stops
+   (roughly 10,000 of 146,000; 5,000 to 20,000 within the interval) are company or sector news that will not reach steps 2 and later. Four of the seven are `sector` stories, not
    company ones.
 2. **`single` at 90% is usable.** The errors are bodies that are about investing in general or are not news; later stages would run on text that has no company in it.
-3. **`multi` at 80% is still the weakest class**, and the interval is wide (25 bodies; 86% on the 50 below). Four of the five errors are `single`: the cut step would run the `units` extractor on
+3. **`multi` at 72% is still the weakest class**, and the interval is wide (25 bodies). Four of the five errors are `single`: the cut step would run the `units` extractor on
    a one-company body, which costs time but does not lose a company. It does not lose news; treat the `sub_news` of `multi` bodies as less certain than the rest of the
    output until a larger sample is read.
 4. **`sector` at 88%** is on the same line as the earlier reading of 42 bodies (section 8). Its sample is as small as `multi`'s.
