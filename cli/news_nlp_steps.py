@@ -4,6 +4,7 @@
 Usage:
     uv run cli/news_nlp_steps.py --step scope --limit 500     # classify up to 500 unique bodies not yet done
     uv run cli/news_nlp_steps.py --step scope --status        # counts by state and by scope, no model loaded
+    uv run cli/news_nlp_steps.py --step scope --fetch --status   # first: download the pinned model into models/scope_final
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
@@ -106,6 +107,16 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="touch at most this many bodies")
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
+        "--fetch",
+        action="store_true",
+        help="download the pinned model (config/scope_model.json, public repository) into an empty --model-dir first",
+    )
+    parser.add_argument(
+        "--allow-unpinned",
+        action="store_true",
+        help="run on a model whose revision is not the pinned one (a refit, a development copy); the rows are not traceable to the Hub",
+    )
+    parser.add_argument(
         "--titles",
         action="store_true",
         help="with --status: also count the unique bodies with no title (reads the whole corpus: minutes)",
@@ -122,6 +133,10 @@ def main() -> None:
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     db.env.load_env_file()
+    if args.fetch:
+        from scope_stage import fetch_pinned  # noqa: PLC0415 -- the download only
+
+        print(f"fetched the pinned model into {args.model_dir}: {fetch_pinned(args.model_dir)}")
     with exit_on_schema_error():
         conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     db.init_schema(conn)
@@ -138,7 +153,14 @@ def main() -> None:
         return
     if revision is None:
         sys.exit(f"{args.model_dir}/training_record.json is missing: train the models first")
-    from scope_stage import ScopeClassifier  # noqa: PLC0415 -- loads torch
+    from scope_stage import ScopeClassifier, is_pinned, pin_status  # noqa: PLC0415 -- loads torch
+
+    print(pin_status(revision), file=sys.stderr)
+    if is_pinned(revision) is False and not args.allow_unpinned:
+        sys.exit(
+            f"refused: {revision} is not the pinned model (config/scope_model.json). "
+            "Use --fetch into an empty --model-dir, or --allow-unpinned for a development copy"
+        )
 
     try:
         counts = run_scope(conn, ScopeClassifier(args.model_dir), args.limit)
