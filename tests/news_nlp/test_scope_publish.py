@@ -561,6 +561,42 @@ def test_an_excluded_article_keeps_its_twin_out_and_missing_ids_are_counted() ->
     assert triage.body_hash("another body") not in hashes
 
 
+def test_the_tracked_tags_load_by_draw_and_key_and_the_first_reading_is_kept(
+    tmp_path: Path,
+) -> None:
+    f = tmp_path / "tags.csv"
+    f.write_text(
+        "draw,predicted_scope,validator_first,correct_first,validator,correct_scope\n"
+        "main,multi,no,single,yes,\n"
+        "multi_extra,multi,yes,,yes,\n",
+        encoding="utf-8",
+    )
+    assert [r["validator"] for r in validation.load_rows([f])] == ["yes"]  # main only
+    assert len(validation.load_rows([f], draw="all")) == 2
+    first = validation.load_rows([f], key="first")
+    assert (first[0]["validator"], first[0]["correct_scope"]) == ("no", "single")
+    assert len(validation.load_rows([f, f], draw="all")) == 4  # --file repeats pool
+    with pytest.raises(ValueError, match="--draw"):
+        validation.load_rows([f], draw="nope")
+    plain = tmp_path / "plain.csv"
+    plain.write_text("predicted_scope,validator,correct_scope\nmulti,yes,\n", encoding="utf-8")
+    assert len(validation.load_rows([plain])) == 1  # a data/ working file has no draw column
+    with pytest.raises(ValueError, match="validator_first"):
+        validation.load_rows([plain], key="first")
+
+
+def test_the_committed_tags_reproduce_both_readings() -> None:
+    gold = Path(__file__).resolve().parents[2] / "gold" / "scope_quarantined_validation.csv"
+    final = validation.summarise(
+        validation.load_rows([gold]), validation.parse_sizes(validation.DEFAULT_SIZES)
+    )
+    first = validation.summarise(
+        validation.load_rows([gold], key="first"), validation.parse_sizes(validation.DEFAULT_SIZES)
+    )
+    assert "89.6%" in first[0][-1] and "90.1%" in final[0][-1]
+    assert round(final[1]["multi"].point, 2) == 0.72 and round(first[1]["multi"].point, 2) == 0.64
+
+
 def test_the_weighted_precision_has_an_interval_that_covers_its_point() -> None:
     counts = {"a": (9, 10), "b": (5, 10)}
     point, low, high = validation.weighted_precision(counts, {"a": 300, "b": 100})

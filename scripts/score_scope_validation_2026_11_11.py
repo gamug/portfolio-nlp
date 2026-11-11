@@ -1,13 +1,18 @@
 """Score the owner's validation of the scope step 1 gave to a sample of `quarantined` bodies (T-147/T-163; owner 2026-11-11).
 
-    uv run python scripts/score_scope_validation_2026_11_11.py [--file data/scope_quarantined_to_validate.csv] \
-        [--sizes out_of_scope=146348,single=63051,sector=31182,multi=19775]
+    uv run python scripts/score_scope_validation_2026_11_11.py [--file gold/scope_quarantined_validation.csv ...] \
+        [--draw main|multi_extra|all] [--key final|first] [--sizes out_of_scope=146348,single=63051,sector=31182,multi=19775]
 
-Reads the file written by ``draw_scope_quarantined_check_2026_11_11.py`` after the owner filled ``validator`` (``yes`` / ``no``)
-and, for a ``no``, ``correct_scope``. Rows with an empty ``validator`` are left out and counted. Prints, per predicted scope, the
+Reads the tags: by default the tracked ``gold/scope_quarantined_validation.csv`` (ids and tags, no text; the working files of
+``draw_scope_quarantined_check_2026_11_11.py`` in ``data/`` have the same ``validator`` / ``correct_scope`` columns and work too;
+``--file`` may be repeated and the rows are pooled). ``--draw`` picks the draw of the gold file (``main`` = the 200 drawn per predicted
+scope, the default and the headline; ``multi_extra`` = the extra ``multi`` bodies; ``all`` = both pooled). ``--key`` picks the tags:
+``final`` (after the owner's audits of 2026-11-11) or ``first`` (the first reading, kept in ``validator_first`` / ``correct_first``).
+Rows with an empty ``validator`` are left out and counted. Prints, per predicted scope, the
 bodies read, the share of ``yes`` (the precision of that class on quarantined bodies) with its 95% Wilson interval, what the
 ``no`` rows should have been, and the share of all quarantined bodies the step tags right (with a rough 95% interval) when the classes are weighted by their
-size in the corpus (``--sizes``: the quarantined bodies per predicted scope; the defaults are the ones of the 2026-11-11 run).
+size in the corpus (``--sizes``: the quarantined bodies per predicted scope; the defaults are the pool of the corpus run of revision
+``scope-nli-8ff21e50796b`` on 2026-11-11, 260,356 bodies, and belong to that revision only).
 """
 
 from __future__ import annotations
@@ -101,13 +106,48 @@ def summarise(
     return lines, figures
 
 
+def load_rows(
+    paths: Sequence[Path], draw: str = "main", key: str = "final"
+) -> list[dict[str, str]]:
+    """The rows of every file, pooled, with the tags of ``key`` in ``validator`` / ``correct_scope``.
+
+    A file with a ``draw`` column (the tracked gold file) is filtered by ``draw`` (``all`` keeps everything); a working file
+    from ``data/`` has none and is taken whole. ``key="first"`` needs the ``validator_first`` / ``correct_first`` columns.
+    """
+    if draw not in {"main", "multi_extra", "all"} or key not in {"final", "first"}:
+        raise ValueError(
+            f"--draw is main, multi_extra or all and --key is final or first, got {draw!r} / {key!r}"
+        )
+    rows: list[dict[str, str]] = []
+    for path in paths:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                if row.get("draw") and draw != "all" and row["draw"] != draw:
+                    continue
+                if key == "first":
+                    if "validator_first" not in row:
+                        raise ValueError(f"{path}: no validator_first column for --key first")
+                    rows.append(
+                        {
+                            **row,
+                            "validator": row["validator_first"],
+                            "correct_scope": row["correct_first"],
+                        }
+                    )
+                    continue
+                rows.append(row)
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--file", type=Path, default=Path("data/scope_quarantined_to_validate.csv"))
+    parser.add_argument("--file", type=Path, action="append", default=[])
+    parser.add_argument("--draw", default="main", choices=("main", "multi_extra", "all"))
+    parser.add_argument("--key", default="final", choices=("final", "first"))
     parser.add_argument("--sizes", default=DEFAULT_SIZES)
     args = parser.parse_args()
-    with args.file.open(encoding="utf-8-sig", newline="") as fh:
-        rows = list(csv.DictReader(fh))
+    files = args.file or [Path("gold/scope_quarantined_validation.csv")]
+    rows = load_rows(files, args.draw, args.key)
     print("\n".join(summarise(rows, parse_sizes(args.sizes))[0]))
 
 
