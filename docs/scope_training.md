@@ -340,7 +340,7 @@ on the line; **2 are clear errors**: an EADS-BAE merger story, and a Paramount-S
 **What stays open:** the held-out gold was drawn from the 1,000-body sample (D30) and its `out_of_scope` recall (53%) is
 measured there; whether that sample covers the `quarantined` bodies is not stated in D30, and the `quarantined` bodies are
 79% of what step 1 now classifies. The share that continues in the corpus is therefore not known; the owner should decide
-whether a sample of `quarantined` bodies is tagged and scored before step 2.
+whether a sample of `quarantined` bodies is tagged and scored before step 2. **Done: section 9.**
 
 **Quality check of the corpus run (2026-11-11, `scripts/scope_quality_check_2026_11_11.py`, read-only, no GPU).**
 - *Integrity:* 309,972 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
@@ -416,7 +416,61 @@ fixed first. (2) The scope of the `quarantined` bodies (79% of the corpus) is st
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until that
 validation is in** (the condition is also in T-165). The run writes a new revision of rows and nothing else.
 
-## 9. Index of the work
+## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
+
+**Why it was needed.** The held-out 200 (section 5) were drawn from the 1,000-body sample (D30). Whether that sample
+covers `quarantined` bodies was not stated, and they are 79% of what step 1 classified (section 8). The corpus run
+therefore had no measured quality on most of its output. This section closes that gap for the `quarantined` bodies. The
+`ok` bodies (21%) are not covered by it; their figure is still the held-out 83.6%.
+
+**Where the numbers come from.**
+- *Sample:* `scripts/draw_scope_quarantined_check_2026_11_11.py` drew 200 `quarantined` bodies at random **per predicted
+  scope** (100 `out_of_scope`, 50 `single`, 25 `multi`, 25 `sector`), none already tagged in a gold file, shuffled, with the
+  title, the first 2,000 characters and a Spanish translation.
+- *Tags:* the owner read each body and answered `yes` (the predicted scope is right) or `no` (with the scope it should be).
+  One reader, the tags written in `data/scope_quarantined_to_validate.csv` (git-ignored, like all of `data/`). All 200 are filled.
+- *Scoring:* `scripts/score_scope_validation_2026_11_11.py` (CPU only, no model is loaded; it reads the stored predictions
+  and the owner's answers). Per class: the share of `yes` with its 95% Wilson interval. Overall: the classes weighted by their size among quarantined bodies.
+
+| Predicted scope | Read | Right | Precision on quarantined bodies [95% CI] | The wrong ones should have been |
+|---|---|---|---|---|
+| `out_of_scope` | 100 | 94 | **94.0% [87.5, 97.2]** | `sector` 4, `single` 2 |
+| `single` | 50 | 45 | 90.0% [78.6, 95.7] | `investing_general` 3, `sector` 1, `unrelated` 1 |
+| `multi` | 25 | 16 | **64.0% [44.5, 79.8]** | `single` 6, `investing_general` 2, `sector` 1 |
+| `sector` | 25 | 21 | 84.0% [65.3, 93.6] | `market_economy` 2, `multi` 1, `unrelated` 1 |
+| **All quarantined (weighted)** | 200 | 176 | **89.6%** [85.5, 93.6] | |
+
+The weighted figure uses the class sizes that are the script's defaults (260,356 bodies). The interval is a stratified normal
+approximation I added (the script prints the point estimate only). Those sizes do not match the 245,071 quarantined bodies of
+the breakdown in section 8; weighting by that table's shares gives 90.0% [86.0, 94.0], so the figure does not depend on which of the two is right.
+The source file with the final counts was not available when this was written; check the defaults of `--sizes` against it.
+
+**What it says about the confidence in the model.**
+1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone,
+   85 or fewer and all 200 are read. The result is 94, between the two, with the lower bound (87.5%) above the second line. About 6% of the bodies the step stops
+   (roughly 9,000 of 146,000; 4,000 to 18,000 within the interval) are company or sector news that will not reach steps 2 and later. Four of the six are `sector` stories, not
+   company ones.
+2. **`single` at 90% is usable.** The errors are bodies that are about investing in general or are not news; later stages would run on text that has no company in it.
+3. **`multi` at 64% is the weak class**, and the interval is wide (25 bodies). Six of the nine errors are `single`: the cut step would run the `units` extractor on
+   a one-company body, which costs time but does not lose a company. It does not lose news; treat the `sub_news` of `multi` bodies as less certain than the rest of the
+   output until a larger sample is read.
+4. **`sector` at 84%** is on the same line as the earlier reading of 42 bodies (section 8). Its sample is as small as `multi`'s.
+5. **Overall**, about 9 in 10 quarantined bodies have the right scope, against 83.6% on the held-out 200 (a different population and mix, so not a like-for-like comparison).
+   Together the two figures support running steps 2 and later on the output, with the `multi` and `sector` classes flagged.
+
+**What it does not say.**
+- It is **precision** (of what the step called X, how much is X). The sample was drawn by predicted class, so it cannot give the **recall** of `out_of_scope`
+  among quarantined bodies (the held-out recall of 53% is a different measure on a different population). Company stories the step called `single` and that
+  are really `out_of_scope` count against `single`, not against `out_of_scope`; the missing piece is the share of true company news hidden in the other classes, which only
+  a sample drawn by tag could give.
+- One reader, no second opinion; the owner's calls on the line cases (a stock-picking show, a market wrap with a takeover) decide part of the `no` answers.
+- 25 bodies per small class: the intervals are 30 to 35 points wide.
+- The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
+
+**Suggested next steps** (the owner decides): filter the paywall pages before step 2; read more `multi` bodies if the `sub_news` of the cut will be summarised and scored; keep the
+10,274 low-margin bodies as the review queue.
+
+## 10. Index of the work
 
 | What | Where |
 |---|---|

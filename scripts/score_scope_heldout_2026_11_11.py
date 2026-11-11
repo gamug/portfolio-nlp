@@ -6,7 +6,7 @@ The weights are the ones ``cli/news_nlp_steps.py --step scope`` runs on (``scrip
 the step's own ``ScopeClassifier`` (same fragment, same hypotheses, same revision), not through the experiment scripts. The 200
 were never trained on. Printed the way ``scripts/scope_end_to_end_2026_11_10.py`` prints them (weighted to the corpus, four
 classes, paired gain over the rules triage, confusion matrix), plus the model revision. This is **one fit, one seed**: it is a check
-of the saved weights against ``docs/splitting_training.md`` (83.0%, one earlier fit), not a seed study. Needs a GPU.
+of the saved weights against ``docs/scope_training.md`` (83.0%, one earlier fit), not a seed study. Needs a GPU.
 """
 
 from __future__ import annotations

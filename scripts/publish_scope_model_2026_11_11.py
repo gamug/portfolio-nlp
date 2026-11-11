@@ -76,7 +76,7 @@ The hypotheses, the recipe and the data counts are in `training_record.json`. Th
 365 bodies tagged and reviewed by the project owner (284 + 51 chosen for the rare scopes + 30 whose title names a company
 but whose body is not about it): stage A on all, stage B on the 210 company bodies. Title + first 800 characters, 3 epochs,
 learning rate 2e-5, batch 16, float32 weights with bf16 autocast, seed 1. The texts are in the project repository
-(`gold/`), not here. Recipe and the story of the choices: `docs/splitting_training.md`.
+(`gold/`), not here. Recipe and the story of the choices: `docs/scope_training.md`.
 
 ## Figures
 Held-out 200 bodies the model never trained on, **weighted to the corpus** by the draw's strata, scored from these weights

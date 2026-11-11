@@ -6,7 +6,7 @@ sector, ``out_of_scope`` when A says not_related, and B's ``single`` or ``multi`
 recipe come from the ``training_record.json`` next to the weights (``scripts/train_scope_final_2026_11_11.py``); the
 revision stored with every result is the hash of that record, so a retrained model is a new revision.
 
-``docs/splitting_training.md`` tells how the models were chosen and what they get wrong (an out_of_scope body is often read as
+``docs/scope_training.md`` tells how the models were chosen and what they get wrong (an out_of_scope body is often read as
 single: the accepted trade-off).
 """
 
