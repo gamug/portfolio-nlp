@@ -4146,3 +4146,19 @@ def test_an_improvement_and_a_tie_give_their_verdicts() -> None:
     assert "0.0%" in tie[0] and tie[0].endswith(
         "(not decided)"
     )  # an interval of width 0 decides nothing
+
+
+def test_the_training_cross_validation_of_the_count_scale_reads_only_the_training_rows() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    words = {"single": "alpha", "multi": "bravo", "sector": "charlie", "out_of_scope": "delta"}
+    labels = [label for label in words for _ in range(10)]
+    texts = [f"{words[label]} headline {i}" for i, label in enumerate(labels)]
+    counts = baseline.csr_matrix(np.ones((40, 3 * (baseline.CAP + 1))))  # carries no information
+    out = baseline.cv_scales(texts, counts, labels, scales=(1.0, 0.0))
+    assert set(out) == {1.0, 0.0}
+    for recalls in out.values():
+        assert set(recalls) == {"single", "multi", "sector", "out_of_scope", "macro"}
+        assert recalls["macro"] == pytest.approx(
+            sum(recalls[c] for c in ("single", "multi", "sector", "out_of_scope")) / 4
+        )
+    assert out[0.0]["macro"] == 1.0  # the title words alone separate the classes

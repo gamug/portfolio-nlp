@@ -1,6 +1,6 @@
 """Feasibility of T-147 (PLAN D40): how far does a title alone get on the scope?
 
-    uv run python scripts/scope_title_baseline_2026_11_10.py [--body-chars N] [--company-features [--first M]]
+    uv run python scripts/scope_title_baseline_2026_11_10.py [--body-chars N] [--company-features [--first M] [--count-scale S | --choose-scale]]
 
 A TF-IDF (1-2 grams) + logistic regression on the **title** only, trained on ``gold/category_gold_v2.csv`` (284) and
 scored on ``gold/category_gold_v2_test.csv`` (200, never trained on). ``market_economy``, ``investing_general`` and
@@ -14,9 +14,13 @@ changes the text TF-IDF reads) and in the whole body, as counts capped at 4 (``g
 ``news_nlp/triage.py`` are fingerprinted, SHA-256 printed; the matcher digest is **informational**: nothing compares it,
 because ``triage.py`` is edited by unrelated work, so a stale figure is spotted by reading the digest recorded with it): what tells ``single`` from ``multi``. The model with the
 counts is then compared, paired and weighted, with the title-only model and with the rules (agreement and the recall of each
-class, with the interval of the difference). **The body is the text of ``gold/texts``, which the draw capped at 6,020
+class, with the interval of the difference). **The per-class lines are exploratory: ten
+comparisons at 95% with no correction for multiplicity; only the agreement line is the planned test**. **The body is the text of ``gold/texts``, which the draw capped at 6,020
 characters (33 of the 484 bodies reach it), so "the whole body" is its first ~6,000 characters; production may
-differ.** This is a floor for the pinned model of T-147, not the model.
+differ.** ``--count-scale S`` multiplies the count block (default 1: the counts are dense one-hot columns of norm sqrt(3) next to
+TF-IDF rows of norm 1, so at 1 they can dominate the title words); ``--choose-scale`` picks S by 5-fold
+cross-validation on the 284 **training** rows only (the vectorizer refitted in each fold, the 200 never read) and prints
+it; the learned weights of the count columns are printed. This is a floor for the pinned model of T-147, not the model.
 """
 
 from __future__ import annotations
@@ -136,6 +140,38 @@ def paired_lines(
     return out
 
 
+SCALES = (1.0, 0.3, 0.1, 0.03, 0.0)  # 0.0 is the title-only model
+
+
+def cv_scales(
+    texts: Sequence[str],
+    counts: csr_matrix,
+    labels: Sequence[str],
+    scales: Sequence[float] = SCALES,
+) -> dict[float, dict[str, float]]:
+    """5-fold cross-validated recall per class (pooled over the folds) of the title + counts model for each *scale* of
+    the count block, on the training rows only; the TF-IDF vectorizer is refitted inside each fold."""
+    from sklearn.model_selection import StratifiedKFold  # noqa: PLC0415
+
+    y = np.array(labels)
+    out: dict[float, dict[str, float]] = {}
+    for scale in scales:
+        predicted = np.empty(len(y), dtype=object)
+        folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=20261110)
+        for fit, held in folds.split(np.zeros(len(y)), y):
+            vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True)
+            x_fit = hstack(
+                [vec.fit_transform([texts[i] for i in fit]), counts[fit] * scale]
+            ).tocsr()
+            x_held = hstack([vec.transform([texts[i] for i in held]), counts[held] * scale]).tocsr()
+            model = LogisticRegression(max_iter=2000, C=5).fit(x_fit, y[fit])
+            predicted[held] = model.predict(x_held)
+        recalls = {c: float((predicted[y == c] == c).mean()) for c in LABELS if (y == c).any()}
+        recalls["macro"] = float(np.mean(list(recalls.values())))
+        out[scale] = recalls
+    return out
+
+
 def lines(name: str, rows: Sequence[Mapping[str, str]], predicted: Sequence[str]) -> list[str]:
     populations: dict[str, int] = {}
     for r in rows:
@@ -168,6 +204,8 @@ def main() -> None:
     parser.add_argument("--body-chars", type=int, default=0)
     parser.add_argument("--company-features", action="store_true")
     parser.add_argument("--first", type=int, default=600)
+    parser.add_argument("--count-scale", type=float, default=1.0)
+    parser.add_argument("--choose-scale", action="store_true")
     args = parser.parse_args()
     chars = args.body_chars
     train, x_train = load("category_gold_v2.csv", "category_gold_v2_texts.csv", chars)
@@ -185,23 +223,33 @@ def main() -> None:
         print(
             f"universe sha256 {digest}\nmatcher (triage.py) sha256 {matcher_digest()}\nfirst {args.first} characters"
         )
-        b_train = hstack(
-            [a_train, company_features(resolver, train, "category_gold_v2_texts.csv", args.first)]
-        ).tocsr()
-        b_test = hstack(
-            [
-                a_test,
-                company_features(resolver, test, "category_gold_v2_test_texts.csv", args.first),
-            ]
-        ).tocsr()
+        c_train = company_features(resolver, train, "category_gold_v2_texts.csv", args.first)
+        c_test = company_features(resolver, test, "category_gold_v2_test_texts.csv", args.first)
+        if args.choose_scale:
+            print(
+                "5-fold cross-validation on the 284 training rows (the 200 are not read); recall per class:"
+            )
+            for scale, rec in cv_scales(x_train, c_train, y_train).items():
+                print(f"  scale {scale:<5}: " + " ".join(f"{k} {v:.1%}" for k, v in rec.items()))
+            return
+        b_train = hstack([a_train, c_train * args.count_scale]).tocsr()
+        b_test = hstack([a_test, c_test * args.count_scale]).tocsr()
+        print(f"count scale {args.count_scale}")
+        fitted = LogisticRegression(max_iter=2000, C=5).fit(b_train, y_train)
+        width = a_train.shape[1]
+        parts = ("title", f"first {args.first}", "body")
+        for cls, row in zip(fitted.classes_, fitted.coef_, strict=True):
+            weights = row[width:].reshape(3, CAP + 1)
+            print(
+                f"  weights of the count columns, {cls:>12}: "
+                + " | ".join(
+                    f"{p} " + " ".join(f"{w:+.2f}" for w in ws)
+                    for p, ws in zip(parts, weights, strict=True)
+                )
+            )
         shown, shown_pred = (
             "title + company counts",
-            [
-                str(p)
-                for p in LogisticRegression(max_iter=2000, C=5)
-                .fit(b_train, y_train)
-                .predict(b_test)
-            ],
+            [str(p) for p in fitted.predict(b_test)],
         )
     single = ["single"] * len(test)
     for name, pred in (
