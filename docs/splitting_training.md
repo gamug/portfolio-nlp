@@ -319,15 +319,16 @@ the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with
 The held-out figures are not printed by the command: `scripts/score_scope_heldout_2026_11_11.py` scores the saved weights
 (section 7). The command prints whether its model is the pinned one.
 
-**The corpus run (2026-11-11, the pinned revision `scope-nli-8ff21e50796b`).** The RESULTS file has **309,914** bodies with a scope
-of the 309,972 unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title); 58 have none yet. The
-breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
+**The corpus run (2026-11-11, the pinned revision `scope-nli-8ff21e50796b`).** The RESULTS file has **309,972** bodies with a scope,
+all the unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title). (A first reading gave 309,914
+and "58 left": it opened `nlp.db` without its `-wal` file, which held the last rows. Read a copy of `nlp.db` **with** its
+`-wal`, never the main file alone.) The breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
 
 | Status | Bodies | single | multi | sector | out_of_scope |
 |---|---|---|---|---|---|
-| `ok` | 64,857 (21%) | 58.6% | 26.4% | 3.7% | **11.3%** |
-| `quarantined` | 245,057 (79%) | 22.4% | 6.3% | 12.4% | **58.8%** |
-| all | 309,914 | | | | about 49% |
+| `ok` | 64,901 (21%) | 58.6% | 26.4% | 3.7% | **11.3%** |
+| `quarantined` | 245,071 (79%) | 22.4% | 6.3% | 12.4% | **58.8%** |
+| all | 309,972 | | | | about 49% |
 
 By year `out_of_scope` runs from 29% (2026) to 56% (2020); no single year explains it. **The 12.8% of the
 cost estimate (limitation 1) is the share of the `ok` bodies (11.3% here); the corpus is 79% `quarantined`, whose pairs were
@@ -342,11 +343,10 @@ measured there; whether that sample covers the `quarantined` bodies is not state
 whether a sample of `quarantined` bodies is tagged and scored before step 2.
 
 **Quality check of the corpus run (2026-11-11, `scripts/scope_quality_check_2026_11_11.py`, read-only, no GPU).**
-- *Integrity:* 309,914 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
-  score; **the stored scope is what its stored scores give in 100% of the rows**; the state table has 309,914 `done`, no
+- *Integrity:* 309,972 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
+  score; **the stored scope is what its stored scores give in 100% of the rows**; the state table has 309,972 `done`, no
   `failed`, no result without a state and no state without a result; no scope for a body outside the corpus.
-- *Not done:* 58 corpus bodies have no scope (44 `ok`, 14 `quarantined`, the tail of the article ids, where the run was stopped);
-  `uv run cli/news_nlp_steps.py --step scope` finishes them in seconds.
+- *Complete:* every unique body of the corpus has a scope (a read that missed the write-ahead log showed 58 missing; they were there).
 - *Short bodies:* under 300 characters (1,915 bodies) 73% are `out_of_scope`; from 3,000 characters 56%; between, 41 to 43%.
   Length moves the share but does not explain it.
 - *Unusable bodies:* **204 bodies look like a paywall or a bot page** ("security verification", "enable JavaScript", "subscribe
@@ -358,6 +358,16 @@ whether a sample of `quarantined` bodies is tagged and scored before step 2.
 - *Reading* 14 `single`, 14 `multi` and 14 `sector` bodies at random: all 14 `single` plausible; 12 of 14 `multi` (two on the line);
   about 10 of 14 `sector` (a social-media story about Uber, an analyst's two bank picks and a stock-picking segment read as
   sector). One reader, 42 bodies: it agrees with the measured 80 to 90% and finds nothing of another kind.
+
+**Validation of a quarantined sample (owner, 2026-11-11).** `scripts/draw_scope_quarantined_check_2026_11_11.py` writes
+`data/scope_quarantined_to_validate.csv`: 200 `quarantined` bodies drawn at random per **predicted** scope (100 `out_of_scope`,
+50 `single`, 25 `multi`, 25 `sector`), none already tagged in a gold file, shuffled, with the title, the first 2,000
+characters, the Spanish title and text, and the empty columns `validator` (`yes` the predicted scope is right, `no` it is not),
+`correct_scope` (only for a `no`) and `notes`. `scripts/score_scope_validation_2026_11_11.py` turns the filled file into the
+share of `yes` per predicted class with its 95% interval and the share of all quarantined bodies the step tags right.
+*How many:* the 100 `out_of_scope` rows give that class's precision to about ±7 points (95%, at a precision near 85%), and it is the class that decides
+how many company stories the step would stop; 50 `single` give ±10, 25 `multi` or `sector` ±14 (at a precision near 85%). Read the 100 `out_of_scope`
+first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 85 or fewer, read all 200.
 
 ## 9. Index of the work
 

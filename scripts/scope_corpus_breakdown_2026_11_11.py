@@ -89,7 +89,7 @@ def main() -> None:
     parser.add_argument(
         "--immutable",
         action="store_true",
-        help="open the RESULTS file without its write-ahead log (the writer is stopped)",
+        help="open RESULTS without its write-ahead log: rows still in the -wal file are MISSING; prefer a copy of nlp.db with its -wal",
     )
     args = parser.parse_args()
     flags = "mode=ro&immutable=1" if args.immutable else "mode=ro"

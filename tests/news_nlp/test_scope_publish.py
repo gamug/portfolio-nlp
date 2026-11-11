@@ -494,3 +494,80 @@ def test_the_quality_check_finds_a_scope_that_its_scores_do_not_give_and_bad_sco
         and quality_script.length_bucket(3000) == ">=3000"
     )
     assert quality_script.PAGE.search("Security Verification For help please visit")
+
+
+draw_check = _load("draw_scope_quarantined_check_2026_11_11")
+validation = _load("score_scope_validation_2026_11_11")
+
+
+def test_the_validation_sample_is_stratified_by_predicted_scope_and_in_the_tagging_format() -> None:
+    from news_nlp import retag  # noqa: PLC0415
+
+    pool = {
+        scope: [{"article_id": str(i + 100 * n), "predicted_scope": scope} for i in range(30)]
+        for n, scope in enumerate(("out_of_scope", "single", "multi", "sector"))
+    }
+    counts = draw_check.parse_counts("out_of_scope=6,single=3,multi=2,sector=2")
+    chosen = draw_check.draw(pool, counts, seed=1)
+    assert (
+        sorted(r["predicted_scope"] for r in chosen).count("out_of_scope") == 6
+        and len(chosen) == 13
+    )
+    assert chosen == draw_check.draw(pool, counts, seed=1)  # reproducible
+    assert [r["predicted_scope"] for r in chosen] != sorted(
+        r["predicted_scope"] for r in chosen
+    )  # shuffled
+    assert (
+        retag.SCOPE_CHECK_COLUMNS.index("spanish_text")
+        == retag.SCOPE_CHECK_COLUMNS.index("text") + 2
+    )
+    assert "validator" in retag.SCOPE_CHECK_COLUMNS
+    with pytest.raises(ValueError, match="sizes"):
+        draw_check.parse_counts("tennis=3")
+
+
+def test_the_validation_is_scored_per_predicted_class_and_rejects_other_answers() -> None:
+    rows = (
+        [
+            {
+                "review_order": str(i),
+                "predicted_scope": "out_of_scope",
+                "validator": "yes",
+                "correct_scope": "",
+            }
+            for i in range(8)
+        ]
+        + [
+            {
+                "review_order": "9",
+                "predicted_scope": "out_of_scope",
+                "validator": "no",
+                "correct_scope": "single",
+            }
+        ]
+        + [
+            {
+                "review_order": "10",
+                "predicted_scope": "single",
+                "validator": "yes",
+                "correct_scope": "",
+            }
+        ]
+        + [
+            {
+                "review_order": "11",
+                "predicted_scope": "single",
+                "validator": "",
+                "correct_scope": "",
+            }
+        ]
+    )
+    lines, figures = validation.summarise(rows, {"out_of_scope": 3, "single": 1})
+    assert figures["out_of_scope"].point == pytest.approx(8 / 9) and figures["single"].point == 1.0
+    assert "10 bodies validated, 1 still empty" in lines[0]
+    assert "should be {'single': 1}" in lines[1]
+    assert "weighted by the 4 quarantined bodies" in lines[-1]
+    with pytest.raises(ValueError, match="yes or no"):
+        validation.summarise(
+            [{"review_order": "1", "predicted_scope": "single", "validator": "maybe"}], {}
+        )
