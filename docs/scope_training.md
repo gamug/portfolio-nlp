@@ -443,7 +443,7 @@ therefore had no measured quality on most of its output. This section closes tha
 The weighted figure uses the class sizes that are the script's defaults (260,356 bodies). The interval is a stratified normal
 approximation I added (the script prints the point estimate only). Those sizes do not match the 245,071 quarantined bodies of
 the breakdown in section 8; weighting by that table's shares gives 90.0% [86.0, 94.0], so the figure does not depend on which of the two is right.
-The source file with the final counts was not available when this was written; check the defaults of `--sizes` against it.
+The draw's own pool (unique quarantined bodies with a stored scope, none in a gold file) was counted again on the real files: 260,156 before the 200 were taken out (`out_of_scope` 146,248, `single` 63,001, `sector` 31,157, `multi` 19,750), so the script's defaults are right for that definition; the 245,071 of section 8 counts the bodies by another rule (gold-tagged bodies are in it).
 
 **What it says about the confidence in the model.**
 1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone,
@@ -466,6 +466,10 @@ The source file with the final counts was not available when this was written; c
 - One reader, no second opinion; the owner's calls on the line cases (a stock-picking show, a market wrap with a takeover) decide part of the `no` answers.
 - 25 bodies per small class: the intervals are 30 to 35 points wide.
 - The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
+
+**More `multi` bodies.** `scripts/draw_scope_quarantined_check_2026_11_11.py` takes `--exclude <earlier draw.csv>` so a second draw never repeats a body already read:
+`--counts multi=75 --exclude data/scope_quarantined_to_validate.csv --out data/multi_extra --seed 20261112` draws 75 more (about 100 in all, interval about 20 points). The draw runs on CPU; the Spanish
+reading aid is a paid LLM call (about 127,000 tokens for 75 bodies) and needs `--yes`. Score the filled file with `score_scope_validation_2026_11_11.py --file` and pool it with the first 25 `multi` rows.
 
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; read more `multi` bodies if the `sub_news` of the cut will be summarised and scored; keep the
 10,274 low-margin bodies as the review queue.

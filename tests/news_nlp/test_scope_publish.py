@@ -526,6 +526,12 @@ def test_the_validation_sample_is_stratified_by_predicted_scope_and_in_the_taggi
         draw_check.parse_counts("tennis=3")
 
 
+def test_an_earlier_draw_is_read_by_article_id_even_with_a_bom(tmp_path: Path) -> None:
+    earlier = tmp_path / "earlier.csv"
+    earlier.write_text("\ufeffreview_order,article_id\n1,42\n2,7\n", encoding="utf-8")
+    assert draw_check.article_ids_of(earlier) == {42, 7}
+
+
 def test_the_validation_is_scored_per_predicted_class_and_rejects_other_answers() -> None:
     rows = (
         [

@@ -3,6 +3,11 @@
     uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <nlp.db copy> [--out data] \
         [--counts out_of_scope=100,single=50,multi=25,sector=25] [--seed 20261111] [--text-cap 2000] [--yes]
 
+A second draw that adds to a file already read (owner 2026-11-11: ``multi`` had 25 bodies, interval 35 points wide) skips those bodies:
+
+    uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <nlp.db copy> --out data/multi_extra \\
+        --counts multi=75 --exclude data/scope_quarantined_to_validate.csv --seed 20261112 [--yes]
+
 Why: the held-out gold that measured the scope model (83.6%) may not represent the `quarantined` bodies, which are 79% of the
 corpus, and the model calls 59% of them `out_of_scope`. This draws, at random and per **predicted** scope, bodies of the pairs
 D36 calls `quarantined`, none of them (or a twin) already tagged in a gold file. The owner reads the title and the text (the first
@@ -19,6 +24,7 @@ are not in ``nlp.db`` alone). Writes ``<out>/scope_quarantined_to_validate.csv``
 from __future__ import annotations
 
 import argparse
+import csv
 import random
 import sqlite3
 import sys
@@ -63,6 +69,12 @@ def draw(
     return chosen
 
 
+def article_ids_of(path: Path) -> set[int]:
+    """The ``article_id`` column of an earlier draw (any BOM is handled), to keep its bodies out of this one."""
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        return {int(row["article_id"]) for row in csv.DictReader(handle)}
+
+
 def check_rows(chosen: list[dict[str, str]]) -> list[dict[str, str]]:
     return [
         {
@@ -84,6 +96,13 @@ def main() -> None:
     parser.add_argument("--gold", type=Path, default=Path("gold"))
     parser.add_argument("--revision", default="scope-nli-8ff21e50796b")
     parser.add_argument("--counts", default=DEFAULT_COUNTS)
+    parser.add_argument(
+        "--exclude",
+        type=Path,
+        action="append",
+        default=[],
+        help="an earlier draw (CSV with article_id): its bodies are not drawn again; repeat for several",
+    )
     parser.add_argument("--seed", type=int, default=20261111)
     parser.add_argument("--text-cap", type=int, default=2000)
     parser.add_argument("--yes", action="store_true", help="pay for the Spanish translation")
@@ -103,6 +122,8 @@ def main() -> None:
     )
     source = sqlite3.connect(f"file:{args.source_db}?mode=ro", uri=True)
     tagged = enrich.tagged_article_ids(args.gold)
+    for earlier in args.exclude:
+        tagged |= article_ids_of(earlier)
     skip = {
         triage.body_hash(body or "")
         for (body,) in source.execute(
