@@ -472,7 +472,7 @@ companies lose their text (17 marked `yes`, 1 `no`). On the texts that have a ma
 against 97.6% for `units` (323 of 331). **With intervals** (a bootstrap over the 60 bodies, as the confirmation set's, because the texts of a body
 are not independent): `units4` **97.4% [94.8, 99.3]**, `units` **97.6% [95.2, 99.4]**, the difference (paired, same bodies) **−0.2 points [−0.5, 0.0]**
 (10,000 redraws; `scripts/units4_vs_owner_marks_2026_11_11.py` prints them; as if the texts were independent the intervals are [94.9, 98.7] and [95.3, 98.8]). Read as a range: the two
-are the same within about a point, and the difference touches zero from below, so "same faithfulness" is what the data allow, not "better". Two limits of the figure: it is over the texts that have a mark
+are within about a point of each other. The paired difference is wholly at or below zero, so the honest reading is "not better, and possibly a fraction of a point lower" (part of that is the denominator: the 18 lost companies leave `units4`'s marked set), not "the same" and not "better"; the owner judged a loss that small acceptable for the gain in the faults. Two limits of the figure: it is over the texts that have a mark
 (the 7 unread changed texts and the 18 lost ones are not in it), and the bar is on the 306. **The price is 18 companies without a text (5.4%),
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
 companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10; the result is evidence, not a proof, and the owner decided on it (below).

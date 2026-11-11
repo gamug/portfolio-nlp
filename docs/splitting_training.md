@@ -440,6 +440,20 @@ split and the company that owns the text was looked for in every one (`scripts/s
   (a header read for these two shapes, as a new reading with its own revision, measured on the same 232 bodies and the owner's marks
   before it replaces the default). It does not block this PR: the fault is under 1% of the texts (13 of 1,589), and the 162 → 23 stands.
 
+**Two risks of the code review of #169, measured (2026-11-11, same copies; no code changed).**
+- *A mid-line "Name — text" whose name is of no universe company gives the rest of the line to nobody.* In 500 bodies there are 352 such
+  headers (232 distinct heads, 89 bodies, among 13,333 sentences). Read in full, **none is a prose dash** ("Analysts - X said"): they are
+  companies outside the universe (Utz Brands, Zions Bancorporation, Pinterest) and a few group labels (Airlines, Semiconductors, Steel).
+  The rule is what keeps their lines out of universe companies' texts: cutting 500 bodies again with mid-line headers of nobody ignored
+  changes 297 of 3,300 company texts (9.0%, 82 bodies): 0 lose text, 110 gain another company's lines (a Utz Brands line in Danaher's text).
+  Open: some heads look like universe companies the resolver did not match (Disney, JPMorgan, Bank of New York Mellon, Walgreens Boots
+  Alliance, Zions); not checked whether they are quarantined-only companies (not in the universe by construction) or a matching gap.
+- *A bracketed ticker may keep the header from being read.* In 3,000 bodies, 353 sentences have "(…) –" in their first 90 characters; 321 (91%) are read as
+  headers. Of the 32 not read, 13 are not headers (Reuters datelines, "(from Outperform) –", prose; the `(NYSE: X)` form appears once and is prose) and
+  **about 17 are headers missed (0.6% of bodies)**: 6 all-caps names ("BP (BP) –", the T-177 cause), **6 names with a period ("Amazon.com (AMZN) –", "Box Inc.
+  (BOX) –", "Fox Corp. (FOXA) –"; `_HEADER` excludes `.` from the head, checked on the regex)** and 5 with lowercase text after the dash ("American Express
+  (AXP) — solid momentum…"). The last two causes are added to T-177.
+
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
 
