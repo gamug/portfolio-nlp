@@ -9,10 +9,13 @@ It prints, for one extractor revision (default the latest):
 - sub-news per body (min, median, mean, p90, max) and the bodies with a single sub-news;
 - the length of a sub-news in characters (min, p10, median, p90, max) and how many are under 80 characters;
 - the bodies whose longest sub-news covers more than 80% of the body (the cut did not cut);
+- the pieces that end like a fragment (under 80 characters and no final . ! ? or quote: "Marvell Technology rallied 12%,");
+- the pieces that hold two or more "Name —" headings (a list written in one paragraph that was not split: a company whose text
+  carries other companies' news), and the bodies with at least one;
 - the pieces under 30 characters and the pieces that are only a name and a dash ("Micron Technology —": a company left without
   its sentence), and the bodies with at least one of them.
 ``--sample N`` also writes N bodies with the body and each sub-news, for a person to read (not a tagging file: no validator
-column, so no Spanish columns): first every flagged body (not cut, or with a tiny or heading-only piece), then random ones up to N,
+column, so no Spanish columns): up to a third of N for each kind of flag (not cut, tiny piece, several headings in a piece), then random bodies up to N,
 with a ``flag`` column. Reads both files read-only: pass **copies** of ``nlp.db`` (with its ``-wal``) and ``urls.db``; the
 owner's databases sit on a mount where a read-only open fails with "disk I/O error".
 """
@@ -34,10 +37,25 @@ from news_nlp import triage
 
 SHORT = 80  # characters: a sub-news this short is a heading, not a story
 WHOLE = 0.8  # a sub-news this share of the body or more: the body was not cut
+SEVERAL = 2  # headings in one piece: the piece is more than one company's news
 TINY = 30  # characters: a piece this short carries no news
 HEADING = re.compile(
     r"^[^.!?]{1,60}\s[\u2014\u2013-]\s*$"
 )  # "Micron Technology —": the company's name and nothing else
+
+
+# a heading inside a piece: at its start, after a sentence end or after a run of spaces, "Name (TICKER) - " with a dash
+INNER_HEADING = re.compile(r"(?:^|[.!?]\s+|\s{2,})[A-Z][^.!?\u2014\u2013]{1,50}\s[\u2014\u2013]\s")
+SENTENCE_END = re.compile(r"[.!?\"\u201d]\s*$")
+
+
+def is_fragment(piece: str) -> bool:
+    """Under 80 characters and not ending like a sentence: a clause cut in half, a heading, a list of names."""
+    return len(piece) < SHORT and not SENTENCE_END.search(piece.strip())
+
+
+def holds_several_headings(piece: str) -> bool:
+    return len(INNER_HEADING.findall(piece)) >= SEVERAL
 
 
 def is_tiny(piece: str) -> bool:
@@ -51,6 +69,8 @@ def flag_of(pieces: list[str], body_len: int) -> str:
         flags.append("not_cut")
     if any(is_tiny(x) for x in pieces):
         flags.append("tiny_piece")
+    if any(holds_several_headings(x) for x in pieces):
+        flags.append("several_headings")
     return "+".join(flags)
 
 
@@ -96,6 +116,15 @@ def summarise(
         "sub_news_chars": quantiles(lengths),
         f"sub_news_under_{SHORT}_chars": sum(1 for n in lengths if n < SHORT),
         f"bodies_not_cut_(longest>={int(WHOLE * 100)}%_of_body)": len(whole),
+        f"pieces_under_{SHORT}_chars_not_ending_like_a_sentence": sum(
+            1 for t in per_body.values() for x in t if is_fragment(x)
+        ),
+        "pieces_with_several_headings": sum(
+            1 for t in per_body.values() for x in t if holds_several_headings(x)
+        ),
+        "bodies_with_a_piece_of_several_headings": sum(
+            1 for t in per_body.values() if any(holds_several_headings(x) for x in t)
+        ),
         f"pieces_under_{TINY}_chars": sum(1 for n in lengths if n < TINY),
         "heading_only_pieces": sum(
             1 for t in per_body.values() for x in t if HEADING.match(x.strip())
@@ -162,9 +191,16 @@ def main() -> None:
     if args.sample:
         rng = random.Random(args.seed)  # noqa: S311 -- a reproducible draw, not security
         flags = {k: flag_of(per_body[k], len(b[2])) for k, b in bodies.items()}
-        flagged = sorted(k for k, f in flags.items() if f)
-        rest = sorted(k for k, f in flags.items() if not f)
-        chosen = flagged + rng.sample(rest, max(0, min(args.sample - len(flagged), len(rest))))
+        chosen = []
+        for kind in (
+            "not_cut",
+            "tiny_piece",
+            "several_headings",
+        ):  # up to a third of N for each kind of flag
+            pool = sorted(k for k, f in flags.items() if kind in f and k not in chosen)
+            chosen += rng.sample(pool, min(len(pool), max(1, args.sample // 3)))
+        rest = sorted(k for k, f in flags.items() if k not in chosen)  # then any body, to fill N
+        chosen += rng.sample(rest, max(0, min(args.sample - len(chosen), len(rest))))
         with open(args.out, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["article_id", "title", "body", "flag", "n_sub_news", "sub_news"])

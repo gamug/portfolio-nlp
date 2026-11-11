@@ -459,3 +459,37 @@ def test_tiny_and_heading_only_pieces_are_counted_and_flagged() -> None:
     assert quality.flag_of(per_body["b"], 100) == "not_cut"
     assert quality.flag_of(per_body["a"], 500) == "tiny_piece"
     assert quality.flag_of(["x" * 200, "y" * 200], 1000) == ""
+
+
+def test_the_determinism_check_counts_the_bodies_that_change() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import cut_determinism_check_2026_11_11 as det  # noqa: PLC0415 -- a script, not a package
+
+    stored = {"a": ["x", "y"], "b": ["z"]}
+    bodies = [("a", "text a"), ("b", "text b")]
+    same = det.compare(lambda t: stored["a"] if t == "text a" else stored["b"], bodies, stored)
+    assert same == {"bodies": 2, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    calls: dict[str, int] = {}
+
+    def flips(
+        text: str,
+    ) -> list[str]:  # the second cut of body b differs, and both differ from the stored rows
+        calls[text] = calls.get(text, 0) + 1
+        return ["x", "y"] if text == "text a" else [f"z{calls[text]}"]
+
+    got = det.compare(flips, bodies, stored)
+    assert got == {"bodies": 2, "differ_from_stored": 1, "differ_between_two_runs": 1}
+
+
+def test_fragments_and_several_headings_are_told_apart() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import cut_quality_check_2026_11_11 as quality  # noqa: PLC0415 -- a script, not a package
+
+    assert quality.is_fragment("Marvell Technology rallied 12%,")
+    assert not quality.is_fragment("Shares rose 3%.")
+    two = "RTX — The defense name sank nearly 10%. Calix — The technology services company jumped."
+    assert quality.holds_several_headings(two)
+    assert not quality.holds_several_headings(
+        "Micron Technology — Shares ticked up after an upgrade."
+    )
+    assert quality.flag_of([two], 100000) == "several_headings"

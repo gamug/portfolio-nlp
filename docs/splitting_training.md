@@ -387,13 +387,22 @@ pruning could change the output).
   about two companies (3M and Avery Dennison ending a deal, Ford and 3M making respirators, Shire and AbbVie, Seattle Genetics
   and Abbott…), written as one piece.** The cut is right to leave them whole: the text is one sub-news that both companies
   read (the sub-news keeps no ticker). They are not a step 1 error.
-- *Tiny pieces:* 27 pieces (1.6%) are under 30 characters; **6 are only a name and a dash ("Micron Technology —")**, in a
-  list written in one paragraph; 5 of the 6 have the next piece starting with the sentence or with the next company, and
-  one ("Eli Lilly —") is the last piece, so that company's sentence is lost. 19 bodies (8.2%) have at least one tiny
-  piece. It is 0.4% of the pieces, the output of the extractor the owner selected (94.0% faithful on its gold), and fixing
-  it means a new extractor revision (minimum piece length): **left to T-176, it does not block the full run.**
+- *Short pieces:* 128 pieces (7.8%) are under 80 characters, **but only 50 of them end like a sentence; 78 (4.8%) are
+  fragments** ("Marvell Technology rallied 12%,", "Nvidia — The chipmaker rose more than 3%,"), a clause cut in half. 27 are
+  under 30 characters and 6 are only a name and a dash ("Micron Technology —"); 19 bodies (8.2%) have a piece under 30.
+- *Where the sentence of a heading-only piece went (all 6 traced in the body):* it is **not lost from the body**; it sits in
+  another piece in all 6. In 5 of 6 that piece does not name the company (Quest Diagnostics, Eli Lilly, Abbott Labs, Micron,
+  Qorvo/Skyworks): the heading is the only unit that names the company, the sentence names none and went to the company the
+  model chose, so **the company keeps a heading and its sentence is read as another company's news**. In 1 (Norwegian…) the
+  sentence's piece starts with the full heading and the heading-only piece is a duplicate. (Pieces are in the order of the
+  companies, not of the body, so "the next piece" says nothing; an earlier version of this paragraph read it that way.)
+- *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
+  (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
+  read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
+  all five are real (a text with three to six companies in it). **Both faults go to T-176; with 34% of the bodies touched I
+  would not start the full run before the owner decides whether T-176 comes first** (a rerun at a new revision is 2.5 to 3 h).
 - *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
-- *Same input, same output:* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
+- *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
   one process: **0 of 30 differ in both**, at the same revision `units-75642e3f4f72`. (An earlier dry run gave 1,683 rows on
   a set of 232 bodies that was not kept; it cannot be compared, and nothing in this check suggests a difference.)
 - *Reading 4 bodies first, then the flagged ones:* a "stocks making moves" list is cut well, one sub-news per company; a deal
@@ -401,10 +410,11 @@ pruning could change the output).
 - *Reading file:* `--sample N --out data/cut_sample_to_read.csv` writes every flagged body (not cut, or with a tiny piece)
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
-**Before the full run.** The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
-(`data/scope_quarantined_to_validate.csv`). A wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows that
-the later steps would read as company news, so rows from the cut are not used downstream until that validation is in. The run
-itself may start now: it writes a new revision of rows and nothing else, and a rerun after the validation adds only what is new.
+**Before the full run.** (1) T-176: the two faults above touch about a third of the bodies; the owner decides if the extractor is
+fixed first. (2) The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
+(`data/scope_quarantined_to_validate.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
+later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until that
+validation is in** (the condition is also in T-165). The run writes a new revision of rows and nothing else.
 
 ## 9. Index of the work
 
