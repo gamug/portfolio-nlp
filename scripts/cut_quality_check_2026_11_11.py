@@ -9,8 +9,12 @@ It prints, for one extractor revision (default the latest):
 - sub-news per body (min, median, mean, p90, max) and the bodies with a single sub-news;
 - the length of a sub-news in characters (min, p10, median, p90, max) and how many are under 80 characters;
 - the bodies whose longest sub-news covers more than 80% of the body (the cut did not cut);
-``--sample N`` also writes N random done bodies with the body and each sub-news, for a person to read (not a tagging file: no
-validator column, so no Spanish columns). Reads both files read-only: pass copies of ``nlp.db`` and ``urls.db``.
+- the pieces under 30 characters and the pieces that are only a name and a dash ("Micron Technology —": a company left without
+  its sentence), and the bodies with at least one of them.
+``--sample N`` also writes N bodies with the body and each sub-news, for a person to read (not a tagging file: no validator
+column, so no Spanish columns): first every flagged body (not cut, or with a tiny or heading-only piece), then random ones up to N,
+with a ``flag`` column. Reads both files read-only: pass **copies** of ``nlp.db`` (with its ``-wal``) and ``urls.db``; the
+owner's databases sit on a mount where a read-only open fails with "disk I/O error".
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import random
+import re
 import sqlite3
 import statistics
 import sys
@@ -29,6 +34,24 @@ from news_nlp import triage
 
 SHORT = 80  # characters: a sub-news this short is a heading, not a story
 WHOLE = 0.8  # a sub-news this share of the body or more: the body was not cut
+TINY = 30  # characters: a piece this short carries no news
+HEADING = re.compile(
+    r"^[^.!?]{1,60}\s[\u2014\u2013-]\s*$"
+)  # "Micron Technology —": the company's name and nothing else
+
+
+def is_tiny(piece: str) -> bool:
+    return len(piece.strip()) < TINY or bool(HEADING.match(piece.strip()))
+
+
+def flag_of(pieces: list[str], body_len: int) -> str:
+    """Why a body is worth reading: ``not_cut``, ``tiny_piece``, both joined by ``+``, or empty."""
+    flags = []
+    if body_len and max(len(x) for x in pieces) >= WHOLE * body_len:
+        flags.append("not_cut")
+    if any(is_tiny(x) for x in pieces):
+        flags.append("tiny_piece")
+    return "+".join(flags)
 
 
 def quantiles(values: list[int]) -> dict[str, float]:
@@ -73,7 +96,26 @@ def summarise(
         "sub_news_chars": quantiles(lengths),
         f"sub_news_under_{SHORT}_chars": sum(1 for n in lengths if n < SHORT),
         f"bodies_not_cut_(longest>={int(WHOLE * 100)}%_of_body)": len(whole),
+        f"pieces_under_{TINY}_chars": sum(1 for n in lengths if n < TINY),
+        "heading_only_pieces": sum(
+            1 for t in per_body.values() for x in t if HEADING.match(x.strip())
+        ),
+        "bodies_with_a_tiny_or_heading_piece": sum(
+            1 for t in per_body.values() if any(is_tiny(x) for x in t)
+        ),
     }
+
+
+def latest_cut_revision(res: sqlite3.Connection) -> str:
+    """The extractor revision of the most recent cut state; exits with a message when the file has none."""
+    row = res.execute(
+        "SELECT model_revision FROM pipeline_step_state WHERE step = 'cut' ORDER BY finished_at DESC, rowid DESC LIMIT 1"
+    ).fetchone()
+    if row is None:
+        sys.exit(
+            "no cut state in this file: run `--step cut` first (or pass the right --results-db)"
+        )
+    return str(row[0])
 
 
 def main() -> None:
@@ -90,12 +132,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261111)
     args = parser.parse_args()
     res = sqlite3.connect(f"file:{args.results_db}?mode=ro", uri=True)
-    revision = (
-        args.revision
-        or res.execute(
-            "SELECT model_revision FROM pipeline_step_state WHERE step = 'cut' ORDER BY finished_at DESC, rowid DESC LIMIT 1"
-        ).fetchone()[0]
-    )
+    revision = args.revision or latest_cut_revision(res)
     per_body: dict[str, list[str]] = {}
     for body_hash, text in res.execute(
         "SELECT body_hash, text FROM sub_news WHERE extractor_revision = ? ORDER BY body_hash, segment_index",
@@ -124,14 +161,24 @@ def main() -> None:
         print(f"  {key}: {value}")
     if args.sample:
         rng = random.Random(args.seed)  # noqa: S311 -- a reproducible draw, not security
-        chosen = rng.sample(sorted(bodies), min(args.sample, len(bodies)))
+        flags = {k: flag_of(per_body[k], len(b[2])) for k, b in bodies.items()}
+        flagged = sorted(k for k, f in flags.items() if f)
+        rest = sorted(k for k, f in flags.items() if not f)
+        chosen = flagged + rng.sample(rest, max(0, min(args.sample - len(flagged), len(rest))))
         with open(args.out, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["article_id", "title", "body", "n_sub_news", "sub_news"])
+            writer.writerow(["article_id", "title", "body", "flag", "n_sub_news", "sub_news"])
             for key in chosen:
                 article_id, title, text = bodies[key]
                 writer.writerow(
-                    [article_id, title, text, len(per_body[key]), "\n---\n".join(per_body[key])]
+                    [
+                        article_id,
+                        title,
+                        text,
+                        flags[key],
+                        len(per_body[key]),
+                        "\n---\n".join(per_body[key]),
+                    ]
                 )
         print(f"wrote {len(chosen)} bodies to {args.out}")
 

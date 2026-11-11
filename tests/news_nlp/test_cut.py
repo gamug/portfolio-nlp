@@ -275,6 +275,13 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     return asked
 
 
+def _model(tmp_path: Path) -> list[str]:
+    """``--model-dir`` of an existing folder (the stub extractor does not read it)."""
+    folder = tmp_path / "model"
+    folder.mkdir(exist_ok=True)
+    return ["--model-dir", str(folder)]
+
+
 def _paths(pair: db_module.NewsNlpDatabase, tmp_path: Path, results_db_path: Path) -> list[str]:
     return ["--results-db", str(results_db_path), "--source-db", str(tmp_path / "src.db")]
 
@@ -287,10 +294,13 @@ def test_the_cut_command_writes_sub_news_and_prints_the_counts(
     capsys: pytest.CaptureFixture[str],
     stub_model: list[Path],
 ) -> None:
-    _argv(monkeypatch, "--step", "cut", "--limit", "2", *_paths(pair, tmp_path, results_db_path))
+    _argv(
+        monkeypatch, "--step", "cut", "--limit", "2", *_model(tmp_path),
+        *_paths(pair, tmp_path, results_db_path),
+    )  # fmt: skip
     out = capsys.readouterr().out
     assert f'"scope_revision": "{SCOPE_REV}"' in out and '"sub_news": 4' in out
-    assert stub_model[0].name == "attribution_2026_11_08"  # the default model folder
+    assert stub_model[0].name == "model"  # the folder given is the one loaded
     assert pair.execute("SELECT COUNT(*) FROM sub_news").fetchone()[0] == 4
 
 
@@ -303,7 +313,7 @@ def test_the_cut_command_reads_the_scope_revision_it_is_given(
     stub_model: list[Path],
 ) -> None:
     _argv(
-        monkeypatch, "--step", "cut", "--scope-revision", "scope-nli-other",
+        monkeypatch, "--step", "cut", "--scope-revision", "scope-nli-other", *_model(tmp_path),
         *_paths(pair, tmp_path, results_db_path),
     )  # fmt: skip
     assert '"done": 0' in capsys.readouterr().out
@@ -394,3 +404,58 @@ def test_the_quality_breakdown_counts_what_a_reader_would_worry_about() -> None:
     assert got["sub_news_under_80_chars"] == 1  # the 50-character one
     assert got["bodies_not_cut_(longest>=80%_of_body)"] == 2  # b (50 of 60) and c (900 of 1000)
     assert quality.quantiles([])["max"] == 0.0
+
+
+def test_a_model_folder_that_is_not_there_stops_with_a_message(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(SystemExit, match="is not a folder"):
+        _argv(
+            monkeypatch, "--step", "cut", "--model-dir", str(tmp_path / "nothing"),
+            *_paths(pair, tmp_path, results_db_path),
+        )  # fmt: skip
+
+
+def test_a_model_folder_without_weights_stops_with_a_message(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    empty = tmp_path / "empty_model"
+    empty.mkdir()
+    with pytest.raises(SystemExit, match="not a trained model directory"):
+        _argv(
+            monkeypatch, "--step", "cut", "--model-dir", str(empty),
+            *_paths(pair, tmp_path, results_db_path),
+        )  # fmt: skip
+
+
+def test_the_quality_script_says_so_when_there_is_no_cut_state(tmp_path: Path) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import cut_quality_check_2026_11_11 as quality  # noqa: PLC0415 -- a script, not a package
+
+    empty = sqlite3.connect(tmp_path / "e.db")
+    empty.execute("CREATE TABLE pipeline_step_state (step, model_revision, finished_at)")
+    with pytest.raises(SystemExit, match="no cut state"):
+        quality.latest_cut_revision(empty)
+
+
+def test_tiny_and_heading_only_pieces_are_counted_and_flagged() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import cut_quality_check_2026_11_11 as quality  # noqa: PLC0415 -- a script, not a package
+
+    assert quality.is_tiny("Micron Technology —") and quality.is_tiny("Short.")
+    assert not quality.is_tiny("Micron Technology — Shares ticked up 1% after an upgrade.")
+    per_body = {
+        "a": ["Micron Technology —", "Shares ticked up after an upgrade by the bank."],
+        "b": ["x" * 100],
+    }
+    got = quality.summarise(per_body, {"a": 500, "b": 100}, skipped=0)
+    assert got["heading_only_pieces"] == 1 and got["bodies_with_a_tiny_or_heading_piece"] == 1
+    assert quality.flag_of(per_body["b"], 100) == "not_cut"
+    assert quality.flag_of(per_body["a"], 500) == "tiny_piece"
+    assert quality.flag_of(["x" * 200, "y" * 200], 1000) == ""

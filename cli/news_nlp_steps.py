@@ -176,7 +176,14 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         )
     from cut_stage import UnitsExtractor, companies_of  # noqa: PLC0415 -- loads torch
 
-    extractor = UnitsExtractor.load(args.model_dir, companies_of(conn))
+    if not args.model_dir.is_dir():
+        sys.exit(
+            f"{args.model_dir} is not a folder: the attribution checkpoint is local (T-148b12), copy it there or pass --model-dir"
+        )
+    try:
+        extractor = UnitsExtractor.load(args.model_dir, companies_of(conn))
+    except ValueError as exc:  # the folder lacks a model file: say so, not a stack
+        sys.exit(str(exc))
     try:
         counts = run_cut(conn, extractor, scope_revision, args.limit)
     except RunAborted as exc:

@@ -383,14 +383,28 @@ pruning could change the output).
 **Quality check (`scripts/cut_quality_check_2026_11_11.py`, read-only):**
 - *Sub-news per body:* min 1, median 7, mean 7.1, p90 13, max 24; 24 bodies (10%) give a single sub-news.
 - *Length:* median 268 characters, p10 94, p90 590, max 7,843; **128 of the 1,639 (7.8%) are under 80 characters**.
-- *Not cut:* 11 bodies (4.7%) have a sub-news that is 80% or more of the body.
-- *Skipped:* none in this sample, so the "no company text" path is only covered by tests.
-- *Reading 4 bodies:* a "stocks making moves" list is cut well, one sub-news per company (two lists give 8 and 12 pieces);
-  a deal story with two companies keeps its paragraphs; a one-company story stays whole. **Where a list is written in one
-  paragraph ("Micron Technology — Shares ticked up…"), a heading can be left alone as a piece ("Micron Technology —") and the
-  sentence that follows goes to another piece**: that is the main source of the short pieces. It is the selected extractor's
-  behaviour, not a bug of the step; fixing it means a new extractor revision (T-148b).
-- A sample of 12 cut bodies for reading: `--sample 12 --out cut_sample.csv`.
+- *Not cut:* 11 bodies (4.7%) have a sub-news that is 80% or more of the body. **All 11 were read: every one is a story
+  about two companies (3M and Avery Dennison ending a deal, Ford and 3M making respirators, Shire and AbbVie, Seattle Genetics
+  and Abbott…), written as one piece.** The cut is right to leave them whole: the text is one sub-news that both companies
+  read (the sub-news keeps no ticker). They are not a step 1 error.
+- *Tiny pieces:* 27 pieces (1.6%) are under 30 characters; **6 are only a name and a dash ("Micron Technology —")**, in a
+  list written in one paragraph; 5 of the 6 have the next piece starting with the sentence or with the next company, and
+  one ("Eli Lilly —") is the last piece, so that company's sentence is lost. 19 bodies (8.2%) have at least one tiny
+  piece. It is 0.4% of the pieces, the output of the extractor the owner selected (94.0% faithful on its gold), and fixing
+  it means a new extractor revision (minimum piece length): **left to T-176, it does not block the full run.**
+- *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
+- *Same input, same output:* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
+  one process: **0 of 30 differ in both**, at the same revision `units-75642e3f4f72`. (An earlier dry run gave 1,683 rows on
+  a set of 232 bodies that was not kept; it cannot be compared, and nothing in this check suggests a difference.)
+- *Reading 4 bodies first, then the flagged ones:* a "stocks making moves" list is cut well, one sub-news per company; a deal
+  story with two companies stays whole; a one-company story stays whole.
+- *Reading file:* `--sample N --out data/cut_sample_to_read.csv` writes every flagged body (not cut, or with a tiny piece)
+  and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
+
+**Before the full run.** The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
+(`data/scope_quarantined_to_validate.csv`). A wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows that
+the later steps would read as company news, so rows from the cut are not used downstream until that validation is in. The run
+itself may start now: it writes a new revision of rows and nothing else, and a rerun after the validation adds only what is new.
 
 ## 9. Index of the work
 
