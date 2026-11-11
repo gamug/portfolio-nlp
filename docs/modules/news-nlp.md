@@ -400,6 +400,15 @@ lean `articles` rows itself.
 - Scripts: `scripts/size_triage_2026_10_28.py` (`size`, `gold`), read-only;
   `scripts/export_gold_review_2026_10_26.py`.
 
+- `scripts/scope_title_baseline_2026_11_10.py` (T-147, development only) — the scope classifier from the title, measured
+  on the 200 held-out bodies, weighted to the corpus. Runs: no flag (TF-IDF + logistic regression on the title: 66.4%);
+  `--body-chars N` (title + first N characters: 65.7% / 62.5% / 57.1% for 300 / 600 / 1500); `--company-features
+  [--first M] [--count-scale S | --choose-scale]` (adds the capped count of distinct universe companies in the title,
+  the first M characters and the body, scaled by S; `--choose-scale` picks S by cross-validation on the training rows
+  only; 68.1% at S = 0.3, 66.9% at S = 1). It prints the paired differences against the title-only model and the rules
+  (exploratory per class), the learned count weights, and the SHA-256 of `gold/universe.csv` and `triage.py`. Needs
+  `scikit-learn` and `scipy` (eval group). Figures and the owner's options: `.specify/memory/TASKS.md`, T-147.
+
 ## Sentiment on the owner's summaries (Work item 18, T-148c, development only)
 
 A candidate sentiment model, fine-tuned from the pinned one on the owner's tagged summaries and read as the

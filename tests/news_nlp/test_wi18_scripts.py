@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from news_nlp import gold_metrics, retag
+from news_nlp import gold_metrics, retag, triage
 from news_nlp.gics_codes import SUB_INDUSTRY_CODES
 from news_nlp.gold_metrics import MarkedFileError
 
@@ -4024,3 +4024,141 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
     monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
     with pytest.raises(SystemExit, match="needs HF_TOKEN"):
         PUBLISH.main()
+
+
+UNIVERSE_SHA256 = "2c1272429c6945012dcc797b128a78fc437136bcd7f90e1d4414e9a45aed55d3"
+TOY_NAMES = (
+    "Zorblax Holdings",
+    "Quillon Systems",
+    "Vantrell Motors",
+    "Brindle Foods",
+    "Kestrel Mining",
+    "Ombrewick Power",
+)
+
+
+def _toy_features(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bodies: list[tuple[str, str]]
+) -> Any:
+    """Features of toy rows (title, body) with a toy universe of six invented companies, first 30 characters."""
+    baseline = _script("scope_title_baseline_2026_11_10")
+    (tmp_path / "texts").mkdir()
+    with (tmp_path / "texts" / "toy.csv").open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["article_id", "ticker", "title", "text"])
+        writer.writerows((str(i), "T", title, body) for i, (title, body) in enumerate(bodies))
+    monkeypatch.setattr(baseline, "GOLD", tmp_path)
+    companies = [
+        triage.Company(f"C{i}", name, "Industrials", "") for i, name in enumerate(TOY_NAMES)
+    ]
+    rows = [{"article_id": str(i), "ticker": "T"} for i in range(len(bodies))]
+    return baseline, baseline.company_features(
+        triage.CompanyResolver(companies), rows, "toy.csv", 20
+    )
+
+
+def test_the_company_features_count_distinct_capped_companies_in_each_part(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    n = TOY_NAMES
+    bodies = [
+        ("nothing here", "nothing here either"),
+        (n[0], f"{n[0]} and {n[1]} agree"),
+        ("no names", f"{n[0]} sued {n[0]} and {n[0]}"),  # one company, three times: counts once
+        (" ".join(n[:5]), " ".join(n)),  # 5 and 6 companies: the cap bucket
+        ("no names", f"a long lead of text. {n[2]} {n[3]}"),  # after the first 30 characters
+    ]
+    baseline, feats = _toy_features(tmp_path, monkeypatch, bodies)
+    cap = baseline.CAP
+    assert cap == 4 and feats.shape == (5, 3 * (cap + 1))
+    dense = feats.toarray()
+
+    def bucket(row: int, part: int) -> int:
+        return int(dense[row, part * (cap + 1) : (part + 1) * (cap + 1)].argmax())
+
+    assert [bucket(0, k) for k in range(3)] == [0, 0, 0]
+    assert [bucket(1, k) for k in range(3)] == [1, 1, 2]  # title, first 30 characters, body
+    assert [bucket(2, k) for k in range(3)] == [0, 1, 1]  # distinct: three mentions are one
+    assert [bucket(3, k) for k in range(3)] == [cap, 1, cap]  # the cap is one bucket
+    assert [bucket(4, k) for k in range(3)] == [0, 0, 2]  # only after the first 30 characters
+    assert (dense.sum(axis=1) == 3).all()  # one bucket per part
+
+
+def test_the_recorded_universe_is_fingerprinted_and_the_matcher_digest_follows_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    _, digest = baseline.universe_resolver()
+    assert (
+        digest == UNIVERSE_SHA256
+    )  # a changed gold/universe.csv fails here: measure again, record the new hash
+    fake = tmp_path / "triage.py"
+    fake.write_text("version one", encoding="utf-8")
+    monkeypatch.setattr(triage, "__file__", str(fake))
+    first = baseline.matcher_digest()
+    assert first == hashlib.sha256(b"version one").hexdigest()
+    fake.write_text("version two", encoding="utf-8")
+    assert baseline.matcher_digest() != first  # a change to the matcher's code changes the digest
+
+
+def _weighted_rows() -> list[dict[str, str]]:
+    """Six bodies of stratum a (population 100) and four of stratum b (population 20); all single."""
+    rows = [
+        {"article_id": str(i), "stratum": "a", "frame": "100", "scope": "single"} for i in range(6)
+    ]
+    rows += [
+        {"article_id": str(10 + i), "stratum": "b", "frame": "20", "scope": "single"}
+        for i in range(4)
+    ]
+    return rows
+
+
+def test_the_paired_lines_weight_the_strata_and_report_every_class() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    rows = _weighted_rows()
+    right = ["single"] * 10
+    wrong_in_a = ["multi"] * 3 + ["single"] * 7  # 3 of the 6 bodies of a: weight 3 * 100/6 of 120
+    wrong_in_b = ["single"] * 6 + ["multi"] * 2 + ["single"] * 2  # 2 of the 4 of b: 2 * 20/4 of 120
+    big = baseline.paired_lines(rows, wrong_in_a, {"baseline": right})
+    small = baseline.paired_lines(rows, wrong_in_b, {"baseline": right})
+    assert len(big) == 5  # agreement and the recall of each of the four classes
+    assert [line.split(",")[1].strip() for line in big] == [
+        "agreement",
+        "recall of single",
+        "recall of multi",
+        "recall of sector",
+        "recall of out_of_scope",
+    ]
+    assert "-41.7%" in big[0]  # 50 of 120 of the weight is wrong: the big stratum counts more
+    assert "-8.3%" in small[0]  # 10 of 120
+    assert big[0].endswith("(not better)") or big[0].endswith("(not decided)")
+    assert big[3].endswith("(undefined)")  # no sector in this gold: the recall does not exist
+
+
+def test_an_improvement_and_a_tie_give_their_verdicts() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    rows = _weighted_rows()
+    right = ["single"] * 10
+    wrong = ["multi"] * 10
+    better = baseline.paired_lines(rows, right, {"baseline": wrong})
+    assert "100.0%" in better[0] and better[0].endswith("(better)")
+    tie = baseline.paired_lines(rows, right, {"baseline": right})
+    assert "0.0%" in tie[0] and tie[0].endswith(
+        "(not decided)"
+    )  # an interval of width 0 decides nothing
+
+
+def test_the_training_cross_validation_of_the_count_scale_reads_only_the_training_rows() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    words = {"single": "alpha", "multi": "bravo", "sector": "charlie", "out_of_scope": "delta"}
+    labels = [label for label in words for _ in range(10)]
+    texts = [f"{words[label]} headline {i}" for i, label in enumerate(labels)]
+    counts = baseline.csr_matrix(np.ones((40, 3 * (baseline.CAP + 1))))  # carries no information
+    out = baseline.cv_scales(texts, counts, labels, scales=(1.0, 0.0))
+    assert set(out) == {1.0, 0.0}
+    for recalls in out.values():
+        assert set(recalls) == {"single", "multi", "sector", "out_of_scope", "macro"}
+        assert recalls["macro"] == pytest.approx(
+            sum(recalls[c] for c in ("single", "multi", "sector", "out_of_scope")) / 4
+        )
+    assert out[0.0]["macro"] == 1.0  # the title words alone separate the classes
