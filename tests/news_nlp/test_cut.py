@@ -262,13 +262,18 @@ def _argv(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
     _cli().main()  # type: ignore[attr-defined]
 
 
+READINGS_ASKED: list[str] = []  # the reading each `--step cut` run asked the extractor for
+
+
 @pytest.fixture
 def stub_model(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
     """``UnitsExtractor.load`` returns a stub and records the folder it was asked for."""
     asked: list[Path] = []
+    READINGS_ASKED.clear()
 
-    def load(model_dir: Path, companies: Sequence[Company]) -> _Stub:
+    def load(model_dir: Path, companies: Sequence[Company], reading: str = "units") -> _Stub:
         asked.append(model_dir)
+        READINGS_ASKED.append(reading)
         return _Stub()
 
     monkeypatch.setattr(cut_stage.UnitsExtractor, "load", staticmethod(load))
@@ -493,3 +498,84 @@ def test_fragments_and_several_headings_are_told_apart() -> None:
         "Micron Technology — Shares ticked up after an upgrade."
     )
     assert quality.flag_of([two], 100000) == "several_headings"
+
+
+def test_the_cut_command_reads_with_units_unless_it_is_told_otherwise(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model: list[Path],
+) -> None:
+    common = [*_model(tmp_path), *_paths(pair, tmp_path, results_db_path)]
+    _argv(monkeypatch, "--step", "cut", "--limit", "1", *common)
+    _argv(monkeypatch, "--step", "cut", "--limit", "1", "--reading", "units4", *common)
+    assert READINGS_ASKED == ["units", "units4"]
+
+
+def test_the_reading_is_part_of_the_revision_and_the_units_one_is_unchanged() -> None:
+    names = {c.ticker: c.name for c in UNIVERSE}
+    base = revision_of("local:one", names)
+    assert base == revision_of("local:one", names, "units")
+    other = revision_of("local:one", names, "units4")
+    assert other != base and other.startswith("units4-")
+    with pytest.raises(ValueError, match="reading 'units2'"):
+        UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units2")  # type: ignore[arg-type]
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units4").revision != (
+        UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").revision
+    )
+
+
+def test_the_comparison_of_two_readings_counts_faults_and_movements() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import compare_cut_readings_2026_11_11 as cmp  # noqa: PLC0415 -- a script, not a package
+
+    two = "RTX — The defense name sank. Calix — The technology company jumped."
+    a = {"b1": {"AAA": two, "BBB": "Alpha rose 3% on the day."}, "b2": {"CCC": "Gamma fell."}}
+    b = {
+        "b1": {"AAA": "RTX — The defense name sank.", "BBB": "Alpha rose 3% on the day."},
+        "b2": {},
+    }
+    old = cmp.fault_counts({h: list(v.values()) for h, v in a.items()})
+    new = cmp.fault_counts({h: list(v.values()) for h, v in b.items()})
+    assert old["texts_with_several_headings"] == 1 and new["texts_with_several_headings"] == 0
+    assert old["bodies_with_such_a_text"] == 1 and new["bodies_with_such_a_text"] == 0
+    moved = cmp.movement(a, b)
+    assert moved == {"lost": [("b2", "CCC")], "gained": [], "changed": [("b1", "AAA")]}
+    assert cmp.compare(lambda t: {"X": t}, lambda t: {"Y": t}, [("h", "text")]) == (
+        {"h": {"X": "text"}},
+        {"h": {"Y": "text"}},
+    )
+
+
+def test_the_owner_marks_are_looked_up_by_text_and_the_outcomes_are_told_apart(
+    tmp_path: Path,
+) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import units4_vs_owner_marks_2026_11_11 as marks_script  # noqa: PLC0415 -- a script, not a package
+
+    (tmp_path / "faithfulness_ids.csv").write_text(
+        "review_order,key,article_id,ticker,text_hash\n"
+        f"1,1#AAA#1,1,AAA,{marks_script.text_hash('same text')}\n"
+        f"2,1#BBB#1,1,BBB,{marks_script.text_hash('old text')}\n"
+        f"3,1#CCC#1,1,CCC,{marks_script.text_hash('read already')}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "faithfulness_to_tag.csv").write_text(
+        "review_order,faithful\n1,yes\n2,no\n3,YES\n", encoding="utf-8"
+    )
+    marks = marks_script.read_marks(tmp_path)
+    assert marks[("1", "AAA", marks_script.text_hash("same text"))] == "yes"
+    assert (
+        marks[("1", "CCC", marks_script.text_hash("read already"))] == "yes"
+    )  # case is not a difference
+    classify = marks_script.classify
+    assert classify("same text", "same text", marks, "1", "AAA") == ("same", "yes", "yes")
+    assert classify("old text", None, marks, "1", "BBB") == ("lost", "no", None)
+    assert classify("old text", "read already", marks, "1", "CCC") == ("changed", None, "yes")
+    assert classify("old text", "new text", marks, "1", "BBB") == (
+        "changed",
+        "no",
+        None,
+    )  # B unread
+    assert classify(None, "new text", marks, "1", "BBB") == ("gained", None, None)

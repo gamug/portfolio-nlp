@@ -181,7 +181,7 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             f"{args.model_dir} is not a folder: the attribution checkpoint is local (T-148b12), copy it there or pass --model-dir"
         )
     try:
-        extractor = UnitsExtractor.load(args.model_dir, companies_of(conn))
+        extractor = UnitsExtractor.load(args.model_dir, companies_of(conn), args.reading)
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
     try:
@@ -255,6 +255,12 @@ def main() -> None:
         "--scope-revision",
         default=None,
         help="cut: the classifier revision whose multi bodies are cut (default the latest)",
+    )
+    parser.add_argument(
+        "--reading",
+        choices=("units", "units4"),
+        default="units",
+        help="cut: how the body is read; `units` is the owner's selection, `units4` the candidate of T-176",
     )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)

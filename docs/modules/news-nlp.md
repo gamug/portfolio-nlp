@@ -555,7 +555,8 @@ step 1) and cuts each with the `units` extractor and the attribution checkpoint 
 git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is `units-` plus a hash of
 the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
 and leaves the old rows. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
-`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--fetch`,
+`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units|units4` picks how the body is read (`units`, the owner's selection, is the default; `units4` is the
+candidate of T-176, `docs/extractor_training.md`). `--fetch`,
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
 revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
 reproduced from the repository alone.** Measurements and the quality check: `docs/splitting_training.md`, section 8.1.

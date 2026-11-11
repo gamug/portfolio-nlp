@@ -444,6 +444,39 @@ Every figure is in Appendix B.3 to B.6.
   more, so a higher threshold would not remove them (T-148b3, open).
 - All figures come from 30 + 30 bodies and the owner's single reading of each text.
 
+## Update of 2026-11-11: `units4`, a candidate for the cut (T-176)
+
+The first run of the cut on 232 `multi` bodies (`docs/splitting_training.md` §8.1) showed two faults of `units`: **162 company
+texts (in 79 of the 232 bodies) held two or more "Name —" headings**, and 6 texts were a heading without its sentence. Cause: a
+line headed by a company that is **not in the universe** ("Wendy's (WEN) – …", the roundups write the ticker in brackets) was
+given to whichever universe company the model preferred (108 of the 162 texts), and the clause rule cut a heading off its text
+when the sentence also named another company.
+
+`units4` (`reading="units4"`, `--reading units4` of the cut) is `units` with: the plain resolver (no guard), the header of a
+"Names – text" sentence read **per sentence** (also in the middle of a paragraph) and with a bracketed ticker taken as part of
+the head, the sentence given to the universe companies of the head **and** to those its text names (as `units3`), and to
+nobody when the head names no universe company; a headed sentence is not cut into clauses. `units` stays the default and
+the owner's selection (2026-11-08); nothing is switched.
+
+| On the 232 bodies (GPU, `scripts/compare_cut_readings_2026_11_11.py`) | `units` | `units4` |
+|---|---|---|
+| company texts | 1,671 | 1,589 |
+| texts with several headings (bodies) | 162 (79) | 23 (18) |
+| texts that are only a heading | 6 | 0 |
+| company-texts lost / gained / changed | | 101 / 19 / 413 |
+
+**Against the owner's marks** (60 bodies of the two faithfulness draws, 331 `units` texts that the current code still writes
+and that have a mark; `scripts/units4_vs_owner_marks_2026_11_11.py`): 259 texts are the same (252 yes, 7 no); 54 change, and
+all 54 were `yes` under `units`: the `units4` text is already marked `yes` for 46, `no` for 1, and **7 are unread**; 18
+companies lose their text (17 marked `yes`, 1 `no`). On the texts that have a mark, `units4` is 97.4% faithful (298 of 306)
+against 97.6% for `units` (323 of 331): **no measured loss in faithfulness; the price is 18 companies without a text (5.4%),
+named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
+companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10.
+
+**Not decided.** `units4` fixes the structure and keeps the measured faithfulness, but it is not read: the 7 unread texts and the
+18 lost ones are in `data/units4_to_read.csv`. The switch (`DEFAULT_READING` in `src/cut_stage.py`) is the owner's, after
+reading them.
+
 ## What is next
 
 Improvement options, **all proposed, none decided or started**. Nothing here is asked of the owner:
