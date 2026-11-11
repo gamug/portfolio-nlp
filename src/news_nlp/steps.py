@@ -143,6 +143,12 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
         )
     }
     out: dict[str, object] = {"step": step, "revision": revision, "by_state": by_state}
+    failed = conn.execute(
+        f"SELECT item_id, error FROM pipeline_step_state WHERE {where} AND status = 'failed' ORDER BY finished_at DESC LIMIT 3",  # noqa: S608 -- fixed clauses
+        args,
+    ).fetchall()
+    if failed:
+        out["failed_examples"] = [{"item_id": str(i), "error": str(e)[:200]} for i, e in failed]
     if step == STEP_SCOPE:
         sql = "SELECT scope, COUNT(*) FROM body_scope"
         sql_args: list[str] = []

@@ -219,3 +219,75 @@ def test_the_cli_redoes_a_failed_batch_body_by_body(tmp_path: Path, results_db_p
     finally:
         db_module.detach_source(conn)
         conn.close()
+
+
+class _Broken:
+    """A classifier whose every call fails, as with a lost GPU."""
+
+    revision = "scope-nli-broken"
+    chars = 800
+
+    def classify(self, items: list[tuple[str, str]]) -> list[ScopeResult]:
+        raise RuntimeError("CUDA error")
+
+
+def test_the_run_stops_when_batch_after_batch_fails_completely(
+    tmp_path: Path, results_db_path: Path
+) -> None:
+    source = tmp_path / "broken.db"
+    _source_with(source, [(i, "T", f"Body number {i}. " * 5) for i in range(1, 80)])
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    try:
+        cli = _cli()
+        with pytest.raises(cli.RunAborted, match="in a row"):  # type: ignore[attr-defined]
+            cli.run_scope(conn, _Broken(), limit=None)  # type: ignore[attr-defined]
+        got = steps.status(conn, steps.STEP_SCOPE, "scope-nli-broken")
+        assert got["by_state"] == {"failed": 3 * cli.BATCH}  # type: ignore[attr-defined]
+        assert "CUDA error" in got["failed_examples"][0]["error"]  # type: ignore[index]
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+
+def _run_main(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", *argv])
+    _cli().main()  # type: ignore[attr-defined]
+
+
+def test_status_needs_no_model(
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "s.db"
+    _source_with(source, [(1, "A", "One. " * 5)])
+    _run_main(
+        monkeypatch,
+        "--step", "scope", "--status",
+        "--model-dir", str(tmp_path / "none"),
+        "--results-db", str(results_db_path),
+        "--source-db", str(source),
+    )  # fmt: skip
+    assert '"by_state": {}' in capsys.readouterr().out
+
+
+def test_a_run_without_the_training_record_stops_with_a_message(
+    tmp_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "s2.db"
+    _source_with(source, [(1, "A", "One. " * 5)])
+    with pytest.raises(SystemExit, match="train the models first"):
+        _run_main(
+            monkeypatch,
+            "--step", "scope",
+            "--model-dir", str(tmp_path / "none"),
+            "--results-db", str(results_db_path),
+            "--source-db", str(source),
+        )  # fmt: skip
+
+
+def test_a_limit_below_one_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(SystemExit) as stop:
+        _run_main(monkeypatch, "--step", "scope", "--limit", "0")
+    assert stop.value.code == 2

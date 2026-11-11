@@ -297,11 +297,18 @@ uv run cli/news_nlp_steps.py --step scope --status [--titles]    # counts by sta
 The step reads the **properly fetched corpus** (`ok` and `quarantined`, D36), one item per unique body, in article-id
 order. The revision stored with each row is a hash of the training record and the weight files, so a refit is a new
 revision and its bodies run again. A batch that fails is redone body by body, so one bad body fails alone; failed bodies
-are retried by the next run.
+are retried by the next run. If three batches in a row fail completely (out of memory, a lost GPU, a corrupt weight
+file) the run stops with a message instead of failing the corpus.
 
-**Dry run (2026-11-11, first 500 unique bodies by article id of `urls.db`, scratch RESULTS file, GPU RTX 4050):**
-500 done, 0 failed; single 220, multi 171, out_of_scope 101, sector 8. A rerun with `--limit 5` added 5 rows and changed
-none. **Not a corpus sample:** the first 500 hold 331 `ok` and 169 `quarantined` bodies; out_of_scope is 30 of 331
+**A body that stays `failed`:** `--status` shows the count and the last three errors (`failed_examples`); the full error
+is in `pipeline_step_state.error` for that body (`item_id` = the body hash). Fix the cause and run the command again: only
+the failed and not-yet-done bodies run. Nothing skips a body by itself; there is no attempts cap, and `attempts` counts the tries.
+
+**Dry run (2026-11-11; fit `models/scope_final`, revision `scope-nli-8ff21e50796b`; first 500 unique bodies by article id of `urls.db`, scratch RESULTS file, GPU RTX 4050):**
+500 done, 0 failed; single 220, multi 171, out_of_scope 101, sector 8. `--limit 5` on top added 5 rows and changed none. **A rerun adds nothing:** on a 59-body source (the first 60 article ids)
+the command ran twice with `--limit 500`: the first run wrote 59 rows in `body_scope` and in `pipeline_step_state`, the second
+ran 0 bodies and left both tables and their timestamps unchanged. The same 500 bodies gave the same counts when run again
+on a fresh file (inference is repeatable; training is not). **Not a corpus sample:** the first 500 hold 331 `ok` and 169 `quarantined` bodies; out_of_scope is 30 of 331
 (9%) among `ok` and 71 of 169 (42%) among `quarantined`, which fits quarantined pairs being the ones whose company is not
 the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with no title in the whole corpus: 90.
 **Speed:** about 29 bodies/s once running, so the 309,882 unique bodies are about 3 hours of GPU; start-up is ~10 s.
