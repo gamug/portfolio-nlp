@@ -2909,12 +2909,12 @@ def test_the_tracked_heldout_gold_is_the_200_tagged_bodies() -> None:
     assert len(rows) == 200 and len({r["article_id"] for r in rows}) == 200
     assert {r["session"] for r in rows} == {"heldout"}
     assert Counter(r["scope"] for r in rows) == {
-        "single": 118,
-        "multi": 47,
-        "market_economy": 11,
-        "sector": 9,
-        "unrelated": 8,
-        "investing_general": 7,
+        "single": 116,
+        "multi": 44,
+        "market_economy": 14,
+        "sector": 7,
+        "unrelated": 10,
+        "investing_general": 9,
     }
     bad = {r["article_id"]: errors for r in rows if (errors := retag.check_row(r)[1])}
     assert (

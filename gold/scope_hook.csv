@@ -1,0 +1,31 @@
+article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,rule
+121841,scope_hook,AAPL,single,Xiaomi:market_analyst_sentiment,,,,scope_hook
+121891,scope_hook,AAPL,single,Apple:market_analyst_sentiment,,,,scope_hook
+122781,scope_hook,AAPL,single,Apple:market_analyst_sentiment,,,,scope_hook
+127921,scope_hook,ADP,market_economy,,,,,scope_hook
+130041,scope_hook,BAC,sector,,,4010,,scope_hook
+138121,scope_hook,BAC,single,Bank of America:product_innovation,,,,scope_hook
+146261,scope_hook,BBY,single,Best Buy:market_analyst_sentiment,,,,scope_hook
+154771,scope_hook,BLK,single,BlackRock:earnings_performance,,,,scope_hook
+155091,scope_hook,BLK,market_economy,,,,,scope_hook
+175531,scope_hook,GLW,single,Corning:market_analyst_sentiment,,,,scope_hook
+176481,scope_hook,COST,single,Costco:market_analyst_sentiment,,,,scope_hook
+179931,scope_hook,DHR,single,Danaher:market_analyst_sentiment,,,,scope_hook
+251991,scope_hook,GIS,market_economy,,,,,scope_hook
+262981,scope_hook,GS,market_economy,,,,,scope_hook
+264011,scope_hook,GS,market_economy,,,,,scope_hook
+265511,scope_hook,GS,single,Goldman Sachs:earnings_performance,,,,scope_hook
+265701,scope_hook,GS,investing_general,,,,,scope_hook
+265761,scope_hook,GS,market_economy,,,,,scope_hook
+266351,scope_hook,GS,investing_general,Goldman Sachs:market_analyst_sentiment,,,,scope_hook
+282691,scope_hook,HD,single,Home Depot:earnings_performance,,,,scope_hook
+341181,scope_hook,NVDA,single,Nvidia:market_analyst_sentiment,,,,scope_hook
+417021,scope_hook,PG,single,Procter & Gamble:earnings_performance,,,,scope_hook
+417281,scope_hook,PG,single,Procter & Gamble:earnings_performance,,,,scope_hook
+448591,scope_hook,TER,single,Teradyne:earnings_performance,,,,scope_hook
+464691,scope_hook,UBER,investing_general,,,,,scope_hook
+465941,scope_hook,UBER,market_economy,,,,,scope_hook
+467761,scope_hook,UNP,single,Union Pacific:earnings_performance,,,,scope_hook
+480591,scope_hook,WFC,sector,,,4010,,scope_hook
+1110871,scope_hook,TSLA,single,Tesla:earnings_performance,,,,scope_hook
+1111211,scope_hook,TSLA,single,Tesla:legal_regulatory,,,,scope_hook

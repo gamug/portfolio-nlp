@@ -644,3 +644,10 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
       - **NLI for single or multi (`scope_nli_single_multi_2026_11_10.py`, 165 true company bodies of the 200, plain):** current 84.2% (multi recall 31/47); zero-shot 73%; **fine-tuned NLI 800 chars 90.9%** (single 111/118, multi 39/47, precision 85%); zero-shot + relevance features 2,000 chars 91.5% (multi 36/47). Seven variants tried on the same 165, no paired test yet.
       - **To measure the rare scopes (owner, 2026-11-10):** `draw_scope_enrich_2026_11_10.py` drew 51 untagged bodies (33 sector, 18 out_of_scope candidates by rules) into `data/scope_enrich_to_tag.csv` (Spanish columns); the owner tags `scope`; reported apart (class-conditional recall, unweighted), to reach the 40 gold bodies of D33.
 ```
+
+
+### T-147 END TO END bullet, long form (replaced 2026-11-11 by the SELECTED bullet)
+
+```
+      - **END TO END (2026-11-10, `scope_end_to_end_2026_11_10.py`, choices fixed in advance, models trained on the 284 only):** two fine-tuned NLI models (topic, then single/multi), title + 800 chars: **79.9% [73.8, 85.5]** weighted on the 200 (rules 68.2%); paired gain **+11.7 [4.3, 19.2], better**. `single` 85%, `multi` 79.5%, `sector` 64% (4/9), `out_of_scope` 56% (17/26). On the 51 rare-scope bodies: sector 16/27, out_of_scope 8/9; pooled with the 200: sector 20/36 = 56%, out_of_scope 25/35 = 71%. Under the 90% bar, at the 80% mark; sector is the weak class. Not in MLflow, not on the FTI pattern yet.
+```

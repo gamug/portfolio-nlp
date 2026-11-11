@@ -38,8 +38,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--gold", type=Path, default=Path("gold"))
+    parser.add_argument(
+        "--set",
+        default="scope_enrich",
+        help="scope_enrich (the rare-scope draw) or scope_hook (the company-as-hook draw of 2026-11-11)",
+    )
     args = parser.parse_args()
-    name = "scope_enrich_to_tag.csv"
+    name = f"{args.set}_to_tag.csv"
     rows = retag.read_tag_file(args.data / name)
     # a ';' between two labels of the same company is a format slip (the format wants a comma): normalised on a copy,
     # the owner's file is not edited, the scope is never touched, and every change is printed
@@ -63,18 +68,21 @@ def main() -> None:
             f"{name}: not ready (errors {sorted(report.bad)}, untagged {report.untagged}, "
             f"duplicated {report.duplicated}, unknown {report.unknown}); run the check command"
         )
-    gold_rows = retag.gold_file_rows({"scope_enrich": rows}, {"scope_enrich": report.good})
-    rule = {r["article_id"]: r["rule"] for r in read(args.data / "scope_enrich_ids.csv")}
+    gold_rows = retag.gold_file_rows({args.set: rows}, {args.set: report.good})
+    ids = (
+        args.data / f"{args.set}_ids.csv"
+    )  # the hook draw has no ids file: its rule is the set's own name
+    rule = {r["article_id"]: r["rule"] for r in read(ids)} if ids.exists() else {}
     for r in gold_rows:
-        r["rule"] = rule[r["article_id"]]
+        r["rule"] = rule.get(r["article_id"], args.set)
     args.gold.mkdir(parents=True, exist_ok=True)
-    with (args.gold / "scope_enrich.csv").open("w", newline="", encoding="utf-8") as fh:
+    with (args.gold / f"{args.set}.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=[*retag.GOLD_COLUMNS, "rule"], lineterminator="\n")
         writer.writeheader()
         writer.writerows(gold_rows)
     texts = {r["article_id"]: r for r in rows}
     (args.gold / "texts").mkdir(exist_ok=True)
-    with (args.gold / "texts" / "scope_enrich_texts.csv").open(
+    with (args.gold / "texts" / f"{args.set}_texts.csv").open(
         "w", newline="", encoding="utf-8"
     ) as fh:
         writer = csv.DictWriter(
@@ -83,7 +91,7 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(texts[r["article_id"]] for r in gold_rows)
     print(
-        f"{args.gold / 'scope_enrich.csv'}: {len(gold_rows)} rows, texts in {args.gold / 'texts' / 'scope_enrich_texts.csv'}"
+        f"{args.gold / f'{args.set}.csv'}: {len(gold_rows)} rows, texts in {args.gold / 'texts' / f'{args.set}_texts.csv'}"
     )
 
 

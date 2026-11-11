@@ -41,6 +41,7 @@ def load_sets() -> dict[str, list[dict[str, str]]]:
         ("train", "category_gold_v2.csv", "category_gold_v2_texts.csv"),
         ("test", "category_gold_v2_test.csv", "category_gold_v2_test_texts.csv"),
         ("enrich", "scope_enrich.csv", "scope_enrich_texts.csv"),
+        ("hook", "scope_hook.csv", "scope_hook_texts.csv"),
     ):
         text_of = {
             (r["article_id"], r["ticker"]): r for r in base.read(feat.GOLD / "texts" / texts)
@@ -51,13 +52,18 @@ def load_sets() -> dict[str, list[dict[str, str]]]:
     return sets
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915 -- one linear measurement script
     import torch  # noqa: PLC0415 -- heavy imports only where the models run
     from transformers import AutoModelForSequenceClassification, AutoTokenizer  # noqa: PLC0415
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--chars", type=int, default=800)
     parser.add_argument("--out", type=Path, default=Path("data/scope_end_to_end_predictions.csv"))
+    parser.add_argument(
+        "--train-on-enrich",
+        action="store_true",
+        help="add the 51 rare-scope and the 30 company-as-hook tags to the training set (the 200 stay held out)",
+    )
     args = parser.parse_args()
     sets = load_sets()
     cfg = json.loads(Path("config/pipeline_models.json").read_text(encoding="utf-8"))["category"]
@@ -69,7 +75,11 @@ def main() -> None:
         ).cuda()
 
     text = {n: [feat.fragment(r, args.chars) for r in rows] for n, rows in sets.items()}
-    train = sets["train"]
+    extra = (
+        ("enrich", "hook") if args.train_on_enrich else ()
+    )  # the 51 and the 30 company-as-hook tags
+    train = sets["train"] + [r for n in extra for r in sets[n]]
+    text["train"] = text["train"] + [t for n in extra for t in text[n]]
     topic_of = topic_of_scope
     # stage A
     model_a = load()
@@ -133,6 +143,12 @@ def main() -> None:
         print(f"{g:>14}", [count[(g, p)] for p in base.LABELS])
     # the 51 rare-scope bodies: class-conditional recall, unweighted
     enrich = sets["enrich"]
+    if args.train_on_enrich:
+        print(
+            f"\ntrained on {len(train)} bodies (284 + the 51 + the 30 hook tags); they are not scored. predictions -> {args.out}"
+        )
+        _write(args.out, sets, pred)
+        return
     print("\nthe 51 bodies drawn for the rare scopes (class-conditional recall, unweighted):")
     for label in base.LABELS:
         got = [
@@ -151,14 +167,18 @@ def main() -> None:
         print(
             f"{label:>14} pooled (200 + 51, unweighted): {hit}/{total} = {hit / total:.1%} ({total} gold bodies)"
         )
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8", newline="") as fh:
+    _write(args.out, sets, pred)
+    print(f"predictions -> {args.out}")
+
+
+def _write(out: Path, sets: dict[str, list[dict[str, str]]], pred: dict[str, list[str]]) -> None:
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)
         writer.writerow(["set", "article_id", "gold", "predicted"])
         for n in ("test", "enrich"):
             for r, p in zip(sets[n], pred[n], strict=True):
                 writer.writerow([n, r["article_id"], base.merged(r["scope"]), p])
-    print(f"predictions -> {args.out}")
 
 
 if __name__ == "__main__":
