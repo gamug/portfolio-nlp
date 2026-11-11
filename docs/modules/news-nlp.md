@@ -545,7 +545,9 @@ bodies of the properly fetched corpus (`ok` and `quarantined`) into single / mul
 NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
 `models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the public Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
 nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
-record and the weights. Measurements and the dry run: `docs/splitting_training.md`, section 8.
+record and the weights. Measurements and the dry run: `docs/scope_training.md`, section 8. Validation on a sample of `quarantined` bodies (precision per predicted scope):
+`uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <copy of nlp.db with its -wal> [--counts multi=75 --exclude <earlier draw>.csv ... --out <new dir>] [--yes]` draws it (CPU; the Spanish aid is paid and needs `--yes`),
+and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extra|all] [--key final|first]` scores the tracked tags in `gold/scope_quarantined_validation.csv`; results in section 9.
 
 ### Step 1.2: the cut (T-163)
 
@@ -562,4 +564,4 @@ same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_rev
 `docs/extractor_training.md`). `--fetch`,
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
 revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
-reproduced from the repository alone.** Measurements and the quality check: `docs/splitting_training.md`, section 8.1.
+reproduced from the repository alone.** Measurements and the quality check: `docs/scope_training.md`, section 8.1.

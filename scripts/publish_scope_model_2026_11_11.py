@@ -2,6 +2,7 @@
 
     uv run python scripts/publish_scope_model_2026_11_11.py [--model-dir models/scope_final] [--dry-run]
     uv run python scripts/publish_scope_model_2026_11_11.py --check [--model-dir models/scope_final]
+    uv run python scripts/publish_scope_model_2026_11_11.py --card-only [--dry-run]   # README.md alone, the pin moves to the new commit
 
 One repository, ``gamug/deberta-v3-news-scope-nli``: ``stage_a/`` and ``stage_b/`` (the two fine-tuned NLI models), the
 ``training_record.json`` that names the data, the recipe and the hypotheses, and a model card. The owner asked for the upload
@@ -76,7 +77,7 @@ The hypotheses, the recipe and the data counts are in `training_record.json`. Th
 365 bodies tagged and reviewed by the project owner (284 + 51 chosen for the rare scopes + 30 whose title names a company
 but whose body is not about it): stage A on all, stage B on the 210 company bodies. Title + first 800 characters, 3 epochs,
 learning rate 2e-5, batch 16, float32 weights with bf16 autocast, seed 1. The texts are in the project repository
-(`gold/`), not here. Recipe and the story of the choices: `docs/splitting_training.md`.
+(`gold/`), not here. Recipe and the story of the choices: `docs/scope_training.md`.
 
 ## Figures
 Held-out 200 bodies the model never trained on, **weighted to the corpus** by the draw's strata, scored from these weights
@@ -284,6 +285,35 @@ def check_published(
     return results
 
 
+def publish_card(token: str, text: str, dry: bool) -> str:
+    """Commit only ``README.md`` to the public repository (the weights stay as they are); return the new commit SHA."""
+    if dry:
+        print(f"[dry run] {REPO}: README.md only ({len(text)} characters)")
+        return "dry-run"
+    from huggingface_hub import HfApi  # noqa: PLC0415 -- only the upload needs it
+
+    info = HfApi(token=token).upload_file(
+        path_or_fileobj=text.encode("utf-8"),
+        path_in_repo="README.md",
+        repo_id=REPO,
+        commit_message="card: the recipe now lives in docs/scope_training.md (T-180)",
+    )
+    return str(getattr(info, "oid", ""))
+
+
+def record_card(published: Path, pin: Path, revision: str, text: str) -> None:
+    """After a card-only commit: the new SHA and card hash in the record and the pin; weights and step revision untouched."""
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise SystemExit(f"the upload returned no commit SHA ({revision!r}); nothing recorded")
+    current = json.loads(published.read_text(encoding="utf-8"))
+    current["scope"]["revision"] = revision
+    current["scope"]["card_sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    published.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+    pinned = json.loads(pin.read_text(encoding="utf-8"))
+    pinned["revision"] = revision
+    pin.write_text(json.dumps(pinned, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
     from dotenv import load_dotenv  # noqa: PLC0415
 
@@ -292,6 +322,11 @@ def main() -> None:
     parser.add_argument("--record", type=Path, default=Path("config/published_models.json"))
     parser.add_argument("--pin", type=Path, default=Path("config/scope_model.json"))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--card-only",
+        action="store_true",
+        help="commit only README.md (the step revision comes from the pin) and move the pin to that commit",
+    )
     parser.add_argument(
         "--check", action="store_true", help="read-only check of the recorded revision"
     )
@@ -312,6 +347,14 @@ def main() -> None:
         raise SystemExit(
             "the held-out figures of the card are not filled in: run score_scope_heldout first"
         )
+    if args.card_only:
+        step = json.loads(args.pin.read_text(encoding="utf-8"))["step_revision"]
+        text = card(step)
+        revision = publish_card(token, text, args.dry_run)
+        if not args.dry_run:
+            record_card(args.record, args.pin, revision, text)
+        print(json.dumps({"repo": REPO, "revision": revision, "step_revision": step}))
+        raise SystemExit(0)
     step_revision = revision_of(args.model_dir)
     text = card(step_revision)
     revision = publish(token, args.model_dir, text, args.dry_run)

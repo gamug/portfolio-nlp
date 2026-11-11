@@ -2206,3 +2206,7 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 ### Work item 18 — T-176, the faults of the cut (moved from `TASKS.md`, 2026-11-11)
 
 - [x] **T-176** *(from #168; done, owner 2026-11-11)* Cut faults: `units4` is the cut's default (`--reading units` as before; `docs/extractor_training.md`): texts with several companies 162→23, heading-only 6→0, 97.4% vs 97.6% on the owner's marks; 18 of 331 companies lose their text, which the NER step (D39 (iii)) recovers. The full cut run is the owner's to start. Review of #169 (2026-11-11): the real command (`--step cut --limit 500`) gives 3,134 sub-news from 500 bodies, 0 failed, determinism 0 of 30; of the 23 texts that still hold several headings, 10 are one company named in other companies' lines and 13 a third fault (T-177).
+
+### Work item 18 — T-180, the Hub card of the scope model (moved from `TASKS.md`, 2026-11-11)
+
+- [x] **T-180** *(Build 1, D40; #170's review)* **Republish the Hub card of `gamug/deberta-v3-news-scope-nli`:** its README line 29 names `docs/splitting_training.md` (now `scope_training.md`). Needs the owner's word and a write `HF_TOKEN`; a card commit changes the revision: re-pin `config/scope_model.json`. → T-147b. **Done 2026-11-11 (owner's word):** `publish_scope_model_2026_11_11.py --card-only` committed `README.md` alone as `gamug/deberta-v3-news-scope-nli@58e4af4b`; the card differs from the live one in one line (the doc path); `--check` passes (weights and tokenizers equal to local); the pin and `published_models.json` moved to the new commit.

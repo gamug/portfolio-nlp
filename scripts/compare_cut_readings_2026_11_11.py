@@ -4,7 +4,7 @@
         [--model-dir data/models/attribution_2026_11_08] [-n 232] [--a units] [--b units4] [--changed-out changed.csv]
 
 Reads the first ``-n`` ``multi`` bodies of the latest ``body_scope`` revision, cuts each with reading ``--a`` and ``--b`` (one
-model load, the GPU), and prints for each reading the faults of `docs/splitting_training.md` §8.1: company texts that hold several
+model load, the GPU), and prints for each reading the faults of `docs/scope_training.md` §8.1: company texts that hold several
 "Name -" headings, heading-only pieces, tiny pieces. Then what moved between the two: the (body, company) pairs that have a text
 in A and none in B ("lost") and the other way ("gained"), and the texts that differ. ``--changed-out`` writes the pairs whose text
 differs, with both texts, for the owner to read. Nothing is written to the databases (pass copies).

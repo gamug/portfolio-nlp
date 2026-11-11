@@ -6,9 +6,11 @@ import hashlib
 import importlib.util
 import json
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -524,6 +526,121 @@ def test_the_validation_sample_is_stratified_by_predicted_scope_and_in_the_taggi
     assert "validator" in retag.SCOPE_CHECK_COLUMNS
     with pytest.raises(ValueError, match="sizes"):
         draw_check.parse_counts("tennis=3")
+
+
+def test_an_earlier_draw_is_read_by_article_id_even_with_a_bom(tmp_path: Path) -> None:
+    earlier = tmp_path / "earlier.csv"
+    earlier.write_text("\ufeffreview_order,article_id\n1,42\n2,7\n", encoding="utf-8")
+    assert draw_check.article_ids_of(earlier) == {42, 7}
+
+
+def test_a_bad_exclude_file_is_named_and_an_unmatched_id_is_counted(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="no such file"):
+        draw_check.article_ids_of(tmp_path / "missing.csv")
+    nocol = tmp_path / "nocol.csv"
+    nocol.write_text("id\n1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no article_id column"):
+        draw_check.article_ids_of(nocol)
+    blank = tmp_path / "blank.csv"
+    blank.write_text('article_id\n1\n""\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 3"):
+        draw_check.article_ids_of(blank)
+
+
+def test_an_excluded_article_keeps_its_twin_out_and_missing_ids_are_counted() -> None:
+    from news_nlp import triage  # noqa: PLC0415
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, body_text TEXT)")
+    conn.executemany(
+        "INSERT INTO articles VALUES (?, ?)",
+        [(1, "same body"), (2, "same body"), (3, "another body")],
+    )
+    hashes, found = draw_check.skip_hashes(conn, {1, 99})
+    assert found == 1  # 99 is not in the source: the caller stops on found < len(ids)
+    assert hashes == {triage.body_hash("same body")}  # article 2 is a twin of 1: same hash
+    assert triage.body_hash("another body") not in hashes
+
+
+def test_the_tracked_tags_load_by_draw_and_key_and_the_first_reading_is_kept(
+    tmp_path: Path,
+) -> None:
+    f = tmp_path / "tags.csv"
+    f.write_text(
+        "draw,predicted_scope,validator_first,correct_first,validator,correct_scope\n"
+        "main,multi,no,single,yes,\n"
+        "multi_extra,multi,yes,,yes,\n",
+        encoding="utf-8",
+    )
+    assert [r["validator"] for r in validation.load_rows([f], draw="main")] == ["yes"]
+    assert len(validation.load_rows([f])) == 2  # the default pools both draws
+    assert len(validation.load_rows([f], draw="all")) == 2
+    first = validation.load_rows([f], key="first")
+    assert (first[0]["validator"], first[0]["correct_scope"]) == ("no", "single")
+    assert len(validation.load_rows([f, f], draw="all")) == 4  # --file repeats pool
+    with pytest.raises(ValueError, match="--draw"):
+        validation.load_rows([f], draw="nope")
+    plain = tmp_path / "plain.csv"
+    plain.write_text("predicted_scope,validator,correct_scope\nmulti,yes,\n", encoding="utf-8")
+    assert len(validation.load_rows([plain])) == 1  # a data/ working file has no draw column
+    with pytest.raises(ValueError, match="validator_first"):
+        validation.load_rows([plain], key="first")
+
+
+def test_the_committed_tags_reproduce_both_readings() -> None:
+    # Pinned figures of docs/scope_training.md section 9. When T-178 settles the borderline rows (or any
+    # tag changes) these change on purpose: update them and the section together.
+    gold = Path(__file__).resolve().parents[2] / "gold" / "scope_quarantined_validation.csv"
+    sizes = validation.parse_sizes(validation.DEFAULT_SIZES)
+
+    def run(draw: str, key: str) -> tuple[list[str], dict[str, Any]]:
+        lines, figures = validation.summarise(
+            validation.load_rows([gold], draw=draw, key=key), sizes
+        )
+        return lines, dict(figures)
+
+    assert "90.8%" in run("all", "final")[0][-1] and "89.6%" in run("main", "first")[0][-1]
+    assert "90.1%" in run("main", "final")[0][-1]
+    assert round(run("all", "final")[1]["multi"].point, 2) == 0.82  # 41 of 50
+    assert round(run("main", "final")[1]["multi"].point, 2) == 0.72
+    assert round(run("main", "first")[1]["multi"].point, 2) == 0.64
+
+
+def test_a_card_only_commit_moves_the_pin_and_keeps_the_weights(tmp_path: Path) -> None:
+    pub = _load("publish_scope_model_2026_11_11")
+    record, pin = tmp_path / "published.json", tmp_path / "pin.json"
+    record.write_text(
+        json.dumps(
+            {
+                "scope": {
+                    "revision": "a" * 40,
+                    "card_sha256": "x",
+                    "weights_sha256": {"stage_a": "w"},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    pin.write_text(
+        json.dumps({"model": "m", "revision": "a" * 40, "step_revision": "scope-nli-1"}),
+        encoding="utf-8",
+    )
+    pub.record_card(record, pin, "b" * 40, "card text")
+    got = json.loads(record.read_text(encoding="utf-8"))["scope"]
+    assert got["revision"] == "b" * 40 and got["weights_sha256"] == {"stage_a": "w"}
+    assert got["card_sha256"] == hashlib.sha256(b"card text").hexdigest()
+    pinned = json.loads(pin.read_text(encoding="utf-8"))
+    assert pinned["revision"] == "b" * 40 and pinned["step_revision"] == "scope-nli-1"
+    with pytest.raises(SystemExit):
+        pub.record_card(record, pin, "not-a-sha", "card text")
+
+
+def test_the_weighted_precision_has_an_interval_that_covers_its_point() -> None:
+    counts = {"a": (9, 10), "b": (5, 10)}
+    point, low, high = validation.weighted_precision(counts, {"a": 300, "b": 100})
+    assert point == pytest.approx(0.8)
+    assert low < point < high
+    assert validation.weighted_precision({"a": (10, 10)}, {"a": 5}) == (1.0, 1.0, 1.0)
 
 
 def test_the_validation_is_scored_per_predicted_class_and_rejects_other_answers() -> None:

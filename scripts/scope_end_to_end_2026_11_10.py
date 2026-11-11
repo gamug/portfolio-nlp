@@ -4,7 +4,7 @@
 
 Two modes. Default (the first measurement, 2026-11-10): the models are trained on the 284 only and the 51 rare-scope bodies
 (``gold/scope_enrich.csv``) are scored apart. ``--train-on-enrich`` (the **selected model**, whose figures are in
-``docs/splitting_training.md``): the same models trained on 365 bodies (the 284 + the 51 + the 30 of ``gold/scope_hook.csv``);
+``docs/scope_training.md``): the same models trained on 365 bodies (the 284 + the 51 + the 30 of ``gold/scope_hook.csv``);
 the 200 stay held out and are scored, the 51 and the 30 are not. Needs a GPU.
 
 Stage A is the category model (``deberta-v3-base-zeroshot-v2.0``, pinned) fine-tuned as an NLI over three topics (company /

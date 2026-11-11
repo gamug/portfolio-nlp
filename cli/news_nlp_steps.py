@@ -239,7 +239,7 @@ are the same), in the RESULTS database:
   DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
 Nothing reads `sub_news` yet (T-165 will): once something does, delete its rows first, because new `sub_news.id`s leave them pointing at nothing.
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
-`--status` prints the revisions (the latest first). The recipe: docs/splitting_training.md, section 8.1.
+`--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
 
 
