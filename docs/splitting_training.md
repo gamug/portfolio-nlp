@@ -251,7 +251,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
    it (D40: a body with no ticker over the relevance threshold goes to the review list). A `single` read as
    out-of-scope **stops at step 1 and never reaches the company views**. The first error costs some compute and
    perhaps a review item; the second costs a news item. We prefer the first.
-   *What it means in numbers:* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). Do not
+   *What it means in numbers:* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
    present step 1 as a filter of out-of-scope news.
 2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3). The owner decided to go with it; a model that
    clears 90% would need more data in the thin classes or a larger model.
