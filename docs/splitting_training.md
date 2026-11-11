@@ -399,8 +399,8 @@ pruning could change the output).
 - *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
   (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
   read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
-  all five are real (a text with three to six companies in it). **Both faults were T-176: `units4` fixes them and is the default of the cut since 2026-11-11 (`docs/extractor_training.md`, "Update of 2026-11-11"); the numbers of this section are those of `units`; with 34% of the bodies touched I
-  would not start the full run before the owner decides whether T-176 comes first** (a rerun at a new revision is 2.5 to 3 h).
+  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and is the default of the cut since 2026-11-11 (`docs/extractor_training.md`,
+  "Update of 2026-11-11"); the numbers of this section are those of `units`.
 - *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
 - *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
   one process: **0 of 30 differ in both**, at the same revision `units-75642e3f4f72`. (An earlier dry run gave 1,683 rows on

@@ -444,7 +444,7 @@ Every figure is in Appendix B.3 to B.6.
   more, so a higher threshold would not remove them (T-148b3, open).
 - All figures come from 30 + 30 bodies and the owner's single reading of each text.
 
-## Update of 2026-11-11: `units4`, a candidate for the cut (T-176)
+## Update of 2026-11-11: `units4`, the reading of the cut (T-176)
 
 The first run of the cut on 232 `multi` bodies (`docs/splitting_training.md` §8.1) showed two faults of `units`: **162 company
 texts (in 79 of the 232 bodies) held two or more "Name —" headings**, and 6 texts were a heading without its sentence. Cause: a
