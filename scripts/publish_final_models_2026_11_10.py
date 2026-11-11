@@ -227,7 +227,8 @@ def record_upload(path: Path, key: str, repo: str, revision: str, card: str) -> 
         )
     current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     current["what"] = (
-        "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)"
+        "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); "
+        "sentiment and relevance: private, not pinned (config/pipeline_models.json)"
     )
     current[key] = {
         "repo": repo,

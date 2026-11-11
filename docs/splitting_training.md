@@ -17,7 +17,7 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the category model, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
 | **Trained on** | 365 tagged bodies: `category_gold_v2.csv` (284) + `scope_enrich.csv` (51) + `scope_hook.csv` (30). |
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
-| **Result** | **83.0% [77.5, 88.3]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+15.9 [9.1, 22.6]**. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
+| **Result** | The **pinned model** (saved weights, section 7): **83.6% [78.1, 88.9]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+16.5 [9.6, 23.4]**; `out_of_scope` recall 53%. The first fit of the recipe, which the rest of this document analyses: 83.0% [77.5, 88.3], gain +15.9 [9.1, 22.6]. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
 | **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
 | **Known trade-off** | `out_of_scope` recall is about 48% (11 of 33 are read as `single`) while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
@@ -251,14 +251,14 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
    it (D40: a body with no ticker over the relevance threshold goes to the review list). A `single` read as
    out-of-scope **stops at step 1 and never reaches the company views**. The first error costs some compute and
    perhaps a review item; the second costs a news item. We prefer the first.
-   *What it means in numbers:* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
+   *What it means in numbers (the corpus run of section 8: 11.3% of the `ok` bodies and 58.8% of the `quarantined` ones; read it first):* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
    present step 1 as a filter of out-of-scope news.
 2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3). The owner decided to go with it; a model that
    clears 90% would need more data in the thin classes or a larger model.
 3. **Small evaluation for the rare classes.** The held-out 200 has 7 `sector` and 33 `out_of_scope` bodies, so
    their intervals are wide (`sector` recall [51, 98], `out_of_scope` recall [27, 69]). D33 does not gate recall
    below 40 gold bodies. We cannot claim more.
-4. **Seed noise was barely measured.** One rerun of the selected setup moved the score by 0.6 points (83.0% to 83.6%) with one body changed; three seeds are in T-147b. Every figure is one training run with seed 1. A 2-point difference
+4. **Seed noise was barely measured.** Three fits of the selected setup, all seed 1: 83.0%, then 83.6% twice (the rerun and the saved weights give the same prediction on all 200 bodies); that is not a noise estimate. The three-seed check is in T-147b. A 2-point difference
    between two runs is not evidence of anything.
 5. **Some selection optimism.** Several design choices (the embedding size, the NLI variants of stage B) were made
    on the same held-out 200 earlier; the final end-to-end choices were fixed in advance, but the sample was seen.
@@ -274,11 +274,15 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 ## 7. What is not done
 
 - **Owner of this list: T-147b** (FTI + MLflow, pin, three seeds). The scripts need a GPU (`.cuda()` is fixed in them).
-- **The weights are saved locally, not pinned or published.** `scripts/train_scope_final_2026_11_11.py` refits both
-  models on the 365 bodies and writes `models/scope_final` (git-ignored) with a `training_record.json`; step 1 runs on
-  them (`cli/news_nlp_steps.py --step scope`, T-163). A step revision hashes the record **and** the weight files, because
-  GPU training is not bit for bit. Pinning, publishing and MLflow need the owner's word (T-147b).
-- **Not on the FTI pattern and not logged in MLflow.** Like the relevance model, the scope scripts are plain scripts.
+- **The weights are saved, scored and pinned (owner, 2026-11-11).** `scripts/train_scope_final_2026_11_11.py` refits both
+  models on the 365 bodies into `models/scope_final` (git-ignored); step 1 runs on them. `scripts/score_scope_heldout_2026_11_11.py`
+  scores the held-out 200 through the step's own classifier: **83.6% [78.1, 88.9]** weighted (rules 67.2%), paired gain
+  **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
+  (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
+  so the saved weights reproduce it; it is still one seed. The weights are in the public repository
+  `gamug/deberta-v3-news-scope-nli@d14a4d20` and pinned in `config/scope_model.json` with the step revision
+  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Five uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` and `59964ab7` corrected the card; `d14a4d20` is the same weights with the card for a public repository, and is the pin. The first four stay in the history. The repository was made public on the owner's word (2026-11-11), after the upload was verified.
+- **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
 - **Step 1 is built, the sub-news cut and the size measurement of sub-news (T-166) are not.** See section 8.
@@ -312,8 +316,58 @@ on a fresh file (inference is repeatable; training is not). **Not a corpus sampl
 (9%) among `ok` and 71 of 169 (42%) among `quarantined`, which fits quarantined pairs being the ones whose company is not
 the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with no title in the whole corpus: 90.
 **Speed:** about 29 bodies/s once running, so the 309,882 unique bodies are about 3 hours of GPU; start-up is ~10 s.
-The held-out figures are not printed by the command: they are the ones in section 1 (scored by
-`scripts/scope_end_to_end_2026_11_10.py`, not from the saved weights; T-147b closes that).
+The held-out figures are not printed by the command: `scripts/score_scope_heldout_2026_11_11.py` scores the saved weights
+(section 7). The command prints whether its model is the pinned one.
+
+**The corpus run (2026-11-11, the pinned revision `scope-nli-8ff21e50796b`).** The RESULTS file has **309,972** bodies with a scope,
+all the unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title). (A first reading gave 309,914
+and "58 left": it opened `nlp.db` without its `-wal` file, which held the last rows. Read a copy of `nlp.db` **with** its
+`-wal`, never the main file alone.) The breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
+
+| Status | Bodies | single | multi | sector | out_of_scope |
+|---|---|---|---|---|---|
+| `ok` | 64,901 (21%) | 58.6% | 26.4% | 3.7% | **11.3%** |
+| `quarantined` | 245,071 (79%) | 22.4% | 6.3% | 12.4% | **58.8%** |
+| all | 309,972 | | | | about 49% |
+
+By year `out_of_scope` runs from 29% (2026) to 56% (2020); no single year explains it. **The 12.8% of the
+cost estimate (limitation 1) is the share of the `ok` bodies (11.3% here); the corpus is 79% `quarantined`, whose pairs were
+judged not to be about the tagged company (D36), so most of their bodies are not company news.** I read a random 50 of the
+`quarantined` bodies called `out_of_scope` (one reader, not a measurement): about 40 are macro, market, politics or lifestyle
+news with no company (correct); about 8 have a company hook (a stock-picking show, a market wrap with a takeover, a company
+CEO interview, a company's award press release) that the tagging rules treat as `investing_general` or `multi`, so they sit
+on the line; **2 are clear errors**: an EADS-BAE merger story, and a Paramount-Skydance headline whose body is a paywall page.
+**What stays open:** the held-out gold was drawn from the 1,000-body sample (D30) and its `out_of_scope` recall (53%) is
+measured there; whether that sample covers the `quarantined` bodies is not stated in D30, and the `quarantined` bodies are
+79% of what step 1 now classifies. The share that continues in the corpus is therefore not known; the owner should decide
+whether a sample of `quarantined` bodies is tagged and scored before step 2.
+
+**Quality check of the corpus run (2026-11-11, `scripts/scope_quality_check_2026_11_11.py`, read-only, no GPU).**
+- *Integrity:* 309,972 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
+  score; **the stored scope is what its stored scores give in 100% of the rows**; the state table has 309,972 `done`, no
+  `failed`, no result without a state and no state without a result; no scope for a body outside the corpus.
+- *Complete:* every unique body of the corpus has a scope (a read that missed the write-ahead log showed 58 missing; they were there).
+- *Short bodies:* under 300 characters (1,915 bodies) 73% are `out_of_scope`; from 3,000 characters 56%; between, 41 to 43%.
+  Length moves the share but does not explain it.
+- *Unusable bodies:* **204 bodies look like a paywall or a bot page** ("security verification", "enable JavaScript", "subscribe
+  to read"…); 61 of them still get `single` (53), `multi` (8) or `sector` (3) because the headline reads as company news.
+  Later steps (NER, summary, sentiment) would run on that page text: they should be filtered or flagged before step 2.
+- *No title:* 90 bodies, 89 `out_of_scope`. T-147's report asks for a missing title to be stored with the status `review`;
+  **the step does not do it yet**, they are decided by the body alone.
+- *Low confidence:* 10,274 bodies (3.3%) have a margin under 1 between the two best topics: a ready list for a review queue.
+- *Reading* 14 `single`, 14 `multi` and 14 `sector` bodies at random: all 14 `single` plausible; 12 of 14 `multi` (two on the line);
+  about 10 of 14 `sector` (a social-media story about Uber, an analyst's two bank picks and a stock-picking segment read as
+  sector). One reader, 42 bodies: it agrees with the measured 80 to 90% and finds nothing of another kind.
+
+**Validation of a quarantined sample (owner, 2026-11-11).** `scripts/draw_scope_quarantined_check_2026_11_11.py` writes
+`data/scope_quarantined_to_validate.csv`: 200 `quarantined` bodies drawn at random per **predicted** scope (100 `out_of_scope`,
+50 `single`, 25 `multi`, 25 `sector`), none already tagged in a gold file, shuffled, with the title, the first 2,000
+characters, the Spanish title and text, and the empty columns `validator` (`yes` the predicted scope is right, `no` it is not),
+`correct_scope` (only for a `no`) and `notes`. `scripts/score_scope_validation_2026_11_11.py` turns the filled file into the
+share of `yes` per predicted class with its 95% interval and the share of all quarantined bodies the step tags right.
+*How many:* the 100 `out_of_scope` rows give that class's precision to about ±7 points (95%, at a precision near 85%), and it is the class that decides
+how many company stories the step would stop; 50 `single` give ±10, 25 `multi` or `sector` ±14 (at a precision near 85%). Read the 100 `out_of_scope`
+first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 85 or fewer, read all 200.
 
 ## 9. Index of the work
 

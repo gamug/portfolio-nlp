@@ -94,6 +94,19 @@ SENTIMENT_TAGGING_COLUMNS = (
 )
 
 
+#: The format of the file the owner reads to validate the scope that step 1 gave to a sample of bodies:
+#: ``predicted_scope`` is read only, the owner writes ``validator`` (``yes`` when the scope is right, ``no`` when not),
+#: ``correct_scope`` (only when ``no``: single, multi, sector or out_of_scope) and ``notes``.
+SCOPE_CHECK_TAG_COLUMNS = ("validator", "correct_scope", "notes")
+SCOPE_CHECK_COLUMNS = (
+    *CARRIED,
+    "spanish_title",
+    "spanish_text",
+    "predicted_scope",
+    *SCOPE_CHECK_TAG_COLUMNS,
+)
+
+
 #: The format of the file the owner reads to check the automatic labels of the step-4 training set:
 #: the company the parser chose is in ``ticker`` / ``company``, ``kind`` is ``lead`` or
 #: ``continuation`` (read only), ``previous_segment`` is the paragraph before the one to judge (with its Spanish version), and
