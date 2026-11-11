@@ -591,3 +591,17 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
       - **Title + first lines (measured 2026-11-10, same script, `--body-chars N`, TF-IDF + logistic regression, weighted):** N = 300: 65.7% [58.9, 72.9] (`multi` recall 32.2%); N = 600: 62.5% [55.4, 69.8]; N = 1500: 57.1% [49.7, 64.2]. No gain over the title alone (66.4%): the body text dilutes the title with 284 training rows.
 ```
+
+
+## Thirteenth cut (T-147: feasibility long form, matcher-features paired figures, fingerprints)
+
+```
+- **Feasibility (measured 2026-11-10, `scripts/scope_title_baseline_2026_11_10.py`, TF-IDF + logistic regression on the title, weighted to the corpus, four classes for every row):** title-only **66.4% [59.7, 73.3]**; the rules **68.2% [61.5, 74.7]** (68.0% in six classes); always `single` 58.2% [51.2, 64.3]. Recall, title-only against rules: `single` 76.7% against 91.0%, `multi` 51.0% against 52.5%, `sector` 79.3% [43.3, 97.7] against 2.6%, `out_of_scope` 44.6% [21.3, 68.6] against 6.8%. So the title is **level with the rules** overall (no gain), better on the small classes, worse on `single`, and the whole interval is far under 90%.
+      - **Title + matcher features, paired (2026-11-10, `--company-features`, one run, not tuned on the 200, after #163's review):** universe SHA-256 `2c1272429c6945012dcc797b128a78fc437136bcd7f90e1d4414e9a45aed55d3`; matcher (`src/news_nlp/triage.py` as of master 6b35483) SHA-256 `7a55574035f461e575a7e24e8f775ba1c1f1f816b8b1e04419b42623ab7c2d1a`; counts of the title, of the first 600 characters (`--first`) and of the body (the gold texts are capped at 6,020 characters; 33 of the 484 reach it), capped at 4. Weighted agreement 66.9% [60.2, 73.4]. Paired weighted differences (the same resample feeds both): agreement against title-only +0.5% [-7.5, +8.2] (not decided), against the rules -1.3% [-7.2, +4.7] (not decided); recall of `multi` against title-only +8.8% [-4.5, +22.8] (not decided), against the rules +7.3% [-1.4, +16.3] (not decided).
+```
+
+### T-147 reproduce bullet, long form
+
+```
+- **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
+```

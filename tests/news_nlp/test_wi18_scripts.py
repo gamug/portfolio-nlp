@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from news_nlp import gold_metrics, retag
+from news_nlp import gold_metrics, retag, triage
 from news_nlp.gics_codes import SUB_INDUSTRY_CODES
 from news_nlp.gold_metrics import MarkedFileError
 
@@ -4026,19 +4026,85 @@ def test_an_unreachable_hub_is_not_compared_and_a_missing_token_stops_the_check(
         PUBLISH.main()
 
 
-def test_the_company_features_count_distinct_universe_companies_per_part() -> None:
+UNIVERSE_SHA256 = "2c1272429c6945012dcc797b128a78fc437136bcd7f90e1d4414e9a45aed55d3"
+TOY_NAMES = (
+    "Zorblax Holdings",
+    "Quillon Systems",
+    "Vantrell Motors",
+    "Brindle Foods",
+    "Kestrel Mining",
+    "Ombrewick Power",
+)
+
+
+def _toy_features(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bodies: list[tuple[str, str]]
+) -> Any:
+    """Features of toy rows (title, body) with a toy universe of six invented companies, first 30 characters."""
     baseline = _script("scope_title_baseline_2026_11_10")
-    resolver, digest = baseline.universe_resolver()
-    assert len(digest) == 64
-    rows = [{"article_id": "1", "ticker": "AAPL"}]
-    texts = Path(__file__).resolve().parents[2] / "gold" / "texts"
-    first = next(csv.DictReader((texts / "category_gold_v2_texts.csv").open(encoding="utf-8")))
-    feats = baseline.company_features(
-        resolver,
-        [{"article_id": first["article_id"], "ticker": first["ticker"]}],
-        "category_gold_v2_texts.csv",
-        600,
+    (tmp_path / "texts").mkdir()
+    with (tmp_path / "texts" / "toy.csv").open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["article_id", "ticker", "title", "text"])
+        writer.writerows((str(i), "T", title, body) for i, (title, body) in enumerate(bodies))
+    monkeypatch.setattr(baseline, "GOLD", tmp_path)
+    companies = [
+        triage.Company(f"C{i}", name, "Industrials", "") for i, name in enumerate(TOY_NAMES)
+    ]
+    rows = [{"article_id": str(i), "ticker": "T"} for i in range(len(bodies))]
+    return baseline, baseline.company_features(
+        triage.CompanyResolver(companies), rows, "toy.csv", 20
     )
-    assert feats.shape == (1, 3 * (baseline.CAP + 1))
-    assert feats.sum() == 3
-    assert rows
+
+
+def test_the_company_features_count_distinct_capped_companies_in_each_part(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    n = TOY_NAMES
+    bodies = [
+        ("nothing here", "nothing here either"),
+        (n[0], f"{n[0]} and {n[1]} agree"),
+        ("no names", f"{n[0]} sued {n[0]} and {n[0]}"),  # one company, three times: counts once
+        (" ".join(n[:5]), " ".join(n)),  # 5 and 6 companies: the cap bucket
+        ("no names", f"a long lead of text. {n[2]} {n[3]}"),  # after the first 30 characters
+    ]
+    baseline, feats = _toy_features(tmp_path, monkeypatch, bodies)
+    cap = baseline.CAP
+    assert cap == 4 and feats.shape == (5, 3 * (cap + 1))
+    dense = feats.toarray()
+
+    def bucket(row: int, part: int) -> int:
+        return int(dense[row, part * (cap + 1) : (part + 1) * (cap + 1)].argmax())
+
+    assert [bucket(0, k) for k in range(3)] == [0, 0, 0]
+    assert [bucket(1, k) for k in range(3)] == [1, 1, 2]  # title, first 30 characters, body
+    assert [bucket(2, k) for k in range(3)] == [0, 1, 1]  # distinct: three mentions are one
+    assert [bucket(3, k) for k in range(3)] == [cap, 1, cap]  # the cap is one bucket
+    assert [bucket(4, k) for k in range(3)] == [0, 0, 2]  # only after the first 30 characters
+    assert (dense.sum(axis=1) == 3).all()  # one bucket per part
+
+
+def test_the_recorded_universe_and_the_matcher_code_are_fingerprinted() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    _, digest = baseline.universe_resolver()
+    assert (
+        digest == UNIVERSE_SHA256
+    )  # a changed gold/universe.csv fails here: measure again, record the new hash
+    path = Path(triage.__file__)
+    assert baseline.matcher_digest() == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_the_paired_lines_give_both_metrics_against_each_baseline() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    rows = [
+        {"article_id": str(i), "stratum": "s", "frame": "60", "scope": scope}
+        for i, scope in enumerate(["single", "multi"] * 3)
+    ]
+    candidate = ["single", "multi"] * 3
+    worse = ["single", "single"] * 3
+    out = baseline.paired_lines(rows, candidate, {"title-only model": worse, "rules": candidate})
+    assert len(out) == 4
+    assert out[0].startswith("paired difference, agreement, minus title-only model: ")
+    assert out[1].startswith("paired difference, recall of multi, minus title-only model: ")
+    assert "100.0%" in out[1] and out[1].endswith("(better)")  # multi recall 100% against 0%
+    assert "0.0%" in out[2]  # against itself: no difference
