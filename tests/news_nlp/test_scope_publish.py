@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -530,6 +531,42 @@ def test_an_earlier_draw_is_read_by_article_id_even_with_a_bom(tmp_path: Path) -
     earlier = tmp_path / "earlier.csv"
     earlier.write_text("\ufeffreview_order,article_id\n1,42\n2,7\n", encoding="utf-8")
     assert draw_check.article_ids_of(earlier) == {42, 7}
+
+
+def test_a_bad_exclude_file_is_named_and_an_unmatched_id_is_counted(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="no such file"):
+        draw_check.article_ids_of(tmp_path / "missing.csv")
+    nocol = tmp_path / "nocol.csv"
+    nocol.write_text("id\n1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no article_id column"):
+        draw_check.article_ids_of(nocol)
+    blank = tmp_path / "blank.csv"
+    blank.write_text('article_id\n1\n""\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="line 3"):
+        draw_check.article_ids_of(blank)
+
+
+def test_an_excluded_article_keeps_its_twin_out_and_missing_ids_are_counted() -> None:
+    from news_nlp import triage  # noqa: PLC0415
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE articles (id INTEGER PRIMARY KEY, body_text TEXT)")
+    conn.executemany(
+        "INSERT INTO articles VALUES (?, ?)",
+        [(1, "same body"), (2, "same body"), (3, "another body")],
+    )
+    hashes, found = draw_check.skip_hashes(conn, {1, 99})
+    assert found == 1  # 99 is not in the source: the caller stops on found < len(ids)
+    assert hashes == {triage.body_hash("same body")}  # article 2 is a twin of 1: same hash
+    assert triage.body_hash("another body") not in hashes
+
+
+def test_the_weighted_precision_has_an_interval_that_covers_its_point() -> None:
+    counts = {"a": (9, 10), "b": (5, 10)}
+    point, low, high = validation.weighted_precision(counts, {"a": 300, "b": 100})
+    assert point == pytest.approx(0.8)
+    assert low < point < high
+    assert validation.weighted_precision({"a": (10, 10)}, {"a": 5}) == (1.0, 1.0, 1.0)
 
 
 def test_the_validation_is_scored_per_predicted_class_and_rejects_other_answers() -> None:

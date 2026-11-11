@@ -8,6 +8,9 @@ A second draw that adds to a file already read (owner 2026-11-11: ``multi`` had 
     uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <nlp.db copy> --out data/multi_extra \\
         --counts multi=75 --exclude data/scope_quarantined_to_validate.csv --seed 20261112 [--yes]
 
+Pass every earlier file (``--exclude`` repeats) and a new ``--out``: the file already in ``--out`` is never overwritten, and
+a bad or unmatched ``--exclude`` stops the run before anything is drawn or bought.
+
 Why: the held-out gold that measured the scope model (83.6%) may not represent the `quarantined` bodies, which are 79% of the
 corpus, and the model calls 59% of them `out_of_scope`. This draws, at random and per **predicted** scope, bodies of the pairs
 D36 calls `quarantined`, none of them (or a twin) already tagged in a gold file. The owner reads the title and the text (the first
@@ -70,9 +73,39 @@ def draw(
 
 
 def article_ids_of(path: Path) -> set[int]:
-    """The ``article_id`` column of an earlier draw (any BOM is handled), to keep its bodies out of this one."""
+    """The ``article_id`` column of an earlier draw (any BOM is handled), to keep its bodies out of this one.
+
+    Raises ``ValueError`` naming the file when it is missing, has no ``article_id`` column or has a blank or
+    non-numeric id, so a bad ``--exclude`` fails before any database is opened.
+    """
+    if not path.is_file():
+        raise ValueError(f"--exclude {path}: no such file")
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        return {int(row["article_id"]) for row in csv.DictReader(handle)}
+        reader = csv.DictReader(handle)
+        if "article_id" not in (reader.fieldnames or []):
+            raise ValueError(f"--exclude {path}: no article_id column")
+        ids: set[int] = set()
+        for line, row in enumerate(reader, 2):
+            try:
+                ids.add(int(row["article_id"]))
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"--exclude {path}: line {line} has a blank or non-numeric article_id"
+                ) from None
+        return ids
+
+
+def skip_hashes(source: sqlite3.Connection, ids: set[int]) -> tuple[set[str], int]:
+    """The body hashes of the SOURCE articles ``ids`` (twins share a hash) and how many of the ids were found."""
+    found = 0
+    hashes: set[str] = set()
+    for (body,) in source.execute(
+        "SELECT body_text FROM articles WHERE id IN (SELECT value FROM json_each(?))",
+        (str(sorted(ids)),),
+    ):
+        found += 1
+        hashes.add(triage.body_hash(body or ""))
+    return hashes, found
 
 
 def check_rows(chosen: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -113,6 +146,12 @@ def main() -> None:
             f"{args.out / TO_VALIDATE_NAME} exists: it is your validation file and is not overwritten"
         )
     counts = parse_counts(args.counts)
+    excluded: set[int] = set()
+    try:
+        for earlier in args.exclude:
+            excluded |= article_ids_of(earlier)
+    except ValueError as exc:
+        sys.exit(str(exc))
     results = sqlite3.connect(f"file:{args.results_db}?mode=ro", uri=True)
     scope_of = dict(
         results.execute(
@@ -121,16 +160,16 @@ def main() -> None:
         )
     )
     source = sqlite3.connect(f"file:{args.source_db}?mode=ro", uri=True)
-    tagged = enrich.tagged_article_ids(args.gold)
-    for earlier in args.exclude:
-        tagged |= article_ids_of(earlier)
-    skip = {
-        triage.body_hash(body or "")
-        for (body,) in source.execute(
-            "SELECT body_text FROM articles WHERE id IN (SELECT value FROM json_each(?))",
-            (str(sorted(tagged)),),
-        )
-    }
+    skip, _ = skip_hashes(source, enrich.tagged_article_ids(args.gold))
+    if excluded:
+        earlier_skip, found = skip_hashes(source, excluded)
+        if found < len(excluded):
+            sys.exit(
+                f"--exclude: only {found} of {len(excluded)} article ids are in {args.source_db}: "
+                "those draws came from another source file, and their bodies would be drawn again"
+            )
+        skip |= earlier_skip
+        print(f"{len(excluded)} bodies of earlier draws left out", flush=True)
     pool: dict[str, list[dict[str, str]]] = defaultdict(list)
     seen: set[str] = set()
     for article_id, ticker, company, pub_date, domain, title, body in source.execute(

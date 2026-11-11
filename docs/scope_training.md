@@ -443,8 +443,8 @@ therefore had no measured quality on most of its output. This section closes tha
 These are the figures **after the owner's two audits of 2026-11-11** (below). The first reading gave `out_of_scope` 94.0%, `multi` 64.0% [44.5, 79.8], `sector` 84.0% and 89.6% [85.5, 93.6] overall.
 
 The weighted figure uses the class sizes that are the script's defaults (260,356 bodies). The interval is a stratified normal
-approximation I added (the script prints the point estimate only). Those sizes do not match the 245,071 quarantined bodies of
-the breakdown in section 8; weighting by that table's shares gives about the same (89.6% against 90.0% on the first reading), so the figure does not depend on which of the two is right.
+approximation computed by `score_scope_validation_2026_11_11.py` (`weighted_precision`; rough for classes of 25). Those sizes do not match the 245,071 quarantined bodies of
+the breakdown in section 8; weighting by that table's shares gives 90.3%, so the figure does not depend on which of the two is right.
 The draw's own pool (unique quarantined bodies with a stored scope, none in a gold file) was counted again on the real files: 260,156 before the 200 were taken out (`out_of_scope` 146,248, `single` 63,001, `sector` 31,157, `multi` 19,750), so the script's defaults are right for that definition; the 245,071 of section 8 counts the bodies by another rule (gold-tagged bodies are in it).
 
 **Audit of the tags (owner, 2026-11-11).** Reading the first-pass `no` answers against `docs/labelling-spec-v2.md` found calls that contradicted its rules:
@@ -455,7 +455,7 @@ Both answers were changed in the file with a note citing call 21. Net: `multi` 7
 The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone" `multi`), so part of the `multi`/`single` confusion is label noise, not model error.
 The borderline rows should be settled and written down as owner calls before the numbers are used as a bar.
 
-**More `multi` bodies (owner, 25 of 75 read).** 23 of 25 `yes`; the two `no` are `market_economy` (market wrap, meme stocks). Pooled with the first 25: **43 of 50 = 86.0% [73.8, 93.0]**. The other 50 are not read yet.
+**More `multi` bodies (owner, 25 of 75 read).** 23 of 25 `yes`; the two `no` are `market_economy` (market wrap, meme stocks). Pooled with the first 25 as they stand after both audits (18 right): **41 of 50 = 82.0% [69.2, 90.2]**. The other 50 of that draw are in the same file, not read yet. (An earlier version of this section gave 43 of 50 = 86.0%: it used the first 25's count from before the second audit.)
 
 **What it says about the confidence in the model.**
 1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone,
@@ -463,9 +463,9 @@ The borderline rows should be settled and written down as owner calls before the
    (roughly 10,000 of 146,000; 5,000 to 20,000 within the interval) are company or sector news that will not reach steps 2 and later. Four of the seven are `sector` stories, not
    company ones.
 2. **`single` at 90% is usable.** The errors are bodies that are about investing in general or are not news; later stages would run on text that has no company in it.
-3. **`multi` at 72% is still the weakest class**, and the interval is wide (25 bodies). Four of the five errors are `single`: the cut step would run the `units` extractor on
+3. **`multi` at 72% is still the weakest class**, and the interval is wide (25 bodies). Four of the seven errors are `single` and two are theme lists that call 21 sends to `investing_general`: the cut step would run the `units` extractor on
    a one-company body, which costs time but does not lose a company. It does not lose news; treat the `sub_news` of `multi` bodies as less certain than the rest of the
-   output until a larger sample is read.
+   output until a larger sample is read (41 of 50 = 82% with the extra read below).
 4. **`sector` at 88%** is on the same line as the earlier reading of 42 bodies (section 8). Its sample is as small as `multi`'s.
 5. **Overall**, about 9 in 10 quarantined bodies have the right scope, against 83.6% on the held-out 200 (a different population and mix, so not a like-for-like comparison).
    Together the two figures support running steps 2 and later on the output, with the `multi` and `sector` classes flagged.
@@ -479,9 +479,11 @@ The borderline rows should be settled and written down as owner calls before the
 - 25 bodies per small class: the intervals are 30 to 35 points wide.
 - The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
 
-**More `multi` bodies.** `scripts/draw_scope_quarantined_check_2026_11_11.py` takes `--exclude <earlier draw.csv>` so a second draw never repeats a body already read:
-`--counts multi=75 --exclude data/scope_quarantined_to_validate.csv --out data/multi_extra --seed 20261112` draws 75 more (about 100 in all, interval about 20 points). The draw runs on CPU; the Spanish
-reading aid is a paid LLM call (about 127,000 tokens for 75 bodies) and needs `--yes`. Score the filled file with `score_scope_validation_2026_11_11.py --file` and pool it with the first 25 `multi` rows.
+**More `multi` bodies.** `scripts/draw_scope_quarantined_check_2026_11_11.py` takes `--exclude <earlier draw.csv>` (repeatable) so a later draw never repeats a body already drawn, nor its twin (same body, other article id).
+It was run once: `--counts multi=75 --exclude data/scope_quarantined_to_validate.csv --out data/multi_extra --seed 20261112` wrote 75 bodies to `data/multi_extra/scope_quarantined_to_validate.csv`; read the
+remaining 50 there, do not redraw them. A further draw needs a new `--out` (the script never overwrites a file) and **both** earlier files in `--exclude`. A bad file, a missing `article_id` column or an id that
+the source database does not hold stops the run before anything is drawn or bought. The draw runs on CPU; the Spanish reading aid is a paid LLM call and needs `--yes`. Score a filled file with
+`score_scope_validation_2026_11_11.py --file <file>` and pool its `multi` rows with the first draw's by adding the counts.
 
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; read more `multi` bodies if the `sub_news` of the cut will be summarised and scored; keep the
 10,274 low-margin bodies as the review queue.
