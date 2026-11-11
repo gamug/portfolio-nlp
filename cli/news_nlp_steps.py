@@ -5,10 +5,14 @@ Usage:
     uv run cli/news_nlp_steps.py --step scope --limit 500     # classify up to 500 unique bodies not yet done
     uv run cli/news_nlp_steps.py --step scope --status        # counts by state and by scope, no model loaded
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
+    uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2)
+    uv run cli/news_nlp_steps.py --step cut --status          # sub-news written and bodies by state
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
-``scripts/train_scope_final_2026_11_11.py`` (default ``models/scope_final``).
+``scripts/train_scope_final_2026_11_11.py`` (default ``models/scope_final``). The ``cut`` step reads the ``multi`` bodies
+step 1 wrote (``--scope-revision``, default the latest) and writes ``sub_news`` with the ``units`` extractor; its model is the
+attribution checkpoint (default ``data/models/attribution_2026_11_08``).
 """
 
 import argparse
@@ -27,7 +31,7 @@ import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
 
-STEPS = (steps.STEP_SCOPE,)
+STEPS = (steps.STEP_SCOPE, steps.STEP_CUT)
 BATCH = 16
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
 
@@ -100,6 +104,50 @@ def run_scope(
     return counts
 
 
+def run_cut(
+    conn: db.NewsNlpDatabase, model_dir: Path, scope_revision: str, limit: int | None
+) -> tuple[str, dict[str, int]]:
+    """Cut up to ``limit`` multi bodies not yet done at the extractor's revision; return its revision and what was done."""
+    from cut_stage import UnitsExtractor, companies_of  # noqa: PLC0415 -- loads torch
+
+    extractor = UnitsExtractor.load(model_dir, companies_of(conn))
+    todo = list(steps.pending_multi_bodies(conn, scope_revision, extractor.revision, limit))
+    counts: dict[str, int] = {"done": 0, "no_company_text": 0, "failed": 0, "sub_news": 0}
+    bar = tqdm(total=len(todo), desc="cut", unit="body")
+    for body in todo:
+        try:
+            texts = extractor.cut(body.text)
+        except Exception as exc:
+            steps.record_failure(conn, body, steps.STEP_CUT, extractor.revision, repr(exc))
+            counts["failed"] += 1
+        else:
+            steps.record_cut(conn, body, extractor.revision, texts)
+            counts["done" if texts else "no_company_text"] += 1
+            counts["sub_news"] += len(texts)
+        bar.update(1)
+    bar.close()
+    return extractor.revision, counts
+
+
+def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+    if scope_revision is None:
+        sys.exit("body_scope is empty: run --step scope first")
+    model_dir = args.model_dir or ROOT / "data" / "models" / "attribution_2026_11_08"
+    if not args.status and not conn.table_columns("articles", schema="main"):
+        # sub_news references articles(id); the lean articles table is the crawler's, init_schema does not create it
+        sys.exit(
+            "the RESULTS store has no articles table: sub_news cannot reference an article (see schema.py)"
+        )
+    if args.status:
+        # the revision depends on the model and the universe, so it is not known without loading the model: all revisions
+        print(json.dumps(steps.status(conn, steps.STEP_CUT), indent=2))
+        return
+    revision, counts = run_cut(conn, model_dir, scope_revision, args.limit)
+    print(json.dumps({"scope_revision": scope_revision, **counts}, indent=2))
+    print(json.dumps(steps.status(conn, steps.STEP_CUT, revision), indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--step", choices=STEPS, required=True)
@@ -113,8 +161,13 @@ def main() -> None:
     parser.add_argument(
         "--model-dir",
         type=Path,
-        default=ROOT / "models" / "scope_final",
-        help="default: models/scope_final in the repository",
+        default=None,
+        help="scope: models/scope_final; cut: data/models/attribution_2026_11_08 (both in the repository)",
+    )
+    parser.add_argument(
+        "--scope-revision",
+        default=None,
+        help="cut: the classifier revision whose multi bodies are cut (default the latest)",
     )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
@@ -125,6 +178,10 @@ def main() -> None:
     with exit_on_schema_error():
         conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     db.init_schema(conn)
+    if args.step == steps.STEP_CUT:
+        main_cut(args, conn)
+        return
+    args.model_dir = args.model_dir or ROOT / "models" / "scope_final"
     revision = None
     if (args.model_dir / "training_record.json").exists():
         from scope_stage import revision_of  # noqa: PLC0415 -- no torch import here
