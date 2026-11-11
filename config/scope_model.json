@@ -1,0 +1,6 @@
+{
+  "what": "the scope model step 1 runs on (T-147b); the pin of scripts/publish_scope_model_2026_11_11.py",
+  "model": "gamug/deberta-v3-news-scope-nli",
+  "revision": "3f5a85f9d0e8eb1143554e91b4654fbb35642090",
+  "step_revision": "scope-nli-8ff21e50796b"
+}

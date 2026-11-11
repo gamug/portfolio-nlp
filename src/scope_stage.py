@@ -83,6 +83,22 @@ def assemble(
     return results
 
 
+PIN_PATH = Path(__file__).resolve().parent.parent / "config" / "scope_model.json"
+
+
+def pin_status(revision: str, pin_path: Path = PIN_PATH) -> str:
+    """One line saying whether *revision* is the pinned scope model (``config/scope_model.json``, T-147b)."""
+    if not pin_path.exists():
+        return f"model revision {revision}: no pin recorded"
+    pin = json.loads(pin_path.read_text(encoding="utf-8"))
+    if pin.get("step_revision") == revision:
+        return f"model revision {revision}: pinned ({pin['model']}@{pin['revision'][:8]})"
+    return (
+        f"model revision {revision}: NOT the pinned one ({pin.get('step_revision')}); "
+        "the results are not traceable to the Hub copy"
+    )
+
+
 class ScopeClassifier:
     """Both stages loaded on the GPU; ``classify`` reads a batch of (title, body) pairs."""
 

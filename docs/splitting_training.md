@@ -274,11 +274,16 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 ## 7. What is not done
 
 - **Owner of this list: T-147b** (FTI + MLflow, pin, three seeds). The scripts need a GPU (`.cuda()` is fixed in them).
-- **The weights are saved locally, not pinned or published.** `scripts/train_scope_final_2026_11_11.py` refits both
-  models on the 365 bodies and writes `models/scope_final` (git-ignored) with a `training_record.json`; step 1 runs on
-  them (`cli/news_nlp_steps.py --step scope`, T-163). A step revision hashes the record **and** the weight files, because
-  GPU training is not bit for bit. Pinning, publishing and MLflow need the owner's word (T-147b).
-- **Not on the FTI pattern and not logged in MLflow.** Like the relevance model, the scope scripts are plain scripts.
+- **The weights are saved, scored and pinned (owner, 2026-11-11).** `scripts/train_scope_final_2026_11_11.py` refits both
+  models on the 365 bodies into `models/scope_final` (git-ignored); step 1 runs on them. `scripts/score_scope_heldout_2026_11_11.py`
+  scores the held-out 200 through the step's own classifier: **83.6% [78.1, 88.9]** weighted (rules 67.2%), paired gain
+  **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
+  (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
+  so the saved weights reproduce it; it is still one seed. The weights are in the private repository
+  `gamug/deberta-v3-news-scope-nli@3f5a85f9` and pinned in `config/scope_model.json` with the step revision
+  (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). A first upload (`5f5b2c27`) lost the weights
+  (the script did not follow folders): its commit stays in the history, the pin is the second one. Public release needs the owner's word.
+- **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
 - **Step 1 is built, the sub-news cut and the size measurement of sub-news (T-166) are not.** See section 8.
@@ -312,8 +317,8 @@ on a fresh file (inference is repeatable; training is not). **Not a corpus sampl
 (9%) among `ok` and 71 of 169 (42%) among `quarantined`, which fits quarantined pairs being the ones whose company is not
 the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with no title in the whole corpus: 90.
 **Speed:** about 29 bodies/s once running, so the 309,882 unique bodies are about 3 hours of GPU; start-up is ~10 s.
-The held-out figures are not printed by the command: they are the ones in section 1 (scored by
-`scripts/scope_end_to_end_2026_11_10.py`, not from the saved weights; T-147b closes that).
+The held-out figures are not printed by the command: `scripts/score_scope_heldout_2026_11_11.py` scores the saved weights
+(section 7). The command prints whether its model is the pinned one.
 
 ## 9. Index of the work
 

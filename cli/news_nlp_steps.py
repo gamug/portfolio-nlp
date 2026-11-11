@@ -138,7 +138,9 @@ def main() -> None:
         return
     if revision is None:
         sys.exit(f"{args.model_dir}/training_record.json is missing: train the models first")
-    from scope_stage import ScopeClassifier  # noqa: PLC0415 -- loads torch
+    from scope_stage import ScopeClassifier, pin_status  # noqa: PLC0415 -- loads torch
+
+    print(pin_status(revision), file=sys.stderr)
 
     try:
         counts = run_scope(conn, ScopeClassifier(args.model_dir), args.limit)

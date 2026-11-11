@@ -541,6 +541,6 @@ and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullab
 `uv run cli/news_nlp_steps.py --step scope [--limit N] [--status [--titles]] [--model-dir DIR]` classifies the unique
 bodies of the properly fetched corpus (`ok` and `quarantined`) into single / multi / sector / out_of_scope with the two
 NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
-`models/scope_final`, git-ignored, not pinned). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
+`models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the private Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
 nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
 record and the weights. Measurements and the dry run: `docs/splitting_training.md`, section 8.
