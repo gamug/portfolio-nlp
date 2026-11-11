@@ -4084,27 +4084,65 @@ def test_the_company_features_count_distinct_capped_companies_in_each_part(
     assert (dense.sum(axis=1) == 3).all()  # one bucket per part
 
 
-def test_the_recorded_universe_and_the_matcher_code_are_fingerprinted() -> None:
+def test_the_recorded_universe_is_fingerprinted_and_the_matcher_digest_follows_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     baseline = _script("scope_title_baseline_2026_11_10")
     _, digest = baseline.universe_resolver()
     assert (
         digest == UNIVERSE_SHA256
     )  # a changed gold/universe.csv fails here: measure again, record the new hash
-    path = Path(triage.__file__)
-    assert baseline.matcher_digest() == hashlib.sha256(path.read_bytes()).hexdigest()
+    fake = tmp_path / "triage.py"
+    fake.write_text("version one", encoding="utf-8")
+    monkeypatch.setattr(triage, "__file__", str(fake))
+    first = baseline.matcher_digest()
+    assert first == hashlib.sha256(b"version one").hexdigest()
+    fake.write_text("version two", encoding="utf-8")
+    assert baseline.matcher_digest() != first  # a change to the matcher's code changes the digest
 
 
-def test_the_paired_lines_give_both_metrics_against_each_baseline() -> None:
-    baseline = _script("scope_title_baseline_2026_11_10")
+def _weighted_rows() -> list[dict[str, str]]:
+    """Six bodies of stratum a (population 100) and four of stratum b (population 20); all single."""
     rows = [
-        {"article_id": str(i), "stratum": "s", "frame": "60", "scope": scope}
-        for i, scope in enumerate(["single", "multi"] * 3)
+        {"article_id": str(i), "stratum": "a", "frame": "100", "scope": "single"} for i in range(6)
     ]
-    candidate = ["single", "multi"] * 3
-    worse = ["single", "single"] * 3
-    out = baseline.paired_lines(rows, candidate, {"title-only model": worse, "rules": candidate})
-    assert len(out) == 4
-    assert out[0].startswith("paired difference, agreement, minus title-only model: ")
-    assert out[1].startswith("paired difference, recall of multi, minus title-only model: ")
-    assert "100.0%" in out[1] and out[1].endswith("(better)")  # multi recall 100% against 0%
-    assert "0.0%" in out[2]  # against itself: no difference
+    rows += [
+        {"article_id": str(10 + i), "stratum": "b", "frame": "20", "scope": "single"}
+        for i in range(4)
+    ]
+    return rows
+
+
+def test_the_paired_lines_weight_the_strata_and_report_every_class() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    rows = _weighted_rows()
+    right = ["single"] * 10
+    wrong_in_a = ["multi"] * 3 + ["single"] * 7  # 3 of the 6 bodies of a: weight 3 * 100/6 of 120
+    wrong_in_b = ["single"] * 6 + ["multi"] * 2 + ["single"] * 2  # 2 of the 4 of b: 2 * 20/4 of 120
+    big = baseline.paired_lines(rows, wrong_in_a, {"baseline": right})
+    small = baseline.paired_lines(rows, wrong_in_b, {"baseline": right})
+    assert len(big) == 5  # agreement and the recall of each of the four classes
+    assert [line.split(",")[1].strip() for line in big] == [
+        "agreement",
+        "recall of single",
+        "recall of multi",
+        "recall of sector",
+        "recall of out_of_scope",
+    ]
+    assert "-41.7%" in big[0]  # 50 of 120 of the weight is wrong: the big stratum counts more
+    assert "-8.3%" in small[0]  # 10 of 120
+    assert big[0].endswith("(not better)") or big[0].endswith("(not decided)")
+    assert big[3].endswith("(undefined)")  # no sector in this gold: the recall does not exist
+
+
+def test_an_improvement_and_a_tie_give_their_verdicts() -> None:
+    baseline = _script("scope_title_baseline_2026_11_10")
+    rows = _weighted_rows()
+    right = ["single"] * 10
+    wrong = ["multi"] * 10
+    better = baseline.paired_lines(rows, right, {"baseline": wrong})
+    assert "100.0%" in better[0] and better[0].endswith("(better)")
+    tie = baseline.paired_lines(rows, right, {"baseline": right})
+    assert "0.0%" in tie[0] and tie[0].endswith(
+        "(not decided)"
+    )  # an interval of width 0 decides nothing

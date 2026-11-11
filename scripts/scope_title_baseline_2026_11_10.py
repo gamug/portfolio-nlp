@@ -11,9 +11,10 @@ is printed beside it. With ``--body-chars N`` the model also reads the first N c
 2026-11-10: title plus the first lines). With ``--company-features`` the model also gets the number of distinct universe companies the matcher finds in the
 title, in the first M characters of the body (``--first``, default 600; independent of ``--body-chars``, which only
 changes the text TF-IDF reads) and in the whole body, as counts capped at 4 (``gold/universe.csv`` and the code of
-``news_nlp/triage.py`` are fingerprinted, SHA-256 printed): what tells ``single`` from ``multi``. The model with the
-counts is then compared, paired and weighted, with the title-only model and with the rules (agreement and ``multi``
-recall, with the interval of the difference). **The body is the text of ``gold/texts``, which the draw capped at 6,020
+``news_nlp/triage.py`` are fingerprinted, SHA-256 printed; the matcher digest is **informational**: nothing compares it,
+because ``triage.py`` is edited by unrelated work, so a stale figure is spotted by reading the digest recorded with it): what tells ``single`` from ``multi``. The model with the
+counts is then compared, paired and weighted, with the title-only model and with the rules (agreement and the recall of each
+class, with the interval of the difference). **The body is the text of ``gold/texts``, which the draw capped at 6,020
 characters (33 of the 484 bodies reach it), so "the whole body" is its first ~6,000 characters; production may
 differ.** This is a floor for the pinned model of T-147, not the model.
 """
@@ -107,7 +108,7 @@ def paired_lines(
     candidate: Sequence[str],
     baselines: Mapping[str, Sequence[str]],
 ) -> list[str]:
-    """Paired weighted differences (candidate minus each baseline) of the agreement and of the recall of ``multi``."""
+    """Paired weighted differences (candidate minus each baseline) of the agreement and of the recall of each class."""
     populations: dict[str, int] = {}
     for r in rows:
         populations.setdefault(r["stratum"], int(r["frame"]))
@@ -124,11 +125,11 @@ def paired_lines(
             for r, c, b in zip(rows, candidate, base, strict=True)
         ]
         figures.sort(key=lambda r: int(r["article_id"]))
-        for metric in ("agreement", "recall"):
+        for metric, label in (("agreement", "single"), *(("recall", label) for label in LABELS)):
             gain = gold_metrics.paired_stratified_gain(
-                figures, populations, metric=metric, label="multi"
+                figures, populations, metric=metric, label=label
             )
-            what = "agreement" if metric == "agreement" else "recall of multi"
+            what = "agreement" if metric == "agreement" else f"recall of {label}"
             out.append(
                 f"paired difference, {what}, minus {name}: {gain} ({gold_metrics.gain_verdict(gain)})"
             )

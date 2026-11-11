@@ -605,3 +605,15 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
 ```
 - **Reproduce:** `uv run python scripts/scope_title_baseline_2026_11_10.py` (title) and `... --body-chars 300|600|1500` (title + first lines), from `gold/` alone. **Matcher features, next:** the universe the matcher reads is `gold/universe.csv` (507 tickers, company, also-covers, sector; `scripts/export_universe_2026_11_10.py`, from the per-company counts of T-160), so the measurement is reproducible without SOURCE. The universe is the per-company counts of 2026-11-09 (S&P membership changes): a measurement records the SHA-256 of `gold/universe.csv` beside its figures.
 ```
+
+### T-147 matcher features, per-class paired figures (review of #163, round 2)
+
+```
+      - **Supersedes the sentence "The company count helps `multi` a little and costs `sector`" of the Twelfth cut: the paired figures do not support the first half (`multi` +8.8% [-4.5, +22.8], not decided); the second half is confirmed and decided.** Paired weighted differences of the recall, against the title-only model / against the rules: `single` +2.7% [-7.0, +12.5] (not decided) / -11.6% [-18.9, -4.7] (not better); `multi` +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3] (not decided); `sector` -61.4% [-96.1, -15.3] (not better) / +15.3% [-10.5, +52.5] (not decided); `out_of_scope` -10.3% [-32.1, +13.6] (not decided) / +27.5% [+6.5, +49.6] (better). Agreement +0.5% [-7.5, +8.2] / -1.3% [-7.2, +4.7] (not decided).
+```
+
+### T-147 matcher-features line of TASKS.md before the trim (round 2 of #163)
+
+```
+- **Title + matcher features (2026-11-10, `--company-features`, one run; universe `gold/universe.csv` SHA-256 `2c1272429c694501…`, matcher `triage.py` `7a55574035f461e5…`; informational):** **66.9% [60.2, 73.4]**. Paired and weighted, against title-only / against the rules: agreement **+0.5% [-7.5, +8.2]** / **-1.3% [-7.2, +4.7]** (not decided); `multi` recall +8.8% [-4.5, +22.8] / +7.3% [-1.4, +16.3] (not decided). **Decided, both worse:** `sector` recall **-61.4% [-96.1, -15.3] against title-only** (9 gold, wide, whole interval below 0) and `single` recall **-11.6% [-18.9, -4.7] against the rules**; better only on `out_of_scope` against the rules (+27.5%). So **no gain is shown overall, and the counts cost `sector`**. **What this gold can see:** intervals of ±8 points (agreement), ±14 (`multi`), ±40 (`sector`): a gain under ~8 points is invisible, so (a) and (d) cannot be ranked against the rules here; the bar is 23 points away. **Owner's options:** (a) a stronger title model (an encoder, here on title + counts), (b) the body's first lines added to the title (**chosen; measured twice, no gain shown**), (c) more tags (D21 rounds of about 300 low-confidence bodies), (d) the rules with their error shown. **Owner decides again.**
+```
