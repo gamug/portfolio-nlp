@@ -5,8 +5,8 @@
 
 Reads the tags: by default the tracked ``gold/scope_quarantined_validation.csv`` (ids and tags, no text; the working files of
 ``draw_scope_quarantined_check_2026_11_11.py`` in ``data/`` have the same ``validator`` / ``correct_scope`` columns and work too;
-``--file`` may be repeated and the rows are pooled). ``--draw`` picks the draw of the gold file (``main`` = the 200 drawn per predicted
-scope, the default and the headline; ``multi_extra`` = the extra ``multi`` bodies; ``all`` = both pooled). ``--key`` picks the tags:
+``--file`` may be repeated and the rows are pooled). ``--draw`` picks the draw of the gold file (``all``, the default and the headline = both pooled: the 200 drawn per predicted
+scope plus the 25 extra ``multi`` bodies read, so ``multi`` and ``single`` both have 50; ``main`` = the first 200 only; ``multi_extra`` = the extra 25). ``--key`` picks the tags:
 ``final`` (after the owner's audits of 2026-11-11) or ``first`` (the first reading, kept in ``validator_first`` / ``correct_first``).
 Rows with an empty ``validator`` are left out and counted. Prints, per predicted scope, the
 bodies read, the share of ``yes`` (the precision of that class on quarantined bodies) with its 95% Wilson interval, what the
@@ -106,9 +106,7 @@ def summarise(
     return lines, figures
 
 
-def load_rows(
-    paths: Sequence[Path], draw: str = "main", key: str = "final"
-) -> list[dict[str, str]]:
+def load_rows(paths: Sequence[Path], draw: str = "all", key: str = "final") -> list[dict[str, str]]:
     """The rows of every file, pooled, with the tags of ``key`` in ``validator`` / ``correct_scope``.
 
     A file with a ``draw`` column (the tracked gold file) is filtered by ``draw`` (``all`` keeps everything); a working file
@@ -142,7 +140,7 @@ def load_rows(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--file", type=Path, action="append", default=[])
-    parser.add_argument("--draw", default="main", choices=("main", "multi_extra", "all"))
+    parser.add_argument("--draw", default="all", choices=("main", "multi_extra", "all"))
     parser.add_argument("--key", default="final", choices=("final", "first"))
     parser.add_argument("--sizes", default=DEFAULT_SIZES)
     args = parser.parse_args()

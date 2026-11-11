@@ -10,6 +10,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -571,7 +572,8 @@ def test_the_tracked_tags_load_by_draw_and_key_and_the_first_reading_is_kept(
         "multi_extra,multi,yes,,yes,\n",
         encoding="utf-8",
     )
-    assert [r["validator"] for r in validation.load_rows([f])] == ["yes"]  # main only
+    assert [r["validator"] for r in validation.load_rows([f], draw="main")] == ["yes"]
+    assert len(validation.load_rows([f])) == 2  # the default pools both draws
     assert len(validation.load_rows([f], draw="all")) == 2
     first = validation.load_rows([f], key="first")
     assert (first[0]["validator"], first[0]["correct_scope"]) == ("no", "single")
@@ -586,15 +588,22 @@ def test_the_tracked_tags_load_by_draw_and_key_and_the_first_reading_is_kept(
 
 
 def test_the_committed_tags_reproduce_both_readings() -> None:
+    # Pinned figures of docs/scope_training.md section 9. When T-178 settles the borderline rows (or any
+    # tag changes) these change on purpose: update them and the section together.
     gold = Path(__file__).resolve().parents[2] / "gold" / "scope_quarantined_validation.csv"
-    final = validation.summarise(
-        validation.load_rows([gold]), validation.parse_sizes(validation.DEFAULT_SIZES)
-    )
-    first = validation.summarise(
-        validation.load_rows([gold], key="first"), validation.parse_sizes(validation.DEFAULT_SIZES)
-    )
-    assert "89.6%" in first[0][-1] and "90.1%" in final[0][-1]
-    assert round(final[1]["multi"].point, 2) == 0.72 and round(first[1]["multi"].point, 2) == 0.64
+    sizes = validation.parse_sizes(validation.DEFAULT_SIZES)
+
+    def run(draw: str, key: str) -> tuple[list[str], dict[str, Any]]:
+        lines, figures = validation.summarise(
+            validation.load_rows([gold], draw=draw, key=key), sizes
+        )
+        return lines, dict(figures)
+
+    assert "90.8%" in run("all", "final")[0][-1] and "89.6%" in run("main", "first")[0][-1]
+    assert "90.1%" in run("main", "final")[0][-1]
+    assert round(run("all", "final")[1]["multi"].point, 2) == 0.82  # 41 of 50
+    assert round(run("main", "final")[1]["multi"].point, 2) == 0.72
+    assert round(run("main", "first")[1]["multi"].point, 2) == 0.64
 
 
 def test_a_card_only_commit_moves_the_pin_and_keeps_the_weights(tmp_path: Path) -> None:

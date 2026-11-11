@@ -10,7 +10,7 @@ main,8,63333,ARE,out_of_scope,yes,,yes,,,
 main,9,257263,GPN,sector,yes,,yes,,,
 main,10,76671,ARE,multi,yes,,no,investing_general,yes,audit 2026-11-11: labelling-spec call 21
 main,11,153168,TECH,multi,yes,,yes,,,
-main,12,386979,ON,sector,no,multi,yes,,yes,
+main,12,386979,ON,sector,no,multi,yes,,yes,audit 2026-11-11: owner kept sector after the audit (first pass: multi); the reason is in the owner's first note
 main,13,134451,BAC,out_of_scope,yes,,yes,,,
 main,14,266834,GS,single,yes,,yes,,,
 main,15,430542,NOW,single,yes,,yes,,,
@@ -24,7 +24,7 @@ main,22,126474,APP,multi,no,single,no,single,,Is true that there are mentions to
 main,23,72612,ARE,multi,yes,,yes,,,
 main,24,239216,IT,out_of_scope,yes,,yes,,,
 main,25,212394,EXR,multi,no,single,no,single,,Is about AT&T
-main,26,223651,FSLR,multi,no,investing_general,yes,,yes,
+main,26,223651,FSLR,multi,no,investing_general,yes,,yes,audit 2026-11-11: picks list with no stated theme = multi (call 21); owner agreed
 main,27,371547,ON,single,yes,,yes,,,
 main,28,178937,CCI,sector,no,market_economy,no,market_economy,,"Multiples news in a single, most of then about general economy stuff"
 main,29,427849,NOW,out_of_scope,yes,,yes,,,
@@ -63,7 +63,7 @@ main,61,354448,ON,multi,no,single,no,single,,
 main,62,279835,HD,single,yes,,yes,,,
 main,63,405306,ON,out_of_scope,yes,,yes,,,
 main,64,50345,A,single,yes,,yes,,,
-main,65,237799,IT,single,no,sector,no,market_economy,yes,We agree before that Bitcoin news are about cryptocurrency market_economy
+main,65,237799,IT,single,no,sector,no,market_economy,yes,We agree before that Bitcoin news are about cryptocurrency market_economy | audit 2026-11-11: crypto is market_economy (call 17); owner agreed
 main,66,229438,FSLR,out_of_scope,yes,,no,multi,yes,audit 2026-11-11: labelling-spec call 21
 main,67,410308,ON,out_of_scope,yes,,yes,,,
 main,68,50813,A,out_of_scope,yes,,yes,,,
@@ -135,11 +135,11 @@ main,133,374578,ON,out_of_scope,yes,,yes,,,
 main,134,20204,A,out_of_scope,yes,,yes,,,
 main,135,229859,FSLR,out_of_scope,yes,,yes,,,
 main,136,136268,BAC,sector,yes,,yes,,,
-main,137,154164,TECH,multi,no,investing_general,yes,,yes,
+main,137,154164,TECH,multi,no,investing_general,yes,,yes,audit 2026-11-11: changed by the owner after the audit; reason not recorded
 main,138,58061,A,out_of_scope,yes,,yes,,,
 main,139,461853,TTD,out_of_scope,yes,,yes,,,
 main,140,446359,TGT,single,yes,,yes,,,
-main,141,97436,AEP,multi,no,single,yes,,yes,
+main,141,97436,AEP,multi,no,single,yes,,yes,audit 2026-11-11: two companies each with an event = multi (call 18); owner agreed
 main,142,15412,A,sector,yes,,yes,,,
 main,143,54965,A,out_of_scope,yes,,yes,,,
 main,144,162338,COF,out_of_scope,yes,,yes,,,
@@ -159,7 +159,7 @@ main,157,212773,EXR,out_of_scope,yes,,yes,,,
 main,158,154383,TECH,single,yes,,yes,,,
 main,159,86846,ALL,single,yes,,yes,,,
 main,160,13070,A,sector,yes,,yes,,,
-main,161,59841,A,multi,no,single,yes,,yes,
+main,161,59841,A,multi,no,single,yes,,yes,audit 2026-11-11: the two parties of a deal = multi (call 18); owner agreed
 main,162,268725,HAS,out_of_scope,yes,,yes,,,
 main,163,340660,NCLH,out_of_scope,yes,,yes,,,
 main,164,205996,DOW,out_of_scope,yes,,yes,,,
@@ -210,7 +210,7 @@ multi_extra,8,371466,ON,multi,yes,,yes,,,
 multi_extra,9,160627,BLDR,multi,yes,,yes,,,
 multi_extra,10,184708,DLR,multi,yes,,yes,,,
 multi_extra,11,72054,ARE,multi,yes,,yes,,,
-multi_extra,12,333804,NWSA,multi,yes,,yes,,,
+multi_extra,12,333804,NWSA,multi,yes,,yes,,,"audit 2026-11-11: borderline (single, Pfizer, rivals move); left as tagged"
 multi_extra,13,46536,A,multi,yes,,yes,,,
 multi_extra,14,202793,D,multi,yes,,yes,,,
 multi_extra,15,366305,ON,multi,yes,,yes,,,
@@ -222,5 +222,5 @@ multi_extra,20,219974,FDXF,multi,yes,,yes,,,
 multi_extra,21,57790,A,multi,yes,,yes,,,
 multi_extra,22,330788,NWSA,multi,no,market_economy,no,market_economy,,"Even when there a mentions to acompanies, this is about the market performance instead"
 multi_extra,23,226961,FSLR,multi,yes,,yes,,,
-multi_extra,24,5013,A,multi,yes,,yes,,,
+multi_extra,24,5013,A,multi,yes,,yes,,,"audit 2026-11-11: borderline (single, Eli Lilly with partners?); left as tagged"
 multi_extra,25,202789,D,multi,yes,,yes,,,
