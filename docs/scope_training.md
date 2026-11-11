@@ -1,8 +1,8 @@
-# Splitting training: how the scope classifier was chosen (T-147)
+# Scope training: how the scope classifier was chosen and checked (T-147, T-163)
 
 **Status:** selected 2026-11-11 by the owner. The measured model is the one described in
-[The selected model](#the-selected-model). Its weights are **not saved, pinned or published yet**
-(see [What is not done](#what-is-not-done)).
+[The selected model](#the-selected-model). Its weights are saved, pinned and public
+(section 7); step 1 runs on them (section 8) and its output was validated on `quarantined` bodies (section 9).
 
 This page collects every experiment that led to the scope classifier of step 1 of the pipeline
 (PLAN D40): what each one assumed, how it was measured, what came out, and what we learned from
@@ -280,12 +280,12 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
   **+16.5 [9.6, 23.4]**, `single` recall 92.2%, `multi` 80.0%, `sector` 84.3% (7 gold bodies), `out_of_scope` 53.0% [32.3, 73.8]
   (confusion matrix: 19 of 33 out-of-scope bodies found, 11 read as `single`). This is the same figure as the rerun of section 6,
   so the saved weights reproduce it; it is still one seed. The weights are in the public repository
-  `gamug/deberta-v3-news-scope-nli@d14a4d20` and pinned in `config/scope_model.json` with the step revision
+  `gamug/deberta-v3-news-scope-nli@d14a4d20` (moved to `@58e4af4b` on 2026-11-11 by a card-only commit, same weights; section 9) and pinned in `config/scope_model.json` with the step revision
   (`scripts/publish_scope_model_2026_11_11.py`, `--check` verifies it). Five uploads: `5f5b2c27` lost the weights (the script did not follow folders); `3f5a85f9` had them; `2621fb4a` and `59964ab7` corrected the card; `d14a4d20` is the same weights with the card for a public repository, and is the pin. The first four stay in the history. The repository was made public on the owner's word (2026-11-11), after the upload was verified.
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
-- **Step 1 is built, the sub-news cut and the size measurement of sub-news (T-166) are not.** See section 8.
+- **Step 1 and the sub-news cut are built** (section 8); the size measurement of sub-news (T-166) is not.
 - **Seed variation** (three seeds on the selected setup) is the cheapest check that would make the 2-point
   differences interpretable. About 45 minutes of GPU.
 - **More out-of-scope bodies whose title names a company** are the data that would address the trade-off.
@@ -340,7 +340,7 @@ on the line; **2 are clear errors**: an EADS-BAE merger story, and a Paramount-S
 **What stays open:** the held-out gold was drawn from the 1,000-body sample (D30) and its `out_of_scope` recall (53%) is
 measured there; whether that sample covers the `quarantined` bodies is not stated in D30, and the `quarantined` bodies are
 79% of what step 1 now classifies. The share that continues in the corpus is therefore not known; the owner should decide
-whether a sample of `quarantined` bodies is tagged and scored before step 2.
+whether a sample of `quarantined` bodies is tagged and scored before step 2. **Done: section 9.**
 
 **Quality check of the corpus run (2026-11-11, `scripts/scope_quality_check_2026_11_11.py`, read-only, no GPU).**
 - *Integrity:* 309,972 rows, one per body (no duplicates), all at the pinned revision with `text_used = title+800`; no non-finite
@@ -466,7 +466,7 @@ Norwegian, Royal Caribbean, United, Delta, Dow/LyondellBasell, Nike, Simon Prope
 lines —", "Zoom Video –") the next sentences inherit "nobody", and `attribution_pieces` drops the universe companies they name (`tuple(... if
 owners else ())`: an empty owners list discards the named ones). **8 are named in passing** in another company's line (Cisco, Marriott,
 Norfolk Southern, Apple, AbbVie, NXP, CF Industries, Tesla). **1 is a matcher gap**: "International Business Machines —" finds no company, so
-IBM's own line goes to nobody (T-178). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
+IBM's own line goes to nobody (T-181). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
 no header of its own, after a header of nobody, goes to the universe companies it names; a header line that names one in passing still does not.
 
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
@@ -487,12 +487,78 @@ by name, never "the latest"**; `--step cut --status` lists the latest revision w
 the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
 
 **Before the full run.** (1) T-176 is done: the cut runs with `units4`, which removes most of the two faults above (162 texts with
-several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) is still being validated by the owner
-(`data/scope_quarantined_to_validate.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
-later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until that
-validation is in** (the condition is also in T-165). The run writes a new revision of rows and nothing else.
+several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) was validated by the owner (section 9; the tags are in
+`gold/scope_quarantined_validation.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
+later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until the owner
+releases the gate** (released on 2026-11-11, no flag; section 9, "The gate of section 8.1"; the condition is also in T-165). The run writes a new revision of rows and nothing else.
 
-## 9. Index of the work
+## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
+
+**Why it was needed.** The held-out 200 (section 5) were drawn from the 1,000-body sample (D30). Whether that sample
+covers `quarantined` bodies was not stated, and they are 79% of what step 1 classified (section 8). The corpus run
+therefore had no measured quality on most of its output. This section closes that gap for the `quarantined` bodies. The
+`ok` bodies (21%) are not covered by it; their figure is still the held-out 83.6%.
+
+**Where the numbers come from.**
+- *Sample:* `scripts/draw_scope_quarantined_check_2026_11_11.py` drew 200 `quarantined` bodies at random **per predicted
+  scope** (100 `out_of_scope`, 50 `single`, 25 `multi`, 25 `sector`), none already tagged in a gold file, shuffled, with the
+  title, the first 2,000 characters and a Spanish translation (`draw` = `main`). A second draw of 75 `multi` bodies (`--counts multi=75 --exclude
+  data/scope_quarantined_to_validate.csv --out data/multi_extra --seed 20261112`; 81,251 tokens of paid translation, 75 calls, 0 failed) was made so that `multi` would not rest on 25 bodies.
+  **The owner read the first 25 of its shuffled order (a random subset) to bring `multi` to 50, like `single`, and decided not to read the other 50** (`draw` = `multi_extra`). The design read is therefore
+  100 `out_of_scope`, 50 `single`, 50 `multi`, 25 `sector` (225 bodies). The unread 50 stay in `data/multi_extra/` (git-ignored) and are not used.
+- *Tags:* the owner read each body and answered `yes` (the predicted scope is right) or `no` (with the scope it should be). The working files are in `data/` (git-ignored: they hold news text).
+  **The tags are tracked in `gold/scope_quarantined_validation.csv`** (ids and tags, no text): `validator_first` / `correct_first` (first reading), `validator` / `correct_scope` (final), and `changed` = `yes` where the final differs from the first (9 rows of the main draw, none of the extra).
+  **The first-reading key of the main draw is a reconstruction.** The owner's file was edited in place and the original was not saved; it was rebuilt from the rows of the first review (the 24 `no` and their corrections) and checked against that review's per-class counts
+  (94 / 45 / 16 / 21 right, 89.6% overall), which it reproduces. It is a faithful rebuild of what was reported, not a copy of the owner's file.
+- *Scoring:* `scripts/score_scope_validation_2026_11_11.py` reads that file (CPU only, no model is loaded). Per class: the share of `yes` with its 95% Wilson interval. Overall: the
+  classes weighted by their size among quarantined bodies (260,356; the pool of the corpus run of revision `scope-nli-8ff21e50796b`, counted again on the real files: `out_of_scope` 146,248, `single` 63,001,
+  `sector` 31,157, `multi` 19,750 before the bodies were taken out; section 8's 245,071 counts the bodies by another rule, and weighting by its shares changes the figure by under a point). The overall
+  interval is a stratified normal approximation (`weighted_precision`), rough for classes of 25. The default is both draws pooled; `--draw main` scores the first 200 only, `--key first` the first reading.
+
+**Two keys, as in section 5.** The tags were revised after the first results were seen, so both are reported. The revisions were made against `docs/labelling-spec-v2.md`, never against the model's output alone (audit below).
+Three of the changes (#10, #45, #66) were written into the file by the assistant at the owner's request, so the final key is *one reader plus an audit*. The 25 extra rows were audited too (below) and none changed.
+
+| Predicted scope | Read | First reading [95% CI] | Final key [95% CI] | The wrong ones should have been (final) |
+|---|---|---|---|---|
+| `out_of_scope` | 100 | 94.0% [87.5, 97.2] | **93.0% [86.3, 96.6]** | `sector` 4, `single` 2, `multi` 1 |
+| `single` | 50 | 90.0% [78.6, 95.7] | 90.0% [78.6, 95.7] | `investing_general` 3, `market_economy` 1, `unrelated` 1 |
+| `multi` | 50 | 78.0% [64.8, 87.2] | **82.0% [69.2, 90.2]** | `single` 4, `investing_general` 2, `market_economy` 2, `sector` 1 |
+| `sector` | 25 | 84.0% [65.3, 93.6] | 88.0% [70.0, 95.8] | `market_economy` 2, `unrelated` 1 |
+| **All quarantined (weighted)** | 225 | 90.6% [86.8, 94.5] | **90.8% [86.9, 94.7]** | |
+
+On the 200 of the first draw alone (`--draw main`) the `multi` row is 64.0% (first) and 72.0% [52.4, 85.7] (final), and the overall figure 89.6% [85.5, 93.6] (first) and 90.1% [86.0, 94.1] (final).
+
+**Audit of the tags (owner, 2026-11-11).** Reading the first-pass `no` answers against the spec found calls that contradicted its rules: a deal between two companies is `multi` (call 18; #161 CPI/Comtech, #141 Goldman/AmEx),
+a list of picks with no stated theme is `multi` (call 21; #26, a "Fast Money" first-trade list), crypto is `market_economy`, not a sector (call 17; #65). The owner agreed and changed those tags (and #137, #12, with no reason recorded for #137);
+#147 (the Sky bid, read as an industry-wide push to merge) stays `sector`. First audit: `multi` 16 -> 20 right, `sector` 21 -> 22. Second audit: #66 ("Your First Move For Friday", the same format as #26) is a list of picks with no theme, so
+`multi`, not `out_of_scope`; #10 ("6 cheapest stocks") and #45 ("most price target hikes") are lists under a stated theme, so `investing_general` (`multi` 20 -> 18 right on the first 25). Every changed row has a note in the file with its reason.
+**The 25 extra rows** were checked against the same calls: the deals (JVs, takeovers, a sale to two buyers) are `multi`, the movers, analyst-call and Fast Money lists are `multi`, the two `no` are market wraps (`market_economy`); no row breaks calls 17, 18 or 21.
+Two are borderline and were left as tagged (the Pfizer trial, rivals moving; an Eli Lilly deal story). **Still borderline, left as tagged in the main draw:** #39, #85, #199 (Cramer lightning round / two picks) and #76, #154.
+The training gold has the same split on deals ("Nvidia to buy Mellanox" `single`, "Dynegy acquired by Blackstone" `multi`), so part of the `multi`/`single` confusion is label noise, not model error. Auditing the gold under calls 17, 18 and 21
+and settling the borderline rows is T-178; the figures here are not to be compared with the 83.6% before it is done.
+
+**What it says about the confidence in the model.**
+1. **The main worry, `out_of_scope`, is smaller than feared.** The rule written before the reading was: 95 or more of 100 `yes` and the worry is gone, 85 or fewer and all 200 are read. The result is 93, between the two, with the lower bound (86.3%) above the second line. About 7% of the bodies the step stops
+   (roughly 10,000 of 146,000; 5,000 to 20,000 within the interval) are company or sector news that will not reach steps 2 and later. Four of the seven are `sector` stories, not company ones.
+2. **`single` at 90% is usable.** The errors are bodies about investing in general or not news; later stages would run on text with no company in it.
+3. **`multi` is the weakest class**, 82% on 50 bodies (72% on the first 25). Four of the nine errors are `single`, two are theme lists that call 21 sends to `investing_general`, two are market wraps: the cut would run the `units` extractor on a one-company body, which costs time but does not lose a company or its news.
+4. **`sector` at 88%** is on the same line as the earlier reading of 42 bodies (section 8). Its sample (25) is the smallest.
+5. **Overall**, about 9 in 10 quarantined bodies have the right scope, against 83.6% on the held-out 200 (a different population, mix and key, so not a like-for-like comparison).
+
+**The gate of section 8.1: released (owner, 2026-11-11).** Section 8.1 held the cut's rows back from T-164/T-165 until the owner validated the quarantined scope sample. This section is that sample, and **the owner released the gate without a flag on `multi`**,
+trusting the results above. The cost of a wrong `multi` is GPU time and sub-news of a one-company body, not lost news, and T-165 picks the main company of each sub-news with its own model. T-165 reads `sub_news` from now on (its other conditions stand).
+
+**What it does not say.**
+- It is **precision** (of what the step called X, how much is X). The sample was drawn by predicted class, so it cannot give the **recall** of `out_of_scope` among quarantined bodies (the held-out recall of 53% is a different measure on a different population). Company stories the step called `single` and that
+  are really `out_of_scope` count against `single`; the share of true company news hidden in the other classes needs a sample drawn by tag (T-179).
+- One reader plus an audit (above); the owner's calls on the line cases (a stock-picking show, a market wrap with a takeover) decide part of the `no` answers.
+- 25 to 50 bodies per small class: the intervals are 20 to 33 points wide.
+- The `ok` bodies and the 204 paywall pages of section 8 are outside this sample.
+
+**Suggested next steps** (the owner decides): filter the paywall pages before step 2; keep the 10,274 low-margin bodies as the review queue. The Hub card of the scope model named this file under its old name and was republished on 2026-11-11
+(card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).
+
+## 10. Index of the work
 
 | What | Where |
 |---|---|
@@ -501,5 +567,6 @@ validation is in** (the condition is also in T-165). The run writes a new revisi
 | Experiment scripts | `scripts/scope_title_baseline_2026_11_10.py`, `scope_relevance_features_`, `scope_two_stage_`, `scope_nli_topic_`, `scope_nli_single_multi_`, `scope_end_to_end_` (all `_2026_11_10.py`) |
 | Draws and gold builders | `scripts/draw_scope_enrich_2026_11_10.py`, `draw_scope_hook_2026_11_11.py`, `build_scope_enrich_gold_2026_11_10.py`, `build_gold_2026_11_05.py` |
 | Tagging rules | `docs/labelling-spec-v2.md` (owner calls 14 to 21) |
-| Gold sets | `docs/gold_datasets.md` (sets 1, 2, 7, 8) |
-| Pull requests | #160 to #162 (pipeline, schema), #163 (matcher features), #164 (relevance and sentiment models), #165 (this work) |
+| Gold sets | `docs/gold_datasets.md` (sets 1, 2, 7, 8; set 9, `gold/scope_quarantined_validation.csv`, is section 9) |
+| Validation of step 1 (section 9) | `scripts/draw_scope_quarantined_check_2026_11_11.py`, `scripts/score_scope_validation_2026_11_11.py`, `gold/scope_quarantined_validation.csv` |
+| Pull requests | #160 to #162 (pipeline, schema), #163 (matcher features), #164 (relevance and sentiment models), #165 (scope model), #166 (step 1), #167 (pin), #168 and #169 (the cut), #170 (validation on quarantined bodies, this rename) |

@@ -446,7 +446,7 @@ Every figure is in Appendix B.3 to B.6.
 
 ## Update of 2026-11-11: `units4`, the reading of the cut (T-176)
 
-The first run of the cut on 232 `multi` bodies (`docs/splitting_training.md` §8.1) showed two faults of `units`: **162 company
+The first run of the cut on 232 `multi` bodies (`docs/scope_training.md` §8.1) showed two faults of `units`: **162 company
 texts (in 79 of the 232 bodies) held two or more "Name —" headings**, and 6 texts were a heading without its sentence. Cause: a
 line headed by a company that is **not in the universe** ("Wendy's (WEN) – …", the roundups write the ticker in brackets) was
 given to whichever universe company the model preferred (108 of the 162 texts), and the clause rule cut a heading off its text
@@ -477,12 +477,12 @@ are within about a point of each other. The paired difference is wholly at or be
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
 companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10; the result is evidence, not a proof, and the owner decided on it (below).
 
-**Update, same day (owner read the 7 unread changed texts, `docs/splitting_training.md` §8.1):** 4 faithful, 3 not; `units4` is **302 of 313, 96.5% [93.8, 98.0]** on the marked texts (Wilson), `units` 97.6% [95.3, 98.8]. Of the 18 lost companies 9 are the subject of a roundup line, 8 are named in passing and 1 is a matcher gap: T-177 (`units5`), T-178.
+**Update, same day (owner read the 7 unread changed texts, `docs/scope_training.md` §8.1):** 4 faithful, 3 not; `units4` is **302 of 313, 96.5% [93.8, 98.0]** on the marked texts (Wilson), `units` 97.6% [95.3, 98.8]. Of the 18 lost companies 9 are the subject of a roundup line, 8 are named in passing and 1 is a matcher gap: T-177 (`units5`), T-181.
 
 **Decision (owner, 2026-11-11).** The owner accepts the results as they are, small sample and unread texts included (that is the "not decided" of the statistical reading above: the data do not decide it; the owner's word does), and `units4` is the default of the cut (`DEFAULT_READING` in
 `src/cut_stage.py`; `--reading units` cuts as before). The 18 companies without a text are not a worry: they are named in
 passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
-sub-news; if the company is part of that news, the fragment is copied to it there. **This is an assumption, not a measurement:** T-165's closing check counts, of the companies `units4` leaves without a text, how many NER finds in a sub-news of the same body. The 23 texts that still hold several headings are read in `docs/splitting_training.md` §8.1 (10 overlap, 13 a third fault, T-177). The 7 unread texts and the 18 lost ones are
+sub-news; if the company is part of that news, the fragment is copied to it there. **This is an assumption, not a measurement:** T-165's closing check counts, of the companies `units4` leaves without a text, how many NER finds in a sub-news of the same body. The 23 texts that still hold several headings are read in `docs/scope_training.md` §8.1 (10 overlap, 13 a third fault, T-177). The 7 unread texts and the 18 lost ones are
 in `data/units4_to_read.csv` for whenever the owner wants to read them; the decision does not wait for it.
 
 ## What is next

@@ -2,12 +2,12 @@
 
     uv run python scripts/train_scope_final_2026_11_11.py [--out models/scope_final] [--seed 1]
 
-The recipe and the 365 training bodies are the ones ``docs/splitting_training.md`` measured (83.0% on the held-out 200, which
+The recipe and the 365 training bodies are the ones ``docs/scope_training.md`` measured (83.0% on the held-out 200, which
 stay unseen): stage A (company / sector / not_related) on all 365, stage B (single / multi) on the 210 company bodies, both from
 the pinned category model, float32 weights, bf16 autocast, seed 1. Writes ``<out>/stage_a`` and ``<out>/stage_b`` (weights,
 tokenizer) and ``<out>/training_record.json`` (base revision, rows per class, recipe, seed, git commit). Not pushed anywhere.
 The step's revision hashes the record and the weight files, so a refit (GPU training is not bit for bit) is a new revision.
-Takes about 5 minutes on a 6 GB RTX 4050 (see ``docs/splitting_training.md``, "Step 1").
+Takes about 5 minutes on a 6 GB RTX 4050 (see ``docs/scope_training.md``, "Step 1").
 """
 
 from __future__ import annotations
