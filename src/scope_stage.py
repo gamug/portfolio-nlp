@@ -44,9 +44,43 @@ def fragment(title: str, text: str, chars: int) -> str:
 
 
 def revision_of(model_dir: Path) -> str:
-    """``scope-nli-<12 hex>``: the hash of the training record, which names the data, recipe and base revision."""
-    record = (model_dir / "training_record.json").read_bytes()
-    return "scope-nli-" + hashlib.sha256(record).hexdigest()[:12]
+    """``scope-nli-<12 hex>``: the hash of the training record (data, recipe, base revision) and of the saved weights.
+
+    GPU training is not bit for bit, so two fits with one record give different weights; the weight files are part of the
+    revision so that a refit is a new revision and its bodies are done again.
+    """
+    digest = hashlib.sha256((model_dir / "training_record.json").read_bytes())
+    for weights in sorted(model_dir.glob("stage_*/*.safetensors")):
+        digest.update(weights.relative_to(model_dir).as_posix().encode())
+        with weights.open("rb") as fh:
+            while chunk := fh.read(1 << 24):
+                digest.update(chunk)
+    return "scope-nli-" + digest.hexdigest()[:12]
+
+
+def assemble(
+    record: dict[str, Any],
+    topic_margins: dict[str, list[float]],
+    class_margins: dict[str, list[float]],
+    topics: list[str],
+    company: list[int],
+) -> list[ScopeResult]:
+    """The four-class scope of every text from the stage margins.
+
+    ``company`` lists the positions stage A called company; ``class_margins`` holds stage B's margins for those only, in that order.
+    """
+    a, b = record["stage_a"], record["stage_b"]
+    row_of = {i: j for j, i in enumerate(company)}
+    results: list[ScopeResult] = []
+    for i, topic in enumerate(topics):
+        scores = {f"topic:{name}": topic_margins[name][i] for name in a["topics"]}
+        second: str | None = None
+        if topic == "company":
+            j = row_of[i]
+            scores.update({f"count:{name}": class_margins[name][j] for name in b["classes"]})
+            second = max(b["classes"], key=lambda name: class_margins[name][j])
+        results.append(ScopeResult(combine(topic, second), scores))
+    return results
 
 
 class ScopeClassifier:
@@ -116,13 +150,4 @@ class ScopeClassifier:
         bm = self._margins(
             self.b, [texts[i] for i in company], b["hypotheses"], int(b["recipe"]["max_length"])
         )
-        results: list[ScopeResult] = []
-        for i, topic in enumerate(topics):
-            scores = {f"topic:{name}": am[name][i] for name in a["topics"]}
-            second: str | None = None
-            if topic == "company":
-                j = company.index(i)
-                scores.update({f"count:{name}": bm[name][j] for name in b["classes"]})
-                second = max(b["classes"], key=lambda name: bm[name][j])
-            results.append(ScopeResult(combine(topic, second), scores))
-        return results
+        return assemble(self.record, am, bm, topics, company)

@@ -534,4 +534,13 @@ section.
 
 `init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities`. Its `score` stays the NER confidence. Nothing writes the new tables yet (T-162 continues, T-163).
+`article_entities`. Its `score` stays the NER confidence. Step 1 writes `body_scope` and `pipeline_step_state` (T-163, below); nothing else writes the new tables yet.
+
+### Step 1: scope (T-163)
+
+`uv run cli/news_nlp_steps.py --step scope [--limit N] [--status [--titles]] [--model-dir DIR]` classifies the unique
+bodies of the properly fetched corpus (`ok` and `quarantined`) into single / multi / sector / out_of_scope with the two
+NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
+`models/scope_final`, git-ignored, not pinned). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
+nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
+record and the weights. Measurements and the dry run: `docs/splitting_training.md`, section 8.

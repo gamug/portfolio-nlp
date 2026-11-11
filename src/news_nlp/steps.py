@@ -19,6 +19,8 @@ from news_nlp.db import NewsNlpDatabase
 STEP_SCOPE = "scope"
 ITEM_BODY = "body"
 SCOPES = ("single", "multi", "sector", "out_of_scope")
+# The properly fetched corpus (D36, T-159): ``quarantined`` is a verdict on the company tag, not on the article.
+PROPER_STATUSES = ("ok", "quarantined")
 
 
 @dataclass(frozen=True)
@@ -58,11 +60,12 @@ def pending_bodies(
     done = finished(conn, step, revision)
     seen: set[str] = set()
     taken = 0
+    marks = ", ".join("?" for _ in PROPER_STATUSES)
     query = (
         f"SELECT id, title, body_text FROM {_articles(conn)} "  # noqa: S608 -- the schema name is main or source, never input
-        "WHERE fetch_status = 'ok' AND body_text IS NOT NULL AND body_text != '' ORDER BY id"
+        f"WHERE fetch_status IN ({marks}) AND body_text IS NOT NULL AND body_text != '' ORDER BY id"
     )
-    for article_id, title, text in conn.execute(query):
+    for article_id, title, text in conn.execute(query, PROPER_STATUSES):
         key = triage.body_hash(text)
         if key in seen or key in done:
             continue
@@ -111,6 +114,19 @@ def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, 
         (ITEM_BODY, body.body_hash, step, revision, error[:500], now, now),
     )
     conn.commit()
+
+
+def missing_titles(conn: NewsNlpDatabase) -> int:
+    """Unique bodies whose first article (the one the classifier reads) has no title (T-147)."""
+    marks = ", ".join("?" for _ in PROPER_STATUSES)
+    seen: dict[str, bool] = {}
+    for title, text in conn.execute(
+        f"SELECT title, body_text FROM {_articles(conn)} "  # noqa: S608 -- the schema name is main or source, never input
+        f"WHERE fetch_status IN ({marks}) AND body_text IS NOT NULL AND body_text != '' ORDER BY id",
+        PROPER_STATUSES,
+    ):
+        seen.setdefault(triage.body_hash(text), bool((title or "").strip()))
+    return sum(1 for has_title in seen.values() if not has_title)
 
 
 def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dict[str, object]:

@@ -273,20 +273,42 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 
 ## 7. What is not done
 
-- **Owner of this list: T-147b** (refit, saved checkpoints, FTI + MLflow, pin, three seeds); step 1 uses the rules until it is done (T-163). The scripts need a GPU (`.cuda()` is fixed in them).
-- **The weights are not saved, pinned or published.** The experiment script trains in memory and writes only
-  predictions. Pinning needs a refit and a saved checkpoint, and no model is published without the owner's word.
-- **Not on the FTI pattern and not logged in MLflow.** Like the relevance model, the scope scripts are plain
-  scripts. Building the final scope model on `fti.py` with an MLflow run is the next step before step 1 uses it.
+- **Owner of this list: T-147b** (FTI + MLflow, pin, three seeds). The scripts need a GPU (`.cuda()` is fixed in them).
+- **The weights are saved locally, not pinned or published.** `scripts/train_scope_final_2026_11_11.py` refits both
+  models on the 365 bodies and writes `models/scope_final` (git-ignored) with a `training_record.json`; step 1 runs on
+  them (`cli/news_nlp_steps.py --step scope`, T-163). A step revision hashes the record **and** the weight files, because
+  GPU training is not bit for bit. Pinning, publishing and MLflow need the owner's word (T-147b).
+- **Not on the FTI pattern and not logged in MLflow.** Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
-- **Step 1 itself** (`news_nlp_steps.py --step scope`, T-163) and the size measurement of sub-news (T-166) wait for
-  the saved checkpoint.
+- **Step 1 is built, the sub-news cut and the size measurement of sub-news (T-166) are not.** See section 8.
 - **Seed variation** (three seeds on the selected setup) is the cheapest check that would make the 2-point
   differences interpretable. About 45 minutes of GPU.
 - **More out-of-scope bodies whose title names a company** are the data that would address the trade-off.
 
-## 8. Index of the work
+## 8. Step 1: running the classifier on the corpus (T-163)
+
+```bash
+uv run python scripts/train_scope_final_2026_11_11.py            # GPU; refits both models on the 365 bodies, ~12 min on a 6 GB RTX 4050
+uv run cli/news_nlp_steps.py --step scope --limit 500            # classify up to 500 unique bodies not done at this revision
+uv run cli/news_nlp_steps.py --step scope --status [--titles]    # counts by state and scope; --titles scans the corpus (minutes)
+```
+
+The step reads the **properly fetched corpus** (`ok` and `quarantined`, D36), one item per unique body, in article-id
+order. The revision stored with each row is a hash of the training record and the weight files, so a refit is a new
+revision and its bodies run again. A batch that fails is redone body by body, so one bad body fails alone; failed bodies
+are retried by the next run.
+
+**Dry run (2026-11-11, first 500 unique bodies by article id of `urls.db`, scratch RESULTS file, GPU RTX 4050):**
+500 done, 0 failed; single 220, multi 171, out_of_scope 101, sector 8. A rerun with `--limit 5` added 5 rows and changed
+none. **Not a corpus sample:** the first 500 hold 331 `ok` and 169 `quarantined` bodies; out_of_scope is 30 of 331
+(9%) among `ok` and 71 of 169 (42%) among `quarantined`, which fits quarantined pairs being the ones whose company is not
+the subject (D36) and is why the 500 differ from the 12.8% estimate. Bodies with no title in the whole corpus: 90.
+**Speed:** about 29 bodies/s once running, so the 309,882 unique bodies are about 3 hours of GPU; start-up is ~10 s.
+The held-out figures are not printed by the command: they are the ones in section 1 (scored by
+`scripts/scope_end_to_end_2026_11_10.py`, not from the saved weights; T-147b closes that).
+
+## 9. Index of the work
 
 | What | Where |
 |---|---|

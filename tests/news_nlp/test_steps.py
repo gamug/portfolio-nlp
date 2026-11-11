@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sqlite3
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -10,18 +12,26 @@ import pytest
 
 import news_nlp as db_module
 from news_nlp import steps
-from scope_stage import combine, fragment, revision_of
+from scope_stage import ScopeResult, assemble, combine, fragment, revision_of
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
 
 REV = "scope-nli-test"
 
 
-def _source_with(path: Path, rows: list[tuple[int, str, str]]) -> None:
+def _source_with(
+    path: Path, rows: list[tuple[int, str, str]], quarantined: tuple[int, ...] = ()
+) -> None:
     conn = sqlite3.connect(path)
     conn.executescript(ARTICLES_SCHEMA)
     stamp_source(conn)
     for i, title, body in rows:
-        seed_article(conn, id=i, title=title, body_text=body)
+        seed_article(
+            conn,
+            id=i,
+            title=title,
+            body_text=body,
+            fetch_status="quarantined" if i in quarantined else "ok",
+        )
     conn.commit()
     conn.close()
 
@@ -113,3 +123,99 @@ def test_the_revision_is_the_hash_of_the_training_record(tmp_path: Path) -> None
     first = revision_of(tmp_path)
     (tmp_path / "training_record.json").write_text('{"a": 2}', encoding="utf-8")
     assert first.startswith("scope-nli-") and revision_of(tmp_path) != first
+
+
+def test_a_quarantined_article_is_part_of_the_corpus(tmp_path: Path, results_db_path: Path) -> None:
+    source = tmp_path / "q.db"
+    _source_with(source, [(1, "A", "One. " * 5), (2, "B", "Two. " * 5)], quarantined=(2,))
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    try:
+        assert [b.article_id for b in steps.pending_bodies(conn, steps.STEP_SCOPE, REV)] == [1, 2]
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+
+def test_missing_titles_are_counted_per_unique_body(tmp_path: Path, results_db_path: Path) -> None:
+    source = tmp_path / "t.db"
+    _source_with(source, [(1, "A", "One. " * 5), (2, "", "Two. " * 5), (3, "  ", "Three. " * 5)])
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    try:
+        assert steps.missing_titles(conn) == 2
+    finally:
+        db_module.detach_source(conn)
+        conn.close()
+
+
+def test_the_revision_follows_the_weights(tmp_path: Path) -> None:
+    (tmp_path / "training_record.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "stage_a").mkdir()
+    weights = tmp_path / "stage_a" / "model.safetensors"
+    weights.write_bytes(b"one")
+    first = revision_of(tmp_path)
+    weights.write_bytes(b"two")  # same record, refitted weights
+    assert revision_of(tmp_path) != first
+
+
+RECORD = {
+    "stage_a": {"topics": ["company", "sector", "not_related"]},
+    "stage_b": {"classes": ["single", "multi"]},
+}
+
+
+def test_stage_b_rows_follow_the_company_bodies() -> None:
+    """Stage B was asked only of the bodies stage A called company: its rows line up with those, not with the batch."""
+    topics = ["not_related", "company", "sector", "company"]
+    a = {
+        "company": [0.0, 5.0, 0.0, 5.0],
+        "sector": [0.0, 0.0, 5.0, 0.0],
+        "not_related": [5.0, 0.0, 0.0, 0.0],
+    }
+    b = {"single": [3.0, -3.0], "multi": [-3.0, 3.0]}  # body 1 single, body 3 multi
+    got = assemble(RECORD, a, b, topics, company=[1, 3])
+    assert [r.scope for r in got] == ["out_of_scope", "single", "sector", "multi"]
+    assert "count:single" not in got[0].scores and "count:single" in got[3].scores
+
+
+class _Stub:
+    """A classifier without a model: bodies whose text starts with 'bad' make the batch fail."""
+
+    revision = "scope-nli-stub"
+    chars = 800
+
+    def classify(self, items: list[tuple[str, str]]) -> list[ScopeResult]:
+        if any(text.startswith("bad") for _, text in items):
+            raise RuntimeError("boom")
+        return [ScopeResult("single", {"topic:company": 1.0}) for _ in items]
+
+
+def _cli() -> object:
+    spec = importlib.util.spec_from_file_location(
+        "news_nlp_steps_cli", Path(__file__).resolve().parents[2] / "cli" / "news_nlp_steps.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_cli_redoes_a_failed_batch_body_by_body(tmp_path: Path, results_db_path: Path) -> None:
+    source = tmp_path / "cli.db"
+    _source_with(
+        source,
+        [(1, "A", "good one. " * 5), (2, "B", "bad two. " * 5), (3, "C", "good three. " * 5)],
+    )
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    try:
+        cli = _cli()
+        counts = cli.run_scope(conn, _Stub(), limit=None)  # type: ignore[attr-defined]
+        assert counts["done"] == 2 and counts["failed"] == 1 and counts["single"] == 2
+        got = steps.status(conn, steps.STEP_SCOPE, "scope-nli-stub")
+        assert got["by_state"] == {"done": 2, "failed": 1}
+        again = cli.run_scope(conn, _Stub(), limit=None)  # type: ignore[attr-defined]
+        assert again["done"] == 0 and again["failed"] == 1  # only the failed one is retried
+        assert cli.run_scope(conn, _Stub(), limit=1)["failed"] <= 1  # type: ignore[attr-defined]
+    finally:
+        db_module.detach_source(conn)
+        conn.close()

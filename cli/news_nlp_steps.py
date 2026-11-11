@@ -4,6 +4,7 @@
 Usage:
     uv run cli/news_nlp_steps.py --step scope --limit 500     # classify up to 500 unique bodies not yet done
     uv run cli/news_nlp_steps.py --step scope --status        # counts by state and by scope, no model loaded
+    uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -13,9 +14,12 @@ revision starts a new set of rows and leaves the old ones. ``--model-dir`` is th
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, Protocol
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
 
 from tqdm import tqdm
 
@@ -27,37 +31,61 @@ STEPS = (steps.STEP_SCOPE,)
 BATCH = 16
 
 
-def run_scope(conn: db.NewsNlpDatabase, model_dir: Path, limit: int | None) -> dict[str, int]:
-    """Classify up to ``limit`` unique bodies not yet done at the model's revision; return what was done."""
-    from scope_stage import ScopeClassifier  # noqa: PLC0415 -- loads torch
+class Classifier(Protocol):
+    """What ``run_scope`` needs of a scope classifier (``scope_stage.ScopeClassifier`` or a test stub)."""
 
-    classifier = ScopeClassifier(model_dir)
+    revision: str
+    chars: int
+
+    def classify(self, items: Sequence[tuple[str, str]]) -> list[Any]: ...
+
+
+def _classify_batch(
+    conn: db.NewsNlpDatabase,
+    classifier: Classifier,
+    batch: list[steps.Body],
+    counts: dict[str, int],
+) -> None:
+    """Classify and store one batch; a batch that fails is redone body by body, so one bad body fails alone."""
+    try:
+        results = classifier.classify([(b.title, b.text) for b in batch])
+    except Exception:
+        if len(batch) > 1:
+            for body in batch:
+                _classify_batch(conn, classifier, [body], counts)
+            return
+        # a single body: the reason is stored with it
+        import traceback  # noqa: PLC0415
+
+        steps.record_failure(
+            conn, batch[0], steps.STEP_SCOPE, classifier.revision, traceback.format_exc(limit=1)
+        )
+        counts["failed"] += 1
+        return
+    for body, result in zip(batch, results, strict=True):
+        steps.record_scope(
+            conn,
+            body,
+            classifier.revision,
+            result.scope,
+            result.scores,
+            f"title+{classifier.chars}",
+        )
+        counts["done"] += 1
+        counts[result.scope] = counts.get(result.scope, 0) + 1
+
+
+def run_scope(
+    conn: db.NewsNlpDatabase, classifier: Classifier, limit: int | None
+) -> dict[str, int]:
+    """Classify up to ``limit`` unique bodies not yet done at the classifier's revision; return what was done."""
     todo = list(steps.pending_bodies(conn, steps.STEP_SCOPE, classifier.revision, limit))
     counts: dict[str, int] = {"done": 0, "failed": 0}
-    bar = tqdm(total=len(todo), desc="scope", unit="body")  # progress and time left
-    for i in range(0, len(todo), BATCH):
-        batch = todo[i : i + BATCH]
-        try:
-            results = classifier.classify([(b.title, b.text) for b in batch])
-        except Exception as exc:
-            for body in batch:
-                steps.record_failure(conn, body, steps.STEP_SCOPE, classifier.revision, repr(exc))
-            counts["failed"] += len(batch)
+    with tqdm(total=len(todo), desc="scope", unit="body") as bar:  # progress and time left
+        for i in range(0, len(todo), BATCH):
+            batch = todo[i : i + BATCH]
+            _classify_batch(conn, classifier, batch, counts)
             bar.update(len(batch))
-            continue
-        for body, result in zip(batch, results, strict=True):
-            steps.record_scope(
-                conn,
-                body,
-                classifier.revision,
-                result.scope,
-                result.scores,
-                f"title+{classifier.chars}",
-            )
-            counts["done"] += 1
-            counts[result.scope] = counts.get(result.scope, 0) + 1
-        bar.update(len(batch))
-    bar.close()
     return counts
 
 
@@ -66,7 +94,12 @@ def main() -> None:
     parser.add_argument("--step", choices=STEPS, required=True)
     parser.add_argument("--limit", type=int, default=None, help="touch at most this many bodies")
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
-    parser.add_argument("--model-dir", type=Path, default=Path("models/scope_final"))
+    parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=ROOT / "models" / "scope_final",
+        help="default: models/scope_final in the repository",
+    )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
     args = parser.parse_args()
@@ -82,11 +115,16 @@ def main() -> None:
 
         revision = revision_of(args.model_dir)
     if args.status:
-        print(json.dumps(steps.status(conn, args.step, revision), indent=2))
+        report = steps.status(conn, args.step, revision)
+        if args.titles:
+            report["missing_titles"] = steps.missing_titles(conn)
+        print(json.dumps(report, indent=2))
         return
     if revision is None:
         sys.exit(f"{args.model_dir}/training_record.json is missing: train the models first")
-    print(json.dumps(run_scope(conn, args.model_dir, args.limit), indent=2))
+    from scope_stage import ScopeClassifier  # noqa: PLC0415 -- loads torch
+
+    print(json.dumps(run_scope(conn, ScopeClassifier(args.model_dir), args.limit), indent=2))
     print(json.dumps(steps.status(conn, args.step, revision), indent=2))
 
 
