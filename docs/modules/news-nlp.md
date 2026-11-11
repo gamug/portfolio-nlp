@@ -222,6 +222,8 @@ Production model selection (name, commit SHA, and batch size per ML stage) lives
 | Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
 | Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
 
+The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, commit, and the step revision stored in every `body_scope` row), on purpose: the repository is private and `python -m setup` would try to download it. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into `models/scope_final` and refuses a copy whose step revision is not the pinned one (needs `HF_TOKEN`); the step prints whether the model it runs is the pinned one.
+
 Sentiment has no `batch_size` entry — `sentiment_stage.SentimentInference.batch_size()` is a hardcoded `1`, not a tunable constant `pipeline.py` reads, so there is nothing for a config field to move.
 
 Bumping a pin later is a deliberate, reviewed one-line diff against `config/pipeline_models.json` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.

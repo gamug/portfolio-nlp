@@ -1,5 +1,5 @@
 {
-  "what": "Hub repositories of the final models (T-169); private, not pinned (config/pipeline_models.json)",
+  "what": "Hub repositories of the final models (T-169, T-147b); all private. Pinned: scope (config/scope_model.json); sentiment and relevance are not pinned (config/pipeline_models.json)",
   "sentiment": {
     "repo": "gamug/FinBERT-company-sentiment",
     "revision": "9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e",
@@ -15,9 +15,9 @@
   "card_note": "card_sha256 is that of the README.md uploaded by scripts/publish_final_models_2026_11_10.py (checked live on the Hub, 2026-11-10); first upload revisions 1d1942be (sentiment, card sha 5ae8268c) and 1631bdac (relevance, card sha 451b6cb9) had the cards of commit fb28eb4; the weights are the same in both uploads",
   "scope": {
     "repo": "gamug/deberta-v3-news-scope-nli",
-    "revision": "3f5a85f9d0e8eb1143554e91b4654fbb35642090",
+    "revision": "2621fb4a7c732689e35a9a9814bbd8207d93a4b6",
     "private": true,
-    "card_sha256": "e362cda277b6c9d2dee4111ee892da5938bdc394c73225211b38c16716d0f841",
+    "card_sha256": "aafdbe6c70226cdc4ec9cab6a0a164fc2d85519ecc293dd262919f3c2f4b9b69",
     "weights_sha256": {
       "stage_a": "3f09a2e729c8492ecd099dfccebb8e539b93ffce21533f6a3a93341c34fe12df",
       "stage_b": "88b7d88c51c30f6bfde4db13359be65d28711ef7c4fb8c216c716d2216820a83"

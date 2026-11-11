@@ -99,6 +99,25 @@ def pin_status(revision: str, pin_path: Path = PIN_PATH) -> str:
     )
 
 
+def fetch_pinned(model_dir: Path, pin_path: Path = PIN_PATH) -> str:
+    """Download the pinned scope model from the Hub into *model_dir* and check it is the pinned step revision.
+
+    The repository is private: ``HF_TOKEN`` (read scope) must be set. Returns the step revision; raises when the downloaded
+    files do not hash to the revision recorded in the pin (a wrong or altered copy is never used silently).
+    """
+    from huggingface_hub import snapshot_download  # noqa: PLC0415 -- only the download needs it
+
+    pin = json.loads(pin_path.read_text(encoding="utf-8"))
+    snapshot_download(pin["model"], revision=pin["revision"], local_dir=str(model_dir))
+    got = revision_of(model_dir)
+    if got != pin["step_revision"]:
+        raise RuntimeError(
+            f"{pin['model']}@{pin['revision'][:8]} downloaded to {model_dir} has the step revision {got}, "
+            f"not the pinned {pin['step_revision']}"
+        )
+    return got
+
+
 class ScopeClassifier:
     """Both stages loaded on the GPU; ``classify`` reads a batch of (title, body) pairs."""
 

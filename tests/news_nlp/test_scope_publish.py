@@ -184,3 +184,163 @@ def test_an_upload_without_the_weights_is_never_recorded(
     monkeypatch.setattr(huggingface_hub, "HfApi", _LosingApi)
     with pytest.raises(SystemExit, match="weights are not on the Hub"):
         publish.publish("t", _folder(tmp_path / "m"), "card", dry=False)
+
+
+def test_the_card_example_is_valid_python_and_uses_the_records_keys() -> None:
+    import ast  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    text = publish.card("scope-nli-abc")
+    code = re.search(r"```python\n(.*?)```", text, re.S)
+    assert code
+    ast.parse(code.group(1))
+    for key in (
+        'rec[stage]["hypotheses"]',
+        'rec["stage_a"]["topics"]',
+        'rec["stage_b"]["classes"]',
+        "fragment_chars",
+    ):
+        assert key in code.group(1)
+    assert "5f5b2c27" in text  # the history of the first upload
+
+
+def _pin(tmp_path: Path, step_revision: str) -> Path:
+    pin = tmp_path / "pin.json"
+    pin.write_text(
+        json.dumps({"model": "o/r", "revision": SHA, "step_revision": step_revision}),
+        encoding="utf-8",
+    )
+    return pin
+
+
+def _fake_download(source: Path) -> object:
+    import shutil  # noqa: PLC0415
+
+    def snapshot_download(repo: str, revision: str, local_dir: str, **_: object) -> str:
+        assert (repo, revision) == ("o/r", SHA)
+        shutil.copytree(source, local_dir, dirs_exist_ok=True)
+        return local_dir
+
+    return snapshot_download
+
+
+def test_fetch_pinned_downloads_the_pinned_commit_and_checks_the_step_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import huggingface_hub  # noqa: PLC0415
+
+    from scope_stage import fetch_pinned  # noqa: PLC0415
+
+    source = _folder(tmp_path / "hub")
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", _fake_download(source))
+    target = tmp_path / "models" / "scope_final"
+    assert fetch_pinned(target, _pin(tmp_path, revision_of(source))) == revision_of(source)
+    assert (target / "stage_a" / "model.safetensors").exists()
+
+
+def test_fetch_pinned_refuses_a_copy_that_is_not_the_pinned_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import huggingface_hub  # noqa: PLC0415
+
+    from scope_stage import fetch_pinned  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", _fake_download(_folder(tmp_path / "hub"))
+    )
+    with pytest.raises(RuntimeError, match="not the pinned"):
+        fetch_pinned(tmp_path / "t", _pin(tmp_path, "scope-nli-other"))
+
+
+class _GoodApi(_LosingApi):
+    def list_repo_files(self, *args: object, **kwargs: object) -> list[str]:
+        return [
+            "README.md",
+            "training_record.json",
+            "stage_a/model.safetensors",
+            "stage_b/model.safetensors",
+        ]
+
+
+def _main(monkeypatch: pytest.MonkeyPatch, *argv: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["publish", *argv])
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: None)
+    publish.main()
+
+
+def test_the_upload_records_the_pin_and_the_dry_run_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import huggingface_hub  # noqa: PLC0415
+
+    monkeypatch.setattr(huggingface_hub, "HfApi", _GoodApi)
+    monkeypatch.setenv("HF_TOKEN", "t")
+    folder = _folder(tmp_path / "m")
+    record, pin = tmp_path / "published.json", tmp_path / "pin.json"
+    args = ["--model-dir", str(folder), "--record", str(record), "--pin", str(pin)]
+    _main(monkeypatch, *args, "--dry-run")
+    assert not record.exists() and not pin.exists()
+    _main(monkeypatch, *args)
+    assert json.loads(pin.read_text(encoding="utf-8"))["revision"] == SHA
+    assert json.loads(record.read_text(encoding="utf-8"))["scope"]["step_revision"] == revision_of(
+        folder
+    )
+
+
+@pytest.mark.parametrize(("ok", "code"), [(True, 0), (False, 1)])
+def test_the_check_exits_non_zero_when_a_check_says_no(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: bool, code: int
+) -> None:
+    monkeypatch.setenv("HF_TOKEN", "t")
+    monkeypatch.setattr(
+        publish, "check_published", lambda *a, **k: {"private": True, "weights": ok}
+    )
+    with pytest.raises(SystemExit) as stop:
+        _main(monkeypatch, "--check", "--model-dir", str(tmp_path))
+    assert stop.value.code == code
+
+
+def test_the_heldout_scoring_script_writes_one_prediction_per_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import scope_stage  # noqa: PLC0415
+
+    monkeypatch.setattr(scope_stage, "ScopeClassifier", lambda model_dir: _Stub())
+    out = tmp_path / "pred.csv"
+    monkeypatch.setattr(sys, "argv", ["score", "--out", str(out)])
+    score.main()
+    assert len(out.read_text(encoding="utf-8").splitlines()) == 201
+    assert "model revision scope-nli-stub" in capsys.readouterr().out
+
+
+def test_the_steps_cli_fetches_before_it_reports(
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scope_stage  # noqa: PLC0415
+    from tests.news_nlp.test_steps import _source_with  # noqa: PLC0415
+
+    source = tmp_path / "s.db"
+    _source_with(source, [(1, "A", "One. " * 5)])
+    called: list[Path] = []
+
+    def fake_fetch(model_dir: Path) -> str:
+        called.append(model_dir)
+        return "scope-nli-x"
+
+    monkeypatch.setattr(scope_stage, "fetch_pinned", fake_fetch)
+    cli = importlib.util.spec_from_file_location(
+        "steps_cli_167", Path(__file__).resolve().parents[2] / "cli" / "news_nlp_steps.py"
+    )
+    assert cli and cli.loader
+    module = importlib.util.module_from_spec(cli)
+    sys.modules[cli.name] = module
+    cli.loader.exec_module(module)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["steps", "--step", "scope", "--status", "--fetch", "--model-dir", str(tmp_path / "m"), "--results-db", str(results_db_path), "--source-db", str(source)],
+    )  # fmt: skip
+    module.main()
+    assert called == [tmp_path / "m"] and "fetched the pinned model" in capsys.readouterr().out

@@ -31,6 +31,10 @@ UNAUTHORIZED = 401  # what an anonymous request to a private repository gets
 REPO = "gamug/deberta-v3-news-scope-nli"
 BASE = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0@8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"
 STAGES = ("stage_a", "stage_b")
+WHAT = (
+    "Hub repositories of the final models (T-169, T-147b); all private. Pinned: scope (config/scope_model.json); "
+    "sentiment and relevance are not pinned (config/pipeline_models.json)"
+)
 
 #: The held-out 200 scored from the saved weights (``scripts/score_scope_heldout_2026_11_11.py``), filled from its output.
 HELD_OUT = {
@@ -77,8 +81,7 @@ learning rate 2e-5, batch 16, float32 weights with bf16 autocast, seed 1. The te
 Held-out 200 bodies the model never trained on, **weighted to the corpus** by the draw's strata, scored from these weights
 through the step's own classifier (`scripts/score_scope_heldout_2026_11_11.py`): agreement
 **{HELD_OUT["weighted_agreement"]}** (rules triage {HELD_OUT["rules"]}; paired gain {HELD_OUT["gain"]}); `single` recall
-{HELD_OUT["single_recall"]}, **`out_of_scope` recall {HELD_OUT["out_of_scope_recall"]}**. An earlier fit of the same recipe measured
-83.0% [77.5, 88.3] on the reviewed key: fits of one recipe differ by about 0.6 points; this is one seed.
+{HELD_OUT["single_recall"]}, **`out_of_scope` recall {HELD_OUT["out_of_scope_recall"]}**. Three fits of this recipe (seed 1) scored 83.0%, 83.6% and 83.6%; this is one seed and not a noise estimate.
 
 ## Limits (read before use)
 - **`out_of_scope` is the weak class.** About half of the out-of-scope bodies are read as `single` or `multi` and continue
@@ -92,22 +95,43 @@ through the step's own classifier (`scripts/score_scope_heldout_2026_11_11.py`):
   other sources or on bodies written in other languages.
 
 ## Use
+The repository is private: `HF_TOKEN` (read scope) must be set. The function below is the whole classifier.
 ```python
 import json, torch
 from huggingface_hub import snapshot_download
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 root = snapshot_download("{REPO}")
-record = json.load(open(f"{{root}}/training_record.json"))
+rec = json.load(open(f"{{root}}/training_record.json"))
 tok = AutoTokenizer.from_pretrained(f"{{root}}/stage_a")
-a = AutoModelForSequenceClassification.from_pretrained(f"{{root}}/stage_a").eval()
-body = "..."  # the article text
-text = "Title. " + body[:800]
-# margin of each stage-A hypothesis: logit[entailment] - logit[not_entailment]; take the largest, then ask stage_b if "company"
-x = tok(text, record["stage_a"]["hypotheses"]["company"], truncation="only_first", max_length=512, return_tensors="pt")
-logits = a(**x).logits[0]; margin = (logits[0] - logits[1]).item()
+A = AutoModelForSequenceClassification.from_pretrained(f"{{root}}/stage_a").eval()
+B = AutoModelForSequenceClassification.from_pretrained(f"{{root}}/stage_b").eval()
+
+def margins(model, text, stage):
+    out = {{}}
+    for name, hypothesis in rec[stage]["hypotheses"].items():
+        x = tok(text, hypothesis, truncation="only_first", max_length=rec[stage]["recipe"]["max_length"], return_tensors="pt")
+        with torch.no_grad():
+            logits = model(**x).logits[0].float()
+        out[name] = (logits[0] - logits[1]).item()   # entailment minus not-entailment
+    return out
+
+def scope(title, body):
+    text = f"{{title}}. {{body[:rec['fragment_chars']]}}"
+    a = margins(A, text, "stage_a")
+    topic = max(rec["stage_a"]["topics"], key=a.get)
+    if topic != "company":
+        return "sector" if topic == "sector" else "out_of_scope"
+    b = margins(B, text, "stage_b")
+    return max(rec["stage_b"]["classes"], key=b.get)   # "single" or "multi"
+
+print(scope("Apple shares fall", "Apple Inc. said on Tuesday that iPhone sales were weaker than expected."))
 ```
-The full two-stage logic is `src/scope_stage.py` in the project repository.
+The same logic, batched and on the GPU, is `src/scope_stage.py` of the project repository (`gamug/portfolio-nlp`); the example above does not need it.
+
+## History
+The first upload (commit `5f5b2c27`) did not contain the weights because of a script error; use the latest commit, the one
+the project's `config/scope_model.json` names.
 """
 
 
@@ -131,6 +155,7 @@ def record_upload(
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise SystemExit(f"the upload returned no commit SHA ({revision!r}); nothing recorded")
     current = json.loads(published.read_text(encoding="utf-8")) if published.exists() else {}
+    current["what"] = WHAT
     current["scope"] = {
         "repo": REPO,
         "revision": revision,
