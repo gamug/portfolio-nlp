@@ -303,8 +303,10 @@ def scored_sentences(
     sentence in the middle of a line, headed by names and a dash belongs to the universe companies
     among those names and to the universe companies its text names, or to nobody when the names are
     of no universe company: the sentence of a company that is not in the universe is not given to
-    the universe company the model prefers, and a header is not cut off its text. In the ``units`` readings the candidates are the companies of the body without its
-    footer, found by the same resolver as the pieces: a company named only in the footer, or (from
+    the universe company the model prefers, and a header is not cut off its text.
+
+    In the ``units`` readings the candidates are the companies of the body without its footer,
+    found by the same resolver as the pieces: a company named only in the footer, or (from
     ``units2``) only by the first word of its name, is not asked about."""
     resolver, sentences, owners, story = _pieces(body, resolver, reading)
     candidates = sorted(t for t in resolver.resolve(story, skip_attribution=False) if t in names)

@@ -612,3 +612,13 @@ def test_the_help_of_the_steps_command_says_how_to_cut_again(
     out = capsys.readouterr().out
     assert "DELETE FROM pipeline_step_state WHERE step = 'cut'" in out
     assert "DELETE FROM sub_news WHERE extractor_revision" in out
+
+
+def test_reading_is_refused_outside_the_cut(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--reading` is read only by the cut: for the scope step it must not pass silently (review of #169)."""
+    monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", "--step", "scope", "--reading", "units"])
+    with pytest.raises(SystemExit):
+        _cli().main()  # type: ignore[attr-defined]
+    assert "--reading only applies to --step cut" in capsys.readouterr().err

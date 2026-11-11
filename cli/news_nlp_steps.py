@@ -237,6 +237,7 @@ so `DELETE FROM sub_news` alone does not make the cut run again. At the same rev
 are the same), in the RESULTS database:
   DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
   DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
+Nothing reads `sub_news` yet (T-165 will): once something does, delete its rows first, because new `sub_news.id`s leave them pointing at nothing.
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/splitting_training.md, section 8.1.
 """
@@ -292,6 +293,8 @@ def main() -> None:
         used = [f"--{n.replace('_', '-')}" for n in SCOPE_ONLY_FLAGS if getattr(args, n)]
         if used:
             parser.error(f"{', '.join(used)} only apply to --step scope")
+    elif args.reading is not None:
+        parser.error("--reading only applies to --step cut")
     args.model_dir = args.model_dir or default_model_dir(args.step)
     db.env.load_env_file()
     if args.fetch:
