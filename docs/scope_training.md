@@ -274,7 +274,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 
 ## 7. What is not done
 
-- **Owner of this list: T-147b** (FTI + MLflow, pin, three seeds). The scripts need a GPU (`.cuda()` is fixed in them).
+- **Owner of this list: T-147b** (FTI + MLflow, pin, three seeds; **deferred by the owner on 2026-11-11, to be done later**). The scripts need a GPU (`.cuda()` is fixed in them).
 - **The weights are saved, scored and pinned (owner, 2026-11-11).** `scripts/train_scope_final_2026_11_11.py` refits both
   models on the 365 bodies into `models/scope_final` (git-ignored); step 1 runs on them. `scripts/score_scope_heldout_2026_11_11.py`
   scores the held-out 200 through the step's own classifier: **83.6% [78.1, 88.9]** weighted (rules 67.2%), paired gain
@@ -563,7 +563,7 @@ After the audits above and the release of the gate, the owner closed the validat
 Two tasks that were open at that point are **closed by decision, not done**:
 - **Audit of the gold under calls 17, 18 and 21** (was T-178): the 365 training and 200 held-out tags are not re-read, and the five borderline rows (#39, #85, #199, #76, #154) stay as tagged. The cost is known: part of the `multi`/`single` confusion may be label noise on deals and pick lists, and the 90.8% and the 83.6% are not comparable like for like (different population, mix and key).
 - **Recall of `out_of_scope` among quarantined bodies** (was T-179): not measured. The share of true company news hidden in `single`/`multi`/`sector` among them stays unknown; precision (93.0% [86.3, 96.6]) is the only figure.
-What stays open on the scope model is only T-147b (FTI pattern, MLflow, three seeds), which is training hygiene, not validation. The tags in `gold/scope_quarantined_validation.csv` are final. If the gold is ever re-tagged, the pinned figures in `tests/news_nlp/test_scope_publish.py` change with it.
+What stays open on the scope model is only T-147b (FTI pattern, MLflow, three seeds), which is training hygiene, not validation, and which the owner **deferred the same day** ("leave this apart to fit later, we don't have enough time to get picky"): the model runs as pinned, on one seed and plain scripts, until then. The tags in `gold/scope_quarantined_validation.csv` are final. If the gold is ever re-tagged, the pinned figures in `tests/news_nlp/test_scope_publish.py` change with it.
 
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; keep the 10,274 low-margin bodies as the review queue. The Hub card of the scope model named this file under its old name and was republished on 2026-11-11
 (card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).
