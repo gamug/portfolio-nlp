@@ -149,7 +149,7 @@ article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,strat
 329272,heldout,NFLX,multi,"Target:investor_activity, Athenahealth:investor_activity, JB Hunt Transport:investor_activity, Dollar Tree:investor_activity, Netflix:investor_activity, Research in Motion:investor_activity",,,,roundup,108
 329291,heldout,NFLX,single,Netflix:market_analyst_sentiment,,,,multi_dominated,245
 341115,heldout,NVDA,single,Nvidia:other,,,,single,514
-341337,heldout,NVDA,sector,,"Siemens, Mercedes-Benz Group, Volvo, Schaeffler, Nvidia, Alphabet",4520,,single,514
+341337,heldout,NVDA,sector,,"Siemens, Mercedes-Benz Group, Volvo, Schaeffler, Nvidia, Alphabet",4530,2026-11-12: was 4520; Nvidia is a chipmaker,single,514
 341432,heldout,NVDA,single,Nvidia:market_analyst_sentiment,,,,multi_dominated,245
 341539,heldout,NVDA,multi,"Nvidia:mergers_acquisitions, Nokia:capital_shareholder_returns",,,,single,514
 341677,heldout,NVDA,market_economy,,,,,single,514

@@ -43,7 +43,7 @@ article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,rule
 483310,scope_enrich,WY,market_economy,,,,,economy
 1074630,scope_enrich,GOOGL,single,Alphabet:labor_human_capital,,,,no_company
 1074950,scope_enrich,GOOGL,single,Alphabet:product_innovation,,,,no_company
-1075010,scope_enrich,GOOGL,sector,,,"45301020, 45202030, 45102030, 50203010, 45103010, 45103020",,no_company
+1075010,scope_enrich,GOOGL,investing_general,,,,"2026-11-12: was sector; a CEO talk without a sector theme is investing_general, call 16",no_company
 1076650,scope_enrich,GOOG,single,Alphabet:product_innovation,,,,economy
 1082585,scope_enrich,XYZ,single,American Airlines:legal_regulatory,,,,sector:Industrials
 1101210,scope_enrich,NDAQ,market_economy,,,,,market
