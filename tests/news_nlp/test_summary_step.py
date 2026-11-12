@@ -8,14 +8,21 @@ import sqlite3
 import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import news_nlp as db_module
-import news_summary_stage as summary_stage_module  # noqa: F401  # the module under test must import without torch weights
+import news_summary_stage as stage
 from news_nlp import steps
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
 from tests.news_nlp.test_steps import _cli
+
+
+def _load_cli() -> Any:
+    """The steps command as a module; ``_cli`` returns it as ``object``, which hides every attribute from the type checker."""
+    return _cli()
+
 
 SCOPE_REV = "scope-nli-test"
 CUT_REV = "units4-test"
@@ -32,6 +39,9 @@ class StubSummarizer:
 
     revision = SUM_REV
     min_chars = 2000
+    model_name = "stub-model"
+    model_revision = "0" * 40
+    device = "cpu"
 
     def __init__(self, broken: Sequence[str] = (), empty: Sequence[str] = ()) -> None:
         self.calls: list[list[str]] = []
@@ -89,36 +99,30 @@ def pair(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDat
     conn.close()
 
 
-def _module() -> object:
-    import news_summary_stage as module  # noqa: PLC0415
-
-    return module
-
-
 # --- the rule ---------------------------------------------------------------------------------------------------------
 
 
 def test_only_a_text_over_the_size_is_summarised() -> None:
-    module = _module()
-    assert module.MIN_CHARS == 2000  # type: ignore[attr-defined]  # the owner's size, 2026-11-12
-    assert module.needs_summary("x" * 2001) is True  # type: ignore[attr-defined]
-    assert module.needs_summary("x" * 2000) is False  # type: ignore[attr-defined]  # the size itself is used as it is
-    assert module.needs_summary("x" * 10, min_chars=5) is True  # type: ignore[attr-defined]
+    module = stage
+    assert module.MIN_CHARS == 2000  # the owner's size, 2026-11-12
+    assert module.needs_summary("x" * 2001) is True
+    assert module.needs_summary("x" * 2000) is False  # the size itself is used as it is
+    assert module.needs_summary("x" * 10, min_chars=5) is True
 
 
 def test_the_input_of_a_body_is_the_title_and_the_body_as_the_earlier_summary_run_wrote_it() -> (
     None
 ):
-    assert _module().input_of_body("A title", "A body.") == "Title-A title\nBody-A body."  # type: ignore[attr-defined]
+    assert stage.input_of_body("A title", "A body.") == "Title-A title\nBody-A body."
 
 
 def test_the_revision_follows_the_model_the_size_and_the_code() -> None:
-    module = _module()
-    base = module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)  # type: ignore[attr-defined]
+    module = stage
+    base = module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
     assert base.startswith("summary-") and len(base) == len("summary-") + 12
-    assert base == module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)  # type: ignore[attr-defined]
-    assert base != module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 3000)  # type: ignore[attr-defined]
-    assert base != module.revision_of("sshleifer/distilbart-cnn-12-6", "other", 2000)  # type: ignore[attr-defined]
+    assert base == module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
+    assert base != module.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 3000)
+    assert base != module.revision_of("sshleifer/distilbart-cnn-12-6", "other", 2000)
 
 
 # --- what is pending ----------------------------------------------------------------------------------------------------
@@ -180,8 +184,8 @@ def _run(
     items: tuple[str, ...] = ("single", "sub_news"),
     limit: int | None = None,
 ) -> dict[str, int]:
-    cli = _cli()
-    counts: dict[str, int] = cli.run_summary(pair, summarizer, SCOPE_REV, CUT_REV, items, limit)  # type: ignore[attr-defined]
+    cli = _load_cli()
+    counts: dict[str, int] = cli.run_summary(pair, summarizer, SCOPE_REV, CUT_REV, items, limit)
     return counts
 
 
@@ -305,17 +309,17 @@ def test_an_empty_summary_is_a_failure_not_a_stored_empty_text(
 def test_the_run_stops_when_batch_after_batch_fails_completely(
     pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cli = _cli()
+    cli = _load_cli()
     monkeypatch.setattr(
         cli, "SUMMARY_BATCH", 1
     )  # one text a batch: the three long items are three batches
     all_broken = StubSummarizer(broken=("A long story", "B B"))
-    with pytest.raises(cli.RunAborted):  # type: ignore[attr-defined]
-        cli.run_summary(pair, all_broken, SCOPE_REV, CUT_REV, ("single", "sub_news"), None)  # type: ignore[attr-defined]
+    with pytest.raises(cli.RunAborted):
+        cli.run_summary(pair, all_broken, SCOPE_REV, CUT_REV, ("single", "sub_news"), None)
     failed = pair.execute(
         "SELECT COUNT(*) FROM pipeline_step_state WHERE status = 'failed'"
     ).fetchone()[0]
-    assert failed == cli.MAX_FAILED_BATCHES  # type: ignore[attr-defined]
+    assert failed == cli.MAX_FAILED_BATCHES
 
 
 # --- status and the command --------------------------------------------------------------------------------------------
@@ -327,8 +331,8 @@ def test_the_status_counts_the_summaries_by_source_and_kind(
     _run(pair, StubSummarizer())
     report = steps.status(pair, steps.STEP_SUMMARY, SUM_REV)
     assert report["by_state"] == {"done": 7}
-    assert report["news_summary"] == {"summary": 3, "original": 4}  # type: ignore[comparison-overlap]
-    assert report["by_item_kind"] == {"body": 4, "sub_news": 3}  # type: ignore[comparison-overlap]
+    assert report["news_summary"] == {"summary": 3, "original": 4}
+    assert report["by_item_kind"] == {"body": 4, "sub_news": 3}
 
 
 def test_the_command_status_needs_no_model(
@@ -359,7 +363,7 @@ def test_the_command_status_needs_no_model(
             str(results_db_path),
         ],
     )
-    _cli().main()  # type: ignore[attr-defined]
+    _load_cli().main()
     report = json.loads(capsys.readouterr().out)
     assert report["step"] == "summary" and report["by_state"] == {}
 
@@ -377,18 +381,18 @@ def test_the_command_refuses_options_of_other_steps_and_a_bad_items_value(
     ]:
         monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", *argv])
         with pytest.raises(SystemExit):
-            _cli().main()  # type: ignore[attr-defined]
+            _load_cli().main()
         assert message in capsys.readouterr().err
     monkeypatch.setattr(sys, "argv", ["news_nlp_steps.py", "--step", "summary", "--items", "all"])
     with pytest.raises(SystemExit):
-        _cli().main()  # type: ignore[attr-defined]  # "all" is not a choice: single, sub_news or both by default
+        _load_cli().main()  # "all" is not a choice: single, sub_news or both by default
     assert "invalid choice" in capsys.readouterr().err
 
 
 def test_the_wrapper_summarises_through_the_existing_chunk_and_reduce_and_loads_no_model_until_asked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    module = _module()
+    module = stage
     loaded: list[str] = []
 
     class FakeTokenizer:
@@ -409,14 +413,14 @@ def test_the_wrapper_summarises_through_the_existing_chunk_and_reduce_and_loads_
         def eval(self) -> FakeModel:
             return self
 
-    monkeypatch.setattr(module, "AutoTokenizer", FakeTokenizer)  # type: ignore[attr-defined]
-    monkeypatch.setattr(module, "AutoModelForSeq2SeqLM", FakeModel)  # type: ignore[attr-defined]
+    monkeypatch.setattr(module, "AutoTokenizer", FakeTokenizer)
+    monkeypatch.setattr(module, "AutoModelForSeq2SeqLM", FakeModel)
     monkeypatch.setattr(
-        module,  # type: ignore[arg-type]
+        module,
         "hierarchical_summarize_batch",
         lambda texts, tokenizer, model, device, **kw: [(f"s{len(t)}", 1) for t in texts],
     )
-    summarizer = module.Summarizer()  # type: ignore[attr-defined]
+    summarizer = module.Summarizer()
     assert loaded == []  # a summariser is cheap to build: --status and the tests need none
     assert summarizer.revision.startswith("summary-") and summarizer.min_chars == 2000
     assert summarizer.summarize(["a" * 3000, "b" * 2500]) == [("s3000", 1), ("s2500", 1)]
@@ -426,3 +430,160 @@ def test_the_wrapper_summarises_through_the_existing_chunk_and_reduce_and_loads_
     ]
     summarizer.summarize(["c" * 3000])
     assert len(loaded) == 2  # loaded once
+
+
+# --- review of #173 (R1, R2, R3, N1, N3, R5) -----------------------------------------------------------------------------
+
+
+def test_the_revision_covers_the_source_of_the_stage_that_summarises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R1: the docs say the revision hashes news_summary_stage.py, summary_stage.py and chunking.py; the first was missing."""
+    seen: list[str] = []
+    real = stage.retag.code_revision
+
+    def spy(*modules: Any) -> str:
+        seen.extend(m.__name__ for m in modules)
+        return real(*modules)
+
+    monkeypatch.setattr(stage.retag, "code_revision", spy)
+    stage.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
+    assert sorted(seen) == ["chunking", "news_summary_stage", "summary_stage"]
+
+
+def _summary_argv(tmp_path: Path, results_db_path: Path, *extra: str) -> list[str]:
+    return [
+        "news_nlp_steps.py",
+        "--step",
+        "summary",
+        "--results-db",
+        str(results_db_path),
+        "--source-db",
+        str(tmp_path / "src.db"),
+        *extra,
+    ]
+
+
+def test_sub_news_need_a_named_cut_revision_and_never_the_latest(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """R2: `--cut-revision` defaulted to the latest cut, against the rule of docs/scope_training.md 8.1 ("never the latest")."""
+    monkeypatch.setattr(stage, "Summarizer", StubSummarizer)
+    cli = _load_cli()
+    # both kinds, no revision named: refused, and the revisions the cut has are listed
+    monkeypatch.setattr(sys, "argv", _summary_argv(tmp_path, results_db_path))
+    with pytest.raises(SystemExit) as refused:
+        cli.main()
+    assert (
+        "--cut-revision" in str(refused.value)
+        and CUT_REV in str(refused.value)
+        and "units-old" in str(refused.value)
+    )
+    assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 0  # nothing was done
+    # a revision the cut never wrote is refused too
+    monkeypatch.setattr(
+        sys, "argv", _summary_argv(tmp_path, results_db_path, "--cut-revision", "units4-nope")
+    )
+    with pytest.raises(SystemExit) as unknown:
+        cli.main()
+    assert "units4-nope" in str(unknown.value)
+    # the single bodies alone need no cut
+    monkeypatch.setattr(sys, "argv", _summary_argv(tmp_path, results_db_path, "--items", "single"))
+    cli.main()
+    assert {r[0] for r in pair.execute("SELECT item_kind FROM news_summary")} == {"body"}
+    # naming the cut reads its sub-news
+    monkeypatch.setattr(
+        sys, "argv", _summary_argv(tmp_path, results_db_path, "--cut-revision", CUT_REV)
+    )
+    cli.main()
+    assert {r[0] for r in pair.execute("SELECT item_kind FROM news_summary")} == {
+        "body",
+        "sub_news",
+    }
+    capsys.readouterr()
+
+
+def test_the_help_has_the_recipes_for_a_recut_and_for_summarising_again_and_they_work(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """R3: step 2 is the first thing that reads sub_news, so a re-cut must delete its summaries first; the summary has its own recipe."""
+    cli = _load_cli()
+    assert "Nothing reads" not in cli.RERUN_HELP
+    for statement in (*cli.RECUT_SQL, *cli.RESUMMARIZE_SQL):
+        assert statement in cli.RERUN_HELP
+    _run(pair, StubSummarizer())
+    assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 7
+    for statement in cli.RECUT_SQL:  # before re-cutting the revision of the sub-news
+        pair.execute(statement.replace("<revision>", CUT_REV))
+    pair.commit()
+    kinds = {
+        r[0]: r[1]
+        for r in pair.execute("SELECT item_kind, COUNT(*) FROM news_summary GROUP BY item_kind")
+    }
+    assert kinds == {"body": 4}  # the sub-news summaries are gone, the bodies' stay
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert _run(pair, StubSummarizer(), items=("sub_news",))["summary"] == 1  # and they are redone
+    for statement in cli.RESUMMARIZE_SQL:  # to summarise again at one revision
+        pair.execute(statement.replace("<revision>", SUM_REV))
+    pair.commit()
+    assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 0
+    counts = _run(pair, StubSummarizer())
+    assert counts["summary"] + counts["original"] == 7
+
+
+def test_the_command_refuses_a_model_folder_for_the_summary_which_loads_its_model_from_the_pin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """N1: `--model-dir` was accepted by the summary step and silently ignored."""
+    monkeypatch.setattr(
+        sys, "argv", ["news_nlp_steps.py", "--step", "summary", "--model-dir", "somewhere"]
+    )
+    with pytest.raises(SystemExit):
+        _load_cli().main()
+    assert "--model-dir does not apply to --step summary" in capsys.readouterr().err
+
+
+def test_the_help_of_the_options_says_what_the_summary_does_with_them(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli = _load_cli()
+    text = cli.build_parser().format_help()
+    assert "at most this many items" in text and "touch at most this many bodies" not in text
+    assert "cut and summary" in text  # --scope-revision is read by both
+
+
+def test_the_determinism_check_compares_with_the_stored_summaries_and_between_two_runs() -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
+
+    items = [("a", "text a" * 400), ("b", "text b" * 400)]
+    stored = {"a": "summary of 2400 chars", "b": "summary of 2400 chars"}
+    steady = check.compare(
+        lambda texts: [(f"summary of {len(t)} chars", 1) for t in texts], items, stored
+    )
+    assert steady == {"items": 2, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    counter = iter(range(100))
+    flaky = check.compare(lambda texts: [(f"s{next(counter)}", 1) for _ in texts], items, stored)
+    assert flaky["differ_from_stored"] == 2 and flaky["differ_between_two_runs"] == 2
+
+
+def test_the_size_measure_prints_the_percentiles_and_the_table_the_threshold_was_chosen_from() -> (
+    None
+):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_size_measure_2026_11_12 as measure  # noqa: PLC0415 -- a script, not a package
+
+    lengths = list(range(1, 101))
+    assert measure.percentiles(lengths, (50, 90)) == {50: 51, 90: 91}
+    table = measure.over_table(lengths, (10, 50, 100))
+    assert table == [(10, 90, 0.9), (50, 50, 0.5), (100, 0, 0.0)]
+    assert measure.hours(59432, 0.84) == pytest.approx(13.87, abs=0.01)

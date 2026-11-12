@@ -508,11 +508,12 @@ DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- written with 
 ```
 
 or keep the old rows under their own revision: a new reading, model or code changes the revision and starts new rows by itself, and
-nothing is deleted. The same text is in `uv run cli/news_nlp_steps.py --help`.
+nothing is deleted. **If step 2 has summarised those sub-news, delete their summaries first** (they are keyed by `sub_news.id`; new ids would leave them pointing at
+nothing; the two statements are in `docs/summary_step.md` and in `--help`). The same text is in `uv run cli/news_nlp_steps.py --help`.
 
 **Which revision the later steps read.** The default changes the revision of the cut from `units-<12 hex>` (the `units` reading,
 for example `units-75642e3f4f72` of the dry run above) to `units4-<12 hex>` (this PR's real run: `units4-e1dff4f90b24` on a scratch copy; it changes if
-the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script read `extractor_revision` of the `units4` set
+the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units4` set
 by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, so after the full run
 the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
 

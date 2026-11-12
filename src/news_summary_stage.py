@@ -10,7 +10,7 @@ The input of a single body is ``Title-<title>\\nBody-<body>``, as the earlier su
 ``draw_sentiment_gold``); a sub-news has no title of its own (the title is the whole round-up's), so its text goes alone.
 
 The revision of the step is ``summary-`` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the
-generation limits and the code that summarises: any of them changing starts new rows and leaves the old ones.
+generation limits and the source of this module, ``summary_stage.py`` and ``chunking.py``: any of them changing starts new rows and leaves the old ones.
 
 A summariser is cheap to build: the model is loaded on the first text it is given, so ``--status`` and the tests need none. It runs on CUDA when
 there is one and on the CPU otherwise (constitution, Pipeline models 2).
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -67,14 +68,11 @@ def revision_of(model_name: str, model_revision: str, min_chars: int = MIN_CHARS
             "input": INPUT_FORMAT,
             "max_in": SUMMARY_MAX_INPUT_TOKENS,
             "out": [SUMMARY_MIN_OUTPUT_TOKENS, SUMMARY_MAX_OUTPUT_TOKENS],
-            "code": retag.code_revision(*_CODE_MODULES),
+            "code": retag.code_revision(sys.modules[__name__], summary_stage, chunking),
         },
         sort_keys=True,
     )
     return "summary-" + hashlib.sha256(key.encode()).hexdigest()[:12]
-
-
-_CODE_MODULES = (summary_stage, chunking)
 
 
 class Summarizer:

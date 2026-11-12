@@ -350,13 +350,24 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         return
     items = (args.items,) if args.items else ("single", "sub_news")
     scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
-    cut_revision = args.cut_revision or steps.latest_revision(conn, steps.STEP_CUT)
+    cut_revision = args.cut_revision
     if "single" in items and scope_revision is None:
         sys.exit("body_scope is empty: run --step scope first")
-    if "sub_news" in items and cut_revision is None:
-        if args.items == "sub_news":
-            sys.exit("no cut has run: run --step cut first, or name one with --cut-revision")
-        print("no cut has run yet: only the single bodies are summarised", file=sys.stderr)
+    if "sub_news" in items:
+        # a reader of sub_news names the cut it reads, never "the latest" (docs/scope_training.md 8.1)
+        ran = ", ".join(steps.revisions(conn, steps.STEP_CUT)) or "none"
+        if cut_revision is None:
+            sys.exit(
+                f"sub-news need the cut they come from: pass --cut-revision (the cuts that ran: {ran}), "
+                "or --items single"
+            )
+        found = conn.execute(
+            "SELECT 1 FROM sub_news WHERE extractor_revision = ? LIMIT 1", (cut_revision,)
+        ).fetchone()
+        if found is None:
+            sys.exit(
+                f"the cut wrote no sub-news at revision {cut_revision} (the cuts that ran: {ran})"
+            )
     from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
 
     summarizer = Summarizer()
@@ -409,26 +420,49 @@ def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, args.step, revision), indent=2))
 
 
-RERUN_HELP = """\
+#: Step 2 reads ``sub_news`` and keys its rows by ``sub_news.id``: before a revision of the cut is cut again, its summaries go first.
+RECUT_SQL = (
+    "DELETE FROM news_summary WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');",
+    "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');",
+)
+#: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
+RESUMMARIZE_SQL = (
+    "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<revision>';",
+    "DELETE FROM news_summary WHERE model_revision = '<revision>';",
+)
+_RERUN_TEMPLATE = """\
 To run a step again on bodies it already did: a finished body is found in `pipeline_step_state`, not in the result table,
 so `DELETE FROM sub_news` alone does not make the cut run again. At the same revision (the code, the model and the reading
 are the same), in the RESULTS database:
   DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
   DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
-Nothing reads `sub_news` yet (T-165 will): once something does, delete its rows first, because new `sub_news.id`s leave them pointing at nothing.
+Before the `DELETE FROM sub_news` above, delete that revision's summaries: step 2 reads `sub_news` and keys its rows by `sub_news.id`, so new ids would leave them pointing at nothing:
+  {recut}
+To summarise again at one revision of the summary step (`--status` prints it):
+  {resummarize}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
+RERUN_HELP = _RERUN_TEMPLATE.format(
+    recut="\n  ".join(RECUT_SQL), resummarize="\n  ".join(RESUMMARIZE_SQL)
+)
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         epilog=RERUN_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--step", choices=STEPS, required=True)
-    parser.add_argument("--limit", type=int, default=None, help="touch at most this many bodies")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="touch at most this many items (bodies; for summary also sub-news)",
+    )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
         "--fetch",
@@ -454,7 +488,7 @@ def main() -> None:
     parser.add_argument(
         "--scope-revision",
         default=None,
-        help="cut: the classifier revision whose multi bodies are cut (default the latest)",
+        help="cut and summary: the classifier revision whose multi bodies are cut / whose single bodies are summarised (default the latest)",
     )
     parser.add_argument(
         "--reading",
@@ -471,11 +505,15 @@ def main() -> None:
     parser.add_argument(
         "--cut-revision",
         default=None,
-        help="summary: the cut revision whose sub-news are read (default the latest that has state)",
+        help="summary: the cut revision whose sub-news are read; required with sub-news (the revisions the cut has are listed), never the latest",
     )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
-    args = parser.parse_args()
+    return parser
+
+
+def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse an option the chosen step does not read, so it is never silently ignored."""
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     if args.step != steps.STEP_SCOPE:
@@ -488,6 +526,18 @@ def main() -> None:
         args.items is not None or args.cut_revision is not None
     ):
         parser.error("--items and --cut-revision only apply to --step summary")
+    if args.step == steps.STEP_SUMMARY and args.model_dir is not None:
+        parser.error(
+            "--model-dir does not apply to --step summary (its model is the pin of config/pipeline_models.json)"
+        )
+    if args.items == "single" and args.cut_revision is not None:
+        parser.error("--cut-revision does not apply to --items single")
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    check_options(parser, args)
     args.model_dir = args.model_dir or default_model_dir(args.step)
     db.env.load_env_file()
     if args.fetch:
