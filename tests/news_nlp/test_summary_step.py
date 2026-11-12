@@ -991,11 +991,15 @@ def test_the_model_bar_moves_by_every_item_of_a_full_batch_and_of_the_last_parti
 def _forget(pair: db_module.NewsNlpDatabase, text_source: str) -> None:
     """Make the items stored with this `text_source` pending again, so that a run has work of one phase only."""
     pair.execute(
-        "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_id IN "
-        "(SELECT item_id FROM news_summary WHERE text_source = ?)",
-        (text_source,),
+        "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = ? AND "
+        "(item_kind, item_id) IN (SELECT item_kind, item_id FROM news_summary "
+        "WHERE text_source = ? AND model_revision = ?)",
+        (SUM_REV, text_source, SUM_REV),
     )
-    pair.execute("DELETE FROM news_summary WHERE text_source = ?", (text_source,))
+    pair.execute(
+        "DELETE FROM news_summary WHERE text_source = ? AND model_revision = ?",
+        (text_source, SUM_REV),
+    )
     pair.commit()
 
 

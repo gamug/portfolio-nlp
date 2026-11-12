@@ -67,8 +67,7 @@ summary:   12%|...| 7812/64478        <- the items over the size: the model; its
 ```
 
 The numbers above are computed for the owner's corpus, not printed by a full run (single bodies of scope revision `scope-nli-8ff21e50796b` and the sub-news of cut `units-5f831c298bcb`: 93,034 + 165,192; the single bodies
-over the size, 59,432, were measured on the same corpus and the sub-news over it, 5,046, on the cut). **The sub-news figure belongs to that cut, the older `units` reading**: the
-size table above (1.6% of sub-news over 2,000, about 2,600 of 165,192) is for `units4`, and a re-cut with `units4` or `units5` changes the sub-news, the 5,046, the 64,478 and the plan line. **The 258,226 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
+over the size, 59,432, were measured on the same corpus and the sub-news over it, 5,046, on the cut). **The sub-news figure is measured on the whole of that cut, the older `units` reading** (3.05% of its 165,192 are over 2,000). The size table below is a sample, the first 500 `multi` bodies by id, and it under-reads: on those same 500 bodies `units` gives 50 over of 3,398 (1.5%) and `units4` 50 of 3,134 (1.6%), so the reading is not what separates 1.6% from 3.05%, the sample is (checked 2026-11-12 on the scratch copies). What `units4` or `units5` would give over the whole corpus is not known until a cut with it runs; a re-cut changes the sub-news, the 5,046, the 64,478 and the plan line. **The 258,226 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
 `out_of_scope`, is not in it), and about three quarters of it is stored as it is. The first version of the step put all of them on one bar, which mixed instant writes (286 a second measured) with seconds per model item, so
 neither its rate nor its time left meant anything (reported by the owner, 2026-11-12). With `--limit N` the plan counts what this run will do, after the limit; with nothing to do it says `nothing pending`.
 
@@ -90,7 +89,7 @@ gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-
 Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news: median 268, p90 672, p99 2,309. The owner chose 2,000. The reason offered with it,
 not checked against each downstream model: a 512-token transformer input is about 2,000 to 2,400 characters, so a text under 2,000 reaches NER, the
 relevance model and sentiment whole, and a longer one is the kind that would be truncated. The 0.84 s a body is the earlier summary run's figure (all sizes of
-bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, so read the hours as an order of magnitude until the first GPU run. (Long texts take more chunks, so the figure is more likely low than high; that is a reason, not a measure.)
+bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, which makes the figure more likely low than high (a reason, not a measure), so read the hours as an order of magnitude until the first GPU run. For the whole step: 59,432 + 5,046 = 64,478 items × 0.84 s = 54,162 s, about 15 h.
 
 ## First run, determinism and running next to the cut (2026-11-12, scratch copies of the databases, CPU)
 
