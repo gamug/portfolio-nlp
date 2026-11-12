@@ -553,14 +553,14 @@ and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extr
 
 `uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
 bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
-step 1) and cuts each with the `units` extractor (read as `units4` by default, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
-git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units4`, or `units` with `--reading units`) plus `-` and a hash of
+step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
+git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units5`, or `units4` / `units` with `--reading`) plus `-` and a hash of
 the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
-and leaves the old rows. **Rows written before T-176 are `units-…` and stay beside the new `units4-…` set; `--status` lists both
-(the latest with state first), and a reader (T-165, scripts) names the revision it wants, `units4-…`, and never "the latest".** To cut again at the
+and leaves the old rows. **Rows of another reading (`units-…`, `units4-…`) stay beside the `units5-…` set; `--status` lists all
+(the latest with state first), and a reader (T-165, scripts) names the revision it wants, `units5-…`, and never "the latest". The run prints the reading and the revision it writes before it starts.** To cut again at the
 same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>'` and `DELETE FROM sub_news WHERE extractor_revision = '<revision>'`
 (deleting `sub_news` alone does nothing: the pending set comes from `pipeline_step_state`); the same text is in `--help`. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
-`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units4|units|units5` picks how the body is read (`units4`, T-176, is the default; `units` cuts as before; `units5`, T-177, is a candidate, not the default;
+`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units5|units4|units` picks how the body is read (`units5`, T-177, is the default since 2026-11-12; `units4` is the default of 2026-11-11; `units` cuts as before;
 `docs/extractor_training.md`). `--fetch`,
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
 revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
