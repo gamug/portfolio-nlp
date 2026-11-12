@@ -537,9 +537,37 @@ It draws `--bodies` bodies at random from the cut at the **named** revision (the
 | `one_story` | it tells the news of one company or one story | news of another company is inside it (a list written in one paragraph) |
 | `complete` | it reads as a whole | it is a clause cut in half or a heading alone |
 
-`ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
+`ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. **A wrong company tag, or a body scoped wrongly, is not a "no"** on any of the three questions, which judge only the piece against its article: mark them as the piece deserves and say it in `notes` ("company missunderstood", "investment_general"); §8.3 counts the notes. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
 
 **Drawn, 2026-11-12:** from the `units5` cut `units5-d3e2cbfa830e` (161,574 sub-news of 30,305 bodies; the cut finished and was stopped, then a `sqlite3.backup` copy of the database was checked with `quick_check` and read: the live file refuses a read-only open while the cut writes, and a plain copy taken then is corrupt), seed 20261112: 28 bodies, 143 sub-news, 171 translations (61,673 prompt and 52,632 completion tokens). A first draw of the `units` cut `units-5f831c298bcb` (30 bodies, 133 sub-news) was never marked and is kept as `data/cut_sample_to_tag.units.csv`. The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist.
+
+### 8.3 The figures of the cut sample (T-183, marked by the owner 2026-11-12)
+
+`uv run scripts/cut_sample_metrics_2026_11_12.py [--marked data/cut_sample_to_tag.csv] [--ids data/cut_sample_ids.csv] [--out FILE]` reads the owner's file (no database). It stops if a mark is not yes / no or if a row's text is not the one `cut_sample_ids.csv` ties to its `review_order` (a mark belongs to a text). Tests: `tests/news_nlp/test_cut_sample_metrics.py` (written first; six mutants caught: the words of the wrong tag, the order of the two kinds, the levels, the interval, the clean-body rule, the seed).
+
+**The sample:** cut `units5-d3e2cbfa830e`, 28 bodies, 143 pieces. Per question the share of yes with a Wilson 95% interval over pieces and, because the pieces of a body are not independent, the interval of a bootstrap that resamples whole bodies (seed 20261112, 2,000 draws). `clean` is yes on the three questions; a clean body has only clean pieces. The bar of the extractor was >= 80% faithful (D32).
+
+**Three levels.** The owner read the notes as: the cut is mostly right; the misses come from the **tagging** of the news (the scope model, the company read from the title) or from news too **ambiguous** for any cut. The script sorts each row by the words of the owner's free-text note, and prints every row it left out with its note, so the call can be checked:
+
+- `all`: the 143 pieces.
+- `right_tag`: without the 13 pieces whose note says the tagging is wrong (`wrong_tag`): the company was read from the title (rows 1, 4, 5, 6) or the body should have been scoped `investment_general` (rows 19, 80, 136 to 142).
+- `right_tag_unambiguous`: also without the 16 pieces whose note says the body mixes companies or stories (`ambiguous`; "mix", "two companies", "two different stories", "market_economy", "can understand"). This is the most favourable reading, **not a figure to quote alone**: those bodies are real input of the cut.
+
+| level | pieces (bodies) | faithful | one_story | complete | clean | bodies all clean |
+|---|---|---|---|---|---|---|
+| all | 143 (28) | 84.6% [77.8, 89.6] | 78.3% [70.9, 84.3] | 83.2% [76.2, 88.5] | 75.5% [67.9, 81.8] | 16/28 |
+| right_tag | 130 (28) | 89.2% [82.7, 93.5] | 82.3% [74.8, 87.9] | 88.5% [81.8, 92.9] | 80.0% [72.3, 86.0] | 18/28 |
+| right_tag_unambiguous | 114 (27) | 94.7% [89.0, 97.6] | 93.9% [87.9, 97.0] | 93.0% [86.8, 96.4] | 91.2% [84.6, 95.2] | 21/27 |
+
+Intervals are the Wilson ones over pieces; the body-resampled ones are wider (for `faithful`: [74.8, 92.9] on all, [82.4, 94.7] on `right_tag`, [89.0, 98.5] on the last) and are in the script's output. With the bar of 80% faithful: on all the lower end of the interval (77.8%) is **below** it; on `right_tag` (82.7%) and on the last level (89.0%) it is above.
+
+**Reading.**
+- The 13 `wrong_tag` pieces come from **five bodies**, and seven of them (rows 136 to 142, all three "no") are **one body** of 13 pieces that the scope model should have called `investment_general`: the 13 together move `faithful` by about five points (84.6% to 89.2%). That one body is why `bodies all clean` is a better view than the share of pieces.
+- The company read from the title (rows 1, 4, 5, 6) does not touch the three questions: the pieces are faithful, one story and complete (row 1 is cut short). It is a step 3 matter (the company is decided there, T-181), not the cut's. How it is marked: the three columns as the piece deserves, and the note says it (§8.2).
+- Ten pieces outside both exclusions still have a "no": six say the piece starts or ends with the neighbouring news (rows 21, 22, 47, 52, 82, 107: a fragment of the previous or the next story, which is the cut's real error), two are broken text (50, 53) and two have no note (69, 83).
+- The ambiguous bodies are mostly **multi** bodies of several companies written in one paragraph, where the cut has no clean line to draw (rows 23 to 29, 54, 59, 90, 91, 119, 120).
+
+**What it does not say.** The sample is 28 bodies drawn at random from one cut; the interval over bodies is wide ([65.5, 92.0] clean on `right_tag`), and "the tagging is wrong" is the owner's reading of each body, not a measure. The `wrong_tag` and `ambiguous` pieces belong to steps 1.1 and 3, and are counted here only so the cut is not charged with them; they are **not** discarded in production. A larger draw is the owner's call.
 
 ## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
 

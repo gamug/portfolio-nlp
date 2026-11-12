@@ -56,6 +56,7 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_company_news_counts.py",
             "test_cut.py",
             "test_cut_sample.py",
+            "test_cut_sample_metrics.py",
             "test_cut_summaries.py",
             "test_gate240_script.py",
             "test_gold_metrics.py",
