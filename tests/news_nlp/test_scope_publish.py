@@ -588,7 +588,7 @@ def test_the_tracked_tags_load_by_draw_and_key_and_the_first_reading_is_kept(
 
 
 def test_the_committed_tags_reproduce_both_readings() -> None:
-    # Pinned figures of docs/scope_training.md section 9. When T-178 settles the borderline rows (or any
+    # Pinned figures of docs/scope_training.md section 9. When the borderline rows are settled (or any
     # tag changes) these change on purpose: update them and the section together.
     gold = Path(__file__).resolve().parents[2] / "gold" / "scope_quarantined_validation.csv"
     sizes = validation.parse_sizes(validation.DEFAULT_SIZES)

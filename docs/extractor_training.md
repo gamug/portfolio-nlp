@@ -477,6 +477,8 @@ are within about a point of each other. The paired difference is wholly at or be
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
 companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10; the result is evidence, not a proof, and the owner decided on it (below).
 
+**Update, same day (owner read the 7 unread changed texts, `docs/scope_training.md` §8.1):** 4 faithful, 3 not; `units4` is **302 of 313, 96.5% [93.8, 98.0]** on the marked texts (Wilson), `units` 97.6% [95.3, 98.8]. Of the 18 lost companies 9 are the subject of a roundup line, 8 are named in passing and 1 is a matcher gap: T-177 (`units5`), T-181.
+
 **Decision (owner, 2026-11-11).** The owner accepts the results as they are, small sample and unread texts included (that is the "not decided" of the statistical reading above: the data do not decide it; the owner's word does), and `units4` is the default of the cut (`DEFAULT_READING` in
 `src/cut_stage.py`; `--reading units` cuts as before). The 18 companies without a text are not a worry: they are named in
 passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
