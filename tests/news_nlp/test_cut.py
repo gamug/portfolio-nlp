@@ -622,3 +622,78 @@ def test_reading_is_refused_outside_the_cut(
     with pytest.raises(SystemExit):
         _cli().main()  # type: ignore[attr-defined]
     assert "--reading only applies to --step cut" in capsys.readouterr().err
+
+
+def test_units5_is_a_cut_reading_with_its_own_revision() -> None:
+    assert "units5" in cut_stage.CUT_READINGS
+    revisions = {r: revision_of("local:x", {"AAPL": "Apple"}, r) for r in cut_stage.CUT_READINGS}
+    assert len(set(revisions.values())) == len(revisions)
+    assert revisions["units5"].startswith("units5-")
+    assert cut_stage.DEFAULT_READING == "units4"  # a candidate until the owner decides
+
+
+def test_the_extra_marks_are_counted_once_however_many_draw_folders_there_are(
+    tmp_path: Path,
+) -> None:
+    """Review of #172 (R2): they were added inside the loop over the folders, so every extra mark counted once per folder."""
+    import units4_vs_owner_marks_2026_11_11 as marks_script  # noqa: PLC0415 -- a script, not a package
+
+    folders = []
+    for name in ("a", "b"):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "faithfulness_ids.csv").write_text(
+            f"review_order,article_id,ticker,text_hash\n1,{name},AAA,{marks_script.text_hash(name)}\n",
+            encoding="utf-8",
+        )
+        (folder / "faithfulness_to_tag.csv").write_text(
+            "review_order,faithful\n1,yes\n", encoding="utf-8"
+        )
+        folders.append(folder)
+    extra = tmp_path / "extra.csv"
+    extra.write_text("article_id,ticker,faithful,text\n9,ZZZ,no,a later text\n", encoding="utf-8")
+    loaded = marks_script.load_marks(folders, extra)
+    key = ("9", "ZZZ", marks_script.text_hash("a later text"))
+    assert [name for name, _ in loaded] == ["a", "b"]
+    assert sum(key in marks for _, marks in loaded) == 1  # once, not once per folder
+    assert loaded[0][1][key] == "no"
+    assert len(loaded[0][1]) == 2 and len(loaded[1][1]) == 1  # each folder keeps its own draw
+    assert [len(m) for _, m in marks_script.load_marks(folders)] == [
+        1,
+        1,
+    ]  # no extra: nothing added
+
+
+def test_the_units5_sample_is_seeded_leaves_out_the_marked_texts_and_lists_what_is_read() -> None:
+    import draw_units5_sample_2026_11_11 as draw_script  # noqa: PLC0415 -- a script, not a package
+
+    def row(kind: str, ticker: str, text: str) -> dict[str, str]:
+        return {
+            "kind": kind,
+            "body_hash": f"h{ticker}",
+            "ticker": ticker,
+            "text_units4": "",
+            "text_units5": text,
+        }
+
+    rows = [row("gained", f"T{i}", f"text {i}") for i in range(10)]
+    rows += [
+        row("lost", "LOST", "gone"),
+        row("changed", "T0", "text 0"),
+    ]  # a lost one, and a repeat
+    marked = {("T1", "text 1")}
+    first = draw_script.draw(rows, marked, 4, 172)
+    again = draw_script.draw(rows, marked, 4, 172)
+    assert [r["ticker"] for r in first] == [
+        r["ticker"] for r in again
+    ]  # the same seed, the same sample
+    assert len({(r["ticker"], r["text_units5"]) for r in first}) == 4  # distinct pairs
+    assert all(r["kind"] != "lost" and r["ticker"] != "T1" for r in first)  # no lost, no marked
+    assert [r["ticker"] for r in first] != [
+        r["ticker"] for r in draw_script.draw(rows, marked, 4, 173)
+    ]  # another seed, another draw
+    listing = draw_script.status_list(rows, marked, first)
+    reads = {r["ticker"]: r["read"] for r in listing}
+    assert reads["T1"] == "marked" and "LOST" not in reads
+    assert sum(r["read"] == "sample" for r in listing if r["kind"] == "gained") == 4
+    assert set(reads.values()) == {"marked", "sample", "no"}

@@ -250,8 +250,8 @@ def pair_accuracy(examples: Sequence[Example], scores: Sequence[float]) -> dict[
     }
 
 
-READINGS = ("sentences", "units", "units2", "units3", "units4")
-Reading = Literal["sentences", "units", "units2", "units3", "units4"]
+READINGS = ("sentences", "units", "units2", "units3", "units4", "units5")
+Reading = Literal["sentences", "units", "units2", "units3", "units4", "units5"]
 Resolving = CompanyResolver | attribution_units.GuardedResolver
 
 
@@ -274,9 +274,10 @@ def _pieces(
     pieces = attribution_units.attribution_pieces(
         body,
         resolver,
-        headers=guarded or reading == "units4",
-        named_after=reading in ("units3", "units4"),
-        per_sentence=reading == "units4",
+        headers=guarded or reading in ("units4", "units5"),
+        named_after=reading in ("units3", "units4", "units5"),
+        per_sentence=reading in ("units4", "units5"),
+        units5=reading == "units5",
     )
     return resolver, [p.text for p in pieces], [p.owners for p in pieces], story
 

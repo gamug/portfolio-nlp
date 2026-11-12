@@ -161,8 +161,63 @@ def starts_a_sentence(text: str) -> bool:
 _TICKER_BRACKET = re.compile(r"\([A-Z][A-Z.\-]{0,5}\)")
 
 
+#: ``units5`` (T-177): a head may hold a period inside a name ("Amazon.com", "Box Inc.", "Fox Corp.").
+_ABBREVIATIONS = re.compile(r"\b(Inc|Corp|Co|Ltd|Cos|Bros|Plc|Cl)\.")
+_DOT = "\u2024"  # a stand-in for the period of an abbreviation while the header is matched
+_HEADER5 = re.compile(
+    '^(?P<head>(?:[^.!?:;"]|(?<=\\w)\\.(?=\\w)|' + _DOT + "){2,80}?)"
+    "\\s+(?:\u2014|\u2013|-)\\s+(?P<rest>\\S.*)$"
+)
+#: The last word of a group label ("Memory stocks", "Cruise lines"): the line is about a group, not a company.
+_GROUP_NOUNS = frozenset(
+    (  # noqa: SIM905 -- a word list, easier to read as text
+        "stocks names shares companies operators lines plays makers producers carriers airlines banks lenders "
+        "retailers builders miners developers providers manufacturers firms groups equities funds brokers "
+        "restaurants chains sector infrastructure"
+    ).split()
+)
+_HEAD_JOIN5 = _HEAD_JOIN | {"in", "on"}  # "Jack in the Box"
+MAX_GROUP_WORDS = 4
+MAX_CAPS_LETTERS = 4  # "SAP", "BP", "UBS", "HSBC": a company; "DETROIT" is a dateline
+MAX_CAPS_WORDS = 2  # "AT & T"
+#: Short datelines, agencies, wire labels and terms in capitals that are not a company ("FDA - The agency approved Apple's
+#: device": the sentence would go to nobody and Apple would lose it). A ticker in brackets still makes any of them a company.
+_CAPS_NOT_COMPANIES = frozenset(
+    (  # noqa: SIM905 -- a word list, easier to read as text
+        "ROME OSLO LIMA BAKU DOHA KYIV KIEV "
+        "FDA SEC FTC DOJ EPA FCC FBI CIA IRS NASA OPEC NATO IMF ECB BOE BOJ PBOC FED WHO WTO OECD "
+        "US UK EU UN UAE USA "
+        "NEWS LIVE TOP WATCH BREAKING ALERT UPDATE QUOTE BUZZ "
+        "CEO CFO COO IPO ETF GDP CPI PMI AI EPS FY"
+    ).split()
+)
+
+
+def _is_company_in_capitals(words: list[str], head: str) -> bool:
+    """``units5``: a head in capitals that is one short word ("SAP", "UBS"), "AT & T", or carries a ticker in brackets; not an agency, a wire label or a place."""
+    if _TICKER_BRACKET.search(head):
+        return True
+    letters = [w for w in words if w != "&"]
+    return (
+        not any(w in _CAPS_NOT_COMPANIES for w in letters)
+        and 1 <= len(letters) <= MAX_CAPS_WORDS
+        and all(w.isalpha() and len(w) <= MAX_CAPS_LETTERS for w in letters)
+        and (len(letters) == 1 or "&" in words)
+    )
+
+
+def _is_group_label(words: list[str]) -> bool:
+    """``units5``: "Memory stocks", "Cruise lines", "China electric vehicle stocks": a few plain words ending in a group noun."""
+    return (
+        1 < len(words) <= MAX_GROUP_WORDS
+        and words[0][:1].isupper()
+        and all(w.isalpha() or w == "&" for w in words)
+        and words[-1].lower() in _GROUP_NOUNS
+    )
+
+
 def header_owners(
-    line: str, resolver: Mentions, *, tickers_in_head: bool = False
+    line: str, resolver: Mentions, *, tickers_in_head: bool = False, units5: bool = False
 ) -> tuple[str, ...] | None:
     """The companies a "NAMES - text" line belongs to: the universe companies named before the
     dash, when what comes before it is a short list of capitalised names. ``()`` when the names
@@ -171,24 +226,38 @@ def header_owners(
     of the universe (a dateline such as "DETROIT" or a label such as "REFINING"), or when what
     follows the dash does not start like a sentence (a dash inside a sentence). With
     *tickers_in_head* a ticker in brackets after a name ("Wendy's (WEN) - ...") is part of the
-    head, as the roundups write it; the other readings do not take it for one (T-176)."""
-    match = _HEADER.match(line)
+    head, as the roundups write it; the other readings do not take it for one (T-176). With *units5*
+    (T-177) the head may hold a period in a name ("Amazon.com", "Box Inc."), be a group label
+    ("Memory stocks", "Cruise lines": a line of nobody, whose members' sentences go to them), be a
+    short name in capitals ("SAP", "UBS", or any head with a ticker in brackets) and not a dateline, and the text after the
+    dash may start in lowercase when the head has its ticker in brackets."""
+    if units5:
+        line = _ABBREVIATIONS.sub(lambda m: m.group(1) + _DOT, line)
+    match = (_HEADER5 if units5 else _HEADER).match(line)
     if not match:
         return None
-    if not starts_a_sentence(match["rest"]):
-        return None  # a dash inside a sentence ("Volkswagen - synonymous with ... - has spawned")
-    head = match["head"].strip()
+    head = match["head"].strip().replace(_DOT, ".")
     shown = _TICKER_BRACKET.sub(" ", head) if tickers_in_head else head
     words = [w for w in re.split(r"[\s,]+", shown) if w]
-    if len(words) > MAX_HEAD_WORDS or not all(
-        w[:1].isupper() or w[:1].isdigit() or w.lower() in _HEAD_JOIN for w in words
+    sentence_start = starts_a_sentence(match["rest"].replace(_DOT, "."))
+    join = _HEAD_JOIN5 if units5 else _HEAD_JOIN
+    group = units5 and _is_group_label(words)
+    shaped = group or all(w[:1].isupper() or w[:1].isdigit() or w.lower() in join for w in words)
+    owners = tuple(sorted({ticker for _, _, ticker in resolver.mention_spans(head)}))
+    in_capitals = all(
+        w.isupper() or not any(c.isalpha() for c in w) or w.lower() in join for w in words
+    )
+    # a dash inside a sentence ("Apple - synonymous with the classic phone - has spawned..."): units5 reads a
+    # lowercase text only after a head with its ticker in brackets, as the roundups write it ("Whirlpool (WHR) - ...");
+    # a company's name alone is not enough (3,000 bodies: 9 of 14 such lines were prose dashes)
+    if (
+        not shaped
+        or len(words) > MAX_HEAD_WORDS
+        or not (sentence_start or (units5 and _TICKER_BRACKET.search(head)))
     ):
         return None
-    owners = tuple(sorted({ticker for _, _, ticker in resolver.mention_spans(head)}))
-    if not owners and all(
-        w.isupper() or not any(c.isalpha() for c in w) or w.lower() in _HEAD_JOIN for w in words
-    ):
-        return None  # "DETROIT - Ford ...", "REFINING - ...": a dateline or a label, not a company
+    if not owners and in_capitals:  # "DETROIT - Ford ...", "REFINING - ...": a dateline or a label
+        return () if units5 and _is_company_in_capitals(words, head) else None
     return owners
 
 
@@ -199,6 +268,7 @@ def attribution_pieces(
     headers: bool = False,
     named_after: bool = False,
     per_sentence: bool = False,
+    units5: bool = False,
 ) -> list[Unit]:
     """The pieces of *body* (footer removed) that are attributed one by one: a line, a bullet, a
     sentence, a part between semicolons, and a sentence that names several companies cut where one
@@ -210,18 +280,29 @@ def attribution_pieces(
     (with *headers*) a sentence in the middle of a line that opens with a header of its own ("A - x.
     B - y." written as one paragraph) starts a new owner, and the sentences after it belong to that
     one (T-176): a header is not read once for a whole line. A headed sentence is not cut into
-    clauses, so a header stays with its text."""
+    clauses, so a header stays with its text. With *units5* (T-177) the headers are read as
+    :func:`header_owners` does with the same flag, and a sentence that has no header of its own
+    after a header of nobody belongs to the universe companies it names (or to nobody if it names
+    none): "Airlines - The group fell. United slipped 2%." gives the second sentence to United."""
     units: list[Unit] = []
     for raw in strip_footer(body).split("\n"):
         line = _BULLET.sub("", raw.strip())
         if not line:
             continue
-        owners = header_owners(line, resolver, tickers_in_head=per_sentence) if headers else None
+        owners = (
+            header_owners(line, resolver, tickers_in_head=per_sentence, units5=units5)
+            if headers
+            else None
+        )
         for sentence, _, _ in split_sentences(line):
+            headed = owners is not None
             if headers and per_sentence:
-                own = header_owners(sentence.strip(), resolver, tickers_in_head=True)
+                own = header_owners(sentence.strip(), resolver, tickers_in_head=True, units5=units5)
+                headed = own is not None
                 if own is not None:
                     owners = own  # "B - text" in the middle of a line: B owns it and what follows
+            # units5: no header of its own after a header of nobody -> the companies the sentence names
+            carried = units5 and owners == () and not headed
             for piece in _PIECE_BREAK.split(sentence):
                 if not piece.strip():
                     continue
@@ -229,6 +310,9 @@ def attribution_pieces(
                     units += [Unit(text) for text in _clauses(piece.strip(), resolver)]
                     continue
                 named = {t for _, _, t in resolver.mention_spans(piece)} if named_after else set()
+                if carried:
+                    units.append(Unit(piece.strip(), tuple(sorted(named))))
+                    continue
                 units.append(
                     Unit(piece.strip(), tuple(sorted(set(owners) | named) if owners else ()))
                 )

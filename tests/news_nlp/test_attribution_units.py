@@ -449,3 +449,162 @@ def test_units4_leaves_a_line_without_a_header_to_the_attribution() -> None:
     body = "Apple rose 3% and Microsoft fell 2%.\nThe market was quiet."
     pieces = au.attribution_pieces(body, RESOLVER, headers=True, per_sentence=True)
     assert all(u.owners is None for u in pieces)
+
+
+def _h5(line: str) -> tuple[str, ...] | None:
+    return au.header_owners(line, RESOLVER, tickers_in_head=True, units5=True)
+
+
+def test_units5_reads_a_short_name_in_capitals_as_a_company_and_still_not_a_dateline() -> None:
+    for line in (
+        "SAP — U.S.-listed shares of the software provider gained 3%.",
+        "UBS \N{EN DASH} UBS reported a better-than-expected profit.",
+        "BP (BP) \N{EN DASH} BP reported an unexpected profit.",
+        "AT & T — Stock in the telecommunications firm pulled back 2%.",
+    ):
+        assert _h5(line) == (), line  # a company outside the universe
+        assert au.header_owners(line, RESOLVER, tickers_in_head=True) is None, (
+            line
+        )  # units4 does not read them
+    for line in (
+        "DETROIT — Apple's new store sales rose 7.7% from a year earlier.",
+        "NEW YORK — Microsoft is handing its tools over to a partner.",
+        "REFINING - This is the weak spot for Oracle this quarter.",
+        "ROME — Apple opened a store.",
+    ):
+        assert _h5(line) is None, line
+    assert _h5("AAPL - Shares rose after the report.") == ("AAPL",)
+
+
+def test_units5_reads_a_group_label_as_a_line_of_nobody_and_not_a_sentence() -> None:
+    for line in (
+        "Memory stocks — Shares of memory companies also moved higher.",
+        "Cruise lines — Concerns over fuel costs weighed on these stocks.",
+        "China electric vehicle stocks — Shares rose.",
+        "Jack in the Box — The fast-food stock shed 1% after a downgrade.",
+    ):
+        assert _h5(line) == (), line
+    for line in (
+        "Shares rose — Apple led the gains.",  # a verb, not a group noun
+        "The company's bet on Reels is facing hurdles — Instagram users are spending less.",
+        "Stocks fell, he said — and Apple fell.",
+    ):
+        assert _h5(line) is None, line
+    assert _h5("Apple stocks — Shares rose.") == ("AAPL",)  # a universe name stays a header of it
+
+
+def test_units5_reads_a_period_inside_a_name_and_a_lowercase_text_after_a_ticker() -> None:
+    for line in (
+        "Amazon.com (AMZN) \N{EN DASH} Amazon warehouse workers will vote.",
+        "Box Inc. (BOX) \N{EN DASH} Box beat estimates by 6 cents a share.",
+        "Fox Corp. (FOXA) \N{EN DASH} Fox increased its repurchase program.",
+    ):
+        assert _h5(line) == (), line
+        assert au.header_owners(line, RESOLVER, tickers_in_head=True) is None, (
+            line
+        )  # the fault of units4
+    assert _h5("Rockwell Automation (ROK) — weaker quarter.") == ()
+    assert _h5("American Express (AXP) — solid momentum continues into April.") == ()
+    assert (
+        _h5("Apple — solid momentum continues.") is None
+    )  # a company without its ticker: a prose dash
+    assert _h5("Apple Inc. (AAPL) — solid momentum.") == ("AAPL",)
+    # lowercase after the dash with no company in the head is still a dash inside a sentence
+    assert _h5("In Miami Beach — as in New York and San Diego — rentals are limited.") is None
+    assert (
+        _h5("Volkswagen - synonymous with the classic camper - has spawned a sub-industry.") is None
+    )
+
+
+def test_units5_gives_the_sentences_after_a_header_of_nobody_to_the_companies_they_name() -> None:
+    body = (
+        "Airlines — The group fell on Monday. Apple slipped 2%, while Oracle fell 3%. "
+        "Wendy's (WEN) \N{EN DASH} Trian raised its stake. Microsoft \N{EN DASH} Shares fell 2%."
+    )
+    kw = {"headers": True, "named_after": True, "per_sentence": True}
+    old = au.attribution_pieces(body, RESOLVER, **kw)  # type: ignore[arg-type]
+    new = au.attribution_pieces(body, RESOLVER, units5=True, **kw)  # type: ignore[arg-type]
+    assert [u.owners for u in old] == [(), (), (), ("MSFT",)]  # units4: Apple and Oracle are lost
+    assert [u.owners for u in new] == [(), ("AAPL", "ORCL"), (), ("MSFT",)]
+    # a header line that names a company inside its own sentence still gives it to nobody
+    own = au.attribution_pieces(
+        "Fermi — Shares fell after Apple said so.",
+        RESOLVER,
+        units5=True,
+        **kw,  # type: ignore[arg-type]
+    )
+    assert own[0].owners == ()
+    # a sentence after a header of nobody that names no company stays with nobody
+    plain = au.attribution_pieces(
+        "Fermi — Shares fell. It was co-founded by Rick Perry.",
+        RESOLVER,
+        units5=True,
+        **kw,  # type: ignore[arg-type]
+    )
+    assert [u.owners for u in plain] == [(), ()]
+
+
+def test_units5_end_to_end_gives_the_roundup_companies_their_text_and_keeps_units4_apart() -> None:
+    body = (
+        "Check out the companies making headlines. "
+        "Wendy's (WEN) \u2013 Trian raised its stake. "
+        "Cruise lines \u2014 Concerns weighed on these stocks Monday. "
+        "Apple shares tumbled nearly 5%, and Oracle slid 3%."
+    )
+    four = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units4")
+    five = am.model_company_texts(body, RESOLVER, NAMES, _Scorer(0.0), reading="units5")
+    assert set(four) == set()  # "Cruise lines" is no header: the sentence keeps Wendy's "nobody"
+    assert set(five) == {"AAPL", "ORCL"}
+    assert "Wendy's" not in " ".join(five.values())
+
+
+def test_units5_keeps_the_prose_dash_guard_for_a_company_without_its_ticker() -> None:
+    """Review of #172 (B1): on 3,000 bodies 9 of 14 lowercase-after-the-dash headers were prose dashes."""
+    for line in (
+        "Today, Apple \N{EM DASH} like the industry itself \N{EM DASH} is challenged by cheap rivals.",
+        "Apple \N{EM DASH} up 3% on the day \N{EM DASH} led the gains.",
+        "Apple - synonymous with the classic phone - has spawned a sub-industry.",
+        "Microsoft - which owns LinkedIn - said revenue grew.",
+        "Apple \N{EN DASH} and its suppliers \N{EN DASH} fell on Monday.",
+    ):
+        assert _h5(line) is None, line
+        assert au.header_owners(line, RESOLVER, tickers_in_head=True) is None, line
+    # with the ticker in brackets, as the roundups write it, the lowercase text is read
+    assert _h5("Apple (AAPL) \N{EM DASH} up 3% on the day.") == ("AAPL",)
+    assert _h5("Whirlpool (WHR) \N{EM DASH} double digit decline in orders.") == ()
+
+
+def test_units5_does_not_take_an_agency_or_a_wire_label_in_capitals_for_a_company() -> None:
+    """Review of #172 (D1): `FDA - The agency approved Apple's device` must not send Apple's sentence to nobody."""
+    for head in (
+        "FDA",
+        "SEC",
+        "OPEC",
+        "NASA",
+        "CEO",
+        "NEWS",
+        "LIVE",
+        "US",
+        "EU",
+        "IPO",
+        "ETF",
+        "FED",
+    ):
+        line = f"{head} \N{EM DASH} The agency approved Apple's new device on Monday."
+        assert _h5(line) is None, head
+    assert (
+        _h5("FMC \N{EM DASH} Shares rose 3% after the quarter.") == ()
+    )  # a company outside the universe
+    assert (
+        _h5("FDA (FDA) \N{EM DASH} Shares rose 3% after the quarter.") == ()
+    )  # a ticker makes it one
+    kw = {"headers": True, "named_after": True, "per_sentence": True}
+    pieces = au.attribution_pieces(
+        "FDA \N{EM DASH} The agency approved Apple's new device on Monday.",
+        RESOLVER,
+        units5=True,
+        **kw,  # type: ignore[arg-type]
+    )
+    assert [u.owners for u in pieces] == [
+        None
+    ]  # no header: the attribution gives Apple its sentence
