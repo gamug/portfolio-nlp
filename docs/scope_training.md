@@ -523,6 +523,24 @@ several companies become 23; the 23 are read above: 10 overlap, 13 a third fault
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until the owner
 releases the gate** (released on 2026-11-11, no flag; section 9, "The gate of section 8.1"; the condition is also in T-165). The run writes a new revision of rows and nothing else.
 
+### 8.2 Evaluating the cut with yes / no questions (T-183, owner 2026-11-12)
+
+The quality check of §8.1 counts what the output looks like (short pieces, several headings in one). It does not say whether a piece is **true to its article**. That is read by the owner, as the extractor was (`docs/gold_datasets.md` §4):
+
+`uv run scripts/draw_cut_sample_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units-5f831c298bcb [--bodies 30] [--seed 20261112] [--out data] [--yes]`
+
+It draws `--bodies` bodies at random from the cut at the **named** revision (the draw is seeded; a body whose text in SOURCE is no longer the one that was cut is left out and counted) and writes `data/cut_sample_to_tag.csv`: one row per sub-news, the pieces of a body together in the body's order, the whole body next to each piece (first 6,000 characters), the Spanish of title, piece and body (`spanish_title`, `spanish_text`, `spanish_body`; paid translation, only with `--yes`, the cost is printed first) and three empty yes / no columns, plus `notes`:
+
+| column | yes when | no when |
+|---|---|---|
+| `faithful` | the piece says what the article says, about the company or the story it is about, with nothing added or changed (it may also name other companies) | it says something the article does not, is mostly about something else, or is too broken to tell |
+| `one_story` | it tells the news of one company or one story | news of another company is inside it (a list written in one paragraph) |
+| `complete` | it reads as a whole | it is a clause cut in half or a heading alone |
+
+`ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
+
+**Drawn 2026-11-12:** cut `units-5f831c298bcb` (the `units` reading, the one that ran on the corpus), seed 20261112: 30 bodies, 133 sub-news (1 to 15 a body), 163 translations (64,153 prompt and 57,578 completion tokens). The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist. This measures the cut as it ran; whether `units4` or `units5` needs another cut is T-177.
+
 ## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
 
 **Why it was needed.** The held-out 200 (section 5) were drawn from the 1,000-body sample (D30). Whether that sample
