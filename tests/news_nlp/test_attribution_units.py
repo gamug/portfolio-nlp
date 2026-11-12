@@ -589,6 +589,18 @@ def test_units5_does_not_take_an_agency_or_a_wire_label_in_capitals_for_a_compan
         "IPO",
         "ETF",
         "FED",
+        "CNBC",
+        "CNN",
+        "BBC",
+        "AP",
+        "UPI",
+        "AFP",
+        "WSJ",
+        "NYT",
+        "NYSE",
+        "DJIA",
+        "INC",
+        "CORP",
     ):
         line = f"{head} \N{EM DASH} The agency approved Apple's new device on Monday."
         assert _h5(line) is None, head
@@ -608,3 +620,17 @@ def test_units5_does_not_take_an_agency_or_a_wire_label_in_capitals_for_a_compan
     assert [u.owners for u in pieces] == [
         None
     ]  # no header: the attribution gives Apple its sentence
+
+
+def test_units5_a_capitals_head_is_one_short_word_or_two_around_an_ampersand_and_a_group_label_starts_in_capital() -> (
+    None
+):
+    """Two constants the review of #172 found untested (MAX_CAPS_WORDS, the capital letter of a group label)."""
+    assert _h5("AT & T \N{EM DASH} Stock in the telecommunications firm pulled back 2%.") == ()
+    # three short capitals words around ampersands are not a company name
+    assert _h5("A & B & C \N{EM DASH} Apple fell 3% on Monday after the report.") is None
+    assert _h5("ABC DEF \N{EM DASH} Apple fell 3% on Monday after the report.") is None
+    assert _h5("Tech stocks \N{EM DASH} Apple fell 3% on Monday after the report.") == ()
+    assert (
+        _h5("tech stocks \N{EM DASH} Apple fell 3% on Monday after the report.") is None
+    )  # lowercase first

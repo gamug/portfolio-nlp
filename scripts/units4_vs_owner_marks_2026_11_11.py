@@ -7,7 +7,8 @@ reading B (default `units` and `units4`) and look up each text in the marks.
 ``--extra-marks`` adds the marks the owner made later on texts of a later reading (``gold/cut_owner_marks_2026_11_11.csv``: the 7 `units4` texts,
 the 12 new `units5` texts and the blind sample of 30; the file says which marks are inferred). The output counts are labelled by A and B, not by
 reading names: "A mark" is the mark of reading A's text, "B text UNREAD" a text of reading B without a mark. The figure compares the rates over the
-texts that have a mark in each reading, not the same (body, company) pairs.
+texts that have a mark in each reading, not the same (body, company) pairs. A mark belongs to a text (its hash), not to a reading: a mark made on a `units4`
+text also counts for an identical `units5` text, and the ``reading`` column of the extra-marks CSV is information only (the script does not read it).
 
 The owner marked (faithful yes/no) the texts of the faithfulness draws (``faithfulness_to_tag.csv``, with the text hash in
 ``faithfulness_ids.csv``). A mark belongs to a text, so a `units4` text equal to a marked text is already read; a company that

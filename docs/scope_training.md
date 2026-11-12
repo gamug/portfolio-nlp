@@ -413,7 +413,7 @@ pruning could change the output).
 
 **The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
 `compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
-`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24`, then the two checks on that revision:
+`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24` (the revision hashes the code of `attribution_units.py`, which #172 edits: after #172 the same reading and model give another hash, so read the revision the command prints, not this one), then the two checks on that revision:
 - *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
   first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
 - *`cut_determinism_check -n 30`:* **0 of 30 differ** from the stored rows and between two runs.
