@@ -514,7 +514,7 @@ nothing is deleted. **If step 2 has summarised those sub-news, delete their summ
 nothing; the two statements are in `docs/summary_step.md` and in `--help`). The same text is in `uv run cli/news_nlp_steps.py --help`.
 
 **Which revision the later steps read.** The revision of a cut starts with its reading: `units-<12 hex>` (for example `units-75642e3f4f72` of the dry run above), `units4-<12 hex>` (`units4-e1dff4f90b24` on a scratch copy) and, since `units5` became the default on 2026-11-12 (#176), `units5-<12 hex>`; it changes if
-the code of `attribution_units.py`, `attribution_model.py` or the model changes. The owner's database holds the full cut `units-5f831c298bcb`, written with the `units` reading before the switch, and the `units5` corpus run in progress. **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units5` set
+the code of `attribution_units.py`, `attribution_model.py` or the model changes. The owner's database holds the full cut `units-5f831c298bcb`, written with the `units` reading before the switch, and the `units5` corpus run finished (revision `units5-d3e2cbfa830e`: 161,574 sub-news of 30,305 bodies, read 2026-11-12). **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units5` set
 by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, and the cut prints its reading and revision before it starts.
 
 **Before the full run.** (1) T-176 and T-177 are done: the cut runs with `units5` (since #176; `units4` before it), which removes most of the two faults above (162 texts with
@@ -527,7 +527,7 @@ releases the gate** (released on 2026-11-11, no flag; section 9, "The gate of se
 
 The quality check of §8.1 counts what the output looks like (short pieces, several headings in one). It does not say whether a piece is **true to its article**. That is read by the owner, as the extractor was (`docs/gold_datasets.md` §4):
 
-`uv run scripts/draw_cut_sample_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units-5f831c298bcb [--bodies 30] [--seed 20261112] [--out data] [--yes]`
+`uv run scripts/draw_cut_sample_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units5-d3e2cbfa830e [--bodies 28] [--seed 20261112] [--out data] [--yes]`
 
 It draws `--bodies` bodies at random from the cut at the **named** revision (the draw is seeded; a body whose text in SOURCE is no longer the one that was cut is left out and counted) and writes `data/cut_sample_to_tag.csv`: one row per sub-news, the pieces of a body together in the body's order, the whole body next to each piece (first 6,000 characters), the Spanish of title, piece and body (`spanish_title`, `spanish_text`, `spanish_body`; paid translation, only with `--yes`, the cost is printed first) and three empty yes / no columns, plus `notes`:
 
@@ -539,7 +539,7 @@ It draws `--bodies` bodies at random from the cut at the **named** revision (the
 
 `ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
 
-**To be redrawn (owner, 2026-11-12):** the sample is to come from the `units5` cut once its run can be read (a consistent snapshot of the database is needed: the live file refuses a read-only open, and a copy taken while the cut writes is corrupt). **Drawn first, 2026-11-12:** cut `units-5f831c298bcb` (the `units` reading, the one that ran on the corpus before the switch), seed 20261112: 30 bodies, 133 sub-news (1 to 15 a body), 163 translations (64,153 prompt and 57,578 completion tokens). The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist. This measures the cut as it ran; whether `units4` or `units5` needs another cut is T-177.
+**Drawn, 2026-11-12:** from the `units5` cut `units5-d3e2cbfa830e` (161,574 sub-news of 30,305 bodies; the cut finished and was stopped, then a `sqlite3.backup` copy of the database was checked with `quick_check` and read: the live file refuses a read-only open while the cut writes, and a plain copy taken then is corrupt), seed 20261112: 28 bodies, 143 sub-news, 171 translations (61,673 prompt and 52,632 completion tokens). A first draw of the `units` cut `units-5f831c298bcb` (30 bodies, 133 sub-news) was never marked and is kept as `data/cut_sample_to_tag.units.csv`. The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist.
 
 ## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
 
