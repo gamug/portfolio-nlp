@@ -400,7 +400,7 @@ pruning could change the output).
 - *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
   (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
   read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
-  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and is the default of the cut since 2026-11-11 (`docs/extractor_training.md`,
+  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and was the default of the cut from 2026-11-11 to 2026-11-12, when `units5` replaced it (#176; `docs/extractor_training.md`,
   "Update of 2026-11-11"); the numbers of this section are those of `units`.
 - *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
 - *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
@@ -469,7 +469,7 @@ Norfolk Southern, Apple, AbbVie, NXP, CF Industries, Tesla). **1 is a matcher ga
 IBM's own line goes to nobody (T-181). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
 no header of its own, after a header of nobody, goes to the universe companies it names; a header line that names one in passing still does not.
 
-**`units5` (T-177), built and measured (2026-11-11; a candidate, `units4` stays the default until the owner decides).** `--reading units5`
+**`units5` (T-177), built and measured (2026-11-11; a candidate then, the default since 2026-11-12, #176).** `--reading units5`
 reads the headers `units4` missed (`header_owners(..., units5=True)`): a short name in capitals ("SAP —", "UBS –", any head with a ticker in brackets), a
 group label of plain words ending in a group noun ("Memory stocks —", "Cruise lines —"), a period inside a name ("Amazon.com (AMZN) –", "Box Inc. (BOX) –"),
 and a lowercase text after the dash **only when the head carries its ticker in brackets** ("Whirlpool (WHR) — double digit decline in orders"); and a

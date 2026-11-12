@@ -456,7 +456,7 @@ when the sentence also named another company.
 "Names – text" sentence read **per sentence** (also in the middle of a paragraph) and with a bracketed ticker taken as part of
 the head, the sentence given to the universe companies of the head **and** to those its text names (as `units3`), and to
 nobody when the head names no universe company; a headed sentence is not cut into clauses. `units` was the owner's selection of
-2026-11-08; `units4` became the default of the cut on 2026-11-11 (below).
+2026-11-08; `units4` became the default of the cut on 2026-11-11 (below), and `units5` (T-177) replaced it on 2026-11-12 (#176; `docs/scope_training.md` §8.1).
 
 | On the 232 bodies (GPU, `scripts/compare_cut_readings_2026_11_11.py`) | `units` | `units4` |
 |---|---|---|
