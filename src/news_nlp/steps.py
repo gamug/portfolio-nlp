@@ -1,4 +1,4 @@
-"""The stepped pipeline's run tracking and the first step's storage (PLAN D39/D40; T-162, T-163).
+"""The stepped pipeline's run tracking and the storage of steps 1 and 2 (PLAN D39/D40; T-162, T-163, T-164, T-166).
 
 No model and no GPU here: which bodies a step still has to do, how a result and its state are written, and the counts the
 ``--status`` command prints. A body is identified by its hash (``triage.body_hash``), so a body that sits under several
@@ -18,10 +18,21 @@ from news_nlp.db import NewsNlpDatabase, _ensure_article_row
 
 STEP_SCOPE = "scope"
 STEP_CUT = "cut"
+STEP_SUMMARY = "summary"
 ITEM_BODY = "body"
+ITEM_SUB_NEWS = "sub_news"
 SCOPES = ("single", "multi", "sector", "out_of_scope")
 # The properly fetched corpus (D36, T-159): ``quarantined`` is a verdict on the company tag, not on the article.
 PROPER_STATUSES = ("ok", "quarantined")
+
+
+@dataclass(frozen=True)
+class SubNews:
+    """One sub-news the cut wrote: its row id (the item id of the steps after the cut), its body and its text."""
+
+    sub_news_id: int
+    body_hash: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -42,14 +53,17 @@ def _articles(conn: NewsNlpDatabase) -> str:
     return "source.articles" if conn.articles_rel == "source" else "main.articles"
 
 
-def finished(conn: NewsNlpDatabase, step: str, revision: str) -> set[str]:
-    """Hashes of the bodies the step has already done (or skipped) at this revision: failed and pending ones are retried."""
+def finished(
+    conn: NewsNlpDatabase, step: str, revision: str, item_kind: str = ITEM_BODY
+) -> set[str]:
+    """Ids of the items (by default the body hashes) the step has already done (or skipped) at this revision: failed and
+    pending ones are retried."""
     return {
         str(row[0])
         for row in conn.execute(
             "SELECT item_id FROM pipeline_step_state "
             "WHERE item_kind = ? AND step = ? AND model_revision = ? AND status IN ('done', 'skipped')",
-            (ITEM_BODY, step, revision),
+            (item_kind, step, revision),
         )
     }
 
@@ -111,20 +125,25 @@ def latest_classifier_revision(conn: NewsNlpDatabase) -> str | None:
     return None if row is None else str(row[0])
 
 
-def pending_multi_bodies(
-    conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
+def _pending_scoped_bodies(
+    conn: NewsNlpDatabase,
+    classifier_revision: str,
+    scope: str,
+    step: str,
+    revision: str,
+    limit: int | None,
 ) -> Iterator[Body]:
-    """The ``multi`` bodies of step 1 (at ``classifier_revision``) the cut has not done at ``revision``, at most ``limit``.
+    """The bodies of step 1 (at ``classifier_revision``) with this ``scope`` that ``step`` has not done at ``revision``, at most ``limit``.
 
     ``body_scope`` keeps no text, so the bodies are found in SOURCE by hash; the scan is in article-id order, so the
     article each body carries is the lowest id of its group (T-132), and it stops when every wanted body is found.
     """
-    done = finished(conn, STEP_CUT, revision)
+    done = finished(conn, step, revision)
     wanted = [
         str(row[0])
         for row in conn.execute(
-            "SELECT body_hash FROM body_scope WHERE classifier_revision = ? AND scope = 'multi' ORDER BY rowid",
-            (classifier_revision,),
+            "SELECT body_hash FROM body_scope WHERE classifier_revision = ? AND scope = ? ORDER BY rowid",
+            (classifier_revision, scope),
         )
         if str(row[0]) not in done
     ]
@@ -143,6 +162,68 @@ def pending_multi_bodies(
         if key in left:
             left.discard(key)
             yield Body(key, int(article_id), title or "", text)
+
+
+def pending_multi_bodies(
+    conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The ``multi`` bodies of step 1 the cut has not done at ``revision``, at most ``limit`` (step 1.2)."""
+    return _pending_scoped_bodies(conn, classifier_revision, "multi", STEP_CUT, revision, limit)
+
+
+def pending_single_bodies(
+    conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The ``single`` bodies of step 1 the summary has not done at ``revision``, at most ``limit`` (step 2)."""
+    return _pending_scoped_bodies(
+        conn, classifier_revision, "single", STEP_SUMMARY, revision, limit
+    )
+
+
+def pending_sub_news(
+    conn: NewsNlpDatabase, cut_revision: str, revision: str, limit: int | None = None
+) -> Iterator[SubNews]:
+    """The sub-news the cut wrote at ``cut_revision`` that the summary has not done at ``revision``, at most ``limit``."""
+    done = finished(conn, STEP_SUMMARY, revision, ITEM_SUB_NEWS)
+    taken = 0
+    for row_id, body_hash, text in conn.execute(
+        "SELECT id, body_hash, text FROM sub_news WHERE extractor_revision = ? ORDER BY id",
+        (cut_revision,),
+    ):
+        if str(row_id) in done:
+            continue
+        yield SubNews(int(row_id), str(body_hash), str(text))
+        taken += 1
+        if limit is not None and taken >= limit:
+            return
+
+
+def record_summary(
+    conn: NewsNlpDatabase,
+    item_kind: str,
+    item_id: str,
+    revision: str,
+    summary_text: str,
+    text_source: str,
+    num_chunks: int,
+) -> None:
+    """Store the text the next steps read for one item (its summary, or its own text when it is under the size) and mark
+    the summary step done, in one transaction; a repeat changes nothing."""
+    now = _now()
+    conn.execute(
+        "INSERT OR IGNORE INTO news_summary "
+        "(item_kind, item_id, model_revision, summary_text, text_source, num_chunks, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (item_kind, item_id, revision, summary_text, text_source, num_chunks, now),
+    )
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'done', 1, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
+        (item_kind, item_id, STEP_SUMMARY, revision, now, now),
+    )
+    conn.commit()
 
 
 def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str]) -> None:
@@ -201,6 +282,13 @@ def revisions(conn: NewsNlpDatabase, step: str) -> list[str]:
 
 def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, error: str) -> None:
     """Mark a body failed with the reason; it is retried by the next run."""
+    record_item_failure(conn, ITEM_BODY, body.body_hash, step, revision, error)
+
+
+def record_item_failure(
+    conn: NewsNlpDatabase, item_kind: str, item_id: str, step: str, revision: str, error: str
+) -> None:
+    """Mark an item (a body, or a sub-news by its id) failed with the reason; it is retried by the next run."""
     now = _now()
     conn.execute(
         "INSERT INTO pipeline_step_state "
@@ -208,7 +296,7 @@ def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, 
         "VALUES (?, ?, ?, ?, 'failed', 1, ?, ?, ?) "
         "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
         "status = 'failed', attempts = attempts + 1, error = excluded.error, finished_at = excluded.finished_at",
-        (ITEM_BODY, body.body_hash, step, revision, error[:500], now, now),
+        (item_kind, item_id, step, revision, error[:500], now, now),
     )
     conn.commit()
 
@@ -261,4 +349,11 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
             cut_sql, cut_args = cut_sql + " WHERE extractor_revision = ?", [revision]
         rows, bodies = conn.execute(cut_sql, cut_args).fetchone()
         out["sub_news"] = {"rows": int(rows), "bodies": int(bodies)}
+    if step == STEP_SUMMARY:
+        w = " WHERE model_revision = ?" if revision is not None else ""
+        a = [revision] if revision is not None else []
+        by_source = f"SELECT text_source, COUNT(*) FROM news_summary{w} GROUP BY text_source"  # noqa: S608 -- fixed clauses
+        by_kind = f"SELECT item_kind, COUNT(*) FROM news_summary{w} GROUP BY item_kind"  # noqa: S608 -- fixed clauses
+        out["news_summary"] = {str(s): int(n) for s, n in conn.execute(by_source, a)}
+        out["by_item_kind"] = {str(k): int(n) for k, n in conn.execute(by_kind, a)}
     return out

@@ -8,12 +8,17 @@ Usage:
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
     uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2)
     uv run cli/news_nlp_steps.py --step cut --status          # sub-news written and bodies by state
+    uv run cli/news_nlp_steps.py --step summary --limit 200   # step 2: summarise single bodies and sub-news over 2,000 characters
+    uv run cli/news_nlp_steps.py --step summary --items sub_news --cut-revision units5-...   # only the sub-news of one cut revision
+    uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
 ``scripts/train_scope_final_2026_11_11.py`` (default ``models/scope_final``). The ``cut`` step reads the ``multi`` bodies
 step 1 wrote (``--scope-revision``, default the latest) and writes ``sub_news`` with the ``units`` extractor; its model is the
-attribution checkpoint (default ``data/models/attribution_2026_11_08``).
+attribution checkpoint (default ``data/models/attribution_2026_11_08``). The ``summary`` step (step 2) reads the ``single`` bodies of step 1
+and the sub-news of the cut (``--cut-revision``, default the latest); an item over 2,000 characters is summarised by the pinned local
+summariser, a shorter one is stored as it is (``news_summary.text_source`` = ``original``); see ``src/news_summary_stage.py``.
 """
 
 import argparse
@@ -21,7 +26,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -32,8 +37,9 @@ import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
 
-STEPS = (steps.STEP_SCOPE, steps.STEP_CUT)
+STEPS = (steps.STEP_SCOPE, steps.STEP_CUT, steps.STEP_SUMMARY)
 BATCH = 16
+SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
 MAX_FAILED_BODIES = 10  # the same for the cut, which goes body by body
 SCOPE_ONLY_FLAGS = ("fetch", "allow_unpinned", "titles")
@@ -150,6 +156,142 @@ def run_cut(
     return counts
 
 
+class Summarizing(Protocol):
+    """What ``run_summary`` needs of a summariser (``news_summary_stage.Summarizer`` or a test stub)."""
+
+    revision: str
+    min_chars: int
+
+    def summarize(self, texts: Sequence[str]) -> list[tuple[str, int]]: ...
+
+
+class SummaryItem(NamedTuple):
+    """One thing the summary step reads: a body (its hash) or a sub-news (its id), and the text the summariser would read."""
+
+    kind: str
+    item_id: str
+    text: str
+
+
+def _summary_items(
+    conn: db.NewsNlpDatabase,
+    revision: str,
+    scope_revision: str | None,
+    cut_revision: str | None,
+    items: Sequence[str],
+    limit: int | None,
+) -> list[SummaryItem]:
+    """The single bodies, then the sub-news, still to do at ``revision``; at most ``limit`` items in all."""
+    from news_summary_stage import input_of_body  # noqa: PLC0415 -- loads torch
+
+    todo: list[SummaryItem] = []
+    if "single" in items and scope_revision is not None:
+        for body in steps.pending_single_bodies(conn, scope_revision, revision, limit):
+            todo.append(
+                SummaryItem(steps.ITEM_BODY, body.body_hash, input_of_body(body.title, body.text))
+            )
+    if "sub_news" in items and cut_revision is not None:
+        left = None if limit is None else max(limit - len(todo), 0)
+        if left != 0:
+            for sub in steps.pending_sub_news(conn, cut_revision, revision, left):
+                todo.append(SummaryItem(steps.ITEM_SUB_NEWS, str(sub.sub_news_id), sub.text))
+    return todo
+
+
+def _summarize_items(
+    conn: db.NewsNlpDatabase,
+    summarizer: Summarizing,
+    batch: list[SummaryItem],
+    counts: dict[str, int],
+) -> None:
+    """Summarise and store one batch; a batch that fails is redone item by item, so one bad item fails alone."""
+    try:
+        results = summarizer.summarize([item.text for item in batch])
+    except Exception as exc:
+        if len(batch) > 1:
+            for item in batch:
+                _summarize_items(conn, summarizer, [item], counts)
+            return
+        steps.record_item_failure(
+            conn,
+            batch[0].kind,
+            batch[0].item_id,
+            steps.STEP_SUMMARY,
+            summarizer.revision,
+            steps.error_text(exc),
+        )
+        counts["failed"] += 1
+        return
+    for item, (summary, chunks) in zip(batch, results, strict=True):
+        if not summary.strip():  # an empty text would be read by the next steps as the item's text
+            steps.record_item_failure(
+                conn,
+                item.kind,
+                item.item_id,
+                steps.STEP_SUMMARY,
+                summarizer.revision,
+                "ValueError: empty summary",
+            )
+            counts["failed"] += 1
+            continue
+        steps.record_summary(
+            conn, item.kind, item.item_id, summarizer.revision, summary, "summary", chunks
+        )
+        counts["summary"] += 1
+
+
+def run_summary(
+    conn: db.NewsNlpDatabase,
+    summarizer: Summarizing,
+    scope_revision: str | None,
+    cut_revision: str | None,
+    items: Sequence[str],
+    limit: int | None,
+) -> dict[str, int]:
+    """Step 2: summarise up to ``limit`` items not yet done at the summariser's revision; return what was done.
+
+    An item over ``summarizer.min_chars`` goes to the model in batches; a shorter one is stored as it is
+    (``text_source = original``, no chunks). A batch that fails is redone item by item, an item that fails is stored
+    ``failed`` with its reason and retried by the next run, and ``MAX_FAILED_BATCHES`` batches in a row that fail
+    completely stop the run (the cause is then not one text: out of memory, a lost GPU).
+    """
+    from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
+
+    todo = _summary_items(conn, summarizer.revision, scope_revision, cut_revision, items, limit)
+    counts: dict[str, int] = {"summary": 0, "original": 0, "failed": 0}
+    failed_batches = 0
+    waiting: list[SummaryItem] = []
+
+    def flush() -> None:
+        nonlocal failed_batches
+        if not waiting:
+            return
+        done_before = counts["summary"]
+        _summarize_items(conn, summarizer, list(waiting), counts)
+        failed_batches = failed_batches + 1 if counts["summary"] == done_before else 0
+        waiting.clear()
+        if failed_batches >= MAX_FAILED_BATCHES:
+            raise RunAborted(
+                f"{failed_batches} batches in a row failed completely after {counts['summary'] + counts['original']} done "
+                f"(see the error of a failed item with --status); the failed items are retried by the next run"
+            )
+
+    with tqdm(total=len(todo), desc="summary", unit="item") as bar:
+        for item in todo:
+            if needs_summary(item.text, summarizer.min_chars):
+                waiting.append(item)
+                if len(waiting) >= SUMMARY_BATCH:
+                    flush()
+            else:
+                steps.record_summary(
+                    conn, item.kind, item.item_id, summarizer.revision, item.text, "original", 0
+                )
+                counts["original"] += 1
+            bar.update(1)
+        flush()
+    return counts
+
+
 def default_model_dir(step: str) -> Path:
     """The model folder a step uses when ``--model-dir`` is not given (both are in the repository)."""
     if step == steps.STEP_CUT:
@@ -197,6 +339,42 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         sys.exit(f"stopped: {exc}")
     print(json.dumps({"scope_revision": scope_revision, **counts}, indent=2))
     print(json.dumps(steps.status(conn, steps.STEP_CUT, extractor.revision), indent=2))
+
+
+def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    if args.status:
+        latest = steps.latest_revision(conn, steps.STEP_SUMMARY)
+        report = steps.status(conn, steps.STEP_SUMMARY, latest)
+        report["revisions"] = steps.revisions(conn, steps.STEP_SUMMARY)
+        print(json.dumps(report, indent=2))
+        return
+    items = (args.items,) if args.items else ("single", "sub_news")
+    scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+    cut_revision = args.cut_revision or steps.latest_revision(conn, steps.STEP_CUT)
+    if "single" in items and scope_revision is None:
+        sys.exit("body_scope is empty: run --step scope first")
+    if "sub_news" in items and cut_revision is None:
+        if args.items == "sub_news":
+            sys.exit("no cut has run: run --step cut first, or name one with --cut-revision")
+        print("no cut has run yet: only the single bodies are summarised", file=sys.stderr)
+    from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
+
+    summarizer = Summarizer()
+    print(
+        f"summariser {summarizer.model_name}@{summarizer.model_revision[:8]} on {summarizer.device}, size {summarizer.min_chars}",
+        file=sys.stderr,
+    )
+    try:
+        counts = run_summary(conn, summarizer, scope_revision, cut_revision, items, args.limit)
+    except RunAborted as exc:
+        print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
+        sys.exit(f"stopped: {exc}")
+    print(
+        json.dumps(
+            {"scope_revision": scope_revision, "cut_revision": cut_revision, **counts}, indent=2
+        )
+    )
+    print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
 
 
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
@@ -284,17 +462,32 @@ def main() -> None:
         default=None,
         help="cut: how the body is read (default `units4`, T-176; `units` is the cut as it was before; `units5`, T-177, is a candidate)",
     )
+    parser.add_argument(
+        "--items",
+        choices=("single", "sub_news"),
+        default=None,
+        help="summary: only the single bodies or only the sub-news (default both)",
+    )
+    parser.add_argument(
+        "--cut-revision",
+        default=None,
+        help="summary: the cut revision whose sub-news are read (default the latest that has state)",
+    )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
-    if args.step == steps.STEP_CUT:
+    if args.step != steps.STEP_SCOPE:
         used = [f"--{n.replace('_', '-')}" for n in SCOPE_ONLY_FLAGS if getattr(args, n)]
         if used:
             parser.error(f"{', '.join(used)} only apply to --step scope")
-    elif args.reading is not None:
+    if args.step != steps.STEP_CUT and args.reading is not None:
         parser.error("--reading only applies to --step cut")
+    if args.step != steps.STEP_SUMMARY and (
+        args.items is not None or args.cut_revision is not None
+    ):
+        parser.error("--items and --cut-revision only apply to --step summary")
     args.model_dir = args.model_dir or default_model_dir(args.step)
     db.env.load_env_file()
     if args.fetch:
@@ -306,6 +499,9 @@ def main() -> None:
     db.init_schema(conn)
     if args.step == steps.STEP_CUT:
         main_cut(args, conn)
+        return
+    if args.step == steps.STEP_SUMMARY:
+        main_summary(args, conn)
         return
     main_scope(args, conn)
 

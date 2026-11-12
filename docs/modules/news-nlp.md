@@ -565,3 +565,12 @@ same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_rev
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
 revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
 reproduced from the repository alone.** Measurements and the quality check: `docs/scope_training.md`, section 8.1.
+
+
+### Step 2: the summary (T-164, T-166)
+
+`uv run cli/news_nlp_steps.py --step summary [--items single|sub_news] [--limit N] [--cut-revision REV] [--status]` gives each `single` body of
+step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
+`c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
+(`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). The size, its
+measure, the rules of a run and the first run: `docs/summary_step.md`.
