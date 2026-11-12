@@ -18,7 +18,7 @@ engine ever changes), the `main`/`source` schema handle is
 cross-store row copy through `Database.copy_row_lean`, and every dialect SQL
 fragment (the upsert verb, `strftime`/`date(...)` week bucketing, `GLOB`, the
 `AUTOINCREMENT` DDL token) through `conn.dialect`. Swapping the engine is a
-change to `portfolio-common` alone — see `docs/legacy/engine-agnostic-rollout.md`
+change to `portfolio-common` alone — see `docs/engine-agnostic-rollout.md`
 and `docs/legacy/portfolio-common-v1.2-engine-agnostic.md`. `portfolio-common` stays
 pinned in `pyproject.toml`'s `[tool.uv.sources]`.
 

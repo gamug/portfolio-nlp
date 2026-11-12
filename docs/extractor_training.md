@@ -438,7 +438,7 @@ Every figure is in Appendix B.3 to B.6.
 - 16 confirmation texts carry the owner's note "this text is huge"; the longest texts reach 6,000 characters.
 - When a sentence names nobody the model gives it to the best-scoring company if the score is 0.5 or
   more, even if the sentence is about a company outside the universe; the wrong cases scored 0.9 or
-  more, so a higher threshold would not remove them (T-148b3, open).
+  more, so a higher threshold would not remove them (T-148b3, out of the MVP since 2026-11-10: the threshold stays 0.5).
 - All figures come from 30 + 30 bodies and the owner's single reading of each text.
 
 ## Update of 2026-11-11: `units4`, the reading of the cut (T-176)

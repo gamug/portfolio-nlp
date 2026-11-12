@@ -14,6 +14,5 @@ sections cut from a current doc are copied verbatim and say where they came from
 | `portfolio-common-v1-migration-plan.md` | the plan to vendor `news_nlp` back from `portfolio-common` v1.0.0 | executed in #21 | `docs/db-topology.md` |
 | `portfolio-common-v1.1-news-export.md` | why `fetch_processed_articles` delegates to `portfolio_common.news_export` | executed (v1.1.0); the fact is in `docs/db-topology.md`, "External consumers" | `docs/db-topology.md` |
 | `portfolio-common-v1.2-engine-agnostic.md` | the move of `src/news_nlp/` onto the `Dialect` seam | executed in #24/#25 | `docs/db-topology.md` |
-| `engine-agnostic-rollout.md` | the cross-repository plan for the seam | done in every repository (its status table is of its own day); a pointer stays at `docs/engine-agnostic-rollout.md` because the constitution cites that path | `docs/db-topology.md` |
 
 `.specify/memory/CHANGELOG.md` and `.specify/memory/archive/` quote the old paths as they were; read them with this table.

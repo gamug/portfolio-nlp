@@ -10,7 +10,7 @@ page is the list of labels it applies.
 `news_nlp.taxonomy.CATEGORY_SLUGS`, the four added in D15, then `other`, `uncertain` and `unrelated`);
 `retag.COMPANY_LABELS` is the same without `unrelated`, which is a scope, not a label of a company.
 `retag.NEW_LABEL_GUIDE` carries the one-line definitions of the added labels for the owner's guide CSV.
-`tests/news_nlp/test_labelling_spec.py` checks that the guide names every one of them.
+`tests/news_nlp/test_labelling_spec.py` checks that `docs/labelling-spec-v2.md` names every one of them.
 
 **The model.** Not built: the owner trains it on `gold/category_gold_v2.csv` (284 bodies) and measures it on the
 held-out `gold/category_gold_v2_test.csv` (200), bar >= 80% agreement (D24; `TASKS.md` T-174). Whether it is a

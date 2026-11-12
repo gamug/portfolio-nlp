@@ -20,7 +20,7 @@ dependencies = [
     # the Row type) goes through portfolio_common's Dialect / connect_url /
     # two_store / table_columns -- so "which database engine" is a
     # portfolio-common change, not a change here. See
-    # docs/legacy/engine-agnostic-rollout.md. Pinned in [tool.uv.sources] -- bump
+    # docs/engine-agnostic-rollout.md. Pinned in [tool.uv.sources] -- bump
     # the pin there to adopt a new DB-engine contract.
     "portfolio-common",
     # --- shared web/runtime -----------------------------------------------

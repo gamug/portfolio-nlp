@@ -20,7 +20,7 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
 | **Result** | The **pinned model** (saved weights, section 7): **83.6% [78.1, 88.9]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+16.5 [9.6, 23.4]**; `out_of_scope` recall 53%. The first fit of the recipe, which the rest of this document analyses: 83.0% [77.5, 88.3], gain +15.9 [9.1, 22.6]. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
 | **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
-| **Known trade-off** | `out_of_scope` recall is about 48% (11 of 33 are read as `single`) while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
+| **Known trade-off** | `out_of_scope` recall is about 48% on the first fit (11 of 33 are read as `single`) and 53% [32, 74] on the pinned weights, while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
 ## 2. What is measured, and how
 
@@ -325,6 +325,8 @@ all the unique bodies of the corpus (`ok` and `quarantined`, including the 90 wi
 and "58 left": it opened `nlp.db` without its `-wal` file, which held the last rows. Read a copy of `nlp.db` **with** its
 `-wal`, never the main file alone.) The breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
 
+A body takes the status of the first article (by id) that carries it, so a body that is `ok` under one pair and `quarantined` under an earlier one counts as `quarantined` here: 64,901 bodies, against the 81,961 unique bodies that are `ok` under at least one pair (`docs/db-topology.md`, D19).
+
 | Status | Bodies | single | multi | sector | out_of_scope |
 |---|---|---|---|---|---|
 | `ok` | 64,901 (21%) | 58.6% | 26.4% | 3.7% | **11.3%** |
@@ -412,7 +414,7 @@ pruning could change the output).
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
 **The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
-`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
+`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading of that day (`units4`, model
 `data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24` (the revision hashes the code of `attribution_units.py`, which #172 edits: after #172 the same reading and model give another hash, so read the revision the command prints, not this one), then the two checks on that revision:
 - *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
   first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).

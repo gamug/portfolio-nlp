@@ -369,7 +369,7 @@ recorded and that select a model are Precision, Recall and ROC OVR per class (ow
 the validation score of a run is the mean of those nine figures; accuracy is a description only.**
 
 - `src/sentiment_pair.py` — the pair's encoding and the routing rule (`reads_as_pair`), shared by the trainer,
-  the draw's `predict` and the scorer; the stage will use it in PR C (T-148c5, proposed, not built).
+  the draw's `predict` and the scorer; step 6 will use it (the stack in `sentiment_stage`, T-148c3d; the step, T-168; not built).
 - `src/sentiment_pair_train.py` — the recipe: the loader of the 450 marks, the replay of earlier sentences (only
   those that name their article's company, not of a gold, held-out or marked body or headline), batches that
   never mix summaries with sentences, one run, the grid of 27, D35's tie rule, and a fingerprint of the data,
