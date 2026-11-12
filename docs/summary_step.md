@@ -24,9 +24,10 @@ Options the step does not read are refused, never ignored: `--model-dir`, `--rea
 (it names the single bodies to read; the JSON a run prints lists only the revisions it read).
 
 **The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the generation limits and
-the code that summarises: the source of `news_summary_stage.py` whole, and of the functions this step runs in `summary_stage.py` (`hierarchical_summarize_batch` and
-its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. A new size, model or edit
-of that code starts new rows and leaves the old ones. **An edit to the rest of those two files does not**: `summary_stage.py` also holds the v1 stage and `chunking.py` the NER span merge, and
+the code that summarises: `news_summary_stage.py` whole, and the functions this step runs in `summary_stage.py` (`hierarchical_summarize_batch` and
+its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. **The code is hashed as parsed
+(`normalized_code`): comments, formatting, the kind of quotes and docstrings do not change the revision, so a typo fix or a formatter upgrade does not make the step redo hours of GPU work; a change of
+a name, a constant or an operator does.** A new size, model or such a change starts new rows and leaves the old ones. **An edit to the rest of those two files does not either**: `summary_stage.py` also holds the v1 stage and `chunking.py` the NER span merge, and
 shared code that this step does not run must not make it redo about 14 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
 
 **A cut is named, never "the latest".** The sub-news are read from the cut revision given with `--cut-revision`; without it the command stops and lists the
@@ -72,17 +73,20 @@ not checked against each downstream model: a 512-token transformer input is abou
 relevance model and sentiment whole, and a longer one is the kind that would be truncated. The 0.84 s a body is the earlier summary run's figure (all sizes of
 bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, so read the hours as an order of magnitude until the first GPU run.
 
-## First run and determinism (2026-11-12, scratch copies of the databases, CPU)
+## First run, determinism and running next to the cut (2026-11-12, scratch copies of the databases, CPU)
 
-12 single bodies, all over the size, at revision `summary-be70abc39af7`: 12 summaries, no failure, `--status` adds up, and the printed JSON lists only the revisions the run read. The first
-run (an earlier revision, before the hash covered the stage) gave summaries of 287 to 561 characters, 11 of one chunk and one of 6. A body took 13 to 32 s on the CPU depending on the load of the
-machine; the GPU time is **not measured yet**.
+12 single bodies, all over the size, at revision `summary-41627e9ac412` (the revision of the code of this PR): 12 summaries, no failure, `--status` adds up, and the printed JSON lists only the
+revisions the run read. A body took 13 to 32 s on the CPU depending on the load of the machine; the GPU time is **not measured yet**.
 
-`scripts/summary_determinism_check_2026_11_12.py -n 4` (the constitution asks for deterministic inference) on those rows, **like for like** (the stored rows and the code at the same revision):
-the four stored summaries were summarised again in a new process, twice: **0 differ from the stored ones, 0 differ between the two runs** (CPU). The check refuses to compare rows of another
-revision: it prints both revisions and **exits 2**, which is not a pass (`--allow-other-revision` goes on and says so in the result). The first determinism run of this PR (2 items, 0 and 0) had the
-rows at an older revision and exited 0 with a warning; it is replaced by this one. **Not checked: the GPU**, which is the run that matters (a GPU can flip a beam near a tie): run it on the GPU
-after the cut and record the result here.
+**Determinism.** `scripts/summary_determinism_check_2026_11_12.py -n 4` (the constitution asks for deterministic inference) on those rows, **like for like** (stored rows and code at the same revision): the
+four stored summaries were summarised again in a new process, twice: **4 of 4 compared, 0 differ from the stored ones, 0 differ between the two runs** (CPU). The check is **not a pass unless it compared what it was
+asked to**: rows of another revision, a source without the bodies (`found 0 of 4`, run for real on an empty source) or with only some of them (`found 1 of 2`) end with **exit 2** and the reason; `--allow-other-revision` goes on
+and says so. Exit codes: 0 clean, 1 a summary differs, 2 not comparable. `--kind sub_news` reads the sub-news path (tested). **Not checked: the GPU**, which is the run that matters (a GPU can flip a beam near a
+tie): run it on the GPU after the cut and record the result here.
+
+**Next to the cut.** Both steps write the same RESULTS file, and SQLite takes one writer at a time (`portfolio_common` waits 30 s for the lock). On the scratch copy the cut of 15 bodies (99 sub-news, 64 s) and the
+summary of 6 items (134 s) ran **at the same time**: both exited 0, no lock error, no traceback. The safe way is still one writer at a time; if both run and a write waits more than 30 s, `database is locked` ends the
+run with a traceback (it is not caught inside `record_summary`): the batch in hand is lost and every item already committed stays, so the next run continues from there.
 
 ## Limits
 

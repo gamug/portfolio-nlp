@@ -10,7 +10,8 @@ The input of a single body is ``Title-<title>\\nBody-<body>``, as the earlier su
 ``draw_sentiment_gold``); a sub-news has no title of its own (the title is the whole round-up's), so its text goes alone.
 
 The revision of the step is ``summary-`` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the
-generation limits and the source of this module and of the functions it runs in ``summary_stage.py`` and ``chunking.py`` (``hashed_sources``): any of them changing starts new rows and leaves the old ones.
+generation limits and the code of this module and of the functions it runs in ``summary_stage.py`` and ``chunking.py`` (``hashed_sources``, as parsed
+code: comments, formatting and docstrings do not count): any of them changing starts new rows and leaves the old ones.
 
 A summariser is cheap to build: the model is loaded on the first text it is given, so ``--status`` and the tests need none. It runs on CUDA when
 there is one and on the CPU otherwise (constitution, Pipeline models 2).
@@ -18,9 +19,11 @@ there is one and on the CPU otherwise (constitution, Pipeline models 2).
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import inspect
 import json
+import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -70,20 +73,42 @@ _SUMMARY_STAGE_FUNCTIONS = (
 _CHUNKING_FUNCTIONS = ("chunk_text", "split_sentences")
 
 
+def _read_module_source() -> str:
+    return Path(__file__).read_text(encoding="utf-8")
+
+
+def normalized_code(source: str) -> str:
+    """The code of a source without what does not run: the parse drops comments and formatting (spaces, line breaks, the kind of quotes) and the
+    docstrings are removed, so a typo fix in a docstring, a comment or a formatter upgrade does not change what is hashed; a change of a name, a
+    constant or an operator does."""
+    tree = ast.parse(textwrap.dedent(source))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            first = node.body[0] if node.body else None
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                node.body = node.body[1:] or [ast.Pass()]
+    return ast.dump(tree)  # without positions: the line and column of a node are not in it
+
+
 def hashed_sources() -> dict[str, str]:
-    """The code the revision of the step hashes: this module whole, and the source of the functions it runs in ``summary_stage`` and
-    ``chunking`` (``Chunk``, the sentence regex and ``MAX_REDUCE_PASSES`` with them)."""
-    sources = {"news_summary_stage": Path(__file__).read_text(encoding="utf-8")}
+    """The code the revision of the step hashes, normalised (``normalized_code``): this module whole, and the functions it runs in ``summary_stage``
+    and ``chunking`` (``Chunk``, the sentence regex and ``MAX_REDUCE_PASSES`` with them)."""
+    sources = {"news_summary_stage": normalized_code(_read_module_source())}
     for module, names in (
         (summary_stage, _SUMMARY_STAGE_FUNCTIONS),
         (chunking, _CHUNKING_FUNCTIONS),
     ):
         for name in names:
-            sources[f"{module.__name__}.{name}"] = inspect.getsource(getattr(module, name))
-    sources["chunking.Chunk"] = inspect.getsource(chunking.Chunk)
-    sources["chunking.sentence_regex"] = (
-        chunking._SENTENCE_SPLIT_RE.pattern
-    )  # the one constant the sentence split depends on
+            sources[f"{module.__name__}.{name}"] = normalized_code(
+                inspect.getsource(getattr(module, name))
+            )
+    sources["chunking.Chunk"] = normalized_code(inspect.getsource(chunking.Chunk))
+    # the one constant the sentence split depends on
+    sources["chunking.sentence_regex"] = chunking._SENTENCE_SPLIT_RE.pattern
     sources["summary_stage.MAX_REDUCE_PASSES"] = str(summary_stage.MAX_REDUCE_PASSES)
     return sources
 

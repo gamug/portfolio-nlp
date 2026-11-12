@@ -651,6 +651,7 @@ def test_a_scope_revision_is_refused_when_only_sub_news_are_read_and_the_output_
 
 def test_the_determinism_check_says_what_a_revision_mismatch_means_and_exits_apart() -> None:
     """M2: the rows must be at the revision of this code, or the check is not like for like; it exited 0 with a warning."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
 
     clean = {"items": 2, "differ_from_stored": 0, "differ_between_two_runs": 0}
@@ -711,3 +712,140 @@ def test_the_determinism_check_main_refuses_stored_rows_of_another_revision_with
     with pytest.raises(SystemExit) as same:
         check.main()
     assert same.value.code == 0
+
+
+# --- round 3 of the review of #173 (B1, N1, N2) --------------------------------------------------------------------------
+
+
+def test_normalized_code_ignores_comments_formatting_and_docstrings_and_sees_real_edits() -> None:
+    plain = "def f(x):\n    return x > 5\n"
+    dressed = '# a comment\ndef f( x ):\n    """A docstring, typo fixed."""\n    # another comment\n    return (x  >  5)\n'
+    assert stage.normalized_code(plain) == stage.normalized_code(dressed)
+    assert stage.normalized_code(plain) != stage.normalized_code(
+        "def f(x):\n    return x >= 5\n"
+    )  # a real edit
+    assert stage.normalized_code("A = 'one'\n") == stage.normalized_code(
+        'A = "one"\n'
+    )  # quotes are formatting
+    assert stage.normalized_code("A = 'one'\n") != stage.normalized_code(
+        "A = 'two'\n"
+    )  # a constant is code
+    nested = (
+        'class C:\n    """Doc."""\n\n    def m(self):\n        """Doc of m."""\n        return 1\n'
+    )
+    assert stage.normalized_code(nested) == stage.normalized_code(
+        "class C:\n    def m(self):\n        return 1\n"
+    )
+
+
+def test_the_revision_survives_a_docstring_a_comment_or_a_reformat_and_not_a_real_edit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N1: a typo fix or a formatter upgrade must not make the step redo about 14 GPU hours; a change of behaviour must."""
+    args = ("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
+    base = stage.revision_of(*args)
+    real_getsource = stage.inspect.getsource
+    real_module = stage._read_module_source()
+
+    def dressed(
+        obj: Any,
+    ) -> str:  # every hashed function gets a comment line and a docstring-like edit
+        return real_getsource(obj).replace('"""', '"""(edited) ', 1) + "\n# a trailing comment\n"
+
+    monkeypatch.setattr(stage.inspect, "getsource", dressed)
+    monkeypatch.setattr(
+        stage,
+        "_read_module_source",
+        lambda: "# new header comment\n" + real_module + "\n# footer\n",
+    )
+    assert stage.revision_of(*args) == base
+
+    def edited(obj: Any) -> str:
+        return real_getsource(obj).replace("num_beams=4", "num_beams=5")
+
+    monkeypatch.setattr(stage.inspect, "getsource", edited)
+    assert stage.revision_of(*args) != base
+
+
+def test_the_determinism_check_is_not_a_pass_on_nothing_or_on_fewer_texts_than_stored() -> None:
+    """B1: `compare` of no items is all zeros, which exit_code read as clean; a text missing from SOURCE was silently dropped."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
+
+    nothing = {"items": 0, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    one_of_two = {"items": 1, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    both = {"items": 2, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    kw = {"same_revision": True, "allow_other_revision": False}
+    assert check.coverage_problem(2, 2) is None
+    assert "found 0 of 2" in str(check.coverage_problem(2, 0)) and "found 1 of 2" in str(
+        check.coverage_problem(2, 1)
+    )
+    assert check.exit_code(nothing, requested=2, **kw) == 2
+    assert check.exit_code(one_of_two, requested=2, **kw) == 2
+    assert check.exit_code(both, requested=2, **kw) == 0
+    assert check.exit_code(both, requested=2, **{**kw, "same_revision": False}) == 2
+
+
+def _determinism_argv(
+    tmp_path: Path, results_db_path: Path, source: Path, *extra: str
+) -> list[str]:
+    return [
+        "check",
+        "--results-db",
+        str(results_db_path),
+        "--source-db",
+        str(source),
+        "-n",
+        "2",
+        *extra,
+    ]
+
+
+def test_the_determinism_check_main_exits_2_when_the_source_lacks_the_texts_and_reads_sub_news_too(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """B1 and N2, run for real through main with a stub: a source without the bodies, a source with one of the two, and --kind sub_news."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
+
+    _run(
+        pair, StubSummarizer()
+    )  # two long single bodies (1 and 5) and one long sub-news are stored as summaries
+    monkeypatch.setattr(stage, "Summarizer", StubSummarizer)
+
+    def source_with(name: str, ids: tuple[int, ...]) -> Path:
+        path = tmp_path / name
+        raw = sqlite3.connect(path)
+        raw.executescript(ARTICLES_SCHEMA)
+        stamp_source(raw)
+        for i in ids:
+            seed_article(raw, id=i, title="Long single", body_text=LONG, fetch_status="ok")
+        raw.commit()
+        raw.close()
+        return path
+
+    def run(source: Path, *extra: str) -> int:
+        monkeypatch.setattr(
+            sys, "argv", _determinism_argv(tmp_path, results_db_path, source, *extra)
+        )
+        with pytest.raises(SystemExit) as done:
+            check.main()
+        assert isinstance(
+            done.value.code, int
+        )  # the script exits with a number, never a message here
+        return done.value.code
+
+    assert run(source_with("none.db", ())) == 2  # no bodies: nothing compared is not a pass
+    assert "found 0 of 2" in capsys.readouterr().err
+    assert run(source_with("one.db", (1,))) == 2  # one of two found
+    assert "found 1 of 2" in capsys.readouterr().err
+    assert run(tmp_path / "src.db") == 0  # the real source: both found, equal
+    assert "'items': 2" in capsys.readouterr().out
+    assert (
+        run(tmp_path / "src.db", "--kind", "sub_news") == 0
+    )  # N2: the sub-news path (string ids, the sub_news table)
+    assert "'items': 1" in capsys.readouterr().out

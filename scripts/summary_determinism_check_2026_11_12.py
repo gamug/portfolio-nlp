@@ -12,6 +12,9 @@ differs. Loads the pinned model (a GPU is advised; the CPU works). Reads the dat
 **The stored rows must be at the revision of this code.** The revision hashes the code that summarises (``news_summary_stage.hashed_sources``): rows written by
 other code are not a like-for-like reference. A mismatch is an outcome of its own: the check prints both revisions and **exits 2**, which is not a pass;
 ``--allow-other-revision`` goes on anyway (the result says so) for a deliberate comparison across versions, and then exits 0 or 1 by the differences.
+
+**It must compare every text it was asked for.** A stored summary whose text is not in SOURCE (a source copy without the bodies, a deleted one) is not skipped: fewer texts than
+stored, or none, is **exit 2** with the count found (``found 1 of 2``), never a pass. Exit codes: 0 clean, 1 a summary differs, 2 not comparable.
 """
 
 from __future__ import annotations
@@ -49,9 +52,26 @@ def revision_problem(stored: str, current: str) -> str | None:
     return f"the stored rows are at {stored} but this code is {current}: not like for like"
 
 
-def exit_code(result: Mapping[str, int], *, same_revision: bool, allow_other_revision: bool) -> int:
-    """0 clean, 1 a summary differs, 2 the revisions differ and that was not asked for (never a pass)."""
+def coverage_problem(requested: int, found: int) -> str | None:
+    """None when every stored summary asked for had its text in SOURCE; else how many were found. A check that compared fewer texts
+    than it was asked to (a source copy without the bodies, a deleted one) says nothing about the rest, and one that compared none says nothing."""
+    if found >= requested and found > 0:
+        return None
+    return f"found {found} of {requested} texts in SOURCE: not everything asked for was compared"
+
+
+def exit_code(
+    result: Mapping[str, int],
+    *,
+    same_revision: bool,
+    allow_other_revision: bool,
+    requested: int | None = None,
+) -> int:
+    """0 clean, 1 a summary differs, 2 not comparable and never a pass: the revisions differ and that was not asked for, or fewer texts
+    than ``requested`` were found (none included)."""
     if not same_revision and not allow_other_revision:
+        return 2
+    if requested is not None and coverage_problem(requested, result["items"]) is not None:
         return 2
     return 1 if result["differ_from_stored"] or result["differ_between_two_runs"] else 0
 
@@ -127,11 +147,19 @@ def main() -> None:
         )
     print(f"summariser on {summarizer.device}")
     items = [(key, texts[key]) for key in stored if key in texts]
+    gap = coverage_problem(len(stored), len(items))
+    # before the model runs: a source without the texts is a wrong --source-db, not a result
+    if gap:
+        print(f"{gap} (check --source-db; exit 2 is not a pass)", file=sys.stderr)
+        sys.exit(2)
     result = compare(summarizer.summarize, items, stored)
     print(f"revision {revision}: {result}" + (f"; {problem}" if problem else ""))
     sys.exit(
         exit_code(
-            result, same_revision=problem is None, allow_other_revision=args.allow_other_revision
+            result,
+            same_revision=problem is None,
+            allow_other_revision=args.allow_other_revision,
+            requested=len(stored),
         )
     )
 

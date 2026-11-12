@@ -217,8 +217,8 @@ above, it says so; nothing else above is touched.
   to T-172.
 - **D40 Build order, steps and tables (owner, 2026-11-10, after D39; amends D39's order of work, not its steps).**
   **Build 1** (first, with a status command and a dry run): (1) the extractor step gives the scope of every body (single,
-  multi, sector, or out of scope) and splits the multi ones into sub-news; (2) the summary of each single body, sub-news
-  and sector body that fits the size rule; (3) NER and the relevance model give the mentions and the main tickers (D39
+  multi, sector, or out of scope) and splits the multi ones into sub-news; (2) the summary of each single body and sub-news
+  that fits the size rule (the sector body is summarised in its own step once its sector is identified, D39 (4), T-167: owner, 2026-11-12); (3) NER and the relevance model give the mentions and the main tickers (D39
   (iii)). **Build 2** (after Build 1 runs): sentiment (between 3 and 4, D39 (6)), then category (D39 (7)); the owner trains
   the category model while Build 1 runs. **Step 5, the company snapshots and company resumes, is undefined and is not
   built** (D28 and T-152 wait). **Size rule (step 2):** an item over the size (2,000 characters, owner 2026-11-12, T-166) is summarised; a shorter one is used as it is and its row says `text_source = original`; steps 3 to 4
