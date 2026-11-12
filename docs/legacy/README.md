@@ -15,4 +15,7 @@ sections cut from a current doc are copied verbatim and say where they came from
 | `portfolio-common-v1.1-news-export.md` | why `fetch_processed_articles` delegates to `portfolio_common.news_export` | executed (v1.1.0); the fact is in `docs/db-topology.md`, "External consumers" | `docs/db-topology.md` |
 | `portfolio-common-v1.2-engine-agnostic.md` | the move of `src/news_nlp/` onto the `Dialect` seam | executed in #24/#25 | `docs/db-topology.md` |
 
-`.specify/memory/CHANGELOG.md` and `.specify/memory/archive/` quote the old paths as they were; read them with this table.
+`.specify/memory/CHANGELOG.md`, `.specify/memory/archive/` and the files of this folder quote the old paths as they were; read them with this table, and with two rules:
+
+- **`docs/category-taxonomy.md` in any text dated before 2026-11-12 means the v1 10-slug page**, now `docs/legacy/category-taxonomy-v1.md`; that path holds the D15 taxonomy since.
+- **A section of `docs/evaluation.md` on sentiment, category, `sector_summary` or Work item 15** ("the 2026-09-13 follow-up", "Why precision, not recall, for category", "The `other` bucket", ...) cited by an older text is in `evaluation-v1-stages.md`; a line in `docs/evaluation.md` marks the place each one had.

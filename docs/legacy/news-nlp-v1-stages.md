@@ -2,6 +2,8 @@
 
 **Legacy (moved 2026-11-12).** The owner deprecated these three v1 stages on 2026-11-12: the stepped pipeline of Work item 18 replaces them (sentiment per text and main company with the pair model, category with the D15 taxonomy, sector bodies in their own step; `docs/modules/news-nlp.md`). Their code still runs in `pipeline.run_pipeline` and their tables are still read downstream until the backfill (T-150). The passages below are cut verbatim from `docs/modules/news-nlp.md` at commit `09d90ae` (line ranges in the comments); the v1 NER and `c_summary` passages stayed there, because NER and the summariser are used by the stepped pipeline too. The evaluations of these stages are in `docs/legacy/evaluation-v1-stages.md`; the v1 taxonomy in `docs/legacy/category-taxonomy-v1.md`.
 
+**Where these sections say `docs/category-taxonomy.md`, read `docs/legacy/category-taxonomy-v1.md`**: they mean the v1 10-slug page, and that path now holds the D15 taxonomy of the stepped pipeline. One relative link (stage 3) was re-pointed to it; the text is otherwise unchanged.
+
 ## Stage 1, sentiment
 
 <!-- docs/modules/news-nlp.md lines 15-58 at 09d90ae -->
@@ -55,7 +57,7 @@
 <!-- docs/modules/news-nlp.md lines 82-106 at 09d90ae -->
 3. **Category** — zero-shot NLI classification (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`)
    against a fixed 10-category taxonomy (9 dimensions of company performance + `other`) →
-   `article_category`. See [`../category-taxonomy.md`](../category-taxonomy.md) for the
+   `article_category`. See [`../category-taxonomy.md`](category-taxonomy-v1.md) for the
    taxonomy, its sourcing (RavenPack, SASB, IPTC Media Topics, Refinitiv/TRNA), and the
    confidence-threshold mechanism. Classifies on the article's title + lead body chunk
    (not the full article — a per-label NLI pass makes full-article chunking too expensive

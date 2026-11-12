@@ -10,6 +10,8 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   unique article bodies, decides what each body is about before anything reads it for a company, and runs one
   tracked, idempotent command per step (`cli/news_nlp_steps.py`).
 
+  State on 2026-11-12:
+
   | Step | What it does | Model | Table | State |
   |---|---|---|---|---|
   | 1.1 scope | `single`, `multi`, `sector` or `out_of_scope` from the title and the first 800 characters | `gamug/deberta-v3-news-scope-nli` (pinned, public) | `body_scope` | built; ran on the corpus |

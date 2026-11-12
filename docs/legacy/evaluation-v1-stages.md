@@ -2,6 +2,8 @@
 
 **Legacy (moved 2026-11-12).** These sections were cut verbatim from `docs/evaluation.md` at commit `09d90ae` (line ranges below), because the owner deprecated the v1 sentiment, zero-shot category and `sector_summary` stages on 2026-11-12 (the stepped pipeline of Work item 18 replaces them; `docs/modules/news-nlp.md`), and Work item 15 was superseded by Work item 18 on 2026-10-28. The v1 code still runs and its tables are still read downstream until the backfill (T-150). Nothing below was edited: "above" and "below" refer to the places these sections had in `docs/evaluation.md`; the sections that stayed there (NER, `c_summary`, sampling, the statistical method, running, results, experiments, Work item 18) are still in that file.
 
+**Where these sections say `docs/category-taxonomy.md`, read `docs/legacy/category-taxonomy-v1.md`**: they mean the v1 10-slug page, and that path now holds the D15 taxonomy of the stepped pipeline.
+
 ## Baseline notes (2026-09-08): sentiment and category
 
 <!-- docs/evaluation.md lines 59-75 at 09d90ae -->
