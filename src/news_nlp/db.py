@@ -27,7 +27,7 @@ SQL: the ATTACH open goes through
 :meth:`~portfolio_common.db.Database.table_columns`, and the lean cross-store
 row copy through :meth:`~portfolio_common.db.Database.copy_row_lean`. ``which
 database engine`` is a ``portfolio-common`` concern -- see
-``docs/engine-agnostic-rollout.md``.
+``docs/legacy/engine-agnostic-rollout.md``.
 
 See ``docs/db-topology.md``.
 """

@@ -6,7 +6,7 @@ Financial-news NLP pipeline, extracted from
 - **Sentiment** — FinBERT (`ProsusAI/finbert`)
 - **NER** — SEC-BERT (`gamug/sec-bert-finer-ord-ner`)
 - **Category** — zero-shot DeBERTa-v3 against a fixed 10-category taxonomy
-  (`docs/category-taxonomy.md`)
+  (`docs/legacy/category-taxonomy-v1.md`)
 - **Summarization** (opt-in) — distilbart per-article + per-sector-week roll-ups
 
 Reads an `articles` table and writes `article_sentiment`, `article_entities`,
@@ -71,7 +71,7 @@ Two-tier (see `docs/db-topology.md`):
 A pipeline run reads text from SOURCE and writes results — plus a lean
 `articles` row per processed article — into RESULTS, so the RESULTS store stays
 self-consistent with no separate migration step. (The pre-existing results were
-backfilled once from `urls.db`; see `docs/migration-2026-09-01.md`.)
+backfilled once from `urls.db`; see `docs/legacy/migration-2026-09-01.md`.)
 
 **Upgrading:** the old single-knob recipe (`DATABASE_URL=urls.db` to run,
 `DATABASE_URL=nlp.db` to serve) now errors on a run — set

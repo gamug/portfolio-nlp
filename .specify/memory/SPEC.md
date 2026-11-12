@@ -144,7 +144,7 @@ re-litigated without a constitution amendment:
   schema/queries/corrections/taxonomy directly; `portfolio_common` supplies
   only the engine-agnostic `Database`/`Dialect`/`Allowlist` primitives
   underneath it. (History: this code moved out to `portfolio_common.news_nlp`
-  and back once already — see `docs/portfolio-common-v1-migration-plan.md`.)
+  and back once already — see `docs/legacy/portfolio-common-v1-migration-plan.md`.)
 - **Two physical databases, not one.** SOURCE (`urls.db`, the crawler's
   full corpus, has `body_text`) and RESULTS (`nlp.db`, a lean serving store)
   stay physically separate by design (constitution: Architecture #3) — not a
@@ -233,7 +233,7 @@ depends on is assumed, not checked — a SOURCE missing `gics_sector`/
 | `eval_judgement` | `id` (PK) | `run_id` (FK), `article_id` (not FK-constrained — snapshot semantics), `bucket`, `verdict_json`, `correct`, `severity`, `rationale` | `news_nlp.eval` |
 
 **Category taxonomy** (`news_nlp.taxonomy`): 3 top-level groups →
-`corporate_actions`, and others documented in `docs/category-taxonomy.md` →
+`corporate_actions`, and others documented in `docs/legacy/category-taxonomy-v1.md` →
 9 leaf slugs total, classified in two NLI passes (level-1 group, then level-2
 leaf within the article's top-2 groups) against a calibrated confidence
 threshold (`CATEGORY_CONFIDENCE_THRESHOLD`, currently 0.6 — see §13 for the
@@ -304,7 +304,7 @@ fail the invocation (used as a manual/scheduled gate, not part of `ci.yml`).
   under-served labels (`product_innovation`,
   `partnerships_business_dev`, `leadership_governance`) at an accepted cost
   in false-`other` reduction — see the calibration trade-off recorded in
-  `news_nlp/taxonomy.py` and `docs/category-taxonomy.md`.
+  `news_nlp/taxonomy.py` and `docs/legacy/category-taxonomy-v1.md`.
 - **`c_summary` gating**: only articles with a sentiment row **and** an
   entity scoring `> 0.8` are summarized — a deliberate precision-over-recall
   filter (constitution: AI behavior #4, "decision-support not authoritative

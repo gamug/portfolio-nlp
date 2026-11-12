@@ -62,6 +62,8 @@ overwrites a file, with rows or without.
 | 7 | **Rare-scope enrichment** (T-147; measures sector and out-of-scope, not weighted) | 51 bodies | `scope_enrich_to_tag.csv` | `scope_enrich.csv` (+ `rule`), texts in `texts/scope_enrich_texts.csv` | drawn by rules (33 sector, 6 market, 6 economy, 6 no_company candidates) 2026-11-10, tagged and migrated 2026-11-10: 27 sector, 14 single, 7 market_economy, 1 each multi, investing_general, unrelated. The rules' guess was right for 26 of 33 sector candidates and for few out-of-scope ones (`no_company`: 5 of 6 were single). Unweighted and easier than the corpus; never merged into the held-out 200. Since 2026-11-11 it also trains the scope classifier (set 8 likewise). |
 | 8 | **Company as the hook** (T-147; trains the scope classifier) | 30 bodies | `scope_hook_to_tag.csv` | `scope_hook.csv`, texts in `texts/scope_hook_texts.csv` | drawn 2026-11-11 by rule (one universe company in the title, at least three market or macro terms in the first 800 characters); tagged and corrected by the owner, migrated 2026-11-11: 18 single, 7 market_economy, 3 investing_general, 2 sector. A training set, not a gold: it trains, never exams. |
 | 9 | **Quarantined-scope validation** (T-163; measures step 1's precision on `quarantined` bodies, not weighted by itself) | 225 bodies: 200 drawn per predicted scope + 25 read of an extra 75 `multi` (the other 50 are not used, owner 2026-11-11) | `scope_quarantined_to_validate.csv`, `multi_extra/scope_quarantined_to_validate.csv` | `scope_quarantined_validation.csv` (both draws, first-reading and final tags, `changed`; no text) | drawn and read 2026-11-11; two audits against the labelling spec (`docs/scope_training.md` section 9). Columns: `draw` (`main` / `multi_extra`), `validator_first` / `correct_first` (the first reading; **a reconstruction** from the first review, checked against its counts: the original file was edited in place), `validator` / `correct_scope` (final), `changed` = `yes` where the final differs from the first (9 rows) |
+| 10 | **Cut readings** (T-176, T-177; the owner's marks on the `units4` and `units5` texts that are not in set 4) | 51 marks; 84 changed texts listed | `data/units4_to_read.csv`, the `units5` blind sample | `cut_owner_marks_2026_11_11.csv` (`reading`, `article_id`, `ticker`, `faithful`, `basis`, `text`: the first answer kept in `basis`), `units5_changed_texts_2026_11_11.csv` (which of the 84 changed texts were read: `sample` or `no`) | marked 2026-11-11 (one rule: an analyst-only text counts faithful); figures in `docs/scope_training.md` §8.1 and `docs/extractor_training.md`, "Update of 2026-11-11" |
+| 11 | **Cut sample** (T-183; yes / no on the output of the cut: `faithful`, `one_story`, `complete`) | 30 bodies, 133 sub-news, drawn from the `units` cut `units-5f831c298bcb`; to be redrawn from the `units5` cut (owner, 2026-11-12) | `cut_sample_to_tag.csv`, `cut_sample_ids.csv` (`scripts/draw_cut_sample_2026_11_12.py`) | none yet (no builder) | drawn, not marked; `docs/scope_training.md` §8.2 |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.
@@ -76,8 +78,8 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   on the v1 scope) and 44 sector bodies (`session=sector_extra`).
 - **Scope:** one row per unique body: `scope` (six scopes), `company_labels` (the analysed companies with
   their D15 label), `mentions`, `sub_industry`, `notes`. Rules: `labelling-spec-v2.md`.
-- **Used for:** writing and tuning the labelling prompt (the gate, D18). **Never used to measure** the
-  scope (it tuned the prompt). It is also the pool
+- **Used for:** **training the scope classifier** of step 1 (with sets 7 and 8, `docs/scope_training.md`); first, writing and tuning the labelling prompt (the gate, D18; LLM labelling is out of the MVP since 2026-11-10). **Never used to measure** the
+  scope. It is also the pool
   from which sets 4 and 5 are drawn (the bodies tagged `multi`, and the tagged scopes of the summaries).
 - **Working files:** `gate240_to_tag.csv` and `sector_extra_to_tag.csv` (columns: `retag.TAGGING_COLUMNS`).
   Migrated by `scripts/build_gold_2026_11_05.py --set train`.
@@ -164,7 +166,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   would change or go missing the run stops (`--overwrite-marks` to accept). The tracked coverage is protected the same way (a company without a text it lists cannot disappear), it must belong to a body in `faithfulness_bodies.csv` and not to a company the same extractor wrote a text for, and the gold file and the coverage file are written together: if the second cannot be written the first is put back, and if that fails the message names the file that is new. Adding the model only adds names to
   `extractors` and `revisions` and new rows, and goes through.
 - **Used for:** the D32 bar (>= 80% of the extracted texts faithful, and better than the baseline on the same
-  bodies, 2022+ reported apart), which decides whether narrative multi bodies enter the backtest cut.
+  bodies, 2022+ reported apart). It decided the extractor of the cut: `units`, selected by the owner on 2026-11-08 (`docs/extractor_training.md`); the backtest cut it was first meant for (D34) is out of the MVP.
 - **Later files of this set (2026-11-08; migrated to `gold/` on 2026-11-10, marks and ids only):** the same file now holds 437 texts of the 30 bodies (baseline, `model`, `units`, `units2`, `units3`; 336 yes, 101 no) and `faithfulness_exempt_to_read.csv` the owner's reading of 37 names (23 not companies). A **confirmation set** of 30 other bodies (`data/faithfulness_confirmation/`: 395 texts, 345 yes and 50 no, and 30 names read, 25 not companies) was tagged the same day. **The owner selected `units` as the base model of step 4 (2026-11-08).** Datasets, metrics, results and what is next: `docs/extractor_training.md`. After PR #155 (matcher change) the figures were re-read: see `docs/extractor_training.md`, "Update of 2026-11-10" (`units`: 87.3% counting every mark and 97.1% on the texts the current code writes, confirmation set; first set 97.5%).
 - **Earlier ids files, local copies (2026-11-10, in `data/earlier_2026_11_09/`, not in `gold/`):** `first/faithfulness_ids.csv` (sha256 `e176141e935b483e99531c9c18af17a93ecabc53397d248dd3afdb452d9c708d`) and `confirmation/faithfulness_ids.csv` (sha256 `8a3e2a12145649e997f99043d0a27daebeb68d898d6c3d14af0d20c480a713d3`), copied from a backup made on 2026-11-09 at 23:10, before the ids files were redrawn at 23:20 and 23:39 for the matcher change (PR #155). They exist only so that `scripts/dead_text_replacement_2026_11_10.py` can tell which rows are new; nothing reads them otherwise.
 
@@ -279,39 +281,9 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   (200); no spreadsheet damage (no encoding change, no fill-down run). `tests/news_nlp/test_build_sentiment_train.py`
   pins the committed file (counts, design, no news text, no overlap with the two exams).
 
-## Roadmap: what each set unlocks and the order to tag
+## Roadmap (legacy)
 
-Fixed dates are the ones in `PLAN.md` D34 (cut for the 2026-11-20 delivery); the extractor decision is on
-2026-11-09 (D34 rule b; D32 now says the same). The order is by what
-each set blocks, earliest block first.
-
-| Order | Set | Unblocks | Needed by | Waits for |
-|---|---|---|---|---|
-| 1 | **3. Label check** (200 paragraphs) | training the attribution model (`lead` only, or both kinds) | 2026-11-08 | nothing: the training set exists |
-| 2 | **4. Extractor sample** (30 bodies, 190 texts) | the decision on the extractor for narrative bodies; the extractor part of set 5 | 2026-11-09 | nothing: baseline-only draw (D34 rule b) |
-| 3 | **5. Sentiment** (180 texts) | the D32 sentiment bar, so the cut can say whether its sentiment is checked | 2026-11-12 | the extractor decision (its 60 texts come from the extractor chosen) |
-| 4 | **2. Scope test** (200 bodies) | the scope measure (rules now, classifier later), the D24 category target | 2026-11-12 (go / no-go) | nothing: it can be tagged any time, but the cut does not wait for its result to start |
-| done | 1. Scope train | the labelling prompt, the sample for sets 4 and 5 | | |
-
-Owner work before the go / no-go of 2026-11-12: 770 items (200 + 200 + 190 + 180), 200 of them marked
-(the label check). The PLAN counted 610 by taking 30 texts for the faithfulness set, but the set is 30
-*bodies* and one row per company text: drawn, it is 190. **Owner call, 2026-11-06: tag all 190** (no reduction).
-
-Why this order:
-
-- Set 3 is first because the model trains on 2026-11-08 and the rule on the `continuation` labels must be
-  applied *before* training; it is the shortest set and needs no other result.
-- Set 4 needs only the baseline, so it can be drawn and tagged at once; if the model is not ready on
-  2026-11-09 the decision is on the baseline alone.
-  **Only if the 190 are not all marked on 2026-11-09 (the owner expects to finish them on 2026-11-06, so this is a contingency; the 120 below is a proposal the owner has not confirmed; fixed before any figure is read):**
-  the owner marks in `review_order` order; on 2026-11-09 the decision uses the first rows marked, if at
-  least 120 (about two thirds; `report_wi18 faithfulness --partial 120`, which refuses a gap or fewer
-  rows and prints PARTIAL, counting every company left without a text); with fewer the baseline is kept and
-  the model is reported as not evaluated. The full figure replaces the partial one when the file is finished.
-- Set 5 draws its extractor part from whichever extractor set 4 selected, so it is drawn after.
-  Its checked part (120) does not depend on it and can be tagged first if the owner wants to split the work.
-- Set 2 is independent of the others, so it fills the gaps; it is last only because nothing downstream
-  starts from its result.
+The tagging order of 2026-11-06, planned against the dates of PLAN D34 (out of the MVP since 2026-11-10), is in `docs/legacy/gold_datasets_roadmap_2026-11-06.md`; every set it lists has been tagged.
 
 ## Files an interrupted draw can leave
 

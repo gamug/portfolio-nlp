@@ -332,7 +332,7 @@ def write_category(
     correction (see corrections.update_category) can change the winner
     without touching the audit trail. `group_label`/`group_score` are the
     winning level-1 group and its probability, kept alongside for the
-    two-level audit trail (docs/category-taxonomy.md) -- default to
+    two-level audit trail (docs/legacy/category-taxonomy-v1.md) -- default to
     ''/0.0 (matching the column defaults) for callers that don't have a
     group decision to report (e.g. test fixtures, human corrections)."""
     _ensure_article_row(conn, article_id)

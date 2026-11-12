@@ -10,17 +10,17 @@ dependencies = [
     # `in_clause`/`Allowlist` injection-safety helpers. The news_nlp
     # results-DB contract itself (schema / two-tier SOURCE/RESULTS connection
     # / queries / sector_summary / corrections / taxonomy) is vendored
-    # locally as `src/news_nlp/` -- see docs/portfolio-common-v1-migration-plan.md.
+    # locally as `src/news_nlp/` -- see docs/legacy/portfolio-common-v1-migration-plan.md.
     # As of v1.1.0, `news_nlp.queries.fetch_processed_articles` delegates to
     # `portfolio_common.news_export` -- the one read join shared with
     # portfolio-knowledge-graph, not duplicated -- see
-    # docs/portfolio-common-v1.1-news-export.md. Since v1.2.0, every
+    # docs/legacy/portfolio-common-v1.1-news-export.md. Since v1.2.0, every
     # engine-specific fragment in src/news_nlp/ (the upsert verb, date/week
     # SQL, GLOB predicate, PRAGMA introspection, the ATTACH two-tier open,
     # the Row type) goes through portfolio_common's Dialect / connect_url /
     # two_store / table_columns -- so "which database engine" is a
     # portfolio-common change, not a change here. See
-    # docs/engine-agnostic-rollout.md. Pinned in [tool.uv.sources] -- bump
+    # docs/legacy/engine-agnostic-rollout.md. Pinned in [tool.uv.sources] -- bump
     # the pin there to adopt a new DB-engine contract.
     "portfolio-common",
     # --- shared web/runtime -----------------------------------------------

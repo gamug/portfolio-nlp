@@ -5,7 +5,7 @@ that, see apps/news_nlp_api.py instead). Wraps pipeline.run_pipeline()
 directly with real --limit/--summarize flags; see docs/modules/news-nlp.md.
 
 Sentiment (FinBERT) -> NER (SEC-BERT) -> Category (zero-shot DeBERTa-v3
-against a fixed 10-category taxonomy; see docs/category-taxonomy.md) always
+against a fixed 10-category taxonomy; see docs/legacy/category-taxonomy-v1.md) always
 run. Pass --summarize to also run c_summary (one summary per article) ->
 sector_summary (one summary per gics_sub_industry per closed calendar week,
 reduced from that week's c_summary rows) -- off by default, since

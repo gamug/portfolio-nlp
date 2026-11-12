@@ -23,6 +23,7 @@ lists a file's sections; read that range). Do not load whole files by default.
 - **D35 "Order of the end" (long form):** `archive/PLAN-d35-order-of-the-end-2026-11-10.md` (`PLAN.md` keeps a short form).
 - **The pipeline (D39, owner 2026-11-10):** `PLAN.md` D39 and D40 (the steps, the build order, the scope classifier, the three conditions, the owner's answers of 2026-11-10), `SPEC.md` FR-020/FR-021, `TASKS.md` T-147 (scope classifier) and T-162 to T-184. **Step 2, the summary (size 2,000 characters, owner 2026-11-12):** `docs/summary_step.md` (the measure, the rules of a run), `TASKS.md` T-166. The replaced text (D25, D34, parts of D27, D32 and D39, T-148, T-149, the v1 diagram and workflow, two FR sentences): `archive/PIPELINE-superseded-2026-11-10.md`.
 - **Long open-task histories:** `archive/TASKS-open-entries-2026-11-08.md`, one section per task ID.
+- **Legacy docs (2026-11-12):** `docs/legacy/` holds what is out of scope or deprecated (the v1 sentiment, zero-shot category and `sector_summary` stages, Work item 15, finished migrations); its `README.md` maps each old path to the new one.
 - **Evidence, figures, review history:** `docs/evaluation.md` (dated follow-ups), `docs/extractor_training.md`, `docs/gold_datasets.md`, and the PR bodies. A task entry points there; it does not repeat it.
 
 ## Rules for keeping the files small (constitution AI behavior #15)

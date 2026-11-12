@@ -1,14 +1,14 @@
 """The fixed 10-category taxonomy (9 substantive + "other") used by the
 news-NLP pipeline's zero-shot category-classification stage, plus the
 3-group hierarchy (`CATEGORY_GROUPS`) that stage classifies through in two
-passes -- see `docs/category-taxonomy.md`'s "Hierarchical classification"
+passes -- see `docs/legacy/category-taxonomy-v1.md`'s "Hierarchical classification"
 section for why.
 
 Kept separate so it's importable without pulling in torch (the pipeline's
 `setup.py`, docs generation, or future non-GPU code can use it directly).
 
 This is the canonical machine-readable source for the taxonomy -- keep
-`portfolio-nlp`'s `docs/category-taxonomy.md` in sync with it if the labels
+`portfolio-nlp`'s `docs/legacy/category-taxonomy-v1.md` in sync with it if the labels
 ever change. See that doc for the sourcing behind each category (RavenPack,
 SASB, IPTC Media Topics, Refinitiv/TRNA).
 """
@@ -76,13 +76,13 @@ CATEGORY_SLUGS = tuple(slug for slug, _, _ in CATEGORY_LABELS)
 #
 # Still a reasoned calibration point, not a fully validated one -- retune
 # again using article_category's stored per-label score distribution once
-# more post-calibration eval data exists; see docs/category-taxonomy.md.
+# more post-calibration eval data exists; see docs/legacy/category-taxonomy-v1.md.
 # Lives here (not in pipeline.py) so news_nlp.eval can share the value
 # without importing torch; pipeline.py re-imports it.
 CATEGORY_CONFIDENCE_THRESHOLD = 0.6
 
 # Level-1 "group" taxonomy for the two-level hierarchical zero-shot
-# classification (docs/category-taxonomy.md): a flat 9-way softmax gives
+# classification (docs/legacy/category-taxonomy-v1.md): a flat 9-way softmax gives
 # each label only a ~0.11 uniform-chance baseline, diluting real signal for
 # any one label -- empirically the dominant cause of poor recall on
 # product_innovation/partnerships_business_dev/leadership_governance

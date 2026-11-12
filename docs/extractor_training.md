@@ -24,7 +24,7 @@ What the selection is, and what it is not:
 
 | It is | It is not |
 |---|---|
-| the extractor the cut (T-154) uses for the company texts of narrative bodies with several companies | a publication to the Hub |
+| the extractor the cut uses for the company texts of narrative bodies with several companies (first the backtest cut, T-154, out of the MVP since 2026-11-10; now step 1.2 of the pipeline, T-163) | a publication to the Hub |
 | the base that later improvements start from (see "What is next") | a pin of a model revision |
 | a decision of the owner, recorded where the plan and the tasks can see it | a claim that it is better than the baseline: it is not (see "Results") |
 
@@ -49,7 +49,7 @@ What the evidence does not cover:
   Flipping one `yes` of the 193 texts to `no` (three random choices) gave a lower end of 80.0, 80.4 and
   79.9; flipping two gave 79.5, 80.0 and 79.5; three always gave a verdict of *not decided*. "Pass" holds on
   the owner's reading as it stands and is not safe against a second reader.
-- **2022+, the period that will be processed, cannot be decided**: `units` is *not decided* on the
+- **2022+ (the backtest window of D34, out of the MVP; every year is processed now, D31) cannot be decided**: `units` is *not decided* on the
   strict reading in both sets (87.9% [68.8, 100.0] on 7 bodies; 88.1% [75.8, 95.3] on 9 bodies). On real
   companies it passes both (100.0% and 96.4%), on the same few bodies.
 - **Nothing in the code uses the selection yet** and **the model it needs is a local checkpoint**: see
@@ -57,10 +57,7 @@ What the evidence does not cover:
 
 ### What is not done
 
-- **The selection is a record, not a code change.** `attribution_model` still defaults to
-  `reading="sentences"` (the baseline), and the cut script (`cut_summaries_2026_11_07.py`) calls no
-  extractor; only the draw script (`draw_faithfulness`) runs `units`. Wiring `units` into step 4 (a
-  default or a setting, and the cut that calls it) is T-148b12, **proposed, not built, not started**.
+- **The selection was a record, not a code change, on 2026-11-08.** Since then it is wired: the cut step (`--step cut`, `src/cut_stage.py`, #168) runs the `units` extractor, read as `units4` from #169 and as `units5` since #176 (2026-11-12). What is still left of T-148b12 is the pin below.
 - **The checkpoint is not published or pinned.** The model every `units` figure here was measured with is
   the local directory `data/models/attribution_2026_11_08` (git-ignored), identified by the draw as
   `local:8399ccf003c60143` (a hash of its files), trained by `scripts/train_attribution_2026_11_08.py`
@@ -161,7 +158,7 @@ Everything is computed by `uv run scripts/report_wi18_2026_11_06.py faithfulness
 - **Real companies:** the same after removing the names the owner marked as not companies.
 - **Gain:** the difference between two extractors' shares on the same companies and bodies, with its
   interval ("units minus baseline").
-- **2022+:** only bodies from 2022 on (the period that will be processed). Only 9 bodies per set, so it
+- **2022+:** only bodies from 2022 on (the backtest window of D34, out of the MVP). Only 9 bodies per set, so it
   is informative and cannot decide.
 - **Text measures** (added 2026-11-08, `scripts/text_measures_2026_11_08.py`; every figure in Appendix B): average characters per
   text, and the share of sentences that name this company **and** another. They count names the resolver
@@ -477,10 +474,10 @@ are within about a point of each other. The paired difference is wholly at or be
 named in passing in another company's line.** The first version (without "and to those its text names") dropped 40
 companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reader, marks of 2026-11-08/10; the result is evidence, not a proof, and the owner decided on it (below).
 
-**Update, same day (owner read the 7 unread changed texts, `docs/scope_training.md` §8.1):** 6 faithful, 1 not (the analyst-only texts count faithful, the rule of the older marks, owner 2026-11-11); `units4` is **304 of 313, 97.1% [94.6, 98.5]** on the marked texts (Wilson), `units` 97.6% [95.3, 98.8]. Of the 18 lost companies 9 are the subject of a roundup line, 8 are named in passing and 1 is a matcher gap: T-177 (`units5`, built as a candidate: `docs/scope_training.md` §8.1; `units4` stays the default), T-181.
+**Update, same day (owner read the 7 unread changed texts, `docs/scope_training.md` §8.1):** 6 faithful, 1 not (the analyst-only texts count faithful, the rule of the older marks, owner 2026-11-11); `units4` is **304 of 313, 97.1% [94.6, 98.5]** on the marked texts (Wilson), `units` 97.6% [95.3, 98.8]. Of the 18 lost companies 9 are the subject of a roundup line, 8 are named in passing and 1 is a matcher gap: T-177 (`units5`, built as a candidate: `docs/scope_training.md` §8.1; the default since 2026-11-12, #176), T-181.
 
 **Decision (owner, 2026-11-11).** The owner accepts the results as they are, small sample and unread texts included (that is the "not decided" of the statistical reading above: the data do not decide it; the owner's word does), and `units4` is the default of the cut (`DEFAULT_READING` in
-`src/cut_stage.py`; `--reading units` cuts as before). The 18 companies without a text are not a worry: they are named in
+`src/cut_stage.py`; `--reading units` cuts as before) until 2026-11-12, when `units5` replaces it (#176). The 18 companies without a text are not a worry: they are named in
 passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
 sub-news; if the company is part of that news, the fragment is copied to it there. **This is an assumption, not a measurement:** T-165's closing check counts, of the companies `units4` leaves without a text, how many NER finds in a sub-news of the same body. The 23 texts that still hold several headings are read in `docs/scope_training.md` §8.1 (10 overlap, 13 a third fault, T-177). The 7 unread texts and the 18 lost ones are
 in `data/units4_to_read.csv` for whenever the owner wants to read them; the decision does not wait for it.
@@ -493,8 +490,8 @@ the owner said the tagging on this front is finished, so options that need more 
 | # | Option | Expected gain | Needs |
 |---|---|---|---|
 | 1 | ~~**Run the staleness check**~~ **done 2026-11-08 (round 8)**: confirmation set 0 stale; first set 8 stale rows (see "Results"). **Out of date since PR #155**: 2026-11-09 finds 97 and 96 rows dead; the report counts their marks (see "Update of 2026-11-10") | the tagged texts are what the code writes | done |
-| 2 | **Migrate the evidence to `gold/`, before relying on the figures** (T-148b11: the `units*` marks and the readings of the exempt names exist only in the git-ignored `data/`) | the figures can be reproduced from a clean checkout | the owner's word |
-| 3 | **Wire `units` into step 4** (T-148b12: a default or setting, and the cut that calls it) | the selection takes effect | code, when the owner asks |
+| 2 | **Migrate the evidence to `gold/`** (T-148b11), **partly done 2026-11-10**: the 453 marks of the first set and the 438 of the confirmation set are in `gold/` (`docs/gold_datasets.md`, set 4); the owner's readings of the exempt names (`faithfulness_exempt_to_read.csv`) and the staleness record (`faithfulness_stale.json`) are still only in the git-ignored `data/` | the figures can be reproduced from a clean checkout | the rest of T-148b11 |
+| 3 | ~~**Wire `units` into step 4**~~ **done**: the cut step (#168), read as `units4` (#169) and `units5` (#176) | the selection takes effect | done |
 | 4 | **Drop the texts for names the guard rejects, keep everything else of `units`** (a hybrid of `units` and `units3`) | removes most of the 18 non-company errors without the 7 to 12 missing real companies | code and a free re-score on the texts already tagged (the hybrid writes a subset of `units`' texts) |
 | 5 | **Header rule for `units`** ("A — text" lines belong to A) | fixes digest lines like the Steel Dynamics text | code; the `units2` rule exists and could be taken alone |
 | 6 | **A length cap or a trim** for very long texts (16 notes "huge") | shorter, purer texts | code; the effect on faithfulness is not measurable without a new reading |
@@ -505,14 +502,14 @@ the owner said the tagging on this front is finished, so options that need more 
 | 11 | **More data for the model**: the `continuation` labels (38% right) are out; a cleaner way to use them, or more `lead` bodies | a better model | training time on the GPU; the exam sets must not be trained on |
 | 12 | **A larger 2022+ sample** (9 bodies per set cannot decide) | a verdict for the period that matters | new bodies and tagging; no pool is left in the drawn sets |
 | 13 | **Publish the model to the Hub and pin its revision** | the cut and the report run from a pinned checkpoint, not a local directory | the owner's explicit word |
-| 14 | ~~**Make the report leave out the marks of dead texts** (and print both views), and refresh `faithfulness_stale.json`~~ **done 2026-11-10 (PR #157, not merged)**: the report prints `[current code: ...]`; `--stale` re-run into `data/` for both sets | the official figures measure the current code | done |
+| 14 | ~~**Make the report leave out the marks of dead texts** (and print both views), and refresh `faithfulness_stale.json`~~ **done 2026-11-10 (PR #157, merged the same day)**: the report prints `[current code: ...]`; `--stale` re-run into `data/` for both sets | the official figures measure the current code | done |
 
 A reasonable order, as a proposal only: 2 (so the evidence is not
 lost), 4 and 5, then a free re-score of what is already tagged; 3 and 13 when the owner wants the selection to take effect and the model fixed.
 
 ## Where this is tracked
 
-PLAN D34 rule (e), TASKS T-148b10, `docs/evaluation.md` (confirmation section), `docs/gold_datasets.md`
+PLAN D27 (e) (D34 is out of the MVP), TASKS T-148b10, `docs/evaluation.md` (confirmation section), `docs/gold_datasets.md`
 (set 4) and the body of PR #144 all point here for the selection and the figures.
 
 ## Appendix A: every metric, as the report prints it
