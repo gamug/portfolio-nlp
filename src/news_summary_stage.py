@@ -41,7 +41,7 @@ from summary_stage import (
     hierarchical_summarize_batch,
 )
 
-MIN_CHARS = 2000  # owner, 2026-11-12: 64% of the 93,034 single bodies, 1.6% of the sub-news of the first 500 bodies
+MIN_CHARS = 2000  # owner, 2026-11-12: 64% of the 93,034 single bodies, 1.6% of the sub-news of the first 500 bodies, a sample: 3.05% of the whole `units` cut, docs/summary_step.md
 INPUT_FORMAT = "Title-{title}\nBody-{body}"
 _CONFIG = Path(__file__).resolve().parent.parent / "config" / "pipeline_models.json"
 

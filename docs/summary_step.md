@@ -56,22 +56,42 @@ DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news
 
 The same statements are in `--help` (one source in `cli/news_nlp_steps.py`, tested against a database).
 
+## What a run prints, and what the bars count
+
+A run first says what it is about to do, on stderr, and then works in two phases with a bar each:
+
+```
+pending 258,226 items (93,034 single bodies, 165,192 sub-news): 64,478 to summarise with the model (over 2,000 characters), 193,748 stored as they are
+original: 100%|...| 193748/193748     <- the items under the size: a write each, no model
+summary:   12%|...| 7812/64478        <- the items over the size: the model; its rate and time left are the real ones
+```
+
+The numbers above are computed for the owner's corpus, not printed by a full run (single bodies of scope revision `scope-nli-8ff21e50796b` and the sub-news of cut `units-5f831c298bcb`: 93,034 + 165,192; the single bodies
+over the size, 59,432, were measured on the same corpus and the sub-news over it, 5,046, on the cut). **The sub-news figure is measured on the whole of that cut, the older `units` reading** (3.05% of its 165,192 are over 2,000). The size table below is a sample, the first 500 `multi` bodies by id, and it under-reads: on those same 500 bodies `units` gives 50 over of 3,398 (1.5%) and `units4` 50 of 3,134 (1.6%), so the reading is not what separates 1.6% from 3.05%, the sample is (checked 2026-11-12 on the scratch copies; the two sets of 500 bodies are the same ids, 500 of 500 in common, and the readings cut them into different numbers of sub-news; repeat it with `--first-bodies 500` of `scripts/summary_size_measure_2026_11_12.py`, below). What `units4` or `units5` would give over the whole corpus is not known until a cut with it runs; a re-cut changes the sub-news, the 5,046, the 64,478 and the plan line. **The 258,226 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
+`out_of_scope`, is not in it), and about three quarters of it is stored as it is. The first version of the step put all of them on one bar, which mixed instant writes (286 a second measured) with seconds per model item, so
+neither its rate nor its time left meant anything (reported by the owner, 2026-11-12). With `--limit N` the plan counts what this run will do, after the limit; with nothing to do it says `nothing pending`.
+
+The `original` phase writes one transaction per item: 286 items a second on a local disk (a temporary database, 3,000 items), about 11 minutes for 193,748 items; over a mounted disk each commit can cost more, and a commit every
+few hundred items would cut it to seconds (not done: the model phase is the cost).
+
 ## The measure behind 2,000 (2026-11-12)
 
-`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24` (read-only)
-gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-…`) and the 3,134 sub-news of the first 500 `multi` bodies (`units4`):
+`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24 --first-bodies 500` (read-only)
+gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-…`) and the 3,134 sub-news of the first 500 `multi` bodies (`units4`; **a sample: the whole `units` cut has 3.05% over 2,000, not 1.6%**, see above):
 
-| over (characters) | single bodies | sub-news | time for the singles at 0.84 s a body (an extrapolation) |
+| over (characters) | single bodies | sub-news (first-500 sample) | time for the singles at 0.84 s a body (an extrapolation) |
 |---|---|---|---|
 | 1,500 | 75,368 (81.0%) | 89 (2.8%) | 17.6 h |
 | **2,000** | **59,432 (63.9%)** | **50 (1.6%)** | **13.9 h** |
 | 3,000 | 31,992 (34.4%) | 14 (0.4%) | 7.5 h |
 | 4,000 | 17,621 (18.9%) | 4 (0.1%) | 4.1 h |
 
-Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news: median 268, p90 672, p99 2,309. The owner chose 2,000. The reason offered with it,
+`--first-bodies 500` prints the sub-news of the cut twice, whole and for its first 500 bodies, which is how the 1.5% and the 3.05% were compared.
+
+Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news, first-500 sample of `units4`: median 268, p90 672, p99 2,309; the whole `units` cut (165,192): median 292, p90 1,061, p99 3,042 (the sample's tail is shorter than the corpus's: p99 2,309 against 3,042). The owner chose 2,000. The reason offered with it,
 not checked against each downstream model: a 512-token transformer input is about 2,000 to 2,400 characters, so a text under 2,000 reaches NER, the
 relevance model and sentiment whole, and a longer one is the kind that would be truncated. The 0.84 s a body is the earlier summary run's figure (all sizes of
-bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, so read the hours as an order of magnitude until the first GPU run.
+bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, which makes the figure more likely low than high (a reason, not a measure), so read the hours as an order of magnitude until the first GPU run. For the whole step: 59,432 + 5,046 = 64,478 items × 0.84 s = 54,162 s, about 15 h.
 
 ## First run, determinism and running next to the cut (2026-11-12, scratch copies of the databases, CPU)
 

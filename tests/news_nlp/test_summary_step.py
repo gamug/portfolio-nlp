@@ -602,6 +602,48 @@ def test_the_size_measure_prints_the_percentiles_and_the_table_the_threshold_was
     assert measure.hours(59432, 0.84) == pytest.approx(13.87, abs=0.01)
 
 
+def test_the_size_measure_compares_the_whole_cut_with_its_first_bodies() -> None:
+    """The sample behind the table (the first 500 bodies) read 1.6% against 3.05% for the whole cut: the script prints both, so the check can be repeated."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_size_measure_2026_11_12 as measure  # noqa: PLC0415 -- a script, not a package
+
+    raw = sqlite3.connect(":memory:")
+    raw.execute("CREATE TABLE sub_news (article_id INTEGER, extractor_revision TEXT, text TEXT)")
+    rows = [(1, "r", "a" * 10), (1, "r", "b" * 3000), (2, "r", "c" * 10), (3, "r", "d" * 3000)]
+    rows += [(1, "other", "e" * 5000), (0, "other", "f" * 5000)]  # another revision: never read
+    raw.executemany("INSERT INTO sub_news VALUES (?, ?, ?)", rows)
+    assert sorted(measure.sub_news_lengths(raw, "r")) == [10, 10, 3000, 3000]
+    first_two = measure.sub_news_lengths(raw, "r", first_bodies=2)  # bodies 1 and 2, by id
+    assert sorted(first_two) == [10, 10, 3000]
+    assert measure.sub_news_lengths(raw, "r", first_bodies=0) == []
+    assert measure.sub_news_lengths(raw, "none") == []
+
+
+def test_the_size_measure_takes_only_a_positive_number_of_first_bodies() -> None:
+    """`--first-bodies -1` was `LIMIT -1`, which SQLite reads as no limit: the line "its first -1 bodies" printed the whole cut."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import argparse  # noqa: PLC0415
+
+    import summary_size_measure_2026_11_12 as measure  # noqa: PLC0415 -- a script, not a package
+
+    assert measure.positive_int("500") == 500
+    for bad in ("0", "-1", "ten", "2.5"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            measure.positive_int(bad)
+    with pytest.raises(
+        SystemExit
+    ):  # the parser the script builds refuses it, with an error and not a silent whole cut
+        measure.build_parser().parse_args(
+            ["--results-db", "a", "--source-db", "b", "--first-bodies", "-1"]
+        )
+    assert (
+        measure.build_parser()
+        .parse_args(["--results-db", "a", "--source-db", "b", "--first-bodies", "500"])
+        .first_bodies
+        == 500
+    )
+
+
 # --- round 2 of the review of #173 (M1, M2) --------------------------------------------------------------------------------
 
 
@@ -907,3 +949,133 @@ def test_the_revision_follows_the_transformers_version_that_generates_the_summar
         stage.torch, "__version__", "0.0.1+cpu"
     )  # not in the key: a CPU and a CUDA build share the revision
     assert stage.revision_of(*args) == base
+
+
+# --- the progress bar counts what each phase does (reported by the owner, 258,226 on the bar) ----------------------------------
+
+
+class RecordingBar:
+    """A stand-in for tqdm that remembers each bar: its description, its total and how far it was moved."""
+
+    bars: list[dict[str, Any]] = []  # noqa: RUF012 -- a test double, reset by the test that uses it
+
+    def __init__(self, total: int | None = None, desc: str | None = None, **_: Any) -> None:
+        self.info: dict[str, Any] = {"desc": desc, "total": total, "n": 0}
+        RecordingBar.bars.append(self.info)
+
+    def __enter__(self) -> RecordingBar:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def update(self, n: int = 1) -> None:
+        self.info["n"] += n
+
+
+def test_the_bars_count_the_items_stored_as_they_are_apart_from_the_ones_that_go_to_the_model(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bar over every pending item mixed instant `original` rows (286 a second measured) with seconds per model item: the ETA meant nothing."""
+    cli = _load_cli()  # one module instance: _load_cli() loads a new one on each call
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    cli.run_summary(pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None)
+    got = {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars}
+    assert got == {
+        "original": (4, 4),
+        "summary": (3, 3),
+    }  # 4 stored as they are, 3 over the size: 2 single bodies and 1 sub-news
+    RecordingBar.bars = []
+    cli.run_summary(
+        pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None
+    )  # nothing pending: no bar at all
+    assert RecordingBar.bars == []
+
+
+def test_the_run_says_up_front_how_many_items_go_to_the_model(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(pair, StubSummarizer())
+    err = capsys.readouterr().err
+    assert "pending 7 items (4 single bodies, 3 sub-news)" in err
+    assert "3 to summarise with the model (over 2,000 characters)" in err
+    assert "4 stored as they are" in err
+    _run(pair, StubSummarizer())
+    assert "nothing pending" in capsys.readouterr().err
+    pair.execute("DELETE FROM pipeline_step_state WHERE step = 'summary'")
+    pair.execute("DELETE FROM news_summary")
+    pair.commit()
+    _run(pair, StubSummarizer(), limit=5)
+    assert (
+        "pending 5 items" in capsys.readouterr().err
+    )  # the plan counts what this run will do, after --limit
+
+
+def test_the_model_bar_moves_by_every_item_of_a_full_batch_and_of_the_last_partial_one(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a batch of 2 the 3 long items are one full batch (moved inside the loop) and a last batch of 1 (moved after it)."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    monkeypatch.setattr(cli, "SUMMARY_BATCH", 2)
+    RecordingBar.bars = []
+    counts = cli.run_summary(
+        pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None
+    )
+    assert counts["summary"] == 3 and counts["original"] == 4
+    assert {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars} == {
+        "original": (4, 4),
+        "summary": (3, 3),
+    }
+
+
+def _forget(pair: db_module.NewsNlpDatabase, text_source: str) -> None:
+    """Make the items stored with this `text_source` pending again, so that a run has work of one phase only."""
+    pair.execute(
+        "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = ? AND "
+        "(item_kind, item_id) IN (SELECT item_kind, item_id FROM news_summary "
+        "WHERE text_source = ? AND model_revision = ?)",
+        (SUM_REV, text_source, SUM_REV),
+    )
+    pair.execute(
+        "DELETE FROM news_summary WHERE text_source = ? AND model_revision = ?",
+        (text_source, SUM_REV),
+    )
+    pair.commit()
+
+
+@pytest.mark.parametrize(("only", "total"), [("summary", 3), ("original", 4)])
+def test_a_run_with_work_in_one_phase_only_shows_that_bar_alone(
+    pair: db_module.NewsNlpDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+    only: str,
+    total: int,
+) -> None:
+    """No bar of total 0 for the phase with nothing to do (`if kept` / `if over`): 3 items are over the size and 4 are not."""
+    _run(pair, StubSummarizer())
+    _forget(pair, only)
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    cli.run_summary(pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None)
+    assert [(b["desc"], b["total"], b["n"]) for b in RecordingBar.bars] == [(only, total, total)]
+
+
+def test_the_model_bar_reaches_its_total_when_an_item_fails(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bar counts the items the model was given, failed ones too; the plan line says how many there were and `failed` says how many did not make it."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    counts = cli.run_summary(
+        pair,
+        StubSummarizer(broken=("Different ending",)),
+        SCOPE_REV,
+        CUT_REV,
+        ("single", "sub_news"),
+        None,
+    )
+    assert counts["failed"] == 1 and counts["summary"] == 2
+    assert {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars}["summary"] == (3, 3)
