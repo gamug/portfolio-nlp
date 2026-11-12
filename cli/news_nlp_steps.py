@@ -349,10 +349,13 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         print(json.dumps(report, indent=2))
         return
     items = (args.items,) if args.items else ("single", "sub_news")
-    scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+    # only the revisions this run reads: the scope revision for the single bodies, the named cut for the sub-news
+    scope_revision = None
+    if "single" in items:
+        scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+        if scope_revision is None:
+            sys.exit("body_scope is empty: run --step scope first")
     cut_revision = args.cut_revision
-    if "single" in items and scope_revision is None:
-        sys.exit("body_scope is empty: run --step scope first")
     if "sub_news" in items:
         # a reader of sub_news names the cut it reads, never "the latest" (docs/scope_training.md 8.1)
         ran = ", ".join(steps.revisions(conn, steps.STEP_CUT)) or "none"
@@ -380,11 +383,8 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     except RunAborted as exc:
         print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
         sys.exit(f"stopped: {exc}")
-    print(
-        json.dumps(
-            {"scope_revision": scope_revision, "cut_revision": cut_revision, **counts}, indent=2
-        )
-    )
+    read = {"scope_revision": scope_revision, "cut_revision": cut_revision}
+    print(json.dumps({**{k: v for k, v in read.items() if v is not None}, **counts}, indent=2))
     print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
 
 
@@ -423,21 +423,21 @@ def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
 #: Step 2 reads ``sub_news`` and keys its rows by ``sub_news.id``: before a revision of the cut is cut again, its summaries go first.
 RECUT_SQL = (
     "DELETE FROM news_summary WHERE item_kind = 'sub_news' AND item_id IN "
-    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');",
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN "
-    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');",
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
 )
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
-    "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<revision>';",
-    "DELETE FROM news_summary WHERE model_revision = '<revision>';",
+    "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';",
+    "DELETE FROM news_summary WHERE model_revision = '<summary revision>';",
 )
 _RERUN_TEMPLATE = """\
 To run a step again on bodies it already did: a finished body is found in `pipeline_step_state`, not in the result table,
 so `DELETE FROM sub_news` alone does not make the cut run again. At the same revision (the code, the model and the reading
 are the same), in the RESULTS database:
-  DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
-  DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- the rows are written with INSERT OR IGNORE
+  DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<cut revision>';
+  DELETE FROM sub_news WHERE extractor_revision = '<cut revision>';   -- the rows are written with INSERT OR IGNORE
 Before the `DELETE FROM sub_news` above, delete that revision's summaries: step 2 reads `sub_news` and keys its rows by `sub_news.id`, so new ids would leave them pointing at nothing:
   {recut}
 To summarise again at one revision of the summary step (`--status` prints it):
@@ -532,6 +532,14 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         )
     if args.items == "single" and args.cut_revision is not None:
         parser.error("--cut-revision does not apply to --items single")
+    if (
+        args.step == steps.STEP_SUMMARY
+        and args.items == "sub_news"
+        and args.scope_revision is not None
+    ):
+        parser.error(
+            "--scope-revision names the single bodies to read: it does not apply to --items sub_news"
+        )
 
 
 def main() -> None:

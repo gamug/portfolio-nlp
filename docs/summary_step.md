@@ -20,11 +20,14 @@ Rows go to `news_summary` (`item_kind` `body` with the body hash, or `sub_news` 
 `pipeline_step_state` (step `summary`). The step is idempotent and resumable like the scope and the cut: a rerun at the same revision adds
 nothing, a failed item is retried and keeps its reason (`Type: message`), a batch that fails is redone item by item, an empty summary is a
 failure (never stored), `--limit N` touches at most N pending items (single bodies first), and three batches in a row that fail completely stop the run.
-Options the step does not read are refused (`--model-dir`, `--reading`, the scope-only flags), never ignored.
+Options the step does not read are refused, never ignored: `--model-dir`, `--reading`, the scope-only flags, `--cut-revision` with `--items single`, and `--scope-revision` with `--items sub_news`
+(it names the single bodies to read; the JSON a run prints lists only the revisions it read).
 
-**The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the generation
-limits and the source of `news_summary_stage.py`, `summary_stage.py` and `chunking.py`: a new size, model or edit of that code starts new rows and leaves
-the old ones. On CPU or GPU alike (CUDA when there is one).
+**The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the generation limits and
+the code that summarises: the source of `news_summary_stage.py` whole, and of the functions this step runs in `summary_stage.py` (`hierarchical_summarize_batch` and
+its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. A new size, model or edit
+of that code starts new rows and leaves the old ones. **An edit to the rest of those two files does not**: `summary_stage.py` also holds the v1 stage and `chunking.py` the NER span merge, and
+shared code that this step does not run must not make it redo about 14 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
 
 **A cut is named, never "the latest".** The sub-news are read from the cut revision given with `--cut-revision`; without it the command stops and lists the
 cuts that ran (`--items single` needs none). The same rule as for every reader of `sub_news` (`docs/scope_training.md` §8.1). **The steps after this one read
@@ -35,19 +38,19 @@ cuts that ran (`--items single` needs none). The same rule as for every reader o
 Run it in slices (`--limit 2000`, repeated): a run holds the text of every pending item in memory, about 280 MB for all the 93,034 single bodies, and writes
 one transaction per item. `--status` prints the counts by state, by source (`summary`, `original`) and by kind, and the revisions.
 
-Summarise again at one revision (the state is keyed by revision and `news_summary` is written with `INSERT OR IGNORE`, so deleting one table is not enough):
+Summarise again at one revision of the summary step (`<summary revision>`: what `--status` prints; the state is keyed by revision and `news_summary` is written with `INSERT OR IGNORE`, so deleting one table is not enough):
 
 ```sql
-DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<revision>';
-DELETE FROM news_summary WHERE model_revision = '<revision>';
+DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';
+DELETE FROM news_summary WHERE model_revision = '<summary revision>';
 ```
 
-**Before cutting again a revision of the cut** (`docs/scope_training.md` §8.1), delete its summaries: they are keyed by `sub_news.id`, and new ids would leave them
+**Before cutting again a revision of the cut** (`<cut revision>`: its `extractor_revision`) (`docs/scope_training.md` §8.1), delete its summaries: they are keyed by `sub_news.id`, and new ids would leave them
 pointing at nothing:
 
 ```sql
-DELETE FROM news_summary WHERE item_kind = 'sub_news' AND item_id IN (SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');
-DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN (SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<revision>');
+DELETE FROM news_summary WHERE item_kind = 'sub_news' AND item_id IN (SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');
+DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN (SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');
 ```
 
 The same statements are in `--help` (one source in `cli/news_nlp_steps.py`, tested against a database).
@@ -71,12 +74,15 @@ bodies, on the GPU); it is **not** a measure of this model on this machine, and 
 
 ## First run and determinism (2026-11-12, scratch copies of the databases, CPU)
 
-12 single bodies, all over the size: 12 summaries of 287 to 561 characters (11 of one chunk, one of 6), no failure, `--status` adds up. On the CPU a body took about
-32 s; the GPU time is **not measured yet** (the GPU was running the cut).
+12 single bodies, all over the size, at revision `summary-be70abc39af7`: 12 summaries, no failure, `--status` adds up, and the printed JSON lists only the revisions the run read. The first
+run (an earlier revision, before the hash covered the stage) gave summaries of 287 to 561 characters, 11 of one chunk and one of 6. A body took 13 to 32 s on the CPU depending on the load of the
+machine; the GPU time is **not measured yet**.
 
-`scripts/summary_determinism_check_2026_11_12.py -n 2` (the constitution asks for deterministic inference): two of the stored summaries (one of 6 chunks, one of 1)
-were summarised again in a new process, twice: **0 differ from the stored ones, 0 differ between the two runs** (CPU). **Not checked: the GPU**, which is the run
-that matters (a GPU can flip a beam near a tie); run it on the GPU after the cut and record the result here.
+`scripts/summary_determinism_check_2026_11_12.py -n 4` (the constitution asks for deterministic inference) on those rows, **like for like** (the stored rows and the code at the same revision):
+the four stored summaries were summarised again in a new process, twice: **0 differ from the stored ones, 0 differ between the two runs** (CPU). The check refuses to compare rows of another
+revision: it prints both revisions and **exits 2**, which is not a pass (`--allow-other-revision` goes on and says so in the result). The first determinism run of this PR (2 items, 0 and 0) had the
+rows at an older revision and exited 0 with a warning; it is replaced by this one. **Not checked: the GPU**, which is the run that matters (a GPU can flip a beam near a tie): run it on the GPU
+after the cut and record the result here.
 
 ## Limits
 

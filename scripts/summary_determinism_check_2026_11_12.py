@@ -8,6 +8,10 @@ beam near a tie between runs or between devices, so this is measured, not assume
 **summary** at the revision (default the latest with state) it summarises the same text twice in this process and reports how many summaries differ
 (a) from the stored ones, which another process wrote (and, on another device, another machine), and (b) between the two runs. Exit code 1 if any
 differs. Loads the pinned model (a GPU is advised; the CPU works). Reads the databases only: pass copies.
+
+**The stored rows must be at the revision of this code.** The revision hashes the code that summarises (``news_summary_stage.hashed_sources``): rows written by
+other code are not a like-for-like reference. A mismatch is an outcome of its own: the check prints both revisions and **exits 2**, which is not a pass;
+``--allow-other-revision`` goes on anyway (the result says so) for a deliberate comparison across versions, and then exits 0 or 1 by the differences.
 """
 
 from __future__ import annotations
@@ -38,6 +42,20 @@ def compare(
     }
 
 
+def revision_problem(stored: str, current: str) -> str | None:
+    """None when the stored rows are at the revision of this code, else why the comparison is not like for like."""
+    if stored == current:
+        return None
+    return f"the stored rows are at {stored} but this code is {current}: not like for like"
+
+
+def exit_code(result: Mapping[str, int], *, same_revision: bool, allow_other_revision: bool) -> int:
+    """0 clean, 1 a summary differs, 2 the revisions differ and that was not asked for (never a pass)."""
+    if not same_revision and not allow_other_revision:
+        return 2
+    return 1 if result["differ_from_stored"] or result["differ_between_two_runs"] else 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--results-db", required=True)
@@ -45,6 +63,11 @@ def main() -> None:
     parser.add_argument("--kind", choices=("body", "sub_news"), default="body")
     parser.add_argument("-n", type=int, default=6)
     parser.add_argument("--revision", default=None)
+    parser.add_argument(
+        "--allow-other-revision",
+        action="store_true",
+        help="compare although the stored rows are at another revision than this code (printed in the result)",
+    )
     args = parser.parse_args()
     import news_nlp as db  # noqa: PLC0415 -- after the path set-up
 
@@ -88,16 +111,29 @@ def main() -> None:
                 if len(texts) == len(stored):
                     break
     summarizer = Summarizer()
-    if summarizer.revision != revision:
+    problem = revision_problem(revision, summarizer.revision)
+    if problem and not args.allow_other_revision:
+        # sys.exit(<message>) would exit 1, which reads as "a summary differs": a refusal is its own code
         print(
-            f"warning: the stored rows are at {revision}, this code is {summarizer.revision}: not like for like",
+            f"{problem} (--allow-other-revision to compare anyway; exit 2 is not a pass)",
             file=sys.stderr,
+        )
+        sys.exit(
+            exit_code(
+                {"differ_from_stored": 0, "differ_between_two_runs": 0},
+                same_revision=False,
+                allow_other_revision=False,
+            )
         )
     print(f"summariser on {summarizer.device}")
     items = [(key, texts[key]) for key in stored if key in texts]
     result = compare(summarizer.summarize, items, stored)
-    print(f"revision {revision}: {result}")
-    sys.exit(1 if result["differ_from_stored"] or result["differ_between_two_runs"] else 0)
+    print(f"revision {revision}: {result}" + (f"; {problem}" if problem else ""))
+    sys.exit(
+        exit_code(
+            result, same_revision=problem is None, allow_other_revision=args.allow_other_revision
+        )
+    )
 
 
 if __name__ == "__main__":

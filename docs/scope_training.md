@@ -503,8 +503,8 @@ are listed in `_CAPS_NOT_COMPANIES` and a ticker in brackets still makes any of 
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
 
 ```sql
-DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>';
-DELETE FROM sub_news WHERE extractor_revision = '<revision>';   -- written with INSERT OR IGNORE: delete them too to have them rewritten
+DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<cut revision>';
+DELETE FROM sub_news WHERE extractor_revision = '<cut revision>';   -- written with INSERT OR IGNORE: delete them too to have them rewritten
 ```
 
 or keep the old rows under their own revision: a new reading, model or code changes the revision and starts new rows by itself, and

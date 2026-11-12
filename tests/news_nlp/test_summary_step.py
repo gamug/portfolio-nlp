@@ -435,20 +435,31 @@ def test_the_wrapper_summarises_through_the_existing_chunk_and_reduce_and_loads_
 # --- review of #173 (R1, R2, R3, N1, N3, R5) -----------------------------------------------------------------------------
 
 
-def test_the_revision_covers_the_source_of_the_stage_that_summarises(
+def test_the_revision_covers_the_source_of_the_stage_that_summarises() -> None:
+    """R1 of #173: the docs say the revision hashes news_summary_stage.py; M3: and only the functions it runs of the shared v1 modules."""
+    names = set(stage.hashed_sources())
+    assert "news_summary_stage" in names
+    assert {
+        "summary_stage.hierarchical_summarize_batch",
+        "chunking.chunk_text",
+        "chunking.split_sentences",
+    } <= names
+
+
+def test_an_edit_of_shared_code_this_step_does_not_run_keeps_the_revision_and_one_it_runs_changes_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """R1: the docs say the revision hashes news_summary_stage.py, summary_stage.py and chunking.py; the first was missing."""
-    seen: list[str] = []
-    real = stage.retag.code_revision
-
-    def spy(*modules: Any) -> str:
-        seen.extend(m.__name__ for m in modules)
-        return real(*modules)
-
-    monkeypatch.setattr(stage.retag, "code_revision", spy)
-    stage.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
-    assert sorted(seen) == ["chunking", "news_summary_stage", "summary_stage"]
+    """M3: summary_stage.py holds the v1 stage and chunking.py the NER merge; an edit there must not re-queue about 14 GPU hours."""
+    base = stage.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
+    monkeypatch.setattr(stage.chunking, "merge_char_spans", lambda spans: spans)  # NER only
+    monkeypatch.setattr(
+        stage.summary_stage.SummaryInference, "batch_size", lambda self: 99
+    )  # the v1 stage only
+    assert stage.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000) == base
+    monkeypatch.setattr(
+        stage.chunking, "chunk_text", lambda text, tokenizer, max_tokens=510: []
+    )  # what the step runs
+    assert stage.revision_of("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000) != base
 
 
 def _summary_argv(tmp_path: Path, results_db_path: Path, *extra: str) -> list[str]:
@@ -513,12 +524,14 @@ def test_the_help_has_the_recipes_for_a_recut_and_for_summarising_again_and_they
     """R3: step 2 is the first thing that reads sub_news, so a re-cut must delete its summaries first; the summary has its own recipe."""
     cli = _load_cli()
     assert "Nothing reads" not in cli.RERUN_HELP
+    assert "<revision>" not in cli.RERUN_HELP  # M4: three different revisions, three names
+    assert "<cut revision>" in cli.RERUN_HELP and "<summary revision>" in cli.RERUN_HELP
     for statement in (*cli.RECUT_SQL, *cli.RESUMMARIZE_SQL):
         assert statement in cli.RERUN_HELP
     _run(pair, StubSummarizer())
     assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 7
     for statement in cli.RECUT_SQL:  # before re-cutting the revision of the sub-news
-        pair.execute(statement.replace("<revision>", CUT_REV))
+        pair.execute(statement.replace("<cut revision>", CUT_REV))
     pair.commit()
     kinds = {
         r[0]: r[1]
@@ -533,7 +546,7 @@ def test_the_help_has_the_recipes_for_a_recut_and_for_summarising_again_and_they
     )
     assert _run(pair, StubSummarizer(), items=("sub_news",))["summary"] == 1  # and they are redone
     for statement in cli.RESUMMARIZE_SQL:  # to summarise again at one revision
-        pair.execute(statement.replace("<revision>", SUM_REV))
+        pair.execute(statement.replace("<summary revision>", SUM_REV))
     pair.commit()
     assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 0
     counts = _run(pair, StubSummarizer())
@@ -587,3 +600,114 @@ def test_the_size_measure_prints_the_percentiles_and_the_table_the_threshold_was
     table = measure.over_table(lengths, (10, 50, 100))
     assert table == [(10, 90, 0.9), (50, 50, 0.5), (100, 0, 0.0)]
     assert measure.hours(59432, 0.84) == pytest.approx(13.87, abs=0.01)
+
+
+# --- round 2 of the review of #173 (M1, M2) --------------------------------------------------------------------------------
+
+
+def test_a_scope_revision_is_refused_when_only_sub_news_are_read_and_the_output_does_not_claim_it(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """M1: `--scope-revision` is read only for single bodies; it was silently ignored with `--items sub_news` and still printed."""
+    cli = _load_cli()
+    parser = cli.build_parser()
+    ok = parser.parse_args(
+        ["--step", "summary", "--items", "single", "--scope-revision", SCOPE_REV]
+    )
+    cli.check_options(parser, ok)  # read: no error
+    bad = parser.parse_args(
+        [
+            "--step",
+            "summary",
+            "--items",
+            "sub_news",
+            "--cut-revision",
+            CUT_REV,
+            "--scope-revision",
+            SCOPE_REV,
+        ]
+    )
+    with pytest.raises(SystemExit):
+        cli.check_options(parser, bad)
+    assert "--scope-revision names the single bodies" in capsys.readouterr().err
+    monkeypatch.setattr(stage, "Summarizer", StubSummarizer)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        _summary_argv(tmp_path, results_db_path, "--items", "sub_news", "--cut-revision", CUT_REV),
+    )
+    cli.main()
+    printed = json.loads(capsys.readouterr().out.split("}\n{")[0] + "}")
+    assert "scope_revision" not in printed and printed["cut_revision"] == CUT_REV
+    monkeypatch.setattr(sys, "argv", _summary_argv(tmp_path, results_db_path, "--items", "single"))
+    cli.main()
+    printed = json.loads(capsys.readouterr().out.split("}\n{")[0] + "}")
+    assert printed["scope_revision"] == SCOPE_REV and "cut_revision" not in printed
+
+
+def test_the_determinism_check_says_what_a_revision_mismatch_means_and_exits_apart() -> None:
+    """M2: the rows must be at the revision of this code, or the check is not like for like; it exited 0 with a warning."""
+    import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
+
+    clean = {"items": 2, "differ_from_stored": 0, "differ_between_two_runs": 0}
+    dirty = {"items": 2, "differ_from_stored": 1, "differ_between_two_runs": 0}
+    assert check.revision_problem("summary-a", "summary-a") is None
+    problem = check.revision_problem("summary-a", "summary-b")
+    assert problem and "summary-a" in problem and "summary-b" in problem
+    assert check.exit_code(clean, same_revision=True, allow_other_revision=False) == 0
+    assert check.exit_code(dirty, same_revision=True, allow_other_revision=False) == 1
+    assert (
+        check.exit_code(clean, same_revision=False, allow_other_revision=False) == 2
+    )  # not like for like: not a pass
+    assert (
+        check.exit_code(clean, same_revision=False, allow_other_revision=True) == 0
+    )  # asked for, and printed
+    assert check.exit_code(dirty, same_revision=False, allow_other_revision=True) == 1
+
+
+def test_the_determinism_check_main_refuses_stored_rows_of_another_revision_with_exit_2(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """M2, run for real: `sys.exit("message")` exits 1, which reads as "a summary differs"; the refusal must be exit 2."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_determinism_check_2026_11_12 as check  # noqa: PLC0415 -- a script, not a package
+
+    _run(pair, StubSummarizer())  # rows at SUM_REV
+    other = type("OtherCode", (StubSummarizer,), {"revision": "summary-other"})
+    argv = [
+        "check",
+        "--results-db",
+        str(results_db_path),
+        "--source-db",
+        str(tmp_path / "src.db"),
+        "-n",
+        "2",
+    ]
+
+    monkeypatch.setattr(stage, "Summarizer", other)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as refused:
+        check.main()
+    assert refused.value.code == 2
+    err = capsys.readouterr().err
+    assert SUM_REV in err and "summary-other" in err and "not like for like" in err
+
+    monkeypatch.setattr(sys, "argv", [*argv, "--allow-other-revision"])
+    with pytest.raises(SystemExit) as allowed:
+        check.main()
+    assert allowed.value.code == 0  # asked for, and the stub is deterministic
+    assert "not like for like" in capsys.readouterr().out  # and it is printed in the result
+
+    monkeypatch.setattr(stage, "Summarizer", StubSummarizer)  # the same revision as the rows
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as same:
+        check.main()
+    assert same.value.code == 0

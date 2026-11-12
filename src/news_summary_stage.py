@@ -10,7 +10,7 @@ The input of a single body is ``Title-<title>\\nBody-<body>``, as the earlier su
 ``draw_sentiment_gold``); a sub-news has no title of its own (the title is the whole round-up's), so its text goes alone.
 
 The revision of the step is ``summary-`` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the
-generation limits and the source of this module, ``summary_stage.py`` and ``chunking.py``: any of them changing starts new rows and leaves the old ones.
+generation limits and the source of this module and of the functions it runs in ``summary_stage.py`` and ``chunking.py`` (``hashed_sources``): any of them changing starts new rows and leaves the old ones.
 
 A summariser is cheap to build: the model is loaded on the first text it is given, so ``--status`` and the tests need none. It runs on CUDA when
 there is one and on the CPU otherwise (constitution, Pipeline models 2).
@@ -19,8 +19,8 @@ there is one and on the CPU otherwise (constitution, Pipeline models 2).
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -30,7 +30,6 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 import chunking
 import summary_stage
-from news_nlp import retag
 from summary_stage import (
     SUMMARY_MAX_INPUT_TOKENS,
     SUMMARY_MAX_OUTPUT_TOKENS,
@@ -59,8 +58,38 @@ def input_of_body(title: str, text: str) -> str:
     return INPUT_FORMAT.format(title=title, body=text)
 
 
+#: What the step runs of the shared v1 modules. ``summary_stage.py`` also holds the v1 stage and ``chunking.py`` the NER span merge: an edit to those
+#: parts must not change the revision, or ``--step summary`` would redo hours of GPU work for nothing.
+_SUMMARY_STAGE_FUNCTIONS = (
+    "hierarchical_summarize_batch",
+    "_leaf_summarize_batch",
+    "_reduce_pass",
+    "_summarize_in_batches",
+    "_summarize_batch",
+)
+_CHUNKING_FUNCTIONS = ("chunk_text", "split_sentences")
+
+
+def hashed_sources() -> dict[str, str]:
+    """The code the revision of the step hashes: this module whole, and the source of the functions it runs in ``summary_stage`` and
+    ``chunking`` (``Chunk``, the sentence regex and ``MAX_REDUCE_PASSES`` with them)."""
+    sources = {"news_summary_stage": Path(__file__).read_text(encoding="utf-8")}
+    for module, names in (
+        (summary_stage, _SUMMARY_STAGE_FUNCTIONS),
+        (chunking, _CHUNKING_FUNCTIONS),
+    ):
+        for name in names:
+            sources[f"{module.__name__}.{name}"] = inspect.getsource(getattr(module, name))
+    sources["chunking.Chunk"] = inspect.getsource(chunking.Chunk)
+    sources["chunking.sentence_regex"] = (
+        chunking._SENTENCE_SPLIT_RE.pattern
+    )  # the one constant the sentence split depends on
+    sources["summary_stage.MAX_REDUCE_PASSES"] = str(summary_stage.MAX_REDUCE_PASSES)
+    return sources
+
+
 def revision_of(model_name: str, model_revision: str, min_chars: int = MIN_CHARS) -> str:
-    """The revision of a summary step: the model, the size, the input, the generation limits and the code."""
+    """The revision of a summary step: the model, the size, the input, the generation limits and the code (``hashed_sources``)."""
     key = json.dumps(
         {
             "model": f"{model_name}@{model_revision}",
@@ -68,7 +97,10 @@ def revision_of(model_name: str, model_revision: str, min_chars: int = MIN_CHARS
             "input": INPUT_FORMAT,
             "max_in": SUMMARY_MAX_INPUT_TOKENS,
             "out": [SUMMARY_MIN_OUTPUT_TOKENS, SUMMARY_MAX_OUTPUT_TOKENS],
-            "code": retag.code_revision(sys.modules[__name__], summary_stage, chunking),
+            "code": {
+                name: hashlib.sha256(src.encode()).hexdigest()[:12]
+                for name, src in hashed_sources().items()
+            },
         },
         sort_keys=True,
     )
