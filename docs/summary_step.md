@@ -1,4 +1,4 @@
-# Step 2: the summary (T-164, T-166; PLAN D39 (2), (3.3), D40)
+# Step 2: the summary (T-164, T-166, T-184; PLAN D39 (2), (3.3), D40)
 
 `uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N] [--scope-revision REV]` (and `--step summary --status`)
 
@@ -28,7 +28,7 @@ the code that summarises: `news_summary_stage.py` whole, and the functions this 
 its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. **The code is hashed as parsed
 (`normalized_code`): comments, formatting, the kind of quotes and docstrings do not change the revision, so a typo fix or a formatter upgrade does not make the step redo hours of GPU work; a change of
 a name, a constant or an operator does.** A new size, model or such a change starts new rows and leaves the old ones. **An edit to the rest of those two files does not either**: `summary_stage.py` also holds the v1 stage and `chunking.py` the NER span merge, and
-shared code that this step does not run must not make it redo about 14 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
+shared code that this step does not run must not make it redo about 15 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
 
 **A cut is named, never "the latest".** The sub-news are read from the cut revision given with `--cut-revision`; without it the command stops and lists the
 cuts that ran (`--items single` needs none). The same rule as for every reader of `sub_news` (`docs/scope_training.md` §8.1). **The steps after this one read
@@ -116,5 +116,5 @@ stores the number of chunks, not whether this happened. The summaries are model 
 
 ## Not done
 
-The run over the corpus (hours of GPU: it starts after the cut, and the sub-news wait for the cut revision to be chosen, T-177); the faithfulness of the summaries;
+All in T-184: the run over the corpus (hours of GPU; the single bodies do not depend on the cut and can run now; the sub-news are read from the `units5` cut, the default since 2026-11-12 (#176), whose corpus run is in progress, so the 165,192 sub-news, the 5,046 and the 64,478 above, which are of the older `units` cut, will change); the GPU time per item and the determinism check on the GPU; the faithfulness of the summaries.
 `sector` bodies (T-167); the steps after this one (NER on the text, relevance, sentiment, category).

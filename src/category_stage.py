@@ -73,7 +73,7 @@ def classify_group_scores(entail_logits: list[float]) -> tuple[str, float, dict[
     logits -- mirrors classify_category_scores' shape one level up. Does NOT
     decide OTHER_LABEL here: that's a leaf-level concept in article_category,
     decided by `CategoryInference.predict_batch` comparing winning_group_score
-    against CATEGORY_GROUP_FLOOR (see docs/category-taxonomy.md)."""
+    against CATEGORY_GROUP_FLOOR (see docs/legacy/category-taxonomy-v1.md)."""
 
     probs = torch.softmax(torch.tensor(entail_logits), dim=0).tolist()
     scores = {slug: p for (slug, _, _, _), p in zip(CATEGORY_GROUPS, probs, strict=False)}
@@ -230,7 +230,7 @@ class CategoryInference(Inference[Any, str]):
     CATEGORY_GROUP_FLOOR -- against those top-2 groups' 6 combined
     children. Replaces a single flat 9-way softmax, which empirically
     starved real signal for several labels by making them compete against
-    8 others in one softmax (see docs/category-taxonomy.md's "Hierarchical
+    8 others in one softmax (see docs/legacy/category-taxonomy-v1.md's "Hierarchical
     classification" section for the eval data that motivated this).
 
     `MODEL_NAME`/`MODEL_REVISIONS` below duplicate `pipeline.py`'s own
@@ -294,7 +294,7 @@ class CategoryInference(Inference[Any, str]):
                 # Flat level-1: skip level 2's forward pass entirely for
                 # this article, zero-filling every leaf column ("not
                 # evaluated", not "confidently rejected" -- see
-                # docs/category-taxonomy.md).
+                # docs/legacy/category-taxonomy-v1.md).
                 predictions[i] = {
                     "outcome": "other",
                     "label": OTHER_LABEL,

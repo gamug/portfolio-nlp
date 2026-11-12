@@ -133,7 +133,7 @@ where the company is named: of the 202 neutral texts, 151 name it in the summary
 those and 11% of the ones named only in the body. So **the miss is not "the company is absent"**: the model hears a
 company and a polarity and does not tell whether the text is *about* the company. *Assumption 7.*
 
-**6. A relevance model.** A zero-shot reading of the category stage's NLI model ("this text is mainly about
+**6. A relevance model.** A zero-shot reading of the v1 category stage's NLI model ("this text is mainly about
 <company>") already ranks relevant above neutral texts (AUC 0.743, the best of nine variants; the sentiment model's own
 ranking is 0.795). Fine-tuned on the tags the same way (relevant = the owner marked a direction), with the same
 folds, its out-of-fold AUC is **0.90**. Combined with the sentiment model, nested: a **gate** (neutral when relevance is
@@ -351,7 +351,7 @@ fact that the model does separate the two (the AUC of the relevance model).
 Same data and the same labels: relevant = the owner marked a direction, not relevant = neutral. Hypothesis
 `This text is mainly about <company>.` (premise = the summary).
 
-1. **Zero-shot** (`company_relevance_zeroshot`, the category stage's NLI model
+1. **Zero-shot** (`company_relevance_zeroshot`, the v1 category stage's NLI model
    `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, pinned revision): weighted AUC 0.743 alone (**the best of nine variants**: three hypotheses x three premises, summary / title + body / title + summary, 0.618 to 0.743, all nine in the export; the wording used later was chosen with this AUC in sight, on the same 809 texts) against 0.795 for
    the sentiment model's own `1 - p_neutral`; 0.84 when the two are rank-averaged.
 2. **Fine-tuned** (`sentiment_pair_relevance_gate`, the same 5-fold x 2 splits, 3 epochs, lr 2e-5, batch 16,

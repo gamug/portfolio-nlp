@@ -2,7 +2,7 @@
 
 The DB layer lives in **`src/news_nlp/`**, a local package owned by this repo
 (vendored from `portfolio-common`'s `business_folders/news_nlp/` staging area —
-see `docs/portfolio-common-v1-migration-plan.md`). It's imported directly by
+see `docs/legacy/portfolio-common-v1-migration-plan.md`). It's imported directly by
 `pipeline.py` / `apps/news_nlp_api.py` / tests (`import news_nlp as db`, `from
 news_nlp import corrections`, `from news_nlp.taxonomy import ...`) — no
 `portfolio_common.news_nlp` and no local re-export facade.
@@ -19,7 +19,7 @@ cross-store row copy through `Database.copy_row_lean`, and every dialect SQL
 fragment (the upsert verb, `strftime`/`date(...)` week bucketing, `GLOB`, the
 `AUTOINCREMENT` DDL token) through `conn.dialect`. Swapping the engine is a
 change to `portfolio-common` alone — see `docs/engine-agnostic-rollout.md`
-and `docs/portfolio-common-v1.2-engine-agnostic.md`. `portfolio-common` stays
+and `docs/legacy/portfolio-common-v1.2-engine-agnostic.md`. `portfolio-common` stays
 pinned in `pyproject.toml`'s `[tool.uv.sources]`.
 
 `portfolio-nlp` uses **two** SQLite databases with distinct roles, selected by
@@ -31,7 +31,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the 5 result tables (`news_nlp.schema.SCHEMA`) + a lean `articles` subset (**no `body_text`**), plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`), the stepped pipeline's tables (`body_scope`, `sub_news`, `news_summary`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
@@ -75,7 +75,9 @@ lean `articles` row per processed article, so it stays self-consistent without
 
 ## How a pipeline run uses both
 
-`pipeline.run_pipeline` → `news_nlp.db.connect_pipeline()`:
+The stepped pipeline (`cli/news_nlp_steps.py`) opens the same connection, `news_nlp.db.connect_pipeline(results_db=..., source_db=...)`, and reads the unique bodies of `source.articles`; the v1 chain does it as below.
+
+`pipeline.run_pipeline` (the v1 chain) → `news_nlp.db.connect_pipeline()`:
 
 1. opens the RESULTS store read/write (`main`) as a `NewsNlpDatabase` (a
    `portfolio_common.db.TwoTierDatabase` subclass) via
@@ -117,7 +119,7 @@ SOURCE ∩ RESULTS columns minus `body_text`) from `source` into `main`, so the
 RESULTS store stays foreign-key-consistent on its own — no separate migration
 step.
 
-The `sector_summary` stage and every query/correction endpoint read only result
+The v1 `sector_summary` stage (deprecated, `docs/legacy/news-nlp-v1-stages.md`) and every query/correction endpoint read only result
 tables + `articles` metadata, never `body_text`, so they need **no** SOURCE — a
 plain `news_nlp.db.connect()` is enough.
 
@@ -199,7 +201,7 @@ the one piece of this read contract genuinely shared with a consumer outside
 `portfolio-nlp` — `portfolio-knowledge-graph`'s ETL, which imports
 `portfolio_common.news_export` directly rather than depending on this repo or
 carrying its own copy of the query. See
-`docs/portfolio-common-v1.1-news-export.md` for why. Don't import
+`docs/legacy/portfolio-common-v1.1-news-export.md` for why. Don't import
 `news_nlp.db._articles_rel` (or any other underscore-prefixed name) directly
 from outside this package to build a bespoke query — it's internal; ask for
 (or add) a named export in `portfolio_common.news_export` instead if another
@@ -209,11 +211,11 @@ repo needs a second shared read.
 
 `articles.fetch_status` has `ok`, `quarantined` and `thin_content`. **`quarantined` is a verdict about the company tag, not about the article:** upstream (`portfolio-data-mining`) classes each (article, ticker) pair as `accept`, `reject` or `review` from the URL and the title, and quarantines the last two. A quarantined row still has what it was fetched with: on 2026-11-08, of the 377,010 quarantined rows, 374,551 had a non-empty `body_text` and 374,419 a title too, against 98,462 `ok`. As unique bodies (the same text under several tickers is one): `ok` 81,961; quarantined 260,845, of which **227,921 are not also `ok` under another ticker**; together 309,882 (`scripts/count_fetched_corpus_2026_11_08.py`). Example (real rows, ticker `A`, Agilent): a CNBC piece on Berkshire's cash and one on Corning and the S&P 500 are `reject` for Agilent, and are financial news.
 
-The rule (`PLAN.md` D36): a properly fetched article is preserved and stays eligible for the pipeline; the pair class decides which company a stored result may be attributed to, not whether the body exists. Nothing here changes the read-only contract of SOURCE. The default articles selection still reads `ok`: the 2026-11-16 cut stays on it and the preserved corpus joins after the delivery, its scope decided from the counts of `TASKS.md` T-160. `thin_content` rows are preserved but are not part of the properly fetched corpus (owner, 2026-11-08).
+The rule (`PLAN.md` D36): a properly fetched article is preserved and stays eligible for the pipeline; the pair class decides which company a stored result may be attributed to, not whether the body exists. Nothing here changes the read-only contract of SOURCE. The stepped pipeline reads the whole properly fetched corpus, `ok` and `quarantined` (`news_nlp.steps.PROPER_STATUSES`): step 1 gave a scope to 309,972 unique bodies. The v1 chain still reads `ok` only. `thin_content` rows are preserved but are not part of the properly fetched corpus (owner, 2026-11-08).
 
 ## Target tables of the stepped pipeline (D39, D40; approved 2026-11-10)
 
-Created by `init_schema()` since #162 (nothing writes them yet); the schema was approved by the owner on 2026-11-10 (constitution AI #10). `sub_news` (one row per piece the `units` extractor cuts), `pipeline_step_state` (status per item and step, with the model revision) and `news_company` (the result per text and ticker) and two columns on `article_entities` (`sub_news_id`, `ticker`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
+Created by `init_schema()` since #162; the schema was approved by the owner on 2026-11-10 (constitution AI #10). Written today: `body_scope` (step 1.1), `sub_news` (step 1.2, one row per piece the `units` extractor cuts), `news_summary` (step 2) and `pipeline_step_state` (status per item and step, with the model revision). Created, not written yet: `news_company` (the result per text and ticker), `news_sentiment`, `news_category`, and two columns on `article_entities` (`sub_news_id`, `ticker`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
 
 ## Caveats
 

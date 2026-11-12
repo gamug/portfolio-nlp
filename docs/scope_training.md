@@ -15,12 +15,12 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | | |
 |---|---|
 | **Task** | Read a unique news body (title + first 800 characters) and say `single` (one analysed company), `multi` (two or more), `sector` (one industry) or `out_of_scope` (market/economy, investing advice, or unrelated). |
-| **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the category model, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
+| **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the checkpoint of the v1 category stage, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
 | **Trained on** | 365 tagged bodies: `category_gold_v2.csv` (284) + `scope_enrich.csv` (51) + `scope_hook.csv` (30). |
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
 | **Result** | The **pinned model** (saved weights, section 7): **83.6% [78.1, 88.9]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+16.5 [9.6, 23.4]**; `out_of_scope` recall 53%. The first fit of the recipe, which the rest of this document analyses: 83.0% [77.5, 88.3], gain +15.9 [9.1, 22.6]. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
 | **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
-| **Known trade-off** | `out_of_scope` recall is about 48% (11 of 33 are read as `single`) while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
+| **Known trade-off** | `out_of_scope` recall is about 48% on the first fit (11 of 33 are read as `single`) and 53% [32, 74] on the pinned weights, while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
 ## 2. What is measured, and how
 
@@ -286,7 +286,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
-- **Step 1 and the sub-news cut are built** (section 8); the size measurement of sub-news (T-166) is not.
+- **Step 1 and the sub-news cut are built** (section 8); the size of step 2 was measured and set at 2,000 characters (T-166, `docs/summary_step.md`).
 - **Seed variation** (three seeds on the selected setup) is the cheapest check that would make the 2-point
   differences interpretable. About 45 minutes of GPU.
 - **More out-of-scope bodies whose title names a company** are the data that would address the trade-off.
@@ -324,6 +324,8 @@ The held-out figures are not printed by the command: `scripts/score_scope_heldou
 all the unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title). (A first reading gave 309,914
 and "58 left": it opened `nlp.db` without its `-wal` file, which held the last rows. Read a copy of `nlp.db` **with** its
 `-wal`, never the main file alone.) The breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
+
+A body takes the status of the first article (by id) that carries it, so a body that is `ok` under one pair and `quarantined` under an earlier one counts as `quarantined` here: 64,901 bodies, against the 81,961 unique bodies that are `ok` under at least one pair (`docs/db-topology.md`, D19).
 
 | Status | Bodies | single | multi | sector | out_of_scope |
 |---|---|---|---|---|---|
@@ -377,8 +379,8 @@ selected on 2026-11-08 (T-148b10), read as `units5` (T-177, default since 2026-1
 
 **Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
 232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
-About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies of
-the corpus take about 2.5 to 3 h** on the GPU. The full run is for the owner to start; no speed-up is included (fp16 or pair
+About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies first estimated
+take about 2.5 to 3 h** on the GPU; the corpus run gave **32,555** `multi` bodies (section 8), so about 3.6 to 5.4 h at that rate. The full run is for the owner to start; no speed-up is included (fp16 or pair
 pruning could change the output).
 
 **Quality check (`scripts/cut_quality_check_2026_11_11.py`, read-only):**
@@ -412,7 +414,7 @@ pruning could change the output).
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
 **The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
-`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
+`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading of that day (`units4`, model
 `data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24` (the revision hashes the code of `attribution_units.py`, which #172 edits: after #172 the same reading and model give another hash, so read the revision the command prints, not this one), then the two checks on that revision:
 - *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
   first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
@@ -497,7 +499,7 @@ are listed in `_CAPS_NOT_COMPANIES` and a ticker in brackets still makes any of 
   paired difference is +0.6 points [0.1, 1.5].** Against `units` (327 of 335, 97.6% [95.3, 99.4]) the difference is +0.2 [0.0, 0.4]. **Do not read the +0.6 as "better": it comes from the 46 more marked
   texts `units5` has (44 are the extra marks, 43 of them faithful), i.e. from added texts being faithful, not from existing texts becoming more faithful.** The two sets are not the same pairs (`units4`'s own text for the sampled changed pairs is
   unread). Limits: 54 of the 84 changed texts remain unread; one reader; the marks of the 14 first texts are not blind.
-- *Not done:* the full corpus; `units5` is not the default (`DEFAULT_READING` is `units4`); the short-name matcher gap (T-181) still costs IBM's headline sentence.
+- *Not done then:* the full corpus; `units5` was not the default. **Since 2026-11-12 (#176) `units5` is `DEFAULT_READING`**, and its corpus run is in progress. The short-name matcher gap (T-181) still costs IBM's headline sentence.
 
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
@@ -511,13 +513,11 @@ or keep the old rows under their own revision: a new reading, model or code chan
 nothing is deleted. **If step 2 has summarised those sub-news, delete their summaries first** (they are keyed by `sub_news.id`; new ids would leave them pointing at
 nothing; the two statements are in `docs/summary_step.md` and in `--help`). The same text is in `uv run cli/news_nlp_steps.py --help`.
 
-**Which revision the later steps read.** The default changes the revision of the cut from `units-<12 hex>` (the `units` reading,
-for example `units-75642e3f4f72` of the dry run above) to `units4-<12 hex>` (this PR's real run: `units4-e1dff4f90b24` on a scratch copy; it changes if
-the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units4` set
-by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, so after the full run
-the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
+**Which revision the later steps read.** The revision of a cut starts with its reading: `units-<12 hex>` (for example `units-75642e3f4f72` of the dry run above), `units4-<12 hex>` (`units4-e1dff4f90b24` on a scratch copy) and, since `units5` became the default on 2026-11-12 (#176), `units5-<12 hex>`; it changes if
+the code of `attribution_units.py`, `attribution_model.py` or the model changes. The owner's database holds the full cut `units-5f831c298bcb`, written with the `units` reading before the switch, and the `units5` corpus run in progress. **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units5` set
+by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, and the cut prints its reading and revision before it starts.
 
-**Before the full run.** (1) T-176 is done: the cut runs with `units4`, which removes most of the two faults above (162 texts with
+**Before the full run.** (1) T-176 and T-177 are done: the cut runs with `units5` (since #176; `units4` before it), which removes most of the two faults above (162 texts with
 several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) was validated by the owner (section 9; the tags are in
 `gold/scope_quarantined_validation.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until the owner
@@ -539,7 +539,7 @@ It draws `--bodies` bodies at random from the cut at the **named** revision (the
 
 `ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
 
-**Drawn 2026-11-12:** cut `units-5f831c298bcb` (the `units` reading, the one that ran on the corpus), seed 20261112: 30 bodies, 133 sub-news (1 to 15 a body), 163 translations (64,153 prompt and 57,578 completion tokens). The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist. This measures the cut as it ran; whether `units4` or `units5` needs another cut is T-177.
+**To be redrawn (owner, 2026-11-12):** the sample is to come from the `units5` cut once its run can be read (a consistent snapshot of the database is needed: the live file refuses a read-only open, and a copy taken while the cut writes is corrupt). **Drawn first, 2026-11-12:** cut `units-5f831c298bcb` (the `units` reading, the one that ran on the corpus before the switch), seed 20261112: 30 bodies, 133 sub-news (1 to 15 a body), 163 translations (64,153 prompt and 57,578 completion tokens). The marks are the owner's; the figures (the share of yes per question, with an interval) are written here when they exist. This measures the cut as it ran; whether `units4` or `units5` needs another cut is T-177.
 
 ## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
 

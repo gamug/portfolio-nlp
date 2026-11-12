@@ -256,13 +256,13 @@ def run_ner_stage(
 def run_category_stage(
     conn: db.NewsNlpDatabase, limit: int | None = None, on_progress: ProgressCallback | None = None
 ) -> None:
-    """Two-level hierarchical zero-shot classification (docs/category-taxonomy.md):
+    """Two-level hierarchical zero-shot classification (docs/legacy/category-taxonomy-v1.md):
     level 1 picks (up to) the top-2 CATEGORY_GROUPS for each article via a
     3-way softmax; level 2 classifies only the survivors -- articles whose
     winning group cleared CATEGORY_GROUP_FLOOR -- against those top-2
     groups' 6 combined children. Replaces a single flat 9-way softmax, which
     empirically starved real signal for several labels by making them
-    compete against 8 others in one softmax (see docs/category-taxonomy.md's
+    compete against 8 others in one softmax (see docs/legacy/category-taxonomy-v1.md's
     "Hierarchical classification" section for the eval data that motivated
     this).
 

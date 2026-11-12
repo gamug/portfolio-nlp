@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS sector_summary (
 -- One row per article: the winning category (or 'other') plus the full
 -- 9-way NLI score distribution, so low-confidence 'other' picks are
 -- auditable and CATEGORY_CONFIDENCE_THRESHOLD can be retuned later without
--- reprocessing. See portfolio-nlp's docs/category-taxonomy.md for what each
+-- reprocessing. See portfolio-nlp's docs/legacy/category-taxonomy-v1.md for what each
 -- column means and where the taxonomy came from.
 CREATE TABLE IF NOT EXISTS article_category (
     article_id INTEGER PRIMARY KEY REFERENCES articles(id),
@@ -448,7 +448,7 @@ def _migrate_category_schema(conn: Database) -> None:
     defaults). Unlike sector_summary's format_version self-heal,
     fetch_pending_category_articles only checks row-presence, so these
     legacy rows do NOT automatically get reprocessed -- see
-    docs/category-taxonomy.md for the (separate, not-yet-built) backfill
+    docs/legacy/category-taxonomy-v1.md for the (separate, not-yet-built) backfill
     this implies if one is ever wanted.
     """
     conn.ensure_columns("article_category", _CATEGORY_ADDED_COLUMNS)

@@ -32,7 +32,7 @@ table, so a plain pipeline re-run picks up nothing new. This script:
    code (`db.fetch_pending_sentiment_articles`'s `sample_seed` param).
 
 One-shot by design, matching this repo's precedent for this kind of
-maintenance script (`docs/migration-2026-09-01.md`'s
+maintenance script (`docs/legacy/migration-2026-09-01.md`'s
 `migrate_from_urls_db.py`, `scripts/resample_ner_2026_09_12.py`) -- not
 meant to become a permanent CLI flag. Safe to remove once run; keep it in
 git history rather than deleting it here so a future similar resample has a

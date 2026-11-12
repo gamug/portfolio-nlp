@@ -1,9 +1,11 @@
 # NLP data migration — `urls.db` → `nlp.db`
 
+*Legacy (moved from `docs/` on 2026-11-12, text unchanged; one relative link fixed for the new folder).*
+
 > **Historical record.** This was a one-time backfill. `scripts/migrate_from_urls_db.py`
 > and `tests/migration/` were removed once the pipeline took over lean-`articles`
 > population itself (`db._ensure_article_row`, on every result write) — see
-> [`docs/db-topology.md`](db-topology.md). Recover the script from git history
+> [`docs/db-topology.md`](../db-topology.md). Recover the script from git history
 > (`git log -- scripts/migrate_from_urls_db.py`) if another bulk backfill is ever
 > needed. The run log below is kept as-is.
 

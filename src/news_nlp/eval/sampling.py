@@ -135,7 +135,7 @@ _CSUMMARY_WEAK_MULT = 4
 _SENTIMENT_TARGET_THRESHOLD = 0.35  # just above the 3-way uniform baseline (0.333)
 # Was 0.2 (~1.8x the flat classifier's 9-way uniform baseline of 0.111) before
 # the hierarchical category classifier (pipeline.run_category_stage,
-# docs/category-taxonomy.md) replaced that flat 9-way softmax with two levels
+# docs/legacy/category-taxonomy-v1.md) replaced that flat 9-way softmax with two levels
 # of 3-way-or-narrower softmaxes. article_category's 9 leaf-slug columns are
 # now populated from 3-way child-group softmaxes for whichever slugs' group
 # made an article's top-2 -- baseline there is 0.333, so the old 0.2 sat
