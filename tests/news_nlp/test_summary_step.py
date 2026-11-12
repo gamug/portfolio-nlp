@@ -934,7 +934,7 @@ class RecordingBar:
 def test_the_bars_count_the_items_stored_as_they_are_apart_from_the_ones_that_go_to_the_model(
     pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One bar over every pending item mixed thousands of instant `original` rows a second with seconds per model item: the ETA meant nothing."""
+    """One bar over every pending item mixed instant `original` rows (286 a second measured) with seconds per model item: the ETA meant nothing."""
     cli = _load_cli()  # one module instance: _load_cli() loads a new one on each call
     monkeypatch.setattr(cli, "tqdm", RecordingBar)
     RecordingBar.bars = []
@@ -986,3 +986,50 @@ def test_the_model_bar_moves_by_every_item_of_a_full_batch_and_of_the_last_parti
         "original": (4, 4),
         "summary": (3, 3),
     }
+
+
+def _forget(pair: db_module.NewsNlpDatabase, text_source: str) -> None:
+    """Make the items stored with this `text_source` pending again, so that a run has work of one phase only."""
+    pair.execute(
+        "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_id IN "
+        "(SELECT item_id FROM news_summary WHERE text_source = ?)",
+        (text_source,),
+    )
+    pair.execute("DELETE FROM news_summary WHERE text_source = ?", (text_source,))
+    pair.commit()
+
+
+@pytest.mark.parametrize(("only", "total"), [("summary", 3), ("original", 4)])
+def test_a_run_with_work_in_one_phase_only_shows_that_bar_alone(
+    pair: db_module.NewsNlpDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+    only: str,
+    total: int,
+) -> None:
+    """No bar of total 0 for the phase with nothing to do (`if kept` / `if over`): 3 items are over the size and 4 are not."""
+    _run(pair, StubSummarizer())
+    _forget(pair, only)
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    cli.run_summary(pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None)
+    assert [(b["desc"], b["total"], b["n"]) for b in RecordingBar.bars] == [(only, total, total)]
+
+
+def test_the_model_bar_reaches_its_total_when_an_item_fails(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bar counts the items the model was given, failed ones too; the plan line says how many there were and `failed` says how many did not make it."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    counts = cli.run_summary(
+        pair,
+        StubSummarizer(broken=("Different ending",)),
+        SCOPE_REV,
+        CUT_REV,
+        ("single", "sub_news"),
+        None,
+    )
+    assert counts["failed"] == 1 and counts["summary"] == 2
+    assert {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars}["summary"] == (3, 3)

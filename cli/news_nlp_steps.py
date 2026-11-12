@@ -259,8 +259,10 @@ def run_summary(
     from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
 
     todo = _summary_items(conn, summarizer.revision, scope_revision, cut_revision, items, limit)
-    over = [item for item in todo if needs_summary(item.text, summarizer.min_chars)]
-    kept = [item for item in todo if not needs_summary(item.text, summarizer.min_chars)]
+    over: list[SummaryItem] = []
+    kept: list[SummaryItem] = []
+    for item in todo:
+        (over if needs_summary(item.text, summarizer.min_chars) else kept).append(item)
     _say_the_plan(todo, len(over), len(kept), summarizer.min_chars)
     counts: dict[str, int] = {"summary": 0, "original": 0, "failed": 0}
     failed_batches = 0
@@ -280,8 +282,8 @@ def run_summary(
                 f"(see the error of a failed item with --status); the failed items are retried by the next run"
             )
 
-    # two phases, two bars: the items under the size cost a write each (thousands a second), the ones over it cost the model
-    # (seconds each). One bar over both made its rate and its time left meaningless.
+    # two phases, two bars: the items under the size cost a write each (286 a second measured on a local disk), the ones over it cost
+    # the model (seconds each). One bar over both made its rate and its time left meaningless.
     if kept:
         with tqdm(total=len(kept), desc="original", unit="item") as bar:
             for item in kept:
