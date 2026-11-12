@@ -153,7 +153,11 @@ def main() -> None:
         print(f"{gap} (check --source-db; exit 2 is not a pass)", file=sys.stderr)
         sys.exit(2)
     result = compare(summarizer.summarize, items, stored)
-    print(f"revision {revision}: {result}" + (f"; {problem}" if problem else ""))
+    import torch  # noqa: PLC0415 -- the versions that produced the summaries are part of the result
+    import transformers  # noqa: PLC0415
+
+    versions = f"torch {torch.__version__}, transformers {transformers.__version__}"
+    print(f"revision {revision}: {result}; {versions}" + (f"; {problem}" if problem else ""))
     sys.exit(
         exit_code(
             result,

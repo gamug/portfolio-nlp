@@ -9,8 +9,8 @@ of ``summary_stage.hierarchical_summarize_batch`` (the v1 stage's own, reused as
 The input of a single body is ``Title-<title>\\nBody-<body>``, as the earlier summary run wrote it (``scripts/cut_summaries_2026_11_07.py``,
 ``draw_sentiment_gold``); a sub-news has no title of its own (the title is the whole round-up's), so its text goes alone.
 
-The revision of the step is ``summary-`` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the
-generation limits and the code of this module and of the functions it runs in ``summary_stage.py`` and ``chunking.py`` (``hashed_sources``, as parsed
+The revision of the step is ``summary-`` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the ``transformers`` version, the size, the
+input format, the generation limits and the code of this module and of the functions it runs in ``summary_stage.py`` and ``chunking.py`` (``hashed_sources``, as parsed
 code: comments, formatting and docstrings do not count): any of them changing starts new rows and leaves the old ones.
 
 A summariser is cheap to build: the model is loaded on the first text it is given, so ``--status`` and the tests need none. It runs on CUDA when
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import transformers
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 import chunking
@@ -118,6 +119,9 @@ def revision_of(model_name: str, model_revision: str, min_chars: int = MIN_CHARS
     key = json.dumps(
         {
             "model": f"{model_name}@{model_revision}",
+            # beam search lives in transformers and pyproject only requires >=4.56: a lock bump must not leave old and new summaries under one
+            # revision. torch is left out: its version carries the build (+cu124, +cpu) and the revision is the same on both devices
+            "transformers": transformers.__version__,
             "min_chars": min_chars,
             "input": INPUT_FORMAT,
             "max_in": SUMMARY_MAX_INPUT_TOKENS,

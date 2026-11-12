@@ -8,7 +8,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
     uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2)
     uv run cli/news_nlp_steps.py --step cut --status          # sub-news written and bodies by state
-    uv run cli/news_nlp_steps.py --step summary --limit 200   # step 2: summarise single bodies and sub-news over 2,000 characters
+    uv run cli/news_nlp_steps.py --step summary --items single --limit 200   # step 2: summarise the single bodies over 2,000 characters
+    uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
     uv run cli/news_nlp_steps.py --step summary --items sub_news --cut-revision units5-...   # only the sub-news of one cut revision
     uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
 

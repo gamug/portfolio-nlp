@@ -844,8 +844,60 @@ def test_the_determinism_check_main_exits_2_when_the_source_lacks_the_texts_and_
     assert run(source_with("one.db", (1,))) == 2  # one of two found
     assert "found 1 of 2" in capsys.readouterr().err
     assert run(tmp_path / "src.db") == 0  # the real source: both found, equal
-    assert "'items': 2" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "'items': 2" in out
+    assert (
+        "transformers" in out and "torch" in out
+    )  # C3: what produced the summaries, printed with the result
     assert (
         run(tmp_path / "src.db", "--kind", "sub_news") == 0
     )  # N2: the sub-news path (string ids, the sub_news table)
     assert "'items': 1" in capsys.readouterr().out
+
+
+# --- round 4 of the review of #173 (C2, C3) ---------------------------------------------------------------------------------
+
+
+def test_every_command_in_the_usage_block_of_the_steps_cli_parses_and_a_summary_that_reads_sub_news_names_a_cut() -> (
+    None
+):
+    """C2: `--step summary --limit 200` was the first example and failed since a cut must be named; nothing checked the examples."""
+    import shlex  # noqa: PLC0415
+
+    cli = _load_cli()
+    prefix = "uv run cli/news_nlp_steps.py"
+    lines = [ln.strip() for ln in cli.__doc__.splitlines() if ln.strip().startswith(prefix)]
+    assert len(lines) >= 8  # scope, cut and summary examples are there
+    parser = cli.build_parser()
+    summary = 0
+    for line in lines:
+        args = parser.parse_args(shlex.split(line.split("#")[0])[len(prefix.split()) :])
+        cli.check_options(parser, args)  # the options the step reads, none it does not
+        if args.step == "summary" and not args.status:
+            summary += 1
+            assert args.items == "single" or args.cut_revision, line  # sub-news need a cut named
+    assert summary >= 3
+    usage = (
+        (Path(__file__).resolve().parents[2] / "docs" / "summary_step.md")
+        .read_text(encoding="utf-8")
+        .splitlines()[2]
+    )
+    assert (
+        "(--cut-revision REV | --items single)" in usage
+    )  # the usage line says one of them is required
+
+
+def test_the_revision_follows_the_transformers_version_that_generates_the_summaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C3: `transformers>=4.56` floats and beam search lives there: a lock bump must not leave old and new summaries under one revision."""
+    args = ("sshleifer/distilbart-cnn-12-6", "a4f8f3ea", 2000)
+    base = stage.revision_of(*args)
+    assert stage.revision_of(*args) == base
+    monkeypatch.setattr(stage.transformers, "__version__", "0.0.1")
+    assert stage.revision_of(*args) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        stage.torch, "__version__", "0.0.1+cpu"
+    )  # not in the key: a CPU and a CUDA build share the revision
+    assert stage.revision_of(*args) == base

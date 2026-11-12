@@ -1,6 +1,6 @@
 # Step 2: the summary (T-164, T-166; PLAN D39 (2), (3.3), D40)
 
-`uv run cli/news_nlp_steps.py --step summary [--items single|sub_news] [--cut-revision REV] [--limit N] [--scope-revision REV] [--status]`
+`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N] [--scope-revision REV]` (and `--step summary --status`)
 
 ## What it does
 
@@ -23,7 +23,7 @@ failure (never stored), `--limit N` touches at most N pending items (single bodi
 Options the step does not read are refused, never ignored: `--model-dir`, `--reading`, the scope-only flags, `--cut-revision` with `--items single`, and `--scope-revision` with `--items sub_news`
 (it names the single bodies to read; the JSON a run prints lists only the revisions it read).
 
-**The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, the size, the input format, the generation limits and
+**The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, **the `transformers` version** (beam search lives there and `pyproject.toml` only requires `>=4.56`; `uv.lock` pins 5.16.1: a lock bump starts a new revision instead of mixing old and new summaries under one; `torch` is left out because its version carries the build, `+cu124` or `+cpu`, and the revision is the same on both devices), the size, the input format, the generation limits and
 the code that summarises: `news_summary_stage.py` whole, and the functions this step runs in `summary_stage.py` (`hierarchical_summarize_batch` and
 its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. **The code is hashed as parsed
 (`normalized_code`): comments, formatting, the kind of quotes and docstrings do not change the revision, so a typo fix or a formatter upgrade does not make the step redo hours of GPU work; a change of
@@ -75,11 +75,11 @@ bodies, on the GPU); it is **not** a measure of this model on this machine, and 
 
 ## First run, determinism and running next to the cut (2026-11-12, scratch copies of the databases, CPU)
 
-12 single bodies, all over the size, at revision `summary-41627e9ac412` (the revision of the code of this PR): 12 summaries, no failure, `--status` adds up, and the printed JSON lists only the
+12 single bodies, all over the size, at revision `summary-7a9bd2062bc4` (the revision of the code of this PR): 12 summaries, no failure, `--status` adds up, and the printed JSON lists only the
 revisions the run read. A body took 13 to 32 s on the CPU depending on the load of the machine; the GPU time is **not measured yet**.
 
 **Determinism.** `scripts/summary_determinism_check_2026_11_12.py -n 4` (the constitution asks for deterministic inference) on those rows, **like for like** (stored rows and code at the same revision): the
-four stored summaries were summarised again in a new process, twice: **4 of 4 compared, 0 differ from the stored ones, 0 differ between the two runs** (CPU). The check is **not a pass unless it compared what it was
+four stored summaries were summarised again in a new process, twice: **4 of 4 compared, 0 differ from the stored ones, 0 differ between the two runs** (CPU; the result line also prints the versions that produced them: torch 2.6.0+cu124, transformers 5.16.1). The check is **not a pass unless it compared what it was
 asked to**: rows of another revision, a source without the bodies (`found 0 of 4`, run for real on an empty source) or with only some of them (`found 1 of 2`) end with **exit 2** and the reason; `--allow-other-revision` goes on
 and says so. Exit codes: 0 clean, 1 a summary differs, 2 not comparable. `--kind sub_news` reads the sub-news path (tested). **Not checked: the GPU**, which is the run that matters (a GPU can flip a beam near a
 tie): run it on the GPU after the cut and record the result here.
