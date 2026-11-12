@@ -602,6 +602,23 @@ def test_the_size_measure_prints_the_percentiles_and_the_table_the_threshold_was
     assert measure.hours(59432, 0.84) == pytest.approx(13.87, abs=0.01)
 
 
+def test_the_size_measure_compares_the_whole_cut_with_its_first_bodies() -> None:
+    """The sample behind the table (the first 500 bodies) read 1.6% against 3.05% for the whole cut: the script prints both, so the check can be repeated."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import summary_size_measure_2026_11_12 as measure  # noqa: PLC0415 -- a script, not a package
+
+    raw = sqlite3.connect(":memory:")
+    raw.execute("CREATE TABLE sub_news (article_id INTEGER, extractor_revision TEXT, text TEXT)")
+    rows = [(1, "r", "a" * 10), (1, "r", "b" * 3000), (2, "r", "c" * 10), (3, "r", "d" * 3000)]
+    rows += [(1, "other", "e" * 5000), (0, "other", "f" * 5000)]  # another revision: never read
+    raw.executemany("INSERT INTO sub_news VALUES (?, ?, ?)", rows)
+    assert sorted(measure.sub_news_lengths(raw, "r")) == [10, 10, 3000, 3000]
+    first_two = measure.sub_news_lengths(raw, "r", first_bodies=2)  # bodies 1 and 2, by id
+    assert sorted(first_two) == [10, 10, 3000]
+    assert measure.sub_news_lengths(raw, "r", first_bodies=0) == []
+    assert measure.sub_news_lengths(raw, "none") == []
+
+
 # --- round 2 of the review of #173 (M1, M2) --------------------------------------------------------------------------------
 
 
