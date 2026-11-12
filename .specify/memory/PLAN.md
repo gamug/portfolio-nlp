@@ -189,7 +189,7 @@ above, it says so; nothing else above is touched.
   company) for each company NER found, and the **main company** is the one the article mainly speaks about; the other
   companies of the summary go to a separate place (mentions). (3) **multi**: the extractor (`units`, D27) cuts the body
   into **sub-news**, company-agnostic; (3.1) NER on each sub-news; (3.2) the relevance model picks the main company or
-  companies of each; (3.3) a sub-news over a character size is summarised (the size is not set: T-166). (4) **sector**:
+  companies of each; (3.3) a sub-news over a character size is summarised (2,000 characters, owner 2026-11-12: T-166). (4) **sector**:
   the sector (GICS) is identified, then the text is summarised. (5) market: out of scope. (6) **Sentiment**: the pair
   model + the relevance stack (`docs/sentiment_training.md`) reads each summary or sub-news with its main company.
   (7) **Category** (D29) of each summary or sub-news. After the seven, a separate step writes the snapshots (D28, T-152).
@@ -212,17 +212,16 @@ above, it says so; nothing else above is touched.
   the latest revision is the one read downstream; old rows stay. (vii) **CLI:** a new `cli/news_nlp_steps.py` with
   `--step`, `--limit`, `--status`; the v1 `cli/news_nlp_cli.py` is not touched until the backfill (T-150). (viii)
   **Sub-news size (3.3):** measured first (character lengths of the units output on the 438 confirmation texts), then
-  the owner sets it (T-166). **The crawl's tickers** (D36) are kept as a column of the body's result and compared with the model's main tickers by ticker; they do not decide the main company (proposed, to the owner). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
+  the owner sets it (T-166: 2,000 characters, 2026-11-12, `docs/summary_step.md`). **The crawl's tickers** (D36) are kept as a column of the body's result and compared with the model's main tickers by ticker; they do not decide the main company (proposed, to the owner). **Open:** the relevance threshold value (T-169); how the review list is stored; whether
   the relevance model, trained on summaries, holds on sub-news (not measured: a risk of T-165, T-169). Tasks: T-162
   to T-172.
 - **D40 Build order, steps and tables (owner, 2026-11-10, after D39; amends D39's order of work, not its steps).**
   **Build 1** (first, with a status command and a dry run): (1) the extractor step gives the scope of every body (single,
-  multi, sector, or out of scope) and splits the multi ones into sub-news; (2) the summary of each single body, sub-news
-  and sector body that fits the size rule; (3) NER and the relevance model give the mentions and the main tickers (D39
+  multi, sector, or out of scope) and splits the multi ones into sub-news; (2) the summary of each single body and sub-news
+  that fits the size rule (the sector body is summarised in its own step once its sector is identified, D39 (4), T-167: owner, 2026-11-12); (3) NER and the relevance model give the mentions and the main tickers (D39
   (iii)). **Build 2** (after Build 1 runs): sentiment (between 3 and 4, D39 (6)), then category (D39 (7)); the owner trains
   the category model while Build 1 runs. **Step 5, the company snapshots and company resumes, is undefined and is not
-  built** (D28 and T-152 wait). **Size rule (step 2):** an item over the size (not set: measured first on the output of
-  step 1, T-166) is summarised; a shorter one is used as it is and its row says `text_source = original`; steps 3 to 4
+  built** (D28 and T-152 wait). **Size rule (step 2):** an item over the size (2,000 characters, owner 2026-11-12, T-166) is summarised; a shorter one is used as it is and its row says `text_source = original`; steps 3 to 4
   read the row's text, whichever the source. **The scope comes from a classifier that reads the title** (owner,
   2026-11-10; T-147; trained on `gold/category_gold_v2.csv`, bar on the held-out 200; the rules triage, 68.0% on the same
   200, is the baseline); the `units` extractor cuts the `multi` bodies in the same step 1. **Tables (the owner: each step its own table, sentiment included; names proposed, schema to the owner
