@@ -196,7 +196,7 @@ def test_the_revision_follows_the_model_and_the_names_the_model_is_asked_about()
     names = {c.ticker: c.name for c in UNIVERSE}
     base = revision_of("local:one", names)
     assert base == revision_of("local:one", dict(names))
-    assert base.startswith("units4-")
+    assert base.startswith("units5-")  # the default reading since T-177 (owner, 2026-11-12)
     assert revision_of("local:two", names) != base
     assert revision_of("local:one", {**names, "ORCL": "Oracle Corporation"}) != base
 
@@ -500,31 +500,43 @@ def test_fragments_and_several_headings_are_told_apart() -> None:
     assert quality.flag_of([two], 100000) == "several_headings"
 
 
-def test_the_cut_command_reads_with_units4_unless_it_is_told_otherwise(
+def test_the_cut_command_reads_with_units5_unless_it_is_told_otherwise(
     pair: db_module.NewsNlpDatabase,
     tmp_path: Path,
     results_db_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     stub_model: list[Path],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     common = [*_model(tmp_path), *_paths(pair, tmp_path, results_db_path)]
     _argv(monkeypatch, "--step", "cut", "--limit", "1", *common)
+    first = capsys.readouterr().err
     _argv(monkeypatch, "--step", "cut", "--limit", "1", "--reading", "units", *common)
-    assert READINGS_ASKED == ["units4", "units"]
+    second = capsys.readouterr().err
+    assert READINGS_ASKED == ["units5", "units"]
+    # the run says first which reading it cuts with and the revision it writes (a cut once ran with the wrong reading unnoticed)
+    assert (
+        "cutting with the reading units5, revision units-stub" in first
+    )  # the stub names its revision
+    assert "cutting with the reading units, revision units-stub" in second
 
 
 def test_the_reading_is_part_of_the_revision() -> None:
     names = {c.ticker: c.name for c in UNIVERSE}
     base = revision_of("local:one", names)
-    assert base == revision_of("local:one", names, "units4") and base.startswith("units4-")
+    assert base == revision_of("local:one", names, "units5") and base.startswith("units5-")
     other = revision_of("local:one", names, "units")
     assert other != base and other.startswith("units-")
+    older = revision_of(
+        "local:one", names, "units4"
+    )  # still a reading of its own, no longer the default
+    assert older.startswith("units4-") and older not in (base, other)
     with pytest.raises(ValueError, match="reading 'units2'"):
         UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units2")  # type: ignore[arg-type]
     assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test", "units").revision != (
         UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").revision
     )
-    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").reading == "units4"
+    assert UnitsExtractor(QuietScorer(), UNIVERSE, "local:test").reading == "units5"
 
 
 def test_the_comparison_of_two_readings_counts_faults_and_movements() -> None:
@@ -624,12 +636,14 @@ def test_reading_is_refused_outside_the_cut(
     assert "--reading only applies to --step cut" in capsys.readouterr().err
 
 
-def test_units5_is_a_cut_reading_with_its_own_revision() -> None:
+def test_units5_is_the_default_cut_reading_with_its_own_revision() -> None:
     assert "units5" in cut_stage.CUT_READINGS
     revisions = {r: revision_of("local:x", {"AAPL": "Apple"}, r) for r in cut_stage.CUT_READINGS}
     assert len(set(revisions.values())) == len(revisions)
     assert revisions["units5"].startswith("units5-")
-    assert cut_stage.DEFAULT_READING == "units4"  # a candidate until the owner decides
+    assert (
+        cut_stage.DEFAULT_READING == "units5"
+    )  # the default since the owner decided it, 2026-11-12 (T-177)
 
 
 def test_the_extra_marks_are_counted_once_however_many_draw_folders_there_are(

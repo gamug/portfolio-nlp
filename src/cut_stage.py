@@ -1,16 +1,16 @@
 """Step 1.2, the cut: the ``units`` extractor turns a ``multi`` body into the texts of its companies (PLAN D34 (e), D40; T-163).
 
 The extractor is the one the owner selected on 2026-11-08 (``reading="units"`` of ``news_nlp.attribution_model``), in the form
-``units4`` of T-176 (owner, 2026-11-11: a line is not given to another company, a header is not cut off its text): the body
+``units5`` of T-177 (owner, 2026-11-12), which builds on ``units4`` of T-176 (a line is not given to another company, a header is not cut off its text): the body
 without its footer is cut at lines, bullets and clauses; a piece that names a company goes to it, and the pieces that name
 none go to the company the trained model chooses, or to nobody. Each company's text is one sub-news. The sub-news does not
 store the ticker (the schema of ``sub_news`` has no such column): the company is found again downstream, by NER and the
 matcher (D39 (iii)).
 
-``units5`` (T-177) is a candidate reading, opt-in with ``--reading units5``: it also reads the headers ``units4`` misses (names in
+``units5`` (T-177) is the default reading since 2026-11-12; ``units4`` and ``units`` stay available with ``--reading``. ``units5`` also reads the headers ``units4`` misses (names in
 capitals, group labels, names with a period) and gives a sentence after a header of nobody to the companies it names.
 
-The revision of a cut is the reading (``units4`` by default, ``units`` or ``units5`` with ``--reading``) plus ``-`` and 12 hex digits of
+The revision of a cut is the reading (``units5`` by default, ``units4`` or ``units`` with ``--reading``) plus ``-`` and 12 hex digits of
 the SHA-256 of: the model directory's identity, the company names the model is asked about, the model's threshold, the revision of
 the code that cuts and, when it is not the default, the reading. Any of them changing starts new rows. Rows written before
 T-176 are ``units-75642e3f4f72``-style: a different set, not rewritten, and a reader must name the revision it wants.
@@ -28,14 +28,12 @@ from news_nlp import retag
 from news_nlp.db import NewsNlpDatabase
 from news_nlp.triage import Company, CompanyResolver
 
-DEFAULT_READING: am.Reading = (
-    "units4"  # owner, 2026-11-11 (T-176); `units` was the selection of 2026-11-08 (T-148b10)
-)
+DEFAULT_READING: am.Reading = "units5"  # owner, 2026-11-12 (T-177); `units4` (T-176) was the default of 2026-11-11, `units` the selection of 2026-11-08 (T-148b10)
 CUT_READINGS: tuple[am.Reading, ...] = (
     "units",
     "units4",
     "units5",
-)  # `units` is kept to cut as before; `units5` (T-177) is a candidate
+)  # `units` and `units4` are kept to cut as before
 
 
 def companies_of(conn: NewsNlpDatabase) -> list[Company]:

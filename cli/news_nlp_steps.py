@@ -359,6 +359,10 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         )
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
+    print(
+        f"cutting with the reading {args.reading or DEFAULT_READING}, revision {extractor.revision}",
+        file=sys.stderr,
+    )
     try:
         counts = run_cut(conn, extractor, scope_revision, args.limit)
     except RunAborted as exc:
@@ -521,7 +525,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--reading",
         choices=("units", "units4", "units5"),
         default=None,
-        help="cut: how the body is read (default `units4`, T-176; `units` is the cut as it was before; `units5`, T-177, is a candidate)",
+        help="cut: how the body is read (default `units5`, T-177; `units4` is the default of 2026-11-11, `units` the cut as it was before)",
     )
     parser.add_argument(
         "--items",

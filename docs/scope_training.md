@@ -373,7 +373,7 @@ first: if 95 or more are `yes` the main worry is gone and the rest can wait; if 
 ### 8.1 Step 1.2: the cut (T-163)
 
 `uv run cli/news_nlp_steps.py --step cut [--limit N]` cuts the `multi` bodies of step 1 with the `units` extractor the owner
-selected on 2026-11-08 (T-148b10), read as `units4` (T-176, default since 2026-11-11; `--reading units` cuts as before) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
+selected on 2026-11-08 (T-148b10), read as `units5` (T-177, default since 2026-11-12; `units4` was the default of 2026-11-11 and `--reading units` cuts as before) and writes one `sub_news` row per company text. Contract: `docs/modules/news-nlp.md`, "Step 1.2".
 
 **Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
 232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
