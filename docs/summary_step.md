@@ -56,6 +56,24 @@ DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news
 
 The same statements are in `--help` (one source in `cli/news_nlp_steps.py`, tested against a database).
 
+## What a run prints, and what the bars count
+
+A run first says what it is about to do, on stderr, and then works in two phases with a bar each:
+
+```
+pending 258,226 items (93,034 single bodies, 165,192 sub-news): 64,478 to summarise with the model (over 2,000 characters), 193,748 stored as they are
+original: 100%|...| 193748/193748     <- the items under the size: a write each, no model
+summary:   12%|...| 7812/64478        <- the items over the size: the model; its rate and time left are the real ones
+```
+
+The numbers above are computed for the owner's corpus, not printed by a full run (single bodies of scope revision `scope-nli-8ff21e50796b` and the sub-news of cut `units-5f831c298bcb`: 93,034 + 165,192; the single bodies
+over the size, 59,432, were measured on the same corpus and the sub-news over it, 5,046, on the cut). **The 258,226 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
+`out_of_scope`, is not in it), and about three quarters of it is stored as it is. The first version of the step put all of them on one bar, which mixed hundreds of instant writes a second with seconds per model item, so
+neither its rate nor its time left meant anything (reported by the owner, 2026-11-12). With `--limit N` the plan counts what this run will do, after the limit; with nothing to do it says `nothing pending`.
+
+The `original` phase writes one transaction per item: 286 items a second on a local disk (a temporary database, 3,000 items), about 11 minutes for 193,748 items; over a mounted disk each commit can cost more, and a commit every
+few hundred items would cut it to seconds (not done: the model phase is the cost).
+
 ## The measure behind 2,000 (2026-11-12)
 
 `uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24` (read-only)

@@ -907,3 +907,82 @@ def test_the_revision_follows_the_transformers_version_that_generates_the_summar
         stage.torch, "__version__", "0.0.1+cpu"
     )  # not in the key: a CPU and a CUDA build share the revision
     assert stage.revision_of(*args) == base
+
+
+# --- the progress bar counts what each phase does (reported by the owner, 258,226 on the bar) ----------------------------------
+
+
+class RecordingBar:
+    """A stand-in for tqdm that remembers each bar: its description, its total and how far it was moved."""
+
+    bars: list[dict[str, Any]] = []  # noqa: RUF012 -- a test double, reset by the test that uses it
+
+    def __init__(self, total: int | None = None, desc: str | None = None, **_: Any) -> None:
+        self.info: dict[str, Any] = {"desc": desc, "total": total, "n": 0}
+        RecordingBar.bars.append(self.info)
+
+    def __enter__(self) -> RecordingBar:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def update(self, n: int = 1) -> None:
+        self.info["n"] += n
+
+
+def test_the_bars_count_the_items_stored_as_they_are_apart_from_the_ones_that_go_to_the_model(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One bar over every pending item mixed thousands of instant `original` rows a second with seconds per model item: the ETA meant nothing."""
+    cli = _load_cli()  # one module instance: _load_cli() loads a new one on each call
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    RecordingBar.bars = []
+    cli.run_summary(pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None)
+    got = {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars}
+    assert got == {
+        "original": (4, 4),
+        "summary": (3, 3),
+    }  # 4 stored as they are, 3 over the size: 2 single bodies and 1 sub-news
+    RecordingBar.bars = []
+    cli.run_summary(
+        pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None
+    )  # nothing pending: no bar at all
+    assert RecordingBar.bars == []
+
+
+def test_the_run_says_up_front_how_many_items_go_to_the_model(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(pair, StubSummarizer())
+    err = capsys.readouterr().err
+    assert "pending 7 items (4 single bodies, 3 sub-news)" in err
+    assert "3 to summarise with the model (over 2,000 characters)" in err
+    assert "4 stored as they are" in err
+    _run(pair, StubSummarizer())
+    assert "nothing pending" in capsys.readouterr().err
+    pair.execute("DELETE FROM pipeline_step_state WHERE step = 'summary'")
+    pair.execute("DELETE FROM news_summary")
+    pair.commit()
+    _run(pair, StubSummarizer(), limit=5)
+    assert (
+        "pending 5 items" in capsys.readouterr().err
+    )  # the plan counts what this run will do, after --limit
+
+
+def test_the_model_bar_moves_by_every_item_of_a_full_batch_and_of_the_last_partial_one(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a batch of 2 the 3 long items are one full batch (moved inside the loop) and a last batch of 1 (moved after it)."""
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "tqdm", RecordingBar)
+    monkeypatch.setattr(cli, "SUMMARY_BATCH", 2)
+    RecordingBar.bars = []
+    counts = cli.run_summary(
+        pair, StubSummarizer(), SCOPE_REV, CUT_REV, ("single", "sub_news"), None
+    )
+    assert counts["summary"] == 3 and counts["original"] == 4
+    assert {b["desc"]: (b["total"], b["n"]) for b in RecordingBar.bars} == {
+        "original": (4, 4),
+        "summary": (3, 3),
+    }

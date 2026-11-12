@@ -259,6 +259,9 @@ def run_summary(
     from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
 
     todo = _summary_items(conn, summarizer.revision, scope_revision, cut_revision, items, limit)
+    over = [item for item in todo if needs_summary(item.text, summarizer.min_chars)]
+    kept = [item for item in todo if not needs_summary(item.text, summarizer.min_chars)]
+    _say_the_plan(todo, len(over), len(kept), summarizer.min_chars)
     counts: dict[str, int] = {"summary": 0, "original": 0, "failed": 0}
     failed_batches = 0
     waiting: list[SummaryItem] = []
@@ -277,20 +280,41 @@ def run_summary(
                 f"(see the error of a failed item with --status); the failed items are retried by the next run"
             )
 
-    with tqdm(total=len(todo), desc="summary", unit="item") as bar:
-        for item in todo:
-            if needs_summary(item.text, summarizer.min_chars):
-                waiting.append(item)
-                if len(waiting) >= SUMMARY_BATCH:
-                    flush()
-            else:
+    # two phases, two bars: the items under the size cost a write each (thousands a second), the ones over it cost the model
+    # (seconds each). One bar over both made its rate and its time left meaningless.
+    if kept:
+        with tqdm(total=len(kept), desc="original", unit="item") as bar:
+            for item in kept:
                 steps.record_summary(
                     conn, item.kind, item.item_id, summarizer.revision, item.text, "original", 0
                 )
                 counts["original"] += 1
-            bar.update(1)
-        flush()
+                bar.update(1)
+    if over:
+        with tqdm(total=len(over), desc="summary", unit="item") as bar:
+            for item in over:
+                waiting.append(item)
+                if len(waiting) >= SUMMARY_BATCH:
+                    size = len(waiting)
+                    flush()
+                    bar.update(size)
+            size = len(waiting)
+            flush()
+            bar.update(size)
     return counts
+
+
+def _say_the_plan(todo: Sequence[SummaryItem], over: int, kept: int, min_chars: int) -> None:
+    """Say before the work what the bars will count: how many items there are, and how many of them need the model."""
+    if not todo:
+        print("nothing pending", file=sys.stderr)
+        return
+    bodies = sum(1 for item in todo if item.kind == steps.ITEM_BODY)
+    print(
+        f"pending {len(todo):,} items ({bodies:,} single bodies, {len(todo) - bodies:,} sub-news): "
+        f"{over:,} to summarise with the model (over {min_chars:,} characters), {kept:,} stored as they are",
+        file=sys.stderr,
+    )
 
 
 def default_model_dir(step: str) -> Path:
