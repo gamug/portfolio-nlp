@@ -280,9 +280,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--reading",
-        choices=("units", "units4"),
+        choices=("units", "units4", "units5"),
         default=None,
-        help="cut: how the body is read (default `units4`, T-176; `units` is the cut as it was before)",
+        help="cut: how the body is read (default `units4`, T-176; `units` is the cut as it was before; `units5`, T-177, is a candidate)",
     )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)

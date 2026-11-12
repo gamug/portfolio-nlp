@@ -1,9 +1,9 @@
 """Read the company texts that still hold several headings (T-176, review of #169): overlap, or a line given to a company it does not name?
 
     uv run scripts/several_headings_owner_2026_11_11.py --results-db <nlp.db copy> --source-db <urls.db copy> \
-        [--model-dir data/models/attribution_2026_11_08] [-n 232]
+        [--model-dir data/models/attribution_2026_11_08] [-n 232] [--reading units4|units5]
 
-Cuts the first ``-n`` ``multi`` bodies with `units4` (the model on the GPU) and, for each text that holds two or more "Name -"
+Cuts the first ``-n`` ``multi`` bodies with ``--reading`` (default `units4`; the model on the GPU) and, for each text that holds two or more "Name -"
 headings, splits it at the headings and looks for the text's own company in each part. A text where **every** part names its
 owner is *overlap* (a company named in other companies' lines is, by `units4`'s rule, that company's news). A text with a part
 that does not is the *third fault*: a line the cut gave to a company it does not name, because its header was not read. The parts
@@ -58,6 +58,7 @@ def main() -> None:
         default=Path(__file__).resolve().parents[1] / "data/models/attribution_2026_11_08",
     )
     parser.add_argument("-n", type=int, default=232)
+    parser.add_argument("--reading", choices=("units", "units4", "units5"), default="units4")
     args = parser.parse_args()
     import news_nlp as db  # noqa: PLC0415 -- after the path set-up
 
@@ -67,7 +68,7 @@ def main() -> None:
     from news_nlp import steps  # noqa: PLC0415
 
     conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
-    extractor = UnitsExtractor.load(args.model_dir, companies_of(conn), "units4")
+    extractor = UnitsExtractor.load(args.model_dir, companies_of(conn), args.reading)
     scope = steps.latest_classifier_revision(conn)
     if scope is None:
         sys.exit("body_scope is empty: run --step scope first")
@@ -76,7 +77,7 @@ def main() -> None:
     causes: Counter[str] = Counter()
     for body in steps.pending_multi_bodies(conn, scope, "units-none", args.n):
         cut = am.model_company_texts(
-            body.text, extractor.resolver, extractor.names, extractor.scorer, reading="units4"
+            body.text, extractor.resolver, extractor.names, extractor.scorer, reading=args.reading
         )
         for ticker, text in cut.items():
             texts += 1

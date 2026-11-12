@@ -413,7 +413,7 @@ pruning could change the output).
 
 **The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
 `compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
-`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24`, then the two checks on that revision:
+`data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24` (the revision hashes the code of `attribution_units.py`, which #172 edits: after #172 the same reading and model give another hash, so read the revision the command prints, not this one), then the two checks on that revision:
 - *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
   first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
 - *`cut_determinism_check -n 30`:* **0 of 30 differ** from the stored rows and between two runs.
@@ -455,13 +455,12 @@ split and the company that owns the text was looked for in every one (`scripts/s
   (BOX) –", "Fox Corp. (FOXA) –"; `_HEADER` excludes `.` from the head, checked on the regex)** and 5 with lowercase text after the dash ("American Express
   (AXP) — solid momentum…"). The last two causes are added to T-177.
 
-**The 25 texts of `data/units4_to_read.csv`, read (owner, interactive session 2026-11-11).** The 7 changed texts without a mark: faithful
-for `units4` AMD, Newmont, Keurig Dr Pepper and Marvell; **not** faithful for Raymond James (the text is Nvidia's, Raymond James is the
-analyst that upgrades it), Morgan Stanley (the same: a freight carrier that Morgan Stanley upgraded) and Home Depot (its results, then a
-"Crypto stocks —" paragraph and a byline: a label with a lowercase word that is not read as a header, the T-177 cause). The owner's note on the
-first two: an analyst or investor that only tracks an action is tagged on the other company (`investor_activity`); the sentence is there
-because it names the analyst. With the 7 counted, `units4` is **302 of 313, 96.5% [93.8, 98.0]** (Wilson, texts taken as independent) against
-97.6% [95.3, 98.8] for `units`.
+**The 25 texts of `data/units4_to_read.csv`, read (owner, interactive session 2026-11-11).** The 7 changed texts without a mark: faithful for `units4` AMD, Newmont,
+Keurig Dr Pepper and Marvell; **not** faithful for Home Depot (its results, then a "Crypto stocks —" paragraph and a byline: a label with a lowercase word that is not read as a
+header, the T-177 cause). Raymond James (the text is Nvidia's, Raymond James is the analyst that upgrades it) and Morgan Stanley (the same: a freight carrier that Morgan Stanley upgraded)
+were first marked not faithful, with the note that an analyst or investor that only tracks an action is tagged on the other company (`investor_activity`); the owner then decided
+(see "The marking rule" below) that an analyst-only text counts faithful, as in the older marks. Under that rule 6 of the 7 are faithful and `units4` is **304 of 313, 97.1% [94.6, 98.5]**
+(Wilson, texts taken as independent) against 97.6% [95.3, 98.8] for `units` (323 of 331).
 **The 18 lost companies, traced** (articles 436438 and 448725 in the pieces; the rest by reading): **9 are the subject of a line**: Carnival,
 Norwegian, Royal Caribbean, United, Delta, Dow/LyondellBasell, Nike, Simon Property, Kroger. After a header of nobody ("Airlines —", "Cruise
 lines —", "Zoom Video –") the next sentences inherit "nobody", and `attribution_pieces` drops the universe companies they name (`tuple(... if
@@ -469,6 +468,36 @@ owners else ())`: an empty owners list discards the named ones). **8 are named i
 Norfolk Southern, Apple, AbbVie, NXP, CF Industries, Tesla). **1 is a matcher gap**: "International Business Machines —" finds no company, so
 IBM's own line goes to nobody (T-181). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
 no header of its own, after a header of nobody, goes to the universe companies it names; a header line that names one in passing still does not.
+
+**`units5` (T-177), built and measured (2026-11-11; a candidate, `units4` stays the default until the owner decides).** `--reading units5`
+reads the headers `units4` missed (`header_owners(..., units5=True)`): a short name in capitals ("SAP —", "UBS –", any head with a ticker in brackets), a
+group label of plain words ending in a group noun ("Memory stocks —", "Cruise lines —"), a period inside a name ("Amazon.com (AMZN) –", "Box Inc. (BOX) –"),
+and a lowercase text after the dash **only when the head carries its ticker in brackets** ("Whirlpool (WHR) — double digit decline in orders"); and a
+sentence with no header of its own after a header of nobody goes to the universe companies it names (the 9 subjects of the lost 18). Its revision is `units5-…`.
+The review of #172 found two rules too wide, both fixed: a lowercase text after a company's name alone read prose dashes as headers (on 3,000 bodies 14 lines, about
+9 of them prose: "Morgan Stanley - one of the two last large independent… banks -", "Amazon — a major beneficiary of the pandemic —"; now 5, all with a bracketed ticker); and
+any capitals word of up to 4 letters was a company (`FDA —`, `SEC —`, `NEWS —` would have sent a sentence naming Apple to nobody): agencies, wire labels, terms and short places
+are listed in `_CAPS_NOT_COMPANIES` and a ticker in brackets still makes any of them a company. The 67 capitals heads newly read in 3,000 bodies are all companies (SAP 12, RH 10, PVH 6…).
+- *232 bodies, GPU (`compare_cut_readings --a units4 --b units5`, rerun after the fixes, same result):* company texts 1,589 → 1,638; **texts with several headings 23 → 10**, and
+  `several_headings_owner --reading units5` reads the ten as the ten legitimate overlaps (0 given to a company they do not name). 52 gained, 32 changed, **3 lost, all correct** (SAP's
+  line was in Salesforce's and Oracle's texts because they were named in it; a UGI line was in Wells Fargo's, the analyst).
+- *The 18 lost companies:* 12 have a text again under `units5` (the 9 subjects: Carnival, Norwegian, Royal Caribbean, United, Delta, Dow/LyondellBasell, Kroger, Nike, Simon Property;
+  and CF Industries, AbbVie and IBM's own sentence); 6 stay without one (Cisco, Marriott, Norfolk Southern, Apple, NXP, Tesla: named in passing).
+- *The marking rule (owner, 2026-11-11).* The 2026-11-08/10 marks counted an analyst-only text as faithful (the Raymond James and Morgan Stanley `units` texts: yes); some of the newer
+  answers called the same kind of text not faithful (C1, C3, S1, S16, S19, and Morgan Stanley's `units5` text). The owner chose **one rule for every mark: an analyst-only text is
+  faithful** (it is tagged `investor_activity` downstream, T-165). The six marks were changed to yes; `gold/cut_owner_marks_2026_11_11.csv` keeps the first answer in `basis`. The
+  older marks were not re-read (a loose filter finds about 197 marked-yes texts that mention an analyst action: too many, and most are not analyst-only). The mixed-rule figures of the
+  first versions of #172 were also inflated by a bug (the extra marks counted once per draw folder, fixed with a test); with the extras once and the mixed rule: `units5` 347/359 = 96.7% [94.2, 98.6],
+  paired +0.2 [−0.9, 1.3] against `units4`, −0.7 [−1.8, 0.2] against `units`. The rule moves the figures by about one point.
+- *What was read.* The owner's marks were made on 60 other bodies (the faithfulness draws), not on these 232, so the 84 gained and changed texts of the comparison had **no mark**. Two readings
+  since: (1) the 14 new `units5` texts that sit in the marked bodies (13 + Morgan Stanley's), read with the AI's reading shown as the recommended answer (**not blind**); (2) **a blind sample of 30 of the 84**
+  (`scripts/draw_units5_sample_2026_11_11.py`, seed 172, no recommendation shown; `gold/units5_changed_texts_2026_11_11.csv` lists which of the 84 were read: 30 `sample`, 54 `no`): **29 faithful, 1 not**
+  (S17, a byline fragment), 96.7% [83.3, 99.4]. The gained and changed texts are as faithful as the rest, within the width of a sample of 30.
+- *On the marked texts (`units4_vs_owner_marks --a units4 --b units5 --extra-marks …`, bootstrap over bodies, 95%):* **`units5` 351 of 359, 97.8% [95.5, 99.4]; `units4` 304 of 313, 97.1% [94.5, 99.1]; the
+  paired difference is +0.6 points [0.1, 1.5].** Against `units` (327 of 335, 97.6% [95.3, 99.4]) the difference is +0.2 [0.0, 0.4]. **Do not read the +0.6 as "better": it comes from the 46 more marked
+  texts `units5` has (44 are the extra marks, 43 of them faithful), i.e. from added texts being faithful, not from existing texts becoming more faithful.** The two sets are not the same pairs (`units4`'s own text for the sampled changed pairs is
+  unread). Limits: 54 of the 84 changed texts remain unread; one reader; the marks of the 14 first texts are not blind.
+- *Not done:* the full corpus; `units5` is not the default (`DEFAULT_READING` is `units4`); the short-name matcher gap (T-181) still costs IBM's headline sentence.
 
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:

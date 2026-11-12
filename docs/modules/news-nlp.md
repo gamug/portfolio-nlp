@@ -560,7 +560,7 @@ and leaves the old rows. **Rows written before T-176 are `units-…` and stay be
 (the latest with state first), and a reader (T-165, scripts) names the revision it wants, `units4-…`, and never "the latest".** To cut again at the
 same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>'` and `DELETE FROM sub_news WHERE extractor_revision = '<revision>'`
 (deleting `sub_news` alone does nothing: the pending set comes from `pipeline_step_state`); the same text is in `--help`. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
-`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units4|units` picks how the body is read (`units4`, T-176, is the default; `units` cuts as before;
+`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units4|units|units5` picks how the body is read (`units4`, T-176, is the default; `units` cuts as before; `units5`, T-177, is a candidate, not the default;
 `docs/extractor_training.md`). `--fetch`,
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
 revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be

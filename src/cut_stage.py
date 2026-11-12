@@ -7,7 +7,10 @@ none go to the company the trained model chooses, or to nobody. Each company's t
 store the ticker (the schema of ``sub_news`` has no such column): the company is found again downstream, by NER and the
 matcher (D39 (iii)).
 
-The revision of a cut is the reading (``units4`` by default, ``units`` with ``--reading units``) plus ``-`` and 12 hex digits of
+``units5`` (T-177) is a candidate reading, opt-in with ``--reading units5``: it also reads the headers ``units4`` misses (names in
+capitals, group labels, names with a period) and gives a sentence after a header of nobody to the companies it names.
+
+The revision of a cut is the reading (``units4`` by default, ``units`` or ``units5`` with ``--reading``) plus ``-`` and 12 hex digits of
 the SHA-256 of: the model directory's identity, the company names the model is asked about, the model's threshold, the revision of
 the code that cuts and, when it is not the default, the reading. Any of them changing starts new rows. Rows written before
 T-176 are ``units-75642e3f4f72``-style: a different set, not rewritten, and a reader must name the revision it wants.
@@ -31,7 +34,8 @@ DEFAULT_READING: am.Reading = (
 CUT_READINGS: tuple[am.Reading, ...] = (
     "units",
     "units4",
-)  # `units` is kept to cut as before
+    "units5",
+)  # `units` is kept to cut as before; `units5` (T-177) is a candidate
 
 
 def companies_of(conn: NewsNlpDatabase) -> list[Company]:
