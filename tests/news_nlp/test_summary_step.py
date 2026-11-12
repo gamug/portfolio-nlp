@@ -885,6 +885,12 @@ def test_every_command_in_the_usage_block_of_the_steps_cli_parses_and_a_summary_
     assert (
         "(--cut-revision REV | --items single)" in usage
     )  # the usage line says one of them is required
+    module_doc = (
+        Path(__file__).resolve().parents[2] / "docs" / "modules" / "news-nlp.md"
+    ).read_text(encoding="utf-8")
+    step2 = module_doc[module_doc.index("### Step 2: the summary") :].splitlines()
+    # the same usage in the module doc (the final scan found it still showing the cut as optional)
+    assert "(--cut-revision REV | --items single)" in step2[2]
 
 
 def test_the_revision_follows_the_transformers_version_that_generates_the_summaries(
