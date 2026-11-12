@@ -619,6 +619,31 @@ def test_the_size_measure_compares_the_whole_cut_with_its_first_bodies() -> None
     assert measure.sub_news_lengths(raw, "none") == []
 
 
+def test_the_size_measure_takes_only_a_positive_number_of_first_bodies() -> None:
+    """`--first-bodies -1` was `LIMIT -1`, which SQLite reads as no limit: the line "its first -1 bodies" printed the whole cut."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import argparse  # noqa: PLC0415
+
+    import summary_size_measure_2026_11_12 as measure  # noqa: PLC0415 -- a script, not a package
+
+    assert measure.positive_int("500") == 500
+    for bad in ("0", "-1", "ten", "2.5"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            measure.positive_int(bad)
+    with pytest.raises(
+        SystemExit
+    ):  # the parser the script builds refuses it, with an error and not a silent whole cut
+        measure.build_parser().parse_args(
+            ["--results-db", "a", "--source-db", "b", "--first-bodies", "-1"]
+        )
+    assert (
+        measure.build_parser()
+        .parse_args(["--results-db", "a", "--source-db", "b", "--first-bodies", "500"])
+        .first_bodies
+        == 500
+    )
+
+
 # --- round 2 of the review of #173 (M1, M2) --------------------------------------------------------------------------------
 
 

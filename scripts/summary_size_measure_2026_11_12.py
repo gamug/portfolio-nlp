@@ -77,15 +77,30 @@ def report(name: str, lengths: Sequence[int], seconds_per_body: float | None) ->
         print(f"  over {size:>6}: {over:>7} ({share:.1%}){gpu}")
 
 
-def main() -> None:
+def positive_int(text: str) -> int:
+    """An argparse type for a count of bodies: a whole number of 1 or more (SQLite reads ``LIMIT -1`` as no limit at all)."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"{value} is not 1 or more")
+    return value
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--results-db", required=True)
     parser.add_argument("--source-db", required=True)
     parser.add_argument("--scope-revision", default=None)
     parser.add_argument("--cut-revision", default=None)
-    parser.add_argument("--first-bodies", type=int, default=None)
+    parser.add_argument("--first-bodies", type=positive_int, default=None)
     parser.add_argument("--seconds-per-body", type=float, default=0.84)
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     import news_nlp as db  # noqa: PLC0415 -- after the path set-up
 
     db.env.load_env_file()

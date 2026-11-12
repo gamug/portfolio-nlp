@@ -76,7 +76,7 @@ few hundred items would cut it to seconds (not done: the model phase is the cost
 
 ## The measure behind 2,000 (2026-11-12)
 
-`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24` (read-only)
+`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24 --first-bodies 500` (read-only)
 gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-…`) and the 3,134 sub-news of the first 500 `multi` bodies (`units4`; **a sample: the whole `units` cut has 3.05% over 2,000, not 1.6%**, see above):
 
 | over (characters) | single bodies | sub-news (first-500 sample) | time for the singles at 0.84 s a body (an extrapolation) |
@@ -88,7 +88,7 @@ gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-
 
 `--first-bodies 500` prints the sub-news of the cut twice, whole and for its first 500 bodies, which is how the 1.5% and the 3.05% were compared.
 
-Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news: median 268, p90 672, p99 2,309. The owner chose 2,000. The reason offered with it,
+Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news, first-500 sample of `units4`: median 268, p90 672, p99 2,309; the whole `units` cut (165,192): median 292, p90 1,061, p99 3,042 (the sample's tail is shorter than the corpus's: p99 2,309 against 3,042). The owner chose 2,000. The reason offered with it,
 not checked against each downstream model: a 512-token transformer input is about 2,000 to 2,400 characters, so a text under 2,000 reaches NER, the
 relevance model and sentiment whole, and a longer one is the kind that would be truncated. The 0.84 s a body is the earlier summary run's figure (all sizes of
 bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, which makes the figure more likely low than high (a reason, not a measure), so read the hours as an order of magnitude until the first GPU run. For the whole step: 59,432 + 5,046 = 64,478 items × 0.84 s = 54,162 s, about 15 h.
