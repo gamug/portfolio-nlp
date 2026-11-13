@@ -84,3 +84,13 @@ The raw NER spans do not go to `article_entities` (D39 (iii) put them there with
 - **CPU and GPU.** The scorer uses bf16 autocast on CUDA only, as the model was trained and scored; the CPU runs float32. On 220 real pairs the two devices differ by at most 0.021 (mean 0.0014) and no pair changes side of 0.5. The revision does not carry the device.
 - A text over 320 tokens is read up to 320 (the model's length); step 2 keeps a text under about 2,000 characters, roughly 450 tokens, so the end of a longer original may not be read.
 - `--status` prints the counts by state (`review` apart) and, for the revision, the rows, the main rows, the items and the items with a main company.
+
+## The owner's marks (T-170, 2026-11-13)
+
+Three files, in `data/` (git-ignored), made from a copy of the RESULTS database while the step was running:
+
+- `scripts/main_company_marks_2026_11_13.py draw`: the sheet of main companies, one row per (sub-news, candidate), **no score on it**. The sub-news come from six bands of the best relevance score (0.1, 0.3, 0.5, 0.7, 0.9), the same number from each (default 30), so the bands near the threshold are marked too. The sub-news with no candidate are not on it. The bands and their populations are in the sidecar `.strata.json`, which `score` reads to weigh the marks back to the corpus. The owner writes `si` or `no` in `es_principal`, and the ticker in `falta_la_principal` when the main company is not among the rows.
+- `... spans`: 50 organisation spans of 150 random sub-news that the matcher turned into no ticker, for the owner to say which are universe companies.
+- `... score`: the weighted AUC of the score against the owner's marks, the precision and recall at each threshold, the share with a main company, and the rule of T-170 (AUC more than 5 points under 0.90: sub-news get a threshold of their own).
+
+`scripts/translate_marks_sheets_2026_11_13.py` adds the Spanish aid to these sheets and to the summary judge's slice (paid LLM calls, cached, `--yes` to buy). Single bodies and the sector texts are not in the sheets yet.
