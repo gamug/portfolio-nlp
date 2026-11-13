@@ -5,7 +5,7 @@
 ## What it does
 
 It reads the bodies step 1 called `sector` and gives each one **a GICS sector (the 2-digit code, 11 classes) or sends it to `out_of_scope`**.
-Rows go to `body_sector` (`status` `assigned` / `out_of_scope`, `sector`, `candidate`, `margin`, `vote_sector`, the scores and the votes), state to
+Rows go to `body_sector` (`status` `assigned` / `out_of_scope`, `sector`, `candidate`, `margin`, `vote_sector`, the scores and the votes; **the table and its columns were approved by the owner on 2026-11-13**, constitution AI #10), state to
 `pipeline_step_state` (step `sector`). Like the other steps it is idempotent and resumable: a rerun at the same revision adds nothing, a failed body is
 retried and keeps its reason, a batch that fails is redone body by body, three batches in a row that fail completely stop the run, and `--model-dir`,
 `--reading` and the other steps' options are refused. Code: `src/sector_stage.py`; the numbers are in `config/sector_step.json`. The model,
@@ -21,29 +21,34 @@ half a minute on the scratch copy) and loads the model, so the progress bar's ra
    the 11 sectors (5 descriptions each) and four *not a sector* classes (`market_economy`, `investing_general`, `investment_activity`, `unrelated`). A direction
    common to analyst notes ("upgrades the stock, raises the target") is taken out of the chunks first. The **margin** is the best score minus the second.
 2. **Votes.** `triage.CompanyResolver` finds the universe companies the text names; each votes for its GICS sector (at most 3 votes per company).
-3. **Gate.** `assigned` when the best class is a sector **and** (the margin is at least `0.0293` **or** the companies' top sector is that same sector);
+3. **Gate.** `assigned` when the best class is a sector **and** (the margin is at least `0.0293` **or** the companies' top sector is that same sector: **a tie at the top, or no vote, is not agreement**);
    anything else is `out_of_scope`. The owner's rule (2026-11-13): a wrong sector costs more than a missing one.
 
 **The revision** is `sector-` plus 12 hex digits of the hash of the config, the descriptions, the universe and this module's code **as parsed**
 (`news_summary_stage.normalized_code`, as in the summary step): a comment or a docstring does not change it, a constant or an operator does.
 The clean test below was drawn under `sector-cf81d9b32565`, when the hash still covered the raw bytes of the file; `scripts/check_sector_validation_2026_11_13.py`
-re-scores the 57 tracked texts with the code as it is (`sector-ccc1b0f4e093` on 2026-11-13, with the universe of the SOURCE copy used) and finds the same status,
-candidate, vote and margin (within 0.0001) in **57 of 57** rows **on the text the owner read, which is capped at 6,000 characters** (see "The text" below). Run it again after any change that moves the revision.
+re-scores the 57 tracked texts with the code as it is (`sector-417a93feb789` on 2026-11-13, with the universe of the SOURCE copy used) and finds the same status,
+candidate and margin (within 0.0001) in **56 of the 57 rows, on the text the owner read, which is capped at 6,000 characters** (see "The text" below). The 57th is one change of rule, listed in
+`EXPLAINED` of `score_sector_fresh_2026_11_13.py`: a **tie at the top of the vote is no longer agreement** (it used to be the lowest sector code, found in the third review of #179). It turns article 263743, which a
+tied vote had let through and which the owner had marked wrong, into `out_of_scope`, and it empties `vote_sector` on the bodies with a tied vote. Any other difference makes the script exit 1. Run it again after any change that moves the revision.
 
 **The text.** The step classifies the **whole body**. The draw of the clean test, and so the texts the owner read and `gold/texts/sector_validation_texts.csv`, hold only the first 6,000 characters of
-each body (`TEXT_CAP`). 5 of the 57 bodies are longer. The check script also reads the 57 bodies whole from SOURCE: **1 of 57 verdicts differs** (article 464913: `out_of_scope` on the capped text, `assigned` on the
-whole body; the owner had agreed to drop it, so that answer does not carry over), and **all 40 bodies the owner judged as assigned are still assigned on the whole body**, so the 87.5% holds for what the step does.
-The random-sample rate below was measured on the whole body. A chunk of 120 words is far under the embedder's 512-token window: 0 of the 296 chunks of the 57 bodies reached it (the longest has 264 tokens); the embedder
-counts any chunk that does, and a run prints a warning and reports `truncated_chunks` (constitution, Pipeline models 3).
+each body (`TEXT_CAP`). 5 of the 57 bodies are longer. The check script also reads the 57 bodies whole from SOURCE and compares: with the vote rule of the draw one verdict differed (article 464913: `out_of_scope` on the capped
+text, `assigned` on the whole body, through a tied vote); with the rule as it is now **the only verdict that differs from the recorded ones is the explained 263743**, on the capped text and on the whole body alike, and
+**39 of the 40 bodies the owner judged as assigned are still assigned on the whole body** (the 40th is 263743). So what the owner answered holds for what the step does.
+The random-sample rate below was measured on the whole body. A chunk of 120 words is far under the embedder's 512-token window: 0 of the 296 chunks of the 57 bodies reached it (the longest has 264 tokens). The embedder
+marks any chunk that does, and the step keeps the number with the body: `body_sector.scores` holds `_truncated_chunks` when it is above 0 (absent means 0; it is written after the decision, so it never takes part in the ranking), and a run
+prints a warning and reports `truncated_chunks` (constitution, Pipeline models 3).
 
 **Speed** (the same 64 bodies, the model loaded, measured 2026-11-13): GPU (RTX 4050 Laptop) 1.4 s = **45 bodies a second**, so the 32,887 `sector` bodies are about **12 minutes**;
 CPU 14.2 s = **4.5 bodies a second**, about **2.0 hours**. The verdicts are the same on both (64 of 64) and the margins differ by less than 0.00001. Loading the model and embedding the descriptions takes about 4 s.
 An earlier version of this page quoted "15 seconds on the CPU" for a first run: it was the GPU, with the model load inside it.
 
-**How many get a sector.** A random sample of 1,500 of the 32,887 `sector` bodies, scored to the end (`scripts/sector_rate_sample_2026_11_13.py`, seed 20261113): **851 assigned = 56.7%
-(95%: 54 to 59%)**, 649 `out_of_scope`. The sectors given: Financials 190, Energy 161, Information Technology 133, Consumer Discretionary 100, Real Estate 73, Industrials 53, Health Care 49,
-Communication Services 39, Materials 22, Utilities 16, Consumer Staples 15. What the best class was for the 649 sent out: `market_economy` 137, `investment_activity` 73, `investing_general` 14,
-`unrelated` 3 (227 bodies the step reads as not a sector at all), and a sector for the other 422 (a close call that the companies did not back). The 66% an earlier version quoted was a progress line of a draw that stopped when it had enough of each kind, and
+**How many get a sector.** A random sample of 1,500 of the 32,887 `sector` bodies, scored to the end (`scripts/sector_rate_sample_2026_11_13.py`, seed 20261113): **840 assigned = 56.0%
+(95%: 53 to 58%)**, 660 `out_of_scope`. The sectors given: Financials 188, Energy 161, Information Technology 132, Consumer Discretionary 93, Real Estate 73, Industrials 53, Health Care 48,
+Communication Services 39, Materials 22, Utilities 16, Consumer Staples 15. What the best class was for the 660 sent out: `market_economy` 137, `investment_activity` 73, `investing_general` 14,
+`unrelated` 3 (227 bodies the step reads as not a sector at all), and a sector for the other 433 (a close call that the companies did not back). With the first tie rule the rate was 56.7% (851 of 1,500): the 11 bodies that went
+were assigned through a tied vote. The 66% an earlier version quoted was a progress line of a draw that stopped when it had enough of each kind, and
 the 70% of the first 64 real bodies came from the first rows of the table (34 of the 45 were IT); neither is a rate.
 
 ## How it was chosen, as it happened
@@ -51,7 +56,7 @@ the 70% of the first 64 real bodies came from the first rows of the table (34 of
 - The **sector descriptions** were written on the tune half of the labelled bodies, and rewritten after reading its errors (v2).
 - The four **not a sector** classes were written from the owner's notes on the first yes/no review.
 - The **margin threshold** is the 40th percentile of the margins of the tune half, which holds both the tagged bodies and the reviewed rows.
-- The **gate** (`margin or agree`) was chosen after the tune and test tables had been printed in the same run; it is a judgement (it keeps 68% of the bodies against 53% for the margin alone, for 4 points of precision on the test halves).
+- The **gate** (`margin or agree`) was chosen after the tune and test tables had been printed in the same run; it is a judgement (it keeps 65% of the bodies against 53% for the margin alone, for 3 points less precision on the test halves). That a tie is not agreement is a correction, not a tuning: it was decided from the logic and the tune and test halves (65% kept at 83.6%, against 68% at 82.8% with the tie broken by the lowest code), and implemented before the clean test was run through it; asking for **two votes** as well was measured and not adopted (64% at 83.3%: no gain), and the owner agreed on 2026-11-13.
 - The **test halves were read many times** (every variant below was scored on them). They record how the choices were made; they are not a clean measure.
 - The only clean figure is the owner's review of 2026-11-13 (below), drawn with the step as built.
 
@@ -75,8 +80,10 @@ with the small model and a `yes` means "its sector is right": B favours it, so a
 | Company votes alone | | A 79.0% right, B 50.0%; 95% of bodies name a universe company |
 | Embeddings and votes agree | | 71% of A and 44% of B, right then 95.5% and 97.2% |
 | Gate: margin only | | A+B kept 53%, precision 86.7% |
-| Gate: votes agree only | | kept 45%, 86.8% |
-| **Gate: margin or agree (current)** | | **kept 68%, 82.8%** |
+| Gate: votes agree only (tie: lowest code, as first built) | | kept 45%, 86.8% |
+| Gate: margin or agree, a tie broken by the lowest code (as first built) | | kept 68%, 82.8% |
+| **Gate: margin or agree, a tie is not agreement (current)** | | **kept 65%, 83.6%** |
+| Gate: the same and at least two votes (not adopted) | | kept 64%, 83.3% |
 
 Larger embedders, same descriptions and classes (TEST half):
 
@@ -104,23 +111,26 @@ scored by `scripts/score_sector_fresh_2026_11_13.py` from the tracked `gold/sect
 
 | | n | right | 95% interval |
 |---|---|---|---|
-| **Assigned: is the sector right** | 40 | **35 (87.5%)** | 74 to 95% |
+| **Assigned, as the owner answered it (the vote rule of the draw): is the sector right** | 40 | **35 (87.5%)** | 74 to 95% |
 | &nbsp;&nbsp;let through by the margin | 31 | 28 (90.3%) | 75 to 97% |
 | &nbsp;&nbsp;let through by the companies' vote only | 9 | 7 (77.8%) | 45 to 94% |
+| **Assigned under the vote rule as it is now (a tie is not agreement)** | 39 | **35 (89.7%)** | 76 to 96% |
+| &nbsp;&nbsp;let through by the companies' vote only | 8 | 7 (87.5%) | 53 to 98% |
 | Controls (least-similar sector shown) | 5 | 0 yes | the reviewer is not saying yes too soon |
 | Sent `out_of_scope`: the owner agrees | 12 | 7 (58%) | 32 to 81% |
 
-The 5 wrong assigned: two were not sector bodies (investing, market), three were another sector (a European internet note read as consumer discretionary, a dollar-store story read as staples,
+The row that goes is 263743 (a tied vote, marked wrong by the owner), so the 89.7% is the 87.5% minus one wrong row, **not an independent confirmation**: the rule was not chosen on it. The 5 wrong assigned of the draw: two were not sector bodies (investing, market), three were another sector (a European internet note read as consumer discretionary, a dollar-store story read as staples,
 a food story read as health care, where the companies voted for the right sector but the margin let the embedding win). Of the 5 bodies sent out that the owner would have given a sector, the step's best guess was
 that sector in 4.
 
-What the gate costs, with the corpus rates (an estimate on 12 bodies, so very wide): per 100 `sector` bodies, 56.7 are assigned and 87.5% of them are right (about 50); the 43.3 sent out would
-have had a right sector in 4 of 12 cases (about 14). The gate gives up roughly **a fifth** of the right sectors available (14 of 64) to avoid most wrong ones.
+What the gate costs, with the corpus rates (an estimate on 12 bodies, so very wide): per 100 `sector` bodies, 56.0 are assigned and 89.7% of them are right (about 50); the 44.0 sent out would
+have had a right sector in 4 of 12 cases (about 15). The gate gives up roughly **a fifth** of the right sectors available (about 15 of 65) to avoid most wrong ones. The owner's answer on 263743, now sent out, was about its sector
+(he marked it wrong and wrote `out_of_scope:investment_general`); it is not counted among the 12 whose drop he judged.
 
 ### What this does not show
 
-- The intervals are wide (40 and 12 bodies). The 87.5% is one measure on one draw by one reviewer, no inter-annotator figure.
-- It is the precision of the **sectors assigned**, not the accuracy over all sector bodies: **43% of them get none**. Nothing here measures the sub-industry or the D24 bar (">= 80% against the held-out gold"), which stays open in T-167.
+- The intervals are wide (39 and 12 bodies). The 87.5% (89.7% under the corrected tie rule) is one measure on one draw by one reviewer, no inter-annotator figure.
+- It is the precision of the **sectors assigned**, not the accuracy over all sector bodies: **44% of them get none**. Nothing here measures the sub-industry or the D24 bar (">= 80% against the held-out gold"), which stays open in T-167.
 - Materials has no clean tagged body in the gold, and the fresh test has 2 to 5 assigned bodies per sector (Materials 2 of 3 right, Consumer Staples 1 of 2). The per-sector figures are not usable. In the random sample, Consumer Staples (15), Utilities (16) and Materials (22) are the sectors the step gives least.
 - The votes rows of the attempts table use `gold/universe.csv` (507 tickers); the step reads the 548 company rows of SOURCE. On the 170 labelled items 2 vote vectors differ and no verdict changes.
 - The scope step feeds this one: about half of the wrong answers of the first review were not sector bodies at all. Retraining the scope model with those as hard
