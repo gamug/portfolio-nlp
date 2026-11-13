@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -30,6 +31,7 @@ import transformers
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 import ner_stage
+from news_nlp import triage
 from news_nlp.steps import CompanyScore
 from news_nlp.triage import Company, CompanyResolver, in_disclosure
 from news_summary_stage import normalized_code
@@ -50,19 +52,40 @@ def company_name(company: str) -> str:
     return company.split(" (", maxsplit=1)[0]
 
 
+#: Boilerplate words of a disclosure that name a bank or a fund without the text being about it ("An employee of Citigroup Global Markets or its
+#: affiliates is a trustee of (TGT)"); looked for in a window around the match, as ``triage``'s own rules do for the phrases it knows.
+_DISCLOSURE_WORDS = re.compile(
+    r"\b(?:or\s+(?:its\s+)?affiliates|an\s+associate\s+of|is\s+a\s+trustee\s+of|investment\s+banking\s+client|"
+    r"within\s+the\s+past\s+12\s+months|employees?\s+of\s+\w+\s+own)\b",
+    re.IGNORECASE,
+)
+_DISCLOSURE_WINDOW = 160
+
+
+def _in_disclosure(text: str, start: int, end: int) -> bool:
+    """Whether the match at ``text[start:end]`` sits in a disclosure: a phrase ``triage`` knows (``long``, ``owns``, ...), a run of five or
+    more tickers whatever number of them are in the universe (``triage`` asks for three; a run of ticker symbols is not prose), or one of the
+    boilerplate words of ``_DISCLOSURE_WORDS``."""
+    if in_disclosure(text, start, end, None):
+        return True
+    low = max(0, start - _DISCLOSURE_WINDOW)
+    return bool(_DISCLOSURE_WORDS.search(text[low : end + _DISCLOSURE_WINDOW]))
+
+
 def direct_mentions(resolver: CompanyResolver, text: str) -> dict[str, int]:
     """How many times the matcher finds each ticker in the text itself, for the candidates NER did not tag (``--candidates ner+text``).
 
     The mentions ``CompanyResolver.counted_matches`` counts (a word that is also a surname or an everyday word needs the company's full name
     in the text), minus two kinds that name a company without the text being about it: a match that does not start with a capital letter or
-    a digit (the patterns ignore the case: "the gap", "apple season"), and one inside a disclosure line or a ticker list
-    (``triage.in_disclosure``: "Tim Seymour is long AMZN, AAPL, ...")."""
+    a digit (the patterns ignore the case: "the gap", "apple season"), and one inside a disclosure (``_in_disclosure``: "Tim Seymour is long
+    AMZN, AAPL, ...", a list of ticker symbols, "Citigroup Global Markets or its affiliates"). The disclosure rules are word and pattern
+    matches: a disclosure written in other words passes (``docs/companies_step.md``)."""
     counts: Counter[str] = Counter()
     for match, ticker in resolver.counted_matches(text):
         first = match.group(0)[:1]
         if not (first.isupper() or first.isdigit()):
             continue
-        if in_disclosure(text, match.start(), match.end(), resolver.by_ticker):
+        if _in_disclosure(text, match.start(), match.end()):
             continue
         counts[ticker] += 1
     return dict(counts)
@@ -112,11 +135,43 @@ def models_of_the_step() -> dict[str, Any]:
     }
 
 
+#: The constants of ``triage`` the candidates depend on: the words and names the matcher skips or adds, the span floor, the disclosure patterns.
+_TRIAGE_CONSTANTS = (
+    "NAME_UNSAFE_TICKERS",
+    "MIN_ALIAS_LENGTH",
+    "MIN_TICKER_SPAN",
+    "_WORD_TICKERS",
+    "_WORD_NAMES",
+    "_CORROBORATED",
+    "_SHORT_FORMS",
+    "_NO_SHORT_FORM",
+    "_KNOWN_NAMES",
+    "_ALIAS_STOP",
+    "_LEGAL_WORDS",
+    "_GENRE",
+    "_OWNS",
+    "_TICKER_LIST",
+    "_LIST_TICKERS",
+)
+
+
+def _constant(value: Any) -> str:
+    """A constant as text that does not depend on the order of a set: a pattern by its source, a set sorted."""
+    if isinstance(value, re.Pattern):
+        return f"{value.pattern}|{value.flags}"
+    if isinstance(value, frozenset | set):
+        return json.dumps(sorted(value))
+    return repr(value)
+
+
 def hashed_sources() -> dict[str, str]:
-    """The code the revision hashes, normalised (``normalized_code``): this module, the matcher and what the NER stage runs on a text."""
-    return {
+    """The code the revision hashes, normalised (``normalized_code``): this module, the matcher with the disclosure rules it runs and what the
+    NER stage runs on a text; and the constants of ``triage`` the candidates depend on (``_TRIAGE_CONSTANTS``)."""
+    sources = {
         "news_company_stage": normalized_code(Path(__file__).read_text(encoding="utf-8")),
         "triage.CompanyResolver": normalized_code(inspect.getsource(CompanyResolver)),
+        "triage.disclosure_branch": normalized_code(inspect.getsource(triage.disclosure_branch)),
+        "triage.in_disclosure": normalized_code(inspect.getsource(triage.in_disclosure)),
         "ner_stage.merge_bio_predictions": normalized_code(
             inspect.getsource(ner_stage.merge_bio_predictions)
         ),
@@ -124,6 +179,10 @@ def hashed_sources() -> dict[str, str]:
             inspect.getsource(ner_stage.NerInference.predict_batch)
         ),
     }
+    for name in _TRIAGE_CONSTANTS:
+        sources[f"triage.{name}"] = _constant(getattr(triage, name))
+    sources["news_company_stage._DISCLOSURE_WORDS"] = _constant(_DISCLOSURE_WORDS)
+    return sources
 
 
 def revision_of(

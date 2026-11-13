@@ -14,7 +14,7 @@ import pytest
 
 import news_company_stage as stage
 import news_nlp as db_module
-from news_nlp import steps
+from news_nlp import steps, triage
 from news_nlp.steps import CompanyScore
 from news_nlp.triage import Company, CompanyResolver
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
@@ -132,6 +132,16 @@ def test_the_text_candidates_leave_out_common_words_and_disclosure_lists() -> No
         )
         == {}
     )
+    # a name inside the boilerplate of a disclosure is not what the text is about either (review of #178, R1)
+    assert stage.direct_mentions(
+        resolver,
+        "An employee of Apple Inc. or its affiliates is a trustee of the fund. "
+        + "The quarter was calm. "
+        * 12  # the window of a disclosure is 160 characters: a mention further away counts
+        + "Microsoft Corporation reported.",
+    ) == {"MSFT": 1}
+    # a run of five or more tickers is a list even when only two of them are in the universe (the repo's rule asks for three)
+    assert stage.direct_mentions(resolver, "AAPL, DVYE, EDC, EWN, EWZ, MSFT,") == {}
     assert stage.direct_mentions(resolver, "Apple Inc. rose and 3M fell. Apple said so.") == {
         "AAPL": 2,
         "MMM": 1,
@@ -669,3 +679,36 @@ def test_the_status_names_the_two_models_the_step_runs_without_loading_them(
     assert out["models"]["relevance"].startswith("gamug/deberta-v3-company-relevance@8812c8bc")
     assert out["models"]["ner"].startswith("gamug/sec-bert-finer-ord-ner@ba7b9e43")
     assert out["models"]["relevance_private"] is True  # the step needs HF_TOKEN
+
+
+def test_a_ticker_that_is_also_a_word_is_not_a_span_but_the_same_letters_as_a_name_are() -> None:
+    """R5: `ALL`, `NOW`, `KEY`, `CAT` are tickers and words (`_WORD_TICKERS`): as a span they name nothing, while two letters never do."""
+    words = ["ALL", "NOW", "KEY", "CAT", "FOX", "DOW"]
+    universe = [Company(t, f"Zzq{i} Holdings", "", "") for i, t in enumerate(words)]
+    universe.append(Company("MMM", "3M Company", "", ""))
+    resolver = CompanyResolver(universe)
+    assert [resolver.ticker_of_name(w) for w in words] == [None] * len(words)
+    assert resolver.ticker_of_name("MMM") == "MMM"  # a ticker that is not a word counts
+    assert (
+        resolver.ticker_of_name("Zzq0 Holdings") == "ALL"
+    )  # the company is still found by its name
+
+
+def test_the_revision_hashes_the_rules_the_candidates_depend_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R2: the disclosure rules and the word-ticker list change which tickers are candidates, so they change the revision."""
+    base = stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE)
+    monkeypatch.setattr(triage, "_WORD_TICKERS", triage._WORD_TICKERS | {"MMM"})
+    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(triage, "MIN_TICKER_SPAN", 4)
+    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(triage, "_LIST_TICKERS", 4)
+    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(stage, "_DISCLOSURE_WORDS", stage.re.compile("x"))
+    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
+    monkeypatch.undo()
+    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) == base

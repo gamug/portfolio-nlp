@@ -16,11 +16,11 @@ The step is idempotent like the others: a rerun at the same revision adds nothin
 
 ## Two choices the owner made, so the command asks for both
 
-**Decided 2026-11-13 (interactive session): `--candidates ner+text`, `--threshold 0.5`** (revisited with T-170 for sub-news; another value is a new revision). The text below is the evidence.
+**Decided by the owner on 2026-11-13 (interactive session): `--threshold 0.5` (revisited with T-170 for sub-news; another value is a new revision), `--candidates ner+text` and the raw spans not stored.** The owner chose `ner+text` on the figures of its **first definition** (the matcher's mentions with no filter: a candidate company in 99.5% of the sampled sub-news, a main one in 75.0%). The definition was corrected in the review of #178 (lower-case matches and disclosures left out) and the figures were measured again, below; **the owner has yet to confirm the corrected definition** (T-185).
 
 Neither is guessed: `--threshold` and `--candidates` have no default, and both are part of the revision (`companies-` plus 12 hex digits of the SHA-256 of the two models and their revisions, the threshold, the candidates, the universe, the hypothesis, the length, the `transformers` version and the code, as parsed: `news_company_stage.hashed_sources()`). **A new value starts new rows and leaves the old ones** (D39 (vi)); the cost of trying a value is one run of the step (about 15 to 40 items a second on the GPU in the dry run below, so a few hours for the whole corpus).
 
-**`--candidates`: where the companies of a text come from.** `ner` is D39 (3.1) as written: only what NER tags. `ner+text` also runs the matcher over the text (`news_company_stage.direct_mentions`: the mentions `CompanyResolver.counted_matches` counts, without the matches that do not start with a capital letter or a digit and without those inside a disclosure line or a ticker list, `triage.in_disclosure`) and adds the tickers it finds that NER did not tag. A ticker both find keeps the **larger of the two counts**: `mention_count` counts mentions in the text, not the readers' sum, and later steps read it as that; the two counts are not stored apart. Why it is asked: NER does not tag every name (it does not tag `3M`, for one), and the sub-news were cut by the same matcher, so each is about a universe company by construction.
+**`--candidates`: where the companies of a text come from.** `ner` is D39 (3.1) as written: only what NER tags. `ner+text` also runs the matcher over the text (`news_company_stage.direct_mentions`: the mentions `CompanyResolver.counted_matches` counts, without the matches that do not start with a capital letter or a digit and without those inside a disclosure: `triage.in_disclosure` (phrases such as "is long" or "owns", and a run of five or more ticker symbols whatever number of them are in the universe) or one of the boilerplate words of `_DISCLOSURE_WORDS` within 160 characters ("or its affiliates", "an associate of", "is a trustee of", "investment banking client", "within the past 12 months", "employees of … own")) and adds the tickers it finds that NER did not tag. The rules are pattern matches: **a disclosure written in other words passes, and a real mention within 160 characters of a disclosure phrase is dropped with it.** A ticker both find keeps the **larger of the two counts**: `mention_count` counts mentions in the text, not the readers' sum, and later steps read it as that; the two counts are not stored apart. Why it is asked: NER does not tag every name (it does not tag `3M`, for one), and the sub-news were cut by the same matcher, so each is about a universe company by construction.
 
 **`--threshold`: from which relevance score a company is main.** The out-of-fold scores of the 809 marked summaries (`scripts/relevance_threshold_candidates_2026_11_13.py`, unweighted):
 
@@ -40,25 +40,29 @@ Step 2's output at `summary-7a9bd2062bc4` was there for 72,114 single bodies and
 | | single bodies | sub-news |
 |---|---|---|
 | a candidate company, `ner` | 137 (68.5%) | 178 (89.0%) |
-| a candidate company, `ner+text` | 142 (71.0%) | 188 (94.0%) |
+| a candidate company, `ner+text` | 142 (71.0%) | 187 (93.5%) |
 | **a main company, `ner`** | 119 (59.5%) | 141 (70.5%) |
-| **a main company, `ner+text`** | 123 (61.5%) | 148 (74.0%) |
-| candidates but none over 0.5, `ner+text` | 19 | 40 |
+| **a main company, `ner+text`** | 123 (61.5%) | 146 (73.0%) |
+| candidates but none over 0.5, `ner+text` | 19 | 41 |
 | the main company is a ticker the crawl gave the body, of the bodies with a main company | `ner`: 99 of 119 (83%); `ner+text`: 102 of 123 (83%) | no crawl ticker per sub-news |
-| pairs found by the text and not by NER, `ner+text` (how many of them are main) | 10 (4) | 25 (9) |
+| (text, ticker) pairs found by the text and not by NER, `ner+text` (how many of them are main) | 10 (4) | 23 (7) |
 
-**Precision of the text candidates (developer's reading, not the owner's).** A first version took them from `CompanyResolver.mention_spans`; on this sample 109 of its matches were not found by NER, and in the 40 I read about 30 sat in disclosure lines ("Tim Seymour is long AMZN, AAPL, …", "Citigroup Global Markets or its affiliates") or were false friends ("Principal Financial Officer", "Flex LNG"). `direct_mentions` leaves out the disclosure and lower-case matches: 35 pairs remain, and 13 of them are main. I read the 13: 10 are the company the text is about (CrowdStrike, Robinhood, 3M, Lilly, Lowe's, LyondellBasell, Halliburton, Best Buy, Linde, Target), 3 are not (a ticker list, a Citigroup disclosure line, a list entry). Without the disclosure filter the toy example "Our target is to hit the gap by apple season" also gave Gap and Apple; a test pins both filters. A set of 13 is a reading, not a bar.
+**Precision of the text candidates (developer's reading, not the owner's).** Three definitions were measured on this sample, and the counts are of different things, so they are not one series:
+
+1. *The matcher unfiltered* (`CompanyResolver.mention_spans`): **96 (text, ticker) pairs** that NER did not find. A look at the same texts through `counted_matches` with the capital-letter filter gave **109 matches** not found by NER; I read 40 of those 109, and about 30 of the 40 sat in disclosure lines ("Tim Seymour is long AMZN, AAPL, …", "Citigroup Global Markets or its affiliates") or were false friends ("Principal Financial Officer", "Flex LNG"). No lower-case match occurred in the sample; the toy example "Our target is to hit the gap by apple season", which gave Gap and Apple, is removed by the **lower-case** rule, which a test pins.
+2. *With only `triage`'s own disclosure rules* (the head of the first review, `914bf04`): **35 pairs**, 13 of them main. I read the 13: 10 right, 3 wrong, and two of the three were disclosures the rules did not catch (a list of seven ticker symbols with two in the universe, and "Citigroup Global Markets … is a trustee of (TGT)").
+3. *With the symbol-run and boilerplate-word rules added* (this head): **33 pairs**, 11 of them main. I read the 11: 10 right (3M, CrowdStrike, Target, Best Buy, Lilly, Robinhood, LyondellBasell, Halliburton, Lowe's, Linde), 1 wrong (a list entry, "-Chevron -Elan Corp"). 11 is a reading, not a bar.
 
 The share of items with a main company at other thresholds (`ner+text`):
 
 | threshold | 0.1 | 0.3 | 0.4 | 0.5 | 0.6 | 0.8 |
 |---|---|---|---|---|---|---|
 | single bodies | 65.5% | 63.5% | 62.5% | 61.5% | 61.0% | 60.5% |
-| sub-news | 84.5% | 81.0% | 77.5% | 74.0% | 71.5% | 65.5% |
+| sub-news | 84.0% | 80.0% | 76.5% | 73.0% | 70.5% | 65.5% |
 
 What this says, and what it does not:
 
-- **On sub-news the threshold matters, and the 809 summaries do not tell which value is right.** The relevance model never saw a sub-news (T-165's risk, T-170): a fifth of them have a candidate but a best score under 0.5, and the share with a main company moves from 65.5% to 84.5% across the range. Nothing here says whether the lower scores are truly not-main or the model is unsure on short text. T-170 measures it with a set the owner marks.
+- **On sub-news the threshold matters, and the 809 summaries do not tell which value is right.** The relevance model never saw a sub-news (T-165's risk, T-170): a fifth of them have a candidate but a best score under 0.5, and the share with a main company moves from 65.5% to 84.0% across the range. Nothing here says whether the lower scores are truly not-main or the model is unsure on short text. T-170 measures it with a set the owner marks.
 - On single bodies 38.5% have no main company even with the matcher over the text: some name no universe company, some name one only in a form the matcher does not know (the short names of T-181); the split was not measured.
 - Agreement with the crawl's ticker (83% of the bodies with a main company) is a floor on correctness of the pick, not a measure: the crawl's ticker is a tag of the search, D36 keeps it apart from the model's pick, and a body about two companies has two.
 - A dry run of 200 and 200 gives an interval of about ±6 points on each share; these are order-of-magnitude figures for choosing, not results.
@@ -76,7 +80,7 @@ The raw NER spans do not go to `article_entities` (D39 (iii) put them there with
 
 - The relevance model was trained on summaries (T-170): its scores on sub-news are not validated.
 - The matcher's gaps (short names such as `Disney` or `JPMorgan`, T-181) lose those spans; `ner+text` recovers what the matcher knows, not what it does not.
-- **The step needs `HF_TOKEN`.** The relevance repository is private and is read from `config/published_models.json`, not from `config/pipeline_models.json` where the other models are pinned (Pipeline models 1); it is pinned by T-148c4. `--status` prints the two models and their revisions.
+- **The step needs `HF_TOKEN`.** The relevance repository is private and is read from `config/published_models.json`, not from `config/pipeline_models.json` where the other models are pinned (Pipeline models 1); it is pinned by T-148c4. `--status` imports the stage module (a few seconds) and loads no model; it prints the two models and their revisions.
 - **CPU and GPU.** The scorer uses bf16 autocast on CUDA only, as the model was trained and scored; the CPU runs float32. On 220 real pairs the two devices differ by at most 0.021 (mean 0.0014) and no pair changes side of 0.5. The revision does not carry the device.
 - A text over 320 tokens is read up to 320 (the model's length); step 2 keeps a text under about 2,000 characters, roughly 450 tokens, so the end of a longer original may not be read.
 - `--status` prints the counts by state (`review` apart) and, for the revision, the rows, the main rows, the items and the items with a main company.
