@@ -1,8 +1,8 @@
 """Score the owner's answers on the fresh sector test (2026-11-13; see ``draw_sector_fresh_2026_11_13.py`` for how it was drawn).
 
-    uv run scripts/score_sector_fresh_2026_11_13.py [--review data/sector_fresh_to_review_es.csv] [--key data/sector_fresh_key.csv]
+    uv run scripts/score_sector_fresh_2026_11_13.py [--gold gold/sector_validation.csv]
 
-Prints, from the owner's ``correct`` / ``right_sector`` answers and the key file (which rows were controls, the margin the step saw):
+Prints, from the ``fresh`` rows of ``gold/sector_validation.csv`` (the owner's ``correct`` / ``right_sector`` answers, which rows were controls, the margin the step saw):
 
 * the precision of the sectors the step assigned (controls apart), with its Wilson interval, split by what let the body through
   (the margin, or only the companies' vote) and by sector;
@@ -47,26 +47,22 @@ def read(path: Path) -> list[dict[str, str]]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--review", type=Path, default=Path("data/sector_fresh_to_review_es.csv"))
-    parser.add_argument("--key", type=Path, default=Path("data/sector_fresh_key.csv"))
+    parser.add_argument("--gold", type=Path, default=Path("gold/sector_validation.csv"))
     args = parser.parse_args()
-    key = {k["review_order"]: k for k in read(args.key)}
-    rows = [
-        {**r, **{"_" + a: b for a, b in key[r["review_order"]].items()}} for r in read(args.review)
-    ]
-    assigned = [r for r in rows if r["_status"] == "assigned" and r["_control"] == "no"]
-    controls = [r for r in rows if r["_control"] == "yes"]
-    dropped = [r for r in rows if r["_status"] == "out_of_scope"]
+    rows = [r for r in read(args.gold) if r["review"] == "fresh"]
+    assigned = [r for r in rows if r["status"] == "assigned" and r["control"] == "no"]
+    controls = [r for r in rows if r["control"] == "yes"]
+    dropped = [r for r in rows if r["status"] == "out_of_scope"]
     line("assigned (precision)", assigned)
-    by_margin = [r for r in assigned if float(r["_margin"]) >= THRESHOLD]
+    by_margin = [r for r in assigned if float(r["margin"]) >= THRESHOLD]
     line("  let through by the margin", by_margin)
     line("  let through by the vote only", [r for r in assigned if r not in by_margin])
-    for code in sorted({r["model_sector_code"] for r in assigned}):
-        line(f"  sector {code}", [r for r in assigned if r["model_sector_code"] == code])
+    for code in sorted({r["shown_sector"] for r in assigned}):
+        line(f"  sector {code}", [r for r in assigned if r["shown_sector"] == code])
     line("controls (a yes is a reviewer too fast)", controls)
     line("out_of_scope: the owner agrees", dropped)
     wrong = [r for r in dropped if r["correct"].strip().lower() != "yes"]
-    guessed = [r for r in wrong if r["right_sector"].strip() == r["_candidate"]]
+    guessed = [r for r in wrong if r["right_sector"].strip() == r["candidate"]]
     print(
         f"out_of_scope the owner would have given a sector: {len(wrong)}; the step's best guess was that sector in {len(guessed)}"
     )
@@ -74,7 +70,7 @@ def main() -> None:
     for r in assigned:
         if r["correct"].strip().lower() != "yes":
             print(
-                f"  #{r['article_id']} {r['model_verdict']} | right: {r['right_sector'] or '-'} | vote {r['_vote_sector'] or '-'} | {r['notes'][:80]}"
+                f"  #{r['article_id']} sector {r['shown_sector']} | right: {r['right_sector'] or '-'} | vote {r['vote_sector'] or '-'} | {r['notes'][:80]}"
             )
 
 

@@ -42,7 +42,7 @@ two yes/no reviews. Everything was chosen on a **tune half** (even positions) an
 ### The clean test (2026-11-13)
 
 Drawn with the final configuration, from bodies in neither the gold nor the first review; the owner answered yes/no (`scripts/draw_sector_fresh_2026_11_13.py`,
-scored by `scripts/score_sector_fresh_2026_11_13.py`):
+scored by `scripts/score_sector_fresh_2026_11_13.py` from the tracked `gold/sector_validation.csv`, set 12 of `docs/gold_datasets.md`):
 
 | | n | right | 95% interval |
 |---|---|---|---|
