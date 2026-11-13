@@ -914,17 +914,17 @@ def test_the_agreement_is_weighed_back_to_the_sample_and_the_slice_figures_are_n
     """M1: half the slice is flagged by construction; the agreement of the sample is nearer the clean stratum's."""
     tags, verdicts, strata = _stratified_marks(n_flagged=5, n_clean=5, owner_flags_clean=5)
     got = sj.agreement(tags, verdicts, strata)["single"]["faithful"]
-    assert got["slice_raw"] == pytest.approx(
+    assert got["slice"]["raw"] == pytest.approx(
         0.5
     )  # 5 agree (the flagged), 5 do not (the control the owner finds unfaithful)
     assert got["raw"] == pytest.approx(
         10 / 1000
     )  # the sample is 99% clean-judged, and there the owner disagrees
     event = sj.agreement(tags, verdicts, strata)["single"]["main_event"]
-    assert event["raw"] == pytest.approx(1.0) and "slice_raw" in event
+    assert event["raw"] == pytest.approx(1.0) and "slice" in event
     # without strata the slice is the sample (a random draw): raw and kappa are as before and there is no slice_ key
     plain = sj.agreement(tags, verdicts)["single"]["faithful"]
-    assert "slice_raw" not in plain and plain["raw"] == pytest.approx(0.5)
+    assert "slice" not in plain and plain["raw"] == pytest.approx(0.5)
 
 
 def test_the_precision_comes_with_its_interval() -> None:
@@ -1068,3 +1068,67 @@ def test_the_strata_remember_the_sample_and_agree_refuses_the_verdicts_of_anothe
         sj.write_tag_sheet(
             tmp_path / "other.csv", rows, per_group=6, seed=3, verdicts=verdicts, sample_id="ccc"
         )
+
+
+# --- fourth review of #180 -------------------------------------------------------------------------------------------------
+
+
+def _manager_slice() -> tuple[list[dict[str, str]], dict[str, dict[str, Any]], dict[str, Any]]:
+    """5 flagged items the owner agrees are unfaithful and 15 control items of which the owner finds one unfaithful, in a sample of 10 flagged
+    and 990 clean: the slice the default draw gives for a rare event."""
+    return _stratified_marks(n_flagged=5, n_clean=15, owner_flags_clean=1)
+
+
+def test_the_weighed_agreement_and_kappa_carry_an_interval_that_one_mark_can_move() -> None:
+    """M1: one control mark weighs 66, so the weighed figures swing on it and say so."""
+    tags, verdicts, strata = _manager_slice()
+    got = sj.agreement(tags, verdicts, strata, draws=400)["single"]["faithful"]
+    assert got["raw"] == pytest.approx(0.934)
+    low, high = got["raw_interval"]
+    assert low <= got["raw"] <= high and high - low >= 0.15
+    k_low, k_high = got["kappa_interval"]
+    assert k_low <= got["kappa"] <= k_high or got["kappa"] is None
+    event = sj.agreement(tags, verdicts, strata, draws=400)["single"]["main_event"]
+    assert "raw_interval" in event
+
+
+def test_the_slice_figures_are_under_their_own_key_with_a_note_and_not_at_the_top() -> None:
+    tags, verdicts, strata = _manager_slice()
+    got = sj.agreement(tags, verdicts, strata, draws=100)["single"]["faithful"]
+    assert "slice_raw" not in got and "slice_kappa" not in got
+    assert got["slice"]["kappa"] == pytest.approx(
+        0.875, abs=0.01
+    )  # the flattering one: it is about a slice built half flagged
+    assert "half flagged" in got["note"] and "interval" in got["note"]
+    # a random slice has neither the slice key nor the interval
+    plain = sj.agreement(tags, verdicts)["single"]["faithful"]
+    assert "slice" not in plain and "raw_interval" not in plain
+
+
+def test_the_interval_is_reproducible_and_a_slice_of_one_stratum_has_none_to_resample() -> None:
+    tags, verdicts, strata = _manager_slice()
+    a = sj.agreement(tags, verdicts, strata, seed=3, draws=200)["single"]["faithful"][
+        "raw_interval"
+    ]
+    b = sj.agreement(tags, verdicts, strata, seed=3, draws=200)["single"]["faithful"][
+        "raw_interval"
+    ]
+    assert a == b
+
+
+def test_the_interval_resamples_within_the_strata_so_a_stratum_keeps_its_size_and_its_weight() -> (
+    None
+):
+    """With one flagged and one control item, resampling within the strata gives the same slice every time (no interval to speak of); resampling
+    over all the items would drop one of them in half the draws and invent a spread the design does not have."""
+    tags, verdicts, strata = _stratified_marks(n_flagged=1, n_clean=1, owner_flags_clean=1)
+    got = sj.agreement(tags, verdicts, strata, draws=200)["single"]["faithful"]
+    low, high = got["raw_interval"]
+    assert low == pytest.approx(high) == pytest.approx(got["raw"])
+
+
+def test_the_interval_is_the_95_percent_band_not_the_extremes() -> None:
+    values = [float(i) for i in range(1000)]
+    low, high = sj._interval(values)
+    assert low == pytest.approx(25.0) and high == pytest.approx(975.0)
+    assert sj._interval([]) is None

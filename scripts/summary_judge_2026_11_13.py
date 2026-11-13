@@ -920,20 +920,65 @@ def _strata_figures(
     return figures
 
 
+STRATIFIED_NOTE = (
+    "the slice is half flagged by construction: quote the precision, the sensitivity and the weighed figures with their intervals, "
+    "not the figures of the slice (under `slice`)"
+)
+
+
+def _interval(values: list[float]) -> list[float] | None:
+    if not values:
+        return None
+    values.sort()
+    return [
+        values[int(0.025 * len(values))],
+        values[min(int(0.975 * len(values)), len(values) - 1)],
+    ]
+
+
+def _agreement_intervals(
+    pairs: Sequence[tuple[bool, bool]],
+    kinds: Sequence[str | None],
+    weights: Sequence[float],
+    seed: int,
+    draws: int,
+) -> dict[str, Any]:
+    """The 95% interval of the weighed agreement and kappa: the marked items are resampled within their stratum (a stratum keeps its size, so
+    it keeps its weight). One control mark can weigh sixty times a flagged one, so the figures swing on it and the interval says how much."""
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
+    members: dict[str | None, list[int]] = {}
+    for i, k in enumerate(kinds):
+        members.setdefault(k, []).append(i)
+    raws: list[float] = []
+    kappas: list[float] = []
+    for _ in range(draws):
+        idx = [rng.choice(group) for group in members.values() for _ in group]
+        got = _weighted_agreement([pairs[i] for i in idx], [weights[i] for i in idx])
+        if got["raw"] is not None:
+            raws.append(got["raw"])
+        if got["kappa"] is not None:
+            kappas.append(got["kappa"])
+    return {"raw_interval": _interval(raws), "kappa_interval": _interval(kappas)}
+
+
 def _block(
-    pairs: Sequence[tuple[bool, bool]], weights: Sequence[float] | None, stratified: bool
+    pairs: Sequence[tuple[bool, bool]],
+    weights: Sequence[float] | None,
+    kinds: Sequence[str | None],
+    seed: int,
+    draws: int,
 ) -> dict[str, Any]:
     """One question's figures. On a stratified slice (half of it flagged by construction) ``raw`` and ``kappa`` are weighed back to the sample and
-    the figures of the slice itself are ``slice_raw`` and ``slice_kappa``; on a random slice there is one pair of figures."""
+    have an interval; the figures of the slice itself are under ``slice`` and a note says not to quote them. On a random slice there is one pair."""
     n = len(pairs)
-    agree = sum(1 for a, b in pairs if a == b)
-    block: dict[str, Any] = {"n": n, "agree": agree}
-    if stratified:
-        slice_ = _weighted_agreement(pairs)
-        block.update({"slice_raw": slice_["raw"], "slice_kappa": slice_["kappa"]})
-        block.update(_weighted_agreement(pairs, weights))
-    else:
+    block: dict[str, Any] = {"n": n, "agree": sum(1 for a, b in pairs if a == b)}
+    if weights is None:
         block.update(_weighted_agreement(pairs))
+        return block
+    block.update(_weighted_agreement(pairs, weights))
+    block.update(_agreement_intervals(pairs, kinds, weights, seed, draws))
+    block["slice"] = _weighted_agreement(pairs)
+    block["note"] = STRATIFIED_NOTE
     return block
 
 
@@ -992,13 +1037,16 @@ def agreement(
     tags: Sequence[dict[str, str]],
     verdicts: dict[str, dict[str, Any]],
     strata: dict[str, Any] | None = None,
+    seed: int = DEFAULT_SEED,
+    draws: int = 1000,
 ) -> dict[str, Any]:
     """The judge against the owner, on the owner's marks: for 'faithful' (no unsupported or contradicted claim) and 'main event'. A blank mark stops
     the check; a summary the judge could not read or found no claim in is left out (``outside_population`` counts them: the sensitivity is
     conditional on a readable verdict with a claim).
 
     With the strata of the slice (``write_tag_sheet`` with the verdicts) the slice is half flagged by construction, so the raw agreement and
-    kappa are weighed back to the sample (``raw``, ``kappa``) and the figures of the slice itself are ``slice_raw``, ``slice_kappa``; the
+    kappa are weighed back to the sample (``raw``, ``kappa``, each with an interval resampled within strata) and the figures of the slice itself
+    are under ``slice``; the
     'faithful' question also gives the owner's rate of unfaithful summaries among the flagged ones (``precision``, with its interval) and
     among the clean control, and the judge's ``sensitivity`` with its interval. Without them the slice is random and says so."""
     yes = {"si": True, "sí": True, "no": False}
@@ -1021,10 +1069,9 @@ def agreement(
             read, verdicts, strata, yes
         )
         size = (strata or {}).get("population", {}).get(group)
-        stratified = bool(strata) and bool(size)
         out[group] = {
-            "faithful": _block(faithful, _stratum_weights(kinds_f, size), stratified),
-            "main_event": _block(event, _stratum_weights(kinds_e, size), stratified),
+            "faithful": _block(faithful, _stratum_weights(kinds_f, size), kinds_f, seed, draws),
+            "main_event": _block(event, _stratum_weights(kinds_e, size), kinds_e, seed, draws),
         }
         out[group]["faithful"]["outside_population"] = len(mine) - len(faithful)
         if strata is None:
