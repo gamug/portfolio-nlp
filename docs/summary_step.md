@@ -111,7 +111,16 @@ run with a traceback (it is not caught inside `record_summary`): the batch in ha
 
 A text is chunked on sentence boundaries and each pass is cut to the model's input (`truncation=True`); when `MAX_REDUCE_PASSES` (6) is exhausted before the summaries
 collapse to one, a last pass drops the tail without a record (`summary_stage.hierarchical_summarize_batch`, inherited from the v1 stage, very rare); `news_summary`
-stores the number of chunks, not whether this happened. The summaries are model output, not facts (constitution, Pipeline models 4); their faithfulness is **not measured**.
+stores the number of chunks, not whether this happened. The summaries are model output, not facts (constitution, Pipeline models 4); their faithfulness is measured by a judge, not by the owner yet: see "Measuring the summaries" below.
+
+## Measuring the summaries (LLM as a judge)
+
+`scripts/summary_judge_2026_11_13.py` (`draw`, `judge`, `report`, then `tag-sheet` and `agree`; the judge is the `.env` model, `LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
+
+- **Frame:** only the items the model summarised (`text_source = 'summary'`); the ones stored as they are would be trivially faithful. Two groups, `single` (single bodies of a named scope revision) and `multi` (sub-news of a named cut revision). Each group is cut in three buckets by the number of chunks (terciles of the group; the chunk count is discrete, so a bucket can be empty) and the draw takes the same number from each (default 150 per group). The overall rate is weighted by each bucket's population over its sample, with a bootstrap interval resampled within buckets.
+- **The judge** reads the source as the summariser did (a single body as `Title-…\nBody-…`, a sub-news alone), splits the summary into claims and marks each `supported`, `unsupported` or `contradicted` **by the source alone**, and says whether the main event of the source is in the summary. Rates per summary: no unsupported or contradicted claim, at least one contradicted claim, main event covered; per claim: the share unsupported and contradicted. Without a judge: whether the summary keeps the companies the source names (the matcher of step 3, so the main one is the one named most) and its compression.
+- **Not checked against the owner yet.** `tag-sheet` writes a slice (40 per group) with the source, the summary and two blank columns in Spanish (`afirmaciones_sin_respaldo`, `evento_principal`), **without the judge's verdicts**; `agree` reads the marks and gives the raw agreement and Cohen's kappa by group and question. A blank mark stops it.
+- **Run it after the corpus run ends.** On the snapshot of 2026-11-12 the frame held 38,512 summarised single bodies and **no sub-news**: the step stores the items under the size first and runs the model on the long ones after, so the sub-news that need the model were still pending. Smoke test only (6 single bodies drawn, 4 judged by `deepseek-chat`, all supported): it shows the code works, not what the rates are.
 
 ## Not done
 
