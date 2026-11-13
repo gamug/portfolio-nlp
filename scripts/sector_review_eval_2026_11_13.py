@@ -3,7 +3,7 @@
     uv run scripts/sector_review_eval_2026_11_13.py SCRATCH            # the review, the labels it gives, the grid on the TUNE half
     uv run scripts/sector_review_eval_2026_11_13.py SCRATCH --final "<variant>"   # the TEST half, for the one variant chosen
 
-Labels from the review (data/sector_yesno_to_review.csv + data/sector_yesno_key.csv, 100 real rows, the 10 controls apart):
+Labels from the first review (``review = first`` of gold/sector_validation.csv, 100 real rows, the 10 controls apart):
 ``yes`` -> the sector the model showed; ``no`` with a ``right_sector`` -> that sector; ``no`` whose note says the body is not a
 sector body (scope error: market_economy, investing_general, unrelated, multi ...) -> ``reject``; the rest -> unknown (kept
 out of the sector accuracy, counted as wrong in the precision). Three ``right_sector`` cells of the retail articles (15, the
@@ -11,8 +11,9 @@ Materials code) read as a typo of 25 and are unknown too.
 
 Split: the 70 tagged single-sector bodies and the 100 reviewed rows are each split by position (even = TUNE, odd = TEST).
 Descriptions v3 are written from the GICS structure (one line per industry group) and from the owner's notes, before any score
-of them was seen; the TEST halves are printed once, with --final. The owner's notes cover all 100 rows, so the reviewed TEST
-half is not pristine: the clean check is a second, short review of the rows whose answer changes.
+of them was seen. The TEST halves are printed with --final; they were printed for several variants (not once), and the owner's notes cover
+all 100 rows, so the reviewed TEST half is not pristine: the only clean figure is the owner's review of 2026-11-13 (``fresh`` rows,
+``score_sector_fresh_2026_11_13.py``). The votes, the gate and the larger embedders are in ``sector_evidence_2026_11_13.py``.
 """
 
 from __future__ import annotations
@@ -141,17 +142,22 @@ def unit(x: np.ndarray) -> np.ndarray:
 
 
 def read_review() -> list[dict[str, str]]:
-    rows = []
-    with open(ROOT / "data/sector_yesno_to_review.csv", encoding="utf-8-sig", newline="") as f:
-        rev = list(csv.DictReader(f))
-    with open(ROOT / "data/sector_yesno_key.csv", encoding="utf-8-sig", newline="") as f:
-        key = {k["review_order"]: k for k in csv.DictReader(f)}
-    for r in rev:
-        k = key[r["review_order"]]
-        if k["control"] == "yes":
-            continue
-        rows.append({**r, "margin": k["margin"], "sure": k["sure"]})
-    return rows
+    """The 100 real rows of the first review (the 10 controls left out), from the tracked ``gold/sector_validation.csv`` and its texts."""
+    with open(ROOT / "gold/texts/sector_validation_texts.csv", encoding="utf-8", newline="") as f:
+        texts = {r["article_id"]: r for r in csv.DictReader(f)}
+    with open(ROOT / "gold/sector_validation.csv", encoding="utf-8", newline="") as f:
+        first = [r for r in csv.DictReader(f) if r["review"] == "first" and r["control"] == "no"]
+    return [
+        {
+            **r,
+            "model_sector_code": r[
+                "shown_sector"
+            ],  # the sector the model showed (its own best, for a real row)
+            "title": texts[r["article_id"]]["title"],
+            "text": texts[r["article_id"]]["text"],
+        }
+        for r in first
+    ]
 
 
 def label_of(r: dict[str, str]) -> str | None:

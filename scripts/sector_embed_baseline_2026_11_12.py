@@ -125,7 +125,10 @@ def load_inputs() -> tuple[list[dict[str, str]], dict[str, tuple[str, str]]]:
     texts: dict[str, tuple[str, str]] = {}
     for p in (ROOT / "gold" / "texts").glob("*_texts.csv"):
         with open(p, encoding="utf-8-sig", newline="") as f:
-            for r in csv.DictReader(f):
+            reader = csv.DictReader(f)
+            if not {"article_id", "title", "text"} <= set(reader.fieldnames or ()):
+                continue  # a texts file of another set (the cut sample keeps no article id)
+            for r in reader:
                 texts.setdefault(r["article_id"], (r["title"], r["text"]))
     with open(ROOT / "data/sector_rollup.csv", encoding="utf-8-sig") as f:
         rows = [r for r in csv.DictReader(f) if r["status"] == "ok" and r["article_id"] in texts]
