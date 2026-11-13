@@ -664,3 +664,83 @@ def test_the_helpers_take_the_scores_column_and_refuse_a_database_row_with_a_mes
             helper(row)
         with pytest.raises(TypeError):
             helper(None)
+
+
+# --- the manager's sixth review of #179: the run stops when batch after batch fails completely -----------------------------
+
+
+class Broken:
+    """A classifier that fails every batch, as a lost GPU or a broken checkpoint would."""
+
+    revision = "sector-broken"
+
+    def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+        raise RuntimeError("CUDA error")
+
+
+@pytest.fixture
+def many_sector_bodies(
+    tmp_path: Path, results_db_path: Path
+) -> Iterator[db_module.NewsNlpDatabase]:
+    """More sector bodies than three batches hold, all scoped ``sector`` at one scope revision."""
+    source = tmp_path / "many.db"
+    raw = sqlite3.connect(source)
+    raw.executescript(ARTICLES_SCHEMA)
+    stamp_source(raw)
+    for i in range(1, 80):
+        seed_article(
+            raw, id=i, title=f"Story {i}", body_text=f"Body number {i}. " * 5, fetch_status="ok"
+        )
+    raw.commit()
+    raw.close()
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    for body in list(steps.pending_bodies(conn, steps.STEP_SCOPE, SCOPE_REV)):
+        steps.record_scope(conn, body, SCOPE_REV, "sector", {}, "title+800")
+    yield conn
+    db_module.detach_source(conn)
+    conn.close()
+
+
+def test_the_run_stops_when_batch_after_batch_fails_completely_and_the_failed_bodies_wait_for_the_next_run(
+    many_sector_bodies: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _load_cli()
+    with pytest.raises(cli.RunAborted, match="in a row"):
+        cli.run_sector(many_sector_bodies, Broken(), SCOPE_REV, None)
+    report = steps.status(many_sector_bodies, steps.STEP_SECTOR, "sector-broken")
+    assert report["by_state"] == {"failed": 3 * cli.BATCH}  # three batches, and not one more
+    examples = report["failed_examples"]
+    assert isinstance(examples, list) and "CUDA error" in examples[0]["error"]
+    assert (
+        many_sector_bodies.execute("SELECT COUNT(*) FROM body_sector").fetchone()[0] == 0
+    )  # nothing stored as a result
+    retried = steps.pending_sector_bodies(many_sector_bodies, SCOPE_REV, "sector-broken")
+    assert (
+        len(list(retried)) == 79
+    )  # failed bodies are retried by the next run: none is marked done
+
+
+def test_the_command_exits_with_stopped_when_the_run_aborts(
+    many_sector_bodies: db_module.NewsNlpDatabase,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import cut_stage  # noqa: PLC0415 -- the command reads the universe through it
+
+    monkeypatch.setattr(cut_stage, "companies_of", lambda conn: COMPANIES)
+    monkeypatch.setattr(stage, "SectorClassifier", lambda companies: Broken())
+    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
+    monkeypatch.setenv(
+        "SOURCE_DATABASE_URL",
+        str(many_sector_bodies.execute("PRAGMA database_list").fetchall()[-1][2]),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["news_nlp_steps.py", "--step", "sector", "--results-db", str(results_db_path)]
+    )
+    with pytest.raises(SystemExit) as exc:
+        _load_cli().main()
+    assert str(exc.value).startswith("stopped: ") and "in a row" in str(exc.value)
+    assert json.loads(capsys.readouterr().out)["by_state"] == {
+        "failed": 3 * _load_cli().BATCH
+    }  # the status is printed first
