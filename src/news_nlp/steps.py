@@ -22,6 +22,9 @@ STEP_CUT = "cut"
 STEP_SUMMARY = "summary"
 STEP_COMPANIES = "companies"
 STEP_SECTOR = "sector"
+#: Key of ``body_sector.scores`` that holds, only when it is above 0, the number of chunks of the body that filled the embedder's window and were cut there
+#: (constitution, Pipeline models 3). It is written after the decision, so it never takes part in the ranking of the classes; absent means 0.
+TRUNCATED_KEY = "_truncated_chunks"
 ITEM_BODY = "body"
 ITEM_SUB_NEWS = "sub_news"
 SCOPES = ("single", "multi", "sector", "out_of_scope")

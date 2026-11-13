@@ -160,6 +160,12 @@ def _sector_batch(
         counts["failed"] += 1
         return
     for body, r in zip(batch, results, strict=True):
+        scores = dict(r.scores)
+        if (
+            r.truncated_chunks
+        ):  # recorded with the body, not only counted (constitution, Pipeline models 3)
+            scores[steps.TRUNCATED_KEY] = r.truncated_chunks
+            counts["truncated_chunks"] = counts.get("truncated_chunks", 0) + r.truncated_chunks
         steps.record_sector(
             conn,
             body,
@@ -169,7 +175,7 @@ def _sector_batch(
             r.candidate,
             r.margin,
             r.vote_sector,
-            r.scores,
+            scores,
             r.votes,
         )
         counts["done"] += 1
@@ -206,10 +212,13 @@ def run_sector(
                     f"{failed_batches} batches in a row failed completely after {counts['done']} done "
                     f"(see the error of a failed body with --status); the failed bodies are retried by the next run"
                 )
-    truncated = int(getattr(classifier, "truncated_chunks", 0))
-    if truncated:  # a chunk of 120 words never fills the window: say it when one does (constitution, Pipeline models 3)
-        counts["truncated_chunks"] = truncated
-        print(f"warning: {truncated} chunk(s) were cut at the model's window", file=sys.stderr)
+    if counts.get(
+        "truncated_chunks"
+    ):  # a chunk of 120 words never fills the window: say it when one does
+        print(
+            f"warning: {counts['truncated_chunks']} chunk(s) were cut at the model's window (kept in body_sector.scores)",
+            file=sys.stderr,
+        )
     return counts
 
 

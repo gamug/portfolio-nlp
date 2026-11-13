@@ -174,6 +174,7 @@ class SectorResult:
     vote_sector: str  # the top sector of the companies the body names, '' when it names none
     scores: dict[str, float]
     votes: dict[str, int]
+    truncated_chunks: int = 0  # chunks of this body that filled the embedder's window and were cut there (0 for an embedder that does not say)
 
 
 def chunks_of(text: str, words: int) -> list[str]:
@@ -197,11 +198,13 @@ def sector_votes(
 
 
 def top_vote(votes: dict[str, int]) -> str:
-    """The sector with most votes (the lowest code on a tie, so the answer never depends on an order); '' when nobody voted."""
+    """The sector with most votes; '' when nobody voted **or the top is shared** (a tie is not agreement: the second review of #179 found the
+    lowest code winning ties, so a split vote "agreed" with the embedding whenever its sector had the lower code)."""
     if not votes:
         return ""
     best = max(votes.values())
-    return min(code for code, n in votes.items() if n == best)
+    top = [code for code, n in votes.items() if n == best]
+    return top[0] if len(top) == 1 else ""
 
 
 def decide(
@@ -261,9 +264,9 @@ class BgeEmbedder:
         self._tok: Any = None
         self._model: Any = None
         self._device: Any = None
-        #: inputs that filled the whole window (``max_length`` tokens) and were cut there: the model cannot see the rest, so it is counted
-        #: (constitution, Pipeline models 3: no silent truncation); a chunk of 120 words is far under the window, so a count above 0 is a finding
-        self.truncated = 0
+        #: for the texts of the last call, in order: did the text fill the whole window (``max_length`` tokens) and get cut there? The model cannot
+        #: see the rest, so it is recorded with each body (constitution, Pipeline models 3); a chunk of 120 words is far under the window
+        self.last_truncated = np.zeros(0, dtype=bool)
 
     def _load(self) -> None:
         if self._model is None:
@@ -283,6 +286,7 @@ class BgeEmbedder:
 
         self._load()
         out = []
+        cut: list[bool] = []
         with torch.no_grad():
             for i in range(0, len(texts), self.batch_size):
                 batch = self._tok(
@@ -292,9 +296,10 @@ class BgeEmbedder:
                     max_length=self.max_length,
                     return_tensors="pt",
                 ).to(self._device)
-                self.truncated += int((batch["attention_mask"].sum(dim=1) >= self.max_length).sum())
+                cut.extend((batch["attention_mask"].sum(dim=1) >= self.max_length).tolist())
                 cls = self._model(**batch).last_hidden_state[:, 0]
                 out.append(torch.nn.functional.normalize(cls, dim=-1).cpu().numpy())
+        self.last_truncated = np.array(cut, dtype=bool)
         return np.vstack(out) if out else np.zeros((0, 1))
 
 
@@ -323,11 +328,6 @@ class SectorClassifier:
         self._owner: np.ndarray | None = None
         self._desc: np.ndarray | None = None
         self._noise: np.ndarray | None = None
-
-    @property
-    def truncated_chunks(self) -> int:
-        """Chunks the embedder cut at its window so far (0 for an embedder that does not count)."""
-        return int(getattr(self.embed, "truncated", 0))
 
     def prepare(self) -> None:
         """Load the model and embed the descriptions now, so a progress bar does not count it in the first batch (idempotent)."""
@@ -364,6 +364,7 @@ class SectorClassifier:
             chunks = chunks_of(text, words)
             pieces.append([f"{title}. {chunks[0]}", *chunks[1:]])
         flat = self.embed([p for piece in pieces for p in piece])
+        cut = np.asarray(getattr(self.embed, "last_truncated", np.zeros(len(flat), dtype=bool)))
         results, start = [], 0
         for (title, text), piece in zip(items, pieces, strict=True):
             scores = self.scores_of(flat[start : start + len(piece)])
@@ -378,6 +379,15 @@ class SectorClassifier:
                 scores, votes, self.config["margin_threshold"]
             )
             results.append(
-                SectorResult(status, sector, candidate, margin, top_vote(votes), scores, votes)
+                SectorResult(
+                    status,
+                    sector,
+                    candidate,
+                    margin,
+                    top_vote(votes),
+                    scores,
+                    votes,
+                    int(cut[start - len(piece) : start].sum()) if len(cut) == len(flat) else 0,
+                )
             )
         return results

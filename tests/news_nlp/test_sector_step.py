@@ -78,9 +78,23 @@ def test_a_not_a_sector_class_on_top_is_out_of_scope_even_when_confident_or_vote
     assert (status, sector, candidate) == ("out_of_scope", "", "market_economy")
 
 
-def test_the_top_vote_is_the_lowest_code_on_a_tie_and_empty_without_votes() -> None:
-    assert stage.top_vote({"45": 2, "10": 2, "40": 1}) == "10"
+def test_the_top_vote_is_the_sector_with_most_votes_and_empty_on_a_tie_or_without_votes() -> None:
+    assert stage.top_vote({"45": 3, "10": 2, "40": 1}) == "45"
+    assert stage.top_vote({"45": 2, "10": 2, "40": 1}) == ""  # a tie is not agreement
     assert stage.top_vote({}) == ""
+
+
+def test_a_split_vote_does_not_back_a_close_call_even_when_its_sector_has_the_lower_code() -> None:
+    s = scores(c10=0.55, c45=0.5)  # a close call for energy
+    assert stage.decide(s, {"10": 1, "45": 1}, 0.2)[:2] == (
+        "out_of_scope",
+        "",
+    )  # was assigned while the lowest code won ties
+    assert stage.decide(s, {"10": 2, "45": 1}, 0.2)[:2] == ("assigned", "10")
+    assert stage.decide(s, {"10": 1}, 0.2)[:2] == (
+        "assigned",
+        "10",
+    )  # one vote with no rival is still agreement
 
 
 def test_a_company_votes_at_most_three_times_for_its_sector() -> None:
@@ -532,23 +546,42 @@ def test_the_embedder_loads_the_pinned_revision_pools_the_cls_row_and_returns_un
     assert len(calls) == 2  # loaded once, not per call
 
 
-def test_a_chunk_that_fills_the_window_is_counted_and_the_run_says_so(
+def test_a_chunk_that_fills_the_window_is_marked_per_text_and_per_body(
     monkeypatch: pytest.MonkeyPatch,
-    pair: db_module.NewsNlpDatabase,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _fake_transformers(monkeypatch, {"long": 9999}, [])
+    _fake_transformers(monkeypatch, {"T. long words here": 9999, "second": 9999}, [])
     emb = stage.BgeEmbedder("org/embedder", "a" * 40, 8, 4)
-    emb(["short", "long", "long"])
-    assert emb.truncated == 2  # the two texts that reach the window
+    emb(["short", "second", "third"])
+    assert emb.last_truncated.tolist() == [False, True, False]  # in the order of the texts
     clf = stage.SectorClassifier(COMPANIES, CONFIG, embed=emb)
-    assert clf.truncated_chunks == 2
-    assert classifier().truncated_chunks == 0  # an embedder that does not count says 0
+    cut, fine = clf.classify([("T", "long words here"), ("U", "short words")])
+    assert (cut.truncated_chunks, fine.truncated_chunks) == (1, 0)
+    assert (
+        classifier().classify([("T", "oil")])[0].truncated_chunks == 0
+    )  # an embedder that does not say
 
+
+def test_the_cut_chunks_are_stored_with_the_body_and_counted_by_the_run(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
     class Cut(Stub):
-        truncated_chunks = 3
+        def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+            return [
+                stage.SectorResult(
+                    "assigned", "10", "10", 0.5, "10", {"10": 0.9}, {}, 3 if "Oil" in t else 0
+                )
+                for t, _ in items
+            ]
 
     counts = _run(pair, Cut())
     assert counts["truncated_chunks"] == 3
     assert "3 chunk(s) were cut" in capsys.readouterr().err
-    assert "truncated_chunks" not in _run(pair, Stub())  # nothing pending, nothing to say
+    rows = [json.loads(r[0]) for r in pair.execute("SELECT scores FROM body_sector ORDER BY rowid")]
+    assert [steps.TRUNCATED_KEY in r for r in rows] == [
+        True,
+        False,
+        False,
+    ]  # only the body that had one
+    assert rows[0][steps.TRUNCATED_KEY] == 3
+    clean = _run(pair, Stub())  # a new revision, nothing cut
+    assert "truncated_chunks" not in clean
