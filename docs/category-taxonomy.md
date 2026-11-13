@@ -1,208 +1,54 @@
-# News article category taxonomy
+# Category taxonomy (D15)
 
-> **Superseded for the Work item 18 re-tag by `docs/labelling-spec-v2.md`**: six scopes, 13 labels
-> plus `other` / `uncertain`, per analysed company. This file remains the definition of the 9 original labels.
+The labels step 7 of the stepped pipeline gives each text **per main company** (`PLAN.md` D15, D29, D39 (7)): a
+summary or a sub-news is read with its main company, and the label says which dimension of that company's news the
+text is about. The owner settled the taxonomy on 2026-10-29 and the rules for close cases on 2026-11-05 and
+2026-11-11; the tagging guide with every owner call and its example articles is `docs/labelling-spec-v2.md`, and this
+page is the list of labels it applies.
 
-## Purpose
+**Where it is in code.** `news_nlp.retag.D15_LABELS` is the machine-readable list (the nine slugs of
+`news_nlp.taxonomy.CATEGORY_SLUGS`, the four added in D15, then `other`, `uncertain` and `unrelated`);
+`retag.COMPANY_LABELS` is the same without `unrelated`, which is a scope, not a label of a company.
+`retag.NEW_LABEL_GUIDE` carries the one-line definitions of the added labels for the owner's guide CSV.
+`tests/news_nlp/test_labelling_spec.py` checks that `docs/labelling-spec-v2.md` names every one of them.
 
-`news_nlp`'s category stage classifies every article into one of 10 fixed
-categories representing a *dimension of company performance* (earnings,
-M&A, leadership, etc.), so that sentiment produced by the sentiment stage
-can be attributed to the right dimension rather than treated as one
-undifferentiated "sentiment about the company" number. This is intended as
-a reusable controlled vocabulary for the not-yet-built knowledge-graph
-module downstream of `news_nlp` (see `README.md`'s pipeline diagram), not
-just an internal detail of the category stage — hence living at the top
-level of `docs/`, not nested under `docs/modules/`.
+**The model.** Not built: the owner trains it on `gold/category_gold_v2.csv` (284 bodies) and measures it on the
+held-out `gold/category_gold_v2_test.csv` (200), bar >= 80% agreement (D24; `TASKS.md` T-174). Whether it is a
+fine-tuned classifier or a zero-shot one over these labels is the owner's choice. The v1 category stage, a zero-shot
+classifier over the nine slugs and `other` per (URL, ticker) pair, is deprecated (owner, 2026-11-12); its taxonomy
+page, sources and calibration are in `docs/legacy/category-taxonomy-v1.md`.
 
-Zero-shot NLI classification (the technique used here — see
-`src/pipeline.py`'s `run_category_stage`) needs a fixed
-`candidate_labels` list; it doesn't invent categories, it only picks the
-best-fitting one(s) from a list supplied at inference time. So this
-taxonomy had to be designed up front, from real published sources, rather
-than left for the model to discover.
+## The labels
 
-## Sources
+A text gets one label per main company; a company may carry two labels in one article when the article reports two
+events about it (owner call 12). Take the dimension the **headline event** belongs to; an analyst's reaction to that
+event does not change it (the reaction is `market_analyst_sentiment` only when the reaction is the story).
 
-The 9 substantive categories below were triangulated across four
-independent, real-world financial-news/company-event taxonomies, so no
-single source's idiosyncrasies dominate the result:
+| Label | The text is about | Not this label when |
+|---|---|---|
+| `earnings_performance` | results, guidance, revenue or profit figures | a rating on the results is the story (`market_analyst_sentiment`) |
+| `mergers_acquisitions` | deals, takeovers, divestitures | a joint effort with no change of ownership (`partnerships_business_dev`) |
+| `leadership_governance` | executive appointments and departures, board actions, an executive's insider trade | a fund or famous investor moves a stake (`investor_activity`) |
+| `legal_regulatory` | litigation, regulatory action, sanctions, bankruptcy | the public standing is the story with no legal event (`reputational_harm`) |
+| `product_innovation` | product launches, R&D, technology; also news about a product the public consumes when a regulator or a health body is the actor (together with `legal_regulatory`, owner call 15) | |
+| `capital_shareholder_returns` | dividends, buybacks, debt and credit actions of the company | an investor buys or sells the stock (`investor_activity`) |
+| `labor_human_capital` | layoffs, hiring, workforce and labour relations | |
+| `market_analyst_sentiment` | analyst ratings and price targets, stock price moves, an investor's bullish or bearish view | the article compares companies (`peer_comparison`); a stake moves (`investor_activity`) |
+| `partnerships_business_dev` | strategic alliances, joint ventures, distribution deals | the company acts against a rival (`competitive_actions`) |
+| `reputational_harm` | an event that damages or repairs the company's public standing with no legal or earnings event as the story: apologies, service failures, controversies, boycotts, pledges after criticism | a lawsuit or fine (`legal_regulatory`); layoffs (`labor_human_capital`) |
+| `competitive_actions` | the company's own move or statement against or about a competitor: share fights, rival facilities, pricing pressure | a joint effort (`partnerships_business_dev`); a rating (`market_analyst_sentiment`); a writer weighing companies (`peer_comparison`) |
+| `investor_activity` | what investors do with the company's stock when a stake moves: a fund or famous investor buys or sells, an activist position, 13F filings, large block trades (owner call 3) | the company's own buyback or dividend (`capital_shareholder_returns`); an executive's insider trade (`leadership_governance`); a view alone (`market_analyst_sentiment`) |
+| `peer_comparison` | the point of the article is a comparison between companies (which is the better stock, who is ahead); every compared company gets it, and a single company weighed against its sector or peers too (owner call 6) | a rating or price target on one company (`market_analyst_sentiment`) |
+| `other` | the event is clear and about the company but fits none of the 13 labels above (an anniversary, an office move) | a CEO's view on the economy (that body is `market_economy`, with no company label) |
+| `uncertain` | two or more labels fit equally and the headline event does not decide, or the event is not in the first 6,000 characters; a label-level answer only, the scope never abstains (D20) | the event is clear but fits no label (`other`) |
 
-1. **RavenPack News Analytics taxonomy** —
-   https://www.ravenpack.com/technology/classification — a financial-news
-   analytics vendor's proprietary event taxonomy. Categories drawn from:
-   acquisitions & mergers, analyst ratings, credit, credit ratings,
-   dividends, earnings, equity actions, insider trading, labor issues,
-   legal, marketing, partnerships, price targets, products/services,
-   regulatory, revenues, sanctions, stock picks, stock price.
-2. **SASB Materiality Map** — https://sasb.ifrs.org — the Sustainability
-   Accounting Standards Board's 5 primary company-performance dimensions
-   (Environment, Social Capital, Human Capital, Business Model &
-   Innovation, Leadership & Governance) and their 26 underlying General
-   Issue Categories. Used for the categories with no direct RavenPack
-   analogue: Leadership & Governance, Business Model & Innovation, Human
-   Capital.
-3. **IPTC Media Topics** —
-   https://www.iptc.org/std/NewsCodes/treeview/mediatopic/mediatopic-en-GB.html —
-   the news industry's standard story-classification taxonomy, maintained
-   by the International Press Telecommunications Council. Its "Economy,
-   Business and Finance" branch covers corporate earnings, stock buyback,
-   corporate dividends, bankruptcy, business restructuring,
-   layoffs/downsizing, mergers/acquisitions — used to corroborate category
-   boundaries against how the news industry itself already classifies this
-   content.
-4. **Refinitiv/Thomson Reuters News Analytics (TRNA) topic codes** — a
-   financial-data vendor's real-time news topic codes, e.g. `MRG` (Mergers
-   & Acquisitions), `RES`/`RESF` (Results/Results Forecast), `DIV`
-   (Dividends), `RCH` (Research/analyst) — used as a cross-check that the
-   category boundaries match how a major financial-news feed already tags
-   stories.
+`unrelated` is a **scope**, not a label: a body not about business, finance or the economy, flagged and skipped by
+every later step (D16). The scopes (`single`, `multi`, `sector`, `market_economy`, `investing_general`, `unrelated`)
+are decided before any label, by step 1 (`docs/scope_training.md`); `market_economy`, `investing_general` and
+`unrelated` stop after the scope and get no category (D39).
 
-## The taxonomy
+## What the nine original labels drew on
 
-`news_nlp.taxonomy`'s `CATEGORY_LABELS` is the canonical machine-readable
-source for this table — keep this doc in sync with it if the labels ever
-change. `CATEGORY_GROUPS` (see "Hierarchical classification" below) groups
-these same 9 slugs into 3 classification groups; it doesn't add or remove
-any category here.
-
-| slug | display name | scope | sources |
-|---|---|---|---|
-| `earnings_performance` | Earnings & Financial Performance | Quarterly/annual results, guidance, revenue/profit figures | RavenPack (earnings, revenues), Refinitiv (RES/RESF), IPTC (corporate earnings) |
-| `mergers_acquisitions` | Mergers & Acquisitions | Deals, takeovers, divestitures | RavenPack (acquisitions & mergers), Refinitiv (MRG), IPTC (mergers/acquisitions) |
-| `leadership_governance` | Corporate Leadership & Governance | Executive appointments/departures, board actions, insider trading | SASB (Leadership & Governance), RavenPack (insider trading) |
-| `legal_regulatory` | Legal & Regulatory | Litigation, regulatory action, sanctions, bankruptcy | RavenPack (legal, regulatory, sanctions), IPTC (bankruptcy, business restructuring) |
-| `product_innovation` | Product & Innovation | Product launches, R&D, technology | SASB (Business Model & Innovation), RavenPack (products/services) |
-| `capital_shareholder_returns` | Capital Actions & Shareholder Returns | Dividends, buybacks, debt/credit actions | RavenPack (dividends, equity actions, credit/credit ratings), IPTC (stock buyback, corporate dividends) |
-| `labor_human_capital` | Labor & Human Capital | Layoffs, hiring, workforce/labor relations | SASB (Human Capital), RavenPack (labor issues), IPTC (layoffs and downsizing) |
-| `market_analyst_sentiment` | Market & Analyst Sentiment | Analyst ratings/price targets, stock price moves | RavenPack (analyst ratings, price targets, stock picks, stock price), Refinitiv (RCH) |
-| `partnerships_business_dev` | Partnerships & Business Development | Strategic alliances, joint ventures, distribution deals | RavenPack (partnerships, marketing) |
-| `other` | Other | Catch-all — anything below the confidence threshold against every category above | n/a — the below-threshold fallback |
-
-## Hierarchical classification (2026-09-09)
-
-The classifier does NOT run all 9 substantive labels against each other in
-one softmax. It used to (a flat 9-way softmax), but that empirically starved
-real signal for several labels: with 9 mutually-exclusive candidates, the
-no-signal uniform baseline is only ~0.11, and `product_innovation`
-(recall 0.209 at n=359 true examples in an eval run), `partnerships_business_dev`
-(0.224, n=170), and `leadership_governance` (0.282, n=85) were predicted
-`other` on 48-74% of their true instances — on those misses the model's own
-raw score for the *correct* slug averaged only 0.14-0.16, barely above the
-0.111 baseline (i.e. genuinely no signal, not a near-miss on the threshold —
-under 5% of misses were even ≥0.3). Sampled judge rationales confirmed these
-were unambiguous articles (a product launch, clinical trial data, a
-cloud-strategy piece), not genuine edge cases — the model just couldn't
-produce a confident signal while competing against 8 other candidates at
-once.
-
-Fix: classify in two smaller softmax passes instead of one big one. `news_nlp.taxonomy.CATEGORY_GROUPS`
-groups the 9 slugs into 3 groups of 3, each mixing at least one strong and
-one weak performer from the numbers above:
-
-| group slug | children |
-|---|---|
-| `corporate_actions` | `earnings_performance`, `mergers_acquisitions`, `capital_shareholder_returns` |
-| `governance_legal_workforce` | `leadership_governance`, `legal_regulatory`, `labor_human_capital` |
-| `market_product_partnerships` | `product_innovation`, `market_analyst_sentiment`, `partnerships_business_dev` |
-
-1. **Level 1**: a 3-way softmax over the 3 groups' own hypotheses
-   (uniform baseline ~0.33, ~3x higher signal-to-noise than the old flat
-   design). If the winning group's score is below `CATEGORY_GROUP_FLOOR`
-   (**0.40**, ~1.2x that baseline), the distribution is treated as flat/
-   uninformative and the article is labeled `other` directly — level 2 is
-   skipped entirely for it, and every leaf score column is `0.0`.
-2. **Level 2** (only for articles that didn't short-circuit): the **top-2**
-   groups from level 1 — not just the winner — combine their 6 children into
-   one candidate set for a second softmax (baseline ~0.17). The final
-   `label` is that softmax's winner if it clears
-   `pipeline.CATEGORY_CONFIDENCE_THRESHOLD` (**0.6** as of the 2026-09-09
-   calibration below — ~3.6x its own 6-way baseline, back in line with the
-   original flat 9-way design's own ~3.6x ratio over *its* 0.111 baseline;
-   launched at 0.4/~2.4x, see why that changed below), else `other`.
-   Using the *top-2* groups, not just the top-1, means a narrow level-1 miss
-   can still be recovered at level 2 as long as the true group was 2nd
-   place — a strict single-path cascade could never recover from that.
-
-**What gets persisted**: `article_category` gains `group_label`/`group_score`
-(the winning level-1 group and its probability, set even when the final
-`label` is `other`), alongside the same 9 leaf-slug score columns as before.
-The 3rd-place group's 3 children — the group that didn't make an article's
-top-2 — never get a level-2 forward pass at all, so their columns are `0.0`.
-**This `0.0` means "not evaluated," not "confidently rejected"** — don't
-read it as the model having ruled that category out; it just never got
-asked. The same is true, for all 9 leaf columns, on the flat-level-1
-short-circuit path.
-
-### Threshold calibration (2026-09-09)
-
-The launch value of `CATEGORY_CONFIDENCE_THRESHOLD` (0.4, ~2.4x the level-2
-baseline) was a starting estimate, explicitly flagged as needing real data.
-The first post-hierarchy eval run (2800 rows, eval_run 19 / mlflow
-`8c470ea1`) confirmed the target categories improved dramatically —
-`product_innovation` recall 0.209→0.613, `partnerships_business_dev`
-0.224→0.510, `leadership_governance` 0.282→0.526 — but `acc_other` collapsed
-from ~0.80-0.83 (previously the *best*-performing class) to **0.215** (the
-*worst*): 701 of 1,322 judge-confirmed true-`other` articles got assigned a
-specific wrong label instead.
-
-Checked before changing anything: those 701 were not near-threshold misses
-(mean/median winning score 0.661/0.641, only 22.7% even close to 0.4) —
-reducing per-decision competition to let real signal surface for weak
-categories also let spurious signal surface for genuinely generic/ambiguous
-articles that the old, stricter 9-way contest used to correctly route to
-`other`. Also checked level 1: even *correctly*-resolved true-`other`
-articles clear `CATEGORY_GROUP_FLOOR` comfortably (mean group_score 0.50),
-so the problem lived at level 2's threshold, not level 1's floor (left
-unchanged at 0.40).
-
-Raised `CATEGORY_CONFIDENCE_THRESHOLD` to **0.6**: at that level, 301/701
-(43%) of the false-`other` losses resolve correctly, at a cost of only
-8-18% of the newly-won true-positive recall on the three target categories
-(their correctly-labeled scores cluster far higher, mean ~0.80) — a good
-trade, not a coin flip, but still a reasoned calibration point rather than a
-fully validated one. Retune again using `article_category`'s stored
-per-label score distribution once more post-calibration data exists.
-
-This changes what gets written for *future* pipeline runs only — it does not
-retroactively reclassify already-scored articles (`run_category_stage` only
-processes rows absent from `article_category`). A bulk re-classification of
-existing rows, if ever wanted, is a separate, not-yet-built follow-up (no
-reusable bulk-backfill script currently exists in `scripts/`).
-
-### Per-slug precision/recall, and why precision is the metric that matters (2026-09-09)
-
-Full methodology, the per-slug table, and the `other`-bucket caveat live in
-`docs/evaluation.md`'s "corrected post-calibration numbers" / "Why
-precision, not recall, for category" / "The `other` bucket" sections
-(eval_run 21, mlflow `0a18577e`) — summarized here because it bears directly
-on how to read this taxonomy's categories in practice:
-
-- **Precision matters more than recall for this stage.** Unlike sentiment
-  (where a missed negative is a blind spot with no fallback), every article
-  that isn't confidently a specific category already has a safe one:
-  `other`. A model too cautious about a slug just under-fills that slug —
-  recoverable. A model too eager actively mislabels an article with a
-  specific, actionable-sounding wrong category — not recoverable by a
-  downstream consumer reading `article_category.label`. So "when the model
-  commits to a label, is it right" (precision) is the number that matters
-  most per slug, not "did it catch every instance" (recall).
-  `capital_shareholder_returns` (precision 0.074) and `mergers_acquisitions`
-  (precision 0.926, recall 0.481 — conservative, not wrong) are the two
-  slugs furthest apart on this axis right now.
-- **`other` is not yet a trustworthy "no category" signal.** Its own
-  precision is 0.474 — over half the time the model says `other`, the judge
-  says there was a real category. The failure *direction* still matches the
-  business preference (no false specific claim reaches a consumer), but
-  `other` today reads more like "not confident enough to commit" than
-  "verified no relevant category" — anything downstream filtering out
-  `other` rows as irrelevant is discarding a lot of real hits along with it.
-
-## Classification input
-
-The classifier runs on the article's title plus the lead chunk of its body
-(not the full article, and not the opt-in `article_summary` — see
-`docs/modules/news-nlp.md` for why). News articles are inverted-pyramid, so
-the opening sentences almost always establish the dominant topic. Unaffected
-by the hierarchical redesign above — both levels classify the same premise,
-just against different (smaller) hypothesis sets.
+The nine slugs kept from the v1 taxonomy were triangulated from RavenPack News Analytics, the SASB Materiality Map, IPTC
+Media Topics and Refinitiv/TRNA topic codes; the source of each is in `docs/legacy/category-taxonomy-v1.md`. The four
+added labels come from the owner's notes on the 720 articles tagged in October 2026 (`docs/labelling-spec-v2.md`).

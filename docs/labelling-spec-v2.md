@@ -5,8 +5,9 @@ SOURCE store (each checked to exist there on 2026-10-29).
 
 It is the guide for the re-tag of the 720 articles (gold v2, T-146b), for the revised LLM
 labelling prompt (T-146c) and for the held-out gold (T-146e). Rules marked **[owner call N]** were
-decided by the owner (the numbered list at the end). It builds on D11–D24 (`PLAN.md` Work item 18, "Decisions"). The older 9-label definitions with
-their close calls are in `docs/category-taxonomy.md`.
+decided by the owner (the numbered list at the end). It builds on D11–D24 (`PLAN.md` Work item 18, "Decisions"). The labels are listed in `docs/category-taxonomy.md`
+(the D15 taxonomy); the v1 page of the nine older labels, with their sources, is `docs/legacy/category-taxonomy-v1.md`.
+The LLM labelling prompt (T-146c, silver labels) is out of the MVP (D18, owner 2026-11-10); the gold files remain.
 
 ## What is tagged
 
@@ -44,8 +45,7 @@ article away from `single` unless the market or the industry is the point (see s
    (stocks rally; a strategist says to buy the dips). A company event that also moves the market
    follows the headline event: 164613, "Caterpillar downgrade pressures the overall stock
    market", is `single` with `market_analyst_sentiment` when the downgrade is the story and
-   `market_economy` when the market move is. Summarised in the `MARKET` / `ECONOMY` rows of
-   `sector_summary` (D14).
+   `market_economy` when the market move is. Out of the MVP: the body stops after the scope (D14, D39).
 3. **`sector`**: about one industry or sub-industry rather than a company: sector trends, an
    industry-wide event, a sector's outlook; companies appear as examples. Needs a `sub_industry`.
    Test: if the named company were replaced by another of the same industry, would the article
@@ -56,8 +56,8 @@ article away from `single` unless the market or the industry is the point (see s
    industry; the other companies go in `mentions`.
 4. **`investing_general`**: investing or market-advice content about no company and no sector:
    investing philosophy, strategy pieces, personal-finance and "how to invest" pieces. *Example:*
-   263795 (a bank's call for a new investing approach). No per-company analysis; summarised in
-   the `MARKET` row (D22).
+   263795 (a bank's call for a new investing approach). No per-company analysis; out of the MVP, the body
+   stops after the scope (D22, D39).
 5. **`multi`**: two or more companies are each discussed with their own events or opinions
    (**[owner call 5]** also when they all belong to one industry: "three chip stocks
    to watch" is `multi`; it is `sector` only when the industry itself is the point and the
@@ -78,7 +78,7 @@ labelled); names in a bare list are mentions. Every analysed company is labelled
 
 ## The labels (per analysed company)
 
-Nine existing labels (full tag-when / do-not-tag-when in `docs/category-taxonomy.md`):
+Nine existing labels (each with its scope and the label it is told apart from in `docs/category-taxonomy.md`):
 `earnings_performance`, `mergers_acquisitions`, `leadership_governance`, `legal_regulatory`,
 `product_innovation`, `capital_shareholder_returns`, `labor_human_capital`,
 `market_analyst_sentiment`, `partnerships_business_dev`.
@@ -242,7 +242,7 @@ by `scripts/draw_gate240_2026_11_04.py`; the logic is `retag.draw_gate` / `gate_
   strata, which no tracked file does. The gold files git tracks are three. Two were added by #123: the train set
   `gold/category_gold_v2.csv` (the 240 plus the 44 sector bodies, one row per article, `session`
   = `gate240` or `sector_extra`, tags only, no news text) and the held-out test set
-  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). The third is `gold/company_segments_train.csv` (2026-11-05, owner call: the training set of the step-4 attribution model, T-148b2): automatic labels, not the owner's tags, as article ids, segment positions and tickers, no news text (the text is rebuilt from SOURCE with `news_nlp.company_texts.segment_text`). Nothing else lives in `gold/`, and every later scope or tag feature reads the first two. The draw depends on which rows were tagged when
+  `gold/category_gold_v2_test.csv` (the 200 of T-146e, still to be tagged). The third is `gold/company_segments_train.csv` (2026-11-05, owner call: the training set of the step-4 attribution model, T-148b2): automatic labels, not the owner's tags, as article ids, segment positions and tickers, no news text (the text is rebuilt from SOURCE with `news_nlp.company_texts.segment_text`). Other sets have joined `gold/` since (`docs/gold_datasets.md` lists them all); the scope features read the first two and the enrichment sets 7 and 8. The draw depends on which rows were tagged when
   it ran, so a redraw with the same seed on a later file would give another set: the train file, not
   the seed, is the record of its members. The gate is scored on the overall figure only (see
   T-146c), so the strata do not need a tracked home; per-scope recall is judged on the held-out test.

@@ -21,7 +21,7 @@ corpus (T-022's larger, still-open question), this:
    3 / this script's own commit).
 
 One-shot by design, matching this repo's precedent for this kind of
-maintenance script (`docs/migration-2026-09-01.md`'s
+maintenance script (`docs/legacy/migration-2026-09-01.md`'s
 `migrate_from_urls_db.py`, removed after its one-time use, recoverable from
 git history) -- not meant to become a permanent CLI flag. Safe to remove
 once run; keep it in git history rather than deleting it here so a future

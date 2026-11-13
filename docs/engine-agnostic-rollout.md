@@ -28,9 +28,9 @@ It routes every engine-specific fragment through `portfolio-common`'s
 | 1b | `portfolio-common` v1.2.1 | **Merged**, tagged `v1.2.1` — [#10](https://github.com/gamug/portfolio-common/pull/10). `upsert` `ON CONFLICT DO UPDATE`/`DO NOTHING`, `json_extract`/`json_each`, `relation_exists`/`relation_kind`/`relation_ddl`, `schema_version`, `DatabaseError` — the extra seam Phases 4–5 needed. |
 | 1c | `portfolio-common` v1.2.2 | **Merged**, tagged `v1.2.2` — [#16](https://github.com/gamug/portfolio-common/pull/16). Read-only `ATTACH` preflight narrowed to an orphaned WAL (non-empty `-wal`, no `-shm`), so a live writer no longer blocks it. `portfolio-nlp` re-pinned in [#103](https://github.com/gamug/portfolio-nlp/pull/103). |
 | 2 | `portfolio-nlp` | **Merged** — [#24](https://github.com/gamug/portfolio-nlp/pull/24) + re-pin [#25](https://github.com/gamug/portfolio-nlp/pull/25). `src/news_nlp/` names no engine; 143 tests green. |
-| 3 | `portfolio-knowledge-graph` | **PR open** — [#9](https://github.com/gamug/portfolio-knowledge-graph/pull/9). Pin → `v1.2.0`; one `import sqlite3` + one `Row` hint. |
-| 4 | `portfolio-financial-analysis` | **PR open** — [#32](https://github.com/gamug/portfolio-financial-analysis/pull/32). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA`/`sqlite_master`/`executescript` routed; 203 tests green. `INSERT OR IGNORE`/`ON CONFLICT`/`json_extract` string literals flagged as the remaining seam-adoption work (see that PR). |
-| 5 | `portfolio-data-mining` | **PR open** — [#26](https://github.com/gamug/portfolio-data-mining/pull/26). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA user_version`→`set_schema_version`, `executescript`→`create_schema`, the `articles` `INSERT OR REPLACE` + queue `INSERT OR IGNORE`/`ON CONFLICT` routed through `conn.dialect`; 213 tests green. |
+| 3 | `portfolio-knowledge-graph` | **Merged** 2026-09-05 — [#9](https://github.com/gamug/portfolio-knowledge-graph/pull/9). Pin → `v1.2.0`; one `import sqlite3` + one `Row` hint. |
+| 4 | `portfolio-financial-analysis` | **Merged** 2026-09-05 — [#32](https://github.com/gamug/portfolio-financial-analysis/pull/32). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA`/`sqlite_master`/`executescript` routed; 203 tests green. `INSERT OR IGNORE`/`ON CONFLICT`/`json_extract` string literals flagged as the remaining seam-adoption work (see that PR). |
+| 5 | `portfolio-data-mining` | **Merged** 2026-09-05 — [#26](https://github.com/gamug/portfolio-data-mining/pull/26). Pin → `v1.2.1`; no `import sqlite3` in `src/`; `PRAGMA user_version`→`set_schema_version`, `executescript`→`create_schema`, the `articles` `INSERT OR REPLACE` + queue `INSERT OR IGNORE`/`ON CONFLICT` routed through `conn.dialect`; 213 tests green. |
 
 Also done: **every consumer normalised onto a `v1.2.x` tag** — the three that
 were pinned to loose `portfolio-common` branch commits (`-knowledge-graph`,
@@ -54,7 +54,7 @@ Delivered in PR #9. New: `db/dialect.py` (`Dialect` + `SqliteDialect` +
 ## Phase 2 — `portfolio-nlp`
 
 Per `~/.claude/plans/…meerkat.md` and
-`docs/portfolio-common-v1.2-engine-agnostic.md`. Rewrote
+`docs/legacy/portfolio-common-v1.2-engine-agnostic.md`. Rewrote
 `src/news_nlp/{db,schema,queries,corrections}.py` +
 `sector_summary/queries.py` + `sector_summary/composition.py` +
 `pipeline.py` onto the seam; dropped every `import sqlite3` from `src/`;
@@ -80,7 +80,7 @@ the RDF store is external GraphDB/Fuseki). Only touch-points:
    filesystem paths (matches `portfolio-nlp`'s `env.py` decision). No change
    needed; a docstring note that they feed `connect_url` is optional.
 5. Docs: a short `docs/` coordination note mirroring
-   `portfolio-nlp/docs/portfolio-common-v1.2-engine-agnostic.md`.
+   `portfolio-nlp/docs/legacy/portfolio-common-v1.2-engine-agnostic.md`.
 
 No tests exist; no CI (pre-commit only: ruff + mypy-in-venv + commitizen).
 `.code_quality/ruff.toml` `target-version` is stale at `py310` — fix while
@@ -244,6 +244,8 @@ Work:
 ---
 
 ## Phase 1 follow-ups surfaced by Phases 4 & 5
+
+*Delivered in `portfolio-common` v1.2.1 (status row 1b); kept as the record of why.*
 
 `portfolio-common` v1.2.0 as drafted covers `portfolio-nlp` fully, but the
 other three repos need a few more seam pieces. Fold these into #9 before it

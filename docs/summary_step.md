@@ -1,4 +1,4 @@
-# Step 2: the summary (T-164, T-166; PLAN D39 (2), (3.3), D40)
+# Step 2: the summary (T-164, T-166, T-184; PLAN D39 (2), (3.3), D40)
 
 `uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N] [--scope-revision REV]` (and `--step summary --status`)
 
@@ -28,7 +28,7 @@ the code that summarises: `news_summary_stage.py` whole, and the functions this 
 its helpers, `MAX_REDUCE_PASSES`) and `chunking.py` (`chunk_text`, `split_sentences`, `Chunk`, the sentence regex): `news_summary_stage.hashed_sources()` lists them. **The code is hashed as parsed
 (`normalized_code`): comments, formatting, the kind of quotes and docstrings do not change the revision, so a typo fix or a formatter upgrade does not make the step redo hours of GPU work; a change of
 a name, a constant or an operator does.** A new size, model or such a change starts new rows and leaves the old ones. **An edit to the rest of those two files does not either**: `summary_stage.py` also holds the v1 stage and `chunking.py` the NER span merge, and
-shared code that this step does not run must not make it redo about 14 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
+shared code that this step does not run must not make it redo about 15 GPU hours (a test edits both and checks the revision stays). On CPU or GPU alike (CUDA when there is one).
 
 **A cut is named, never "the latest".** The sub-news are read from the cut revision given with `--cut-revision`; without it the command stops and lists the
 cuts that ran (`--items single` needs none). The same rule as for every reader of `sub_news` (`docs/scope_training.md` §8.1). **The steps after this one read
@@ -61,37 +61,36 @@ The same statements are in `--help` (one source in `cli/news_nlp_steps.py`, test
 A run first says what it is about to do, on stderr, and then works in two phases with a bar each:
 
 ```
-pending 258,226 items (93,034 single bodies, 165,192 sub-news): 64,478 to summarise with the model (over 2,000 characters), 193,748 stored as they are
-original: 100%|...| 193748/193748     <- the items under the size: a write each, no model
-summary:   12%|...| 7812/64478        <- the items over the size: the model; its rate and time left are the real ones
+pending 254,608 items (93,034 single bodies, 161,574 sub-news): 64,480 to summarise with the model (over 2,000 characters), 190,128 stored as they are
+original: 100%|...| 190128/190128     <- the items under the size: a write each, no model
+summary:   12%|...| 7738/64480        <- the items over the size: the model; its rate and time left are the real ones
 ```
 
-The numbers above are computed for the owner's corpus, not printed by a full run (single bodies of scope revision `scope-nli-8ff21e50796b` and the sub-news of cut `units-5f831c298bcb`: 93,034 + 165,192; the single bodies
-over the size, 59,432, were measured on the same corpus and the sub-news over it, 5,046, on the cut). **The sub-news figure is measured on the whole of that cut, the older `units` reading** (3.05% of its 165,192 are over 2,000). The size table below is a sample, the first 500 `multi` bodies by id, and it under-reads: on those same 500 bodies `units` gives 50 over of 3,398 (1.5%) and `units4` 50 of 3,134 (1.6%), so the reading is not what separates 1.6% from 3.05%, the sample is (checked 2026-11-12 on the scratch copies; the two sets of 500 bodies are the same ids, 500 of 500 in common, and the readings cut them into different numbers of sub-news; repeat it with `--first-bodies 500` of `scripts/summary_size_measure_2026_11_12.py`, below). What `units4` or `units5` would give over the whole corpus is not known until a cut with it runs; a re-cut changes the sub-news, the 5,046, the 64,478 and the plan line. **The 258,226 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
+The numbers above are computed for the owner's corpus, not printed by a full run: the single bodies of scope revision `scope-nli-8ff21e50796b` (93,034, of which 59,432 are over the size) and the sub-news of the reference cut `units5-d3e2cbfa830e` (161,574, of which 5,048 are over it: 3.12%, measured 2026-11-13 on a consistent copy of the owner's database with `--cut-revision units5-d3e2cbfa830e`, below). 59,432 + 5,048 = 64,480 items go to the model and 93,034 + 161,574 - 64,480 = 190,128 are stored as they are. (The first version of this plan was computed on the older `units` cut, `units-5f831c298bcb`: 165,192 sub-news, 5,046 over the size, 64,478 to summarise; the reading barely changes the share, 3.05% against 3.12%, and the GPU estimate does not move.) The size table below says why the whole cut and not a sample: on the first 500 `multi` bodies by id the `units5` cut gives 50 over of 3,233 (1.5%), so the sample under-reads by half. **The 254,608 is not a count of articles**: it is single bodies plus sub-news (a body of another scope, `multi`, `sector` or
 `out_of_scope`, is not in it), and about three quarters of it is stored as it is. The first version of the step put all of them on one bar, which mixed instant writes (286 a second measured) with seconds per model item, so
 neither its rate nor its time left meant anything (reported by the owner, 2026-11-12). With `--limit N` the plan counts what this run will do, after the limit; with nothing to do it says `nothing pending`.
 
-The `original` phase writes one transaction per item: 286 items a second on a local disk (a temporary database, 3,000 items), about 11 minutes for 193,748 items; over a mounted disk each commit can cost more, and a commit every
+The `original` phase writes one transaction per item: 286 items a second on a local disk (a temporary database, 3,000 items), about 11 minutes for 190,128 items; over a mounted disk each commit can cost more, and a commit every
 few hundred items would cut it to seconds (not done: the model phase is the cost).
 
 ## The measure behind 2,000 (2026-11-12)
 
-`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units4-e1dff4f90b24 --first-bodies 500` (read-only)
-gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-…`) and the 3,134 sub-news of the first 500 `multi` bodies (`units4`; **a sample: the whole `units` cut has 3.05% over 2,000, not 1.6%**, see above):
+`uv run scripts/summary_size_measure_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units5-d3e2cbfa830e --first-bodies 500` (read-only)
+gave, over the 93,034 `single` bodies of the corpus run (input `Title-…\nBody-…`) and the 161,574 sub-news of the reference cut (**the whole cut; its first 500 bodies give 1.5% over 2,000, a sample that under-reads**):
 
-| over (characters) | single bodies | sub-news (first-500 sample) | time for the singles at 0.84 s a body (an extrapolation) |
+| over (characters) | single bodies | sub-news (whole `units5` cut) | time for the singles at 0.84 s a body (an extrapolation) |
 |---|---|---|---|
-| 1,500 | 75,368 (81.0%) | 89 (2.8%) | 17.6 h |
-| **2,000** | **59,432 (63.9%)** | **50 (1.6%)** | **13.9 h** |
-| 3,000 | 31,992 (34.4%) | 14 (0.4%) | 7.5 h |
-| 4,000 | 17,621 (18.9%) | 4 (0.1%) | 4.1 h |
+| 1,500 | 75,368 (81.0%) | 9,249 (5.7%) | 17.6 h |
+| **2,000** | **59,432 (63.9%)** | **5,048 (3.1%)** | **13.9 h** |
+| 3,000 | 31,992 (34.4%) | 1,731 (1.1%) | 7.5 h |
+| 4,000 | 17,621 (18.9%) | 708 (0.4%) | 4.1 h |
 
-`--first-bodies 500` prints the sub-news of the cut twice, whole and for its first 500 bodies, which is how the 1.5% and the 3.05% were compared.
+`--first-bodies 500` prints the sub-news of the cut twice, whole and for its first 500 bodies, which is how the 1.5% and the 3.1% were compared.
 
-Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news, first-500 sample of `units4`: median 268, p90 672, p99 2,309; the whole `units` cut (165,192): median 292, p90 1,061, p99 3,042 (the sample's tail is shorter than the corpus's: p99 2,309 against 3,042). The owner chose 2,000. The reason offered with it,
+Single bodies: median 2,436 characters, p90 5,216, p99 11,715. Sub-news, the whole `units5` cut (161,574): median 280, p90 1,077, p99 3,065 (the first-500 sample: median 262, p90 647, p99 2,303: its tail is shorter than the corpus's). The owner chose 2,000. The reason offered with it,
 not checked against each downstream model: a 512-token transformer input is about 2,000 to 2,400 characters, so a text under 2,000 reaches NER, the
 relevance model and sentiment whole, and a longer one is the kind that would be truncated. The 0.84 s a body is the earlier summary run's figure (all sizes of
-bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, which makes the figure more likely low than high (a reason, not a measure), so read the hours as an order of magnitude until the first GPU run. For the whole step: 59,432 + 5,046 = 64,478 items × 0.84 s = 54,162 s, about 15 h.
+bodies, on the GPU); it is **not** a measure of this model on this machine, and long texts take more chunks, which makes the figure more likely low than high (a reason, not a measure), so read the hours as an order of magnitude until the first GPU run. For the whole step: 59,432 + 5,048 = 64,480 items × 0.84 s = 54,163 s, about 15 h.
 
 ## First run, determinism and running next to the cut (2026-11-12, scratch copies of the databases, CPU)
 
@@ -116,5 +115,5 @@ stores the number of chunks, not whether this happened. The summaries are model 
 
 ## Not done
 
-The run over the corpus (hours of GPU: it starts after the cut, and the sub-news wait for the cut revision to be chosen, T-177); the faithfulness of the summaries;
+All in T-184: the run over the corpus (hours of GPU; the single bodies do not depend on the cut and can run now; the sub-news are read from the reference cut `units5-d3e2cbfa830e`, whose corpus run has finished: 161,574 sub-news of 30,305 bodies, 5,048 over the size, 64,480 items in all to summarise); the GPU time per item and the determinism check on the GPU; the faithfulness of the summaries.
 `sector` bodies (T-167); the steps after this one (NER on the text, relevance, sentiment, category).

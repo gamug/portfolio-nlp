@@ -15,12 +15,12 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | | |
 |---|---|
 | **Task** | Read a unique news body (title + first 800 characters) and say `single` (one analysed company), `multi` (two or more), `sector` (one industry) or `out_of_scope` (market/economy, investing advice, or unrelated). |
-| **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the category model, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
+| **Selected model** | Two fine-tuned NLI classifiers, both `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (the checkpoint of the v1 category stage, pinned): stage A decides *company / sector / not related*; stage B decides *single / multi* among the company bodies. |
 | **Trained on** | 365 tagged bodies: `category_gold_v2.csv` (284) + `scope_enrich.csv` (51) + `scope_hook.csv` (30). |
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
 | **Result** | The **pinned model** (saved weights, section 7): **83.6% [78.1, 88.9]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+16.5 [9.6, 23.4]**; `out_of_scope` recall 53%. The first fit of the recipe, which the rest of this document analyses: 83.0% [77.5, 88.3], gain +15.9 [9.1, 22.6]. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
 | **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
-| **Known trade-off** | `out_of_scope` recall is about 48% (11 of 33 are read as `single`) while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
+| **Known trade-off** | `out_of_scope` recall is about 48% on the first fit (11 of 33 are read as `single`) and 53% [32, 74] on the pinned weights, while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
 ## 2. What is measured, and how
 
@@ -286,7 +286,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
 - **Not on the FTI pattern and not logged in MLflow** (T-147b). Like the relevance model, the scope scripts are plain scripts.
 - **No refit on all tags yet.** The plan is to refit on the 365 + the 200 held-out only once the bar is
   shown or the owner decides; until then the held-out 200 stays untouched by training.
-- **Step 1 and the sub-news cut are built** (section 8); the size measurement of sub-news (T-166) is not.
+- **Step 1 and the sub-news cut are built** (section 8); the size of step 2 was measured and set at 2,000 characters (T-166, `docs/summary_step.md`).
 - **Seed variation** (three seeds on the selected setup) is the cheapest check that would make the 2-point
   differences interpretable. About 45 minutes of GPU.
 - **More out-of-scope bodies whose title names a company** are the data that would address the trade-off.
@@ -324,6 +324,8 @@ The held-out figures are not printed by the command: `scripts/score_scope_heldou
 all the unique bodies of the corpus (`ok` and `quarantined`, including the 90 without a title). (A first reading gave 309,914
 and "58 left": it opened `nlp.db` without its `-wal` file, which held the last rows. Read a copy of `nlp.db` **with** its
 `-wal`, never the main file alone.) The breakdown (`scripts/scope_corpus_breakdown_2026_11_11.py`, no GPU) gives:
+
+A body takes the status of the first article (by id) that carries it, so a body that is `ok` under one pair and `quarantined` under an earlier one counts as `quarantined` here: 64,901 bodies, against the 81,961 unique bodies that are `ok` under at least one pair (`docs/db-topology.md`, D19).
 
 | Status | Bodies | single | multi | sector | out_of_scope |
 |---|---|---|---|---|---|
@@ -377,8 +379,8 @@ selected on 2026-11-08 (T-148b10), read as `units5` (T-177, default since 2026-1
 
 **Dry run (2026-11-11, 232 multi bodies of the corpus run, in order, model on the GPU, a scratch copy of the databases).**
 232 `done`, 0 `skipped`, 0 `failed`, 1,639 `sub_news` rows (an earlier run on another 232 gave 1,683). A rerun adds nothing.
-About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies of
-the corpus take about 2.5 to 3 h** on the GPU. The full run is for the owner to start; no speed-up is included (fp16 or pair
+About 2 min to load the model, then 0.4 to 0.6 s a body (the model scoring is about 92% of it): **the ~19,775 multi bodies first estimated
+take about 2.5 to 3 h** on the GPU; the corpus run gave **32,555** `multi` bodies (section 8), so about 3.6 to 5.4 h at that rate. The full run is for the owner to start; no speed-up is included (fp16 or pair
 pruning could change the output).
 
 **Quality check (`scripts/cut_quality_check_2026_11_11.py`, read-only):**
@@ -400,7 +402,7 @@ pruning could change the output).
 - *Several companies in one piece:* **162 pieces (9.9%) in 79 of the 232 bodies (34%) hold two or more "Name —" headings**
   (`Wendy's (WEN) – … Lowe's (LOW) – …`; `RTX — … Calix — …`), a list written in one paragraph that was not split. That text is
   read by one company and carries the others' news. This is the larger fault of the two, and it is the same cause. Five read:
-  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and is the default of the cut since 2026-11-11 (`docs/extractor_training.md`,
+  all five are real (a text with three to six companies in it). **Both faults were T-176**: `units4` fixes most of them and was the default of the cut from 2026-11-11 to 2026-11-12, when `units5` replaced it (#176; `docs/extractor_training.md`,
   "Update of 2026-11-11"); the numbers of this section are those of `units`.
 - *Skipped:* none in this sample, so the "no company text" path is covered by tests only.
 - *Same input, same output (`scripts/cut_determinism_check_2026_11_11.py --results-db … --source-db … -n 30`, exit 1 if any differs):* the 30 first bodies were cut again, in another process (against the stored rows) and twice in
@@ -412,7 +414,7 @@ pruning could change the output).
   and random ones up to N, with a `flag` column. It is for reading, not tagging (no validator column, so no Spanish columns).
 
 **The default through the real command (2026-11-11, review of #169).** The figures above and in `docs/extractor_training.md` come from
-`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading (`units4`, model
+`compare_cut_readings` on 232 bodies; this is `--step cut --limit 500` with the default reading of that day (`units4`, model
 `data/models/attribution_2026_11_08`, GPU, scratch copies of `nlp.db` and `urls.db`), revision `units4-e1dff4f90b24` (the revision hashes the code of `attribution_units.py`, which #172 edits: after #172 the same reading and model give another hash, so read the revision the command prints, not this one), then the two checks on that revision:
 - *Run:* 500 `done`, 0 `skipped`, 0 `failed`, 3,134 `sub_news` rows; 1 min 47 s after the model load (4.6 bodies/s: the
   first 500 bodies are faster than the 0.4 to 0.6 s of the 232 above, so the 2.5 to 3 h estimate is not lowered).
@@ -469,7 +471,7 @@ Norfolk Southern, Apple, AbbVie, NXP, CF Industries, Tesla). **1 is a matcher ga
 IBM's own line goes to nobody (T-181). So "the 18 are named in passing" holds for 8 of 18. T-177 (`units5`) includes the 9: a sentence with
 no header of its own, after a header of nobody, goes to the universe companies it names; a header line that names one in passing still does not.
 
-**`units5` (T-177), built and measured (2026-11-11; a candidate, `units4` stays the default until the owner decides).** `--reading units5`
+**`units5` (T-177), built and measured (2026-11-11; a candidate then, the default since 2026-11-12, #176).** `--reading units5`
 reads the headers `units4` missed (`header_owners(..., units5=True)`): a short name in capitals ("SAP —", "UBS –", any head with a ticker in brackets), a
 group label of plain words ending in a group noun ("Memory stocks —", "Cruise lines —"), a period inside a name ("Amazon.com (AMZN) –", "Box Inc. (BOX) –"),
 and a lowercase text after the dash **only when the head carries its ticker in brackets** ("Whirlpool (WHR) — double digit decline in orders"); and a
@@ -497,7 +499,7 @@ are listed in `_CAPS_NOT_COMPANIES` and a ticker in brackets still makes any of 
   paired difference is +0.6 points [0.1, 1.5].** Against `units` (327 of 335, 97.6% [95.3, 99.4]) the difference is +0.2 [0.0, 0.4]. **Do not read the +0.6 as "better": it comes from the 46 more marked
   texts `units5` has (44 are the extra marks, 43 of them faithful), i.e. from added texts being faithful, not from existing texts becoming more faithful.** The two sets are not the same pairs (`units4`'s own text for the sampled changed pairs is
   unread). Limits: 54 of the 84 changed texts remain unread; one reader; the marks of the 14 first texts are not blind.
-- *Not done:* the full corpus; `units5` is not the default (`DEFAULT_READING` is `units4`); the short-name matcher gap (T-181) still costs IBM's headline sentence.
+- *Not done then:* the full corpus; `units5` was not the default. **Since 2026-11-12 (#176) `units5` is `DEFAULT_READING`**, and its corpus run is done (`units5-d3e2cbfa830e`). The short-name matcher gap (T-181) still costs IBM's headline sentence.
 
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
@@ -511,17 +513,67 @@ or keep the old rows under their own revision: a new reading, model or code chan
 nothing is deleted. **If step 2 has summarised those sub-news, delete their summaries first** (they are keyed by `sub_news.id`; new ids would leave them pointing at
 nothing; the two statements are in `docs/summary_step.md` and in `--help`). The same text is in `uv run cli/news_nlp_steps.py --help`.
 
-**Which revision the later steps read.** The default changes the revision of the cut from `units-<12 hex>` (the `units` reading,
-for example `units-75642e3f4f72` of the dry run above) to `units4-<12 hex>` (this PR's real run: `units4-e1dff4f90b24` on a scratch copy; it changes if
-the code of `attribution_units.py`, `attribution_model.py` or the model changes). **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units4` set
-by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, so after the full run
-the old `units-…` rows (if any were written outside a scratch copy) and the `units4-…` rows are both listed.
+**Which revision the later steps read.** The revision of a cut starts with its reading: `units-<12 hex>` (for example `units-75642e3f4f72` of the dry run above), `units4-<12 hex>` (`units4-e1dff4f90b24` on a scratch copy) and, since `units5` became the default on 2026-11-12 (#176), `units5-<12 hex>`; it changes if
+the code of `attribution_units.py`, `attribution_model.py` or the model changes. The owner's database holds three sets side by side: the full cut `units-5f831c298bcb` (the `units` reading, written before the switch), a **partial** `units4-d3e2cbfa830e` (1,300 bodies `done`, 41 `skipped`, 7,311 sub-news: a run of the older default) and the `units5` corpus cut `units5-d3e2cbfa830e` (161,574 sub-news of 30,305 bodies, 2,250 `skipped`, 0 `failed`; §8.3). **The last two have the same 12 hex digits**: the key leaves the reading out when it is the default, so only the prefix tells them apart. A reader names the **full** revision, never the hash alone. **T-165 and any script (step 2, `--step summary`, refuses to run without `--cut-revision`) read `extractor_revision` of the `units5` set
+by name, never "the latest"**; `--step cut --status` lists the latest revision with state and the others, and the cut prints its reading and revision before it starts.
 
-**Before the full run.** (1) T-176 is done: the cut runs with `units4`, which removes most of the two faults above (162 texts with
+**Before the full run.** (1) T-176 and T-177 are done: the cut runs with `units5` (since #176; `units4` before it), which removes most of the two faults above (162 texts with
 several companies become 23; the 23 are read above: 10 overlap, 13 a third fault, T-177). (2) The scope of the `quarantined` bodies (79% of the corpus) was validated by the owner (section 9; the tags are in
 `gold/scope_quarantined_validation.csv`): a wrong `multi` there costs GPU time (about 0.5 s a body) and `sub_news` rows the
 later steps would read as company news, so **the rows of the cut are not used by the steps after it (T-164, T-165) until the owner
 releases the gate** (released on 2026-11-11, no flag; section 9, "The gate of section 8.1"; the condition is also in T-165). The run writes a new revision of rows and nothing else.
+
+### 8.2 Evaluating the cut with yes / no questions (T-183, owner 2026-11-12)
+
+The quality check of §8.1 counts what the output looks like (short pieces, several headings in one). It does not say whether a piece is **true to its article**. That is read by the owner, as the extractor was (`docs/gold_datasets.md` §4):
+
+`uv run scripts/draw_cut_sample_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> --cut-revision units5-d3e2cbfa830e [--bodies 28] [--seed 20261112] [--out data] [--yes]`
+
+It draws `--bodies` bodies at random from the cut at the **named** revision (the draw is seeded; a body whose text in SOURCE is no longer the one that was cut is left out and counted) and writes `data/cut_sample_to_tag.csv`: one row per sub-news, the pieces of a body together in the body's order, the whole body next to each piece (first 6,000 characters), the Spanish of title, piece and body (`spanish_title`, `spanish_text`, `spanish_body`; paid translation, only with `--yes`, the cost is printed first) and three empty yes / no columns, plus `notes`:
+
+| column | yes when | no when |
+|---|---|---|
+| `faithful` | the piece says what the article says, about the company or the story it is about, with nothing added or changed (it may also name other companies) | it says something the article does not, is mostly about something else, or is too broken to tell |
+| `one_story` | it tells the news of one company or one story | news of another company is inside it (a list written in one paragraph) |
+| `complete` | it reads as a whole | it is a clause cut in half or a heading alone |
+
+`ticker` and `company` are the crawl's tag of the article, for context only: a sub-news keeps no ticker. **A wrong company tag, or a body scoped wrongly, is not a "no"** on any of the three questions, which judge only the piece against its article: mark them as the piece deserves and say it in `notes` ("company missunderstood", "investment_general"); §8.3 counts the notes. `data/cut_sample_ids.csv` ties each row to the SHA-256 of its text and the cut revision (a mark belongs to a text, never to `review_order`). Neither file is overwritten; **never draw the set again once marking has begun.**
+
+**Drawn, 2026-11-12:** from the `units5` cut `units5-d3e2cbfa830e` (161,574 sub-news of 30,305 bodies; the cut finished and was stopped, then a `sqlite3.backup` copy of the database was checked with `quick_check` and read: the live file refuses a read-only open while the cut writes, and a plain copy taken then is corrupt), seed 20261112: 28 bodies, 143 sub-news, 171 translations (61,673 prompt and 52,632 completion tokens). A first draw of the `units` cut `units-5f831c298bcb` (30 bodies, 133 sub-news) was never marked and is kept as `data/cut_sample_to_tag.units.csv`. The marks are the owner's; the figures (the share of yes per question, with an interval) are in §8.3.
+
+### 8.3 The figures of the cut sample (T-183, marked by the owner 2026-11-12) — the one place the figures are written
+
+**Where the marks are.** `gold/cut_sample_marks.csv` (review order, article, segment, text hash, cut revision, the three answers, `kind`, the owner's note) and `gold/texts/cut_sample_texts.csv` (the pieces), written once from the owner's working file by `uv run scripts/build_cut_sample_gold_2026_11_12.py` (it stops on a mark that is not yes / no, on a text that is not the one the ids file ties to its row, and never overwrites). `kind` is the one place where the free-text note is read, by words, and it is **stored**, so the figures do not depend on spelling and a kind can be corrected in the file: `wrong_scope` (the body should have been another scope, `investment_general`; a note about *the news* applies to every piece of that article, a note about *a piece* to that piece), `wrong_company` (the company was read from the title or is lost), `ambiguous` (the note says the body mixes companies or stories: "mix", "two companies", "two different stories") and `kept` (any other note, or none). **The kinds are word matches that the owner has not read row by row.** A macro section the cut did not split off, an unreadable text and a broken story are not ambiguity: they stay `kept` and count against the cut. The working files in `data/` (git-ignored) are no longer the record.
+
+`uv run scripts/cut_sample_metrics_2026_11_12.py [--out FILE]` reads the two gold files (no database) and prints the tables below, with the rows it set apart. Tests: `tests/news_nlp/test_cut_sample_metrics.py` and `test_cut_sample_gold.py` (written first; thirteen mutants caught: the exclusions, the order of the kinds, the words of a kind, the spread of a body-level note, the hash tie, the overwrite, the cut revisions, the report wording and the by-construction label).
+
+**The sample:** cut `units5-d3e2cbfa830e`, 28 bodies, 143 pieces. Per question the share of yes with a Wilson 95% interval over pieces and, because the pieces of a body are not independent, the interval of a bootstrap that resamples whole bodies (seed 20261112, 2,000 draws). `clean` is yes on the three questions; a clean body has only clean pieces. The bar of the extractor was >= 80% faithful (D32).
+
+**Three levels; the first is the pre-set measure.** The owner read the notes as: the cut is mostly right; the misses come from the tagging of the news or from news too ambiguous for any cut. The other levels were chosen after the owner saw the misses.
+
+- `all`: the 143 pieces. **The measure to quote first.**
+- `right_scope`: without the 15 pieces of `wrong_scope`: the whole body `164937` (13 pieces, rows 130 to 142; its note says "this is a misslabeled news") and two single pieces (rows 19 and 80; their notes are about the piece). That is step 1.1's error, not the cut's. The company read from the title (`wrong_company`: rows 1, 4, 5, 6) is **not** left out: the three answers judge the piece against its article, so a wrong company does not touch them, and row 1's "no" on `complete` is the cut's.
+- `right_scope_unambiguous`: also without the 14 pieces of `ambiguous` (rows 23, 25 to 29, 51, 54, 56, 59, 90, 91, 119, 120). **All 14 are `one_story` = no and 7 are `faithful` = no**: the note that makes a piece ambiguous is the very fact `one_story` measures. So for this level `one_story`, `clean` and the clean bodies are **by construction** and are not given; only `faithful` and `complete` say something, and they are the most favourable reading of the cut, not a figure to quote alone.
+
+| level | pieces (bodies) | faithful | one_story | complete | clean (3 yes) | bodies all clean |
+|---|---|---|---|---|---|---|
+| all | 143 (28) | 84.6% [77.8, 89.6] | 78.3% [70.9, 84.3] | 83.2% [76.2, 88.5] | 75.5% [67.9, 81.8] | 16 of 28 |
+| right_scope | 128 (27) | 89.1% [82.5, 93.4] | 82.0% [74.5, 87.7] | 87.5% [80.7, 92.2] | 78.9% [71.0, 85.1] | 16 of 27 |
+| right_scope_unambiguous | 114 (26) | 93.9% [87.9, 97.0] | by construction | 91.2% [84.6, 95.2] | by construction | by construction |
+
+Intervals are the Wilson ones over pieces. The body-resampled ones are wider (for `faithful`: [74.8, 92.9] on all, [82.3, 94.6] on `right_scope`, [88.1, 97.9] on the last) and are in the script's output. **Against the bar of 80% faithful: on all pieces the lower end of the interval (77.8%) is below it**; on `right_scope` (82.5%) and on the last level (87.9%) it is above, and those two are levels chosen after the misses.
+
+**The cut's outcome on the corpus** (`--step cut --status`, read 2026-11-13 on the consistent copy): of the 32,555 `multi` bodies, **30,305 `done`, 2,250 `skipped` (6.9%: no company text, so no sub-news), 0 `failed`**; 161,574 sub-news. The `units` cut had 30,298 `done` and 2,257 `skipped`.
+
+**Reading.**
+- The 15 `wrong_scope` pieces are one body of 13 pieces that the scope model should have called `investment_general` (7 of them "no, no, no"; its other 6 pieces were marked clean) and two single pieces: together they move `faithful` by five points (84.6% to 89.1%). That one body is why `bodies all clean` is a better view than the share of pieces.
+- Twelve pieces outside every exclusion still have a "no": six say the piece starts or ends with the neighbouring news (rows 21, 22, 47, 52, 82, 107: the cut's real error), four are broken, unreadable or a macro section not split off (24, 50, 53, 118), and two have no note (69, 83). Row 1 (`wrong_company`) adds a `complete` "no".
+- The ambiguous bodies are mostly **multi** bodies of several companies written in one paragraph, where the cut has no clean line to draw.
+- **Rows the owner may want to reclassify:** the kinds are not reviewed. Rows 24 and 118 are `kept` (the conservative reading: they count against the cut); notes on `kept` rows that are not about the neighbouring news: 50, 53 (broken), 68, 84, 86, 106 (unrelated text joined to the story). The list of every non-`kept` row with its note is the end of the script's output.
+
+**Decision (owner, 2026-11-12): `units5` is the final reading of the cut,** reference cut `units5-d3e2cbfa830e`; the later steps read that revision by name. The other documents quote one headline from this section and link here (PLAN D27 (e), README, `docs/modules/news-nlp.md`, `docs/extractor_training.md`, `docs/evaluation.md`, `docs/gold_datasets.md`, the architecture artifacts). The checkpoint stays local, identity `8399ccf003c60143` (T-148b12).
+
+**What it does not say.** The sample is 28 bodies drawn at random from one cut; the interval over bodies is wide ([64.4, 90.9] clean on `right_scope`), and "the tagging is wrong" is the owner's reading of each body, not a measure. The `wrong_scope`, `wrong_company` and `ambiguous` pieces belong to steps 1.1 and 3, and are set apart here only so the cut is not charged with them; they are **not** discarded in production. A larger draw is the owner's call.
 
 ## 9. Validation of step 1 on quarantined bodies (owner, 2026-11-11)
 

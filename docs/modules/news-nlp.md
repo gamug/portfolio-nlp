@@ -1,166 +1,112 @@
-# news_nlp — pipeline stage 3: sentiment + NER + categorization + summarization
+# news_nlp — the NLP layer of portfolio-nlp
 
 **Extracted from** `portfolio-data-mining` (which had consolidated it from the standalone `news-nlp` project).
 
-Runs up to five sequential batch stages over the `articles` rows in
-`data/nlp.db` (override with `$DATABASE_URL`, see root `.env.example`), each stage owning
-its own results table, and exposes everything through a FastAPI service. There is no scraper
-here — `articles` is treated as pre-populated input.
+It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read-only) and writes its results to the RESULTS store (`data/nlp.db`, or `$DATABASE_URL`; root `.env.example`). There is no scraper here — `articles` is treated as pre-populated input.
 
-Sentiment, NER, and category (stages 1–3) always run. `c_summary`/`sector_summary`
-(stages 4–5) are **opt-in** — pass `--summarize` on the CLI or `"summarize": true` in the
-API's `/pipeline/run` body; the default (`summarize=False`) skips them entirely, so the
-summarization model never loads and its VRAM/latency cost is never paid unless asked for.
+**Two pipelines live here, one replacing the other.**
 
-1. **Sentiment** — a continued fine-tune of FinBERT on 5,900 real, LLM-labeled
-   in-domain sentences, published at
-   [gamug/FinBERT-financial-news](https://huggingface.co/gamug/FinBERT-financial-news)
-   (training data published separately at
-   [gamug/FinBERT-financial-news-data](https://huggingface.co/datasets/gamug/FinBERT-financial-news-data),
-   2026-09-14 — the exact `train`/`validation`/`test`/`idiom_probe` split the model was
-   actually trained/evaluated on, reproduced via `train_sentiment.stratified_split()` itself
-   rather than re-derived; `scripts/publish_finbert_financial_news_dataset_2026_09_14.py`)
-   (selected 2026-09-13 over base `ProsusAI/finbert`, after real-data evaluation
-   found a measurable vocabulary/domain gap — see `docs/evaluation.md`'s 2026-09-13
-   follow-ups; now pinned to v4, the class-weighted retrain — `PLAN.md` Work item 9,
-   `docs/evaluation.md`'s 2026-09-15 follow-ups) → `article_sentiment`.
+- **The stepped pipeline (Work item 18, `PLAN.md` D39 and D40), the current approach.** It works on **unique article bodies** (81,961 unique `ok` bodies, D19; with the `quarantined` ones kept, D36, 309,972), finds the scope of each first, cuts a round-up into sub-news, and gives every text one main company before sentiment and category. One command per step (`cli/news_nlp_steps.py`), tracked in `pipeline_step_state`, idempotent. **State on 2026-11-12. Built:** 1.1 scope, 1.2 the cut, 2 the summary. **Pending:** 3 the companies (NER, matcher, relevance model), 4 sector, 6 sentiment (pair model + relevance stack, published privately, not pinned), 7 category (the D15 taxonomy, `docs/category-taxonomy.md`; model trained by the owner, T-174); the company snapshots are undefined. Section "The stepped pipeline" below.
+- **The v1 chain (`pipeline.run_pipeline`, `cli/news_nlp_cli.py`, the FastAPI service), until the backfill (T-150).** Five stages over (URL, ticker) pairs: sentiment, NER, category, and the opt-in `c_summary` and `sector_summary`. Downstream repos still read its `article_*` tables. **The owner deprecated its sentiment, zero-shot category and `sector_summary` stages on 2026-11-12**; their description and evaluations are in `docs/legacy/news-nlp-v1-stages.md` and `docs/legacy/evaluation-v1-stages.md`. NER and the summariser stay documented here because the stepped pipeline uses them (steps 3 and 2).
 
-   **Why this model at all.** A FinBERT-family model — domain-pretrained on financial
-   text rather than a general-purpose sentiment model or a from-scratch train — was
-   the starting point because it's the one freely-available checkpoint already
-   *fine-tuned* for financial-domain sentiment specifically, not just pretrained on
-   financial text: Araci (2019), *"FinBERT: Financial Sentiment Analysis with
-   Pre-trained Language Models"* ([arXiv:1908.10063](https://arxiv.org/abs/1908.10063)).
-   Continuing fine-tuning from `ProsusAI/finbert` specifically, rather than a generic
-   `bert-base` checkpoint or reaching for a larger general-purpose LLM, follows
-   directly from that: `ProsusAI/finbert` is itself a continued fine-tune of BERT-base
-   on [Financial PhraseBank](https://huggingface.co/datasets/takala/financial_phrasebank)
-   (~4,840 sentences, Malo, Sinha, Korhonen, Wallenius & Takala 2014,
-   [arXiv:1307.5336](https://arxiv.org/abs/1307.5336)) — a model already carrying real
-   financial-sentiment signal, small enough (BERT-base) to further fine-tune cheaply on
-   this project's own 5,900-sentence in-domain set rather than requiring a much larger
-   dataset or model from scratch. Chunk-level + entity-scoped weighting (below) over
-   sentence-level/title-only/whole-document alternatives was a separate, later, directly
-   measured decision — see `docs/evaluation.md`'s 2026-09-13 four-candidate comparison,
-   not re-derived here. Scored per ~510-token chunk (`chunk_text`,
-   same helper NER/category use — preserves several sentences' worth of real
-   discourse per forward pass) and aggregated with **entity-scoped weighting**: a
-   chunk naming the article's own `company`/`ticker` counts more than one that
-   doesn't (a different company's news, or generic market commentary) — see
-   `_sentiment_chunk_weights` (`src/sentiment_stage.py`) and `PLAN.md` Work item 4. (A
-   first version of this scored per *sentence* instead of per chunk; reverted
-   2026-09-13 after real-data evaluation — see that function's docstring
-   "Revision history". A title-only alternative was also real-data validated and
-   rejected in favor of this design's stronger, both-classes recall — see
-   `docs/evaluation.md`'s 2026-09-13 "pessimist model" follow-up.) Known,
-   disclosed limitation: ~40% of directional predictions are false alarms on
-   multi-company/mixed-signal articles the aggregation can't structurally net
-   out — chosen anyway because this pipeline favors recall over precision.
-2. **NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
-   [gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
-   `article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward
-   pass: every article's chunks in the batch are flattened into one padded tokenizer call,
-   so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SIZE`
-   itself — see the constant's comment for why (variable per-article chunk counts, unlike
-   category's fixed 9-pairs-per-article width).
+## The stepped pipeline (D39, D40; the current approach)
 
-   **Why this model.** `nlpaueb/sec-bert-base` over a generic NER checkpoint (spaCy,
-   `bert-base-NER`): it's domain-pretrained on 260,773 SEC 10-K filings (1993-2021) with its
-   own ~30,000-subword financial vocabulary, not the generic BERT vocabulary (Loukas,
-   Fergadiotis, Chalkidis et al. 2022, *"FiNER: Financial Numeric Entity Recognition for
-   XBRL Tagging"*, arXiv:2203.06482) — financial entity mentions (tickers, filing
-   terminology, numeric-heavy contexts) benefit from vocabulary a generic model never saw,
-   including subword handling for numbers specifically relevant to this project's own
-   2026-09-12 subword-fragmentation fix (a word-boundary bug producing bogus spans off
-   things like `"3M"`). `gtfintechlab/finer-ord` as the fine-tuning dataset: 201
-   manually-annotated financial news articles (116,721 tokens, `PER`/`LOC`/`ORG` BIO
-   tagging — Shah, Gullapalli et al. 2024, *"FiNER-ORD: Financial Named Entity Recognition
-   Open Research Dataset"*, arXiv:2302.11157), whose general-NER label set matches this
-   project's own `article_entities` need (named entities in financial *news*) rather than a
-   filings-specific tag set like XBRL, making it directly usable for fine-tuning SEC-BERT
-   toward this project's actual task.
-3. **Category** — zero-shot NLI classification (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`)
-   against a fixed 10-category taxonomy (9 dimensions of company performance + `other`) →
-   `article_category`. See [`../category-taxonomy.md`](../category-taxonomy.md) for the
-   taxonomy, its sourcing (RavenPack, SASB, IPTC Media Topics, Refinitiv/TRNA), and the
-   confidence-threshold mechanism. Classifies on the article's title + lead body chunk
-   (not the full article — a per-label NLI pass makes full-article chunking too expensive
-   for a mandatory, every-article stage — and not `article_summary`, since that's opt-in
-   and this stage isn't).
+`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
+and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
+`article_entities`. Its `score` stays the NER confidence. Step 1.1 writes `body_scope`, step 1.2 `sub_news` and step 2 `news_summary`, each with its state in `pipeline_step_state`; `news_company`, `news_sentiment` and `news_category` are created and not written yet (steps 3, 6 and 7 are not built).
 
-   **Why this model.** No labeled training set exists for this project's own 10-slug
-   taxonomy — and building one for a taxonomy that may still evolve is expensive — so a
-   zero-shot NLI classifier was the only realistic option, not a trained one.
-   `deberta-v3-base-zeroshot-v2.0` specifically: DeBERTa-v3's disentangled-attention
-   architecture, further trained on MNLI + FEVER-NLI + synthetic data across 500+
-   classification tasks, benchmarks at 0.619 average F1-macro across 28 held-out zero-shot
-   datasets per the model's own card — against 0.497 for `facebook/bart-large-mnli`, the
-   reference zero-shot-NLI baseline it's commonly compared against. The taxonomy itself is
-   hierarchical, not flat 9-way: a 2026-09-09 investigation found a flat 9-way softmax
-   diluted real signal on several slugs (the model's own raw score for the correct slug on
-   missed rows averaged only 0.14-0.16, barely above the 9-way uniform baseline of 0.111) —
-   not unbalanced data or a sampling artifact. `run_category_stage` now classifies through a
-   two-level hierarchy (`news_nlp.taxonomy.CATEGORY_GROUPS`) instead, restoring a much
-   stronger ~0.333 baseline for the child-group softmax that actually decides a hard case —
-   see `docs/category-taxonomy.md`'s "Hierarchical classification" section for the full
-   design.
-4. **`c_summary`** — one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`),
-   generated from the article's body plus its already-computed sentiment/entities →
-   `article_summary`.
+### Step 1: scope (T-163)
 
-   **Why this model.** A distilled BART over the full `bart-large-cnn` or a modern
-   LLM-based summarizer: the 6GB-VRAM / one-model-at-a-time budget this whole pipeline is
-   built around (`SPEC.md` NR-001), and no per-call API cost for a batch job over hundreds
-   of thousands of articles. `distilbart-cnn-12-6` (12 encoder / 6 decoder layers vs.
-   `bart-large-cnn`'s 12/12, ~1.24x faster inference) reports near-identical quality on its
-   own model card — ROUGE-2 21.26 / ROUGE-L 30.59, against `bart-large-cnn`'s 21.06 / 30.63
-   — essentially the same summarization quality at a fraction of the size, the real
-   trade-off this choice buys. That size is not free, though, and connects directly to a
-   weakness already measured here: the model's own distillation data is CNN/DailyMail
-   (short news-article summarization pairs), and its generation defaults
-   (`max_length=142`/`min_length=56`, matched by this project's own
-   `SUMMARY_MAX_OUTPUT_TOKENS`/`SUMMARY_MIN_OUTPUT_TOKENS`) were tuned against that short,
-   CNN/DailyMail-style news — never retuned for longer, denser financial-news text. That's
-   a plausible root cause behind the `mean_coverage` gap this project measured and accepted
-   as a deliberate completeness-vs-correctness trade (2026-09-14), not an unrelated fact
-   sitting next to it.
-5. **`sector_summary`** — one row per `gics_sub_industry` per closed calendar week →
-   `sector_summary`. **Why this model: no model, deliberately.** Removing the one model
-   this stage used to run (below) is a selection choice, not an incidental fact — a
-   deterministic template is a structural guarantee against hallucination, not a
-   probabilistic mitigation of it, the same principle that already makes cross-company
-   blending structurally impossible in this stage's design. Lives in its own
-   `news_nlp/sector_summary/` package
-   (`queries.py` for DB reads/writes, `composition.py` for the pure
-   composition logic, `stage.py` for the `run_sector_summary_stage`
-   orchestration entrypoint `pipeline.run_pipeline` calls) — deliberately
-   decoupled from the FTI hierarchy below, since it never loads a model or
-   touches the GPU and so has no Feature/Train/Inference shape to share
-   with the four ML stages. A deterministic, non-generative composition
-   (`db.compose_sector_summary`):
-   a stats overview (sentiment %, top entities) plus one section per NLP category (stage 3's
-   taxonomy) present that week, each listing its contributing companies' `c_summary` text
-   verbatim and attributed to its own ticker — company text is never blended with another
-   company's, and never crosses a category-section boundary. The intro sentence
-   (`db.build_sector_intro_seed`) — the one piece of prose in this stage that names
-   aggregate stats rather than quoting a company's own text verbatim — used to be run
-   through `sshleifer/distilbart-cnn-12-6` as a "paraphrase"; **as of 2026-09-14 it no
-   longer is**, after that step was found to hallucinate on 42-50% of rows (a fabricated
-   source attribution, or a self-contradicting repeated percentage — see
-   `docs/evaluation.md`'s 2026-09-14 follow-up). `build_sector_intro_seed`'s own output
-   was already a complete, fully-grounded sentence, so `intro_text` is now that seed
-   verbatim — zero hallucination risk by construction, and this stage no longer loads a
-   model or touches the GPU at all. No ticker, company name, or `c_summary` text ever
-   reaches it either way, which is what makes cross-company/cross-topic blending
-   structurally impossible rather than merely unlikely. Articles whose `c_summary` exists but have no
-   `article_category` row (historical data predating stage 3 becoming mandatory, or a
-   partial/direct stage invocation) are excluded from sector_summary generation entirely.
-   Sub-industries with no qualifying articles in a given week get no row; "closed" means the
-   week (Mon–Sun) has fully ended, so a summary is never generated from a partial week and
-   later need regenerating. `sector_summary.format_version` is bumped whenever this
-   generation logic changes shape — a row below the current version is treated as stale and
-   self-heals (regenerated via an upsert on the `(gics_sector, gics_sub_industry, week_start)`
-   key) the next time the stage runs, no separate backfill needed.
+`uv run cli/news_nlp_steps.py --step scope [--limit N] [--status [--titles]] [--model-dir DIR]` classifies the unique
+bodies of the properly fetched corpus (`ok` and `quarantined`) into single / multi / sector / out_of_scope with the two
+NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
+`models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the public Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
+nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
+record and the weights. Measurements and the dry run: `docs/scope_training.md`, section 8. Validation on a sample of `quarantined` bodies (precision per predicted scope):
+`uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <copy of nlp.db with its -wal> [--counts multi=75 --exclude <earlier draw>.csv ... --out <new dir>] [--yes]` draws it (CPU; the Spanish aid is paid and needs `--yes`),
+and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extra|all] [--key final|first]` scores the tracked tags in `gold/scope_quarantined_validation.csv`; results in section 9.
+
+### Step 1.2: the cut (T-163)
+
+`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
+bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
+step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
+git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units5`, or `units4` / `units` with `--reading`) plus `-` and a hash of
+the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
+and leaves the old rows. **Rows of another reading (`units-…`, `units4-…`) stay beside the `units5-…` set; `--status` lists all
+(the latest with state first), and a reader (T-165, scripts) names the revision it wants, `units5-…`, and never "the latest". The run prints the reading and the revision it writes before it starts.** To cut again at the
+same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>'` and `DELETE FROM sub_news WHERE extractor_revision = '<revision>'`
+(deleting `sub_news` alone does nothing: the pending set comes from `pipeline_step_state`); the same text is in `--help`. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
+`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units5|units4|units` picks how the body is read (`units5`, T-177, is the default since 2026-11-12; `units4` is the default of 2026-11-11; `units` cuts as before;
+`docs/extractor_training.md`). `--fetch`,
+`--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
+revision with state and lists the others. **`units5` is the final reading (owner 2026-11-12) and `units5-d3e2cbfa830e` the reference cut** (161,574 sub-news of 30,305 bodies); on the owner's 143 marked pieces faithful 84.6% [77.8, 89.6] (the lower end is below the 80% bar), 89.1% [82.5, 93.4] without the 15 pieces scoped wrongly by step 1.1 (`docs/scope_training.md` §8.3); 30,305 bodies `done`, 2,250 `skipped`, 0 `failed`. The database also holds a partial `units4-d3e2cbfa830e` with the same 12 hex digits as `units5-d3e2cbfa830e`: name the full revision. **The checkpoint is local and not pinned (T-148b12; identity `8399ccf003c60143`): until it is, the cut cannot be
+reproduced from the repository alone.** Measurements and the quality check: `docs/scope_training.md`, section 8.1.
+
+
+### Step 2: the summary (T-164, T-166)
+
+`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
+step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
+`c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
+(`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). **The sub-news come from a
+cut named with `--cut-revision`, never "the latest"** (the command stops and lists the cuts that ran); `--items single` needs none. The size, its measure, how to
+run it again and the first run: `docs/summary_step.md`.
+
+### Steps 3 to 7 (pending)
+
+Not built (`TASKS.md` T-164, T-165, T-167, T-168, T-172; Build 2 after Build 1, D40): **3**, the companies of each summary or sub-news (NER, the matcher to universe tickers, the relevance model `gamug/deberta-v3-company-relevance` for the main company or companies, one `news_company` row each; none over the threshold: the review list); **4**, the GICS sector of a `sector` body, then its summary; **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+
+## Models both pipelines use
+
+**NER** — a fine-tuned SEC-BERT-BASE model trained on FiNER-ORD, published at
+[gamug/sec-bert-finer-ord-ner](https://huggingface.co/gamug/sec-bert-finer-ord-ner) →
+`article_entities`. Batched `NER_BATCH_SIZE` (`src/pipeline.py`) articles per forward
+pass: every article's chunks in the batch are flattened into one padded tokenizer call,
+so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SIZE`
+itself — see the constant's comment for why (variable per-article chunk counts, unlike
+category's fixed 9-pairs-per-article width).
+
+**Why this model.** `nlpaueb/sec-bert-base` over a generic NER checkpoint (spaCy,
+`bert-base-NER`): it's domain-pretrained on 260,773 SEC 10-K filings (1993-2021) with its
+own ~30,000-subword financial vocabulary, not the generic BERT vocabulary (Loukas,
+Fergadiotis, Chalkidis et al. 2022, *"FiNER: Financial Numeric Entity Recognition for
+XBRL Tagging"*, arXiv:2203.06482) — financial entity mentions (tickers, filing
+terminology, numeric-heavy contexts) benefit from vocabulary a generic model never saw,
+including subword handling for numbers specifically relevant to this project's own
+2026-09-12 subword-fragmentation fix (a word-boundary bug producing bogus spans off
+things like `"3M"`). `gtfintechlab/finer-ord` as the fine-tuning dataset: 201
+manually-annotated financial news articles (116,721 tokens, `PER`/`LOC`/`ORG` BIO
+tagging — Shah, Gullapalli et al. 2024, *"FiNER-ORD: Financial Named Entity Recognition
+Open Research Dataset"*, arXiv:2302.11157), whose general-NER label set matches this
+project's own `article_entities` need (named entities in financial *news*) rather than a
+filings-specific tag set like XBRL, making it directly usable for fine-tuning SEC-BERT
+toward this project's actual task.
+
+**The summariser, `sshleifer/distilbart-cnn-12-6`** (step 2 of the stepped pipeline, and the v1 `c_summary` stage) — in the v1 stage, one abstractive summary per article (`sshleifer/distilbart-cnn-12-6`),
+generated from the article's body plus its already-computed sentiment/entities →
+`article_summary`.
+
+**Why this model.** A distilled BART over the full `bart-large-cnn` or a modern
+LLM-based summarizer: the 6GB-VRAM / one-model-at-a-time budget this whole pipeline is
+built around (`SPEC.md` NR-001), and no per-call API cost for a batch job over hundreds
+of thousands of articles. `distilbart-cnn-12-6` (12 encoder / 6 decoder layers vs.
+`bart-large-cnn`'s 12/12, ~1.24x faster inference) reports near-identical quality on its
+own model card — ROUGE-2 21.26 / ROUGE-L 30.59, against `bart-large-cnn`'s 21.06 / 30.63
+— essentially the same summarization quality at a fraction of the size, the real
+trade-off this choice buys. That size is not free, though, and connects directly to a
+weakness already measured here: the model's own distillation data is CNN/DailyMail
+(short news-article summarization pairs), and its generation defaults
+(`max_length=142`/`min_length=56`, matched by this project's own
+`SUMMARY_MAX_OUTPUT_TOKENS`/`SUMMARY_MIN_OUTPUT_TOKENS`) were tuned against that short,
+CNN/DailyMail-style news — never retuned for longer, denser financial-news text. That's
+a plausible root cause behind the `mean_coverage` gap this project measured and accepted
+as a deliberate completeness-vs-correctness trade (2026-09-14), not an unrelated fact
+sitting next to it.
+
+## The v1 chain (until the backfill)
+
+Stages 1–3 (sentiment, NER, category) always run; 4–5 (`c_summary`, `sector_summary`) only with `--summarize` (CLI) or `"summarize": true` (`/pipeline/run`). Each stage owns its results table and processes only the rows missing from it. Stages 1, 3 and 5 are deprecated (`docs/legacy/news-nlp-v1-stages.md`); NER and the summariser are described above.
 
 - **FTI architecture** (`src/fti.py`, added 2026-09-16/18 — PLAN.md Work
   item 10) — `Feature`/`Trainer`/`Inference` base classes formalizing the
@@ -204,31 +150,7 @@ summarization model never loads and its VRAM/latency cost is never paid unless a
   never gets summarized. This mirrors the original `query.sql` design this feature is
   based on.
 
-## Setup
-
-```bash
-uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
-uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
-```
-
-### Model pins
-
-Production model selection (name, commit SHA, and batch size per ML stage) lives in the git-tracked `config/pipeline_models.json`, schema-validated by `src/pipeline_config.py`'s `PipelineModelsConfig` (added 2026-09-21, `SPEC.md` FR-018, `PLAN.md` Work item 14 — supersedes the `pipeline.py`-literal-constants design from 2026-09-14, `SPEC.md` §13 item 4). `pipeline.py` loads this file at import time and re-exposes it as the same `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/`MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` module attributes as before, so every existing monkeypatch/test/script call site is unaffected. Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/setup.py`) is pinned to the commit SHA this file names — an upstream push to any of these repos no longer changes results silently. Deliberately a fixed, git-tracked file with no CLI/env runtime override (constitution AI-behavior #1: "model selection is pinned, not dynamic") — changing a model still means editing this file through normal PR review, only the format moved from Python to JSON:
-
-| Model | Repo | Pinned SHA |
-|---|---|---|
-| Sentiment | `gamug/FinBERT-financial-news` | `93863fcb7252874e7c0339081b34f691f9e17ff6` (v4, class-weighted — `PLAN.md` Work item 9, published 2026-09-19) |
-| NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` (batch size 8) |
-| Category | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
-| Summarization | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
-
-The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, public; commit; and the step revision stored in every `body_scope` row), because no stage of the v1 pipeline uses it and the pin carries a step revision the four stages do not have. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into an empty `models/scope_final` (no token needed) and deletes a copy whose step revision is not the pinned one; the step refuses a model that is not the pinned one unless `--allow-unpinned`.
-
-Sentiment has no `batch_size` entry — `sentiment_stage.SentimentInference.batch_size()` is a hardcoded `1`, not a tunable constant `pipeline.py` reads, so there is nothing for a config field to move.
-
-Bumping a pin later is a deliberate, reviewed one-line diff against `config/pipeline_models.json` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.
-
-## Running
+### Running the v1 chain
 
 ```bash
 # CLI (direct — no server)
@@ -257,17 +179,41 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 `GET /sectors/summary` (optional `sector`/`sub_industry`/`week_start` filters) lists
 `sector_summary` rows, newest week first.
 
+## Setup
+
+```bash
+uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
+uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
+```
+
+### Model pins
+
+Production model selection (name, commit SHA, and batch size per ML stage) lives in the git-tracked `config/pipeline_models.json`, schema-validated by `src/pipeline_config.py`'s `PipelineModelsConfig` (added 2026-09-21, `SPEC.md` FR-018, `PLAN.md` Work item 14 — supersedes the `pipeline.py`-literal-constants design from 2026-09-14, `SPEC.md` §13 item 4). `pipeline.py` loads this file at import time and re-exposes it as the same `SENTIMENT_MODEL`/`NER_MODEL`/`CATEGORY_MODEL`/`SUMMARY_MODEL`/`MODEL_REVISIONS`/`NER_BATCH_SIZE`/`CATEGORY_BATCH_SIZE`/`SUMMARY_BATCH_SIZE` module attributes as before, so every existing monkeypatch/test/script call site is unaffected. Every `from_pretrained`/`snapshot_download` call (in `src/pipeline.py` and `src/setup.py`) is pinned to the commit SHA this file names — an upstream push to any of these repos no longer changes results silently. Deliberately a fixed, git-tracked file with no CLI/env runtime override (constitution AI-behavior #1: "model selection is pinned, not dynamic") — changing a model still means editing this file through normal PR review, only the format moved from Python to JSON:
+
+| Model | Repo | Pinned SHA |
+|---|---|---|
+| Sentiment (v1 stage, deprecated; also the base of the pair model and the sentiment of sector summaries) | `gamug/FinBERT-financial-news` | `93863fcb7252874e7c0339081b34f691f9e17ff6` (v4, class-weighted — `PLAN.md` Work item 9, published 2026-09-19) |
+| NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` (batch size 8) |
+| Category (v1 zero-shot stage, deprecated; also the base checkpoint of the scope and relevance models) | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
+| Summarization (step 2 and v1 `c_summary`) | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
+
+The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, public; commit; and the step revision stored in every `body_scope` row), because no stage of the v1 pipeline uses it and the pin carries a step revision the four stages do not have. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into an empty `models/scope_final` (no token needed) and deletes a copy whose step revision is not the pinned one; the step refuses a model that is not the pinned one unless `--allow-unpinned`.
+
+Sentiment has no `batch_size` entry — `sentiment_stage.SentimentInference.batch_size()` is a hardcoded `1`, not a tunable constant `pipeline.py` reads, so there is nothing for a config field to move.
+
+Bumping a pin later is a deliberate, reviewed one-line diff against `config/pipeline_models.json` — fetch the new SHA from the HF Hub API (`GET /api/models/<repo_id>`, the `"sha"` field), don't guess it. `src/train_sentiment.py`/`src/train_ner.py` (standalone, one-time fine-tuning scripts, not imported by the pipeline) are out of scope for this pin — they fine-tune *from* a base checkpoint at training time, not a production inference path the §9 accuracy baseline depends on.
+
 ## Database
 
 The DB layer lives in **`src/news_nlp/`**, a local package vendored from
-`portfolio-common` (see `docs/portfolio-common-v1-migration-plan.md`); imported
+`portfolio-common` (see `docs/legacy/portfolio-common-v1-migration-plan.md`); imported
 directly as `import news_nlp as db` / `from news_nlp import corrections` /
 `from news_nlp.taxonomy import ...` — no re-export facade. Since
 `portfolio-common` v1.2.0 it names **no** database engine: connections, the
 two-tier attach, schema introspection, the row type, and every dialect SQL
 fragment go through `portfolio_common.db` (`connect_url`, `two_store`,
 `table_columns`, `Row`, `conn.dialect`). See
-[`docs/portfolio-common-v1.2-engine-agnostic.md`](../portfolio-common-v1.2-engine-agnostic.md).
+[`docs/legacy/portfolio-common-v1.2-engine-agnostic.md`](../legacy/portfolio-common-v1.2-engine-agnostic.md).
 Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
 
 - **RESULTS store** (`$DATABASE_URL`, unset → `<repo>/data/nlp.db`; working file
@@ -277,7 +223,7 @@ Two-tier — full detail in [`docs/db-topology.md`](../db-topology.md):
   `articles` including `body_text` (the legacy crawl DB `urls.db`). ATTACHed
   read-only as schema `source`; never written.
 
-The stages that read article text — sentiment, NER, category, per-article
+The stepped pipeline's steps (`cli/news_nlp_steps.py`) open the same two-tier connection and read the unique bodies of `source.articles`. The v1 stages that read article text — sentiment, NER, category, per-article
 summary (`fetch_pending_articles` / `fetch_pending_category_articles` /
 `fetch_pending_company_summaries`, i.e. `cli/news_nlp_cli.py` and
 `POST /pipeline/run`) — read `source.articles`. Every result write also
@@ -300,7 +246,7 @@ Against the RESULTS store alone (no SOURCE) the read/query surface works:
 correction (`PATCH`/`DELETE`) endpoints, and the `sector_summary` stage.
 
 The pre-existing results were backfilled once out of `urls.db` (see
-[`docs/migration-2026-09-01.md`](../migration-2026-09-01.md)); the one-shot
+[`docs/legacy/migration-2026-09-01.md`](../legacy/migration-2026-09-01.md)); the one-shot
 script that did it has since been removed now that the pipeline populates the
 lean `articles` rows itself.
 
@@ -309,9 +255,11 @@ lean `articles` rows itself.
 - `news_nlp/triage.py` — rule-based scope triage over unique article bodies: `body_hash`,
   `CompanyResolver` (names, aliases, explicit ticker forms, NER `ORG` spans; each mention counted
   once), boilerplate stripping, `subjects`, `is_roundup`, `scope_candidate`, `gold_scope` (the
-  owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sizes the corpus
-  and gives the P3 classifier its features. Agreement with the owner's 720 tags is 0.70, a
-  development figure (`docs/evaluation.md`, 2026-10-29 follow-up).
+  owner's tags mapped to the six scopes) and `wilson`. Not a pipeline stage: it sized the corpus
+  and was the baseline of the scope classifier, which replaced it (67.2% against 83.6% on the held-out
+  200, `docs/scope_training.md`). Agreement with the owner's 720 tags is 0.70, a
+  development figure (`docs/evaluation.md`, 2026-10-29 follow-up). `CompanyResolver` (the matcher) is
+  current: the cut and the counts read companies through it.
   **Common words (D38, PR #155):** a hyphen, a dash, an apostrophe (also the backtick and the acute
   accent) in a name reads as the space it replaced ("Coca-Cola", "Casey's"), a line break does not.
   The first word of a company's name is not a mention when it is an everyday word, a place or a
@@ -421,7 +369,7 @@ recorded and that select a model are Precision, Recall and ROC OVR per class (ow
 the validation score of a run is the mean of those nine figures; accuracy is a description only.**
 
 - `src/sentiment_pair.py` — the pair's encoding and the routing rule (`reads_as_pair`), shared by the trainer,
-  the draw's `predict` and the scorer; the stage will use it in PR C (T-148c5, proposed, not built).
+  the draw's `predict` and the scorer; step 6 will use it (the stack in `sentiment_stage`, T-148c3d; the step, T-168; not built).
 - `src/sentiment_pair_train.py` — the recipe: the loader of the 450 marks, the replay of earlier sentences (only
   those that name their article's company, not of a gold, held-out or marked body or headline), batches that
   never mix summaries with sentences, one run, the grid of 27, D35's tie rule, and a fingerprint of the data,
@@ -474,39 +422,7 @@ make mypy stop with an internal error; delete it and run again.
 
 ## Evaluation
 
-`news_nlp.eval` measures how good the stage outputs actually are, using an
-LLM-as-judge over a stratified sample (a deterministic low-confidence
-stack, stage-specific soft-probability-targeted strata, and a
-representative random remainder — see `docs/evaluation.md`'s "Sampling"
-section) of the stored predictions (sentiment / category / NER /
-`c_summary`), with metrics tracked in MLflow and in the `eval_run` /
-`eval_inference` / `eval_verdict` tables (plus `eval_confusion` for
-sentiment/category; the legacy `eval_judgement` table is superseded,
-2026-09-18). The model-scoring step calls each stage's own FTI `Inference`
-subclass directly (see "FTI architecture" above) rather than loading
-models independently, and can score a candidate model/checkpoint live
-(`--candidate-model`/`--candidate-revision`) without a production run
-first. A stored category run can also be re-read per subset of the
-corpus (for example per upstream `match_class`) with no judge call, reweighted as a
-domain estimate and with bootstrap intervals (`news_nlp.eval.partition`; see
-`docs/evaluation.md`'s 2026-10-22 follow-up). Candidate category decision rules
-are simulated against stored scores and stored verdicts, and their power estimated, by
-`news_nlp.eval.calibration` (2026-10-23 follow-up). The paid sample that settles them is
-drawn by `news_nlp.eval.calibration_sample` (confirmed articles stratified by slug x score band,
-seeded fit/report halves, weights) and judged by the opt-in truth-label judge
-`news_nlp.eval.calibration_judge` (`prompts/calibration.md`, frozen; crash-safe, resumable, capped
-on calls; see `docs/evaluation.md`'s "Calibration judge and sampler"). `sector_summary`'s
-`intro_text` had its own dedicated eval path added 2026-09-14 — its
-population is small enough (thousands of rows) to judge in full every run
-instead of sampling, checked for faithfulness against its own `facts_json`
-grounding only. It found a real, sizable hallucination rate (42-50%) in the
-old model-paraphrase `intro_text`, and stayed useful past that: with
-`intro_text` now a deterministic template (`docs/evaluation.md`'s 2026-09-14
-follow-ups), this eval doubles as a regression guard — it should read
-~0% hallucination on freshly-generated rows going forward, and a jump away
-from that is a real signal something broke. It is a separate `eval`
-dependency group and needs an OpenAI-compatible LLM endpoint
-(`LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`).
+`news_nlp.eval` (LLM-as-judge over stored predictions, MLflow, the `eval_*` tables; separate `eval` dependency group, an OpenAI-compatible endpoint in `LLM_API_KEY` / `LLM_MODEL` / `LLM_URL`) evaluates the v1 stages' stored outputs: sentiment, category, NER, `c_summary`, and the `sector_summary` intro. Its model-scoring step reuses each stage's FTI `Inference` subclass and can score a candidate model live (`--candidate-model` / `--candidate-revision`). The models of the stepped pipeline are measured on the owner's gold sets instead (`docs/gold_datasets.md`; the figures in `docs/scope_training.md`, `docs/extractor_training.md`, `docs/sentiment_training.md`, `docs/summary_step.md`): LLMs label and evaluate, never run inside the pipeline (D12). The `--check-regression` gate is out of the MVP (owner, 2026-11-10).
 
 ```bash
 uv sync --group eval
@@ -514,8 +430,7 @@ uv run cli/news_nlp_eval.py --stage all --sample-size 80
 uv run mlflow ui
 ```
 
-Full detail — sampling, per-stage metrics, the "judge is a model, not gold"
-caveat, and the CI / scheduled story — in `docs/evaluation.md`.
+Full detail — sampling, per-stage metrics, the "judge is a model, not gold" caveat — in `docs/evaluation.md`; the v1 stages' own follow-ups in `docs/legacy/evaluation-v1-stages.md`.
 
 ### Experiments
 
@@ -530,48 +445,3 @@ historical sentiment/NER/category/`c_summary` experiment
 equivalent). Full detail — the schema's own validation rules, the one
 command, and the disclosed gaps — in `docs/evaluation.md`'s "Experiments"
 section.
-
-
-## Stepped-pipeline tables (D39/D40, #162)
-
-`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
-and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities`. Its `score` stays the NER confidence. Step 1 writes `body_scope` and `pipeline_step_state` (T-163, below); nothing else writes the new tables yet.
-
-### Step 1: scope (T-163)
-
-`uv run cli/news_nlp_steps.py --step scope [--limit N] [--status [--titles]] [--model-dir DIR]` classifies the unique
-bodies of the properly fetched corpus (`ok` and `quarantined`) into single / multi / sector / out_of_scope with the two
-NLI models of `src/scope_stage.py` (a GPU is required; weights from `scripts/train_scope_final_2026_11_11.py` in
-`models/scope_final`, git-ignored; pinned in `config/scope_model.json` to the public Hub repository `gamug/deberta-v3-news-scope-nli`). Run tracking is `src/news_nlp/steps.py`: a rerun at the same revision adds
-nothing, `--limit` bounds the work, failures are retried, and `--status` needs no model. The revision hashes the training
-record and the weights. Measurements and the dry run: `docs/scope_training.md`, section 8. Validation on a sample of `quarantined` bodies (precision per predicted scope):
-`uv run scripts/draw_scope_quarantined_check_2026_11_11.py --results-db <copy of nlp.db with its -wal> [--counts multi=75 --exclude <earlier draw>.csv ... --out <new dir>] [--yes]` draws it (CPU; the Spanish aid is paid and needs `--yes`),
-and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extra|all] [--key final|first]` scores the tracked tags in `gold/scope_quarantined_validation.csv`; results in section 9.
-
-### Step 1.2: the cut (T-163)
-
-`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
-bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
-step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
-git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units5`, or `units4` / `units` with `--reading`) plus `-` and a hash of
-the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
-and leaves the old rows. **Rows of another reading (`units-…`, `units4-…`) stay beside the `units5-…` set; `--status` lists all
-(the latest with state first), and a reader (T-165, scripts) names the revision it wants, `units5-…`, and never "the latest". The run prints the reading and the revision it writes before it starts.** To cut again at the
-same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<revision>'` and `DELETE FROM sub_news WHERE extractor_revision = '<revision>'`
-(deleting `sub_news` alone does nothing: the pending set comes from `pipeline_step_state`); the same text is in `--help`. State per body in `pipeline_step_state`: `done`, `skipped` ("no company text": not retried) or
-`failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units5|units4|units` picks how the body is read (`units5`, T-177, is the default since 2026-11-12; `units4` is the default of 2026-11-11; `units` cuts as before;
-`docs/extractor_training.md`). `--fetch`,
-`--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
-revision with state and lists the others. **The checkpoint is local and not pinned (T-148b12): until it is, the cut cannot be
-reproduced from the repository alone.** Measurements and the quality check: `docs/scope_training.md`, section 8.1.
-
-
-### Step 2: the summary (T-164, T-166)
-
-`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
-step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
-`c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
-(`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). **The sub-news come from a
-cut named with `--cut-revision`, never "the latest"** (the command stops and lists the cuts that ran); `--items single` needs none. The size, its measure, how to
-run it again and the first run: `docs/summary_step.md`.
