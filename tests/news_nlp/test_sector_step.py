@@ -645,3 +645,22 @@ def test_a_text_that_names_two_companies_of_different_sectors_once_each_is_out_o
         "assigned",
         "10",
     )  # one company named twice makes a top
+
+
+def test_the_helpers_take_the_scores_column_and_refuse_a_database_row_with_a_message_that_says_so() -> (
+    None
+):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE t (scores TEXT)")
+    conn.execute("INSERT INTO t VALUES (?)", (json.dumps({"10": 0.6, steps.TRUNCATED_KEY: 2}),))
+    row = conn.execute("SELECT scores FROM t").fetchone()
+    assert (
+        steps.class_scores(row["scores"]) == {"10": 0.6}
+        and steps.truncated_chunks(row["scores"]) == 2
+    )
+    for helper in (steps.class_scores, steps.truncated_chunks):
+        with pytest.raises(TypeError, match=r"scores column.*row\['scores'\]"):
+            helper(row)
+        with pytest.raises(TypeError):
+            helper(None)

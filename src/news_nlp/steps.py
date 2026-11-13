@@ -365,20 +365,34 @@ def pending_sector_bodies(
     return _pending_scoped_bodies(conn, classifier_revision, "sector", STEP_SECTOR, revision, limit)
 
 
-def class_scores(stored: str | dict[str, Any]) -> dict[str, float]:
+def _decoded_scores(stored: object) -> dict[str, Any]:
+    """The decoded ``body_sector.scores``: the column's JSON text or the object already decoded. A database row is not accepted: the column is."""
+    if isinstance(stored, str):
+        decoded: dict[str, Any] = json.loads(stored)
+        return decoded
+    if isinstance(stored, dict):
+        return stored
+    raise TypeError(
+        f"expected the scores column of body_sector (JSON text) or its decoded dict, not {type(stored).__name__}: pass row['scores'], not the row"
+    )
+
+
+def class_scores(stored: object) -> dict[str, float]:
     """The per-class scores of a stored ``body_sector.scores`` (the JSON text or the decoded object), **without the reserved keys**.
 
     A key that starts with ``_`` is not a class: ``TRUNCATED_KEY`` holds a count, which is larger than any score, so a reader that took the best entry
-    of the raw object would get the key. Read the column through this function (fourth review of #179).
+    of the raw object would get the key. Read the column through this function (fourth review of #179); the argument is ``row["scores"]``, not the row.
     """
-    data = json.loads(stored) if isinstance(stored, str) else stored
-    return {key: float(value) for key, value in data.items() if not key.startswith("_")}
+    return {
+        key: float(value)
+        for key, value in _decoded_scores(stored).items()
+        if not key.startswith("_")
+    }
 
 
-def truncated_chunks(stored: str | dict[str, Any]) -> int:
+def truncated_chunks(stored: object) -> int:
     """How many chunks of the body filled the embedder's window and were cut there, from a stored ``body_sector.scores`` (0 when the key is absent)."""
-    data = json.loads(stored) if isinstance(stored, str) else stored
-    return int(data.get(TRUNCATED_KEY, 0))
+    return int(_decoded_scores(stored).get(TRUNCATED_KEY, 0))
 
 
 def record_sector(
