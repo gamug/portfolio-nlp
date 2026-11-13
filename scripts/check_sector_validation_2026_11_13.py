@@ -6,7 +6,12 @@ The ``fresh`` rows of ``gold/sector_validation.csv`` record what the step said w
 ``candidate``, which is the sector when assigned, ``vote_sector``, ``margin``) under the revision in ``step_revision``. That revision hashed the raw bytes of the module, so a
 docstring edit changed it; the revision is now of the code as parsed. This script re-scores the texts the owner read (``gold/texts``, minus the
 truncation mark the draw added) with the code as it is, and says whether every row comes out the same, which is what lets the answers be
-read as answers about the current revision. Needs SOURCE for the companies (the universe), not for the texts.
+read as answers about the current revision.
+
+**Two comparisons, because the texts differ.** The draw and the owner's tracked texts are ``body[:6000]`` (``TEXT_CAP``); the step reads the **whole
+body**. The first comparison (capped text against the recorded verdicts) is the one that must be exact: it exits 1 if a row differs. The second reads
+each body whole from SOURCE (by article id) and lists the rows whose verdict changes, with the owner's answer: that is what the step would do, and it
+says whether the owner's answers still apply to it. Needs SOURCE (the companies, and the whole bodies).
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ import draw_sector_extra_2026_11_05 as extra
 
 import news_nlp as db
 from cut_stage import companies_of
-from sector_stage import SectorClassifier
+from sector_stage import SectorClassifier, SectorResult
 
 csv.field_size_limit(sys.maxsize)
 
@@ -49,7 +54,48 @@ def main() -> None:
         )
         for r in rows
     ]
-    results = classifier.classify(items)
+    differ = compare(rows, classifier.classify(items), args.tolerance)
+    print(f"recorded under {rows[0]['step_revision']}; the code now gives {classifier.revision}")
+    print(
+        f"capped text ({extra.TEXT_CAP} characters, as the owner read it): {len(rows) - len(differ)} of {len(rows)} rows come out the same "
+        f"(status, candidate, vote, margin within {args.tolerance})"
+    )
+    for d in differ:
+        print("  differs:", d)
+    whole = whole_bodies(rows)
+    long_ids = [r["article_id"] for r in rows if len(whole[r["article_id"]][1]) > extra.TEXT_CAP]
+    results_whole = classifier.classify([whole[r["article_id"]] for r in rows])
+    moved = [
+        (r["article_id"], r["status"], w.status, r["correct"])
+        for r, w in zip(rows, results_whole, strict=True)
+        if (w.status, w.sector)
+        != (r["status"], r["candidate"] if r["status"] == "assigned" else "")
+    ]
+    print(
+        f"whole body (what the step reads): {len(long_ids)} of {len(rows)} bodies are longer than the cap; "
+        f"{len(moved)} verdict(s) differ from the recorded ones"
+    )
+    for article_id, recorded, now, correct in moved:
+        print(
+            f"  article {article_id}: recorded {recorded}, whole body {now}; the owner answered correct = {correct}"
+        )
+    assigned_now = sum(
+        1
+        for r, w in zip(rows, results_whole, strict=True)
+        if r["status"] == "assigned" and r["control"] == "no" and w.status == "assigned"
+    )
+    assigned_then = sum(1 for r in rows if r["status"] == "assigned" and r["control"] == "no")
+    print(
+        f"the recorded assigned bodies still assigned on the whole body: {assigned_now} of {assigned_then}"
+    )
+    if differ:
+        sys.exit(1)
+
+
+def compare(
+    rows: list[dict[str, str]], results: list[SectorResult], tolerance: float
+) -> list[tuple[str, ...]]:
+    """The rows whose verdict is not the recorded one (status, candidate, vote, margin within ``tolerance``)."""
     differ = []
     for row, res in zip(rows, results, strict=True):
         sector = (
@@ -60,19 +106,24 @@ def main() -> None:
             sector,
             row["candidate"],
             row["vote_sector"],
-        ) and abs(res.margin - float(row["margin"])) <= args.tolerance
+        ) and abs(res.margin - float(row["margin"])) <= tolerance
         if not same:
             differ.append(
                 (row["article_id"], row["status"], res.status, row["margin"], f"{res.margin:.4f}")
             )
-    print(f"recorded under {rows[0]['step_revision']}; the code now gives {classifier.revision}")
-    print(
-        f"{len(rows) - len(differ)} of {len(rows)} rows come out the same (status, sector, candidate, vote, margin within {args.tolerance})"
-    )
-    for d in differ:
-        print("  differs:", d)
-    if differ:
-        sys.exit(1)
+    return differ
+
+
+def whole_bodies(rows: list[dict[str, str]]) -> dict[str, tuple[str, str]]:
+    """``{article_id: (title, whole body)}`` from SOURCE for the rows of the file."""
+    conn = db.connect_pipeline()
+    ids = [int(r["article_id"]) for r in rows]
+    marks = ", ".join("?" for _ in ids)
+    found = conn.execute(
+        f"SELECT id, title, body_text FROM source.articles WHERE id IN ({marks})",  # noqa: S608 -- placeholders only
+        ids,
+    ).fetchall()
+    return {str(i): (t or "", b or "") for i, t, b in found}
 
 
 if __name__ == "__main__":
