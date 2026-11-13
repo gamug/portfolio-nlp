@@ -12,6 +12,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from news_nlp import triage
 from news_nlp.db import NewsNlpDatabase, _ensure_article_row
@@ -19,11 +20,14 @@ from news_nlp.db import NewsNlpDatabase, _ensure_article_row
 STEP_SCOPE = "scope"
 STEP_CUT = "cut"
 STEP_SUMMARY = "summary"
+STEP_COMPANIES = "companies"
 ITEM_BODY = "body"
 ITEM_SUB_NEWS = "sub_news"
 SCOPES = ("single", "multi", "sector", "out_of_scope")
 # The properly fetched corpus (D36, T-159): ``quarantined`` is a verdict on the company tag, not on the article.
 PROPER_STATUSES = ("ok", "quarantined")
+# The companies step does not retry an item on the review list: the same revision would give the same answer.
+COMPANY_FINISHED = ("done", "skipped", "review")
 
 
 @dataclass(frozen=True)
@@ -54,16 +58,22 @@ def _articles(conn: NewsNlpDatabase) -> str:
 
 
 def finished(
-    conn: NewsNlpDatabase, step: str, revision: str, item_kind: str = ITEM_BODY
+    conn: NewsNlpDatabase,
+    step: str,
+    revision: str,
+    item_kind: str = ITEM_BODY,
+    statuses: tuple[str, ...] = ("done", "skipped"),
 ) -> set[str]:
     """Ids of the items (by default the body hashes) the step has already done (or skipped) at this revision: failed and
-    pending ones are retried."""
+    pending ones are retried. ``statuses`` names the states that count as finished (the companies step adds ``review``: an item
+    waiting for the owner gives the same answer on a rerun)."""
+    marks = ", ".join("?" for _ in statuses)
     return {
         str(row[0])
         for row in conn.execute(
-            "SELECT item_id FROM pipeline_step_state "
-            "WHERE item_kind = ? AND step = ? AND model_revision = ? AND status IN ('done', 'skipped')",
-            (item_kind, step, revision),
+            "SELECT item_id FROM pipeline_step_state "  # noqa: S608 -- one mark per fixed state
+            f"WHERE item_kind = ? AND step = ? AND model_revision = ? AND status IN ({marks})",
+            (item_kind, step, revision, *statuses),
         )
     }
 
@@ -226,6 +236,119 @@ def record_summary(
     conn.commit()
 
 
+class TextItem(NamedTuple):
+    """One text the companies step reads: a body (its hash) or a sub-news (its id), and the text step 2 left for it."""
+
+    kind: str
+    item_id: str
+    text: str
+
+
+class CompanyScore(NamedTuple):
+    """What the companies step found for one ticker in one text: how many spans named it and the relevance score of the pair."""
+
+    ticker: str
+    mention_count: int
+    relevance_score: float
+
+
+def is_main(score: float, threshold: float) -> bool:
+    """Whether a relevance score makes the company main: at the threshold or over it (D39 (i))."""
+    return score >= threshold
+
+
+def pending_texts(
+    conn: NewsNlpDatabase,
+    summary_revision: str,
+    revision: str,
+    *,
+    scope_revision: str | None,
+    cut_revision: str | None,
+    items: tuple[str, ...] = ("single", "sub_news"),
+    limit: int | None = None,
+) -> Iterator[TextItem]:
+    """The texts of step 2 (``news_summary`` at ``summary_revision``) the companies step has not finished at ``revision``: the
+    ``single`` bodies of ``scope_revision``, then the sub-news of ``cut_revision``; at most ``limit`` in all. A revision of the
+    scope, the cut and the summary is always named, never "the latest" (``docs/scope_training.md`` 8.1)."""
+    taken = 0
+    if "single" in items and scope_revision is not None:
+        done = finished(conn, STEP_COMPANIES, revision, ITEM_BODY, COMPANY_FINISHED)
+        for item_id, text in conn.execute(
+            "SELECT s.item_id, s.summary_text FROM news_summary s "
+            "JOIN body_scope b ON b.body_hash = s.item_id AND b.classifier_revision = ? AND b.scope = 'single' "
+            "WHERE s.item_kind = ? AND s.model_revision = ? ORDER BY s.rowid",
+            (scope_revision, ITEM_BODY, summary_revision),
+        ):
+            if str(item_id) in done:
+                continue
+            yield TextItem(ITEM_BODY, str(item_id), str(text))
+            taken += 1
+            if limit is not None and taken >= limit:
+                return
+    if "sub_news" in items and cut_revision is not None:
+        done = finished(conn, STEP_COMPANIES, revision, ITEM_SUB_NEWS, COMPANY_FINISHED)
+        for item_id, text in conn.execute(
+            "SELECT s.item_id, s.summary_text FROM news_summary s "
+            "JOIN sub_news n ON CAST(n.id AS TEXT) = s.item_id AND n.extractor_revision = ? "
+            "WHERE s.item_kind = ? AND s.model_revision = ? ORDER BY n.id",
+            (cut_revision, ITEM_SUB_NEWS, summary_revision),
+        ):
+            if str(item_id) in done:
+                continue
+            yield TextItem(ITEM_SUB_NEWS, str(item_id), str(text))
+            taken += 1
+            if limit is not None and taken >= limit:
+                return
+
+
+def record_companies(
+    conn: NewsNlpDatabase,
+    item_kind: str,
+    item_id: str,
+    revision: str,
+    found: list[CompanyScore],
+    threshold: float,
+) -> str:
+    """Store the companies found in one text (one row per ticker, the main ones marked) and the state of the item, in one
+    transaction; a repeat changes nothing. Returns the state: ``done`` when a company is main, ``review`` (with the reason in
+    ``error``) when no company was found or none reaches the threshold: no sentiment until the owner reads it (D39 (ii))."""
+    now = _now()
+    for company in found:
+        conn.execute(
+            "INSERT OR IGNORE INTO news_company "
+            "(item_kind, item_id, ticker, model_revision, relevance_score, is_main, mention_count, processed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                item_kind,
+                item_id,
+                company.ticker,
+                revision,
+                company.relevance_score,
+                int(is_main(company.relevance_score, threshold)),
+                company.mention_count,
+                now,
+            ),
+        )
+    best = max(found, key=lambda c: c.relevance_score, default=None)
+    if best is None:
+        state, error = "review", "no company found in the text"
+    elif not is_main(best.relevance_score, threshold):
+        state = "review"
+        error = f"no company over the threshold {threshold} (best {best.ticker} {best.relevance_score:.3f})"
+    else:
+        state, error = "done", None
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = excluded.status, attempts = attempts + 1, error = excluded.error, finished_at = excluded.finished_at",
+        (item_kind, item_id, STEP_COMPANIES, revision, state, error, now, now),
+    )
+    conn.commit()
+    return state
+
+
 def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str]) -> None:
     """Store the sub-news of one body and mark the cut done in one transaction; a repeat adds nothing.
 
@@ -356,4 +479,19 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
         by_kind = f"SELECT item_kind, COUNT(*) FROM news_summary{w} GROUP BY item_kind"  # noqa: S608 -- fixed clauses
         out["news_summary"] = {str(s): int(n) for s, n in conn.execute(by_source, a)}
         out["by_item_kind"] = {str(k): int(n) for k, n in conn.execute(by_kind, a)}
+    if step == STEP_COMPANIES:
+        w = " WHERE model_revision = ?" if revision is not None else ""
+        a = [revision] if revision is not None else []
+        rows, main, items, with_main = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(is_main), 0), COUNT(DISTINCT item_kind || ':' || item_id), "  # noqa: S608 -- fixed clauses
+            "COUNT(DISTINCT CASE WHEN is_main = 1 THEN item_kind || ':' || item_id END) "
+            f"FROM news_company{w}",
+            a,
+        ).fetchone()
+        out["news_company"] = {
+            "rows": int(rows),
+            "main": int(main),
+            "items": int(items),
+            "items_with_main": int(with_main),
+        }
     return out

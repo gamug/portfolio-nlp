@@ -314,6 +314,7 @@ GICS_MAJORITY = 0.5
 MIN_COMPANIES_FOR_GICS = 2
 #: Shortest first word of a company name used as an alias.
 MIN_ALIAS_LENGTH = 4
+MIN_TICKER_SPAN = 3  # a ticker written as a NER span counts from this many letters, as the bare tickers of the resolver
 
 
 def body_hash(text: str) -> str:
@@ -721,6 +722,31 @@ class CompanyResolver:
 
     def _ticker_of_name(self, text: str) -> str:
         return self._by_name[self._name_key(text)]
+
+    def ticker_of_name(self, name: str) -> str | None:
+        """The universe ticker a NER span names, or ``None`` when it names no universe company (PLAN D39 (iii): such a span is ignored).
+
+        A span names a company by the normalized name of the company, by the first word of its name when that word is unique and not an
+        everyday word (``Meta``), by a short form (``Take-Two``), or by the ticker itself written in capitals (``MMM``: the NER model tags
+        tickers as organisations). A ticker under three letters, or one that is also a word (``_WORD_TICKERS``, ``ON``, ``ALL``), does not count."""
+        stripped = name.strip()
+        if not stripped:
+            return None
+        key = self._name_key(stripped)
+        if key in self._by_name:
+            return self._by_name[key]
+        if stripped in self._alias_to:
+            return self._alias_to[stripped]
+        short = self._short.get(_canonical(stripped))
+        if short is not None:
+            return short
+        if (
+            stripped.isupper()
+            and len(stripped) >= MIN_TICKER_SPAN
+            and stripped not in _WORD_TICKERS
+        ):
+            return self._by_ticker.get(stripped)
+        return None
 
     def counted_matches(self, text: str) -> list[tuple[re.Match[str], str]]:
         """The mentions :meth:`resolve` counts in *text* (before the attribution and the NER

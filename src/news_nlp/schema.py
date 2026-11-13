@@ -454,6 +454,7 @@ def _migrate_category_schema(conn: Database) -> None:
     conn.ensure_columns("article_category", _CATEGORY_ADDED_COLUMNS)
 
 
+# Unused by the stepped pipeline: the raw spans of step 3 are not stored (owner, 2026-11-13, PLAN D39 (iii)); the columns stay, nullable.
 _ENTITIES_ADDED_COLUMNS = {"sub_news_id": "INTEGER", "ticker": "TEXT"}
 
 

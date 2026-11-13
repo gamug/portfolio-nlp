@@ -13,7 +13,7 @@ It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read
 
 `init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities`. Its `score` stays the NER confidence. Step 1.1 writes `body_scope`, step 1.2 `sub_news` and step 2 `news_summary`, each with its state in `pipeline_step_state`; `news_company`, `news_sentiment` and `news_category` are created and not written yet (steps 3, 6 and 7 are not built).
+`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; `news_sentiment` and `news_category` are created and not written yet (steps 6 and 7 are not built).
 
 ### Step 1: scope (T-163)
 
@@ -53,9 +53,13 @@ step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 cha
 cut named with `--cut-revision`, never "the latest"** (the command stops and lists the cuts that ran); `--items single` needs none. The size, its measure, how to
 run it again and the first run: `docs/summary_step.md`.
 
-### Steps 3 to 7 (pending)
+### Step 3: the companies (T-164, T-165)
 
-Not built (`TASKS.md` T-164, T-165, T-167, T-168, T-172; Build 2 after Build 1, D40): **3**, the companies of each summary or sub-news (NER, the matcher to universe tickers, the relevance model `gamug/deberta-v3-company-relevance` for the main company or companies, one `news_company` row each; none over the threshold: the review list); **4**, the GICS sector of a `sector` body, then its summary; **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+`uv run cli/news_nlp_steps.py --step companies --summary-revision REV --threshold T --candidates ner|ner+text [--cut-revision REV | --items single] [--limit N]` (and `--step companies --status`) reads the text step 2 left for each `single` body and sub-news, finds the universe companies it names (NER, then the matcher: a span with no ticker is ignored), scores each (text, ticker) with the relevance model `gamug/deberta-v3-company-relevance` (private, `HF_TOKEN`) and writes one `news_company` row per ticker; every ticker at the threshold or over it is main (`is_main`), an item with none is `review`. Revision `companies-…` (the two models, the threshold, the candidates, the universe, the code). **The threshold (0.5) and `--candidates` (`ner+text`) are the owner's, decided 2026-11-13 (the corrected definition of the text candidates confirmed), and have no default**; the measurements for choosing, the dry run and the limits (the relevance model never saw a sub-news): `docs/companies_step.md`.
+
+### Steps 4 to 7 (pending)
+
+Not built (`TASKS.md` T-167, T-168, T-172; Build 2 after Build 1, D40): **4**, the GICS sector of a `sector` body, then its summary; **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
 
 ## Models both pipelines use
 

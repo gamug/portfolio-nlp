@@ -12,6 +12,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
     uv run cli/news_nlp_steps.py --step summary --items sub_news --cut-revision units5-...   # only the sub-news of one cut revision
     uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
+    uv run cli/news_nlp_steps.py --step companies --summary-revision summary-... --cut-revision units5-... --threshold 0.5 --candidates ner+text --limit 500   # step 3
+    uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -20,6 +22,9 @@ step 1 wrote (``--scope-revision``, default the latest) and writes ``sub_news`` 
 attribution checkpoint (default ``data/models/attribution_2026_11_08``). The ``summary`` step (step 2) reads the ``single`` bodies of step 1
 and the sub-news of the cut (``--cut-revision``, default the latest); an item over 2,000 characters is summarised by the pinned local
 summariser, a shorter one is stored as it is (``news_summary.text_source`` = ``original``); see ``src/news_summary_stage.py``.
+The ``companies`` step (step 3) reads the texts step 2 left (``--summary-revision``, the single bodies of ``--scope-revision`` and the sub-news of
+``--cut-revision``), finds the universe companies each names with NER and the matcher, scores each pair with the relevance model and marks every
+company at ``--threshold`` or over it as main; an item with none goes to the review list; see ``src/news_company_stage.py``.
 """
 
 import argparse
@@ -38,8 +43,9 @@ import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
 
-STEPS = (steps.STEP_SCOPE, steps.STEP_CUT, steps.STEP_SUMMARY)
+STEPS = (steps.STEP_SCOPE, steps.STEP_CUT, steps.STEP_SUMMARY, steps.STEP_COMPANIES)
 BATCH = 16
+COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
 MAX_FAILED_BODIES = 10  # the same for the cut, which goes body by body
@@ -419,6 +425,164 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
 
 
+class CompanyFinding(Protocol):
+    """What ``run_companies`` needs of a finder (``news_company_stage.CompanyFinder`` or a test stub)."""
+
+    revision: str
+    threshold: float
+
+    def find(self, texts: Sequence[str]) -> list[list[steps.CompanyScore]]: ...
+
+
+def _find_companies(
+    conn: db.NewsNlpDatabase,
+    finder: CompanyFinding,
+    batch: list[steps.TextItem],
+    counts: dict[str, int],
+) -> None:
+    """Find and store the companies of one batch; a batch that fails is redone item by item, so one bad text fails alone."""
+    try:
+        results = finder.find([item.text for item in batch])
+    except Exception as exc:
+        if len(batch) > 1:
+            for item in batch:
+                _find_companies(conn, finder, [item], counts)
+            return
+        steps.record_item_failure(
+            conn,
+            batch[0].kind,
+            batch[0].item_id,
+            steps.STEP_COMPANIES,
+            finder.revision,
+            steps.error_text(exc),
+        )
+        counts["failed"] += 1
+        return
+    for item, found in zip(batch, results, strict=True):
+        state = steps.record_companies(
+            conn, item.kind, item.item_id, finder.revision, found, finder.threshold
+        )
+        counts[state] += 1
+        counts["main_rows"] += sum(
+            1 for c in found if steps.is_main(c.relevance_score, finder.threshold)
+        )
+
+
+def run_companies(
+    conn: db.NewsNlpDatabase,
+    finder: CompanyFinding,
+    summary_revision: str,
+    scope_revision: str | None,
+    cut_revision: str | None,
+    items: Sequence[str],
+    limit: int | None,
+) -> dict[str, int]:
+    """Step 3: find the companies of up to ``limit`` texts not yet finished at the finder's revision; return what was done.
+
+    ``done`` is an item with a main company, ``review`` an item with none (it waits for the owner and is not retried at this revision),
+    ``failed`` an item the models could not read (retried by the next run), ``main_rows`` the ``is_main`` rows written. A batch that fails is
+    redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail completely stop the run.
+    """
+    todo = list(
+        steps.pending_texts(
+            conn,
+            summary_revision,
+            finder.revision,
+            scope_revision=scope_revision,
+            cut_revision=cut_revision,
+            items=tuple(items),
+            limit=limit,
+        )
+    )
+    if not todo:
+        print("nothing pending", file=sys.stderr)
+    counts: dict[str, int] = {"done": 0, "review": 0, "failed": 0, "main_rows": 0}
+    failed_batches = 0
+    with tqdm(total=len(todo), desc="companies", unit="item") as bar:
+        for start in range(0, len(todo), COMPANY_BATCH):
+            batch = todo[start : start + COMPANY_BATCH]
+            failed_before = counts["failed"]
+            _find_companies(conn, finder, batch, counts)
+            failed_batches = (
+                failed_batches + 1 if counts["failed"] - failed_before == len(batch) else 0
+            )
+            if failed_batches >= MAX_FAILED_BATCHES:
+                raise RunAborted(
+                    f"{failed_batches} batches in a row failed completely after {counts['done'] + counts['review']} done "
+                    f"(see the error of a failed item with --status); the failed items are retried by the next run"
+                )
+            bar.update(len(batch))
+    return counts
+
+
+def main_companies(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    import news_company_stage  # noqa: PLC0415 -- imports torch, loads no model
+
+    if args.status:
+        latest = steps.latest_revision(conn, steps.STEP_COMPANIES)
+        report = steps.status(conn, steps.STEP_COMPANIES, latest)
+        report["revisions"] = steps.revisions(conn, steps.STEP_COMPANIES)
+        report["models"] = news_company_stage.models_of_the_step()
+        print(json.dumps(report, indent=2))
+        return
+    items = (args.items,) if args.items else ("single", "sub_news")
+    ran_summaries = ", ".join(steps.revisions(conn, steps.STEP_SUMMARY)) or "none"
+    found = conn.execute(
+        "SELECT 1 FROM news_summary WHERE model_revision = ? LIMIT 1", (args.summary_revision,)
+    ).fetchone()
+    if found is None:
+        sys.exit(
+            f"step 2 left no text at the summary revision {args.summary_revision} (the revisions that ran: {ran_summaries})"
+        )
+    scope_revision = None
+    if "single" in items:
+        scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+        if scope_revision is None:
+            sys.exit("body_scope is empty: run --step scope first")
+    cut_revision = args.cut_revision
+    if "sub_news" in items:
+        ran = ", ".join(steps.revisions(conn, steps.STEP_CUT)) or "none"
+        if cut_revision is None:
+            sys.exit(
+                f"sub-news need the cut they come from: pass --cut-revision (the cuts that ran: {ran}), "
+                "or --items single"
+            )
+        if (
+            conn.execute(
+                "SELECT 1 FROM sub_news WHERE extractor_revision = ? LIMIT 1", (cut_revision,)
+            ).fetchone()
+            is None
+        ):
+            sys.exit(
+                f"the cut wrote no sub-news at revision {cut_revision} (the cuts that ran: {ran})"
+            )
+    from cut_stage import companies_of  # noqa: PLC0415 -- loads torch
+    from news_company_stage import CompanyFinder  # noqa: PLC0415 -- loads torch
+
+    finder = CompanyFinder(companies_of(conn), args.threshold, args.candidates)
+    print(
+        f"NER {finder.spans.model_name}@{finder.spans.model_revision[:8]}, relevance {finder.scorer.repo}@{finder.scorer.revision[:8]} "
+        f"on {finder.scorer.device}, threshold {finder.threshold}, candidates {finder.candidates}, revision {finder.revision}",
+        file=sys.stderr,
+    )
+    try:
+        counts = run_companies(
+            conn, finder, args.summary_revision, scope_revision, cut_revision, items, args.limit
+        )
+    except RunAborted as exc:
+        print(json.dumps(steps.status(conn, steps.STEP_COMPANIES, finder.revision), indent=2))
+        sys.exit(f"stopped: {exc}")
+    read = {
+        "summary_revision": args.summary_revision,
+        "scope_revision": scope_revision,
+        "cut_revision": cut_revision,
+        "threshold": finder.threshold,
+        "candidates": finder.candidates,
+    }
+    print(json.dumps({**{k: v for k, v in read.items() if v is not None}, **counts}, indent=2))
+    print(json.dumps(steps.status(conn, steps.STEP_COMPANIES, finder.revision), indent=2))
+
+
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     revision = None
     if (args.model_dir / "training_record.json").exists():
@@ -457,6 +621,16 @@ RECUT_SQL = (
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    # step 3 keys its rows by the same ids
+    "DELETE FROM news_company WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    "DELETE FROM pipeline_step_state WHERE step = 'companies' AND item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+)
+#: To run the companies step again at one revision (the items on the review list included: they are not retried by themselves).
+RECOMPANIES_SQL = (
+    "DELETE FROM pipeline_step_state WHERE step = 'companies' AND model_revision = '<companies revision>';",
+    "DELETE FROM news_company WHERE model_revision = '<companies revision>';",
 )
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
@@ -469,15 +643,19 @@ so `DELETE FROM sub_news` alone does not make the cut run again. At the same rev
 are the same), in the RESULTS database:
   DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<cut revision>';
   DELETE FROM sub_news WHERE extractor_revision = '<cut revision>';   -- the rows are written with INSERT OR IGNORE
-Before the `DELETE FROM sub_news` above, delete that revision's summaries: step 2 reads `sub_news` and keys its rows by `sub_news.id`, so new ids would leave them pointing at nothing:
+Before the `DELETE FROM sub_news` above, delete that revision's summaries and companies: steps 2 and 3 read `sub_news` and key their rows by `sub_news.id`, so new ids would leave them pointing at nothing:
   {recut}
 To summarise again at one revision of the summary step (`--status` prints it):
   {resummarize}
+To run the companies step again at one revision (`--step companies --status` prints it); an item on the review list is not retried by a plain rerun:
+  {recompanies}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
 RERUN_HELP = _RERUN_TEMPLATE.format(
-    recut="\n  ".join(RECUT_SQL), resummarize="\n  ".join(RESUMMARIZE_SQL)
+    recut="\n  ".join(RECUT_SQL),
+    resummarize="\n  ".join(RESUMMARIZE_SQL),
+    recompanies="\n  ".join(RECOMPANIES_SQL),
 )
 
 
@@ -492,7 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="touch at most this many items (bodies; for summary also sub-news)",
+        help="touch at most this many items (bodies; for summary and companies also sub-news)",
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
@@ -538,9 +716,51 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="summary: the cut revision whose sub-news are read; required with sub-news (the revisions the cut has are listed), never the latest",
     )
+    parser.add_argument(
+        "--summary-revision",
+        default=None,
+        help="companies: the summary revision whose texts are read (required to run; `--step summary --status` lists them), never the latest",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="companies: a company whose relevance score is at this value or over it is main, 0 < t <= 1 (required to run: it is part of the revision, D39 (vi))",
+    )
+    parser.add_argument(
+        "--candidates",
+        choices=("ner", "ner+text"),
+        default=None,
+        help="companies: where the candidate companies of a text come from, `ner` (the NER spans, D39 (3.1)) or `ner+text` (also the matcher over the text); required to run: it is part of the revision",
+    )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
     return parser
+
+
+def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the companies step: the two it needs to run, and the ones no other step reads."""
+    if args.step != steps.STEP_COMPANIES and (
+        args.summary_revision is not None or args.threshold is not None
+    ):
+        parser.error("--summary-revision and --threshold only apply to --step companies")
+    if args.step != steps.STEP_COMPANIES and args.candidates is not None:
+        parser.error("--candidates only applies to --step companies")
+    if args.step == steps.STEP_COMPANIES and not args.status:
+        if args.summary_revision is None:
+            parser.error(
+                "--step companies needs --summary-revision (the texts it reads; `--step summary --status` lists the revisions)"
+            )
+        if args.threshold is None:
+            parser.error(
+                "--step companies needs --threshold: the value is the owner's (D39 (i), T-169) and part of the revision"
+            )
+        if args.candidates is None:
+            parser.error(
+                "--step companies needs --candidates: `ner` or `ner+text` (docs/companies_step.md); it is part of the revision"
+            )
+        if not 0 < args.threshold <= 1:
+            parser.error("--threshold must be over 0 and at most 1")
 
 
 def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -553,18 +773,19 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             parser.error(f"{', '.join(used)} only apply to --step scope")
     if args.step != steps.STEP_CUT and args.reading is not None:
         parser.error("--reading only applies to --step cut")
-    if args.step != steps.STEP_SUMMARY and (
+    if args.step not in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and (
         args.items is not None or args.cut_revision is not None
     ):
-        parser.error("--items and --cut-revision only apply to --step summary")
-    if args.step == steps.STEP_SUMMARY and args.model_dir is not None:
+        parser.error("--items and --cut-revision only apply to --step summary and --step companies")
+    _check_companies_options(parser, args)
+    if args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and args.model_dir is not None:
         parser.error(
-            "--model-dir does not apply to --step summary (its model is the pin of config/pipeline_models.json)"
+            f"--model-dir does not apply to --step {args.step} (its models are the pins of config/)"
         )
     if args.items == "single" and args.cut_revision is not None:
         parser.error("--cut-revision does not apply to --items single")
     if (
-        args.step == steps.STEP_SUMMARY
+        args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES)
         and args.items == "sub_news"
         and args.scope_revision is not None
     ):
@@ -591,6 +812,9 @@ def main() -> None:
         return
     if args.step == steps.STEP_SUMMARY:
         main_summary(args, conn)
+        return
+    if args.step == steps.STEP_COMPANIES:
+        main_companies(args, conn)
         return
     main_scope(args, conn)
 
