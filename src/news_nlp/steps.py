@@ -21,6 +21,7 @@ STEP_SCOPE = "scope"
 STEP_CUT = "cut"
 STEP_SUMMARY = "summary"
 STEP_COMPANIES = "companies"
+STEP_SECTOR = "sector"
 ITEM_BODY = "body"
 ITEM_SUB_NEWS = "sub_news"
 SCOPES = ("single", "multi", "sector", "out_of_scope")
@@ -349,6 +350,55 @@ def record_companies(
     return state
 
 
+def pending_sector_bodies(
+    conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The ``sector`` bodies of step 1 the sector step has not done at ``revision``, at most ``limit`` (T-167)."""
+    return _pending_scoped_bodies(conn, classifier_revision, "sector", STEP_SECTOR, revision, limit)
+
+
+def record_sector(
+    conn: NewsNlpDatabase,
+    body: Body,
+    revision: str,
+    status: str,
+    sector: str,
+    candidate: str,
+    margin: float,
+    vote_sector: str,
+    scores: dict[str, float],
+    votes: dict[str, int],
+) -> None:
+    """Store one body's sector (or its ``out_of_scope`` verdict) and mark the step done in one transaction; a repeat changes nothing."""
+    now = _now()
+    conn.execute(
+        "INSERT OR IGNORE INTO body_sector "
+        "(body_hash, classifier_revision, status, sector, candidate, margin, vote_sector, scores, votes, processed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            body.body_hash,
+            revision,
+            status,
+            sector,
+            candidate,
+            margin,
+            vote_sector,
+            json.dumps(scores, sort_keys=True),
+            json.dumps(votes, sort_keys=True),
+            now,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'done', 1, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
+        (ITEM_BODY, body.body_hash, STEP_SECTOR, revision, now, now),
+    )
+    conn.commit()
+
+
 def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str]) -> None:
     """Store the sub-news of one body and mark the cut done in one transaction; a repeat adds nothing.
 
@@ -464,6 +514,15 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
             sql, sql_args = sql + " WHERE classifier_revision = ?", [revision]
         out["by_scope"] = {
             str(s): int(n) for s, n in conn.execute(sql + " GROUP BY scope", sql_args)
+        }
+    if step == STEP_SECTOR:
+        sec_w = " WHERE classifier_revision = ?" if revision is not None else ""
+        sec_a = [revision] if revision is not None else []
+        by_status = f"SELECT status, COUNT(*) FROM body_sector{sec_w} GROUP BY status"  # noqa: S608 -- fixed clauses
+        by_sector = f"SELECT sector, COUNT(*) FROM body_sector{sec_w} GROUP BY sector"  # noqa: S608 -- fixed clauses
+        out["body_sector"] = {str(s): int(n) for s, n in conn.execute(by_status, sec_a)}
+        out["by_sector"] = {
+            (str(s) or "out_of_scope"): int(n) for s, n in conn.execute(by_sector, sec_a)
         }
     if step == STEP_CUT:
         cut_sql = "SELECT COUNT(*), COUNT(DISTINCT body_hash) FROM sub_news"

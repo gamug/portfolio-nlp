@@ -23,6 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from news_summary_stage import Summarizer, input_of_body, needs_summary  # noqa: E402
 
 MODEL = "BAAI/bge-small-en-v1.5"
+POOLING = "cls"  # "cls" (bge) or "mean" (gte, e5)
+PREFIX = ""  # e5 wants "query: " on both sides
 SCRATCH = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data"
 
 DESCRIPTIONS: dict[str, list[str]] = {
@@ -88,6 +90,7 @@ class Embedder:
     def __init__(self) -> None:
         self.tok = AutoTokenizer.from_pretrained(MODEL)
         self.model = AutoModel.from_pretrained(MODEL).eval()
+        self.pooling, self.prefix = POOLING, PREFIX
         self.dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.dev)
 
@@ -96,13 +99,18 @@ class Embedder:
         out = []
         for i in range(0, len(texts), bs):
             b = self.tok(
-                texts[i : i + bs],
+                [self.prefix + t for t in texts[i : i + bs]],
                 padding=True,
                 truncation=True,
                 max_length=512,
                 return_tensors="pt",
             ).to(self.dev)
-            h = self.model(**b).last_hidden_state[:, 0]  # CLS pooling, as the model card
+            hs = self.model(**b).last_hidden_state
+            if self.pooling == "cls":
+                h = hs[:, 0]  # CLS pooling, as the bge model card
+            else:
+                mask = b["attention_mask"].unsqueeze(-1).to(hs.dtype)
+                h = (hs * mask).sum(1) / mask.sum(1)
             out.append(torch.nn.functional.normalize(h, dim=-1).cpu().numpy())
         return np.vstack(out)
 
