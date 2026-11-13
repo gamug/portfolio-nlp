@@ -124,3 +124,11 @@ def test_the_files_are_not_overwritten(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         sample.refuse_to_overwrite(tmp_path)
     sample.refuse_to_overwrite(tmp_path / "empty-folder")  # nothing there: fine
+
+
+def test_the_rule_the_script_prints_says_a_wrong_company_or_scope_is_not_a_no_and_goes_in_the_notes() -> (
+    None
+):
+    rule = sample.READING_RULE
+    assert "notes" in rule and "company" in rule and "scope" in rule
+    assert "not a no" in rule

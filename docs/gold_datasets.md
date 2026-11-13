@@ -1,6 +1,6 @@
 # Gold datasets (Work item 18)
 
-**Status: written 2026-11-06.** One page for every set the owner tags or checks, what it is for, where
+**Status: written 2026-11-06, last updated 2026-11-13 (sets 10 and 11).** One page for every set the owner tags or checks, what it is for, where
 each file lives and in which order the sets unlock the work. If a name, a size or a date here
 disagrees with `PLAN.md` (D20–D34) or `TASKS.md`, this page is the one to fix.
 
@@ -51,7 +51,7 @@ overwrites a file, with rows or without.
 
 ## The sets
 
-| # | Set | Size | `data/` working file | `gold/` file | State on 2026-11-07 |
+| # | Set | Size | `data/` working file | `gold/` file | State (sets 1 to 9 on 2026-11-07; 10 and 11 on 2026-11-13) |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; **tagged by the owner and migrated 2026-11-07** (200 of 200 valid; re-reviewed 2026-11-11, 14 scope changes: **116 single, 44 multi, 14 market_economy, 10 unrelated, 9 investing_general, 7 sector**; the counts of 2026-11-07 were 118 / 47 / 11 / 8 / 7 / 9); the `gold/` file carries the tags with the draw's weights |
@@ -63,7 +63,7 @@ overwrites a file, with rows or without.
 | 8 | **Company as the hook** (T-147; trains the scope classifier) | 30 bodies | `scope_hook_to_tag.csv` | `scope_hook.csv`, texts in `texts/scope_hook_texts.csv` | drawn 2026-11-11 by rule (one universe company in the title, at least three market or macro terms in the first 800 characters); tagged and corrected by the owner, migrated 2026-11-11: 18 single, 7 market_economy, 3 investing_general, 2 sector. A training set, not a gold: it trains, never exams. |
 | 9 | **Quarantined-scope validation** (T-163; measures step 1's precision on `quarantined` bodies, not weighted by itself) | 225 bodies: 200 drawn per predicted scope + 25 read of an extra 75 `multi` (the other 50 are not used, owner 2026-11-11) | `scope_quarantined_to_validate.csv`, `multi_extra/scope_quarantined_to_validate.csv` | `scope_quarantined_validation.csv` (both draws, first-reading and final tags, `changed`; no text) | drawn and read 2026-11-11; two audits against the labelling spec (`docs/scope_training.md` section 9). Columns: `draw` (`main` / `multi_extra`), `validator_first` / `correct_first` (the first reading; **a reconstruction** from the first review, checked against its counts: the original file was edited in place), `validator` / `correct_scope` (final), `changed` = `yes` where the final differs from the first (9 rows) |
 | 10 | **Cut readings** (T-176, T-177; the owner's marks on the `units4` and `units5` texts that are not in set 4) | 51 marks; 84 changed texts listed | `data/units4_to_read.csv`, the `units5` blind sample | `cut_owner_marks_2026_11_11.csv` (`reading`, `article_id`, `ticker`, `faithful`, `basis`, `text`: the first answer kept in `basis`), `units5_changed_texts_2026_11_11.csv` (which of the 84 changed texts were read: `sample` or `no`) | marked 2026-11-11 (one rule: an analyst-only text counts faithful); figures in `docs/scope_training.md` §8.1 and `docs/extractor_training.md`, "Update of 2026-11-11" |
-| 11 | **Cut sample** (T-183; yes / no on the output of the cut: `faithful`, `one_story`, `complete`) | 28 bodies, 143 sub-news, drawn from the `units5` cut `units5-d3e2cbfa830e` (an earlier draw of the `units` cut was never marked) | `cut_sample_to_tag.csv`, `cut_sample_ids.csv` (`scripts/draw_cut_sample_2026_11_12.py`) | none yet (no builder) | marked by the owner 2026-11-12 (`units5` final: faithful 84.6% / 89.2% / 94.7% on all / right-tagged / unambiguous pieces); figures in `docs/scope_training.md` §8.3 (`scripts/cut_sample_metrics_2026_11_12.py`) |
+| 11 | **Cut sample** (T-183; yes / no on the output of the cut: `faithful`, `one_story`, `complete`) | 28 bodies, 143 sub-news, drawn from the `units5` cut `units5-d3e2cbfa830e` (an earlier draw of the `units` cut was never marked) | `cut_sample_to_tag.csv`, `cut_sample_ids.csv` (`scripts/draw_cut_sample_2026_11_12.py`) | `cut_sample_marks.csv` (answers, `kind`, notes, text hash), texts in `texts/cut_sample_texts.csv` (`scripts/build_cut_sample_gold_2026_11_12.py`) | marked by the owner and migrated 2026-11-13; `units5` final; the figures are in `docs/scope_training.md` §8.3 (`scripts/cut_sample_metrics_2026_11_12.py`) |
 
 The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.

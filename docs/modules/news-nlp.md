@@ -40,7 +40,7 @@ same revision, `DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_rev
 `failed` (retried; the reason is `Type: message`, as in step 1). Ten failures in a row stop the run. `--reading units5|units4|units` picks how the body is read (`units5`, T-177, is the default since 2026-11-12; `units4` is the default of 2026-11-11; `units` cuts as before;
 `docs/extractor_training.md`). `--fetch`,
 `--allow-unpinned` and `--titles` belong to the scope step and are refused. `--status` needs no model: it shows the latest
-revision with state and lists the others. **`units5` is the final reading (owner 2026-11-12) and `units5-d3e2cbfa830e` the reference cut** (161,574 sub-news of 30,305 bodies); on the owner's 143 marked pieces faithful 84.6% [77.8, 89.6], 89.2% [82.7, 93.5] without the pieces tagged wrongly (`docs/scope_training.md` §8.3). **The checkpoint is local and not pinned (T-148b12; identity `8399ccf003c60143`): until it is, the cut cannot be
+revision with state and lists the others. **`units5` is the final reading (owner 2026-11-12) and `units5-d3e2cbfa830e` the reference cut** (161,574 sub-news of 30,305 bodies); on the owner's 143 marked pieces faithful 84.6% [77.8, 89.6] (the lower end is below the 80% bar), 89.6% [83.2, 93.7] without the 9 pieces of bodies scoped wrongly (`docs/scope_training.md` §8.3); 30,305 bodies `done`, 2,250 `skipped`, 0 `failed`. The database also holds a partial `units4-d3e2cbfa830e` with the same 12 hex digits as `units5-d3e2cbfa830e`: name the full revision. **The checkpoint is local and not pinned (T-148b12; identity `8399ccf003c60143`): until it is, the cut cannot be
 reproduced from the repository alone.** Measurements and the quality check: `docs/scope_training.md`, section 8.1.
 
 

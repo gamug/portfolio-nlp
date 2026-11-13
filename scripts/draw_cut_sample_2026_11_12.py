@@ -1,7 +1,7 @@
 """Draw the sample of the cut the owner reads, to answer yes / no questions (T-183; owner 2026-11-12).
 
     uv run scripts/draw_cut_sample_2026_11_12.py --results-db <nlp.db copy> --source-db <urls.db copy> \
-        --cut-revision units-5f831c298bcb [--bodies 30] [--seed 20261112] [--out data] [--yes] [--max-new 800]
+        --cut-revision units5-d3e2cbfa830e [--bodies 28] [--seed 20261112] [--out data] [--yes] [--max-new 800]
 
 Read-only on both databases (pass **copies**: the owner's mount fails a read-only open). It takes ``--bodies`` bodies at random (seeded)
 from the ones the cut wrote ``sub_news`` for at the **named** revision (never "the latest"), and writes one row per sub-news, the pieces
@@ -66,7 +66,8 @@ READING_RULE = (
     "does not, is mostly about something else, or is too broken to tell. `one_story`: yes if it tells one company's or one story's news; "
     "no if news of another company is inside it (a list written in one paragraph). `complete`: yes if it reads as a whole; no if it is a "
     "clause cut in half or a heading alone. `ticker` and `company` are the crawl's tag of the article, for context only: a piece keeps no "
-    "ticker."
+    "ticker. A wrong company tag, or a body scoped wrongly, is not a no on any of the three questions, which judge the piece against its "
+    'article: mark the piece as it deserves and say it in `notes` ("company missunderstood", "investment_general").'
 )
 
 

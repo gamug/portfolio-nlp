@@ -14,10 +14,7 @@ The gold sets of Work item 18 (scope train and test, label check, extractor samp
 measured on those sets, not by this judge: `docs/scope_training.md`, `docs/extractor_training.md`, `docs/sentiment_training.md`,
 `docs/summary_step.md`.
 
-**The cut (step 1.2), final reading `units5` (owner, 2026-11-12).** Measured on the owner's marks, not by the judge: the extractor 351 of 359 faithful, 97.8% [95.5, 99.4]
-(`docs/extractor_training.md`); the output of the corpus cut `units5-d3e2cbfa830e`, 143 pieces of 28 bodies marked yes / no: faithful 84.6% [77.8, 89.6] on all pieces, 89.2% [82.7, 93.5] without the 13 pieces
-tagged wrongly (company read from the title, body that should be `investment_general`), 94.7% [89.0, 97.6] also without 16 ambiguous ones; one_story 78.3% / 82.3% / 93.9%, complete 83.2% / 88.5% / 93.0%
-(`docs/scope_training.md` §8.3, `scripts/cut_sample_metrics_2026_11_12.py`). The bar, >= 80% faithful (D32), is met from the second level.
+**The cut (step 1.2), final reading `units5` (owner, 2026-11-12).** Measured on the owner's marks, not by the judge: the extractor 351 of 359 faithful, 97.8% [95.5, 99.4] (`docs/extractor_training.md`); the output of the corpus cut `units5-d3e2cbfa830e`, 143 pieces of 28 bodies marked yes / no: faithful 84.6% [77.8, 89.6] on all pieces (the lower end is below the >= 80% bar, D32) and 89.6% [83.2, 93.7] without the 9 pieces of bodies scoped wrongly; all the levels and the other questions in `docs/scope_training.md` §8.3 (`scripts/cut_sample_metrics_2026_11_12.py`, marks in `gold/cut_sample_marks.csv`).
 
 **What moved to legacy (2026-11-12).** The owner deprecated the v1 sentiment, zero-shot category and `sector_summary`
 stages on 2026-11-12, and Work item 15 was superseded by Work item 18 on 2026-10-28: their follow-ups were moved verbatim

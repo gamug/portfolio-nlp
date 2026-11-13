@@ -1,0 +1,144 @@
+review_order,article_id,segment_index,text_hash,extractor_revision,faithful,one_story,complete,kind,notes
+1,132635,0,1e0a9e1a13c0dc7785e24f016b3b331eadc6b0f45c2439bc84c8d571bef714e8,units5-d3e2cbfa830e,yes,yes,no,wrong_company,Company is lost. BoA is part of the title but the realcompany should be some of the car industry
+2,132635,1,07ac4d7168d36d75dc9ec7a5ca93fdf35dc3f7666d2054d592a312bdbbaddebe,units5-d3e2cbfa830e,yes,yes,yes,kept,
+3,181739,0,2774ae69efbd06289f2ca848a4c7c9fce17de440c7bd2ae4e3b563fba1e44cd7,units5-d3e2cbfa830e,yes,yes,yes,kept,
+4,181739,1,d54a3bc6f02a2a8a7cfb6e683ea3748aba26b501f1264dc02df2a1f66ac176c2,units5-d3e2cbfa830e,yes,yes,yes,wrong_company,Company missunderstood: It was tagged from the title
+5,181739,2,62181dde4ea2e1828083ce57ac9bf8df5fe66de5f66b1e77eb4e1d8d1ad61afa,units5-d3e2cbfa830e,yes,yes,yes,wrong_company,Company missunderstood: It was tagged from the title
+6,181739,3,653ba78f3efcee98d1acf3ff71e209bf5faafc8e47a260ecfeed7130fe4c724c,units5-d3e2cbfa830e,yes,yes,yes,wrong_company,Company missunderstood: It was tagged from the title
+7,99610,0,3313a74ef0975e27fce89424121a2205672ea45059a3bb650b6eed39668049ae,units5-d3e2cbfa830e,yes,yes,yes,kept,
+8,164199,0,fcf36ae15aa0d324da65f40f9c2539d17943033cc334d21ac05e0dffb20919e1,units5-d3e2cbfa830e,yes,yes,yes,kept,
+9,164199,1,fa6be288e355c32a3c875ad6313c83e0b841b28bc0443273083c584a1f2dc785,units5-d3e2cbfa830e,yes,yes,yes,kept,
+10,164199,2,714ee11b6119f4f5cd7cbb6e5494fd6f68129bf56d0d8e1b208764c852771638,units5-d3e2cbfa830e,yes,yes,yes,kept,
+11,164199,3,77a02a3a496eea2c315c0b31d282a2a2d1d56184796fa3d244d4ba039e1c2915,units5-d3e2cbfa830e,yes,yes,yes,kept,
+12,164199,4,4eef7621ad84e1e2ecb42c6d46d252d74bc58792d81e86c31378e9c18176d12c,units5-d3e2cbfa830e,yes,yes,yes,kept,
+13,164199,5,44c6a02d16a1f143e1a6f6d46c796fa255de983eaebb5e75d13096f7681e3cb9,units5-d3e2cbfa830e,yes,yes,yes,kept,
+14,164199,6,10d212e692ea1655972042f997880adc8b49c41aa0b774f05ef2406ca73b6d05,units5-d3e2cbfa830e,yes,yes,yes,kept,
+15,164199,7,5f77ffaa35d435a218cbaad5f9e66050b9ca29ac34c052a6fcbc8cc604b3b49a,units5-d3e2cbfa830e,yes,yes,yes,kept,
+16,193841,0,c12c946839426fecbc2658e5b7b05ed1a036e536bd23e5f4b9b6d906b2d5b325,units5-d3e2cbfa830e,yes,yes,yes,kept,
+17,193841,1,4650612fb041024e132602483389dd279b1ff9305b2e69ac6c0a87bf38a43f4d,units5-d3e2cbfa830e,yes,yes,yes,kept,
+18,193841,2,3b814932385265ada781bb027b85c5ff77893ea7a6937786a2895feff452e9ca,units5-d3e2cbfa830e,yes,yes,yes,kept,
+19,67734,0,8f30b6d61a2e9a30252cfe9e1f098aea1148abc65f90957e54385d89764f64de,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,"The extraction are well done, the initial tagging is wrong. This should be investment_general"
+20,67734,1,cf777c63b2d75af8f181b35a095f2760869c5447247413b31d7e1b2bcf447f5c,units5-d3e2cbfa830e,yes,yes,yes,kept,
+21,67734,2,e867796e05960967e8987521d630856bd33fd0655217f141a5afa9d8fc3bf95e,units5-d3e2cbfa830e,yes,no,yes,kept,The initial part of the news has something coming from the previous news. Nothing excesive wrong
+22,67734,3,159397de0ef5185032ae4491daf2b5e9c17f83cb2c0628b56b21eb7c360ea285,units5-d3e2cbfa830e,yes,no,yes,kept,The initial part of the news has something coming from the previous news. Nothing excesive wrong
+23,67734,4,9405c763fd58ec73837360518976f29abf1697a7aaa1423d43866a65ea437112,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
+24,67734,5,99dc6adadbc11e0dd24f7a0b313cc3b3f6edcc35e67d6fd2913919c774a09796,units5-d3e2cbfa830e,no,no,no,ambiguous,I can understand anything :S
+25,67734,6,73158c2933b64dbe000205aa2c16001455de3cf0cd9e43dbcfce1d95fa8b2ce8,units5-d3e2cbfa830e,no,no,no,ambiguous,There are a mixed there I can understand well
+26,67734,7,1319f8f3105a6d4166eb0896f949a1a49c0b5a8342bd9643162a98bc450519ba,units5-d3e2cbfa830e,no,no,no,ambiguous,There are a mixed there I can understand well
+27,67734,8,69fcb02a8c9e475074230776e4071ae7e87c6e7e9cc34287967424fb4b29fb6d,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
+28,67734,9,ac682b1390576a3f9d3e38b15e694caab764ac835140890a0a97ebd76e7ca742,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
+29,67734,10,4e41b1a6031e7ade53457105ac185a9daabe4f5c54af77262621a2022362fc7c,units5-d3e2cbfa830e,yes,no,yes,ambiguous,Two companies there
+30,67734,11,f9d3d7ad8f241db23473ab33800985a51fcd81c47b1a328bfa73251d544381bd,units5-d3e2cbfa830e,yes,yes,yes,kept,
+31,446120,0,8ad2b03f7f7236a7ddc80472825d39d0d689957eb520c948c169a77336ba8228,units5-d3e2cbfa830e,yes,yes,yes,kept,
+32,446120,1,9e3db0d39979f518594fe5be6fd2795277c5c804648200d2861312cb37965c1b,units5-d3e2cbfa830e,yes,yes,yes,kept,
+33,446120,2,a29607f176eee9ce0e76741654b42a6c612b4f561597f34f9297d3d2774ecadc,units5-d3e2cbfa830e,yes,yes,yes,kept,
+34,446120,3,eabcce13a4228085223692fdea55abdbfd5714b35659bda9b06ae5293089fa80,units5-d3e2cbfa830e,yes,yes,yes,kept,
+35,446120,4,24bffe0ca7dbf37ba8df88c1c068b1be683cd1b8ddd9771d8216df40b0c82afd,units5-d3e2cbfa830e,yes,yes,yes,kept,
+36,446120,5,59567608f3aa01d5da4e3a1aacb172ff36ff003e64ab76f88aef66a102f1e56d,units5-d3e2cbfa830e,yes,yes,yes,kept,
+37,446120,6,be5c80761d42deb5afef2d7e7ac3993613066a1b42594d3729a172d367190986,units5-d3e2cbfa830e,yes,yes,yes,kept,
+38,231089,0,94557504a8ba5174eb0f166663f742e6d2ccce20f6b380d2524a1c33896d4929,units5-d3e2cbfa830e,yes,yes,yes,kept,
+39,231089,1,cc97deb4d37a66b25298613244be4075cb8146b2645dea0d1d44f263600d49c1,units5-d3e2cbfa830e,yes,yes,yes,kept,
+40,231089,2,096e9fe4bdc519fa4c538071f3df789afe4aa354dc2adf274f245a51aa5ca852,units5-d3e2cbfa830e,yes,yes,yes,kept,
+41,231089,3,fc875921d87de415d2349d1c5a5d3373f0e5738e4a83d9e53000f05a56e395a9,units5-d3e2cbfa830e,yes,yes,yes,kept,
+42,231089,4,831de9fb44440bcb83cff3e86343777be5da8bb0d085b1790c125fa977b1590a,units5-d3e2cbfa830e,yes,yes,yes,kept,
+43,231089,5,176fba9eb51dc341bc040ac9e61f1ba27cfb873e08d51ae94bcf2e06199ad922,units5-d3e2cbfa830e,yes,yes,yes,kept,
+44,473656,0,ff00500bdde14faad2575bbb3b8e0d9b74a7fcdd6a35810c351f5e5d4d752342,units5-d3e2cbfa830e,yes,yes,yes,kept,
+45,473656,1,1a29443ad92c61ac05d36ef995d0d99cbe0b38eb783a4d0f372956e81c94201b,units5-d3e2cbfa830e,yes,yes,yes,kept,
+46,473656,2,307ddd83b1c2ea909649fba23b7a836aa27bf3cb29a0f589803ffc5085d5fd7c,units5-d3e2cbfa830e,yes,yes,yes,kept,
+47,473656,3,f9c397381f5ea38962da0847cae39d71383d278120965797765b0a797b8cf0cf,units5-d3e2cbfa830e,yes,yes,no,kept,The next news in the row is complete: this is like the fragment of it
+48,473656,4,5f4dc91af62f50e70b6ed6242217e15b14e2aa406e8cc21bd983f70ac674c195,units5-d3e2cbfa830e,yes,yes,yes,kept,
+49,473656,5,7dbe87e6ae3312b631f65de5763b4cb153f121d0cc7ac1bcd64cef0ca2790d1f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+50,473656,6,94cc1e9986bf1e35b155bb41d4bc69cb46db0ec339b2f352b33afecf6e23484c,units5-d3e2cbfa830e,no,no,no,kept,"This even don't count as a ""single"" story"
+51,162661,0,0f6a05578c40ae5250d79c4907fdcef994e61337182c093ee5e073ce6b4bcfa0,units5-d3e2cbfa830e,yes,no,yes,ambiguous,This is about two different stories
+52,162661,1,6a0b028faff5f84ec115ab7cee550f03557cac8582c4d419c4e8dad53edcf81c,units5-d3e2cbfa830e,no,no,no,kept,Weirdly this is a fragment of previous news
+53,162661,2,ad62cbd89893cf6237c4e05e7d08f51628ddbdd8d93215ce5886e29d11fc4b20,units5-d3e2cbfa830e,no,yes,no,kept,This is a very broken story
+54,246724,0,e587ad95ef27e5f0c94f6851282402d4306331f63ce0d9c7094af2d711368ed5,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
+55,246724,1,09d1fa9f3ff13333079cc046a7c12c1c848e218e96d3a57b24cc38aaedc45945,units5-d3e2cbfa830e,yes,yes,yes,kept,
+56,246724,2,5667b890d1b7da25cdf4f2801672a1b0e8df303098ef6354bc4ec2c96919ce39,units5-d3e2cbfa830e,no,no,yes,ambiguous,Is a mix of two stories
+57,246724,3,77df5b70ea2d93c982445531b9c027d47b088c1d9616a5ad06991f02c027c8db,units5-d3e2cbfa830e,yes,yes,yes,kept,
+58,246724,4,d5915fc3d15e684158005a3a313303f951b24e0a82ac9ec9de880b68d14b8a86,units5-d3e2cbfa830e,yes,yes,yes,kept,
+59,246724,5,4e3d3c6bb7ced91d7c655e5e694edc369d7fd48bbddde8095ac982c614c55368,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
+60,246724,6,5e2a96411af252a9bd8aa750dcca8dd1a1aa6671a1a8746d2411cfe91a8fe67b,units5-d3e2cbfa830e,yes,yes,yes,kept,
+61,246724,7,3a2dfedc2c33e317b46e2b55f3cb673b537c29075a4cc81687b72e88d0f09ae1,units5-d3e2cbfa830e,yes,yes,yes,kept,
+62,246724,8,c128f69068f2d1060cb27e778e286b48143c36147d7c04c63ec3e3fba36293c4,units5-d3e2cbfa830e,yes,yes,yes,kept,
+63,246724,9,a03c214a5081959004fd1208ad6840c8bb18d3b7592c6f6c8ea108d47c360127,units5-d3e2cbfa830e,yes,yes,yes,kept,
+64,246724,10,7c9c97d7c5fe1d3227859c29bad26693302e527a71b9fa3568a2749f16ba9daf,units5-d3e2cbfa830e,yes,yes,yes,kept,
+65,83275,0,9d8036d0c9db7c34a9e75c531268e55261af0c38bc1f35b1d1ac86b6762e468f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+66,83275,1,81dff90c2de9c3c4561af72e989b07d7903e2c507faacaacf8f12665b9f7905e,units5-d3e2cbfa830e,yes,yes,yes,kept,
+67,83275,2,e8012680b3fcc64d0bc232889f33dbbabb35eec7ce9ee467571955995a65f3ed,units5-d3e2cbfa830e,yes,yes,yes,kept,
+68,83275,3,d43a994d41cca75a48ca5ade51af964510a09a93225a03477d7db365d1863896,units5-d3e2cbfa830e,yes,yes,yes,kept,There is a non relate stuff at the begining
+69,83275,4,3e6801e08c1d61acf25fc718a00d59780138b3859e540ff6e7a93cfcbf248a04,units5-d3e2cbfa830e,no,no,no,kept,
+70,447416,0,7067b12f166427e0ee9ab3c1c4bf0070cf652b0fdefc48849287ce11d157a695,units5-d3e2cbfa830e,yes,yes,yes,kept,
+71,447416,1,ccb36e33f160d46816ff7c581555c398ca2d1210a81d5cad72815989942f21b0,units5-d3e2cbfa830e,yes,yes,yes,kept,
+72,171348,0,f96971097e22ecab16271f05626e9706a9867ffcc862029f005659be647ca2e5,units5-d3e2cbfa830e,yes,yes,yes,kept,
+73,171348,1,051109eee4be2672ff082a3855a56bd42239e903b44e40a9123ceff699660f4f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+74,171348,2,c9e13b106ec11a5fbb5bad2f22a1c76e69ab3f7ddac38009bcabc5a89a036947,units5-d3e2cbfa830e,yes,yes,yes,kept,
+75,171348,3,0affde23ad86d974a66bd6b7a453cfbd1ff51576e71647328347006dcbbf8a80,units5-d3e2cbfa830e,yes,yes,yes,kept,
+76,171348,4,b637c16116ab0f6358f32933f0c38f911f7c10e6025e786e8648ccbec9e93f69,units5-d3e2cbfa830e,yes,yes,yes,kept,
+77,171348,5,79042710fc55346a7049e30e152eca85636e64b52e3af67eb4c85cf09132d9c3,units5-d3e2cbfa830e,yes,yes,yes,kept,
+78,171348,6,b6250de67be03d1f667acaf1807a94f88a7c8c4e6a6159f2cf1b3a6ea48c90f7,units5-d3e2cbfa830e,yes,yes,yes,kept,
+79,171348,7,50a071fa0042218c48865ab716750ed1e048fc41387596d069b41379b39b8427,units5-d3e2cbfa830e,yes,yes,yes,kept,
+80,6016,0,5fa94619f4e3cd517a5d8f85f6f9a4bd65284be80d0022c928699011e8a421d3,units5-d3e2cbfa830e,no,no,no,wrong_scope,"To be fair, this is fragment is more like investment_general even when the news has Alphabet related stuff"
+81,6016,1,67cd62ec71596cafedd3bd92eff26e3a6723f58b0e6a1aec1e2e39df511c251a,units5-d3e2cbfa830e,yes,yes,yes,kept,
+82,6016,2,16c164f27e530c0f599979d6936aa79a8b02539291c76c8e6a02338288f862c0,units5-d3e2cbfa830e,yes,yes,no,kept,There is something coming updstream that lost the contextt
+83,6016,3,6d1b0ae0d60675c395fe2b26838cb310cd7e03a24c93edd288e461b6ab58cf79,units5-d3e2cbfa830e,no,no,no,kept,
+84,127763,0,04292c70dca625882b6b4d589ed8fd03e072189f6883f953c2a090fa2ee8d512,units5-d3e2cbfa830e,yes,yes,yes,kept,"There is a non related sentende at the very end, nothing critical"
+85,295704,0,fe7ac181bd827a7bcae40fb6fe6e5bac6e3c49c6cfd68e5e27feb1f929e04228,units5-d3e2cbfa830e,yes,yes,yes,kept,
+86,295704,1,ebe697520be1d31af9f518ae5461e29365a3e684210f6601765818889bc8e9a1,units5-d3e2cbfa830e,yes,yes,yes,kept,"There is a non related sentende at the very end, nothing critical"
+87,295704,2,aa7c86c8e40f452fc31c167f35be540d346a82fbed734a782cb89834b36ce9a9,units5-d3e2cbfa830e,yes,yes,yes,kept,
+88,95334,0,0be65b0710cfc52fdc07addda5df288111eba1c2dde5fa1715d6463cbefc693e,units5-d3e2cbfa830e,yes,yes,yes,kept,
+89,95334,1,3345b243d366429294cd701fe946d66fa0a911ecbe433df72f95c689daa20adf,units5-d3e2cbfa830e,yes,yes,yes,kept,
+90,95334,2,9ad3fe223ec993d9262be2b72203be5449069a0403dcc5191349a60f54b8c0f1,units5-d3e2cbfa830e,no,no,no,ambiguous,"To be fair, this is like the entire news is about two companies and there are mixed sentencer everywhere. This is why it is multi and got problems splitting the sentences"
+91,430993,0,2ac9024d92ed4d5bce57617308ea52a6137801883a286f3c10e8781edeb24087,units5-d3e2cbfa830e,no,no,no,ambiguous,There a huge mix of companies there
+92,170773,0,2975d403b12c884851145be62cbd0b4721a65e1c0f349bdac7d81155a70f2818,units5-d3e2cbfa830e,yes,yes,yes,kept,
+93,170773,1,a7ea9618b56300133661e16a56a28a0ea1fd9b2e6d74fde94db6447ed88aa534,units5-d3e2cbfa830e,yes,yes,yes,kept,
+94,170773,2,1528863d8ab0bacb8953a87f60ef1b5b5ee552e1cd7e1f50ab1a164f1f8e14bc,units5-d3e2cbfa830e,yes,yes,yes,kept,
+95,170773,3,4ba286ac8e6e4c4dbd9eef95d804215d1b16c28af607c1cea2570865cb98a6cf,units5-d3e2cbfa830e,yes,yes,yes,kept,
+96,170773,4,9fa920c8d1b2e923d059840ae25275787912fb78b8e8e243e2755f6157e0295f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+97,170773,5,07fabcaddb9dd7ac83eb73c3835fe8f0e1d13ecacb6e807946e250894de6c891,units5-d3e2cbfa830e,yes,yes,yes,kept,
+98,170773,6,df563186370a993a3b8e7929d3cccbdaeb38089699553866ece66fb870684c87,units5-d3e2cbfa830e,yes,yes,yes,kept,
+99,170773,7,34ed3865cd22b77ab73427e3c5c2e4392d5bae407b64e45b32c0bec27ed21c71,units5-d3e2cbfa830e,yes,yes,yes,kept,
+100,170773,8,0f5ec27f5e8e3e8c275c4bfa4993583f089961b54febced9fe01f44270d507f4,units5-d3e2cbfa830e,yes,yes,yes,kept,
+101,170773,9,8352916c51bf5cbef41f02f7176c905495df866b0e795929b51a23a623e4cc4b,units5-d3e2cbfa830e,yes,yes,yes,kept,
+102,170773,10,46a828850533e4ee421fefdae12ddabe4443437c78d233d973feefc8d302728c,units5-d3e2cbfa830e,yes,yes,yes,kept,
+103,171132,0,0c7ba727facfb3ecdd4ef1c97689f8c833a657035dcfc977076595c335d4553e,units5-d3e2cbfa830e,yes,yes,yes,kept,
+104,171132,1,2f71cfe5ad0d6232e45e79380acb0164a165edae557ae02d87c8478967329191,units5-d3e2cbfa830e,yes,yes,yes,kept,
+105,171132,2,3566f31d3e35411449467b685c343b4a6ce8c8ebfadf047d9a3bbf0f3b586141,units5-d3e2cbfa830e,yes,yes,yes,kept,
+106,171132,3,d84d00f74a076f8a6caa427dae2bb572ea16d70bbca43ebf0f629bf1e90b6eb1,units5-d3e2cbfa830e,yes,yes,yes,kept,"There are cryptocurrency statements join with the main ""Robinhood"" news"
+107,171132,4,f9e0202854457c55bc0522240bc105334be593fe4cb53ccdb8f0a1d8f653c5e3,units5-d3e2cbfa830e,no,no,no,kept,This is a fragment from the previous cryptocurrency news
+108,171132,5,11755dbef0d520e776e82680a531c8417b1aed78d674db0c0dba4027fec464ad,units5-d3e2cbfa830e,yes,yes,yes,kept,
+109,171132,6,02e1820dc80efedf2727b1b32de814bb6906b58304d5187bd879a42fc388274c,units5-d3e2cbfa830e,yes,yes,yes,kept,
+110,171132,7,7572990df1ead22317a47acaa27f2fbd20c196d4a2badb38a32ef108bc8f5ef6,units5-d3e2cbfa830e,yes,yes,yes,kept,
+111,171132,8,1fcac02dc2c09b809990e07061b44e1efd4e2ea93f76d00753a6e03a47745c8a,units5-d3e2cbfa830e,yes,yes,yes,kept,
+112,171132,9,fe71f531e82a374ca4b8e81dccf9d7229d321f18d8d37b98969e83c471f68114,units5-d3e2cbfa830e,yes,yes,yes,kept,
+113,171132,10,26ca8e872cee1b8db76b20c81a37f329c52853c3f9260eb0221d565b864ecd4a,units5-d3e2cbfa830e,yes,yes,yes,kept,
+114,315989,0,c3edfc46c3a3ef9caf0d0ca446a882237dc69e2916279352b0bd4896f5371bab,units5-d3e2cbfa830e,yes,yes,yes,kept,
+115,315989,1,48cf4958ea44e020efc21eb55b0665ae1843dfce9be1a0b84f8723642487f712,units5-d3e2cbfa830e,yes,yes,yes,kept,
+116,341514,0,c2d714e17b9acffaaa410e7d6aefd52edac3d072cf7262b8429de3c1a482dd88,units5-d3e2cbfa830e,yes,yes,yes,kept,
+117,341514,1,a859ce6f96ea036f5aef8f8ce021c8cc142d29b1d36c38d4ed3b37f1db04a719,units5-d3e2cbfa830e,yes,yes,yes,kept,
+118,107071,0,98c105cdd6e3d0976148f8a3e93f44435dd2b3d0166f2d7f0ad1d41570bb3181,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There are a large news about market_economy at the beginning
+119,107071,1,e516eba0f606daef044ce6f90f825bdec7e733712c582f5098b3d20b11f9ef4d,units5-d3e2cbfa830e,no,no,no,ambiguous,"This coming from the news beign a mix of investment, company facts and market_economy"
+120,107071,2,e23dba9e04f9b6aac5a2a6602d0975e5396564f5863c20f022cfd922f17e7cea,units5-d3e2cbfa830e,no,no,no,ambiguous,"This coming from the news beign a mix of investment, company facts and market_economy"
+121,107071,3,acff82877801bb768b9c31a89f8993f97907bc306bb8f2adc862c649f72216b4,units5-d3e2cbfa830e,yes,yes,yes,kept,
+122,11578,0,4b417b8c116ca5d112697d075b6f646d165b2615b77efd810f07cd05dc0c160d,units5-d3e2cbfa830e,yes,yes,yes,kept,
+123,11578,1,272bdc08616a1718d68f3ae0a1a8fb5d559cc19cda3685dde835b4fbd4137aee,units5-d3e2cbfa830e,yes,yes,yes,kept,
+124,11578,2,5b03a1d6905be4ef50c21cc70b7bfad34f69c84e30729670e771430084dddfee,units5-d3e2cbfa830e,yes,yes,yes,kept,
+125,11578,3,b47589cad0afd89a4ecd616184ca5598c1b8614670eb60e92db713db5683daba,units5-d3e2cbfa830e,yes,yes,yes,kept,
+126,11578,4,3ed1914327e1a8c3a7652ffc94944d8ec56dde6ca194183701b15b8f28ec579b,units5-d3e2cbfa830e,yes,yes,yes,kept,
+127,11578,5,3ba90b3adb535f957e803d1937ee5f493c32dcf191fb7bd5be7ea20b54de9a0f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+128,303658,0,ef35a97bad2bbee34a4a43c9f411d9f2c2ef8418636468c579848abe8c631388,units5-d3e2cbfa830e,yes,yes,yes,kept,
+129,303658,1,b07f6e8826823a9566fd08a5746847f76149c2dad5e1781bc8d849254f9d89df,units5-d3e2cbfa830e,yes,yes,yes,kept,
+130,164937,0,e2a6ada90909bea8b83947df604a921ff63d8e7592162f2d54d33f2ebaf1040d,units5-d3e2cbfa830e,yes,yes,yes,kept,
+131,164937,1,10083f993912407cba9098adf4aa7477a3c7dbaa4b88000c33e80170d74293d2,units5-d3e2cbfa830e,yes,yes,yes,kept,
+132,164937,2,75f899b26b85ac4d491f6284975edfab89eeafefb79f4cacf47e17b3262e95f4,units5-d3e2cbfa830e,yes,yes,yes,kept,
+133,164937,3,b9fce68f5bc48d25b7a363710620fc96885443641a307d88f48d1b6b6fa7b20f,units5-d3e2cbfa830e,yes,yes,yes,kept,
+134,164937,4,decc2ffe0d80ea850b486aa04206b40acb95cbeced3eb40a111478c95a72788e,units5-d3e2cbfa830e,yes,yes,yes,kept,
+135,164937,5,b55b80e62138c4dbf686a6b1f7fdd2c7e74f4caab4b3c0968e3d73ec8b7db496,units5-d3e2cbfa830e,yes,yes,yes,kept,
+136,164937,6,5ef2d804242cdf5a75d1f191ab946ca9ef38e6c47b10d86f95e8fe6ea09cccc6,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+137,164937,7,e7b77cc9fc4a07e307cc983b16d15c157d7c225599fa4a69637d95cfeb872e9d,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+138,164937,8,608f460af30f0c5eeef1dc961bd5f28a69b42c60885b3e6ea61be1b17493f8f3,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+139,164937,9,c6bede9f2e9b85f4773e44deca14bc2e1012b7896f163eebe50c60d68f0f3571,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+140,164937,10,b00dd59e470d76177117cf55bc0e389d4147046a8d2961c242fca302adf1fcff,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+141,164937,11,66b015decc70460239067f1741658789774ed5838904913c1df82e057df8571a,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+142,164937,12,acdbfc667787af743a4b8b4ff2123dca63d5ddd15d43ed82e3eb40a708b39023,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
+143,484591,0,313391e401584f33af9743055fc06560c45d9b3f1f50da9a4ebe93f69ae1b49a,units5-d3e2cbfa830e,yes,yes,yes,kept,
