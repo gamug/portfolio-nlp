@@ -16,6 +16,8 @@ The step is idempotent like the others: a rerun at the same revision adds nothin
 
 ## Two choices the owner makes, so the command asks for both
 
+**Decided 2026-11-13 (interactive session): `--candidates ner+text`, `--threshold 0.5`** (revisited with T-170 for sub-news; another value is a new revision). The text below is the evidence.
+
 Neither is guessed: `--threshold` and `--candidates` have no default, and both are part of the revision (`companies-` plus 12 hex digits of the SHA-256 of the two models and their revisions, the threshold, the candidates, the universe, the hypothesis, the length, the `transformers` version and the code, as parsed: `news_company_stage.hashed_sources()`). **A new value starts new rows and leaves the old ones** (D39 (vi)); the cost of trying a value is one run of the step (about 15 to 40 items a second on the GPU in the dry run below, so a few hours for the whole corpus).
 
 **`--candidates`: where the companies of a text come from.** `ner` is D39 (3.1) as written: only what NER tags. `ner+text` also runs the matcher over the text (`CompanyResolver.mention_spans`) and adds the tickers it finds that NER did not tag; a ticker both find keeps the larger count. Why it is asked: NER does not tag every name (it does not tag `3M`, for one), and the sub-news were cut by the same matcher, so each is about a universe company by construction.
