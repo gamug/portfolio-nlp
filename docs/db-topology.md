@@ -215,7 +215,7 @@ The rule (`PLAN.md` D36): a properly fetched article is preserved and stays elig
 
 ## Target tables of the stepped pipeline (D39, D40; approved 2026-11-10)
 
-Created by `init_schema()` since #162; the schema was approved by the owner on 2026-11-10 (constitution AI #10). Written today: `body_scope` (step 1.1), `sub_news` (step 1.2, one row per piece the `units` extractor cuts), `news_summary` (step 2) and `pipeline_step_state` (status per item and step, with the model revision). Created, not written yet: `news_company` (the result per text and ticker), `news_sentiment`, `news_category`, and two columns on `article_entities` (`sub_news_id`, `ticker`). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
+Created by `init_schema()` since #162; the schema was approved by the owner on 2026-11-10 (constitution AI #10). Written today: `body_scope` (step 1.1), `sub_news` (step 1.2, one row per piece the `units` extractor cuts), `news_summary` (step 2), `news_company` (step 3: the result per text and ticker) and `pipeline_step_state` (status per item and step, with the model revision). Created, not written yet: `news_sentiment` and `news_category`. Two columns on `article_entities` (`sub_news_id`, `ticker`) are created and **unused**: step 3 does not store the raw NER spans (owner, 2026-11-13). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
 
 ## Caveats
 

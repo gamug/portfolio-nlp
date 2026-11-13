@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+import chunking
 import news_company_stage as stage
 import news_nlp as db_module
 from news_nlp import steps, triage
@@ -694,21 +695,97 @@ def test_a_ticker_that_is_also_a_word_is_not_a_span_but_the_same_letters_as_a_na
     )  # the company is still found by its name
 
 
-def test_the_revision_hashes_the_rules_the_candidates_depend_on(
+def _revision_with(monkeypatch: pytest.MonkeyPatch, module: object, old: str, new: str) -> str:
+    """The revision when ``module``'s source says ``new`` where it says ``old`` (the revision reads the source, not the live objects)."""
+    real = stage._module_source
+    source = real(module)
+    assert old in source, old
+    monkeypatch.setattr(
+        stage, "_module_source", lambda m: source.replace(old, new) if m is module else real(m)
+    )
+    try:
+        return stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE)
+    finally:
+        monkeypatch.undo()
+
+
+@pytest.mark.parametrize(
+    ("module", "old", "new"),
+    [
+        (triage, "MIN_TICKER_SPAN = 3", "MIN_TICKER_SPAN = 4"),  # a constant the candidates read
+        (triage, "_LIST_TICKERS = 3", "_LIST_TICKERS = 4"),  # a constant of the disclosure rule
+        (triage, '"ALL",', '"ALLX",'),  # the word-ticker list
+        (
+            triage,
+            "def normalize_name(name: str) -> str:",
+            "def normalize_name(name: str) -> str:\n    name = name.strip()",
+        ),  # a helper of the matcher
+        (
+            triage,
+            "def _weak(match: re.Match[str]) -> bool:",
+            "def _weak(match: re.Match[str]) -> bool:\n    _ = 1",
+        ),  # a helper two calls down
+        (
+            triage,
+            "def squash_initials(key: str) -> str:",
+            "def squash_initials(key: str) -> str:\n    key = key.strip()",
+        ),
+        (chunking, "def chunk_text(", "def chunk_text(*, _x: int = 0, "),  # what NER runs on a text
+        (chunking, "def merge_char_spans(", "def merge_char_spans(*, _x: int = 0, "),
+    ],
+)
+def test_the_revision_hashes_everything_the_candidates_run(
+    monkeypatch: pytest.MonkeyPatch, module: object, old: str, new: str
+) -> None:
+    """Review of #178 (R2): the hashed code is the closure of the names the matcher, the disclosure rules and NER reach in ``triage`` and
+    ``chunking``, so no helper or constant can change the candidates and leave the revision."""
+    base = stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE)
+    assert _revision_with(monkeypatch, module, old, new) != base
+
+
+def test_a_comment_or_a_docstring_in_a_hashed_module_does_not_change_the_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """R2: the disclosure rules and the word-ticker list change which tickers are candidates, so they change the revision."""
     base = stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE)
-    monkeypatch.setattr(triage, "_WORD_TICKERS", triage._WORD_TICKERS | {"MMM"})
-    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
-    monkeypatch.undo()
-    monkeypatch.setattr(triage, "MIN_TICKER_SPAN", 4)
-    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
-    monkeypatch.undo()
-    monkeypatch.setattr(triage, "_LIST_TICKERS", 4)
-    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
-    monkeypatch.undo()
-    monkeypatch.setattr(stage, "_DISCLOSURE_WORDS", stage.re.compile("x"))
-    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) != base
-    monkeypatch.undo()
-    assert stage.revision_of("ner@1", "rel@1", 0.5, UNIVERSE) == base
+    assert (
+        _revision_with(
+            monkeypatch,
+            triage,
+            "def normalize_name(name: str) -> str:",
+            "# a comment\ndef normalize_name(name: str) -> str:",
+        )
+        == base
+    )
+
+
+def test_the_closure_reaches_the_helpers_by_name() -> None:
+    names = set(stage.hashed_sources())
+    for expected in (
+        "news_nlp.triage.CompanyResolver",
+        "news_nlp.triage.in_disclosure",
+        "news_nlp.triage.disclosure_branch",
+        "news_nlp.triage.normalize_name",
+        "news_nlp.triage._weak",
+        "news_nlp.triage._placed",
+        "news_nlp.triage._WORD_TICKERS",
+        "news_nlp.triage.MIN_TICKER_SPAN",
+        "chunking.chunk_text",
+        "chunking.merge_char_spans",
+        "ner_stage.merge_bio_predictions",
+        "news_company_stage._DISCLOSURE_WORDS",
+    ):
+        assert expected in names, expected
+    # what the matcher never reaches is not hashed: the scope features live in the same module and must not restart the step
+    assert not any("scope_candidate" in n or "gold_scope" in n or "wilson" in n for n in names)
+
+
+def test_the_documents_that_list_what_is_written_say_step_3_writes_news_company() -> None:
+    """Review of #178 (R1): the module page and the database page listed `news_company` as not written yet."""
+    root = Path(__file__).resolve().parents[2]
+    topology = (root / "docs" / "db-topology.md").read_text(encoding="utf-8")
+    written, _, not_yet = topology.partition("Created, not written yet:")
+    assert "`news_company` (step 3" in written
+    assert "news_company" not in not_yet.split("\n", 1)[0]
+    module = (root / "docs" / "modules" / "news-nlp.md").read_text(encoding="utf-8")
+    assert "steps 3, 6 and 7 are not built" not in module
+    assert "step 3 `news_company`" in module

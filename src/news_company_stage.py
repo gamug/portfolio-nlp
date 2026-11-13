@@ -17,10 +17,12 @@ the CPU otherwise (constitution, Pipeline models 2).
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import inspect
 import json
 import re
+import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -30,6 +32,7 @@ import torch
 import transformers
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+import chunking
 import ner_stage
 from news_nlp import triage
 from news_nlp.steps import CompanyScore
@@ -135,53 +138,60 @@ def models_of_the_step() -> dict[str, Any]:
     }
 
 
-#: The constants of ``triage`` the candidates depend on: the words and names the matcher skips or adds, the span floor, the disclosure patterns.
-_TRIAGE_CONSTANTS = (
-    "NAME_UNSAFE_TICKERS",
-    "MIN_ALIAS_LENGTH",
-    "MIN_TICKER_SPAN",
-    "_WORD_TICKERS",
-    "_WORD_NAMES",
-    "_CORROBORATED",
-    "_SHORT_FORMS",
-    "_NO_SHORT_FORM",
-    "_KNOWN_NAMES",
-    "_ALIAS_STOP",
-    "_LEGAL_WORDS",
-    "_GENRE",
-    "_OWNS",
-    "_TICKER_LIST",
-    "_LIST_TICKERS",
-)
+def _module_source(module: Any) -> str:
+    """The source of a module (a function of its own so a test can change what the revision reads)."""
+    return Path(inspect.getsourcefile(module) or "").read_text(encoding="utf-8")
 
 
-def _constant(value: Any) -> str:
-    """A constant as text that does not depend on the order of a set: a pattern by its source, a set sorted."""
-    if isinstance(value, re.Pattern):
-        return f"{value.pattern}|{value.flags}"
-    if isinstance(value, frozenset | set):
-        return json.dumps(sorted(value))
-    return repr(value)
+def _definitions(tree: ast.Module) -> dict[str, ast.AST]:
+    """The functions, classes and assigned constants of a module's top level, by name."""
+    defs: dict[str, ast.AST] = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.ClassDef):
+            defs[node.name] = node
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defs[target.id] = node
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defs[node.target.id] = node
+    return defs
+
+
+def _closure(module: Any, roots: Sequence[str]) -> dict[str, str]:
+    """The code a set of names in a module reaches, normalised: each root and, transitively, every other top-level function, class or constant
+    of the same module that its code names (``normalized_code`` of the node's source: comments, formatting and docstrings do not count). This is
+    how the revision follows the helpers and the constants a matcher rule reads, without a list kept by hand."""
+    source = _module_source(module)
+    defs = _definitions(ast.parse(source))
+    seen: set[str] = set()
+    queue = list(roots)
+    while queue:
+        name = queue.pop()
+        if name in seen or name not in defs:
+            continue
+        seen.add(name)
+        queue.extend(n.id for n in ast.walk(defs[name]) if isinstance(n, ast.Name) and n.id in defs)
+    return {
+        f"{module.__name__}.{name}": normalized_code(
+            ast.get_source_segment(source, defs[name]) or ""
+        )
+        for name in sorted(seen)
+    }
 
 
 def hashed_sources() -> dict[str, str]:
-    """The code the revision hashes, normalised (``normalized_code``): this module, the matcher with the disclosure rules it runs and what the
-    NER stage runs on a text; and the constants of ``triage`` the candidates depend on (``_TRIAGE_CONSTANTS``)."""
+    """The code the revision hashes, normalised: this module whole; the matcher and the disclosure rules it runs, with every helper and constant
+    of ``triage`` they reach; what the NER stage runs on a text, with the helpers of ``chunking`` it reaches. The closures are computed
+    (``_closure``), so a function or a constant added to the matcher later is hashed without anyone remembering to list it; what they do not
+    reach (the scope features of ``triage``, the training of the models) does not restart the step."""
     sources = {
-        "news_company_stage": normalized_code(Path(__file__).read_text(encoding="utf-8")),
-        "triage.CompanyResolver": normalized_code(inspect.getsource(CompanyResolver)),
-        "triage.disclosure_branch": normalized_code(inspect.getsource(triage.disclosure_branch)),
-        "triage.in_disclosure": normalized_code(inspect.getsource(triage.in_disclosure)),
-        "ner_stage.merge_bio_predictions": normalized_code(
-            inspect.getsource(ner_stage.merge_bio_predictions)
-        ),
-        "ner_stage.NerInference.predict_batch": normalized_code(
-            inspect.getsource(ner_stage.NerInference.predict_batch)
-        ),
+        "news_company_stage": normalized_code(_module_source(sys.modules[__name__])),
+        "news_company_stage._DISCLOSURE_WORDS": f"{_DISCLOSURE_WORDS.pattern}|{_DISCLOSURE_WORDS.flags}",
     }
-    for name in _TRIAGE_CONSTANTS:
-        sources[f"triage.{name}"] = _constant(getattr(triage, name))
-    sources["news_company_stage._DISCLOSURE_WORDS"] = _constant(_DISCLOSURE_WORDS)
+    sources.update(_closure(triage, ("CompanyResolver", "in_disclosure", "disclosure_branch")))
+    sources.update(_closure(ner_stage, ("merge_bio_predictions", "NerFeature", "NerInference")))
+    sources.update(_closure(chunking, ("chunk_text", "merge_char_spans", "Chunk")))
     return sources
 
 

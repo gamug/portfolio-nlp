@@ -13,7 +13,7 @@ It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read
 
 `init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities`. Its `score` stays the NER confidence. Step 1.1 writes `body_scope`, step 1.2 `sub_news` and step 2 `news_summary`, each with its state in `pipeline_step_state`; `news_company`, `news_sentiment` and `news_category` are created and not written yet (steps 3, 6 and 7 are not built).
+`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; `news_sentiment` and `news_category` are created and not written yet (steps 6 and 7 are not built).
 
 ### Step 1: scope (T-163)
 

@@ -478,7 +478,7 @@ companies (38 marked `yes`); it was not kept. Small sample: 60 bodies, one reade
 
 **Decision (owner, 2026-11-11).** The owner accepts the results as they are, small sample and unread texts included (that is the "not decided" of the statistical reading above: the data do not decide it; the owner's word does), and `units4` is the default of the cut (`DEFAULT_READING` in
 `src/cut_stage.py`; `--reading units` cuts as before) until 2026-11-12, when `units5` replaces it (#176). The 18 companies without a text are not a worry: they are named in
-passing in another company's line, and the NER step (D39 (iii), `article_entities.sub_news_id` and `ticker`) finds a mention in a
+passing in another company's line, and the companies step (D39 (iii), step 3: NER and the matcher over the text, `news_company`) finds a mention in a
 sub-news; if the company is part of that news, the fragment is copied to it there. **This is an assumption, not a measurement:** T-165's closing check counts, of the companies `units4` leaves without a text, how many NER finds in a sub-news of the same body. The 23 texts that still hold several headings are read in `docs/scope_training.md` §8.1 (10 overlap, 13 a third fault, T-177). The 7 unread texts and the 18 lost ones are
 in `data/units4_to_read.csv` for whenever the owner wants to read them; the decision does not wait for it.
 
