@@ -261,6 +261,9 @@ class BgeEmbedder:
         self._tok: Any = None
         self._model: Any = None
         self._device: Any = None
+        #: inputs that filled the whole window (``max_length`` tokens) and were cut there: the model cannot see the rest, so it is counted
+        #: (constitution, Pipeline models 3: no silent truncation); a chunk of 120 words is far under the window, so a count above 0 is a finding
+        self.truncated = 0
 
     def _load(self) -> None:
         if self._model is None:
@@ -289,6 +292,7 @@ class BgeEmbedder:
                     max_length=self.max_length,
                     return_tensors="pt",
                 ).to(self._device)
+                self.truncated += int((batch["attention_mask"].sum(dim=1) >= self.max_length).sum())
                 cls = self._model(**batch).last_hidden_state[:, 0]
                 out.append(torch.nn.functional.normalize(cls, dim=-1).cpu().numpy())
         return np.vstack(out) if out else np.zeros((0, 1))
@@ -319,6 +323,11 @@ class SectorClassifier:
         self._owner: np.ndarray | None = None
         self._desc: np.ndarray | None = None
         self._noise: np.ndarray | None = None
+
+    @property
+    def truncated_chunks(self) -> int:
+        """Chunks the embedder cut at its window so far (0 for an embedder that does not count)."""
+        return int(getattr(self.embed, "truncated", 0))
 
     def prepare(self) -> None:
         """Load the model and embed the descriptions now, so a progress bar does not count it in the first batch (idempotent)."""

@@ -462,3 +462,93 @@ def test_the_run_says_how_many_bodies_it_will_do_and_loads_the_model_before_the_
     assert "pending 3 sector bodies at revision sector-stub" in err
     _run(pair, warm)  # nothing left: no model is loaded for nothing
     assert warm.order.count("prepare") == 1
+
+
+# --- the manager's second review of #179: the real embedder is tested without a model --------------------------------------
+
+
+class _FakeBatch(dict):  # type: ignore[type-arg]
+    def to(self, device: object) -> _FakeBatch:
+        return self
+
+
+def _fake_transformers(
+    monkeypatch: pytest.MonkeyPatch, lengths: dict[str, int], calls: list[dict[str, object]]
+) -> None:
+    """A tokenizer that gives each text ``lengths[text]`` tokens (cut at ``max_length``) and a model whose first row is not its mean."""
+    import torch  # noqa: PLC0415
+    import transformers  # noqa: PLC0415
+
+    class Tok:
+        def __call__(self, texts: list[str], **kw: object) -> _FakeBatch:
+            width = int(kw["max_length"])  # type: ignore[call-overload]
+            n = [min(lengths.get(t, 3), width) for t in texts]
+            mask = torch.zeros(len(texts), max(n))
+            for i, k in enumerate(n):
+                mask[i, :k] = 1
+            return _FakeBatch(attention_mask=mask, input_ids=mask.long())
+
+    class Model:
+        def to(self, device: object) -> Model:
+            return self
+
+        def eval(self) -> Model:
+            return self
+
+        def __call__(self, **batch: torch.Tensor) -> object:
+            rows = batch["attention_mask"].shape[0]
+            hidden = torch.zeros(rows, batch["attention_mask"].shape[1], 3)
+            hidden[:, 0] = torch.tensor([3.0, 4.0, 0.0])  # the CLS row: norm 5
+            hidden[:, 1:] = torch.tensor(
+                [0.0, 0.0, 9.0]
+            )  # a mean over the tokens would not give the CLS row
+            return type("Out", (), {"last_hidden_state": hidden})()
+
+    def tok_from(name: str, revision: str) -> Tok:
+        calls.append({"what": "tokenizer", "name": name, "revision": revision})
+        return Tok()
+
+    def model_from(name: str, revision: str) -> Model:
+        calls.append({"what": "model", "name": name, "revision": revision})
+        return Model()
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", staticmethod(tok_from))
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(model_from))
+
+
+def test_the_embedder_loads_the_pinned_revision_pools_the_cls_row_and_returns_unit_vectors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    _fake_transformers(monkeypatch, {}, calls)
+    emb = stage.BgeEmbedder("org/embedder", "a" * 40, 512, 2)
+    out = emb(["one", "two", "three"])  # three texts, batches of two
+    assert out.shape == (3, 3)
+    assert np.allclose(out, [[0.6, 0.8, 0.0]] * 3)  # the CLS row (3, 4, 0) normalised, not the mean
+    assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
+    assert {c["what"] for c in calls} == {"tokenizer", "model"}
+    assert all(c["name"] == "org/embedder" and c["revision"] == "a" * 40 for c in calls)
+    emb(["again"])
+    assert len(calls) == 2  # loaded once, not per call
+
+
+def test_a_chunk_that_fills_the_window_is_counted_and_the_run_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _fake_transformers(monkeypatch, {"long": 9999}, [])
+    emb = stage.BgeEmbedder("org/embedder", "a" * 40, 8, 4)
+    emb(["short", "long", "long"])
+    assert emb.truncated == 2  # the two texts that reach the window
+    clf = stage.SectorClassifier(COMPANIES, CONFIG, embed=emb)
+    assert clf.truncated_chunks == 2
+    assert classifier().truncated_chunks == 0  # an embedder that does not count says 0
+
+    class Cut(Stub):
+        truncated_chunks = 3
+
+    counts = _run(pair, Cut())
+    assert counts["truncated_chunks"] == 3
+    assert "3 chunk(s) were cut" in capsys.readouterr().err
+    assert "truncated_chunks" not in _run(pair, Stub())  # nothing pending, nothing to say

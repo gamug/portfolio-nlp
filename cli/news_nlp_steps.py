@@ -206,6 +206,10 @@ def run_sector(
                     f"{failed_batches} batches in a row failed completely after {counts['done']} done "
                     f"(see the error of a failed body with --status); the failed bodies are retried by the next run"
                 )
+    truncated = int(getattr(classifier, "truncated_chunks", 0))
+    if truncated:  # a chunk of 120 words never fills the window: say it when one does (constitution, Pipeline models 3)
+        counts["truncated_chunks"] = truncated
+        print(f"warning: {truncated} chunk(s) were cut at the model's window", file=sys.stderr)
     return counts
 
 
