@@ -22,6 +22,7 @@ STEP_CUT = "cut"
 STEP_SUMMARY = "summary"
 STEP_COMPANIES = "companies"
 STEP_SECTOR = "sector"
+STEP_CATEGORY = "category"
 #: Key of ``body_sector.scores`` that holds, only when it is above 0, the number of chunks of the body that filled the embedder's window and were cut there
 #: (constitution, Pipeline models 3). It is written after the decision, so it never takes part in the ranking of the classes; absent means 0.
 TRUNCATED_KEY = "_truncated_chunks"
@@ -358,6 +359,120 @@ def record_companies(
     return state
 
 
+class CategoryScore(NamedTuple):
+    """What the category step found for one (text, main company) pair: the label and its entailment probability, the group of the label, the
+    share of the probability mass the group holds, and the probability of every label (the audit trail)."""
+
+    label: str
+    score: float
+    group_label: str
+    group_score: float
+    slug_scores: dict[str, float]
+
+
+class CategoryItem(NamedTuple):
+    """One text the category step reads: a body (its hash) or a sub-news (its id), the text step 2 left for it and its main tickers."""
+
+    kind: str
+    item_id: str
+    text: str
+    tickers: tuple[str, ...]
+
+
+def pending_category_items(
+    conn: NewsNlpDatabase,
+    summary_revision: str,
+    companies_revision: str,
+    revision: str,
+    *,
+    limit: int | None = None,
+) -> Iterator[CategoryItem]:
+    """The texts of step 2 (``news_summary`` at ``summary_revision``) that have a main company at ``companies_revision`` and no finished category
+    at ``revision``, with their main tickers; at most ``limit`` in all. An item on the review list of step 3 has no main company and is not
+    read (D39 (ii)); a failed item is retried. The revisions are always named, never "the latest"."""
+    done = {
+        kind: finished(conn, STEP_CATEGORY, revision, kind, COMPANY_FINISHED)
+        for kind in (ITEM_BODY, ITEM_SUB_NEWS)
+    }
+    mains: dict[tuple[str, str], list[str]] = {}
+    for kind, item_id, ticker in conn.execute(
+        "SELECT item_kind, item_id, ticker FROM news_company WHERE model_revision = ? AND is_main = 1 "
+        "ORDER BY item_kind, item_id, ticker",
+        (companies_revision,),
+    ):
+        mains.setdefault((str(kind), str(item_id)), []).append(str(ticker))
+    taken = 0
+    for kind, item_id, text in conn.execute(
+        "SELECT item_kind, item_id, summary_text FROM news_summary WHERE model_revision = ? ORDER BY item_kind, rowid",
+        (summary_revision,),
+    ):
+        tickers = mains.get((str(kind), str(item_id)))
+        if not tickers or str(item_id) in done.get(str(kind), set()):
+            continue
+        yield CategoryItem(str(kind), str(item_id), str(text), tuple(tickers))
+        taken += 1
+        if limit is not None and taken >= limit:
+            return
+
+
+def category_items_without_text(
+    conn: NewsNlpDatabase, summary_revision: str, companies_revision: str
+) -> int:
+    """How many items with a main company at ``companies_revision`` have no text at ``summary_revision``: the category step cannot read them.
+    Not zero usually means the companies step read another summary revision than the one named."""
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM (SELECT DISTINCT item_kind, item_id FROM news_company WHERE model_revision = ? AND is_main = 1) c "
+            "WHERE NOT EXISTS (SELECT 1 FROM news_summary s WHERE s.item_kind = c.item_kind AND s.item_id = c.item_id "
+            "AND s.model_revision = ?)",
+            (companies_revision, summary_revision),
+        ).fetchone()[0]
+    )
+
+
+def record_category(
+    conn: NewsNlpDatabase,
+    item_kind: str,
+    item_id: str,
+    revision: str,
+    found: dict[str, CategoryScore],
+    model_name: str,
+) -> str:
+    """Store the category of each main company of one text (one row per ticker) and the state of the item, in one transaction; a repeat
+    changes nothing. Returns the state, always ``done``: the zero-shot model gives every pair a label (the review of low scores is the
+    owner's decision, not made yet)."""
+    now = _now()
+    for ticker, result in found.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO news_category "
+            "(item_kind, item_id, ticker, model_revision, label, score, group_label, group_score, slug_scores, model_name, processed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                item_kind,
+                item_id,
+                ticker,
+                revision,
+                result.label,
+                result.score,
+                result.group_label,
+                result.group_score,
+                json.dumps(result.slug_scores, sort_keys=True),
+                model_name,
+                now,
+            ),
+        )
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'done', 1, NULL, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
+        (item_kind, item_id, STEP_CATEGORY, revision, now, now),
+    )
+    conn.commit()
+    return "done"
+
+
 def pending_sector_bodies(
     conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
 ) -> Iterator[Body]:
@@ -513,6 +628,22 @@ def revisions(conn: NewsNlpDatabase, step: str) -> list[str]:
     ]
 
 
+def record_item_skipped(
+    conn: NewsNlpDatabase, item_kind: str, item_id: str, step: str, revision: str, reason: str
+) -> None:
+    """Mark an item ``skipped`` with the reason: it is read as finished (``COMPANY_FINISHED``) and is not retried at this revision."""
+    now = _now()
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'skipped', 1, ?, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'skipped', attempts = attempts + 1, error = excluded.error, finished_at = excluded.finished_at",
+        (item_kind, item_id, step, revision, reason[:500], now, now),
+    )
+    conn.commit()
+
+
 def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, error: str) -> None:
     """Mark a body failed with the reason; it is retried by the next run."""
     record_item_failure(conn, ITEM_BODY, body.body_hash, step, revision, error)
@@ -547,7 +678,31 @@ def missing_titles(conn: NewsNlpDatabase) -> int:
     return sum(1 for has_title in seen.values() if not has_title)
 
 
-def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dict[str, object]:
+def _category_counts(conn: NewsNlpDatabase, revision: str | None) -> dict[str, object]:
+    """The rows of ``news_category`` (of one revision, or of all), by label and by group."""
+    w = " WHERE model_revision = ?" if revision is not None else ""
+    a = [revision] if revision is not None else []
+    rows, items = conn.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT item_kind || ':' || item_id) "  # noqa: S608 -- fixed clauses
+        f"FROM news_category{w}",
+        a,
+    ).fetchone()
+    by_label = f"SELECT label, COUNT(*) FROM news_category{w} GROUP BY label"  # noqa: S608 -- fixed clauses
+    by_group = f"SELECT group_label, COUNT(*) FROM news_category{w} GROUP BY group_label"  # noqa: S608 -- fixed clauses
+    cut = conn.execute(
+        f"SELECT COUNT(*) FROM news_category{w}{' AND' if w else ' WHERE'} json_extract(slug_scores, '$.{TRUNCATED_KEY}') IS NOT NULL",  # noqa: S608 -- fixed clauses
+        a,
+    ).fetchone()[0]
+    return {
+        "news_category": {"rows": int(rows), "items": int(items), "truncated": int(cut)},
+        "by_label": {str(k): int(n) for k, n in conn.execute(by_label, a)},
+        "by_group": {str(k): int(n) for k, n in conn.execute(by_group, a)},
+    }
+
+
+def status(  # noqa: C901 -- one branch for each step
+    conn: NewsNlpDatabase, step: str, revision: str | None = None
+) -> dict[str, object]:
     """Counts of the step by state (and, for the scope step, by scope); the counts add up to the rows of the state table."""
     where, args = "step = ?", [step]
     if revision is not None:
@@ -613,4 +768,6 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
             "items": int(items),
             "items_with_main": int(with_main),
         }
+    if step == STEP_CATEGORY:
+        out.update(_category_counts(conn, revision))
     return out
