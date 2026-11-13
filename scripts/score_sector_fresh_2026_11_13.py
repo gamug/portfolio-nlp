@@ -18,6 +18,11 @@ import math
 from pathlib import Path
 
 THRESHOLD = 0.0293  # config/sector_step.json margin_threshold
+#: Rows whose verdict differs from the one the owner answered, for a known reason: ``{article_id: why}``. Shared with ``check_sector_validation_2026_11_13.py``.
+#: The only change of behaviour since the draw: a tie at the top of the vote no longer counts as agreement (third review of #179).
+EXPLAINED = {
+    "263743": "assigned by a tied vote under the old rule (the owner had marked that sector wrong)"
+}
 Z = 1.96
 
 
@@ -59,6 +64,13 @@ def main() -> None:
     line("  let through by the vote only", [r for r in assigned if r not in by_margin])
     for code in sorted({r["shown_sector"] for r in assigned}):
         line(f"  sector {code}", [r for r in assigned if r["shown_sector"] == code])
+    now = [r for r in assigned if r["article_id"] not in EXPLAINED]
+    print(
+        "under the vote rule as it is now (a tie is not agreement; the rows in EXPLAINED are sent out_of_scope):"
+    )
+    line("  assigned (precision)", now)
+    line("  let through by the margin", [r for r in now if float(r["margin"]) >= THRESHOLD])
+    line("  let through by the vote only", [r for r in now if float(r["margin"]) < THRESHOLD])
     line("controls (a yes is a reviewer too fast)", controls)
     line("out_of_scope: the owner agrees", dropped)
     wrong = [r for r in dropped if r["correct"].strip().lower() != "yes"]

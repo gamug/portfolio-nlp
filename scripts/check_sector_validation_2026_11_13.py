@@ -8,6 +8,11 @@ docstring edit changed it; the revision is now of the code as parsed. This scrip
 truncation mark the draw added) with the code as it is, and says whether every row comes out the same, which is what lets the answers be
 read as answers about the current revision.
 
+**Changes of rule since the draw are listed, not hidden.** The draw was made under ``sector-cf81d9b32565``. The one change of behaviour since is the vote
+rule of the third review of #179: a tie at the top of the vote is no longer agreement (it used to be the lowest sector code). It empties ``vote_sector`` on a tied
+body, and turns an ``assigned`` into ``out_of_scope`` when the vote was the only thing that let the body through; ``EXPLAINED`` names that row. Any other
+difference makes the script exit 1.
+
 **Two comparisons, because the texts differ.** The draw and the owner's tracked texts are ``body[:6000]`` (``TEXT_CAP``); the step reads the **whole
 body**. The first comparison (capped text against the recorded verdicts) is the one that must be exact: it exits 1 if a row differs. The second reads
 each body whole from SOURCE (by article id) and lists the rows whose verdict changes, with the owner's answer: that is what the step would do, and it
@@ -25,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import draw_sector_extra_2026_11_05 as extra
+from score_sector_fresh_2026_11_13 import EXPLAINED
 
 import news_nlp as db
 from cut_stage import companies_of
@@ -55,11 +61,15 @@ def main() -> None:
         for r in rows
     ]
     differ = compare(rows, classifier.classify(items), args.tolerance)
+    explained = [d for d in differ if d[0] in EXPLAINED]
+    differ = [d for d in differ if d[0] not in EXPLAINED]
     print(f"recorded under {rows[0]['step_revision']}; the code now gives {classifier.revision}")
     print(
-        f"capped text ({extra.TEXT_CAP} characters, as the owner read it): {len(rows) - len(differ)} of {len(rows)} rows come out the same "
-        f"(status, candidate, vote, margin within {args.tolerance})"
+        f"capped text ({extra.TEXT_CAP} characters, as the owner read it): {len(rows) - len(differ) - len(explained)} of {len(rows)} rows come out the same "
+        f"(status, candidate, margin within {args.tolerance}; a vote that is now a tie counts as the same), {len(explained)} explained, {len(differ)} not"
     )
+    for d in explained:
+        print(f"  explained: article {d[0]} recorded {d[1]}, now {d[2]}: {EXPLAINED[d[0]]}")
     for d in differ:
         print("  differs:", d)
     whole = whole_bodies(rows)
@@ -95,18 +105,19 @@ def main() -> None:
 def compare(
     rows: list[dict[str, str]], results: list[SectorResult], tolerance: float
 ) -> list[tuple[str, ...]]:
-    """The rows whose verdict is not the recorded one (status, candidate, vote, margin within ``tolerance``)."""
+    """The rows whose verdict is not the recorded one: status, candidate and margin (within ``tolerance``), and the vote unless it is a tie now."""
     differ = []
     for row, res in zip(rows, results, strict=True):
         sector = (
             row["candidate"] if row["status"] == "assigned" else ""
         )  # the file keeps the sector as the candidate
-        same = (res.status, res.sector, res.candidate, res.vote_sector) == (
-            row["status"],
-            sector,
-            row["candidate"],
-            row["vote_sector"],
-        ) and abs(res.margin - float(row["margin"])) <= tolerance
+        tie_now = res.vote_sector == "" and bool(res.votes) and row["vote_sector"] != ""
+        same_vote = res.vote_sector == row["vote_sector"] or tie_now
+        same = (
+            (res.status, res.sector, res.candidate) == (row["status"], sector, row["candidate"])
+            and same_vote
+            and abs(res.margin - float(row["margin"])) <= tolerance
+        )
         if not same:
             differ.append(
                 (row["article_id"], row["status"], res.status, row["margin"], f"{res.margin:.4f}")

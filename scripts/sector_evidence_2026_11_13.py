@@ -56,6 +56,7 @@ V4_ADD = {
     "20": ["Caterpillar, Boeing, GE, 3M and other industrial companies, FedEx and UPS shipping"],
 }  # fmt: skip
 SECTORS = list(tune.DESC_V2)
+MIN_VOTES = 2  # the variant of the gate that asks for at least two votes
 
 
 class Data:
@@ -181,22 +182,31 @@ def part_votes(data: Data, scorer: rev.Scorer) -> None:
         )
     is_sector = np.array([p in tune.DESC_V2 for p in pred])
     agree_all = (pred == vote_pred) & has
+    # what "agree" means when the vote has no single top sector (a tie) or little to go on (one vote)
+    unique = (votes == votes.max(1)[:, None]).sum(1) == 1
+    agree_unique = agree_all & unique
+    agree_two = agree_unique & (votes.sum(1) >= MIN_VOTES)
+    print(
+        f"  {(has & ~unique).sum()} of {len(votes)} bodies have a tie at the top of the vote; "
+        f"{(has & (votes.sum(1) < MIN_VOTES)).sum()} have a single vote"
+    )
     thr = np.quantile(margin[data.tune], 0.4)
     print(f"  margin threshold = 40th percentile of the TUNE half = {thr:.4f}")
+    gates = (
+        ("embeddings, no gate", is_sector),
+        ("margin >= threshold", is_sector & (margin >= thr)),
+        ("votes agree (tie: lowest code)", is_sector & agree_all),
+        (
+            "margin OR agree (tie: lowest code) [as built]",
+            is_sector & ((margin >= thr) | agree_all),
+        ),
+        ("margin OR agree (unique top)", is_sector & ((margin >= thr) | agree_unique)),
+        ("margin OR agree (unique top, >= 2 votes)", is_sector & ((margin >= thr) | agree_two)),
+    )
     for label, idx in (("TUNE", data.tune), ("TEST", data.test)):
         print(label)
-        print(gate_line("embeddings, no gate", data, is_sector, pred, idx))
-        print(gate_line("margin >= threshold", data, is_sector & (margin >= thr), pred, idx))
-        print(gate_line("votes agree", data, is_sector & agree_all, pred, idx))
-        print(
-            gate_line(
-                "margin >= threshold OR votes agree",
-                data,
-                is_sector & ((margin >= thr) | agree_all),
-                pred,
-                idx,
-            )
-        )
+        for name, keep in gates:
+            print(gate_line(name, data, keep, pred, idx))
 
 
 def part_models(data: Data) -> None:
