@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
 from collections.abc import Iterator, Sequence
@@ -91,6 +92,10 @@ class StubFinder:
 
     def __init__(self, scorer: StubScorer | None = None) -> None:
         self.scorer = scorer or StubScorer()
+        self.warm_ups = 0
+
+    def warm_up(self) -> None:
+        self.warm_ups += 1
 
     def classify(self, pairs: Sequence[tuple[str, str]]) -> list[CategoryScore]:
         return [stage.score_of(p) for p in self.scorer.score(pairs)]
@@ -591,6 +596,12 @@ def test_a_gpu_fault_stops_the_run_at_once_and_marks_no_item_failed(
     )
     assert cli._gpu_lost(RuntimeError("CUDA error: device-side assert triggered"))
     assert not cli._gpu_lost(RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert not cli._gpu_lost(RuntimeError("CUDA error: out of memory"))  # the driver's wording
+
+    class OutOfMemoryError(RuntimeError):  # the name of torch.cuda.OutOfMemoryError
+        pass
+
+    assert not cli._gpu_lost(OutOfMemoryError("CUDA error"))
     assert not cli._gpu_lost(ValueError("CUDA error"))
 
 
@@ -642,3 +653,92 @@ def test_the_category_checkpoint_is_the_same_in_the_config_the_v1_stage_and_the_
     assert pinned["model"] == pipeline.CATEGORY_MODEL == category_stage.CategoryInference.MODEL_NAME
     assert pinned["revision"] == pipeline.MODEL_REVISIONS[pipeline.CATEGORY_MODEL]
     assert pinned["revision"] == category_stage.CategoryInference.MODEL_REVISIONS[pinned["model"]]
+
+
+def test_the_run_says_how_much_it_will_do_and_loads_the_model_before_the_bar(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _seed(pair)
+    finder = StubFinder()
+    _load_cli().run_category(pair, finder, NAMES, SUM_REV, COMP_REV, None)
+    assert "2 items (3 pairs) to do" in capsys.readouterr().err
+    assert finder.warm_ups == 1
+    _load_cli().run_category(
+        pair, finder, NAMES, SUM_REV, COMP_REV, None
+    )  # nothing left: nothing to load
+    assert finder.warm_ups == 1
+    assert "nothing pending" in capsys.readouterr().err
+
+
+def test_the_status_counts_the_pairs_read_cut_at_the_window(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cut = stage.score_of(_scores("other"))
+    cut.slug_scores[steps.TRUNCATED_KEY] = 1
+    steps.record_category(
+        pair, "body", "b1", REV, {"AAPL": cut, "MSFT": stage.score_of(_scores("other"))}, "m"
+    )
+    report = steps.status(pair, steps.STEP_CATEGORY, REV)
+    assert report["news_category"] == {"rows": 2, "items": 1, "truncated": 1}
+    assert report["by_label"] == {"other": 2}  # the reserved key is not a label
+
+
+# --- the documents say what the code does (as for the companies step) -----------------------------------------------------
+
+DOCS = Path(__file__).resolve().parents[2]
+
+
+def test_the_taxonomy_doc_lists_the_groups_of_the_code() -> None:
+    text = (DOCS / "docs" / "category-taxonomy.md").read_text(encoding="utf-8")
+    listed = {
+        group: tuple(label.strip("` ") for label in labels.split(","))
+        for group, labels in re.findall(r"`(\w+)`: ((?:`\w+`(?:, )?)+)\.", text)
+    }
+    assert listed == dict(stage.GROUPS)
+
+
+def test_the_step_doc_table_is_the_definitions_and_groups_of_the_code() -> None:
+    text = (DOCS / "docs" / "category_step.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\| `(\w+)` \| `(\w+)` \| (.+) \|$", text, flags=re.MULTILINE)
+    assert [r[0] for r in rows] == list(stage.LABELS)
+    assert {r[0]: r[2] for r in rows} == stage.DEFINITIONS
+    assert {r[0]: r[1] for r in rows} == stage.GROUP_OF
+
+
+def test_the_training_scripts_read_the_definitions_of_the_step() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "category_baseline_for_test", DOCS / "scripts" / "category_baseline_2026_11_13.py"
+    )
+    assert spec and spec.loader
+    baseline = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, str(DOCS / "scripts"))
+    try:
+        spec.loader.exec_module(baseline)
+    finally:
+        sys.path.remove(str(DOCS / "scripts"))
+    assert baseline.DEFS == stage.DEFINITIONS and list(stage.LABELS) == baseline.LABELS
+    assert {g: tuple(v) for g, v in baseline.GROUPS.items()} == stage.GROUPS
+
+
+def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    steps.record_category(pair, "body", "b1", REV, {"AAPL": stage.score_of(_scores("other"))}, "m")
+    text = (DOCS / "docs" / "category_step.md").read_text(encoding="utf-8")
+    block = re.search(r"```sql\n(.*?)```", text, flags=re.DOTALL)
+    assert block
+    statements = [
+        part.replace("<companies revision>", COMP_REV)
+        for part in re.sub(r"--[^\n]*", "", block.group(1)).split(";")
+        if part.strip()
+    ]
+    assert len(statements) == 2
+    finished = [tuple(r) for r in pair.execute(statements[0]).fetchall()]
+    assert finished[0][:2] == (REV, 1)  # one finished item at the revision
+    assert tuple(pair.execute(statements[1]).fetchone()) == (2,)  # two items have a main company
+    spec = (DOCS / ".specify" / "memory" / "SPEC.md").read_text(encoding="utf-8")
+    plan = (DOCS / ".specify" / "memory" / "PLAN.md").read_text(encoding="utf-8")
+    assert "FR-022" in spec and "never `uncertain`" in spec and "_truncated_chunks" in spec
+    assert "D41" in plan and "FR-022" in plan

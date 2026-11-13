@@ -60,6 +60,19 @@ def evaluate(name, rows, SL):
         idx = [b.LABELS.index(l) for l in b.GROUPS[g]]
         two.append(b.LABELS[idx[int(SL[i, idx].argmax())]])
     flat = [b.LABELS[j] for j in SL.argmax(1)]
+    out = (
+        ROOT / "data" / "category_groups" / f"baseline_groups_{name}.csv"
+    )  # the record of docs/category_results_2026_11_13/
+    pd.DataFrame(
+        {
+            "article_id": rows.article_id,
+            "company": rows.company,
+            "label": rows.label,
+            "flat": flat,
+            "group_own": pg,
+            "two_step": two,
+        }
+    ).to_csv(out, index=False)
     f = lambda a, c: np.mean([x == y for x, y in zip(a, c, strict=False)])
     print(
         f"{name:10s} n={len(rows)}  group (own hypotheses) {f(pg, true_g):.1%}  | group via flat label {f([b.GROUP_OF[x] for x in flat], true_g):.1%}"
@@ -78,6 +91,12 @@ def evaluate(name, rows, SL):
 
 
 def main():
+    again = "--again" in sys.argv
+    held_out = ROOT / "data" / "category_groups" / "baseline_groups_held-out.csv"
+    if held_out.exists() and not again:
+        sys.exit(
+            f"{held_out} exists: the held-out set was scored once and is not scored again without --again"
+        )
     uni = pd.read_csv(ROOT / "gold/universe.csv").fillna("")
     res = CompanyResolver(
         [

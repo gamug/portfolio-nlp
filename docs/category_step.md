@@ -14,8 +14,8 @@ uv run cli/news_nlp_steps.py --step category --status
 `--step summary --status` and `--step companies --status` list the revisions that ran; both are named, never the latest.
 `--source-db` and `--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. A rerun
 adds nothing: an item already done or skipped at the revision is not read again, a failed one is retried. The step is resumable,
-so a long run can be cut with `--limit` and continued; it prints the plan, the model and the revision before it starts, and a
-warning if some main-company items have no text at the summary revision named (the companies step read another one).
+so a long run can be cut with `--limit` and continued; before it starts it prints a warning if some main-company items have no text at the summary revision named (the
+companies step read another one), then the model and the revision, then how many items and pairs it will do; the model is loaded before the progress bar.
 
 To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RECATEGORY_SQL`, `RECUT_SQL`).
 
@@ -32,19 +32,42 @@ To run the step again at one revision, or after a re-cut of the sub-news, the SQ
 
 Revisions coexist in `news_category`: the revision hashes the code of the step, the pinned model, the definitions and the version of `transformers`, so any of them changing starts
 a new set of rows beside the old one. **Read one revision, never a mix, and only a complete one.** A revision is complete when its finished items (`done` or `skipped`) are as many as
-the items that have a main company at your companies revision:
+the items that have a main company at your companies revision, less the `items_without_text` the run printed (items whose text is not at the summary revision named cannot be done):
 
 ```sql
 -- the revisions of the step and how many items each finished
-SELECT model_revision, COUNT(*) AS finished FROM pipeline_step_state
-WHERE step = 'category' AND status IN ('done', 'skipped') GROUP BY model_revision;
+SELECT model_revision, COUNT(*) AS finished, MAX(finished_at) AS last_item FROM pipeline_step_state
+WHERE step = 'category' AND status IN ('done', 'skipped') GROUP BY model_revision ORDER BY last_item DESC;
 -- the items the step has to do
 SELECT COUNT(DISTINCT item_kind || ':' || item_id) FROM news_company
 WHERE model_revision = '<companies revision>' AND is_main = 1;
 ```
 
-Read the newest revision that is complete; delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
+Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
 the same code (same revision) and it completes it. A change of the code between two runs is another revision and starts again.
+
+## The definitions the model reads
+
+The model reads one short definition per label, the ones of the baseline of T-174 (measured: `docs/category_results_2026_11_13/`). They are shorter than the rules of the
+tagger in `docs/category-taxonomy.md` (the "Not this label when" column, owner calls 6 and 15 and so on are not read); the taxonomy is the authority for the human tagger, this table for the
+step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187).
+
+| Label | Group | Definition read by the model |
+|---|---|---|
+| `earnings_performance` | `results_capital` | results, guidance, revenue or profit figures |
+| `mergers_acquisitions` | `deals_alliances` | deals, takeovers, divestitures |
+| `leadership_governance` | `governance_legal_reputation` | executive appointments and departures, board actions, an executive's insider trade |
+| `legal_regulatory` | `governance_legal_reputation` | litigation, regulatory action, sanctions, bankruptcy |
+| `product_innovation` | `product_people` | product launches, R&D, technology |
+| `capital_shareholder_returns` | `results_capital` | dividends, buybacks, debt and credit actions of the company |
+| `labor_human_capital` | `product_people` | layoffs, hiring, workforce and labour relations |
+| `market_analyst_sentiment` | `market_view` | analyst ratings and price targets, stock price moves, an investor's bullish or bearish view |
+| `partnerships_business_dev` | `deals_alliances` | strategic alliances, joint ventures, distribution deals |
+| `reputational_harm` | `governance_legal_reputation` | an event that damages or repairs the company's public standing: apologies, service failures, controversies, boycotts |
+| `competitive_actions` | `deals_alliances` | the company's own move or statement against or about a competitor: share fights, pricing pressure |
+| `investor_activity` | `market_view` | a fund or famous investor buys or sells the stock, an activist position, 13F filings, block trades |
+| `peer_comparison` | `market_view` | a comparison between companies: which is the better stock, who is ahead |
+| `other` | `other` | an event that fits none of the other topics |
 
 ## The model (provisional)
 

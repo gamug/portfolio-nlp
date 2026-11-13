@@ -775,7 +775,10 @@ class CategoryClassifying(Protocol):
 
 def _gpu_lost(exc: BaseException) -> bool:
     """Whether the error is a CUDA runtime fault (``CUDA error: unknown error``, a device-side assert): after it the context of the process
-    is unusable and every later call fails too. Not an out-of-memory error, which a smaller input can survive."""
+    is unusable and every later call fails too. An out-of-memory error is not one, in either wording (``torch.cuda.OutOfMemoryError``, "CUDA out of
+    memory", the driver's "CUDA error: out of memory"): a smaller input can survive it."""
+    if type(exc).__name__ == "OutOfMemoryError" or "out of memory" in str(exc).lower():
+        return False
     return isinstance(exc, RuntimeError) and "CUDA error" in str(exc)
 
 
@@ -852,6 +855,12 @@ def run_category(
     )
     if not todo:
         print("nothing pending", file=sys.stderr)
+    else:
+        pairs = sum(len(item.tickers) for item in todo)
+        print(f"{len(todo)} items ({pairs} pairs) to do", file=sys.stderr)
+        warm_up = getattr(finder, "warm_up", None)
+        if warm_up is not None:
+            warm_up()  # the model loads before the progress bar, not inside its first step
     counts: dict[str, int] = {
         "done": 0,
         "failed": 0,

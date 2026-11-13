@@ -22,6 +22,8 @@ page, sources and calibration are in `docs/legacy/category-taxonomy-v1.md`.
 
 **`uncertain` is a human answer.** The provisional step chooses among the 14 labels above and never writes `uncertain` (a model that abstains is T-174's decision); a row the owner tagged `uncertain` is not in the train or the test rows of the model.
 
+**The model reads shorter definitions.** The "The text is about" column above is the rule for the human tagger; the provisional step reads the short forms of `docs/category_step.md` (the ones measured in the baseline of T-174; a test keeps that table equal to the code), and does not read the "Not this label when" column. Reading the full rules is another revision, to be measured first (T-187).
+
 ## The labels
 
 A text gets one label per main company; a company may carry two labels in one article when the article reports two

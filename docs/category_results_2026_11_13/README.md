@@ -24,17 +24,19 @@ The CV runs did not save their scores (the trainer does now: `data/category_grou
   4 accumulation steps, maximum length 512, fp16 autocast, seed 0 (fold `k` uses seed `k`); folds grouped by article. The mixed recipe adds one positive and two
   negative group pairs for each row (the groups of option B, owner 2026-11-13).
 - **Held-out discipline.** The held-out set was scored once, with the recipe chosen on the CV, and the primary reading (two-step) fixed before the run. The script now refuses a second scoring without `--again`.
-- **Code.** The scripts at commit `fbc0dd7` (the held-out run) and their later formatting and one-source-of-definitions changes (no change of recipe).
+- **Code.** The held-out run was made from the working copy that commit `fbc0dd7` then committed (formatting and the file-level `noqa` only); the later changes (definitions read from the step's module, a guard against a second scoring) do not change the recipe: the baseline definitions are equal to the step's (a test).
 
 ## Figures (accuracy, 95% interval by bootstrap over articles)
 
 | | Untouched model | Flat fine-tune (CV) | Mixed fine-tune (CV) | Mixed fine-tune (held-out, 135 rows) |
 |---|---|---|---|---|
 | label, flat argmax | 56.4% (train) / 43.0% (held-out) | 64.0% | 62.2% | 52.6% [44.6, 60.2] |
-| label, two-step (primary, fixed before the run) | 53.8% / 41.5% | 61.8% | 64.4% | 48.9% [41.1, 56.7] |
+| label, two-step (primary, fixed before the run) | 53.8% / 41.5% † | 61.8% | 64.4% | 48.9% [41.1, 56.7] |
 | label, group x label | | 63.6% | 64.0% | 50.4% [42.5, 58.5] |
-| group, own hypotheses | 59.1% / 51.9% | 66.2% | 69.8% | 62.2% [54.6, 70.1] |
+| group, own hypotheses | 59.1% / 51.9% † | 66.2% | 69.8% | 62.2% [54.6, 70.1] |
 | group, via the flat label | 62.7% / 55.6% | 68.9% | 68.0% | 65.9% [58.9, 73.3] |
+
+† Quoted from the output of `category_baseline_groups_2026_11_13.py` of 2026-11-13; its predictions were not saved then and are not in this record (the script saves them now, to `data/category_groups/baseline_groups_<set>.csv`, and refuses a second scoring of the held-out set without `--again`). Every other cell is recomputed from the CSVs of this folder.
 
 The bar of D24 (80% agreement on the held-out 200) is not met by any of them. Mixed minus flat on the CV label: -2.1 points [-6.0, +1.7], not distinguishable.
 The step of `--step category` uses the untouched model (the first column), not a fine-tune.

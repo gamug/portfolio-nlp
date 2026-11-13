@@ -161,6 +161,10 @@ class CategoryScorer:
             )
             self._entailment = int(self._model.config.label2id["entailment"])
 
+    def warm_up(self) -> None:
+        """Load the model now (the first ``score`` would otherwise load it, inside the progress bar of the run)."""
+        self._load()
+
     def score(self, pairs: Sequence[tuple[str, str]]) -> list[list[float]]:
         """The entailment probability of each label for each ``(text, company name)`` pair, in ``LABELS`` order."""
         self._load()
@@ -200,6 +204,11 @@ class CategoryFinder:
         self.model_name: str = self.scorer.model_name
         self.model_revision: str = self.scorer.model_revision
         self.revision = revision_of(f"{self.model_name}@{self.model_revision}")
+
+    def warm_up(self) -> None:
+        warm = getattr(self.scorer, "warm_up", None)
+        if warm is not None:
+            warm()
 
     def classify(self, pairs: Sequence[tuple[str, str]]) -> list[CategoryScore]:
         """A pair the model read cut at its window carries ``TRUNCATED_KEY`` = 1 in ``slug_scores`` (absent means not cut); read the column
