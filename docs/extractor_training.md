@@ -453,7 +453,7 @@ when the sentence also named another company.
 "Names – text" sentence read **per sentence** (also in the middle of a paragraph) and with a bracketed ticker taken as part of
 the head, the sentence given to the universe companies of the head **and** to those its text names (as `units3`), and to
 nobody when the head names no universe company; a headed sentence is not cut into clauses. `units` was the owner's selection of
-2026-11-08; `units4` became the default of the cut on 2026-11-11 (below), and `units5` (T-177) replaced it on 2026-11-12 (#176; `docs/scope_training.md` §8.1).
+2026-11-08; `units4` became the default of the cut on 2026-11-11 (below), and `units5` (T-177) replaced it on 2026-11-12 (#176; `docs/scope_training.md` §8.1). **`units5` is the final reading (owner, 2026-11-12, after the yes / no sample of the cut, T-183):** on the output of the corpus cut `units5-d3e2cbfa830e` (143 marked pieces) faithful is 84.6% [77.8, 89.6] on all pieces, 89.2% [82.7, 93.5] without the pieces tagged wrongly, 94.7% [89.0, 97.6] also without the ambiguous ones (`docs/scope_training.md` §8.3); the checkpoint (`attribution_2026_11_08`, identity `8399ccf003c60143`) stays local, T-148b12.
 
 | On the 232 bodies (GPU, `scripts/compare_cut_readings_2026_11_11.py`) | `units` | `units4` |
 |---|---|---|

@@ -499,7 +499,7 @@ are listed in `_CAPS_NOT_COMPANIES` and a ticker in brackets still makes any of 
   paired difference is +0.6 points [0.1, 1.5].** Against `units` (327 of 335, 97.6% [95.3, 99.4]) the difference is +0.2 [0.0, 0.4]. **Do not read the +0.6 as "better": it comes from the 46 more marked
   texts `units5` has (44 are the extra marks, 43 of them faithful), i.e. from added texts being faithful, not from existing texts becoming more faithful.** The two sets are not the same pairs (`units4`'s own text for the sampled changed pairs is
   unread). Limits: 54 of the 84 changed texts remain unread; one reader; the marks of the 14 first texts are not blind.
-- *Not done then:* the full corpus; `units5` was not the default. **Since 2026-11-12 (#176) `units5` is `DEFAULT_READING`**, and its corpus run is in progress. The short-name matcher gap (T-181) still costs IBM's headline sentence.
+- *Not done then:* the full corpus; `units5` was not the default. **Since 2026-11-12 (#176) `units5` is `DEFAULT_READING`**, and its corpus run is done (`units5-d3e2cbfa830e`). The short-name matcher gap (T-181) still costs IBM's headline sentence.
 
 **Cutting again.** The bodies the cut has done are found in `pipeline_step_state` (step `cut`, `model_revision`), not in `sub_news`, so
 `DELETE FROM sub_news` does not make the cut run again. At the same revision, in the RESULTS database:
@@ -566,6 +566,8 @@ Intervals are the Wilson ones over pieces; the body-resampled ones are wider (fo
 - The company read from the title (rows 1, 4, 5, 6) does not touch the three questions: the pieces are faithful, one story and complete (row 1 is cut short). It is a step 3 matter (the company is decided there, T-181), not the cut's. How it is marked: the three columns as the piece deserves, and the note says it (§8.2).
 - Ten pieces outside both exclusions still have a "no": six say the piece starts or ends with the neighbouring news (rows 21, 22, 47, 52, 82, 107: a fragment of the previous or the next story, which is the cut's real error), two are broken text (50, 53) and two have no note (69, 83).
 - The ambiguous bodies are mostly **multi** bodies of several companies written in one paragraph, where the cut has no clean line to draw (rows 23 to 29, 54, 59, 90, 91, 119, 120).
+
+**Decision (owner, 2026-11-12): `units5` is the final reading of the cut,** reference cut `units5-d3e2cbfa830e`; the later steps read that revision by name. The figures above go with it in PLAN D27 (e), `docs/modules/news-nlp.md`, `docs/extractor_training.md`, README and both architecture artifacts. The checkpoint stays local, identity `8399ccf003c60143` (T-148b12).
 
 **What it does not say.** The sample is 28 bodies drawn at random from one cut; the interval over bodies is wide ([65.5, 92.0] clean on `right_tag`), and "the tagging is wrong" is the owner's reading of each body, not a measure. The `wrong_tag` and `ambiguous` pieces belong to steps 1.1 and 3, and are counted here only so the cut is not charged with them; they are **not** discarded in production. A larger draw is the owner's call.
 

@@ -116,5 +116,5 @@ stores the number of chunks, not whether this happened. The summaries are model 
 
 ## Not done
 
-All in T-184: the run over the corpus (hours of GPU; the single bodies do not depend on the cut and can run now; the sub-news are read from the `units5` cut, the default since 2026-11-12 (#176), whose corpus run has finished (`units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies), so the 165,192 sub-news, the 5,046 and the 64,478 above, which are of the older `units` cut, will change); the GPU time per item and the determinism check on the GPU; the faithfulness of the summaries.
+All in T-184: the run over the corpus (hours of GPU; the single bodies do not depend on the cut and can run now; the sub-news are read from the `units5` cut `units5-d3e2cbfa830e`, the final reading since 2026-11-12 (#176), whose corpus run has finished (`units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies), so the 165,192 sub-news, the 5,046 and the 64,478 above, which are of the older `units` cut, will change); the GPU time per item and the determinism check on the GPU; the faithfulness of the summaries.
 `sector` bodies (T-167); the steps after this one (NER on the text, relevance, sentiment, category).
