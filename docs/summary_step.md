@@ -14,7 +14,11 @@ It gives every `single` body of step 1 and every sub-news of the cut **one text 
 
 The size is the owner's (2026-11-12). It is measured on the text the summariser would read: for a single body that is
 `Title-<title>\nBody-<body>` (the input of the earlier summary run), for a sub-news its own text (the title belongs to the whole round-up).
-`sector` bodies are not here: step 4 identifies the sector first (T-167).
+**Sector bodies** (`--items sector --sector-revision REV`, T-167): the bodies the sector step assigned a sector (`body_sector.status = 'assigned'`) at the
+revision named, with the same size rule and the same input as a single body (`item_kind = 'body'`, the same summary revision, so nothing already summarised is redone;
+a body summarised as a single one under another scope revision keeps its summary). The sector revision is **named, never the latest** (the ones the sector step has are
+listed when it is missing or wrong) and the sector step must have run first: a `sector` body it has not reached, and one it sent `out_of_scope`, are not read. It is not
+part of the default (`single` and `sub_news`); `--cut-revision` and `--scope-revision` do not apply to it.
 
 Rows go to `news_summary` (`item_kind` `body` with the body hash, or `sub_news` with the `sub_news.id`; no schema change), state to
 `pipeline_step_state` (step `summary`). The step is idempotent and resumable like the scope and the cut: a rerun at the same revision adds

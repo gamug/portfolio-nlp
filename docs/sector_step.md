@@ -74,4 +74,5 @@ uv run cli/news_nlp_steps.py --step sector --status        # counts by state, by
 ```
 
 To redo a revision: `DELETE FROM pipeline_step_state WHERE step = 'sector' AND model_revision = '<rev>'` (the rows are written with `INSERT OR IGNORE`, so also
-`DELETE FROM body_sector WHERE classifier_revision = '<rev>'`). The next step on a `sector` body is its summary (T-148a).
+`DELETE FROM body_sector WHERE classifier_revision = '<rev>'`). The next step on an `assigned` body is its summary: `uv run cli/news_nlp_steps.py --step summary --items sector --sector-revision sector-... --limit 200`
+(`docs/summary_step.md`; the sector step must have run, and its revision is named, never the latest).

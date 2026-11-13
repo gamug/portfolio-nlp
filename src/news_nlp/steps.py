@@ -160,6 +160,11 @@ def _pending_scoped_bodies(
     ]
     if limit is not None:
         wanted = wanted[:limit]
+    yield from _bodies_by_hash(conn, wanted)
+
+
+def _bodies_by_hash(conn: NewsNlpDatabase, wanted: list[str]) -> Iterator[Body]:
+    """The bodies of SOURCE with these hashes, each as its lowest article id carries it; the scan stops when every one is found."""
     left = set(wanted)
     marks = ", ".join("?" for _ in PROPER_STATUSES)  # the same corpus as step 1
     query = (
@@ -397,6 +402,28 @@ def record_sector(
         (ITEM_BODY, body.body_hash, STEP_SECTOR, revision, now, now),
     )
     conn.commit()
+
+
+def pending_assigned_sector_bodies(
+    conn: NewsNlpDatabase, sector_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The bodies the sector step assigned a sector at ``sector_revision`` that the summary has not done at ``revision``, at most ``limit``.
+
+    A body the sector step sent ``out_of_scope`` has no sector to summarise under and is not read; a ``sector`` body the step has not
+    reached has no row yet and waits for it.
+    """
+    done = finished(conn, STEP_SUMMARY, revision)
+    wanted = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT body_hash FROM body_sector WHERE classifier_revision = ? AND status = 'assigned' ORDER BY rowid",
+            (sector_revision,),
+        )
+        if str(row[0]) not in done
+    ]
+    if limit is not None:
+        wanted = wanted[:limit]
+    return _bodies_by_hash(conn, wanted)
 
 
 def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str]) -> None:

@@ -273,3 +273,146 @@ def test_the_command_status_needs_no_model_and_the_options_of_other_steps_are_re
     monkeypatch.setattr(sys, "argv", [*argv, "--reading", "units5"])
     with pytest.raises(SystemExit):
         _load_cli().main()
+
+
+# --- the summary of the sector bodies (--step summary --items sector) ---------------------------------------------------
+
+
+class StubSummarizer:
+    """A summariser that never loads a model: texts over ``min_chars`` become ``summary of <n> chars``."""
+
+    revision = "summary-test"
+    min_chars = 250
+    model_name = "stub-model"
+    model_revision = "0" * 40
+    device = "cpu"
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def summarize(self, texts: Sequence[str]) -> list[tuple[str, int]]:
+        self.calls.append(list(texts))
+        return [(f"summary of {len(t)} chars", 2) for t in texts]
+
+
+def _summarise(
+    conn: db_module.NewsNlpDatabase,
+    summarizer: StubSummarizer,
+    sector_revision: str | None,
+    limit: int | None = None,
+) -> dict[str, int]:
+    counts: dict[str, int] = _load_cli().run_summary(
+        conn, summarizer, None, None, ("sector",), limit, sector_revision
+    )
+    return counts
+
+
+def test_only_the_bodies_the_sector_step_assigned_at_the_named_revision_are_pending(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _run(pair, Stub())  # article 1 assigned, 2 and 3 out_of_scope
+    got = [
+        b.article_id
+        for b in steps.pending_assigned_sector_bodies(pair, "sector-stub", "summary-test")
+    ]
+    assert got == [1]
+    assert list(steps.pending_assigned_sector_bodies(pair, "sector-other", "summary-test")) == []
+
+
+def test_a_sector_body_the_step_has_not_reached_waits_and_a_single_body_is_never_read(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _run(pair, Stub(), limit=1)  # only article 1 is classified
+    assert [
+        b.article_id for b in steps.pending_assigned_sector_bodies(pair, "sector-stub", "x")
+    ] == [1]
+    # the one body is under the stub's size: stored as it is
+    assert _summarise(pair, StubSummarizer(), "sector-stub") == {
+        "summary": 0,
+        "original": 1,
+        "failed": 0,
+    }
+    rows = pair.execute("SELECT item_kind, text_source FROM news_summary").fetchall()
+    assert [tuple(r) for r in rows] == [("body", "original")]
+
+
+def test_a_long_sector_body_is_summarised_and_a_short_one_is_kept_and_a_rerun_adds_nothing(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    class AllAssigned(Stub):
+        def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+            return [stage.SectorResult("assigned", "45", "45", 0.5, "45", {}, {}) for _ in items]
+
+    _run(pair, AllAssigned())  # the three sector bodies are assigned
+    summariser = StubSummarizer()
+    first = _summarise(pair, summariser, "sector-stub")
+    assert first == {
+        "summary": 1,
+        "original": 2,
+        "failed": 0,
+    }  # one body is over the stub's 250 characters
+    sources = {r[0] for r in pair.execute("SELECT text_source FROM news_summary")}
+    assert sources == {"summary", "original"}
+    again = _summarise(pair, StubSummarizer(), "sector-stub")
+    assert again == {"summary": 0, "original": 0, "failed": 0}
+    assert pair.execute("SELECT COUNT(*) FROM news_summary").fetchone()[0] == 3
+
+
+def test_a_new_sector_revision_does_not_summarise_a_body_again(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    class AllAssigned(Stub):
+        def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+            return [stage.SectorResult("assigned", "45", "45", 0.5, "45", {}, {}) for _ in items]
+
+    _run(pair, AllAssigned())
+    _summarise(pair, StubSummarizer(), "sector-stub")
+    newer = AllAssigned()
+    newer.revision = "sector-newer"
+    _run(pair, newer)
+    assert _summarise(pair, StubSummarizer(), "sector-newer") == {
+        "summary": 0,
+        "original": 0,
+        "failed": 0,
+    }  # the text is the same, so is its summary
+
+
+def test_the_command_names_the_sector_revision_and_refuses_what_does_not_apply(
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "s.db"
+    raw = sqlite3.connect(source)
+    raw.executescript(ARTICLES_SCHEMA)
+    stamp_source(raw)
+    raw.commit()
+    raw.close()
+    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
+    monkeypatch.setenv("SOURCE_DATABASE_URL", str(source))
+    base = ["news_nlp_steps.py", "--step", "summary", "--results-db", str(results_db_path)]
+
+    def refused(*extra: str) -> str:
+        monkeypatch.setattr(sys, "argv", [*base, *extra])
+        with pytest.raises(SystemExit) as exc:
+            _load_cli().main()
+        return capsys.readouterr().err + str(exc.value)
+
+    assert "--sector-revision" in refused("--items", "sector")  # it must be named
+    assert "assigned no body" in refused("--items", "sector", "--sector-revision", "sector-nope")
+    assert "only applies to --items sector" in refused(
+        "--items", "single", "--sector-revision", "x"
+    )
+    assert "only applies to --items sector" in refused("--sector-revision", "x")
+    assert "does not apply to --items sector" in refused(
+        "--items", "sector", "--sector-revision", "x", "--cut-revision", "units-x"
+    )
+    assert "does not apply to --items sector" in refused(
+        "--items", "sector", "--sector-revision", "x", "--scope-revision", "scope-x"
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["news_nlp_steps.py", "--step", "sector", "--sector-revision", "x"]
+    )
+    with pytest.raises(SystemExit):
+        _load_cli().main()

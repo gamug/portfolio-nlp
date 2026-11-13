@@ -917,7 +917,9 @@ def test_every_command_in_the_usage_block_of_the_steps_cli_parses_and_a_summary_
         cli.check_options(parser, args)  # the options the step reads, none it does not
         if args.step == "summary" and not args.status:
             summary += 1
-            assert args.items == "single" or args.cut_revision, line  # sub-news need a cut named
+            assert args.items == "single" or args.cut_revision or args.sector_revision, (
+                line
+            )  # sub-news need a cut named, sector bodies a sector revision
     assert summary >= 3
     usage = (
         (Path(__file__).resolve().parents[2] / "docs" / "summary_step.md")
@@ -998,7 +1000,7 @@ def test_the_run_says_up_front_how_many_items_go_to_the_model(
 ) -> None:
     _run(pair, StubSummarizer())
     err = capsys.readouterr().err
-    assert "pending 7 items (4 single bodies, 3 sub-news)" in err
+    assert "pending 7 items (4 bodies, 3 sub-news)" in err
     assert "3 to summarise with the model (over 2,000 characters)" in err
     assert "4 stored as they are" in err
     _run(pair, StubSummarizer())
