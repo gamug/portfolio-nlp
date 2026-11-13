@@ -183,7 +183,15 @@ def run_sector(
     limit: int | None,
 ) -> dict[str, int]:
     """Give a sector to up to ``limit`` ``sector`` bodies not yet done at the classifier's revision; return what was done."""
+    print(
+        "reading SOURCE for the sector bodies still to do (it scans the corpus: minutes on the full one)",
+        file=sys.stderr,
+    )
     todo = list(steps.pending_sector_bodies(conn, scope_revision, classifier.revision, limit))
+    print(f"pending {len(todo):,} sector bodies at revision {classifier.revision}", file=sys.stderr)
+    prepare = getattr(classifier, "prepare", None)
+    if todo and callable(prepare):
+        prepare()  # the model is loaded here, not in the first batch: the bar's rate and time left count bodies only
     counts: dict[str, int] = {"done": 0, "failed": 0}
     failed_batches = 0
     with tqdm(total=len(todo), desc="sector", unit="body") as bar:

@@ -13,13 +13,19 @@ from huggingface_hub import snapshot_download
 from transformers import AutoConfig
 
 from pipeline import CATEGORY_MODEL, MODEL_REVISIONS, NER_MODEL, SENTIMENT_MODEL, SUMMARY_MODEL
+from sector_stage import pinned_config
 
 MODELS = (SENTIMENT_MODEL, NER_MODEL, CATEGORY_MODEL, SUMMARY_MODEL)
 
 
+def models_to_fetch() -> list[tuple[str, str]]:
+    """``(repo, revision)`` of the four v1 stages and of the embedder of the sector step (``config/sector_step.json``, T-167)."""
+    embedder = pinned_config()["embedder"]
+    return [(m, MODEL_REVISIONS[m]) for m in MODELS] + [(embedder["model"], embedder["revision"])]
+
+
 def download_models() -> None:
-    for repo_id in MODELS:
-        revision = MODEL_REVISIONS[repo_id]
+    for repo_id, revision in models_to_fetch():
         print(f"Fetching {repo_id} @ {revision}...")
         local_path = snapshot_download(repo_id, revision=revision)
         AutoConfig.from_pretrained(repo_id, revision=revision)

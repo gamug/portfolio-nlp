@@ -22,6 +22,9 @@ def test_download_models_fetches_every_model_and_verifies_config(
     setup.download_models()
 
     expected = [(repo_id, setup.MODEL_REVISIONS[repo_id]) for repo_id in setup.MODELS]
+    # the embedder of the sector step comes after the four stages, at the revision of config/sector_step.json (T-167)
+    embedder = setup.pinned_config()["embedder"]
+    expected.append((embedder["model"], embedder["revision"]))
     assert snapshot_calls == expected
     assert config_calls == expected
     assert setup.CATEGORY_MODEL in setup.MODELS

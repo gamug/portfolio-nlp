@@ -416,3 +416,49 @@ def test_the_command_names_the_sector_revision_and_refuses_what_does_not_apply(
     )
     with pytest.raises(SystemExit):
         _load_cli().main()
+
+
+# --- the manager's review of #179: the revision is of the code as parsed, and the run says what it will do ----------------
+
+
+def test_a_comment_or_a_docstring_does_not_change_the_revision_but_a_constant_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = stage._module_source()
+    base = classifier().revision
+    monkeypatch.setattr(stage, "_module_source", lambda: source + "\n# a comment, nothing runs\n")
+    assert classifier().revision == base
+    monkeypatch.setattr(
+        stage,
+        "_module_source",
+        lambda: source.replace('"""The sector step', '"""A new first line', 1),
+    )
+    assert classifier().revision == base  # the module docstring
+    monkeypatch.setattr(
+        stage, "_module_source", lambda: source.replace("STATUS_OUT = ", "STATUS_OUT = 'x' or ", 1)
+    )
+    assert classifier().revision != base  # code that runs
+
+
+def test_the_run_says_how_many_bodies_it_will_do_and_loads_the_model_before_the_first_batch(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class Warm(Stub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.order: list[str] = []
+
+        def prepare(self) -> None:
+            self.order.append("prepare")
+
+        def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+            self.order.append("classify")
+            return super().classify(items)
+
+    warm = Warm()
+    _run(pair, warm)
+    assert warm.order[0] == "prepare" and warm.order.count("prepare") == 1
+    err = capsys.readouterr().err
+    assert "pending 3 sector bodies at revision sector-stub" in err
+    _run(pair, warm)  # nothing left: no model is loaded for nothing
+    assert warm.order.count("prepare") == 1

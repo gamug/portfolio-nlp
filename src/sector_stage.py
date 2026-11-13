@@ -13,10 +13,15 @@ A body the scope step calls ``sector`` gets a GICS sector (the 2-digit code, 11 
    top sector is the same one. Anything else is ``out_of_scope``: the owner's rule (2026-11-13), because a wrong sector costs
    more than a missing one.
 
-The choices (descriptions, the *not a sector* classes, the gate) were made on a tune half of the labelled bodies and read once
-on the other half; the figures and what they do not show are in ``docs/sector_step.md``. The revision stored with every result
-is ``sector-`` plus 12 hex digits of the hash of the model and its pin, the parameters, the descriptions, the universe and the
-code of this module: any of them changing starts new rows and leaves the old ones.
+How the choices were made, as it was and not as a protocol would have it: the sector descriptions were written on the tune half of the labelled
+bodies; the *not a sector* classes were written from the owner's notes on the first yes/no review; the margin threshold is the 40th percentile of
+the tune half (tagged bodies and reviewed rows); the gate (``margin or agree``) was picked after both halves had been printed in one run. The test
+halves were read many times. The only clean figure is the owner's review of 2026-11-13 (``gold/sector_validation.csv``, ``fresh``): see
+``docs/sector_step.md``.
+
+The revision stored with every result is ``sector-`` plus 12 hex digits of the hash of the model and its pin, the parameters, the descriptions,
+the universe and the code of this module *as parsed* (``news_summary_stage.normalized_code``: comments, formatting and docstrings do not count, as
+in the summary step): a change of any of the rest starts new rows and leaves the old ones, a typo fix in a comment does not.
 
 It runs on CUDA when there is one and on the CPU otherwise (constitution, Pipeline models 2); the model is loaded on the first
 text, so ``--status`` and the tests need none.
@@ -220,15 +225,27 @@ def universe_signature(companies: Sequence[Company]) -> str:
     return hashlib.sha256(json.dumps(rows).encode()).hexdigest()[:12]
 
 
+def _module_source() -> str:
+    return Path(__file__).read_text(encoding="utf-8")
+
+
+def code_hash(source: str) -> str:
+    """The hash of a module's code as parsed: the same ``normalized_code`` the summary step hashes (a comment or a docstring does not count)."""
+    # the one definition of "the code, as parsed" (loads torch and transformers: only a revision needs it)
+    from news_summary_stage import normalized_code  # noqa: PLC0415
+
+    return hashlib.sha256(normalized_code(source).encode()).hexdigest()[:12]
+
+
 def revision_of(config: dict[str, Any], companies: Sequence[Company]) -> str:
-    """``sector-<12 hex>``: the model and its pin, the parameters, the descriptions, the universe and this module's code."""
+    """``sector-<12 hex>``: the model and its pin, the parameters, the descriptions, the universe and this module's code as parsed."""
     key = json.dumps(
         {
             "config": config,
             "classes": CLASSES,
             "noise": NOISE,
             "universe": universe_signature(companies),
-            "code": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12],
+            "code": code_hash(_module_source()),
         },
         sort_keys=True,
     )
@@ -302,6 +319,10 @@ class SectorClassifier:
         self._owner: np.ndarray | None = None
         self._desc: np.ndarray | None = None
         self._noise: np.ndarray | None = None
+
+    def prepare(self) -> None:
+        """Load the model and embed the descriptions now, so a progress bar does not count it in the first batch (idempotent)."""
+        self._prepare()
 
     def _prepare(self) -> None:
         if self._desc is None:
