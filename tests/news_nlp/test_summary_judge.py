@@ -860,3 +860,211 @@ def test_a_sampled_body_missing_from_the_source_copy_stops_the_draw_with_a_messa
     source.commit()
     with pytest.raises(ValueError, match=r"lacks \d+ of \d+ bodies"):
         sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+
+
+# --- third review of #180 ----------------------------------------------------------------------------------------------------
+
+
+def _stratified_marks(
+    n_flagged: int, n_clean: int, owner_flags_clean: int
+) -> tuple[list[dict[str, str]], dict[str, dict[str, Any]], dict[str, Any]]:
+    """A slice of ``n_flagged`` flagged items (the owner agrees they are unfaithful) and ``n_clean`` control items, of which the owner finds
+    ``owner_flags_clean`` unfaithful (the judge missed them); the sample behind it holds 10 flagged and 990 clean items."""
+    verdicts: dict[str, dict[str, Any]] = {}
+    tags: list[dict[str, str]] = []
+    stratum: dict[str, str] = {}
+    for i in range(n_flagged):
+        rid = f"single:f{i}"
+        verdicts[rid] = {
+            **_verdict("supported", "unsupported"),
+            "judge_model": "m",
+            "prompt_sha": "p",
+        }
+        stratum[rid] = "flagged"
+        tags.append(
+            {
+                "id": rid,
+                "grupo": "single",
+                "afirmaciones_sin_respaldo": "si",
+                "evento_principal": "si",
+            }
+        )
+    for i in range(n_clean):
+        rid = f"single:c{i}"
+        verdicts[rid] = {**_verdict("supported"), "judge_model": "m", "prompt_sha": "p"}
+        stratum[rid] = "control"
+        bad = i < owner_flags_clean
+        tags.append(
+            {
+                "id": rid,
+                "grupo": "single",
+                "afirmaciones_sin_respaldo": "si" if bad else "no",
+                "evento_principal": "si",
+            }
+        )
+    strata = {
+        "judge": {"model": "m", "prompt_sha": "p"},
+        "stratum": stratum,
+        "population": {"single": {"flagged": 10.0, "clean": 990.0}},
+    }
+    return tags, verdicts, strata
+
+
+def test_the_agreement_is_weighed_back_to_the_sample_and_the_slice_figures_are_named() -> None:
+    """M1: half the slice is flagged by construction; the agreement of the sample is nearer the clean stratum's."""
+    tags, verdicts, strata = _stratified_marks(n_flagged=5, n_clean=5, owner_flags_clean=5)
+    got = sj.agreement(tags, verdicts, strata)["single"]["faithful"]
+    assert got["slice_raw"] == pytest.approx(
+        0.5
+    )  # 5 agree (the flagged), 5 do not (the control the owner finds unfaithful)
+    assert got["raw"] == pytest.approx(
+        10 / 1000
+    )  # the sample is 99% clean-judged, and there the owner disagrees
+    event = sj.agreement(tags, verdicts, strata)["single"]["main_event"]
+    assert event["raw"] == pytest.approx(1.0) and "slice_raw" in event
+    # without strata the slice is the sample (a random draw): raw and kappa are as before and there is no slice_ key
+    plain = sj.agreement(tags, verdicts)["single"]["faithful"]
+    assert "slice_raw" not in plain and plain["raw"] == pytest.approx(0.5)
+
+
+def test_the_precision_comes_with_its_interval() -> None:
+    tags, verdicts, strata = _stratified_marks(n_flagged=5, n_clean=5, owner_flags_clean=1)
+    got = sj.agreement(tags, verdicts, strata)["single"]["faithful"]
+    low, high = got["precision_interval"]
+    assert low < got["precision"] <= high + 1e-9 and high <= 1.0 + 1e-9
+
+
+def test_the_marks_outside_the_judges_population_are_counted() -> None:
+    """S2: the sensitivity is conditional on a readable verdict with a claim; the others are named."""
+    tags, verdicts, strata = _stratified_marks(n_flagged=4, n_clean=4, owner_flags_clean=0)
+    verdicts["single:f0"] = {**_verdict(failed=True), "judge_model": "m", "prompt_sha": "p"}
+    verdicts["single:c0"] = {
+        **_verdict(),
+        "judge_model": "m",
+        "prompt_sha": "p",
+    }  # no claim to check
+    got = sj.agreement(tags, verdicts, strata)["single"]["faithful"]
+    assert got["outside_population"] == 2
+
+
+def test_the_claim_cap_is_counted_and_the_prompt_names_it() -> None:
+    """S1: a summary with as many claims as the cap may have more; it is only partly checked."""
+    assert f"At most {sj.MAX_CLAIMS} claims" in sj.PROMPT
+    assert sj.item_measures(_verdict(*["supported"] * sj.MAX_CLAIMS))["at_cap"] is True
+    assert sj.item_measures(_verdict(*["supported"] * (sj.MAX_CLAIMS - 1)))["at_cap"] is False
+    rows = _report_rows(4, lambda i: 0)
+    verdicts = {
+        r["id"]: _verdict(*["supported"] * (sj.MAX_CLAIMS if i < 3 else 2))
+        for i, r in enumerate(rows)
+    }
+    single = sj.summarise(rows, verdicts, draws=20)["single"]
+    assert single["at_cap"] == 3
+    assert "at the" in sj.render({"single": single}, judge="m") and "partly checked" in sj.render(
+        {"single": single}, judge="m"
+    )
+
+
+def test_the_sample_records_what_it_was_drawn_from_and_has_an_identity(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection], tmp_path: Path
+) -> None:
+    """M2: the ids of the sub-news mean nothing without the cut revision."""
+    results, source = dbs
+    rows = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=6, seed=7)
+    meta = sj.make_meta(
+        rows,
+        SUM_REV,
+        SCOPE_REV,
+        CUT_REV,
+        per_group=6,
+        seed=7,
+        results_db=tmp_path / "res.db",
+        source_db=tmp_path / "src.db",
+    )
+    assert (
+        meta["scope_revision"] == SCOPE_REV
+        and meta["cut_revision"] == CUT_REV
+        and meta["seed"] == 7
+    )
+    assert meta["populations"]["single"] == 18 and meta["populations"]["multi"] == 30
+    path = tmp_path / "sample.csv"
+    sj.write_sample(path, rows, meta)
+    assert sj.read_meta(path)["sample_id"] == meta["sample_id"]
+    # the same draw has the same identity; another seed, another cut revision or other rows another one
+    again = sj.make_meta(
+        rows,
+        SUM_REV,
+        SCOPE_REV,
+        CUT_REV,
+        per_group=6,
+        seed=7,
+        results_db=tmp_path / "res.db",
+        source_db=tmp_path / "src.db",
+    )
+    assert again["sample_id"] == meta["sample_id"]
+    assert (
+        sj.make_meta(
+            rows,
+            SUM_REV,
+            SCOPE_REV,
+            "units5-other",
+            per_group=6,
+            seed=7,
+            results_db=tmp_path / "res.db",
+            source_db=tmp_path / "src.db",
+        )["sample_id"]
+        != meta["sample_id"]
+    )
+    assert (
+        sj.make_meta(
+            rows[:-1],
+            SUM_REV,
+            SCOPE_REV,
+            CUT_REV,
+            per_group=6,
+            seed=7,
+            results_db=tmp_path / "res.db",
+            source_db=tmp_path / "src.db",
+        )["sample_id"]
+        != meta["sample_id"]
+    )
+
+
+def test_verdicts_of_another_sample_are_refused_and_a_run_under_another_sample_judges_again(
+    tmp_path: Path,
+) -> None:
+    rows = [{"id": "r0", "group": "single", "source_text": "s", "summary_text": "t"}]
+    out = tmp_path / "v.jsonl"
+    sj.run_judge(rows, lambda: StubAgent([GOOD]), out, workers=1, judge_model="m", sample_id="aaa")
+    assert sj.read_verdicts(out)["r0"]["sample_id"] == "aaa"
+    sj.check_sample(sj.read_verdicts(out), "aaa")  # the same sample: fine
+    with pytest.raises(ValueError, match="another sample"):
+        sj.check_sample(sj.read_verdicts(out), "bbb")
+    with pytest.raises(ValueError, match="another sample"):
+        sj.check_sample(
+            {"r0": {"claims": []}}, "aaa"
+        )  # a verdict that does not say which sample it is of
+    agent = StubAgent([GOOD])
+    sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="m", sample_id="bbb")
+    assert len(agent.prompts) == 1 and sj.read_verdicts(out)["r0"]["sample_id"] == "bbb"
+
+
+def test_the_strata_remember_the_sample_and_agree_refuses_the_verdicts_of_another(
+    tmp_path: Path,
+) -> None:
+    rows, verdicts = _flag_rows_and_verdicts(n_flagged=6, n_clean=24)
+    verdicts = {k: {**v, "sample_id": "aaa"} for k, v in verdicts.items()}
+    path = tmp_path / "to_tag.csv"
+    sj.write_tag_sheet(path, rows, per_group=6, seed=3, verdicts=verdicts, sample_id="aaa")
+    strata = json.loads(path.with_suffix(".strata.json").read_text(encoding="utf-8"))
+    assert strata["sample_id"] == "aaa"
+    tags = [
+        {"id": rid, "grupo": "single", "afirmaciones_sin_respaldo": "no", "evento_principal": "si"}
+        for rid in strata["stratum"]
+    ]
+    assert "single" in sj.agreement(tags, verdicts, strata)
+    with pytest.raises(ValueError, match="another sample"):
+        sj.agreement(tags, {k: {**v, "sample_id": "bbb"} for k, v in verdicts.items()}, strata)
+    with pytest.raises(ValueError, match="another sample"):
+        sj.write_tag_sheet(
+            tmp_path / "other.csv", rows, per_group=6, seed=3, verdicts=verdicts, sample_id="ccc"
+        )

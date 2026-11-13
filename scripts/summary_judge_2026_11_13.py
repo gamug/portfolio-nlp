@@ -42,8 +42,10 @@ import sqlite3
 import statistics
 import sys
 import threading
+from collections import Counter
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -60,6 +62,7 @@ DEFAULT_DIR = ROOT / "data" / "summary_judge"
 GROUPS = ("single", "multi")
 BUCKETS = (0, 1, 2)
 DEFAULT_SEED = 20261113
+MAX_CLAIMS = 12  # the prompt says "At most 12 claims" (a test ties the two): a summary that reaches it may have more
 SAMPLE_COLUMNS = (
     "id",
     "group",
@@ -198,6 +201,7 @@ def run_judge(
     workers: int = 4,
     limit: int | None = None,
     judge_model: str = "",
+    sample_id: str | None = None,
 ) -> dict[str, int]:
     """Judge the rows without a good verdict **of this judge** in ``out`` (the model and the prompt are compared), appending each as it arrives
     (a run can stop and go on). A reply that arrived and could not be read is stored with ``parse_failed`` and judged again by the next run; a
@@ -208,6 +212,7 @@ def run_judge(
         if not v.get("parse_failed")
         and v.get("judge_model") == judge_model
         and v.get("prompt_sha") == PROMPT_SHA
+        and v.get("sample_id") == sample_id
     }
     todo = [r for r in rows if r["id"] not in done]
     if limit is not None:
@@ -240,6 +245,7 @@ def run_judge(
             "verdict_chars": len(content),
             "judge_model": judge_model,
             "prompt_sha": PROMPT_SHA,
+            "sample_id": sample_id,
             "summary_revision": row.get("summary_revision"),
         }
         with lock:
@@ -407,10 +413,79 @@ def draw(
     return rows
 
 
-def write_sample(path: Path, rows: Sequence[dict[str, Any]]) -> None:
+def _file_identity(path: Path) -> dict[str, Any]:
+    """Name, size and modification time of a database copy (not a hash: the files are gigabytes)."""
+    if not path.exists():
+        return {"name": path.name}
+    stat = path.stat()
+    return {"name": path.name, "bytes": stat.st_size, "mtime": int(stat.st_mtime)}
+
+
+def make_meta(
+    rows: Sequence[dict[str, Any]],
+    summary_revision: str,
+    scope_revision: str,
+    cut_revision: str,
+    *,
+    per_group: int,
+    seed: int,
+    results_db: Path,
+    source_db: Path,
+) -> dict[str, Any]:
+    """What a sample was drawn from: the three revisions (the ids of the sub-news mean nothing without the cut's), the seed, the size, the
+    population of each group, the two database copies, and the identity ``sample_id`` (a hash of all that and of the ids drawn, not of the date)."""
+    populations = {
+        g: int(sum(float(r["weight"]) for r in rows if r["group"] == g) + 0.5) for g in GROUPS
+    }
+    core = {
+        "summary_revision": summary_revision,
+        "scope_revision": scope_revision,
+        "cut_revision": cut_revision,
+        "seed": seed,
+        "per_group": per_group,
+        "populations": populations,
+        "ids": sorted(r["id"] for r in rows),
+    }
+    sample_id = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()[:12]
+    core.pop("ids")
+    return {
+        "sample_id": sample_id,
+        **core,
+        "rows": len(rows),
+        "results_db": _file_identity(results_db),
+        "source_db": _file_identity(source_db),
+        "drawn_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def meta_path(sample_path: Path) -> Path:
+    return sample_path.with_suffix(".meta.json")
+
+
+def read_meta(sample_path: Path) -> dict[str, Any] | None:
+    path = meta_path(sample_path)
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def check_sample(verdicts: dict[str, dict[str, Any]], sample_id: str | None) -> None:
+    """Refuse verdicts that are not of this sample (or that do not say which sample they are of): the ids of a sample mean nothing in another."""
+    if sample_id is None:
+        return
+    seen = {v.get("sample_id") for v in verdicts.values()}
+    if seen - {sample_id}:
+        raise ValueError(
+            f"the verdicts are of another sample than {sample_id} (they say {sorted(map(str, seen))}): judge this sample, or use its own verdicts file"
+        )
+
+
+def write_sample(
+    path: Path, rows: Sequence[dict[str, Any]], meta: dict[str, Any] | None = None
+) -> None:
     if path.exists():
         raise FileExistsError(f"{path} exists: the sample is drawn once; remove it to draw another")
     path.parent.mkdir(parents=True, exist_ok=True)
+    if meta is not None:
+        meta_path(path).write_text(json.dumps(meta, indent=1), encoding="utf-8")
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=SAMPLE_COLUMNS)
         writer.writeheader()
@@ -438,6 +513,7 @@ def item_measures(verdict: dict[str, Any]) -> dict[str, Any]:
         "claims": len(claims),
         "unsupported": unsupported,
         "contradicted": contradicted,
+        "at_cap": len(claims) >= MAX_CLAIMS,
         "clean": None if not claims else unsupported + contradicted == 0,
         "any_contradicted": contradicted > 0,
         "covered": bool(verdict.get("main_event_covered", False)),
@@ -563,6 +639,7 @@ def summarise(
             ),
             "not_judged": sum(1 for r in mine if r["id"] not in verdicts),
             "no_claims": len(judged) - len(checkable),
+            "at_cap": sum(1 for _, m in judged if m["at_cap"]),
             "clean": _rate([m["clean"] for _, m in checkable], cw, cb, seed, draws),
             # the three summary rates share one denominator: the summaries with a claim to check (one without is counted apart)
             "any_contradicted": _rate(
@@ -654,6 +731,12 @@ def render(report: dict[str, Any], judge: str) -> str:
             f"- the main event is in the summary: {_pct(g['main_event_covered'])}",
             f"- claims that are unsupported: {_pct(g['unsupported_claim_share'])}; contradicted: {_pct(g['contradicted_claim_share'])} (interval: resampling summaries)",
             f"- worst case, every unreadable reply counted as an unfaithful summary: clean {_pct(g['clean_worst_case'])}",
+            f"- summaries at the {MAX_CLAIMS}-claim cap: {g['at_cap']}"
+            + (
+                " (partly checked: the judge lists no more claims than the cap)"
+                if g["at_cap"]
+                else ""
+            ),
             f"- the company the source names most is kept (of {g['items_with_company']} that name one): {_pct(g['main_company_kept'])}; share of the companies kept: {_share(g['company_recall'])}",
             f"- compression (summary over source), median {g['compression_median']:.2f}; longer than its source: {100 * g['longer_than_source']:.1f}%",
             "",
@@ -697,6 +780,7 @@ def write_tag_sheet(
     per_group: int,
     seed: int,
     verdicts: dict[str, dict[str, Any]] | None = None,
+    sample_id: str | None = None,
 ) -> list[str]:
     """The owner's slice: ``per_group`` summaries of each group, shuffled, with the source, the summary and blank columns, and **no verdict**.
 
@@ -710,6 +794,8 @@ def write_tag_sheet(
     judge = (
         judge_identity(verdicts) if verdicts is not None else None
     )  # refuses verdicts of two judges, before anything is written
+    if verdicts is not None:
+        check_sample(verdicts, sample_id)  # and verdicts of another sample
     chosen: list[dict[str, Any]] = []
     stratum: dict[str, str] = {}
     population: dict[str, dict[str, float]] = {}
@@ -758,6 +844,7 @@ def write_tag_sheet(
         json.dumps(
             {
                 "judge": {"model": judge[0], "prompt_sha": judge[1]} if judge else None,
+                "sample_id": sample_id,
                 "stratum": stratum,
                 "population": population,
             },
@@ -768,15 +855,19 @@ def write_tag_sheet(
     return [r["id"] for r in chosen]
 
 
-def _kappa(pairs: Sequence[tuple[bool, bool]]) -> float | None:
-    n = len(pairs)
-    if n == 0:
-        return None
-    po = sum(1 for a, b in pairs if a == b) / n
-    pa = sum(a for a, _ in pairs) / n
-    pb = sum(b for _, b in pairs) / n
+def _weighted_agreement(
+    pairs: Sequence[tuple[bool, bool]], weights: Sequence[float] | None = None
+) -> dict[str, Any]:
+    """Raw agreement and Cohen's kappa of (judge, owner) pairs, each pair counted by its weight (1 when there are none)."""
+    w = list(weights) if weights is not None else [1.0] * len(pairs)
+    total = sum(w)
+    if not pairs or not total:
+        return {"raw": None, "kappa": None}
+    po = sum(x for x, (a, b) in zip(w, pairs, strict=True) if a == b) / total
+    pa = sum(x for x, (a, _) in zip(w, pairs, strict=True) if a) / total
+    pb = sum(x for x, (_, b) in zip(w, pairs, strict=True) if b) / total
     pe = pa * pb + (1 - pa) * (1 - pb)
-    return None if pe == 1 else (po - pe) / (1 - pe)
+    return {"raw": po, "kappa": None if pe == 1 else (po - pe) / (1 - pe)}
 
 
 def _check_marks(tags: Sequence[dict[str, str]], yes: dict[str, bool]) -> None:
@@ -818,6 +909,7 @@ def _strata_figures(
     figures: dict[str, Any] = {"flagged": flagged, "clean": clean}
     if flagged["rate"] is not None:
         figures["precision"] = flagged["rate"]
+        figures["precision_interval"] = [flagged["low"], flagged["high"]]
     if size and flagged["rate"] is not None and clean["rate"] is not None:
         figures["sensitivity"] = _sensitivity(size, flagged["rate"], clean["rate"])
         low = _sensitivity(size, flagged["low"], clean["high"])
@@ -828,18 +920,87 @@ def _strata_figures(
     return figures
 
 
+def _block(
+    pairs: Sequence[tuple[bool, bool]], weights: Sequence[float] | None, stratified: bool
+) -> dict[str, Any]:
+    """One question's figures. On a stratified slice (half of it flagged by construction) ``raw`` and ``kappa`` are weighed back to the sample and
+    the figures of the slice itself are ``slice_raw`` and ``slice_kappa``; on a random slice there is one pair of figures."""
+    n = len(pairs)
+    agree = sum(1 for a, b in pairs if a == b)
+    block: dict[str, Any] = {"n": n, "agree": agree}
+    if stratified:
+        slice_ = _weighted_agreement(pairs)
+        block.update({"slice_raw": slice_["raw"], "slice_kappa": slice_["kappa"]})
+        block.update(_weighted_agreement(pairs, weights))
+    else:
+        block.update(_weighted_agreement(pairs))
+    return block
+
+
+def _stratum_weights(
+    kinds: Sequence[str | None], size: dict[str, float] | None
+) -> list[float] | None:
+    """The weight of each marked item: its stratum's size in the sample over the number of its stratum marked (flagged and control)."""
+    if not size:
+        return None
+    count = Counter(kinds)
+    unit = {
+        "flagged": size["flagged"] / count["flagged"] if count["flagged"] else 0.0,
+        "control": size["clean"] / count["control"] if count["control"] else 0.0,
+    }
+    return [unit.get(k or "", 1.0) for k in kinds]
+
+
+def _collect(
+    read: Sequence[dict[str, str]],
+    verdicts: dict[str, dict[str, Any]],
+    strata: dict[str, Any] | None,
+    yes: dict[str, bool],
+) -> tuple[
+    list[tuple[bool, bool]],
+    list[tuple[bool, bool]],
+    list[str | None],
+    list[str | None],
+    list[bool],
+    list[bool],
+]:
+    """The (judge, owner) pairs of the readable verdicts for each question, the stratum of each pair, and the owner's marks in each stratum."""
+    faithful: list[tuple[bool, bool]] = []
+    event: list[tuple[bool, bool]] = []
+    kinds_f: list[str | None] = []
+    kinds_e: list[str | None] = []
+    flagged_marks: list[bool] = []
+    clean_marks: list[bool] = []
+    for t in read:
+        m = item_measures(verdicts[t["id"]])
+        owner_unfaithful = yes[t["afirmaciones_sin_respaldo"].strip().lower()]
+        kind = (strata or {}).get("stratum", {}).get(t["id"])
+        if m["clean"] is not None:
+            faithful.append((bool(m["clean"]), not owner_unfaithful))
+            kinds_f.append(kind)
+            if kind == "flagged":
+                flagged_marks.append(owner_unfaithful)
+            elif kind == "control":
+                clean_marks.append(owner_unfaithful)
+        if m["clean"] is not None or strata is None:
+            event.append((bool(m["covered"]), yes[t["evento_principal"].strip().lower()]))
+            kinds_e.append(kind)
+    return faithful, event, kinds_f, kinds_e, flagged_marks, clean_marks
+
+
 def agreement(
     tags: Sequence[dict[str, str]],
     verdicts: dict[str, dict[str, Any]],
     strata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The judge against the owner, on the owner's marks: for 'faithful' (no unsupported or contradicted claim) and 'main event'; raw agreement
-    and Cohen's kappa by group. A blank mark stops the check; a summary the judge could not read or found no claim in is left out.
+    """The judge against the owner, on the owner's marks: for 'faithful' (no unsupported or contradicted claim) and 'main event'. A blank mark stops
+    the check; a summary the judge could not read or found no claim in is left out (``outside_population`` counts them: the sensitivity is
+    conditional on a readable verdict with a claim).
 
-    With the strata of the slice (``write_tag_sheet`` with the verdicts) the 'faithful' question also gives the owner's rate of unfaithful
-    summaries among the judge's flagged ones (``precision`` of the judge) and among its clean ones, and the judge's ``sensitivity`` (the share of
-    the owner's unfaithful summaries it flagged), the two strata weighed by their size in the sample. Without them the slice is random and
-    says so: it cannot measure the judge on a rare event."""
+    With the strata of the slice (``write_tag_sheet`` with the verdicts) the slice is half flagged by construction, so the raw agreement and
+    kappa are weighed back to the sample (``raw``, ``kappa``) and the figures of the slice itself are ``slice_raw``, ``slice_kappa``; the
+    'faithful' question also gives the owner's rate of unfaithful summaries among the flagged ones (``precision``, with its interval) and
+    among the clean control, and the judge's ``sensitivity`` with its interval. Without them the slice is random and says so."""
     yes = {"si": True, "sí": True, "no": False}
     out: dict[str, Any] = {}
     _check_marks(tags, yes)
@@ -849,46 +1010,29 @@ def agreement(
             "the verdicts were made by another judge than the one that chose the slice "
             f"({chosen_by['model']}, {chosen_by['prompt_sha']}): the precision and the sensitivity would be of nobody"
         )
+    if strata:
+        check_sample(verdicts, strata.get("sample_id"))
     for group in GROUPS:
-        mine = [
-            t
-            for t in tags
-            if t["grupo"] == group
-            and t["id"] in verdicts
-            and not verdicts[t["id"]].get("parse_failed")
-        ]
-        faithful, event = [], []
-        flagged_marks, clean_marks = [], []
-        for t in mine:
-            m = item_measures(verdicts[t["id"]])
-            owner_unfaithful = yes[t["afirmaciones_sin_respaldo"].strip().lower()]
-            if m["clean"] is not None:
-                faithful.append((bool(m["clean"]), not owner_unfaithful))
-                kind = (strata or {}).get("stratum", {}).get(t["id"])
-                if kind == "flagged":
-                    flagged_marks.append(owner_unfaithful)
-                elif kind == "control":
-                    clean_marks.append(owner_unfaithful)
-            event.append((bool(m["covered"]), yes[t["evento_principal"].strip().lower()]))
-        if not mine:
+        mine = [t for t in tags if t["grupo"] == group and t["id"] in verdicts]
+        read = [t for t in mine if not verdicts[t["id"]].get("parse_failed")]
+        if not read:
             continue
+        faithful, event, kinds_f, kinds_e, flagged_marks, clean_marks = _collect(
+            read, verdicts, strata, yes
+        )
+        size = (strata or {}).get("population", {}).get(group)
+        stratified = bool(strata) and bool(size)
         out[group] = {
-            name: {
-                "n": len(pairs),
-                "agree": sum(1 for a, b in pairs if a == b),
-                "raw": sum(1 for a, b in pairs if a == b) / len(pairs) if pairs else None,
-                "kappa": _kappa(pairs),
-            }
-            for name, pairs in (("faithful", faithful), ("main_event", event))
+            "faithful": _block(faithful, _stratum_weights(kinds_f, size), stratified),
+            "main_event": _block(event, _stratum_weights(kinds_e, size), stratified),
         }
+        out[group]["faithful"]["outside_population"] = len(mine) - len(faithful)
         if strata is None:
             out[group]["faithful"]["note"] = (
                 "random slice: it cannot measure the judge on a rare event (see tag-sheet --verdicts)"
             )
             continue
-        out[group]["faithful"].update(
-            _strata_figures(strata.get("population", {}).get(group), flagged_marks, clean_marks)
-        )
+        out[group]["faithful"].update(_strata_figures(size, flagged_marks, clean_marks))
     return out
 
 
@@ -942,6 +1086,22 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _sample_id(sample: Path) -> str | None:
+    meta = read_meta(sample)
+    return meta["sample_id"] if meta else None
+
+
+def _identity_line(sample: Path) -> str:
+    meta = read_meta(sample)
+    if not meta:
+        return "sample: no meta file (drawn before the sample recorded what it came from)"
+    return (
+        f"sample {meta['sample_id']}: summary {meta['summary_revision']}, scope {meta['scope_revision']}, cut {meta['cut_revision']}, "
+        f"seed {meta['seed']}, {meta['per_group']} per group of {meta['populations']}, drawn {meta['drawn_at']} from "
+        f"{meta['results_db']['name']} and {meta['source_db']['name']}"
+    )
+
+
 def main() -> None:
     args = build_parser().parse_args()
     if args.cmd == "draw":
@@ -954,8 +1114,18 @@ def main() -> None:
             args.per_group,
             args.seed,
         )
-        write_sample(args.out, rows)
-        print(f"wrote {len(rows)} rows to {args.out}")
+        meta = make_meta(
+            rows,
+            args.summary_revision,
+            args.scope_revision,
+            args.cut_revision,
+            per_group=args.per_group,
+            seed=args.seed,
+            results_db=Path(args.results_db),
+            source_db=Path(args.source_db),
+        )
+        write_sample(args.out, rows, meta)
+        print(f"wrote {len(rows)} rows to {args.out}\n{_identity_line(args.out)}")
         for group in GROUPS:
             mine = [x for x in rows if x["group"] == group]
             print(
@@ -968,7 +1138,7 @@ def main() -> None:
         settings = EvalSettings.load()
         model = build_model(settings)
         rows = read_sample(args.sample)
-        print(f"judging with {settings.llm_model}", file=sys.stderr)
+        print(f"judging with {settings.llm_model}; {_identity_line(args.sample)}", file=sys.stderr)
         counts = run_judge(
             rows,
             lambda: build_judge_agent(model, PROMPT),
@@ -976,16 +1146,24 @@ def main() -> None:
             args.workers or settings.max_workers,
             args.limit,
             judge_model=settings.llm_model,
+            sample_id=_sample_id(args.sample),
         )
         print(json.dumps(counts))
     elif args.cmd == "report":
         rows = read_sample(args.sample)
         verdicts = read_verdicts(args.verdicts)
+        check_sample(verdicts, _sample_id(args.sample))
+        print(_identity_line(args.sample) + "\n")
         print(render(summarise(rows, verdicts), judge_of(verdicts)))
     elif args.cmd == "tag-sheet":
         verdicts = read_verdicts(args.verdicts) if args.verdicts else None
         ids = write_tag_sheet(
-            args.out, read_sample(args.sample), args.per_group, args.seed, verdicts
+            args.out,
+            read_sample(args.sample),
+            args.per_group,
+            args.seed,
+            verdicts,
+            _sample_id(args.sample),
         )
         print(f"wrote {len(ids)} rows to {args.out}\n\n{TAG_RULE}")
     elif args.cmd == "agree":
