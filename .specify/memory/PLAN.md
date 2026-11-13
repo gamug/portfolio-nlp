@@ -190,7 +190,7 @@ above, it says so; nothing else above is touched.
   companies of the summary go to a separate place (mentions). (3) **multi**: the extractor (`units`, D27) cuts the body
   into **sub-news**, company-agnostic; (3.1) NER on each sub-news, and the matcher over its text (`--candidates ner+text`, owner 2026-11-13); (3.2) the relevance model picks the main company or
   companies of each; (3.3) a sub-news over a character size is summarised (2,000 characters, owner 2026-11-12: T-166). (4) **sector**:
-  the sector (GICS) is identified, then the text is summarised. (5) market: out of scope. (6) **Sentiment**: the pair
+  a 2-digit GICS sector or `out_of_scope` is given (embedder, company votes and a gate: `docs/sector_step.md`); its bodies are summarised in step 2 (`--items sector`). (5) market: out of scope. (6) **Sentiment**: the pair
   model + the relevance stack (`docs/sentiment_training.md`) reads each summary or sub-news with its main company.
   (7) **Category** (D29) of each summary or sub-news. After the seven, a separate step writes the snapshots (D28, T-152).
   **Conditions on the development:** (a) the advance of a run is **tracked** (per step and per item: pending, done,
