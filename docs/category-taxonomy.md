@@ -18,6 +18,10 @@ fine-tuned classifier or a zero-shot one over these labels is the owner's choice
 classifier over the nine slugs and `other` per (URL, ticker) pair, is deprecated (owner, 2026-11-12); its taxonomy
 page, sources and calibration are in `docs/legacy/category-taxonomy-v1.md`.
 
+**The groups (option B, owner 2026-11-13).** Each label belongs to one group of six; `news_category.group_label` carries it. `results_capital`: `earnings_performance`, `capital_shareholder_returns`. `market_view`: `market_analyst_sentiment`, `investor_activity`, `peer_comparison`. `deals_alliances`: `mergers_acquisitions`, `partnerships_business_dev`, `competitive_actions`. `product_people`: `product_innovation`, `labor_human_capital`. `governance_legal_reputation`: `leadership_governance`, `legal_regulatory`, `reputational_harm`. `other`: `other`. The single source in code is `GROUPS` of `src/news_category_stage.py`.
+
+**`uncertain` is a human answer.** The provisional step chooses among the 14 labels above and never writes `uncertain` (a model that abstains is T-174's decision); a row the owner tagged `uncertain` is not in the train or the test rows of the model.
+
 ## The labels
 
 A text gets one label per main company; a company may carry two labels in one article when the article reports two

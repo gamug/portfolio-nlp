@@ -1,6 +1,6 @@
 """ROC AUC one-vs-rest per class (D37: Precision, Recall and ROC OVR are the recorded metrics), from scores a run saved.
 
-    uv run scripts/category_roc_ovr_2026_11_13.py            # the held-out scoring of the mixed recipe (heldout_mixed_*.npy)
+    uv run scripts/category_roc_ovr_2026_11_13.py            # the held-out scoring of the mixed recipe (docs/category_results_2026_11_13/)
     uv run scripts/category_roc_ovr_2026_11_13.py --cv mixed # the out-of-fold scores of a CV run (oof_<mode>_scores.npz)
 
 The AUC of a class is the probability that a row of the class scores higher than a row of another class (ties count half); a
@@ -20,7 +20,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 from news_category_stage import GROUP_OF, GROUPS, LABELS  # noqa: E402
 
-OUT = ROOT / "data" / "category_groups"
+OUT = ROOT / "data" / "category_groups"  # local runs (git-ignored)
+RECORD = (
+    ROOT / "docs" / "category_results_2026_11_13"
+)  # the tracked record of the runs reported in docs/category_step.md
 
 
 def auc(positive: np.ndarray, score: np.ndarray) -> float | None:
@@ -50,9 +53,10 @@ def main() -> None:
         labels_s, groups_s = data["labels"], data["groups"]
         truth = pd.read_csv(OUT / f"oof_{args.cv}.csv").label
     else:
-        labels_s = np.load(OUT / "heldout_mixed_SL.npy")
-        groups_s = np.load(OUT / "heldout_mixed_SG.npy")
-        truth = pd.read_csv(OUT / "heldout_mixed.csv").label
+        record = pd.read_csv(RECORD / "heldout_mixed_scores.csv")
+        labels_s = record[[f"label_{label}" for label in LABELS]].to_numpy()
+        groups_s = record[[f"group_{group}" for group in GROUPS]].to_numpy()
+        truth = record.label
     pd.options.display.float_format = "{:.3f}".format
     print(f"labels (n={len(truth)}):")
     labels = table(truth, labels_s, list(LABELS))

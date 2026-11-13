@@ -15,11 +15,15 @@ from typing import Any
 import pytest
 import torch
 
+import category_stage
+import cut_stage
 import news_category_stage as stage
 import news_company_stage
 import news_nlp as db_module
+import pipeline
 from news_nlp import retag, steps
 from news_nlp.steps import CategoryScore, CompanyScore
+from news_nlp.triage import Company
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
 
 SUM_REV = "summary-test"
@@ -83,6 +87,7 @@ class StubScorer:
 class StubFinder:
     revision = REV
     model_name = "stub/zeroshot"
+    model_revision = "r1"
 
     def __init__(self, scorer: StubScorer | None = None) -> None:
         self.scorer = scorer or StubScorer()
@@ -231,7 +236,7 @@ def test_a_failed_item_is_retried_and_the_status_counts_the_rows(
     )
     report = steps.status(pair, steps.STEP_CATEGORY, REV)
     assert report["by_state"] == {"done": 1, "failed": 1}
-    assert report["news_category"] == {"rows": 1, "items": 1}
+    assert report["news_category"] == {"rows": 1, "items": 1, "truncated": 0}
     assert report["by_label"] == {"product_innovation": 1}
     assert report["by_group"] == {"product_people": 1}
 
@@ -427,7 +432,10 @@ def test_the_scorer_reads_one_hypothesis_per_label_and_returns_the_entailment_of
 
     def tokenizer(premises: list[str], hypotheses: list[str], **kw: Any) -> _Encoded:
         seen.update(premises=premises, hypotheses=hypotheses, kw=kw)
-        return _Encoded(ids=torch.zeros(len(premises), 1))
+        return _Encoded(
+            input_ids=torch.zeros(len(premises), 20, dtype=torch.long),
+            attention_mask=torch.ones(len(premises), 20, dtype=torch.long),
+        )
 
     def model(**_: Any) -> SimpleNamespace:
         logits = torch.tensor([[0.0, 5.0]] * len(stage.LABELS))  # column 0 is entailment
@@ -448,6 +456,33 @@ def test_the_scorer_reads_one_hypothesis_per_label_and_returns_the_entailment_of
         f"The news about Alphabet Inc. is about {stage.DEFINITIONS[stage.LABELS[0]]}."
     )
     assert seen["kw"]["truncation"] == "only_first" and seen["kw"]["max_length"] == stage.MAX_LENGTH
+    assert scorer.last_truncated == [False]  # 20 tokens: nothing was cut
+
+
+def test_a_pair_the_model_read_cut_at_its_window_is_recorded_and_read_apart_from_the_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Constitution, Pipeline models 3: a stage does not truncate without recording that it did."""
+
+    def tokenizer(premises: list[str], hypotheses: list[str], **_: Any) -> _Encoded:
+        n = stage.MAX_LENGTH if "cut" in premises[0] else 20
+        return _Encoded(
+            input_ids=torch.zeros(len(premises), n, dtype=torch.long),
+            attention_mask=torch.ones(len(premises), n, dtype=torch.long),
+        )
+
+    def model(**_: Any) -> SimpleNamespace:
+        return SimpleNamespace(logits=torch.tensor([[1.0, 0.0]] * len(stage.LABELS)))
+
+    scorer = stage.CategoryScorer(device=torch.device("cpu"))
+    monkeypatch.setattr(scorer, "_load", lambda: None)
+    scorer._tokenizer, scorer._model, scorer._entailment = tokenizer, model, 0
+    out = stage.CategoryFinder(scorer).classify([("short", "A"), ("cut text", "B")])
+    assert steps.TRUNCATED_KEY not in out[0].slug_scores
+    assert out[1].slug_scores[steps.TRUNCATED_KEY] == 1
+    assert set(steps.class_scores(json.dumps(out[1].slug_scores))) == set(
+        stage.LABELS
+    )  # not a label
 
 
 def test_a_blank_text_is_skipped_with_a_reason_and_not_retried(
@@ -525,3 +560,85 @@ def test_the_company_name_is_the_one_of_the_companies_step_and_the_revision_foll
     base = stage.revision_of("m@1")
     monkeypatch.setattr(stage, "company_name", lambda company: company.upper())
     assert stage.revision_of("m@1") != base
+
+
+def test_a_gpu_fault_stops_the_run_at_once_and_marks_no_item_failed(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """After ``CUDA error: unknown error`` the context of the process is unusable: redoing the batch item by item cannot work and would
+    only mark healthy items failed. An out-of-memory error is not this one (a smaller input can survive it)."""
+    _seed(pair)
+    cli = _load_cli()
+    finder = StubFinder(StubScorer(broken=["lawsuit"]))
+    finder.scorer.fault = "CUDA error: unknown error"  # type: ignore[attr-defined]
+    original = finder.scorer.score
+
+    def faulty(pairs: Sequence[tuple[str, str]]) -> list[list[float]]:
+        if any("lawsuit" in t for t, _ in pairs):
+            raise RuntimeError(
+                "CUDA error: unknown error\nCUDA kernel errors might be asynchronously reported"
+            )
+        return original(pairs)
+
+    finder.scorer.score = faulty  # type: ignore[method-assign]
+    with pytest.raises(cli.RunAborted, match="Rerun the same command"):
+        cli.run_category(pair, finder, NAMES, SUM_REV, COMP_REV, None)
+    assert (
+        pair.execute("SELECT COUNT(*) FROM pipeline_step_state WHERE status = 'failed'").fetchone()[
+            0
+        ]
+        == 0
+    )
+    assert cli._gpu_lost(RuntimeError("CUDA error: device-side assert triggered"))
+    assert not cli._gpu_lost(RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert not cli._gpu_lost(ValueError("CUDA error"))
+
+
+def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_the_counts(
+    pair: db_module.NewsNlpDatabase,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The branch the other team runs: the two refusals, the warning for items without a text, the finder and the printed counts (a stub
+    finder and the universe of the test, no model)."""
+    _seed(pair)
+    steps.record_companies(pair, "body", "no-text", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
+    cli = _load_cli()
+    monkeypatch.setattr(
+        cut_stage,
+        "companies_of",
+        lambda _conn: [
+            Company("AAPL", "Apple Inc.", "", ""),
+            Company("MSFT", "Microsoft Corporation", "", ""),
+        ],
+    )
+    monkeypatch.setattr(stage, "CategoryFinder", StubFinder)
+
+    class Args:
+        status = False
+        limit = None
+        summary_revision = SUM_REV
+        companies_revision = COMP_REV
+
+    cli.main_category(Args(), pair)
+    out, err = capsys.readouterr()
+    assert (
+        "1 items with a main company" in err and "no text" in err
+    )  # the warning names the revision problem
+    printed = json.loads(out[: out.index("}") + 1])
+    assert printed["done"] == 2 and printed["items_without_text"] == 1 and printed["failed"] == 0
+    Args.summary_revision = "summary-none"
+    with pytest.raises(SystemExit, match="step 2 left no text"):
+        cli.main_category(Args(), pair)
+    Args.summary_revision, Args.companies_revision = SUM_REV, "companies-none"
+    with pytest.raises(SystemExit, match="step 3 found no main company"):
+        cli.main_category(Args(), pair)
+
+
+def test_the_category_checkpoint_is_the_same_in_the_config_the_v1_stage_and_the_pipeline() -> None:
+    """Three places name it: ``config/pipeline_models.json`` (read by the step), ``pipeline.MODEL_REVISIONS`` (read by ``python -m setup``)
+    and the v1 stage's own defaults; a repin that misses one is a different model per command."""
+    pinned = stage.pinned_category()
+    assert pinned["model"] == pipeline.CATEGORY_MODEL == category_stage.CategoryInference.MODEL_NAME
+    assert pinned["revision"] == pipeline.MODEL_REVISIONS[pipeline.CATEGORY_MODEL]
+    assert pinned["revision"] == category_stage.CategoryInference.MODEL_REVISIONS[pinned["model"]]

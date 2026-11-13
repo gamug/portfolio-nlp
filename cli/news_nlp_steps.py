@@ -773,6 +773,12 @@ class CategoryClassifying(Protocol):
     def classify(self, pairs: Sequence[tuple[str, str]]) -> list[steps.CategoryScore]: ...
 
 
+def _gpu_lost(exc: BaseException) -> bool:
+    """Whether the error is a CUDA runtime fault (``CUDA error: unknown error``, a device-side assert): after it the context of the process
+    is unusable and every later call fails too. Not an out-of-memory error, which a smaller input can survive."""
+    return isinstance(exc, RuntimeError) and "CUDA error" in str(exc)
+
+
 def _classify_items(
     conn: db.NewsNlpDatabase,
     finder: CategoryClassifying,
@@ -795,6 +801,11 @@ def _classify_items(
     try:
         results = finder.classify(pairs)
     except Exception as exc:
+        if _gpu_lost(exc):
+            raise RunAborted(
+                f"the GPU failed ({steps.error_text(exc).splitlines()[0]}): the CUDA context of this process is unusable. "
+                "Rerun the same command: the finished items are kept and none was marked failed"
+            ) from exc
         if len(batch) > 1:
             for item in batch:
                 _classify_items(conn, finder, names, [item], counts)

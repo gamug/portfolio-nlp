@@ -12,7 +12,8 @@ gold it agrees with the owner's label in 56.4% of the 225 train rows and 43.0% o
 (its revision is then another revision of the step); nothing else of the step changes.
 
 ``group_label`` is the group of the best label; ``group_score`` is the share of the entailment mass the group's labels hold (0 to 1);
-``slug_scores`` is the JSON audit trail, one entailment probability per label. Models load on the first text, so ``--status`` and the tests need
+``slug_scores`` is the JSON audit trail, one entailment probability per label (and ``_truncated_chunks`` = 1 when the model read the pair cut at its window; read the
+column through ``steps.class_scores``). ``group_score`` is **not** the ``group_score`` of the v1 ``article_category`` (a softmax over groups): see ``docs/category_step.md``. Models load on the first text, so ``--status`` and the tests need
 none; CUDA when there is one, the CPU otherwise (constitution, Pipeline models 2).
 """
 
@@ -31,7 +32,7 @@ import transformers
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from news_company_stage import company_name
-from news_nlp.steps import CategoryScore
+from news_nlp.steps import TRUNCATED_KEY, CategoryScore
 from news_summary_stage import normalized_code
 
 DEFINITIONS: dict[str, str] = {
@@ -142,6 +143,8 @@ class CategoryScorer:
         self._tokenizer: Any = None
         self._model: Any = None
         self._entailment = 0
+        #: For each pair of the last ``score`` call: whether a hypothesis filled the window of the model, so the pair was read cut there.
+        self.last_truncated: list[bool] = []
 
     def _load(self) -> None:
         if self._model is None:
@@ -162,6 +165,7 @@ class CategoryScorer:
         """The entailment probability of each label for each ``(text, company name)`` pair, in ``LABELS`` order."""
         self._load()
         out: list[list[float]] = []
+        self.last_truncated = []
         for text, company in pairs:
             name = company_name(company)
             premise = PREMISE.format(company=name, text=text[:PREMISE_CHARS])
@@ -176,6 +180,12 @@ class CategoryScorer:
                 padding=True,
                 return_tensors="pt",
             ).to(self.device)
+            self.last_truncated.append(
+                bool(
+                    encoded["input_ids"].shape[-1] >= MAX_LENGTH
+                    and encoded["attention_mask"][:, -1].any()
+                )
+            )
             with torch.no_grad():
                 logits = self._model(**encoded).logits.float()
             out.append(torch.softmax(logits, dim=-1)[:, self._entailment].cpu().tolist())
@@ -192,4 +202,10 @@ class CategoryFinder:
         self.revision = revision_of(f"{self.model_name}@{self.model_revision}")
 
     def classify(self, pairs: Sequence[tuple[str, str]]) -> list[CategoryScore]:
-        return [score_of(p) for p in self.scorer.score(pairs)]
+        """A pair the model read cut at its window carries ``TRUNCATED_KEY`` = 1 in ``slug_scores`` (absent means not cut); read the column
+        through ``steps.class_scores`` (the reserved key is not a label), constitution Pipeline models 3."""
+        results = [score_of(p) for p in self.scorer.score(pairs)]
+        for result, cut in zip(results, getattr(self.scorer, "last_truncated", []), strict=False):
+            if cut:
+                result.slug_scores[TRUNCATED_KEY] = 1
+        return results

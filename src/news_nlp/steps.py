@@ -689,8 +689,12 @@ def _category_counts(conn: NewsNlpDatabase, revision: str | None) -> dict[str, o
     ).fetchone()
     by_label = f"SELECT label, COUNT(*) FROM news_category{w} GROUP BY label"  # noqa: S608 -- fixed clauses
     by_group = f"SELECT group_label, COUNT(*) FROM news_category{w} GROUP BY group_label"  # noqa: S608 -- fixed clauses
+    cut = conn.execute(
+        f"SELECT COUNT(*) FROM news_category{w}{' AND' if w else ' WHERE'} slug_scores LIKE ?",  # noqa: S608 -- fixed clauses
+        [*a, f'%"{TRUNCATED_KEY}"%'],
+    ).fetchone()[0]
     return {
-        "news_category": {"rows": int(rows), "items": int(items)},
+        "news_category": {"rows": int(rows), "items": int(items), "truncated": int(cut)},
         "by_label": {str(k): int(n) for k, n in conn.execute(by_label, a)},
         "by_group": {str(k): int(n) for k, n in conn.execute(by_group, a)},
     }

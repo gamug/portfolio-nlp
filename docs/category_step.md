@@ -28,6 +28,24 @@ To run the step again at one revision, or after a re-cut of the sub-news, the SQ
   `slug_scores` (JSON, the probability of each of the 14 labels), `model_name`. The state of the item is in `pipeline_step_state`
   (`step = 'category'`).
 
+## Which revision to read
+
+Revisions coexist in `news_category`: the revision hashes the code of the step, the pinned model, the definitions and the version of `transformers`, so any of them changing starts
+a new set of rows beside the old one. **Read one revision, never a mix, and only a complete one.** A revision is complete when its finished items (`done` or `skipped`) are as many as
+the items that have a main company at your companies revision:
+
+```sql
+-- the revisions of the step and how many items each finished
+SELECT model_revision, COUNT(*) AS finished FROM pipeline_step_state
+WHERE step = 'category' AND status IN ('done', 'skipped') GROUP BY model_revision;
+-- the items the step has to do
+SELECT COUNT(DISTINCT item_kind || ':' || item_id) FROM news_company
+WHERE model_revision = '<companies revision>' AND is_main = 1;
+```
+
+Read the newest revision that is complete; delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
+the same code (same revision) and it completes it. A change of the code between two runs is another revision and starts again.
+
 ## The model (provisional)
 
 `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` at the pin of `config/pipeline_models.json` (`category`), untouched. For each pair the
@@ -52,6 +70,14 @@ are almost never found). The held-out 200 also has 44 narrative multi bodies tha
 A fine-tune of the same model (`scripts/category_train_cv_2026_11_13.py`, the mixed recipe) reached 62.2% out-of-fold on the train rows
 and 48.9% on the held-out single rows: better than the untouched model, still under the bar; it is not published and the step does not use it.
 
+## The fields, and how they differ from v1
+
+`score` is the entailment probability of `label` (0 to 1; the best of 14 independent probabilities, so it can be low: a text of two companies may have a best score of 0.01). `group_label` is the group of
+`label`. **`group_score` is not the `group_score` of the v1 `article_category`** (a softmax over the groups): here it is the share of the entailment mass that the labels of that group hold
+(0 to 1), and the group is not decided by a group hypothesis. Do not compare the two columns. `slug_scores` is the JSON of the 14 probabilities; a pair the model read cut at its window of 512
+tokens also has `_truncated_chunks` = 1 (read the column with `steps.class_scores`; the `--status` counts them). In the 123,146 items of the first corpus run: 11,476 have 1,000 or more characters, and
+0 of 4,000 of them with the longest definition reached the window.
+
 ## Edge cases
 
 A blank text is not classified: the item is `skipped` in `pipeline_step_state` with the reason `blank text`, and is not retried at this
@@ -64,6 +90,13 @@ of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not
 D37 records Precision, Recall and ROC OVR per class. `scripts/category_roc_ovr_2026_11_13.py` gives the ROC OVR from saved scores
 (the held-out scoring of the mixed fine-tune, or the out-of-fold scores of a CV run, which `category_train_cv_2026_11_13.py` now saves).
 The baseline scripts of the untouched model report accuracy and per-class recall; they do not save scores.
+
+## The record of the runs, and the scripts
+
+The figures above come from `docs/category_results_2026_11_13/` (predictions and scores, no text; provenance in its `README.md`). The scripts of `scripts/category_*_2026_11_13.py`,
+`split_headers_2026_11_13.py`, `draw_category_multi_2026_11_13.py` and `translate_category_multi_2026_11_13.py` are research scripts: they end with a file-level `# ruff: noqa` of the nine rules
+they break (imports after `sys.path`, one-letter names, lambdas, constants), deliberately; the code of the step (`src/`, `cli/`) has none. The translation cache of `news_nlp.translate` is keyed by
+`article_id`, so a tagging set with several rows for one article needs one key per row (the translate script builds `article_id_ticker`); the key itself is T-186.
 
 ## Not done
 
