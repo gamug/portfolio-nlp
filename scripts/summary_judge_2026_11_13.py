@@ -172,10 +172,10 @@ def read_verdicts(path: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
-def judge_of(verdicts: dict[str, dict[str, Any]]) -> str:
-    """The one judge (model and prompt) a file of verdicts was made by; a file with none recorded or with two is refused."""
+def judge_identity(verdicts: dict[str, dict[str, Any]]) -> tuple[str, str]:
+    """The one judge (model, prompt hash) a file of verdicts was made by; a file with none recorded or with two is refused."""
     seen = {(v.get("judge_model"), v.get("prompt_sha")) for v in verdicts.values()}
-    if None in {m for m, _ in seen} or None in {p for _, p in seen}:
+    if any(m is None or p is None for m, p in seen):
         raise ValueError(
             "the verdicts carry no provenance (judge_model, prompt_sha): judge them again"
         )
@@ -183,7 +183,12 @@ def judge_of(verdicts: dict[str, dict[str, Any]]) -> str:
         raise ValueError(
             f"more than one judge in the verdicts, judge the rest again or remove the file: {sorted(seen)}"
         )
-    return str(next(iter(seen))[0]) if seen else "no verdicts"
+    return next(iter(seen)) if seen else ("no verdicts", "")
+
+
+def judge_of(verdicts: dict[str, dict[str, Any]]) -> str:
+    """The model of the one judge of a file of verdicts (see ``judge_identity``)."""
+    return judge_identity(verdicts)[0]
 
 
 def run_judge(
@@ -209,7 +214,7 @@ def run_judge(
         todo = todo[:limit]
     lock = threading.Lock()
     stop = threading.Event()
-    counts = {"judged": 0, "parse_failed": 0, "provider_errors": 0}
+    counts = {"judged": 0, "parse_failed": 0, "provider_errors": 0, "longest_verdict_chars": 0}
     streak = {"n": 0, "last": ""}
     out.parent.mkdir(parents=True, exist_ok=True)
 
@@ -226,9 +231,13 @@ def run_judge(
                 if streak["n"] >= MAX_CONSECUTIVE_ERRORS:
                     stop.set()
             return
+        content = (
+            "" if verdict.parse_failed else json.dumps(verdict.model_dump(), ensure_ascii=False)
+        )
         record = {
             "id": row["id"],
             **verdict.model_dump(),
+            "verdict_chars": len(content),
             "judge_model": judge_model,
             "prompt_sha": PROMPT_SHA,
             "summary_revision": row.get("summary_revision"),
@@ -238,6 +247,7 @@ def run_judge(
             with out.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             counts["parse_failed" if verdict.parse_failed else "judged"] += 1
+            counts["longest_verdict_chars"] = max(counts["longest_verdict_chars"], len(content))
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(one, todo))
@@ -358,6 +368,12 @@ def draw(
         source,
         {item[0] for group, _, _, _, item in picked if group == "single"},  # type: ignore[index]
     )
+    wanted = {item[0] for group, _, _, _, item in picked if group == "single"}  # type: ignore[index]
+    if len(sources) < len(wanted):
+        raise ValueError(
+            f"the SOURCE copy lacks {len(wanted) - len(sources)} of {len(wanted)} bodies of the sampled single summaries: "
+            "copy RESULTS and SOURCE at the same time (docstring), or the first article of those bodies is no longer ok / quarantined"
+        )
     rows: list[dict[str, Any]] = []
     for group, bucket, pop_n, sample_n, item in picked:  # type: ignore[misc]
         item_id, summary, chunks, text = item
@@ -481,6 +497,36 @@ def _plain(flags: Sequence[bool]) -> dict[str, Any]:
     return {"estimate": sum(flags) / n, "low": low, "high": high, "n": n}
 
 
+def _ratio_rate(
+    nums: Sequence[float],
+    dens: Sequence[float],
+    weights: Sequence[float],
+    buckets: Sequence[str],
+    seed: int,
+    draws: int,
+) -> dict[str, Any]:
+    """A pooled share (claims that are unsupported over all the claims, each summary weighted by its bucket's weight) with a bootstrap interval
+    that resamples **summaries** within buckets: claims are clustered in their summary, so resampling claims would be too narrow."""
+    total = sum(w * d for w, d in zip(weights, dens, strict=True))
+    if not total:
+        return {"estimate": None, "low": None, "high": None, "n": 0}
+    estimate = sum(w * x for w, x in zip(weights, nums, strict=True)) / total
+    rng = random.Random(seed)  # noqa: S311 -- a reproducible draw, not security
+    by_bucket: dict[str, list[int]] = {}
+    for i, b in enumerate(buckets):
+        by_bucket.setdefault(b, []).append(i)
+    shares = []
+    for _ in range(draws):
+        idx = [rng.choice(members) for members in by_bucket.values() for _ in members]
+        den = sum(weights[i] * dens[i] for i in idx)
+        if den:
+            shares.append(sum(weights[i] * nums[i] for i in idx) / den)
+    shares.sort()
+    low = shares[int(0.025 * len(shares))] if shares else None
+    high = shares[min(int(0.975 * len(shares)), len(shares) - 1)] if shares else None
+    return {"estimate": estimate, "low": low, "high": high, "n": int(sum(dens))}
+
+
 def summarise(
     rows: Sequence[dict[str, Any]],
     verdicts: dict[str, dict[str, Any]],
@@ -506,7 +552,9 @@ def summarise(
             for r in mine
         ]
         with_company = [(r, e) for r, e in entities if e["has_company"]]
-        claims_w = sum(float(r["weight"]) * m["claims"] for r, m in judged)
+        unreadable = [
+            r for r in mine if r["id"] in verdicts and verdicts[r["id"]].get("parse_failed")
+        ]
         out: dict[str, Any] = {
             "n": len(mine),
             "judged": len(judged),
@@ -521,15 +569,29 @@ def summarise(
                 [m["any_contradicted"] for _, m in checkable], cw, cb, seed, draws
             ),
             "main_event_covered": _rate([m["covered"] for _, m in checkable], cw, cb, seed, draws),
-            "unsupported_claim_share": (
-                sum(float(r["weight"]) * m["unsupported"] for r, m in judged) / claims_w
-                if claims_w
-                else None
+            "unsupported_claim_share": _ratio_rate(
+                [m["unsupported"] for _, m in judged],
+                [m["claims"] for _, m in judged],
+                [float(r["weight"]) for r, _ in judged],
+                [str(r["bucket"]) for r, _ in judged],
+                seed,
+                draws,
             ),
-            "contradicted_claim_share": (
-                sum(float(r["weight"]) * m["contradicted"] for r, m in judged) / claims_w
-                if claims_w
-                else None
+            "contradicted_claim_share": _ratio_rate(
+                [m["contradicted"] for _, m in judged],
+                [m["claims"] for _, m in judged],
+                [float(r["weight"]) for r, _ in judged],
+                [str(r["bucket"]) for r, _ in judged],
+                seed,
+                draws,
+            ),
+            # every unreadable reply counted as an unfaithful summary: the floor of the clean rate if the failures hide bad summaries
+            "clean_worst_case": _rate(
+                [m["clean"] for _, m in checkable] + [False] * len(unreadable),
+                cw + [float(r["weight"]) for r in unreadable],
+                cb + [str(r["bucket"]) for r in unreadable],
+                seed,
+                draws,
             ),
             "main_company_kept": _rate(
                 [bool(e["main_kept"]) for _, e in with_company],
@@ -561,6 +623,7 @@ def summarise(
                 "median_chars": statistics.median(
                     int(r["source_chars"]) for r in mine if str(r["bucket"]) == bucket
                 ),
+                "unreadable": sum(1 for r in unreadable if str(r["bucket"]) == bucket),
                 "clean": _plain([bool(m["clean"]) for _, m in in_bucket]),
                 "any_contradicted": _plain([m["any_contradicted"] for _, m in in_bucket]),
                 "main_event_covered": _plain([m["covered"] for _, m in in_bucket]),
@@ -589,16 +652,17 @@ def render(report: dict[str, Any], judge: str) -> str:
             f"- no unsupported or contradicted claim: **{_pct(g['clean'])}**",
             f"- at least one contradicted claim: {_pct(g['any_contradicted'])}",
             f"- the main event is in the summary: {_pct(g['main_event_covered'])}",
-            f"- claims that are unsupported: {_share(g['unsupported_claim_share'])}; contradicted: {_share(g['contradicted_claim_share'])}",
+            f"- claims that are unsupported: {_pct(g['unsupported_claim_share'])}; contradicted: {_pct(g['contradicted_claim_share'])} (interval: resampling summaries)",
+            f"- worst case, every unreadable reply counted as an unfaithful summary: clean {_pct(g['clean_worst_case'])}",
             f"- the company the source names most is kept (of {g['items_with_company']} that name one): {_pct(g['main_company_kept'])}; share of the companies kept: {_share(g['company_recall'])}",
             f"- compression (summary over source), median {g['compression_median']:.2f}; longer than its source: {100 * g['longer_than_source']:.1f}%",
             "",
-            "| bucket | in the group | sampled | median source chars | clean | contradicted | main event |",
-            "|---|---|---|---|---|---|---|",
+            "| bucket | in the group | sampled | unreadable | median source chars | clean | contradicted | main event |",
+            "|---|---|---|---|---|---|---|---|",
         ]
         for bucket, v in g["by_bucket"].items():
             lines.append(
-                f"| {bucket} | {v['population']} | {v['n']} | {v['median_chars']:.0f} | {_pct(v['clean'])} | {_pct(v['any_contradicted'])} | {_pct(v['main_event_covered'])} |"
+                f"| {bucket} | {v['population']} | {v['n']} | {v['unreadable']} | {v['median_chars']:.0f} | {_pct(v['clean'])} | {_pct(v['any_contradicted'])} | {_pct(v['main_event_covered'])} |"
             )
         lines.append("")
     return "\n".join(lines)
@@ -643,6 +707,9 @@ def write_tag_sheet(
         raise FileExistsError(
             f"{path} exists: the sheet is written once; remove it to write another"
         )
+    judge = (
+        judge_identity(verdicts) if verdicts is not None else None
+    )  # refuses verdicts of two judges, before anything is written
     chosen: list[dict[str, Any]] = []
     stratum: dict[str, str] = {}
     population: dict[str, dict[str, float]] = {}
@@ -688,7 +755,15 @@ def write_tag_sheet(
                 }
             )
     path.with_suffix(".strata.json").write_text(
-        json.dumps({"stratum": stratum, "population": population}, indent=1), encoding="utf-8"
+        json.dumps(
+            {
+                "judge": {"model": judge[0], "prompt_sha": judge[1]} if judge else None,
+                "stratum": stratum,
+                "population": population,
+            },
+            indent=1,
+        ),
+        encoding="utf-8",
     )
     return [r["id"] for r in chosen]
 
@@ -726,19 +801,30 @@ def _stratum_rate(marks: Sequence[bool]) -> dict[str, Any]:
     }
 
 
+def _sensitivity(size: dict[str, float], flagged_rate: float, clean_rate: float) -> float | None:
+    caught = size["flagged"] * flagged_rate
+    missed = size["clean"] * clean_rate
+    return caught / (caught + missed) if caught + missed else None
+
+
 def _strata_figures(
     size: dict[str, float] | None, flagged_marks: Sequence[bool], clean_marks: Sequence[bool]
 ) -> dict[str, Any]:
     """The owner's rate of unfaithful summaries in the judge's flagged stratum and in its clean control, the judge's precision (the first) and its
-    sensitivity (flagged share of all the unfaithful, the two strata weighed by their size in the sample)."""
+    sensitivity (flagged share of all the unfaithful, the two strata weighed by their size in the sample). The sensitivity's interval is the
+    extremes over the Wilson intervals of the two rates (the flagged rate at its low end with the clean rate at its high end, and the reverse):
+    wide on purpose, because a control of twenty clean items stands for the whole clean population."""
     flagged, clean = _stratum_rate(flagged_marks), _stratum_rate(clean_marks)
     figures: dict[str, Any] = {"flagged": flagged, "clean": clean}
     if flagged["rate"] is not None:
         figures["precision"] = flagged["rate"]
     if size and flagged["rate"] is not None and clean["rate"] is not None:
-        caught = size["flagged"] * flagged["rate"]
-        missed = size["clean"] * clean["rate"]
-        figures["sensitivity"] = caught / (caught + missed) if caught + missed else None
+        figures["sensitivity"] = _sensitivity(size, flagged["rate"], clean["rate"])
+        low = _sensitivity(size, flagged["low"], clean["high"])
+        high = _sensitivity(size, flagged["high"], clean["low"])
+        figures["sensitivity_interval"] = (
+            [low, high] if low is not None and high is not None else None
+        )
     return figures
 
 
@@ -757,6 +843,12 @@ def agreement(
     yes = {"si": True, "sí": True, "no": False}
     out: dict[str, Any] = {}
     _check_marks(tags, yes)
+    chosen_by = (strata or {}).get("judge")
+    if chosen_by and (chosen_by["model"], chosen_by["prompt_sha"]) != judge_identity(verdicts):
+        raise ValueError(
+            "the verdicts were made by another judge than the one that chose the slice "
+            f"({chosen_by['model']}, {chosen_by['prompt_sha']}): the precision and the sensitivity would be of nobody"
+        )
     for group in GROUPS:
         mine = [
             t

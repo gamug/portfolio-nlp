@@ -377,7 +377,13 @@ def test_the_text_of_the_report_names_the_judge_the_groups_and_the_limits() -> N
     text = sj.render(
         sj.summarise(rows, {"a": _verdict("supported")}, seed=1, draws=50), judge="model-x"
     )
-    assert "model-x" in text and "single" in text and "not checked against the owner" in text
+    assert (
+        "model-x" in text
+        and "single" in text
+        and "not checked against the owner" in text
+        and "worst case" in text
+        and "unreadable" in text
+    )
 
 
 # --- the owner's check --------------------------------------------------------------------------------------------------------
@@ -609,7 +615,12 @@ def test_an_unreadable_reply_is_still_recorded_apart_from_a_provider_error(tmp_p
     counts = sj.run_judge(
         rows, lambda: StubAgent(["prose", "prose"]), out, workers=1, judge_model="m"
     )
-    assert counts == {"judged": 0, "parse_failed": 1, "provider_errors": 0}
+    assert counts == {
+        "judged": 0,
+        "parse_failed": 1,
+        "provider_errors": 0,
+        "longest_verdict_chars": 0,
+    }
 
 
 def test_the_allocation_never_gives_more_than_a_bucket_has_and_always_stops() -> None:
@@ -640,9 +651,11 @@ def _flag_rows_and_verdicts(
                 "summary_text": "r",
             }
         )
-        verdicts[rid] = (
-            _verdict("supported", "unsupported") if i < n_flagged else _verdict("supported")
-        )
+        verdicts[rid] = {
+            **(_verdict("supported", "unsupported") if i < n_flagged else _verdict("supported")),
+            "judge_model": "m",
+            "prompt_sha": "p",
+        }
     return rows, verdicts
 
 
@@ -720,3 +733,130 @@ def test_agreement_without_strata_says_a_random_slice_cannot_measure_a_rare_even
     ]
     got = sj.agreement(tags, verdicts)["single"]["faithful"]
     assert "sensitivity" not in got and got["note"].startswith("random slice")
+
+
+# --- second review of #180 ------------------------------------------------------------------------------------------------------
+
+
+def test_the_slice_remembers_the_judge_that_chose_it_and_agree_refuses_another(
+    tmp_path: Path,
+) -> None:
+    """M1: a rerun under another model between the slice and the marks would compare the marks with a judge that did not choose them."""
+    rows, verdicts = _flag_rows_and_verdicts(n_flagged=6, n_clean=24)
+    path = tmp_path / "to_tag.csv"
+    sj.write_tag_sheet(path, rows, per_group=6, seed=3, verdicts=verdicts)
+    strata = json.loads(path.with_suffix(".strata.json").read_text(encoding="utf-8"))
+    assert strata["judge"] == {"model": "m", "prompt_sha": "p"}
+    tags = [
+        {"id": rid, "grupo": "single", "afirmaciones_sin_respaldo": "no", "evento_principal": "si"}
+        for rid in strata["stratum"]
+    ]
+    assert "single" in sj.agreement(tags, verdicts, strata)  # the same judge: fine
+    other_model = {k: {**v, "judge_model": "m2"} for k, v in verdicts.items()}
+    with pytest.raises(ValueError, match="another judge"):
+        sj.agreement(tags, other_model, strata)
+    other_prompt = {k: {**v, "prompt_sha": "p2"} for k, v in verdicts.items()}
+    with pytest.raises(ValueError, match="another judge"):
+        sj.agreement(tags, other_prompt, strata)
+
+
+def test_a_slice_is_not_written_from_verdicts_of_two_judges(tmp_path: Path) -> None:
+    rows, verdicts = _flag_rows_and_verdicts(n_flagged=6, n_clean=24)
+    verdicts["single:0"] = {**verdicts["single:0"], "judge_model": "other"}
+    with pytest.raises(ValueError, match="more than one judge"):
+        sj.write_tag_sheet(tmp_path / "to_tag.csv", rows, per_group=6, seed=3, verdicts=verdicts)
+    assert not (tmp_path / "to_tag.csv").exists()
+
+
+def test_sensitivity_has_an_interval_and_zero_misses_in_a_small_control_do_not_make_it_certain() -> (
+    None
+):
+    """M2: 0 unfaithful in 20 clean items still allows about 16% of the 950 clean ones, which would put the sensitivity near 0.15."""
+    got = sj._strata_figures({"flagged": 50.0, "clean": 950.0}, [True] * 5, [False] * 20)
+    assert got["sensitivity"] == pytest.approx(1.0)
+    low, high = got["sensitivity_interval"]
+    assert high == pytest.approx(1.0) and low < 0.3
+    # a bigger control narrows it
+    narrower = sj._strata_figures({"flagged": 50.0, "clean": 950.0}, [True] * 5, [False] * 200)
+    assert narrower["sensitivity_interval"][0] > low
+    # the interval always holds the point estimate
+    mixed = sj._strata_figures(
+        {"flagged": 100.0, "clean": 900.0}, [True] * 4 + [False], [True] + [False] * 4
+    )
+    assert (
+        mixed["sensitivity_interval"][0] <= mixed["sensitivity"] <= mixed["sensitivity_interval"][1]
+    )
+
+
+def _report_rows(n: int, bucket_of: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f"s{i}",
+            "group": "single",
+            "bucket": str(bucket_of(i)),
+            "weight": "10",
+            "pop_n": "40",
+            "source_chars": "3000",
+            "summary_chars": "300",
+            "compression": "0.1",
+            "source_tickers": "{}",
+            "summary_tickers": "{}",
+        }
+        for i in range(n)
+    ]
+
+
+def test_the_unreadable_replies_are_counted_per_bucket_and_bounded_in_the_worst_case() -> None:
+    """S1: replies that fail may concentrate in the longest sources; excluding them flatters that bucket."""
+    rows = _report_rows(12, lambda i: i % 2)  # bucket 0 and 1
+    verdicts = {r["id"]: _verdict("supported") for r in rows}
+    for i in (1, 3, 5):  # three unreadable, all in bucket 1 (the long sources)
+        verdicts[f"s{i}"] = _verdict(failed=True)
+    single = sj.summarise(rows, verdicts, draws=100)["single"]
+    assert (
+        single["by_bucket"]["1"]["unreadable"] == 3 and single["by_bucket"]["0"]["unreadable"] == 0
+    )
+    assert single["clean"]["estimate"] == pytest.approx(1.0)  # of the readable ones
+    assert single["clean_worst_case"]["estimate"] == pytest.approx(
+        0.75
+    )  # every unreadable counted as unfaithful
+    assert single["clean_worst_case"]["n"] == 12
+
+
+def test_the_claim_shares_have_an_interval_from_resampling_summaries() -> None:
+    rows = _report_rows(20, lambda i: i % 2)
+    verdicts = {
+        r["id"]: _verdict("supported", "unsupported")
+        if i < 6
+        else _verdict("supported", "supported")
+        for i, r in enumerate(rows)
+    }
+    single = sj.summarise(rows, verdicts, draws=300)["single"]
+    share = single["unsupported_claim_share"]
+    assert share["estimate"] == pytest.approx(6 / 40)
+    assert 0 <= share["low"] < share["estimate"] < share["high"] <= 1
+    assert share["n"] == 40  # claims
+    assert single["contradicted_claim_share"]["estimate"] == pytest.approx(0.0)
+
+
+def test_the_longest_verdict_is_reported_so_a_cap_on_the_reply_would_show(tmp_path: Path) -> None:
+    rows = [{"id": "r0", "group": "single", "source_text": "s", "summary_text": "t"}]
+    counts = sj.run_judge(
+        rows, lambda: StubAgent([GOOD]), tmp_path / "v.jsonl", workers=1, judge_model="m"
+    )
+    assert counts["longest_verdict_chars"] > 100
+    assert (
+        sj.read_verdicts(tmp_path / "v.jsonl")["r0"]["verdict_chars"]
+        == counts["longest_verdict_chars"]
+    )
+
+
+def test_a_sampled_body_missing_from_the_source_copy_stops_the_draw_with_a_message(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    """S2."""
+    results, source = dbs
+    source.execute("DELETE FROM articles WHERE id <= 12")
+    source.commit()
+    with pytest.raises(ValueError, match=r"lacks \d+ of \d+ bodies"):
+        sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
