@@ -116,6 +116,13 @@ def revision_of(model_identity: str) -> str:
     return "category-" + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
+def code_revision() -> str:
+    """The revision this code would write, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of a store can be
+    checked against the code that was merged."""
+    pinned = pinned_category()
+    return revision_of(f"{pinned['model']}@{pinned['revision']}")
+
+
 def score_of(entailment: Sequence[float]) -> CategoryScore:
     """The label, the group and the audit trail of one pair from the entailment probability of each label (in ``LABELS`` order)."""
     best = max(range(len(LABELS)), key=lambda i: entailment[i])

@@ -28,6 +28,28 @@ To run the step again at one revision, or after a re-cut of the sub-news, the SQ
   `slug_scores` (JSON, the probability of each of the 14 labels), `model_name`. The state of the item is in `pipeline_step_state`
   (`step = 'category'`).
 
+## Dating a row and joining it to its article
+
+A row is a (text, main company) pair; to aggregate by day, join it to the article the text comes from. For `item_kind = 'sub_news'` (every row of the first corpus run: step 3 has not read the single
+bodies yet, so there is no `body` row; its join will be written when there is one):
+
+```sql
+SELECT c.ticker, c.label, c.group_label, c.score,
+       substr(a.pub_date, 1, 10) AS news_date, a.source_domain
+FROM news_category c
+JOIN sub_news n ON c.item_kind = 'sub_news' AND CAST(n.id AS TEXT) = c.item_id
+JOIN articles a ON a.id = n.article_id
+WHERE c.model_revision = '<category revision>';
+```
+
+Three things to know:
+1. **The ticker of the row is the company the text is about, not the ticker of the article.** The sub-news of a round-up belongs to the first article of its body, whatever the company: a row for `DHR`
+   can join to an article tagged `MMM`. Group by `c.ticker`; use the article only for the date and the source.
+2. **`pub_date` has more than one format** in the same column (`2023-04-10T15:40:03Z` next to `2026-07-21T11:21:21+0000`); both start with the day, so `substr(pub_date, 1, 10)` is the day as written
+   (no time zone is applied). Do not sort or cut it as text further than that.
+3. **The same body is the text of several articles** (about a third of the `ok` bodies are shared by several tickers): join to `sub_news.article_id` as above, never from `articles` to `news_category`
+   by body, or a row is counted once for each article.
+
 ## Which revision to read
 
 Revisions coexist in `news_category`: the revision hashes the code of the step, the pinned model, the definitions and the version of `transformers`, so any of them changing starts
@@ -43,7 +65,7 @@ SELECT COUNT(DISTINCT item_kind || ':' || item_id) FROM news_company
 WHERE model_revision = '<companies revision>' AND is_main = 1;
 ```
 
-Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
+`--step category --status` prints `code_revision`, the revision the code you run would write (no model is loaded for it); compare it with the revisions of the first query: a store whose complete revision is not that one was written by other code (the revision follows the module, the definitions, the pinned model and `transformers`, so any edit of the step is another revision). Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
 the same code (same revision) and it completes it. A change of the code between two runs is another revision and starts again.
 
 ## The definitions the model reads

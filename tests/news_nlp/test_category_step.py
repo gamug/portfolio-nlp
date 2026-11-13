@@ -727,7 +727,13 @@ def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
     _seed(pair)
     steps.record_category(pair, "body", "b1", REV, {"AAPL": stage.score_of(_scores("other"))}, "m")
     text = (DOCS / "docs" / "category_step.md").read_text(encoding="utf-8")
-    block = re.search(r"```sql\n(.*?)```", text, flags=re.DOTALL)
+    blocks = [
+        b
+        for b in re.findall(r"```sql\n(.*?)```", text, flags=re.DOTALL)
+        if "pipeline_step_state" in b
+    ]
+    assert len(blocks) == 1
+    block = re.match(r"(?s)(.*)", blocks[0])
     assert block
     statements = [
         part.replace("<companies revision>", COMP_REV)
@@ -742,3 +748,71 @@ def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
     plan = (DOCS / ".specify" / "memory" / "PLAN.md").read_text(encoding="utf-8")
     assert "FR-022" in spec and "never `uncertain`" in spec and "_truncated_chunks" in spec
     assert "D41" in plan and "FR-022" in plan
+
+
+def test_status_prints_the_revision_the_code_would_write_and_it_is_the_finders(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _load_cli()
+
+    class Args:
+        status = True
+
+    cli.main_category(Args(), pair)
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["code_revision"] == stage.code_revision()
+    scorer = StubScorer()  # the identity of the pin, so the finder names the revision of this code
+    pinned = stage.pinned_category()
+    scorer.model_name, scorer.model_revision = pinned["model"], pinned["revision"]
+    assert (
+        printed["code_revision"] == stage.CategoryFinder(scorer).revision
+    )  # no model loaded for it
+    assert printed["revisions"] == []  # nothing ran: the revision of the code is not one that ran
+
+
+def test_the_join_of_the_doc_dates_a_row_by_its_article_and_keeps_the_company_of_the_row(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    body = next(steps.pending_bodies(pair, steps.STEP_SCOPE, "scope-test"))
+    steps.record_scope(pair, body, "scope-test", "multi", {}, "title+800")
+    steps.record_cut(
+        pair,
+        next(steps.pending_multi_bodies(pair, "scope-test", "units5-test")),
+        "units5-test",
+        ["a sub-news"],
+    )
+    sub_id = str(pair.execute("SELECT id FROM sub_news").fetchone()[0])
+    steps.record_category(
+        pair, "sub_news", sub_id, REV, {"DHR": stage.score_of(_scores("other"))}, "m"
+    )
+    text = (DOCS / "docs" / "category_step.md").read_text(encoding="utf-8")
+    sql = [
+        b for b in re.findall(r"```sql\n(.*?)```", text, flags=re.DOTALL) if "JOIN sub_news" in b
+    ]
+    assert len(sql) == 1
+    row = pair.execute(sql[0].replace("<category revision>", REV).rstrip().rstrip(";")).fetchone()
+    assert row["ticker"] == "DHR"  # the company of the row, not the article's (MMM, the fixture's)
+    assert row["news_date"] == "2023-01-15" and len(row["news_date"]) == 10
+    assert pair.execute("SELECT ticker FROM articles WHERE id = 1").fetchone()[0] == "MMM"
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        "category_heldout_2026_11_13",
+        "category_baseline_2026_11_13",
+        "category_baseline_groups_2026_11_13",
+    ],
+)
+def test_the_scripts_that_score_the_held_out_set_refuse_to_do_it_again(
+    script: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The proof that the held-out set was scored is in the tracked record, so the refusal holds on a fresh clone (no git-ignored file needed)."""
+    spec = importlib.util.spec_from_file_location(script, DOCS / "scripts" / f"{script}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.syspath_prepend(str(DOCS / "scripts"))
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", [script])
+    with pytest.raises(SystemExit, match="scored once"):
+        module.main()

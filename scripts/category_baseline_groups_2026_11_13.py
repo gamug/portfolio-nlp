@@ -92,7 +92,8 @@ def evaluate(name, rows, SL):
 
 def main():
     again = "--again" in sys.argv
-    held_out = ROOT / "data" / "category_groups" / "baseline_groups_held-out.csv"
+    # the tracked record proves the held-out set was scored by the baselines (this script's own output was not saved then)
+    held_out = ROOT / "docs" / "category_results_2026_11_13" / "baseline_heldout.csv"
     if held_out.exists() and not again:
         sys.exit(
             f"{held_out} exists: the held-out set was scored once and is not scored again without --again"

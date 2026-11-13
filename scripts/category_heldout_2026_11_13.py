@@ -31,7 +31,8 @@ def main():
         help="score the held-out set another time (it is read once: say why in the report)",
     )
     opts = ap.parse_args()
-    done = ROOT / "data/category_groups/heldout_mixed.csv"
+    # the proof that it was scored is in the tracked record, so the guard holds on a fresh clone too
+    done = ROOT / "docs/category_results_2026_11_13/heldout_mixed_scores.csv"
     if done.exists() and not opts.again:
         sys.exit(
             f"{done} exists: the held-out set was scored once and is not scored again without --again"

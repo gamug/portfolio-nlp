@@ -93,6 +93,11 @@ def report(name: str, rows: pd.DataFrame, S: np.ndarray, boot: int = 2000) -> di
 
 
 def main() -> None:
+    held_out_record = ROOT / "docs" / "category_results_2026_11_13" / "baseline_heldout.csv"
+    if held_out_record.exists() and "--again" not in sys.argv:
+        sys.exit(
+            f"{held_out_record} exists: the held-out set was scored once and is not scored again without --again"
+        )
     uni = pd.read_csv(ROOT / "gold/universe.csv").fillna("")
     resolver = CompanyResolver(
         [
