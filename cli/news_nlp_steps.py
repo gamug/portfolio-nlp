@@ -63,7 +63,8 @@ STEPS = (
     steps.STEP_CATEGORY,
 )
 BATCH = 16
-# texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each)
+# texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each);
+# `batch_size` of config/pipeline_models.json `category` belongs to the v1 stage and is not read here
 CATEGORY_BATCH = 4
 COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
@@ -779,7 +780,16 @@ def _classify_items(
     batch: list[steps.CategoryItem],
     counts: dict[str, int],
 ) -> None:
-    """Classify and store one batch; a batch that fails is redone item by item, so one bad text fails alone."""
+    """Classify and store one batch; a batch that fails is redone item by item, so one bad text fails alone. A blank text is not
+    classified: the item is ``skipped`` with the reason, a label of nothing would look as sure as any other."""
+    for blank in [item for item in batch if not item.text.strip()]:
+        steps.record_item_skipped(
+            conn, blank.kind, blank.item_id, steps.STEP_CATEGORY, finder.revision, "blank text"
+        )
+        counts["skipped"] += 1
+    batch = [item for item in batch if item.text.strip()]
+    if not batch:
+        return
     pairs = [(item.text, names.get(t, t)) for item in batch for t in item.tickers]
     nameless = sum(1 for item in batch for t in item.tickers if t not in names)
     try:
@@ -821,7 +831,7 @@ def run_category(
     """Step 7: classify up to ``limit`` texts with a main company not yet finished at the finder's revision; return what was done.
 
     ``done`` is an item with all its main companies classified, ``category_rows`` the ``news_category`` rows written, ``failed`` an item the model
-    could not read (retried by the next run), ``name_missing`` the pairs whose ticker is not in the universe (the ticker is read as the name). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
+    could not read (retried by the next run), ``skipped`` an item with a blank text, ``name_missing`` the pairs whose ticker is not in the universe (the ticker is read as the name). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
     completely stop the run.
     """
     todo = list(
@@ -831,7 +841,13 @@ def run_category(
     )
     if not todo:
         print("nothing pending", file=sys.stderr)
-    counts: dict[str, int] = {"done": 0, "failed": 0, "category_rows": 0, "name_missing": 0}
+    counts: dict[str, int] = {
+        "done": 0,
+        "failed": 0,
+        "skipped": 0,
+        "category_rows": 0,
+        "name_missing": 0,
+    }
     failed_batches = 0
     with tqdm(total=len(todo), desc="category", unit="item") as bar:
         for start in range(0, len(todo), CATEGORY_BATCH):
@@ -958,11 +974,21 @@ RECUT_SQL = (
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'companies' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    # step 7 too
+    "DELETE FROM news_category WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    "DELETE FROM pipeline_step_state WHERE step = 'category' AND item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
 )
 #: To run the companies step again at one revision (the items on the review list included: they are not retried by themselves).
 RECOMPANIES_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'companies' AND model_revision = '<companies revision>';",
     "DELETE FROM news_company WHERE model_revision = '<companies revision>';",
+)
+#: To run the category step again at one revision (the rows are written with INSERT OR IGNORE, the state is keyed by revision).
+RECATEGORY_SQL = (
+    "DELETE FROM pipeline_step_state WHERE step = 'category' AND model_revision = '<category revision>';",
+    "DELETE FROM news_category WHERE model_revision = '<category revision>';",
 )
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
@@ -975,12 +1001,14 @@ so `DELETE FROM sub_news` alone does not make the cut run again. At the same rev
 are the same), in the RESULTS database:
   DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<cut revision>';
   DELETE FROM sub_news WHERE extractor_revision = '<cut revision>';   -- the rows are written with INSERT OR IGNORE
-Before the `DELETE FROM sub_news` above, delete that revision's summaries and companies: steps 2 and 3 read `sub_news` and key their rows by `sub_news.id`, so new ids would leave them pointing at nothing:
+Before the `DELETE FROM sub_news` above, delete that revision's summaries, companies and categories: steps 2, 3 and 7 read `sub_news` and key their rows by `sub_news.id`, so new ids would leave them pointing at nothing:
   {recut}
 To summarise again at one revision of the summary step (`--status` prints it):
   {resummarize}
 To run the companies step again at one revision (`--step companies --status` prints it); an item on the review list is not retried by a plain rerun:
   {recompanies}
+To run the category step again at one revision (`--step category --status` prints it):
+  {recategory}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
@@ -988,6 +1016,7 @@ RERUN_HELP = _RERUN_TEMPLATE.format(
     recut="\n  ".join(RECUT_SQL),
     resummarize="\n  ".join(RESUMMARIZE_SQL),
     recompanies="\n  ".join(RECOMPANIES_SQL),
+    recategory="\n  ".join(RECATEGORY_SQL),
 )
 
 

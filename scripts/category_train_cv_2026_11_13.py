@@ -201,6 +201,8 @@ def main():
         f"group {acc(pg, tg):.1%} (group via flat label {acc([b.GROUP_OF[x] for x in flat], tg):.1%})"
     )
     out = ROOT / "data" / "category_groups"
+    scores_file = f"oof_{args.mode}{'_smoke' if args.smoke else ''}_scores.npz"
+    np.savez(out / scores_file, labels=SL, groups=SG)  # D37: ROC OVR needs the scores
     pd.DataFrame(
         {
             "article_id": rows.article_id,

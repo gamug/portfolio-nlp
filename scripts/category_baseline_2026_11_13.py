@@ -20,41 +20,19 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import category_groups_mock_2026_11_13 as mock
 
+from news_category_stage import DEFINITIONS
+from news_category_stage import GROUPS as _STEP_GROUPS
 from news_nlp.triage import Company, CompanyResolver
 
 MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 REVISION = "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"  # category_stage.MODEL_REVISIONS
 PREMISE_CHARS = 2000  # the size of the summaries step 7 reads (owner 2026-11-12)
 
-DEFS = {
-    "earnings_performance": "results, guidance, revenue or profit figures",
-    "mergers_acquisitions": "deals, takeovers, divestitures",
-    "leadership_governance": "executive appointments and departures, board actions, an executive's insider trade",
-    "legal_regulatory": "litigation, regulatory action, sanctions, bankruptcy",
-    "product_innovation": "product launches, R&D, technology",
-    "capital_shareholder_returns": "dividends, buybacks, debt and credit actions of the company",
-    "labor_human_capital": "layoffs, hiring, workforce and labour relations",
-    "market_analyst_sentiment": "analyst ratings and price targets, stock price moves, an investor's bullish or bearish view",
-    "partnerships_business_dev": "strategic alliances, joint ventures, distribution deals",
-    "reputational_harm": "an event that damages or repairs the company's public standing: apologies, service failures, controversies, boycotts",
-    "competitive_actions": "the company's own move or statement against or about a competitor: share fights, pricing pressure",
-    "investor_activity": "a fund or famous investor buys or sells the stock, an activist position, 13F filings, block trades",
-    "peer_comparison": "a comparison between companies: which is the better stock, who is ahead",
-    "other": "an event that fits none of the other topics",
-}
+DEFS = dict(
+    DEFINITIONS
+)  # one source of truth: the step (src/news_category_stage.py) and the training scripts read the same definitions
 LABELS = list(DEFS)
-GROUPS = {  # option B, owner 2026-11-13
-    "results_capital": ["earnings_performance", "capital_shareholder_returns"],
-    "market_view": ["market_analyst_sentiment", "investor_activity", "peer_comparison"],
-    "deals_alliances": ["mergers_acquisitions", "partnerships_business_dev", "competitive_actions"],
-    "product_people": ["product_innovation", "labor_human_capital"],
-    "governance_legal_reputation": [
-        "leadership_governance",
-        "legal_regulatory",
-        "reputational_harm",
-    ],
-    "other": ["other"],
-}
+GROUPS = {g: list(v) for g, v in _STEP_GROUPS.items()}  # option B, owner 2026-11-13
 GROUP_OF = {label: g for g, ls in GROUPS.items() for label in ls}
 VARIANTS = {
     "topic": ("{text}", "This text is about {d}."),

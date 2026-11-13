@@ -628,6 +628,22 @@ def revisions(conn: NewsNlpDatabase, step: str) -> list[str]:
     ]
 
 
+def record_item_skipped(
+    conn: NewsNlpDatabase, item_kind: str, item_id: str, step: str, revision: str, reason: str
+) -> None:
+    """Mark an item ``skipped`` with the reason: it is read as finished (``COMPANY_FINISHED``) and is not retried at this revision."""
+    now = _now()
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'skipped', 1, ?, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'skipped', attempts = attempts + 1, error = excluded.error, finished_at = excluded.finished_at",
+        (item_kind, item_id, step, revision, reason[:500], now, now),
+    )
+    conn.commit()
+
+
 def record_failure(conn: NewsNlpDatabase, body: Body, step: str, revision: str, error: str) -> None:
     """Mark a body failed with the reason; it is retried by the next run."""
     record_item_failure(conn, ITEM_BODY, body.body_hash, step, revision, error)

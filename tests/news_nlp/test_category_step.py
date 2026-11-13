@@ -16,6 +16,7 @@ import pytest
 import torch
 
 import news_category_stage as stage
+import news_company_stage
 import news_nlp as db_module
 from news_nlp import retag, steps
 from news_nlp.steps import CategoryScore, CompanyScore
@@ -247,7 +248,7 @@ def test_a_run_labels_each_main_company_and_returns_the_counts(
     _seed(pair)
     cli = _load_cli()
     counts = cli.run_category(pair, StubFinder(), NAMES, SUM_REV, COMP_REV, None)
-    assert counts == {"done": 2, "failed": 0, "category_rows": 3, "name_missing": 0}
+    assert counts == {"done": 2, "failed": 0, "skipped": 0, "category_rows": 3, "name_missing": 0}
     labels = {
         (r[0], r[1]): r[2] for r in pair.execute("SELECT item_id, ticker, label FROM news_category")
     }
@@ -260,6 +261,7 @@ def test_a_run_labels_each_main_company_and_returns_the_counts(
     assert again == {
         "done": 0,
         "failed": 0,
+        "skipped": 0,
         "category_rows": 0,
         "name_missing": 0,
     }  # a rerun adds nothing
@@ -446,3 +448,80 @@ def test_the_scorer_reads_one_hypothesis_per_label_and_returns_the_entailment_of
         f"The news about Alphabet Inc. is about {stage.DEFINITIONS[stage.LABELS[0]]}."
     )
     assert seen["kw"]["truncation"] == "only_first" and seen["kw"]["max_length"] == stage.MAX_LENGTH
+
+
+def test_a_blank_text_is_skipped_with_a_reason_and_not_retried(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    steps.record_summary(pair, "body", "blank", SUM_REV, "   \n", "original", 0)
+    steps.record_companies(pair, "body", "blank", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
+    cli = _load_cli()
+    counts = cli.run_category(pair, StubFinder(), NAMES, SUM_REV, COMP_REV, None)
+    assert counts["skipped"] == 1 and counts["done"] == 2
+    state = pair.execute(
+        "SELECT status, error FROM pipeline_step_state WHERE step = 'category' AND item_id = 'blank'"
+    ).fetchone()
+    assert tuple(state) == ("skipped", "blank text")
+    assert (
+        pair.execute("SELECT COUNT(*) FROM news_category WHERE item_id = 'blank'").fetchone()[0]
+        == 0
+    )
+    assert "blank" not in [
+        i.item_id for i in _items(pair)
+    ]  # a skipped item is finished at its revision
+
+
+def test_a_recut_also_deletes_the_categories_of_its_sub_news_and_step_7_has_its_own_recipe(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _load_cli()
+    cut_rev = "units5-test"
+    body = next(steps.pending_bodies(pair, steps.STEP_SCOPE, "scope-test"))
+    steps.record_scope(pair, body, "scope-test", "multi", {}, "title+800")
+    steps.record_cut(
+        pair, next(steps.pending_multi_bodies(pair, "scope-test", cut_rev)), cut_rev, ["a sub-news"]
+    )
+    sub_id = str(
+        pair.execute("SELECT id FROM sub_news WHERE extractor_revision = ?", (cut_rev,)).fetchone()[
+            0
+        ]
+    )
+    found = {"MSFT": stage.score_of(_scores("other"))}
+    steps.record_category(pair, "sub_news", sub_id, REV, found, "m")
+    steps.record_category(pair, "body", "b1", REV, found, "m")  # a body: not part of a cut
+    for statement in (*cli.RECUT_SQL, *cli.RECATEGORY_SQL):
+        assert statement in cli.RERUN_HELP
+    assert "<category revision>" in cli.RERUN_HELP
+    for statement in cli.RECUT_SQL:
+        pair.execute(statement.replace("<cut revision>", cut_rev))
+    pair.commit()
+    left = pair.execute("SELECT item_kind FROM news_category").fetchall()
+    assert [r[0] for r in left] == ["body"]  # the sub-news category went with its cut
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'category' AND item_kind = 'sub_news'"
+        ).fetchone()[0]
+        == 0
+    )
+    for statement in cli.RECATEGORY_SQL:  # to run step 7 again at one revision
+        pair.execute(statement.replace("<category revision>", REV))
+    pair.commit()
+    assert pair.execute("SELECT COUNT(*) FROM news_category").fetchone()[0] == 0
+    assert (
+        pair.execute("SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'category'").fetchone()[
+            0
+        ]
+        == 0
+    )
+
+
+def test_the_company_name_is_the_one_of_the_companies_step_and_the_revision_follows_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert (
+        stage.company_name is news_company_stage.company_name
+    )  # one definition, not two that drift
+    base = stage.revision_of("m@1")
+    monkeypatch.setattr(stage, "company_name", lambda company: company.upper())
+    assert stage.revision_of("m@1") != base

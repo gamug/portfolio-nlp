@@ -24,6 +24,18 @@ from news_nlp.triage import Company, CompanyResolver
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument(
+        "--again",
+        action="store_true",
+        help="score the held-out set another time (it is read once: say why in the report)",
+    )
+    opts = ap.parse_args()
+    done = ROOT / "data/category_groups/heldout_mixed.csv"
+    if done.exists() and not opts.again:
+        sys.exit(
+            f"{done} exists: the held-out set was scored once and is not scored again without --again"
+        )
     args = argparse.Namespace(epochs=3, lr=2e-5, neg=4, bs=4, accum=4, max_len=512)
     uni = pd.read_csv(ROOT / "gold/universe.csv").fillna("")
     res = CompanyResolver(

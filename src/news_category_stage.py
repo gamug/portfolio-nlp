@@ -30,6 +30,7 @@ import torch
 import transformers
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from news_company_stage import company_name
 from news_nlp.steps import CategoryScore
 from news_summary_stage import normalized_code
 
@@ -84,11 +85,6 @@ def models_of_the_step() -> dict[str, str]:
     return {"category": f"{pinned['model']}@{pinned['revision']}"}
 
 
-def company_name(company: str) -> str:
-    """The name as the hypothesis is written: the universe name without its parenthesised share class."""
-    return company.split(" (", maxsplit=1)[0]
-
-
 def _module_source(module: Any) -> str:
     """The source of a module (a function of its own so a test can change what the revision reads)."""
     return Path(inspect.getsourcefile(module) or "").read_text(encoding="utf-8")
@@ -109,6 +105,9 @@ def revision_of(model_identity: str) -> str:
             "transformers": transformers.__version__,
             "code": hashlib.sha256(
                 normalized_code(_module_source(sys.modules[__name__])).encode()
+            ).hexdigest()[:12],
+            "company_name": hashlib.sha256(
+                normalized_code(inspect.getsource(company_name)).encode()
             ).hexdigest()[:12],
         },
         sort_keys=True,

@@ -11,8 +11,13 @@ uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --co
 uv run cli/news_nlp_steps.py --step category --status
 ```
 
-`--step summary --status` and `--step companies --status` list the revisions that ran; both are named, never the latest. A rerun
-adds nothing: an item already done at the revision is skipped, a failed one is retried.
+`--step summary --status` and `--step companies --status` list the revisions that ran; both are named, never the latest.
+`--source-db` and `--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. A rerun
+adds nothing: an item already done or skipped at the revision is not read again, a failed one is retried. The step is resumable,
+so a long run can be cut with `--limit` and continued; it prints the plan, the model and the revision before it starts, and a
+warning if some main-company items have no text at the summary revision named (the companies step read another one).
+
+To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RECATEGORY_SQL`, `RECUT_SQL`).
 
 ## What it reads and writes
 
@@ -46,6 +51,19 @@ are almost never found). The held-out 200 also has 44 narrative multi bodies tha
 
 A fine-tune of the same model (`scripts/category_train_cv_2026_11_13.py`, the mixed recipe) reached 62.2% out-of-fold on the train rows
 and 48.9% on the held-out single rows: better than the untouched model, still under the bar; it is not published and the step does not use it.
+
+## Edge cases
+
+A blank text is not classified: the item is `skipped` in `pipeline_step_state` with the reason `blank text`, and is not retried at this
+revision. A ticker that is not in the universe is read as its own name (counted as `name_missing` in the run output). The `batch_size`
+of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not read here: the model scores one pair at a time,
+14 hypotheses each, and the step stores four items per transaction.
+
+## Metrics
+
+D37 records Precision, Recall and ROC OVR per class. `scripts/category_roc_ovr_2026_11_13.py` gives the ROC OVR from saved scores
+(the held-out scoring of the mixed fine-tune, or the out-of-fold scores of a CV run, which `category_train_cv_2026_11_13.py` now saves).
+The baseline scripts of the untouched model report accuracy and per-class recall; they do not save scores.
 
 ## Not done
 
