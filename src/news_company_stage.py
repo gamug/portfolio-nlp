@@ -180,18 +180,46 @@ def _closure(module: Any, roots: Sequence[str]) -> dict[str, str]:
     }
 
 
+def _used_names(source: str, module_path: str, alias: str) -> list[str]:
+    """The names a piece of code takes from another module: those it imports from ``module_path`` and the attributes it reads of ``alias``
+    (``from news_nlp.triage import X`` and ``triage.Y`` give ``X`` and ``Y``), sorted. The roots of a closure are read from the code, so a new
+    call into the module is hashed without anyone listing it."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module == module_path:
+            names.update(a.name for a in node.names)
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == alias
+        ):
+            names.add(node.attr)
+    return sorted(names)
+
+
 def hashed_sources() -> dict[str, str]:
-    """The code the revision hashes, normalised: this module whole; the matcher and the disclosure rules it runs, with every helper and constant
-    of ``triage`` they reach; what the NER stage runs on a text, with the helpers of ``chunking`` it reaches. The closures are computed
-    (``_closure``), so a function or a constant added to the matcher later is hashed without anyone remembering to list it; what they do not
-    reach (the scope features of ``triage``, the training of the models) does not restart the step."""
+    """The code the revision hashes, normalised: this module whole; the code it reaches in ``triage`` (the matcher, the disclosure rules and
+    every helper and constant they name), in ``ner_stage`` (what runs on a text) and in ``chunking`` (what ``ner_stage`` takes from it). The
+    starting names of each closure are read from the imports and the attribute uses of the code that calls (``_used_names``) and the names
+    each one reaches inside its module are followed (``_closure``), so a call added tomorrow is hashed without anyone remembering to list it;
+    what nothing reaches (the scope features of ``triage``, the training of the models) does not restart the step."""
+    this = _module_source(sys.modules[__name__])
+    ner_source = _module_source(ner_stage)
     sources = {
-        "news_company_stage": normalized_code(_module_source(sys.modules[__name__])),
+        "news_company_stage": normalized_code(this),
         "news_company_stage._DISCLOSURE_WORDS": f"{_DISCLOSURE_WORDS.pattern}|{_DISCLOSURE_WORDS.flags}",
     }
-    sources.update(_closure(triage, ("CompanyResolver", "in_disclosure", "disclosure_branch")))
-    sources.update(_closure(ner_stage, ("merge_bio_predictions", "NerFeature", "NerInference")))
-    sources.update(_closure(chunking, ("chunk_text", "merge_char_spans", "Chunk")))
+    sources.update(_closure(triage, _used_names(this, "news_nlp.triage", "triage")))
+    sources.update(_closure(ner_stage, _used_names(this, "ner_stage", "ner_stage")))
+    sources.update(
+        _closure(
+            chunking,
+            [
+                *_used_names(ner_source, "chunking", "chunking"),
+                *_used_names(this, "chunking", "chunking"),
+            ],
+        )
+    )
     return sources
 
 

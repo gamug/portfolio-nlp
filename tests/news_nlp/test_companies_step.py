@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 import chunking
+import ner_stage
 import news_company_stage as stage
 import news_nlp as db_module
 from news_nlp import steps, triage
@@ -789,3 +790,61 @@ def test_the_documents_that_list_what_is_written_say_step_3_writes_news_company(
     module = (root / "docs" / "modules" / "news-nlp.md").read_text(encoding="utf-8")
     assert "steps 3, 6 and 7 are not built" not in module
     assert "step 3 `news_company`" in module
+
+
+def test_the_roots_of_the_closure_are_read_from_the_imports_and_the_attributes() -> None:
+    """Review of #178 (R2): the names a module takes from another one are found in its code, not listed by hand."""
+    source = "from a.b import X, Y\nimport q\nz = b.W\nw = c.V\n"
+    assert stage._used_names(source, "a.b", "b") == ["W", "X", "Y"]
+    assert stage._used_names(source, "a.b", "none") == ["X", "Y"]
+
+
+def test_a_new_call_into_triage_is_hashed_and_so_is_everything_ner_takes_from_chunking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = stage._module_source
+    this = real(stage)
+    # a function of triage the step does not call today, called from a copy of this module's source
+    assert "strip_boilerplate" not in "".join(stage.hashed_sources())
+    monkeypatch.setattr(
+        stage,
+        "_module_source",
+        lambda m: this + "\n_x = triage.strip_boilerplate\n" if m is stage else real(m),
+    )
+    assert "news_nlp.triage.strip_boilerplate" in stage.hashed_sources()
+    monkeypatch.undo()
+    # every name the NER stage imports from chunking is hashed, whatever the stage imports tomorrow
+    for name in stage._used_names(real(ner_stage), "chunking", "chunking"):
+        assert f"chunking.{name}" in stage.hashed_sources(), name
+    # and every name this module imports from triage
+    for name in stage._used_names(this, "news_nlp.triage", "triage"):
+        assert f"news_nlp.triage.{name}" in stage.hashed_sources(), name
+
+
+def _threshold_ranges() -> dict[str, tuple[str, str]]:
+    """The share of items with a main company at the thresholds 0.1 and 0.8, from the table of ``docs/companies_step.md``."""
+    root = Path(__file__).resolve().parents[2]
+    doc = (root / "docs" / "companies_step.md").read_text(encoding="utf-8")
+    header = next(line for line in doc.splitlines() if line.startswith("| threshold | 0.1 |"))
+    cols = [c.strip() for c in header.strip("|").split("|")]
+    out = {}
+    for line in doc.splitlines():
+        if line.startswith(("| single bodies |", "| sub-news |")):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            out[cells[0]] = (cells[cols.index("0.1")], cells[cols.index("0.8")])
+    return out
+
+
+def test_the_threshold_ranges_are_the_same_in_the_doc_the_plan_and_the_tasks() -> None:
+    """Review of #178 (R1): the first figures stayed in the PR page after the filter changed them; the memory files must agree with the doc's table."""
+    root = Path(__file__).resolve().parents[2]
+    ranges = _threshold_ranges()
+    assert set(ranges) == {"single bodies", "sub-news"}
+    plan = (root / ".specify" / "memory" / "PLAN.md").read_text(encoding="utf-8")
+    tasks = (root / ".specify" / "memory" / "TASKS.md").read_text(encoding="utf-8")
+    sub_low, sub_high = ranges["sub-news"]
+    one_low, one_high = ranges["single bodies"]
+    assert f"{sub_high} at 0.8 to {sub_low} at 0.1" in plan
+    assert f"single bodies from {one_high} to {one_low}" in plan
+    assert f"from {sub_high} to {sub_low} between the thresholds 0.8 and 0.1" in tasks
+    assert f"only from {one_high} to {one_low}" in tasks
