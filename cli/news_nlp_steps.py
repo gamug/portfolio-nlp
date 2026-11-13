@@ -516,10 +516,13 @@ def run_companies(
 
 
 def main_companies(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    import news_company_stage  # noqa: PLC0415 -- imports torch, loads no model
+
     if args.status:
         latest = steps.latest_revision(conn, steps.STEP_COMPANIES)
         report = steps.status(conn, steps.STEP_COMPANIES, latest)
         report["revisions"] = steps.revisions(conn, steps.STEP_COMPANIES)
+        report["models"] = news_company_stage.models_of_the_step()
         print(json.dumps(report, indent=2))
         return
     items = (args.items,) if args.items else ("single", "sub_news")
@@ -618,6 +621,16 @@ RECUT_SQL = (
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    # step 3 keys its rows by the same ids
+    "DELETE FROM news_company WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    "DELETE FROM pipeline_step_state WHERE step = 'companies' AND item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+)
+#: To run the companies step again at one revision (the items on the review list included: they are not retried by themselves).
+RECOMPANIES_SQL = (
+    "DELETE FROM pipeline_step_state WHERE step = 'companies' AND model_revision = '<companies revision>';",
+    "DELETE FROM news_company WHERE model_revision = '<companies revision>';",
 )
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
@@ -630,15 +643,19 @@ so `DELETE FROM sub_news` alone does not make the cut run again. At the same rev
 are the same), in the RESULTS database:
   DELETE FROM pipeline_step_state WHERE step = 'cut' AND model_revision = '<cut revision>';
   DELETE FROM sub_news WHERE extractor_revision = '<cut revision>';   -- the rows are written with INSERT OR IGNORE
-Before the `DELETE FROM sub_news` above, delete that revision's summaries: step 2 reads `sub_news` and keys its rows by `sub_news.id`, so new ids would leave them pointing at nothing:
+Before the `DELETE FROM sub_news` above, delete that revision's summaries and companies: steps 2 and 3 read `sub_news` and key their rows by `sub_news.id`, so new ids would leave them pointing at nothing:
   {recut}
 To summarise again at one revision of the summary step (`--status` prints it):
   {resummarize}
+To run the companies step again at one revision (`--step companies --status` prints it); an item on the review list is not retried by a plain rerun:
+  {recompanies}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
 RERUN_HELP = _RERUN_TEMPLATE.format(
-    recut="\n  ".join(RECUT_SQL), resummarize="\n  ".join(RESUMMARIZE_SQL)
+    recut="\n  ".join(RECUT_SQL),
+    resummarize="\n  ".join(RESUMMARIZE_SQL),
+    recompanies="\n  ".join(RECOMPANIES_SQL),
 )
 
 
@@ -653,7 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="touch at most this many items (bodies; for summary also sub-news)",
+        help="touch at most this many items (bodies; for summary and companies also sub-news)",
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(

@@ -115,6 +115,29 @@ def test_the_matcher_over_the_text_adds_the_companies_ner_did_not_tag() -> None:
     }  # a ticker both name keeps the larger count: one mention is not counted twice
 
 
+def test_the_text_candidates_leave_out_common_words_and_disclosure_lists() -> None:
+    resolver = CompanyResolver(
+        [
+            *UNIVERSE,
+            Company("TGT", "Target Corporation", "C", "R"),
+            Company("GAP", "Gap Inc.", "C", "R"),
+        ]
+    )
+    # a common word in lower case is not a company (the matcher's patterns ignore the case)
+    assert stage.direct_mentions(resolver, "Our target is to hit the gap by apple season.") == {}
+    # a disclosure line and a ticker list name tickers, not what the text is about
+    assert (
+        stage.direct_mentions(
+            resolver, "Jim Cramer's Charitable Trust is long AAPL, MSFT, META, JPM."
+        )
+        == {}
+    )
+    assert stage.direct_mentions(resolver, "Apple Inc. rose and 3M fell. Apple said so.") == {
+        "AAPL": 2,
+        "MMM": 1,
+    }
+
+
 # --- the rule of the main company ------------------------------------------------------------------------------------------
 
 
@@ -581,3 +604,68 @@ def test_with_the_text_matches_the_finder_scores_a_company_ner_did_not_tag() -> 
     ner_only = stage.CompanyFinder(UNIVERSE, 0.5, "ner", spans=StubSpans(), scorer=StubScorer())
     assert ner_only.find(["3M raised its guidance. 3M said so."]) == [[]]
     assert finder.revision != ner_only.revision
+
+
+# --- the recipes and the status (review of #178: M3, S1) ----------------------------------------------------------------------
+
+
+def test_a_recut_also_deletes_the_companies_of_its_sub_news_and_step_3_has_its_own_recipe(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _load_cli()
+    sub = next(
+        steps.pending_texts(
+            pair, SUM_REV, REV, scope_revision=None, cut_revision=CUT_REV, items=("sub_news",)
+        )
+    )
+    steps.record_companies(
+        pair, steps.ITEM_SUB_NEWS, sub.item_id, REV, [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )
+    steps.record_companies(pair, steps.ITEM_BODY, "b1", REV, [], 0.5)  # a review item of a body
+    for statement in (*cli.RECUT_SQL, *cli.RECOMPANIES_SQL):
+        assert statement in cli.RERUN_HELP
+    assert "<companies revision>" in cli.RERUN_HELP
+    for (
+        statement
+    ) in cli.RECUT_SQL:  # the cut revision goes: its sub-news ids go with their companies
+        pair.execute(statement.replace("<cut revision>", CUT_REV))
+    pair.commit()
+    assert pair.execute("SELECT COUNT(*) FROM news_company").fetchone()[0] == 0
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'companies' AND item_kind = 'sub_news'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE item_kind = 'body'"
+        ).fetchone()[0]
+        >= 1
+    )
+    for (
+        statement
+    ) in cli.RECOMPANIES_SQL:  # to run step 3 again at one revision, the review items included
+        pair.execute(statement.replace("<companies revision>", REV))
+    pair.commit()
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'companies'"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_the_status_names_the_two_models_the_step_runs_without_loading_them(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _load_cli()
+
+    class Args:
+        status = True
+
+    cli.main_companies(Args(), pair)  # type: ignore[arg-type]
+    out = json.loads(capsys.readouterr().out)
+    assert out["models"]["relevance"].startswith("gamug/deberta-v3-company-relevance@8812c8bc")
+    assert out["models"]["ner"].startswith("gamug/sec-bert-finer-ord-ner@ba7b9e43")
+    assert out["models"]["relevance_private"] is True  # the step needs HF_TOKEN

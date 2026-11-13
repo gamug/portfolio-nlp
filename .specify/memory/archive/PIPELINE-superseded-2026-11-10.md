@@ -715,3 +715,12 @@ step 3 the `article_entities` columns of D39 (iii) (`is_main` there is the **onl
       - **NLI single or multi** (165 true company bodies): relevance features 84.2% (multi 31/47); fine-tuned NLI 90.9% (multi 39/47, precision 85%) (`scope_nli_single_multi_2026_11_10.py`).
       - **Rare-scope set (gold set 7, `scope_enrich.csv`, 51 bodies, 27 sector, 9 out-of-scope):** class-conditional recall, unweighted, apart from the 200.
 ```
+
+### D39 (3.1), D39 (iii), D40 and FR-020 on the storage of the mentions (replaced 2026-11-13, #178, owner's decision)
+
+```
+PLAN.md: **Mentions** (the companies that are not main): the raw spans stay in `article_entities` (new nullable `sub_news_id` and `ticker`);
+PLAN.md: the spans stay in `article_entities`, whose `score` stays the NER confidence);
+PLAN.md: (3.1) NER on each sub-news;
+SPEC.md: the rest are mentions in `article_entities`, none over it: the review list.
+```

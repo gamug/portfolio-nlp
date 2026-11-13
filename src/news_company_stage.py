@@ -31,7 +31,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 import ner_stage
 from news_nlp.steps import CompanyScore
-from news_nlp.triage import Company, CompanyResolver
+from news_nlp.triage import Company, CompanyResolver, in_disclosure
 from news_summary_stage import normalized_code
 
 HYPOTHESIS = "This text is mainly about {}."
@@ -50,13 +50,32 @@ def company_name(company: str) -> str:
     return company.split(" (", maxsplit=1)[0]
 
 
+def direct_mentions(resolver: CompanyResolver, text: str) -> dict[str, int]:
+    """How many times the matcher finds each ticker in the text itself, for the candidates NER did not tag (``--candidates ner+text``).
+
+    The mentions ``CompanyResolver.counted_matches`` counts (a word that is also a surname or an everyday word needs the company's full name
+    in the text), minus two kinds that name a company without the text being about it: a match that does not start with a capital letter or
+    a digit (the patterns ignore the case: "the gap", "apple season"), and one inside a disclosure line or a ticker list
+    (``triage.in_disclosure``: "Tim Seymour is long AMZN, AAPL, ...")."""
+    counts: Counter[str] = Counter()
+    for match, ticker in resolver.counted_matches(text):
+        first = match.group(0)[:1]
+        if not (first.isupper() or first.isdigit()):
+            continue
+        if in_disclosure(text, match.start(), match.end(), resolver.by_ticker):
+            continue
+        counts[ticker] += 1
+    return dict(counts)
+
+
 def mentions_of(
     resolver: CompanyResolver, spans: Sequence[Mapping[str, Any]], text: str | None = None
 ) -> dict[str, int]:
     """How many organisation spans name each universe ticker; a span with no ticker is ignored.
 
-    With ``text`` the matcher also reads the text itself (``CompanyResolver.mention_spans``) and a ticker it finds that NER did not tag
-    is a candidate too; a ticker both find keeps the larger of the two counts (one mention is not counted twice)."""
+    With ``text`` the matcher also reads the text itself (``direct_mentions``) and a ticker it finds that NER did not tag is a candidate
+    too; a ticker both find keeps the larger of the two counts (one mention is not counted twice, and ``mention_count`` is a count of
+    mentions, not of the two readers')."""
     counts: Counter[str] = Counter()
     for span in spans:
         if span.get("entity_type") != ENTITY_TYPE:
@@ -65,8 +84,7 @@ def mentions_of(
         if ticker is not None:
             counts[ticker] += 1
     if text is not None:
-        direct = Counter(ticker for _, _, ticker in resolver.mention_spans(text))
-        for ticker, n in direct.items():
+        for ticker, n in direct_mentions(resolver, text).items():
             counts[ticker] = max(counts[ticker], n)
     return dict(counts)
 
@@ -81,6 +99,17 @@ def published_relevance() -> dict[str, Any]:
     """The relevance model of ``config/published_models.json`` (``repo``, ``revision``; the repository is private: ``HF_TOKEN``)."""
     config: dict[str, Any] = json.loads(_PUBLISHED_MODELS.read_text(encoding="utf-8"))["relevance"]
     return config
+
+
+def models_of_the_step() -> dict[str, Any]:
+    """The two models the step runs, as ``name@revision``, from the pins (no model is loaded): ``--status`` prints them. The relevance
+    repository is private (``HF_TOKEN``) and is not pinned in ``config/pipeline_models.json`` (T-148c4)."""
+    ner, relevance = pinned_ner(), published_relevance()
+    return {
+        "ner": f"{ner['model']}@{ner['revision']}",
+        "relevance": f"{relevance['repo']}@{relevance['revision']}",
+        "relevance_private": bool(relevance.get("private", False)),
+    }
 
 
 def hashed_sources() -> dict[str, str]:
@@ -171,7 +200,13 @@ class RelevanceScorer:
                 padding=True,
                 return_tensors="pt",
             ).to(self.device)
-            with torch.no_grad(), torch.autocast(self.device.type, dtype=torch.bfloat16):
+            # bf16 autocast on CUDA only, as the model was trained and scored; the CPU runs plain float32
+            with (
+                torch.no_grad(),
+                torch.autocast(
+                    self.device.type, dtype=torch.bfloat16, enabled=self.device.type == "cuda"
+                ),
+            ):
                 logits = self._model(**encoded).logits.float()
             scores.extend(torch.softmax(logits, dim=-1)[:, 0].cpu().tolist())
         return scores
