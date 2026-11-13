@@ -197,10 +197,10 @@ def part_votes(data: Data, scorer: rev.Scorer) -> None:
         ("margin >= threshold", is_sector & (margin >= thr)),
         ("votes agree (tie: lowest code)", is_sector & agree_all),
         (
-            "margin OR agree (tie: lowest code) [as built]",
+            "margin OR agree (tie: lowest code) [first build]",
             is_sector & ((margin >= thr) | agree_all),
         ),
-        ("margin OR agree (unique top)", is_sector & ((margin >= thr) | agree_unique)),
+        ("margin OR agree (unique top) [current]", is_sector & ((margin >= thr) | agree_unique)),
         ("margin OR agree (unique top, >= 2 votes)", is_sector & ((margin >= thr) | agree_two)),
     )
     for label, idx in (("TUNE", data.tune), ("TEST", data.test)):

@@ -11,6 +11,9 @@ retried and keeps its reason, a batch that fails is redone body by body, three b
 `--reading` and the other steps' options are refused. Code: `src/sector_stage.py`; the numbers are in `config/sector_step.json`. The model,
 `BAAI/bge-small-en-v1.5`, is **MIT-licensed** (model card at the pinned revision; the repository declares no licence of its own) and `python -m setup` fetches it.
 
+**Reading the table.** `scores` holds the 15 class scores and, only when it is above 0, `_truncated_chunks` (a count). Read it through `steps.class_scores(row)` (the classes only) and
+`steps.truncated_chunks(row)`: the raw object's best entry would be the count, which is larger than any score. `vote_sector` is '' when no company is named **or the top of the vote is a tie**; `votes` has the detail.
+
 Before the first batch the command says how many bodies it will do (`pending N sector bodies at revision ...`; finding them scans the whole corpus, about
 half a minute on the scratch copy) and loads the model, so the progress bar's rate and time left count bodies only.
 

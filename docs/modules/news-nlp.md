@@ -62,7 +62,7 @@ run it again and the first run: `docs/summary_step.md`.
 `uv run cli/news_nlp_steps.py --step sector [--limit N]` (and `--step sector --status`) gives each `sector` body of step 1 its 2-digit GICS sector or `out_of_scope`, in `body_sector`:
 a small embedder (`BAAI/bge-small-en-v1.5`, MIT licence, pinned in `config/sector_step.json`) scores chunks against sector descriptions and four *not a sector* classes, the companies the body names
 vote for their sector, and a sector is assigned only if the margin is high or the companies agree. The summary of the assigned bodies is `--step summary --items sector --sector-revision REV`.
-The rule, the figures of the owner's review (35 of 40 assigned right) and what they do not show: `docs/sector_step.md`; code: `src/sector_stage.py`.
+The rule, the figures of the owner's review (35 of 39 assigned right under the corrected tie rule; 35 of 40 as drawn) and what they do not show: `docs/sector_step.md`; code: `src/sector_stage.py`.
 
 ### Steps 4 to 7 (pending)
 
