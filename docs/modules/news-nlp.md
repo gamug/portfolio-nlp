@@ -66,7 +66,7 @@ The rule, the figures of the owner's review (35 of 40 assigned right) and what t
 
 ### Steps 4 to 7 (pending)
 
-Not built (`TASKS.md` T-167, T-168, T-172; Build 2 after Build 1, D40): **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+Not built (`TASKS.md` T-168, T-172; the open part of T-167 is the full run and the sub-industry, above; Build 2 after Build 1, D40): **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
 
 ## Models both pipelines use
 

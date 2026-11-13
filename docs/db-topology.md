@@ -31,7 +31,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`), the stepped pipeline's tables (`body_scope`, `sub_news`, `news_summary`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`), the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
@@ -215,7 +215,7 @@ The rule (`PLAN.md` D36): a properly fetched article is preserved and stays elig
 
 ## Target tables of the stepped pipeline (D39, D40; approved 2026-11-10)
 
-Created by `init_schema()` since #162; the schema was approved by the owner on 2026-11-10 (constitution AI #10). Written today: `body_scope` (step 1.1), `sub_news` (step 1.2, one row per piece the `units` extractor cuts), `news_summary` (step 2), `news_company` (step 3: the result per text and ticker) and `pipeline_step_state` (status per item and step, with the model revision). Created, not written yet: `news_sentiment` and `news_category`. Two columns on `article_entities` (`sub_news_id`, `ticker`) are created and **unused**: step 3 does not store the raw NER spans (owner, 2026-11-13). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
+Created by `init_schema()` since #162; the schema was approved by the owner on 2026-11-10 (constitution AI #10). Written today: `body_scope` (step 1.1), `body_sector` (the sector step, T-167: the GICS sector or `out_of_scope` of a `sector` body), `sub_news` (step 1.2, one row per piece the `units` extractor cuts), `news_summary` (step 2), `news_company` (step 3: the result per text and ticker) and `pipeline_step_state` (status per item and step, with the model revision). Created, not written yet: `news_sentiment` and `news_category`. Two columns on `article_entities` (`sub_news_id`, `ticker`) are created and **unused**: step 3 does not store the raw NER spans (owner, 2026-11-13). Keys and meaning: `SPEC.md` §data model. They live in RESULTS; SOURCE is still read-only.
 
 ## Caveats
 

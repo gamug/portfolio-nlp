@@ -27,8 +27,14 @@ half a minute on the scratch copy) and loads the model, so the progress bar's ra
 **The revision** is `sector-` plus 12 hex digits of the hash of the config, the descriptions, the universe and this module's code **as parsed**
 (`news_summary_stage.normalized_code`, as in the summary step): a comment or a docstring does not change it, a constant or an operator does.
 The clean test below was drawn under `sector-cf81d9b32565`, when the hash still covered the raw bytes of the file; `scripts/check_sector_validation_2026_11_13.py`
-re-scores the 57 tracked texts with the code as it is (`sector-fd2a4531d349` on 2026-11-13, with the universe of the SOURCE copy used) and finds the same status,
-sector, vote and margin (within 0.0001) in **57 of 57** rows, so the owner's answers are answers about the current behaviour. Run it again after any change that moves the revision.
+re-scores the 57 tracked texts with the code as it is (`sector-ccc1b0f4e093` on 2026-11-13, with the universe of the SOURCE copy used) and finds the same status,
+candidate, vote and margin (within 0.0001) in **57 of 57** rows **on the text the owner read, which is capped at 6,000 characters** (see "The text" below). Run it again after any change that moves the revision.
+
+**The text.** The step classifies the **whole body**. The draw of the clean test, and so the texts the owner read and `gold/texts/sector_validation_texts.csv`, hold only the first 6,000 characters of
+each body (`TEXT_CAP`). 5 of the 57 bodies are longer. The check script also reads the 57 bodies whole from SOURCE: **1 of 57 verdicts differs** (article 464913: `out_of_scope` on the capped text, `assigned` on the
+whole body; the owner had agreed to drop it, so that answer does not carry over), and **all 40 bodies the owner judged as assigned are still assigned on the whole body**, so the 87.5% holds for what the step does.
+The random-sample rate below was measured on the whole body. A chunk of 120 words is far under the embedder's 512-token window: 0 of the 296 chunks of the 57 bodies reached it (the longest has 264 tokens); the embedder
+counts any chunk that does, and a run prints a warning and reports `truncated_chunks` (constitution, Pipeline models 3).
 
 **Speed** (the same 64 bodies, the model loaded, measured 2026-11-13): GPU (RTX 4050 Laptop) 1.4 s = **45 bodies a second**, so the 32,887 `sector` bodies are about **12 minutes**;
 CPU 14.2 s = **4.5 bodies a second**, about **2.0 hours**. The verdicts are the same on both (64 of 64) and the margins differ by less than 0.00001. Loading the model and embedding the descriptions takes about 4 s.
@@ -87,7 +93,7 @@ Not conclusive, not adopted (they also cost more); a fair comparison needs rows 
 
 ### The first review (2026-11-12)
 
-100 real rows and 10 controls, picked with the small model alone: **67% right**; 43 of the 49 the margin trusted (88%) against 24 of the 51 it did not (47%); the 10 controls all `no`.
+100 real rows and 10 controls, picked with the small model alone: **67% right**; 43 of the 49 that the first draw flagged `sure` (88%) against 24 of the 51 it did not (47%); the 10 controls all `no`. `sure` was a margin of at least **0.0324** (25th percentile of the dev half) on the older scorer, which had no reject classes and took the margin over the 11 sectors only: it is **not the step's gate** (0.0293, 40th percentile, over 15 classes; 51 of those 100 rows pass it on the margin alone).
 Of the 33 `no`, about half were not sector bodies at all (market, investing, unrelated: scope errors), the rest another sector, mostly Materials, retail and IT.
 
 ### The clean test (2026-11-13)
@@ -116,9 +122,10 @@ have had a right sector in 4 of 12 cases (about 14). The gate gives up roughly *
 - The intervals are wide (40 and 12 bodies). The 87.5% is one measure on one draw by one reviewer, no inter-annotator figure.
 - It is the precision of the **sectors assigned**, not the accuracy over all sector bodies: **43% of them get none**. Nothing here measures the sub-industry or the D24 bar (">= 80% against the held-out gold"), which stays open in T-167.
 - Materials has no clean tagged body in the gold, and the fresh test has 2 to 5 assigned bodies per sector (Materials 2 of 3 right, Consumer Staples 1 of 2). The per-sector figures are not usable. In the random sample, Consumer Staples (15), Utilities (16) and Materials (22) are the sectors the step gives least.
+- The votes rows of the attempts table use `gold/universe.csv` (507 tickers); the step reads the 548 company rows of SOURCE. On the 170 labelled items 2 vote vectors differ and no verdict changes.
 - The scope step feeds this one: about half of the wrong answers of the first review were not sector bodies at all. Retraining the scope model with those as hard
   negatives would help more than anything inside this step (not done; the scope validation is closed).
-- Two tune-half tags were found wrong while working (432785 fixed; 481049 not fixed and still believed wrong).
+- Two tune-half tags were questioned while working. 432785 (Simon Property, tagged consumer staples) was wrong and is fixed. 481049 ("Wells Fargo Bets on Housing Recovery", tagged Real Estate by the owner, with a note) is ambiguous between Financials and Real Estate and is left to the owner; the model also says Real Estate. Dropping it would move the threshold from 0.0293 to 0.0284 and change no verdict of the clean test (no row has a margin between the two).
 
 ## Running it
 
