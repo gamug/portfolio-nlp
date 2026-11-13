@@ -65,8 +65,18 @@ SELECT COUNT(DISTINCT item_kind || ':' || item_id) FROM news_company
 WHERE model_revision = '<companies revision>' AND is_main = 1;
 ```
 
-`--step category --status` prints `code_revision`, the revision the code you run would write (no model is loaded for it); compare it with the revisions of the first query: a store whose complete revision is not that one was written by other code (the revision follows the module, the definitions, the pinned model and `transformers`, so any edit of the step is another revision). Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
-the same code (same revision) and it completes it. A change of the code between two runs is another revision and starts again.
+`--step category --status --summary-revision S --companies-revision C` prints `code_revision`, the revision the code you run would write for those inputs (no model is loaded for it); compare it with the revisions of the first query: a store whose complete revision is not that one was written by other code or from other inputs. **The revision follows the module, the definitions, the pinned model, `transformers` and the two input revisions** (a step 2 or step 3 run again at a new revision is new work for this step, not work already done). Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with the same code and inputs (same revision) and it completes it. A change of the code or of an input between two runs is another revision and starts again, unless its finished work is carried over (next section).
+
+## Carrying finished work to a new revision
+
+A new revision starts empty, but the rows of the old one are not lost and, when the scoring is the same, are still right. `scripts/category_adopt_revision_2026_11_13.py` copies the items an old revision finished under the revision the current code writes, and the next run does only what is missing. **It deletes nothing**: the old revision stays until `RECATEGORY_SQL`.
+
+```
+uv run scripts/category_adopt_revision_2026_11_13.py --from-revision category-OLD --summary-revision S --companies-revision C --source-db ... --results-db ...        # report only
+uv run scripts/category_adopt_revision_2026_11_13.py ... --check 20 --yes     # write
+```
+
+Before anything it re-scores `--check` stored pairs (default 20) with the current code and refuses if any label's score differs by more than 0.001, so the old rows are what this code would write. It adopts an item only if it is finished at the old revision and not at the new one, has a text at the summary revision, and its stored companies are exactly the main companies of the companies revision; the rest is left for the run. Without `--yes` it only reports. Adopt the largest old revision first, then the others (an item already at the new revision is not copied again). Stop any run on the store before writing, and make a copy of `nlp.db` if you want a way back.
 
 ## The definitions the model reads
 

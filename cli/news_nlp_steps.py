@@ -894,9 +894,14 @@ def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         report = steps.status(conn, steps.STEP_CATEGORY, latest)
         report["revisions"] = steps.revisions(conn, steps.STEP_CATEGORY)
         report["models"] = news_category_stage.models_of_the_step()
+        summary_revision = getattr(args, "summary_revision", None)
+        companies_revision = getattr(args, "companies_revision", None)
+        # what this code would write for those inputs; compare it with "revisions" (no model is loaded for it)
         report["code_revision"] = (
-            news_category_stage.code_revision()
-        )  # what this code would write; compare it with "revisions"
+            news_category_stage.code_revision(summary_revision, companies_revision)
+            if summary_revision and companies_revision
+            else "give --summary-revision and --companies-revision to see the revision this code would write"
+        )
         print(json.dumps(report, indent=2))
         return
     ran_summaries = ", ".join(steps.revisions(conn, steps.STEP_SUMMARY)) or "none"
@@ -933,7 +938,7 @@ def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             "(did the companies step read another summary revision?)",
             file=sys.stderr,
         )
-    finder = CategoryFinder()
+    finder = CategoryFinder(args.summary_revision, args.companies_revision)
     print(
         f"category model {finder.model_name}@{finder.model_revision[:8]} (provisional, zero-shot) on {finder.scorer.device}, revision {finder.revision}",
         file=sys.stderr,

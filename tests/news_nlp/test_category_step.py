@@ -127,7 +127,7 @@ def test_the_group_score_is_the_share_of_the_mass_the_group_holds() -> None:
 
 
 def test_the_finder_classifies_each_pair_and_names_the_model_it_ran() -> None:
-    finder = stage.CategoryFinder(StubScorer())
+    finder = stage.CategoryFinder(SUM_REV, COMP_REV, StubScorer())
     out = finder.classify([("legal_regulatory news", "Apple Inc."), ("nothing", "Apple Inc.")])
     assert [r.label for r in out] == ["legal_regulatory", "other"]
     assert finder.revision.startswith("category-")
@@ -141,14 +141,14 @@ def test_the_company_name_loses_its_share_class() -> None:
 def test_the_revision_follows_the_model_the_definitions_and_the_recipe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base = stage.revision_of("m@1")
-    assert stage.revision_of("m@1") == base  # stable
-    assert stage.revision_of("m@2") != base  # another model, another revision
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base  # stable
+    assert stage.revision_of("m@2", SUM_REV, COMP_REV) != base  # another model, another revision
     monkeypatch.setitem(stage.DEFINITIONS, "other", "something else")
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
     monkeypatch.undo()
     monkeypatch.setattr(stage, "PREMISE_CHARS", 1000)
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
 
 
 def test_the_status_names_the_model_without_loading_it() -> None:
@@ -482,7 +482,9 @@ def test_a_pair_the_model_read_cut_at_its_window_is_recorded_and_read_apart_from
     scorer = stage.CategoryScorer(device=torch.device("cpu"))
     monkeypatch.setattr(scorer, "_load", lambda: None)
     scorer._tokenizer, scorer._model, scorer._entailment = tokenizer, model, 0
-    out = stage.CategoryFinder(scorer).classify([("short", "A"), ("cut text", "B")])
+    out = stage.CategoryFinder(SUM_REV, COMP_REV, scorer).classify(
+        [("short", "A"), ("cut text", "B")]
+    )
     assert steps.TRUNCATED_KEY not in out[0].slug_scores
     assert out[1].slug_scores[steps.TRUNCATED_KEY] == 1
     assert set(steps.class_scores(json.dumps(out[1].slug_scores))) == set(
@@ -562,9 +564,9 @@ def test_the_company_name_is_the_one_of_the_companies_step_and_the_revision_foll
     assert (
         stage.company_name is news_company_stage.company_name
     )  # one definition, not two that drift
-    base = stage.revision_of("m@1")
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
     monkeypatch.setattr(stage, "company_name", lambda company: company.upper())
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
 
 
 def test_a_gpu_fault_stops_the_run_at_once_and_marks_no_item_failed(
@@ -623,7 +625,15 @@ def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_th
             Company("MSFT", "Microsoft Corporation", "", ""),
         ],
     )
-    monkeypatch.setattr(stage, "CategoryFinder", StubFinder)
+    built: list[tuple[str, str]] = []
+
+    def make_finder(summary_revision: str, companies_revision: str) -> StubFinder:
+        built.append(
+            (summary_revision, companies_revision)
+        )  # the finder is told the inputs: its revision follows them
+        return StubFinder()
+
+    monkeypatch.setattr(stage, "CategoryFinder", make_finder)
 
     class Args:
         status = False
@@ -632,6 +642,7 @@ def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_th
         companies_revision = COMP_REV
 
     cli.main_category(Args(), pair)
+    assert built == [(SUM_REV, COMP_REV)]
     out, err = capsys.readouterr()
     assert (
         "1 items with a main company" in err and "no text" in err
@@ -750,24 +761,30 @@ def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
     assert "D41" in plan and "FR-022" in plan
 
 
-def test_status_prints_the_revision_the_code_would_write_and_it_is_the_finders(
+def test_status_prints_the_revision_the_code_would_write_for_the_inputs_given(
     pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cli = _load_cli()
 
-    class Args:
+    class Bare:
         status = True
 
-    cli.main_category(Args(), pair)
+    class Given(Bare):
+        summary_revision = SUM_REV
+        companies_revision = COMP_REV
+
+    cli.main_category(Given(), pair)
     printed = json.loads(capsys.readouterr().out)
-    assert printed["code_revision"] == stage.code_revision()
+    assert printed["code_revision"] == stage.code_revision(SUM_REV, COMP_REV)
     scorer = StubScorer()  # the identity of the pin, so the finder names the revision of this code
     pinned = stage.pinned_category()
     scorer.model_name, scorer.model_revision = pinned["model"], pinned["revision"]
-    assert (
-        printed["code_revision"] == stage.CategoryFinder(scorer).revision
-    )  # no model loaded for it
+    assert printed["code_revision"] == stage.CategoryFinder(SUM_REV, COMP_REV, scorer).revision
     assert printed["revisions"] == []  # nothing ran: the revision of the code is not one that ran
+    cli.main_category(
+        Bare(), pair
+    )  # without the inputs there is no revision to name, and it says so
+    assert "--summary-revision" in json.loads(capsys.readouterr().out)["code_revision"]
 
 
 def test_the_join_of_the_doc_dates_a_row_by_its_article_and_keeps_the_company_of_the_row(
@@ -816,3 +833,117 @@ def test_the_scripts_that_score_the_held_out_set_refuse_to_do_it_again(
     monkeypatch.setattr(sys, "argv", [script])
     with pytest.raises(SystemExit, match="scored once"):
         module.main()
+
+
+# --- the revision follows its inputs, and finished work can be carried to a new revision ------------------------------------
+
+
+def test_the_revision_follows_the_summary_and_the_companies_revision() -> None:
+    base = stage.revision_of("m@1", "summary-a", "companies-a")
+    assert stage.revision_of("m@1", "summary-a", "companies-a") == base
+    assert stage.revision_of("m@1", "summary-b", "companies-a") != base
+    assert stage.revision_of("m@1", "summary-a", "companies-b") != base
+
+
+def test_a_step_run_again_upstream_is_new_work_not_done_work(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """The case that failed before: step 2 and 3 run again at new revisions (another text, one more main company) and the category step, at the
+    same category revision, found nothing to do and kept the old rows. Now the new inputs are another revision, and the old one stays."""
+    _seed(pair)
+    cli = _load_cli()
+    old = stage.CategoryFinder(SUM_REV, COMP_REV, StubScorer())
+    assert cli.run_category(pair, old, NAMES, SUM_REV, COMP_REV, None)["done"] == 2
+    steps.record_summary(
+        pair, "body", "b1", "summary-new", "earnings_performance: other text", "original", 0
+    )
+    steps.record_companies(
+        pair,
+        "body",
+        "b1",
+        "companies-new",
+        [CompanyScore("AAPL", 1, 0.9), CompanyScore("MSFT", 1, 0.9), CompanyScore("META", 1, 0.9)],
+        0.5,
+    )
+    new = stage.CategoryFinder("summary-new", "companies-new", StubScorer())
+    assert new.revision != old.revision
+    counts = cli.run_category(pair, new, NAMES, "summary-new", "companies-new", None)
+    assert counts["done"] == 1 and counts["category_rows"] == 3  # b1 again, with META
+    kept = pair.execute(
+        "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (old.revision,)
+    ).fetchone()[0]
+    assert kept == 3  # the old revision is untouched
+
+
+def _adopt_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "category_adopt_for_test", DOCS / "scripts" / "category_adopt_revision_2026_11_13.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_finished_work_is_carried_to_the_new_revision_without_deleting_the_old(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+    old = "category-old"
+
+    class OldFinder(StubFinder):
+        revision = old
+
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    before = [
+        tuple(r)
+        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
+    ]
+    report = adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=False)
+    assert report["adoptable"] == 2 and report["finished_at_old"] == 2
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
+        ).fetchone()[0]
+        == 0
+    )  # a report writes nothing
+    assert adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["adoptable"] == 2
+    assert (
+        adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["already_at_new"] == 2
+    )  # a repeat adopts nothing more
+    kept = [
+        tuple(r)
+        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
+    ]
+    assert kept == before  # the old revision is as it was
+    now = pair.execute(
+        "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
+    ).fetchone()[0]
+    assert now == len(before) == 3
+    assert (
+        list(steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)) == []
+    )  # the next run has nothing left to do
+    with pytest.raises(ValueError, match="the same"):
+        adopt.adopt(pair, REV, REV, SUM_REV, COMP_REV, execute=True)
+
+
+def test_an_item_whose_companies_changed_or_whose_text_is_gone_is_not_carried(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+
+    class OldFinder(StubFinder):
+        revision = "category-old"
+
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    steps.record_companies(  # at the companies revision b1 now has a third main company: it must be done again
+        pair, "body", "b1", COMP_REV, [CompanyScore("META", 1, 0.9)], 0.5
+    )
+    report = adopt.adopt(pair, "category-old", REV, SUM_REV, COMP_REV, execute=True)
+    assert report["companies_differ"] == 1 and report["adoptable"] == 1
+    assert [i.item_id for i in steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)] == ["b1"]
+    other = adopt.adopt(pair, "category-old", "category-x", "summary-none", COMP_REV, execute=False)
+    assert other["no_text"] == 2 and other["adoptable"] == 0  # no text at that summary revision

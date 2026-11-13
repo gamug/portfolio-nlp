@@ -91,12 +91,15 @@ def _module_source(module: Any) -> str:
     return Path(inspect.getsourcefile(module) or "").read_text(encoding="utf-8")
 
 
-def revision_of(model_identity: str) -> str:
-    """The revision of a run of the step: the model (``name@revision``), the labels with their definitions and groups, the premise and the
-    hypothesis, the lengths, the version of ``transformers`` and the code of this module (comments and docstrings do not count)."""
+def revision_of(model_identity: str, summary_revision: str, companies_revision: str) -> str:
+    """The revision of a run of the step: the model (``name@revision``), the revisions of the texts (step 2) and of the main companies (step 3) it reads,
+    the labels with their definitions and groups, the premise and the hypothesis, the lengths, the version of ``transformers`` and the code of this module
+    (comments and docstrings do not count). The inputs are part of it: a step 2 or step 3 run again at a new revision is read as new work, not as done."""
     key = json.dumps(
         {
             "model": model_identity,
+            "summary_revision": summary_revision,
+            "companies_revision": companies_revision,
             "definitions": DEFINITIONS,
             "groups": {g: list(v) for g, v in GROUPS.items()},
             "premise": PREMISE,
@@ -116,11 +119,13 @@ def revision_of(model_identity: str) -> str:
     return "category-" + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
-def code_revision() -> str:
-    """The revision this code would write, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of a store can be
-    checked against the code that was merged."""
+def code_revision(summary_revision: str, companies_revision: str) -> str:
+    """The revision this code would write for those inputs, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of
+    a store can be checked against the code that was merged."""
     pinned = pinned_category()
-    return revision_of(f"{pinned['model']}@{pinned['revision']}")
+    return revision_of(
+        f"{pinned['model']}@{pinned['revision']}", summary_revision, companies_revision
+    )
 
 
 def score_of(entailment: Sequence[float]) -> CategoryScore:
@@ -206,11 +211,15 @@ class CategoryScorer:
 class CategoryFinder:
     """What the category step runs: ``classify`` gives a ``CategoryScore`` for each ``(text, company name)`` pair."""
 
-    def __init__(self, scorer: Any | None = None) -> None:
+    def __init__(
+        self, summary_revision: str, companies_revision: str, scorer: Any | None = None
+    ) -> None:
         self.scorer = scorer or CategoryScorer()
         self.model_name: str = self.scorer.model_name
         self.model_revision: str = self.scorer.model_revision
-        self.revision = revision_of(f"{self.model_name}@{self.model_revision}")
+        self.revision = revision_of(
+            f"{self.model_name}@{self.model_revision}", summary_revision, companies_revision
+        )
 
     def warm_up(self) -> None:
         warm = getattr(self.scorer, "warm_up", None)
