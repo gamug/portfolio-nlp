@@ -284,6 +284,22 @@ CREATE TABLE IF NOT EXISTS body_scope (
     PRIMARY KEY (body_hash, classifier_revision)
 );
 
+-- The sector step (T-167): the sector of a `sector` body: `assigned` carries the GICS sector (2 digits); a body the step does not
+-- trust is `out_of_scope` with `sector` = '' and the reason in `candidate` (the best class it saw, a sector or a not-a-sector one).
+CREATE TABLE IF NOT EXISTS body_sector (
+    body_hash           TEXT NOT NULL,
+    classifier_revision TEXT NOT NULL,
+    status              TEXT NOT NULL CHECK (status IN ('assigned', 'out_of_scope')),
+    sector              TEXT NOT NULL DEFAULT '',   -- GICS sector code, '' when out_of_scope
+    candidate           TEXT NOT NULL,              -- best class of the embedding score
+    margin              REAL NOT NULL,              -- best score minus the second
+    vote_sector         TEXT NOT NULL DEFAULT '',   -- top sector of the companies the body names; '' when it names none or the top is a tie (a tie is not agreement)
+    scores              TEXT NOT NULL DEFAULT '{}', -- JSON, per-class score; plus `_truncated_chunks` (a count) when above 0: read it through steps.class_scores(row['scores'])
+    votes               TEXT NOT NULL DEFAULT '{}', -- JSON, votes per sector
+    processed_at        TEXT NOT NULL,
+    PRIMARY KEY (body_hash, classifier_revision)
+);
+
 CREATE TABLE IF NOT EXISTS sub_news (
     id                 {autoincrement_pk},
     body_hash          TEXT NOT NULL,

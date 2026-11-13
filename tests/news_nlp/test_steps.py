@@ -291,3 +291,16 @@ def test_a_limit_below_one_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as stop:
         _run_main(monkeypatch, "--step", "scope", "--limit", "0")
     assert stop.value.code == 2
+
+
+def test_the_command_takes_one_step_and_there_is_no_all_step(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """FR-021: steps are run one command each, never 1 to 7 in one pass: ``--step`` is required, takes one name, and ``all`` is not one."""
+    cli = _cli()
+    assert "all" not in cli.STEPS  # type: ignore[attr-defined]
+    parser = cli.build_parser()  # type: ignore[attr-defined]
+    for argv in ([], ["--step", "all"], ["--step", "scope", "cut"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+    capsys.readouterr()

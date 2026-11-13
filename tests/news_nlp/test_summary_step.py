@@ -917,7 +917,9 @@ def test_every_command_in_the_usage_block_of_the_steps_cli_parses_and_a_summary_
         cli.check_options(parser, args)  # the options the step reads, none it does not
         if args.step == "summary" and not args.status:
             summary += 1
-            assert args.items == "single" or args.cut_revision, line  # sub-news need a cut named
+            assert args.items == "single" or args.cut_revision or args.sector_revision, (
+                line
+            )  # sub-news need a cut named, sector bodies a sector revision
     assert summary >= 3
     usage = (
         (Path(__file__).resolve().parents[2] / "docs" / "summary_step.md")
@@ -925,14 +927,16 @@ def test_every_command_in_the_usage_block_of_the_steps_cli_parses_and_a_summary_
         .splitlines()[2]
     )
     assert (
-        "(--cut-revision REV | --items single)" in usage
+        "(--cut-revision REV | --items single | --items sector --sector-revision REV)" in usage
     )  # the usage line says one of them is required
     module_doc = (
         Path(__file__).resolve().parents[2] / "docs" / "modules" / "news-nlp.md"
     ).read_text(encoding="utf-8")
     step2 = module_doc[module_doc.index("### Step 2: the summary") :].splitlines()
     # the same usage in the module doc (the final scan found it still showing the cut as optional)
-    assert "(--cut-revision REV | --items single)" in step2[2]
+    assert (
+        "(--cut-revision REV | --items single | --items sector --sector-revision REV)" in step2[2]
+    )
 
 
 def test_the_revision_follows_the_transformers_version_that_generates_the_summaries(
@@ -998,7 +1002,7 @@ def test_the_run_says_up_front_how_many_items_go_to_the_model(
 ) -> None:
     _run(pair, StubSummarizer())
     err = capsys.readouterr().err
-    assert "pending 7 items (4 single bodies, 3 sub-news)" in err
+    assert "pending 7 items (4 bodies, 3 sub-news)" in err
     assert "3 to summarise with the model (over 2,000 characters)" in err
     assert "4 stored as they are" in err
     _run(pair, StubSummarizer())

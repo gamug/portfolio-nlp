@@ -11,9 +11,12 @@ Usage:
     uv run cli/news_nlp_steps.py --step summary --items single --limit 200   # step 2: summarise the single bodies over 2,000 characters
     uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
     uv run cli/news_nlp_steps.py --step summary --items sub_news --cut-revision units5-...   # only the sub-news of one cut revision
+    uv run cli/news_nlp_steps.py --step summary --items sector --sector-revision sector-... --limit 200   # the sector bodies the sector step assigned
     uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
     uv run cli/news_nlp_steps.py --step companies --summary-revision summary-... --cut-revision units5-... --threshold 0.5 --candidates ner+text --limit 500   # step 3
     uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
+    uv run cli/news_nlp_steps.py --step sector --limit 200    # the sector step: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
+    uv run cli/news_nlp_steps.py --step sector --status       # bodies assigned / sent out_of_scope, by sector
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -25,6 +28,9 @@ summariser, a shorter one is stored as it is (``news_summary.text_source`` = ``o
 The ``companies`` step (step 3) reads the texts step 2 left (``--summary-revision``, the single bodies of ``--scope-revision`` and the sub-news of
 ``--cut-revision``), finds the universe companies each names with NER and the matcher, scores each pair with the relevance model and marks every
 company at ``--threshold`` or over it as main; an item with none goes to the review list; see ``src/news_company_stage.py``.
+The ``sector`` step (T-167) reads the ``sector`` bodies of step 1 and writes ``body_sector``: the GICS sector (2 digits) when the
+embedding score is confident or the companies named agree with it, else ``out_of_scope``; its model is the pin of
+``config/sector_step.json``; see ``src/sector_stage.py`` and ``docs/sector_step.md``.
 """
 
 import argparse
@@ -43,7 +49,13 @@ import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
 
-STEPS = (steps.STEP_SCOPE, steps.STEP_CUT, steps.STEP_SUMMARY, steps.STEP_COMPANIES)
+STEPS = (
+    steps.STEP_SCOPE,
+    steps.STEP_CUT,
+    steps.STEP_SUMMARY,
+    steps.STEP_COMPANIES,
+    steps.STEP_SECTOR,
+)
 BATCH = 16
 COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
@@ -120,6 +132,96 @@ def run_scope(
     return counts
 
 
+class SectorClassifying(Protocol):
+    """What ``run_sector`` needs of the sector classifier (``sector_stage.SectorClassifier`` or a test stub)."""
+
+    revision: str
+
+    def classify(self, items: Sequence[tuple[str, str]]) -> list[Any]: ...
+
+
+def _sector_batch(
+    conn: db.NewsNlpDatabase,
+    classifier: SectorClassifying,
+    batch: list[steps.Body],
+    counts: dict[str, int],
+) -> None:
+    """Classify and store one batch; a batch that fails is redone body by body, so one bad body fails alone."""
+    try:
+        results = classifier.classify([(b.title, b.text) for b in batch])
+    except Exception as exc:
+        if len(batch) > 1:
+            for body in batch:
+                _sector_batch(conn, classifier, [body], counts)
+            return
+        steps.record_failure(
+            conn, batch[0], steps.STEP_SECTOR, classifier.revision, steps.error_text(exc)
+        )
+        counts["failed"] += 1
+        return
+    for body, r in zip(batch, results, strict=True):
+        scores = dict(r.scores)
+        if (
+            r.truncated_chunks
+        ):  # recorded with the body, not only counted (constitution, Pipeline models 3)
+            scores[steps.TRUNCATED_KEY] = r.truncated_chunks
+            counts["truncated_chunks"] = counts.get("truncated_chunks", 0) + r.truncated_chunks
+        steps.record_sector(
+            conn,
+            body,
+            classifier.revision,
+            r.status,
+            r.sector,
+            r.candidate,
+            r.margin,
+            r.vote_sector,
+            scores,
+            r.votes,
+        )
+        counts["done"] += 1
+        counts[r.status] = counts.get(r.status, 0) + 1
+
+
+def run_sector(
+    conn: db.NewsNlpDatabase,
+    classifier: SectorClassifying,
+    scope_revision: str,
+    limit: int | None,
+) -> dict[str, int]:
+    """Give a sector to up to ``limit`` ``sector`` bodies not yet done at the classifier's revision; return what was done."""
+    print(
+        "reading SOURCE for the sector bodies still to do (it scans the corpus: minutes on the full one)",
+        file=sys.stderr,
+    )
+    todo = list(steps.pending_sector_bodies(conn, scope_revision, classifier.revision, limit))
+    print(f"pending {len(todo):,} sector bodies at revision {classifier.revision}", file=sys.stderr)
+    prepare = getattr(classifier, "prepare", None)
+    if todo and callable(prepare):
+        prepare()  # the model is loaded here, not in the first batch: the bar's rate and time left count bodies only
+    counts: dict[str, int] = {"done": 0, "failed": 0}
+    failed_batches = 0
+    with tqdm(total=len(todo), desc="sector", unit="body") as bar:
+        for i in range(0, len(todo), BATCH):
+            batch = todo[i : i + BATCH]
+            done_before = counts["done"]
+            _sector_batch(conn, classifier, batch, counts)
+            bar.update(len(batch))
+            failed_batches = failed_batches + 1 if counts["done"] == done_before else 0
+            if failed_batches >= MAX_FAILED_BATCHES:
+                raise RunAborted(
+                    f"{failed_batches} batches in a row failed completely after {counts['done']} done "
+                    f"(see the error of a failed body with --status); the failed bodies are retried by the next run"
+                )
+    if counts.get(
+        "truncated_chunks"
+    ):  # a chunk of 120 words never fills the window: say it when one does
+        print(
+            f"warning: {counts['truncated_chunks']} chunk(s) were cut at the model's window (kept in body_sector.scores)",
+            file=sys.stderr,
+        )
+    return counts
+
+
 class Cutter(Protocol):
     """What ``run_cut`` needs of a cut extractor (``cut_stage.UnitsExtractor`` or a test stub)."""
 
@@ -187,8 +289,9 @@ def _summary_items(
     cut_revision: str | None,
     items: Sequence[str],
     limit: int | None,
+    sector_revision: str | None = None,
 ) -> list[SummaryItem]:
-    """The single bodies, then the sub-news, still to do at ``revision``; at most ``limit`` items in all."""
+    """The single bodies, then the sub-news, then the sector bodies, still to do at ``revision``; at most ``limit`` items in all."""
     from news_summary_stage import input_of_body  # noqa: PLC0415 -- loads torch
 
     todo: list[SummaryItem] = []
@@ -202,6 +305,15 @@ def _summary_items(
         if left != 0:
             for sub in steps.pending_sub_news(conn, cut_revision, revision, left):
                 todo.append(SummaryItem(steps.ITEM_SUB_NEWS, str(sub.sub_news_id), sub.text))
+    if "sector" in items and sector_revision is not None:
+        left = None if limit is None else max(limit - len(todo), 0)
+        if left != 0:
+            for body in steps.pending_assigned_sector_bodies(conn, sector_revision, revision, left):
+                todo.append(
+                    SummaryItem(
+                        steps.ITEM_BODY, body.body_hash, input_of_body(body.title, body.text)
+                    )
+                )
     return todo
 
 
@@ -254,6 +366,7 @@ def run_summary(
     cut_revision: str | None,
     items: Sequence[str],
     limit: int | None,
+    sector_revision: str | None = None,
 ) -> dict[str, int]:
     """Step 2: summarise up to ``limit`` items not yet done at the summariser's revision; return what was done.
 
@@ -264,7 +377,9 @@ def run_summary(
     """
     from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
 
-    todo = _summary_items(conn, summarizer.revision, scope_revision, cut_revision, items, limit)
+    todo = _summary_items(
+        conn, summarizer.revision, scope_revision, cut_revision, items, limit, sector_revision
+    )
     over: list[SummaryItem] = []
     kept: list[SummaryItem] = []
     for item in todo:
@@ -319,7 +434,7 @@ def _say_the_plan(todo: Sequence[SummaryItem], over: int, kept: int, min_chars: 
         return
     bodies = sum(1 for item in todo if item.kind == steps.ITEM_BODY)
     print(
-        f"pending {len(todo):,} items ({bodies:,} single bodies, {len(todo) - bodies:,} sub-news): "
+        f"pending {len(todo):,} items ({bodies:,} bodies, {len(todo) - bodies:,} sub-news): "
         f"{over:,} to summarise with the model (over {min_chars:,} characters), {kept:,} stored as they are",
         file=sys.stderr,
     )
@@ -378,6 +493,54 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_CUT, extractor.revision), indent=2))
 
 
+def main_sector(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    if args.status:
+        # the revision depends on the universe, so it is not known without reading it: the latest one with state is shown
+        latest = steps.latest_revision(conn, steps.STEP_SECTOR)
+        report = steps.status(conn, steps.STEP_SECTOR, latest)
+        report["revisions"] = steps.revisions(conn, steps.STEP_SECTOR)
+        print(json.dumps(report, indent=2))
+        return
+    scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
+    if scope_revision is None:
+        sys.exit("body_scope is empty: run --step scope first")
+    from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
+    from sector_stage import SectorClassifier  # noqa: PLC0415 -- numpy; torch on the 1st body
+
+    companies = companies_of(conn)
+    if not companies:
+        sys.exit(
+            "the SOURCE store has no companies: the sector step needs the universe (see docs/db-topology.md)"
+        )
+    classifier = SectorClassifier(companies)
+    print(f"sector step, revision {classifier.revision}", file=sys.stderr)
+    try:
+        counts = run_sector(conn, classifier, scope_revision, args.limit)
+    except RunAborted as exc:
+        print(json.dumps(steps.status(conn, steps.STEP_SECTOR, classifier.revision), indent=2))
+        sys.exit(f"stopped: {exc}")
+    print(json.dumps({"scope_revision": scope_revision, **counts}, indent=2))
+    print(json.dumps(steps.status(conn, steps.STEP_SECTOR, classifier.revision), indent=2))
+
+
+def _sector_revision_read(conn: db.NewsNlpDatabase, sector_revision: str | None) -> str:
+    """The sector revision a run of sector summaries reads: named, never "the latest", and with bodies assigned at it."""
+    ran = ", ".join(steps.revisions(conn, steps.STEP_SECTOR)) or "none"
+    if sector_revision is None:
+        sys.exit(
+            f"sector bodies need the sector step they come from: pass --sector-revision (the sector revisions that ran: {ran})"
+        )
+    found = conn.execute(
+        "SELECT 1 FROM body_sector WHERE classifier_revision = ? AND status = 'assigned' LIMIT 1",
+        (sector_revision,),
+    ).fetchone()
+    if found is None:
+        sys.exit(
+            f"the sector step assigned no body at revision {sector_revision} (the sector revisions that ran: {ran})"
+        )
+    return sector_revision
+
+
 def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if args.status:
         latest = steps.latest_revision(conn, steps.STEP_SUMMARY)
@@ -408,6 +571,9 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             sys.exit(
                 f"the cut wrote no sub-news at revision {cut_revision} (the cuts that ran: {ran})"
             )
+    sector_revision = args.sector_revision
+    if "sector" in items:
+        sector_revision = _sector_revision_read(conn, sector_revision)
     from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
 
     summarizer = Summarizer()
@@ -416,11 +582,17 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         file=sys.stderr,
     )
     try:
-        counts = run_summary(conn, summarizer, scope_revision, cut_revision, items, args.limit)
+        counts = run_summary(
+            conn, summarizer, scope_revision, cut_revision, items, args.limit, sector_revision
+        )
     except RunAborted as exc:
         print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
         sys.exit(f"stopped: {exc}")
-    read = {"scope_revision": scope_revision, "cut_revision": cut_revision}
+    read = {
+        "scope_revision": scope_revision,
+        "cut_revision": cut_revision,
+        "sector_revision": sector_revision,
+    }
     print(json.dumps({**{k: v for k, v in read.items() if v is not None}, **counts}, indent=2))
     print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
 
@@ -697,7 +869,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scope-revision",
         default=None,
-        help="cut and summary: the classifier revision whose multi bodies are cut / whose single bodies are summarised (default the latest)",
+        help="cut and summary: the classifier revision whose multi bodies are cut / whose single bodies are summarised; sector: whose sector bodies get a sector (default the latest)",
     )
     parser.add_argument(
         "--reading",
@@ -707,9 +879,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--items",
-        choices=("single", "sub_news"),
+        choices=("single", "sub_news", "sector"),
         default=None,
-        help="summary: only the single bodies or only the sub-news (default both)",
+        help="summary: only the single bodies, only the sub-news or only the sector bodies the sector step assigned (default single and sub-news)",
     )
     parser.add_argument(
         "--cut-revision",
@@ -732,6 +904,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("ner", "ner+text"),
         default=None,
         help="companies: where the candidate companies of a text come from, `ner` (the NER spans, D39 (3.1)) or `ner+text` (also the matcher over the text); required to run: it is part of the revision",
+    )
+    parser.add_argument(
+        "--sector-revision",
+        default=None,
+        help="summary, with --items sector: the sector revision whose assigned bodies are summarised; required, never the latest (the revisions the sector step has are listed)",
     )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
@@ -777,13 +954,34 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         args.items is not None or args.cut_revision is not None
     ):
         parser.error("--items and --cut-revision only apply to --step summary and --step companies")
+    if args.step != steps.STEP_SUMMARY and args.sector_revision is not None:
+        parser.error("--sector-revision only applies to --step summary")
     _check_companies_options(parser, args)
     if args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and args.model_dir is not None:
         parser.error(
             f"--model-dir does not apply to --step {args.step} (its models are the pins of config/)"
         )
-    if args.items == "single" and args.cut_revision is not None:
-        parser.error("--cut-revision does not apply to --items single")
+    if args.step == steps.STEP_SECTOR and args.model_dir is not None:
+        parser.error(
+            "--model-dir does not apply to --step sector (its model is the pin of config/sector_step.json)"
+        )
+    _check_summary_items(parser, args)
+
+
+def _check_summary_items(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The revisions each kind of summary item reads: an option of another kind is refused, never ignored."""
+    if args.items == "sector" and args.step != steps.STEP_SUMMARY:
+        parser.error(
+            "--items sector only applies to --step summary (the companies step reads single bodies and sub-news)"
+        )
+    if args.items in ("single", "sector") and args.cut_revision is not None:
+        parser.error(f"--cut-revision does not apply to --items {args.items}")
+    if args.sector_revision is not None and args.items != "sector":
+        parser.error("--sector-revision only applies to --items sector")
+    if args.items == "sector" and args.scope_revision is not None:
+        parser.error(
+            "--scope-revision names the single bodies to read: it does not apply to --items sector (--sector-revision does)"
+        )
     if (
         args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES)
         and args.items == "sub_news"
@@ -815,6 +1013,9 @@ def main() -> None:
         return
     if args.step == steps.STEP_COMPANIES:
         main_companies(args, conn)
+        return
+    if args.step == steps.STEP_SECTOR:
+        main_sector(args, conn)
         return
     main_scope(args, conn)
 

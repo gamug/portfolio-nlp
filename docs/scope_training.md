@@ -647,6 +647,8 @@ Two tasks that were open at that point are **closed by decision, not done**:
 - **Recall of `out_of_scope` among quarantined bodies** (was T-179): not measured. The share of true company news hidden in `single`/`multi`/`sector` among them stays unknown; precision (93.0% [86.3, 96.6]) is the only figure.
 What stays open on the scope model is only T-147b (FTI pattern, MLflow, three seeds), which is training hygiene, not validation, and which the owner **deferred the same day** ("leave this apart to fit later, we don't have enough time to get picky"): the model runs as pinned, on one seed and plain scripts, until then. The tags in `gold/scope_quarantined_validation.csv` are final. If the gold is ever re-tagged, the pinned figures in `tests/news_nlp/test_scope_publish.py` change with it.
 
+**Two tags changed afterwards (2026-11-12, the sector step).** While checking the sector tags the owner moved two bodies out of `sector`: 295695 (bitcoin miners, not in the S&P 500; call 17) to `market_economy` in set 1, and 1075010 (a CEO talk with no sector theme; call 16) to `investing_general` in set 7. The scope model was trained with the old tags on those two rows and is **not** retrained (this section's decision stands); the held-out 200 and the quarantined sample are untouched, so no figure above changes. The details are in `docs/gold_datasets.md`, "Sector tags, 2026-11-12".
+
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; keep the 10,274 low-margin bodies as the review queue. The Hub card of the scope model named this file under its old name and was republished on 2026-11-11
 (card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).
 

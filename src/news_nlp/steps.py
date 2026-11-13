@@ -12,7 +12,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from news_nlp import triage
 from news_nlp.db import NewsNlpDatabase, _ensure_article_row
@@ -21,6 +21,10 @@ STEP_SCOPE = "scope"
 STEP_CUT = "cut"
 STEP_SUMMARY = "summary"
 STEP_COMPANIES = "companies"
+STEP_SECTOR = "sector"
+#: Key of ``body_sector.scores`` that holds, only when it is above 0, the number of chunks of the body that filled the embedder's window and were cut there
+#: (constitution, Pipeline models 3). It is written after the decision, so it never takes part in the ranking of the classes; absent means 0.
+TRUNCATED_KEY = "_truncated_chunks"
 ITEM_BODY = "body"
 ITEM_SUB_NEWS = "sub_news"
 SCOPES = ("single", "multi", "sector", "out_of_scope")
@@ -159,6 +163,11 @@ def _pending_scoped_bodies(
     ]
     if limit is not None:
         wanted = wanted[:limit]
+    yield from _bodies_by_hash(conn, wanted)
+
+
+def _bodies_by_hash(conn: NewsNlpDatabase, wanted: list[str]) -> Iterator[Body]:
+    """The bodies of SOURCE with these hashes, each as its lowest article id carries it; the scan stops when every one is found."""
     left = set(wanted)
     marks = ", ".join("?" for _ in PROPER_STATUSES)  # the same corpus as step 1
     query = (
@@ -349,6 +358,107 @@ def record_companies(
     return state
 
 
+def pending_sector_bodies(
+    conn: NewsNlpDatabase, classifier_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The ``sector`` bodies of step 1 the sector step has not done at ``revision``, at most ``limit`` (T-167)."""
+    return _pending_scoped_bodies(conn, classifier_revision, "sector", STEP_SECTOR, revision, limit)
+
+
+def _decoded_scores(stored: object) -> dict[str, Any]:
+    """The decoded ``body_sector.scores``: the column's JSON text or the object already decoded. A database row is not accepted: the column is."""
+    if isinstance(stored, str):
+        decoded: dict[str, Any] = json.loads(stored)
+        return decoded
+    if isinstance(stored, dict):
+        return stored
+    raise TypeError(
+        f"expected the scores column of body_sector (JSON text) or its decoded dict, not {type(stored).__name__}: pass row['scores'], not the row"
+    )
+
+
+def class_scores(stored: object) -> dict[str, float]:
+    """The per-class scores of a stored ``body_sector.scores`` (the JSON text or the decoded object), **without the reserved keys**.
+
+    A key that starts with ``_`` is not a class: ``TRUNCATED_KEY`` holds a count, which is larger than any score, so a reader that took the best entry
+    of the raw object would get the key. Read the column through this function (fourth review of #179); the argument is ``row["scores"]``, not the row.
+    """
+    return {
+        key: float(value)
+        for key, value in _decoded_scores(stored).items()
+        if not key.startswith("_")
+    }
+
+
+def truncated_chunks(stored: object) -> int:
+    """How many chunks of the body filled the embedder's window and were cut there, from a stored ``body_sector.scores`` (0 when the key is absent)."""
+    return int(_decoded_scores(stored).get(TRUNCATED_KEY, 0))
+
+
+def record_sector(
+    conn: NewsNlpDatabase,
+    body: Body,
+    revision: str,
+    status: str,
+    sector: str,
+    candidate: str,
+    margin: float,
+    vote_sector: str,
+    scores: dict[str, float],
+    votes: dict[str, int],
+) -> None:
+    """Store one body's sector (or its ``out_of_scope`` verdict) and mark the step done in one transaction; a repeat changes nothing."""
+    now = _now()
+    conn.execute(
+        "INSERT OR IGNORE INTO body_sector "
+        "(body_hash, classifier_revision, status, sector, candidate, margin, vote_sector, scores, votes, processed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            body.body_hash,
+            revision,
+            status,
+            sector,
+            candidate,
+            margin,
+            vote_sector,
+            json.dumps(scores, sort_keys=True),
+            json.dumps(votes, sort_keys=True),
+            now,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'done', 1, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
+        (ITEM_BODY, body.body_hash, STEP_SECTOR, revision, now, now),
+    )
+    conn.commit()
+
+
+def pending_assigned_sector_bodies(
+    conn: NewsNlpDatabase, sector_revision: str, revision: str, limit: int | None = None
+) -> Iterator[Body]:
+    """The bodies the sector step assigned a sector at ``sector_revision`` that the summary has not done at ``revision``, at most ``limit``.
+
+    A body the sector step sent ``out_of_scope`` has no sector to summarise under and is not read; a ``sector`` body the step has not
+    reached has no row yet and waits for it.
+    """
+    done = finished(conn, STEP_SUMMARY, revision)
+    wanted = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT body_hash FROM body_sector WHERE classifier_revision = ? AND status = 'assigned' ORDER BY rowid",
+            (sector_revision,),
+        )
+        if str(row[0]) not in done
+    ]
+    if limit is not None:
+        wanted = wanted[:limit]
+    return _bodies_by_hash(conn, wanted)
+
+
 def record_cut(conn: NewsNlpDatabase, body: Body, revision: str, texts: list[str]) -> None:
     """Store the sub-news of one body and mark the cut done in one transaction; a repeat adds nothing.
 
@@ -464,6 +574,15 @@ def status(conn: NewsNlpDatabase, step: str, revision: str | None = None) -> dic
             sql, sql_args = sql + " WHERE classifier_revision = ?", [revision]
         out["by_scope"] = {
             str(s): int(n) for s, n in conn.execute(sql + " GROUP BY scope", sql_args)
+        }
+    if step == STEP_SECTOR:
+        sec_w = " WHERE classifier_revision = ?" if revision is not None else ""
+        sec_a = [revision] if revision is not None else []
+        by_status = f"SELECT status, COUNT(*) FROM body_sector{sec_w} GROUP BY status"  # noqa: S608 -- fixed clauses
+        by_sector = f"SELECT sector, COUNT(*) FROM body_sector{sec_w} GROUP BY sector"  # noqa: S608 -- fixed clauses
+        out["body_sector"] = {str(s): int(n) for s, n in conn.execute(by_status, sec_a)}
+        out["by_sector"] = {
+            (str(s) or "out_of_scope"): int(n) for s, n in conn.execute(by_sector, sec_a)
         }
     if step == STEP_CUT:
         cut_sql = "SELECT COUNT(*), COUNT(DISTINCT body_hash) FROM sub_news"

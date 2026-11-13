@@ -46,7 +46,7 @@ reproduced from the repository alone.** Measurements and the quality check: `doc
 
 ### Step 2: the summary (T-164, T-166)
 
-`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
+`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single | --items sector --sector-revision REV) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
 step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
 `c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
 (`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). **The sub-news come from a
@@ -57,9 +57,16 @@ run it again and the first run: `docs/summary_step.md`.
 
 `uv run cli/news_nlp_steps.py --step companies --summary-revision REV --threshold T --candidates ner|ner+text [--cut-revision REV | --items single] [--limit N]` (and `--step companies --status`) reads the text step 2 left for each `single` body and sub-news, finds the universe companies it names (NER, then the matcher: a span with no ticker is ignored), scores each (text, ticker) with the relevance model `gamug/deberta-v3-company-relevance` (private, `HF_TOKEN`) and writes one `news_company` row per ticker; every ticker at the threshold or over it is main (`is_main`), an item with none is `review`. Revision `companies-…` (the two models, the threshold, the candidates, the universe, the code). **The threshold (0.5) and `--candidates` (`ner+text`) are the owner's, decided 2026-11-13 (the corrected definition of the text candidates confirmed), and have no default**; the measurements for choosing, the dry run and the limits (the relevance model never saw a sub-news): `docs/companies_step.md`.
 
+### The sector step (T-167)
+
+`uv run cli/news_nlp_steps.py --step sector [--limit N]` (and `--step sector --status`) gives each `sector` body of step 1 its 2-digit GICS sector or `out_of_scope`, in `body_sector`:
+a small embedder (`BAAI/bge-small-en-v1.5`, MIT licence, pinned in `config/sector_step.json`) scores chunks against sector descriptions and four *not a sector* classes, the companies the body names
+vote for their sector, and a sector is assigned only if the margin is high or the companies agree. The summary of the assigned bodies is `--step summary --items sector --sector-revision REV`.
+The rule, the figures of the owner's review (35 of 39 assigned right under the corrected tie rule; 35 of 40 as drawn) and what they do not show: `docs/sector_step.md`; code: `src/sector_stage.py`.
+
 ### Steps 4 to 7 (pending)
 
-Not built (`TASKS.md` T-167, T-168, T-172; Build 2 after Build 1, D40): **4**, the GICS sector of a `sector` body, then its summary; **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+Not built (`TASKS.md` T-168, T-172; the open part of T-167 is the full run and the sub-industry, above; Build 2 after Build 1, D40): **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
 
 ## Models both pipelines use
 
@@ -187,7 +194,7 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 
 ```bash
 uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
-uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
+uv run python -m setup           # pre-fetch the four HF models and the sector embedder into the local cache (one-time, safe to re-run)
 ```
 
 ### Model pins
@@ -200,6 +207,7 @@ Production model selection (name, commit SHA, and batch size per ML stage) lives
 | NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` (batch size 8) |
 | Category (v1 zero-shot stage, deprecated; also the base checkpoint of the scope and relevance models) | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
 | Summarization (step 2 and v1 `c_summary`) | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
+| Sector embedder (the sector step; pinned in `config/sector_step.json`, MIT) | `BAAI/bge-small-en-v1.5` | `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a` (batch size 32) |
 
 The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, public; commit; and the step revision stored in every `body_scope` row), because no stage of the v1 pipeline uses it and the pin carries a step revision the four stages do not have. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into an empty `models/scope_final` (no token needed) and deletes a copy whose step revision is not the pinned one; the step refuses a model that is not the pinned one unless `--allow-unpinned`.
 
