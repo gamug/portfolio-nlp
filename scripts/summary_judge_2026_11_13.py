@@ -1,11 +1,13 @@
 """The LLM-as-judge measure of the summary step (step 2): how faithful, how complete and how compact the summaries are, for the single
 bodies and for the sub-news, by the length of the source.
 
+    # from a COPY of the databases, made once the summary run has ended (a live file refuses a read-only open while a step writes):
+    #   python -c "import sqlite3; s = sqlite3.connect('/path/nlp.db'); d = sqlite3.connect('nlp_copy.db'); s.backup(d)"
     uv run python scripts/summary_judge_2026_11_13.py draw --results-db RESULTS.db --source-db SOURCE.db \\
         --summary-revision summary-... --scope-revision scope-nli-... --cut-revision units5-... [--per-group 150]
     uv run python scripts/summary_judge_2026_11_13.py judge          # needs LLM_API_KEY, LLM_MODEL and LLM_URL (.env)
     uv run python scripts/summary_judge_2026_11_13.py report
-    uv run python scripts/summary_judge_2026_11_13.py tag-sheet      # the owner's slice, the judge hidden
+    uv run python scripts/summary_judge_2026_11_13.py tag-sheet --verdicts data/summary_judge/verdicts.jsonl   # the owner's slice, the judge hidden
     uv run python scripts/summary_judge_2026_11_13.py agree --tags data/summary_judge/to_tag.csv
 
 **The frame.** Only the items the summariser actually summarised (``news_summary.text_source = 'summary'``): the ones under the size are
@@ -20,13 +22,20 @@ title is the whole round-up's) and the summary, splits the summary into claims a
 unsupported or contradicted claim, any contradicted claim, the main event covered) and per claim (the share of claims that are unsupported).
 Two measures need no judge: whether the summary keeps the companies the source names (the matcher of step 3, ``direct_mentions``), and its
 compression. The figures are the judge's: ``tag-sheet`` writes a slice for the owner to mark, without the judge's verdicts, and ``agree``
-compares the two.
+compares the two. A random slice cannot measure the judge on a rare event (if 95% of the summaries are clean, 40 of them hold two bad ones), so the
+slice holds the items the judge flagged and a random control of clean ones; ``agree`` then gives the owner's rate of unfaithful summaries among the
+flagged ones (the judge's precision) and among the clean ones, and from them the judge's sensitivity, weighed back to the sample.
+
+Every verdict carries the judge model, the hash of the prompt and the summary revision; a verdict made under another model or prompt is judged again by a
+resumed run, and ``report`` refuses a file that holds two judges. A provider error (a wrong key, a rate limit, a network drop) is not a verdict: it is not
+written, and ``MAX_CONSECUTIVE_ERRORS`` in a row stop the run.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import sqlite3
@@ -38,14 +47,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 csv.field_size_limit(sys.maxsize)
 
 from news_nlp import triage  # noqa: E402
-from news_nlp.eval.judges import JudgeAgent, _invoke_with_repair  # noqa: E402
+from news_nlp.eval.judges import _REPAIR_PROMPT, JudgeAgent, _coerce  # noqa: E402
 
 DEFAULT_DIR = ROOT / "data" / "summary_judge"
 GROUPS = ("single", "multi")
@@ -107,9 +116,10 @@ class Claim(BaseModel):
 class ClaimsVerdict(BaseModel):
     """The judge's read of one summary, claim by claim."""
 
-    claims: list[Claim] = Field(default_factory=list)
+    # no defaults on the two keys the rates are made of: a reply without them is not a verdict (a default of "covered" raised the rate)
+    claims: list[Claim]
     main_event: str = ""
-    main_event_covered: bool = True
+    main_event_covered: bool
     rationale: str = ""
     parse_failed: bool = False
 
@@ -118,10 +128,36 @@ def user_prompt(source: str, summary: str) -> str:
     return f"SOURCE TEXT\n{source}\n\nSUMMARY\n{summary}\n\nReturn your JSON verdict."
 
 
+PROMPT_SHA = hashlib.sha256((PROMPT + user_prompt("{source}", "{summary}")).encode()).hexdigest()[
+    :16
+]
+MAX_CONSECUTIVE_ERRORS = 5
+
+
+class ProviderError(RuntimeError):
+    """The judge's provider failed (a wrong key, a rate limit, a dropped connection): not a verdict, and never written as one."""
+
+
+class JudgeOutage(RuntimeError):
+    """``MAX_CONSECUTIVE_ERRORS`` provider errors in a row: the cause is not one row."""
+
+
 def judge_one(agent: JudgeAgent, source: str, summary: str) -> ClaimsVerdict:
-    fallback = ClaimsVerdict(rationale="judge reply could not be parsed", parse_failed=True)
-    return _invoke_with_repair(
-        agent, user_prompt(source, summary), ClaimsVerdict, fallback=fallback
+    """The judge's verdict on one summary: one repair prompt for a reply that cannot be read, then ``parse_failed``. A provider error raises
+    ``ProviderError``."""
+    for prompt in (user_prompt(source, summary), _REPAIR_PROMPT):
+        try:
+            reply = str(agent(prompt))
+        except Exception as exc:
+            raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
+        parsed = _coerce(reply, ClaimsVerdict)
+        if parsed is not None:
+            return parsed
+    return ClaimsVerdict(
+        claims=[],
+        main_event_covered=False,
+        rationale="judge reply could not be parsed",
+        parse_failed=True,
     )
 
 
@@ -136,33 +172,80 @@ def read_verdicts(path: Path) -> dict[str, dict[str, Any]]:
     return out
 
 
+def judge_of(verdicts: dict[str, dict[str, Any]]) -> str:
+    """The one judge (model and prompt) a file of verdicts was made by; a file with none recorded or with two is refused."""
+    seen = {(v.get("judge_model"), v.get("prompt_sha")) for v in verdicts.values()}
+    if None in {m for m, _ in seen} or None in {p for _, p in seen}:
+        raise ValueError(
+            "the verdicts carry no provenance (judge_model, prompt_sha): judge them again"
+        )
+    if len(seen) > 1:
+        raise ValueError(
+            f"more than one judge in the verdicts, judge the rest again or remove the file: {sorted(seen)}"
+        )
+    return str(next(iter(seen))[0]) if seen else "no verdicts"
+
+
 def run_judge(
     rows: Sequence[dict[str, Any]],
     agent_factory: Callable[[], JudgeAgent],
     out: Path,
     workers: int = 4,
     limit: int | None = None,
+    judge_model: str = "",
 ) -> dict[str, int]:
-    """Judge the rows without a good verdict in ``out``, appending each as it arrives (a run can stop and go on); a reply that could not
-    be read is stored with ``parse_failed`` and judged again by the next run."""
-    done = {i for i, v in read_verdicts(out).items() if not v.get("parse_failed")}
+    """Judge the rows without a good verdict **of this judge** in ``out`` (the model and the prompt are compared), appending each as it arrives
+    (a run can stop and go on). A reply that arrived and could not be read is stored with ``parse_failed`` and judged again by the next run; a
+    provider error is not stored, is counted, and ``MAX_CONSECUTIVE_ERRORS`` in a row stop the run with ``JudgeOutage``."""
+    done = {
+        i
+        for i, v in read_verdicts(out).items()
+        if not v.get("parse_failed")
+        and v.get("judge_model") == judge_model
+        and v.get("prompt_sha") == PROMPT_SHA
+    }
     todo = [r for r in rows if r["id"] not in done]
     if limit is not None:
         todo = todo[:limit]
     lock = threading.Lock()
-    counts = {"judged": 0, "parse_failed": 0}
+    stop = threading.Event()
+    counts = {"judged": 0, "parse_failed": 0, "provider_errors": 0}
+    streak = {"n": 0, "last": ""}
     out.parent.mkdir(parents=True, exist_ok=True)
 
     def one(row: dict[str, Any]) -> None:
-        verdict = judge_one(agent_factory(), row["source_text"], row["summary_text"])
-        record = {"id": row["id"], **verdict.model_dump()}
+        if stop.is_set():
+            return
+        try:
+            verdict = judge_one(agent_factory(), row["source_text"], row["summary_text"])
+        except ProviderError as exc:
+            with lock:
+                counts["provider_errors"] += 1
+                streak["n"] += 1
+                streak["last"] = str(exc)
+                if streak["n"] >= MAX_CONSECUTIVE_ERRORS:
+                    stop.set()
+            return
+        record = {
+            "id": row["id"],
+            **verdict.model_dump(),
+            "judge_model": judge_model,
+            "prompt_sha": PROMPT_SHA,
+            "summary_revision": row.get("summary_revision"),
+        }
         with lock:
+            streak["n"] = 0
             with out.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             counts["parse_failed" if verdict.parse_failed else "judged"] += 1
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(one, todo))
+    if stop.is_set():
+        raise JudgeOutage(
+            f"{streak['n']} provider errors in a row after {counts['judged'] + counts['parse_failed']} verdicts "
+            f"(the last: {streak['last']}); nothing was written for them, a rerun continues"
+        )
     return counts
 
 
@@ -189,6 +272,10 @@ def allocate(population: dict[int, int], n: int) -> dict[int, int]:
     left = min(n, sum(population.values()))
     while left > 0:
         room = [b for b in BUCKETS if take[b] < population.get(b, 0)]
+        if (
+            not room
+        ):  # cannot happen with left capped by the population, and a loop that could spin must not
+            break
         for b in room:
             if left == 0:
                 break
@@ -411,8 +498,6 @@ def summarise(
             for r in mine
             if r["id"] in verdicts and not verdicts[r["id"]].get("parse_failed")
         ]
-        w = [float(r["weight"]) for r, _ in judged]
-        b = [str(r["bucket"]) for r, _ in judged]
         checkable = [(r, m) for r, m in judged if m["clean"] is not None]
         cw = [float(r["weight"]) for r, _ in checkable]
         cb = [str(r["bucket"]) for r, _ in checkable]
@@ -431,10 +516,11 @@ def summarise(
             "not_judged": sum(1 for r in mine if r["id"] not in verdicts),
             "no_claims": len(judged) - len(checkable),
             "clean": _rate([m["clean"] for _, m in checkable], cw, cb, seed, draws),
+            # the three summary rates share one denominator: the summaries with a claim to check (one without is counted apart)
             "any_contradicted": _rate(
-                [m["any_contradicted"] for _, m in judged], w, b, seed, draws
+                [m["any_contradicted"] for _, m in checkable], cw, cb, seed, draws
             ),
-            "main_event_covered": _rate([m["covered"] for _, m in judged], w, b, seed, draws),
+            "main_event_covered": _rate([m["covered"] for _, m in checkable], cw, cb, seed, draws),
             "unsupported_claim_share": (
                 sum(float(r["weight"]) * m["unsupported"] for r, m in judged) / claims_w
                 if claims_w
@@ -466,7 +552,7 @@ def summarise(
             "by_bucket": {},
         }
         for bucket in sorted({str(r["bucket"]) for r in mine}):
-            in_bucket = [(r, m) for r, m in judged if str(r["bucket"]) == bucket]
+            in_bucket = [(r, m) for r, m in checkable if str(r["bucket"]) == bucket]
             out["by_bucket"][bucket] = {
                 "n": sum(1 for r in mine if str(r["bucket"]) == bucket),
                 "population": int(
@@ -475,7 +561,7 @@ def summarise(
                 "median_chars": statistics.median(
                     int(r["source_chars"]) for r in mine if str(r["bucket"]) == bucket
                 ),
-                "clean": _plain([m["clean"] for _, m in in_bucket if m["clean"] is not None]),
+                "clean": _plain([bool(m["clean"]) for _, m in in_bucket]),
                 "any_contradicted": _plain([m["any_contradicted"] for _, m in in_bucket]),
                 "main_event_covered": _plain([m["covered"] for _, m in in_bucket]),
             }
@@ -493,6 +579,7 @@ def render(report: dict[str, Any], judge: str) -> str:
     lines = [
         f"Summary judge: `{judge}`. Rates are per summary, weighted by the bucket's share of its group (interval: bootstrap within buckets, 95%).",
         "These are the judge's figures, **not checked against the owner's marks** (`tag-sheet`, `agree`).",
+        "The three buckets are terciles of a discrete chunk count and can collapse (a bucket with no sampled item is not listed).",
         "",
     ]
     for group, g in report.items():
@@ -541,17 +628,48 @@ TAG_COLUMNS = (
 
 
 def write_tag_sheet(
-    path: Path, rows: Sequence[dict[str, Any]], per_group: int, seed: int
+    path: Path,
+    rows: Sequence[dict[str, Any]],
+    per_group: int,
+    seed: int,
+    verdicts: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
-    """The owner's slice: ``per_group`` summaries of each group, shuffled, with the source, the summary and blank columns, and **no verdict**."""
+    """The owner's slice: ``per_group`` summaries of each group, shuffled, with the source, the summary and blank columns, and **no verdict**.
+
+    With the verdicts, at most half of a group's slice are the summaries the judge flagged (an unsupported or contradicted claim) and the rest a
+    random control of clean ones; a sidecar ``<name>.strata.json`` records which is which and the weighted size of each stratum in the sample, for
+    ``agree``. Without them the slice is random, which cannot measure the judge on a rare event."""
     if path.exists():
         raise FileExistsError(
             f"{path} exists: the sheet is written once; remove it to write another"
         )
     chosen: list[dict[str, Any]] = []
+    stratum: dict[str, str] = {}
+    population: dict[str, dict[str, float]] = {}
     for group in GROUPS:
         mine = sorted((r for r in rows if r["group"] == group), key=lambda r: r["id"])
-        chosen += random.Random(f"{seed}:tag:{group}").sample(mine, min(per_group, len(mine)))  # noqa: S311 -- a reproducible draw, not security
+        rng = random.Random(f"{seed}:tag:{group}")  # noqa: S311 -- a reproducible draw, not security
+        if verdicts is None:
+            picked = rng.sample(mine, min(per_group, len(mine)))
+            stratum.update(dict.fromkeys((r["id"] for r in picked), "random"))
+        else:
+            measured = [
+                (r, item_measures(verdicts[r["id"]]))
+                for r in mine
+                if r["id"] in verdicts and not verdicts[r["id"]].get("parse_failed")
+            ]
+            flagged = [r for r, m in measured if m["clean"] is False]
+            clean = [r for r, m in measured if m["clean"] is True]
+            population[group] = {
+                "flagged": sum(float(r["weight"]) for r in flagged),
+                "clean": sum(float(r["weight"]) for r in clean),
+            }
+            take_flagged = rng.sample(flagged, min(per_group // 2, len(flagged)))
+            take_clean = rng.sample(clean, min(per_group - len(take_flagged), len(clean)))
+            picked = take_flagged + take_clean
+            stratum.update({r["id"]: "flagged" for r in take_flagged})
+            stratum.update({r["id"]: "control" for r in take_clean})
+        chosen += picked
     random.Random(f"{seed}:order").shuffle(chosen)  # noqa: S311 -- a reproducible order, not security
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -569,6 +687,9 @@ def write_tag_sheet(
                     "notas": "",
                 }
             )
+    path.with_suffix(".strata.json").write_text(
+        json.dumps({"stratum": stratum, "population": population}, indent=1), encoding="utf-8"
+    )
     return [r["id"] for r in chosen]
 
 
@@ -583,19 +704,59 @@ def _kappa(pairs: Sequence[tuple[bool, bool]]) -> float | None:
     return None if pe == 1 else (po - pe) / (1 - pe)
 
 
-def agreement(
-    tags: Sequence[dict[str, str]], verdicts: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
-    """The judge against the owner, on the owner's marks: for 'faithful' (no unsupported or contradicted claim) and 'main event'; raw agreement
-    and Cohen's kappa by group. A blank mark stops the check; a summary the judge could not read or found no claim in is left out."""
-    yes = {"si": True, "sí": True, "no": False}
-    out: dict[str, Any] = {}
+def _check_marks(tags: Sequence[dict[str, str]], yes: dict[str, bool]) -> None:
+    """Stop at a blank or unreadable mark: an unanswered question is not an answer."""
     for t in tags:
         for column in ("afirmaciones_sin_respaldo", "evento_principal"):
             if (t.get(column) or "").strip().lower() not in yes:
                 raise ValueError(
                     f"blank or unreadable mark in {column} for {t['id']}: answer `si` or `no`"
                 )
+
+
+def _stratum_rate(marks: Sequence[bool]) -> dict[str, Any]:
+    n = len(marks)
+    low, high = wilson(sum(marks), n) if n else (None, None)
+    return {
+        "n": n,
+        "owner_unfaithful": sum(marks),
+        "rate": sum(marks) / n if n else None,
+        "low": low,
+        "high": high,
+    }
+
+
+def _strata_figures(
+    size: dict[str, float] | None, flagged_marks: Sequence[bool], clean_marks: Sequence[bool]
+) -> dict[str, Any]:
+    """The owner's rate of unfaithful summaries in the judge's flagged stratum and in its clean control, the judge's precision (the first) and its
+    sensitivity (flagged share of all the unfaithful, the two strata weighed by their size in the sample)."""
+    flagged, clean = _stratum_rate(flagged_marks), _stratum_rate(clean_marks)
+    figures: dict[str, Any] = {"flagged": flagged, "clean": clean}
+    if flagged["rate"] is not None:
+        figures["precision"] = flagged["rate"]
+    if size and flagged["rate"] is not None and clean["rate"] is not None:
+        caught = size["flagged"] * flagged["rate"]
+        missed = size["clean"] * clean["rate"]
+        figures["sensitivity"] = caught / (caught + missed) if caught + missed else None
+    return figures
+
+
+def agreement(
+    tags: Sequence[dict[str, str]],
+    verdicts: dict[str, dict[str, Any]],
+    strata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The judge against the owner, on the owner's marks: for 'faithful' (no unsupported or contradicted claim) and 'main event'; raw agreement
+    and Cohen's kappa by group. A blank mark stops the check; a summary the judge could not read or found no claim in is left out.
+
+    With the strata of the slice (``write_tag_sheet`` with the verdicts) the 'faithful' question also gives the owner's rate of unfaithful
+    summaries among the judge's flagged ones (``precision`` of the judge) and among its clean ones, and the judge's ``sensitivity`` (the share of
+    the owner's unfaithful summaries it flagged), the two strata weighed by their size in the sample. Without them the slice is random and
+    says so: it cannot measure the judge on a rare event."""
+    yes = {"si": True, "sí": True, "no": False}
+    out: dict[str, Any] = {}
+    _check_marks(tags, yes)
     for group in GROUPS:
         mine = [
             t
@@ -605,11 +766,17 @@ def agreement(
             and not verdicts[t["id"]].get("parse_failed")
         ]
         faithful, event = [], []
+        flagged_marks, clean_marks = [], []
         for t in mine:
             m = item_measures(verdicts[t["id"]])
-            owner_faithful = not yes[t["afirmaciones_sin_respaldo"].strip().lower()]
+            owner_unfaithful = yes[t["afirmaciones_sin_respaldo"].strip().lower()]
             if m["clean"] is not None:
-                faithful.append((bool(m["clean"]), owner_faithful))
+                faithful.append((bool(m["clean"]), not owner_unfaithful))
+                kind = (strata or {}).get("stratum", {}).get(t["id"])
+                if kind == "flagged":
+                    flagged_marks.append(owner_unfaithful)
+                elif kind == "control":
+                    clean_marks.append(owner_unfaithful)
             event.append((bool(m["covered"]), yes[t["evento_principal"].strip().lower()]))
         if not mine:
             continue
@@ -622,6 +789,14 @@ def agreement(
             }
             for name, pairs in (("faithful", faithful), ("main_event", event))
         }
+        if strata is None:
+            out[group]["faithful"]["note"] = (
+                "random slice: it cannot measure the judge on a rare event (see tag-sheet --verdicts)"
+            )
+            continue
+        out[group]["faithful"].update(
+            _strata_figures(strata.get("population", {}).get(group), flagged_marks, clean_marks)
+        )
     return out
 
 
@@ -652,17 +827,26 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("report")
     r.add_argument("--sample", type=Path, default=DEFAULT_DIR / "sample.csv")
     r.add_argument("--verdicts", type=Path, default=DEFAULT_DIR / "verdicts.jsonl")
-    r.add_argument(
-        "--judge", default=None, help="the judge model's name to print (default LLM_MODEL)"
-    )
     t = sub.add_parser("tag-sheet")
     t.add_argument("--sample", type=Path, default=DEFAULT_DIR / "sample.csv")
+    t.add_argument(
+        "--verdicts",
+        type=Path,
+        default=None,
+        help="the verdicts: the slice then holds the flagged items and a clean control (the sheet shows no verdict)",
+    )
     t.add_argument("--per-group", type=int, default=40)
     t.add_argument("--seed", type=int, default=DEFAULT_SEED)
     t.add_argument("--out", type=Path, default=DEFAULT_DIR / "to_tag.csv")
     a = sub.add_parser("agree")
     a.add_argument("--tags", type=Path, default=DEFAULT_DIR / "to_tag.csv")
     a.add_argument("--verdicts", type=Path, default=DEFAULT_DIR / "verdicts.jsonl")
+    a.add_argument(
+        "--strata",
+        type=Path,
+        default=None,
+        help="the sidecar of tag-sheet (default <tags>.strata.json when it exists)",
+    )
     return parser
 
 
@@ -699,25 +883,27 @@ def main() -> None:
             args.out,
             args.workers or settings.max_workers,
             args.limit,
+            judge_model=settings.llm_model,
         )
         print(json.dumps(counts))
     elif args.cmd == "report":
-        import os  # noqa: PLC0415
-
         rows = read_sample(args.sample)
-        print(
-            render(
-                summarise(rows, read_verdicts(args.verdicts)),
-                args.judge or os.environ.get("LLM_MODEL", "the LLM judge"),
-            )
-        )
+        verdicts = read_verdicts(args.verdicts)
+        print(render(summarise(rows, verdicts), judge_of(verdicts)))
     elif args.cmd == "tag-sheet":
-        ids = write_tag_sheet(args.out, read_sample(args.sample), args.per_group, args.seed)
+        verdicts = read_verdicts(args.verdicts) if args.verdicts else None
+        ids = write_tag_sheet(
+            args.out, read_sample(args.sample), args.per_group, args.seed, verdicts
+        )
         print(f"wrote {len(ids)} rows to {args.out}\n\n{TAG_RULE}")
     elif args.cmd == "agree":
         with args.tags.open(encoding="utf-8-sig", newline="") as fh:
             tags = list(csv.DictReader(fh))
-        print(json.dumps(agreement(tags, read_verdicts(args.verdicts)), indent=2))
+        strata_path = args.strata or args.tags.with_suffix(".strata.json")
+        strata = (
+            json.loads(strata_path.read_text(encoding="utf-8")) if strata_path.exists() else None
+        )
+        print(json.dumps(agreement(tags, read_verdicts(args.verdicts), strata), indent=2))
 
 
 if __name__ == "__main__":

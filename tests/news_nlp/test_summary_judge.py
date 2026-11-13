@@ -430,7 +430,12 @@ def test_agreement_is_raw_and_chance_corrected_and_refuses_a_blank_mark(tmp_path
         for k in range(10)
     ]
     result = sj.agreement(tags, verdicts)
-    assert result["single"]["faithful"] == {"n": 10, "agree": 10, "raw": 1.0, "kappa": 1.0}
+    assert {k: result["single"]["faithful"][k] for k in ("n", "agree", "raw", "kappa")} == {
+        "n": 10,
+        "agree": 10,
+        "raw": 1.0,
+        "kappa": 1.0,
+    }
     tags[0]["afirmaciones_sin_respaldo"] = (
         "si"  # the owner finds a problem the judge did not: one disagreement
     )
@@ -440,3 +445,278 @@ def test_agreement_is_raw_and_chance_corrected_and_refuses_a_blank_mark(tmp_path
     tags[1]["evento_principal"] = ""
     with pytest.raises(ValueError, match="blank"):
         sj.agreement(tags, verdicts)
+
+
+# --- review of #180 -----------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "{}",
+        '{"claims": []}',
+        '{"main_event_covered": true}',
+        '{"claims": [], "main_event": "x"}',
+    ],
+)
+def test_a_reply_without_the_claims_or_without_the_main_event_is_not_a_verdict(reply: str) -> None:
+    """M1: the defaults of the model counted an empty object as 'main event covered'; both keys are now required."""
+    agent = StubAgent([reply, reply])
+    assert sj.judge_one(agent, "src", "sum").parse_failed
+    assert len(agent.prompts) == 2  # it went through the repair prompt first
+
+
+def test_the_three_summary_rates_have_one_denominator() -> None:
+    """M1: an item with no claim to check is in none of them, so no rate is raised by it."""
+    rows = [
+        {
+            "id": f"s{i}",
+            "group": "single",
+            "bucket": "0",
+            "weight": "1",
+            "pop_n": "3",
+            "source_chars": "10",
+            "summary_chars": "5",
+            "compression": "0.5",
+            "source_tickers": "{}",
+            "summary_tickers": "{}",
+        }
+        for i in range(3)
+    ]
+    verdicts = {
+        "s0": _verdict("supported", covered=True),
+        "s1": _verdict("contradicted", covered=False),
+        "s2": _verdict(covered=True),  # no claims: counted apart
+    }
+    single = sj.summarise(rows, verdicts, draws=20)["single"]
+    assert single["no_claims"] == 1
+    assert (
+        single["clean"]["n"]
+        == single["main_event_covered"]["n"]
+        == single["any_contradicted"]["n"]
+        == 2
+    )
+    assert single["main_event_covered"]["estimate"] == pytest.approx(0.5)
+
+
+def test_every_verdict_carries_the_judge_the_prompt_and_the_revision(tmp_path: Path) -> None:
+    """M2."""
+    rows = [
+        {
+            "id": "r0",
+            "group": "single",
+            "source_text": "s",
+            "summary_text": "t",
+            "summary_revision": "summary-x",
+        }
+    ]
+    out = tmp_path / "v.jsonl"
+    sj.run_judge(rows, lambda: StubAgent([GOOD]), out, workers=1, judge_model="model-a")
+    record = sj.read_verdicts(out)["r0"]
+    assert record["judge_model"] == "model-a"
+    assert record["prompt_sha"] == sj.PROMPT_SHA
+    assert record["summary_revision"] == "summary-x"
+
+
+def test_a_resumed_run_under_another_judge_or_prompt_judges_again_and_the_report_refuses_a_mixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(2)
+    ]
+    out = tmp_path / "v.jsonl"
+    sj.run_judge(rows[:1], lambda: StubAgent([GOOD]), out, workers=1, judge_model="model-a")
+    # the second run is under another model: r0 is judged again, r1 is new
+    agent = StubAgent([GOOD])
+    sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="model-b")
+    assert len(agent.prompts) == 2
+    assert {v["judge_model"] for v in sj.read_verdicts(out).values()} == {"model-b"}
+    # the same model with another prompt: judged again too
+    monkeypatch.setattr(sj, "PROMPT_SHA", "other-prompt")
+    agent = StubAgent([GOOD])
+    sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="model-b")
+    assert len(agent.prompts) == 2
+    # a file that holds two judges (a run that stopped half way) is not reported
+    mixed = {
+        "a": {"judge_model": "m1", "prompt_sha": "p"},
+        "b": {"judge_model": "m2", "prompt_sha": "p"},
+    }
+    with pytest.raises(ValueError, match="more than one judge"):
+        sj.judge_of(mixed)
+    assert sj.judge_of({"a": {"judge_model": "m1", "prompt_sha": "p"}}) == "m1"
+    with pytest.raises(ValueError, match="provenance"):
+        sj.judge_of({"a": {"claims": []}})
+
+
+class Outage:
+    """An agent whose provider fails: a wrong key, a rate limit, a network drop."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, prompt: str) -> object:
+        self.calls += 1
+        raise RuntimeError("401 unauthorized")
+
+
+def test_a_provider_error_is_not_a_verdict(tmp_path: Path) -> None:
+    """M3: it raises, so nothing is written for it and the report cannot call it an unreadable reply."""
+    with pytest.raises(sj.ProviderError, match="401"):
+        sj.judge_one(Outage(), "src", "sum")
+
+
+def test_consecutive_provider_errors_stop_the_run_and_write_nothing(tmp_path: Path) -> None:
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(20)
+    ]
+    out = tmp_path / "v.jsonl"
+    agent = Outage()
+    with pytest.raises(sj.JudgeOutage, match="401"):
+        sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="m")
+    assert agent.calls == sj.MAX_CONSECUTIVE_ERRORS  # it stopped, it did not go through 20 rows
+    assert not out.exists() or out.read_text(encoding="utf-8").strip() == ""
+
+
+def test_an_error_between_good_replies_does_not_stop_the_run(tmp_path: Path) -> None:
+    class Flaky:
+        n = 0
+
+        def __call__(self, prompt: str) -> object:
+            Flaky.n += 1
+            if Flaky.n % 2 == 0:
+                raise RuntimeError("timeout")
+            return GOOD
+
+    # more errors in all than the run tolerates in a row, none of them in a row: a good reply between them resets the count
+    n = 2 * sj.MAX_CONSECUTIVE_ERRORS + 2
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(n)
+    ]
+    out = tmp_path / "v.jsonl"
+    counts = sj.run_judge(rows, Flaky, out, workers=1, judge_model="m")
+    assert counts["provider_errors"] == n // 2 and counts["judged"] == n // 2
+    assert set(sj.read_verdicts(out)) == {
+        f"r{i}" for i in range(0, n, 2)
+    }  # the ones that failed are not recorded: the next run judges them
+
+
+def test_an_unreadable_reply_is_still_recorded_apart_from_a_provider_error(tmp_path: Path) -> None:
+    rows = [{"id": "r0", "group": "single", "source_text": "s", "summary_text": "t"}]
+    out = tmp_path / "v.jsonl"
+    counts = sj.run_judge(
+        rows, lambda: StubAgent(["prose", "prose"]), out, workers=1, judge_model="m"
+    )
+    assert counts == {"judged": 0, "parse_failed": 1, "provider_errors": 0}
+
+
+def test_the_allocation_never_gives_more_than_a_bucket_has_and_always_stops() -> None:
+    """S2: it used to hang on a variant that over-counted; now the loop ends when there is no room."""
+    for pop in ({0: 3, 1: 3, 2: 3}, {0: 1, 1: 0, 2: 0}, {0: 0, 1: 0, 2: 0}, {0: 50, 1: 2, 2: 7}):
+        for n in (0, 1, 5, 150):
+            got = sj.allocate(pop, n)
+            assert all(got[b] <= pop[b] for b in pop)
+            assert sum(got.values()) == min(n, sum(pop.values()))
+
+
+# the owner's slice must be able to say something about a rare event (S1)
+
+
+def _flag_rows_and_verdicts(
+    n_flagged: int, n_clean: int
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    rows, verdicts = [], {}
+    for i in range(n_flagged + n_clean):
+        rid = f"single:{i}"
+        rows.append(
+            {
+                "id": rid,
+                "group": "single",
+                "bucket": "0",
+                "weight": "10",
+                "source_text": "f",
+                "summary_text": "r",
+            }
+        )
+        verdicts[rid] = (
+            _verdict("supported", "unsupported") if i < n_flagged else _verdict("supported")
+        )
+    return rows, verdicts
+
+
+def test_the_slice_holds_the_judges_flagged_items_and_a_clean_control(tmp_path: Path) -> None:
+    rows, verdicts = _flag_rows_and_verdicts(n_flagged=6, n_clean=94)
+    path = tmp_path / "to_tag.csv"
+    ids = sj.write_tag_sheet(path, rows, per_group=10, seed=3, verdicts=verdicts)
+    strata = json.loads(path.with_suffix(".strata.json").read_text(encoding="utf-8"))
+    assert set(strata["stratum"]) == set(ids)
+    kinds = list(strata["stratum"].values())
+    assert (
+        kinds.count("flagged") == 5 and kinds.count("control") == 5
+    )  # at most half the slice is flagged
+    assert strata["population"]["single"] == {
+        "flagged": 60.0,
+        "clean": 940.0,
+    }  # the sample's weights, to weigh the marks back
+    with path.open(encoding="utf-8-sig", newline="") as fh:
+        header = next(csv.reader(fh))
+    assert not any(
+        "judge" in h or "stratum" in h for h in header
+    )  # the owner does not see which is which
+
+
+def test_with_few_flagged_items_the_control_fills_the_slice(tmp_path: Path) -> None:
+    rows, verdicts = _flag_rows_and_verdicts(n_flagged=2, n_clean=98)
+    ids = sj.write_tag_sheet(tmp_path / "to_tag.csv", rows, per_group=10, seed=3, verdicts=verdicts)
+    strata = json.loads((tmp_path / "to_tag.strata.json").read_text(encoding="utf-8"))
+    assert len(ids) == 10 and list(strata["stratum"].values()).count("flagged") == 2
+
+
+def test_agreement_with_strata_gives_the_owners_rate_in_each_stratum_and_the_judges_precision_and_sensitivity() -> (
+    None
+):
+    _rows, verdicts = _flag_rows_and_verdicts(n_flagged=10, n_clean=90)
+    strata: dict[str, Any] = {
+        "stratum": {
+            **{f"single:{i}": "flagged" for i in range(5)},
+            **{f"single:{i}": "control" for i in range(10, 15)},
+        },
+        "population": {"single": {"flagged": 100.0, "clean": 900.0}},
+    }
+    tags = []
+    for rid, kind in strata["stratum"].items():
+        # the owner agrees with the judge on 4 of the 5 flagged (precision 0.8) and finds 1 of the 5 clean ones unfaithful (miss rate 0.2)
+        bad = (kind == "flagged" and rid != "single:0") or (
+            kind == "control" and rid == "single:10"
+        )
+        tags.append(
+            {
+                "id": rid,
+                "grupo": "single",
+                "afirmaciones_sin_respaldo": "si" if bad else "no",
+                "evento_principal": "si",
+            }
+        )
+    got = sj.agreement(tags, verdicts, strata)["single"]["faithful"]
+    assert got["flagged"]["owner_unfaithful"] == 4 and got["flagged"]["n"] == 5
+    assert got["clean"]["owner_unfaithful"] == 1 and got["clean"]["n"] == 5
+    assert got["precision"] == pytest.approx(0.8)
+    # unfaithful per the owner: 0.8 * 100 flagged + 0.2 * 900 clean = 260; the judge found 80 of them
+    assert got["sensitivity"] == pytest.approx(80 / 260)
+
+
+def test_agreement_without_strata_says_a_random_slice_cannot_measure_a_rare_event() -> None:
+    verdicts = {f"i{k}": _verdict("supported") for k in range(4)}
+    tags = [
+        {
+            "id": f"i{k}",
+            "grupo": "single",
+            "afirmaciones_sin_respaldo": "no",
+            "evento_principal": "si",
+        }
+        for k in range(4)
+    ]
+    got = sj.agreement(tags, verdicts)["single"]["faithful"]
+    assert "sensitivity" not in got and got["note"].startswith("random slice")
