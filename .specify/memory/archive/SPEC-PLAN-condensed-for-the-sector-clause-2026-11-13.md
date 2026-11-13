@@ -42,3 +42,10 @@ Cut from commit `02cef7be41cc7ca9a54beffd34f55a3d746a74ef`.
 - **Now:** (4) **sector**:
   a 2-digit GICS sector or `out_of_scope` is given (embedder, company votes and a gate: `docs/sector_step.md`); its bodies are summarised in step 2 (`--items sector`).
 
+
+## FR-021 (sixth review of #179, cut from commit `ac54f71c23508197f4bb9d6708b2411bed504fcf`)
+
+- **Was:** a run stops when failures repeat (step 1 and step 2: 3 batches in a row, the cut: 10 bodies in a row);
+- **Now:** a run stops when failures repeat (steps 1 and 2, the sector and the companies: 3 batches in a row, the cut: 10 bodies in a row);
+
+(Only names were added: the sector and the companies step stop on the same rule, `MAX_FAILED_BATCHES` = 3; "no command runs all steps (tested)" is now backed by `test_the_command_takes_one_step_and_there_is_no_all_step` in `test_steps.py`.)
