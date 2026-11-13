@@ -12,7 +12,7 @@ page is the list of labels it applies.
 `retag.NEW_LABEL_GUIDE` carries the one-line definitions of the added labels for the owner's guide CSV.
 `tests/news_nlp/test_labelling_spec.py` checks that `docs/labelling-spec-v2.md` names every one of them.
 
-**The model.** Not built: the owner trains it on `gold/category_gold_v2.csv` (284 bodies) and measures it on the
+**The model.** Provisional step built (`--step category`, `docs/category_step.md`: the pinned zero-shot model, untouched, 56.4% label / 62.7% group agreement on the 225 train rows and 43.0% / 55.6% on the 135 single held-out rows, so below the bar); the trained one is not built: the owner trains it on `gold/category_gold_v2.csv` (284 bodies) and measures it on the
 held-out `gold/category_gold_v2_test.csv` (200), bar >= 80% agreement (D24; `TASKS.md` T-174). Whether it is a
 fine-tuned classifier or a zero-shot one over these labels is the owner's choice. The v1 category stage, a zero-shot
 classifier over the nine slugs and `other` per (URL, ticker) pair, is deprecated (owner, 2026-11-12); its taxonomy

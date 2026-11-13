@@ -17,6 +17,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
     uv run cli/news_nlp_steps.py --step sector --limit 200    # the sector step: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
     uv run cli/news_nlp_steps.py --step sector --status       # bodies assigned / sent out_of_scope, by sector
+    uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --companies-revision companies-... --limit 500   # the category of each main company (provisional model)
+    uv run cli/news_nlp_steps.py --step category --status     # categories written, by label and by group
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -31,6 +33,9 @@ company at ``--threshold`` or over it as main; an item with none goes to the rev
 The ``sector`` step (T-167) reads the ``sector`` bodies of step 1 and writes ``body_sector``: the GICS sector (2 digits) when the
 embedding score is confident or the companies named agree with it, else ``out_of_scope``; its model is the pin of
 ``config/sector_step.json``; see ``src/sector_stage.py`` and ``docs/sector_step.md``.
+The ``category`` step (T-168, **provisional**: the pinned zero-shot model, not yet the fine-tuned one of T-174) reads the texts step 2 left
+(``--summary-revision``) that have a main company at ``--companies-revision`` and writes one ``news_category`` row per (text, main company): one of
+the 14 labels of D15 and its group; see ``src/news_category_stage.py`` and ``docs/category_step.md``.
 """
 
 import argparse
@@ -55,8 +60,11 @@ STEPS = (
     steps.STEP_SUMMARY,
     steps.STEP_COMPANIES,
     steps.STEP_SECTOR,
+    steps.STEP_CATEGORY,
 )
 BATCH = 16
+# texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each)
+CATEGORY_BATCH = 4
 COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
@@ -755,6 +763,158 @@ def main_companies(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_COMPANIES, finder.revision), indent=2))
 
 
+class CategoryClassifying(Protocol):
+    """What ``run_category`` needs of a finder (``news_category_stage.CategoryFinder`` or a test stub)."""
+
+    revision: str
+    model_name: str
+
+    def classify(self, pairs: Sequence[tuple[str, str]]) -> list[steps.CategoryScore]: ...
+
+
+def _classify_items(
+    conn: db.NewsNlpDatabase,
+    finder: CategoryClassifying,
+    names: dict[str, str],
+    batch: list[steps.CategoryItem],
+    counts: dict[str, int],
+) -> None:
+    """Classify and store one batch; a batch that fails is redone item by item, so one bad text fails alone."""
+    pairs = [(item.text, names.get(t, t)) for item in batch for t in item.tickers]
+    nameless = sum(1 for item in batch for t in item.tickers if t not in names)
+    try:
+        results = finder.classify(pairs)
+    except Exception as exc:
+        if len(batch) > 1:
+            for item in batch:
+                _classify_items(conn, finder, names, [item], counts)
+            return
+        steps.record_item_failure(
+            conn,
+            batch[0].kind,
+            batch[0].item_id,
+            steps.STEP_CATEGORY,
+            finder.revision,
+            steps.error_text(exc),
+        )
+        counts["failed"] += 1
+        return
+    taken = iter(results)
+    for item in batch:
+        found = {ticker: next(taken) for ticker in item.tickers}
+        steps.record_category(
+            conn, item.kind, item.item_id, finder.revision, found, finder.model_name
+        )
+        counts["done"] += 1
+        counts["category_rows"] += len(found)
+    counts["name_missing"] += nameless
+
+
+def run_category(
+    conn: db.NewsNlpDatabase,
+    finder: CategoryClassifying,
+    names: dict[str, str],
+    summary_revision: str,
+    companies_revision: str,
+    limit: int | None,
+) -> dict[str, int]:
+    """Step 7: classify up to ``limit`` texts with a main company not yet finished at the finder's revision; return what was done.
+
+    ``done`` is an item with all its main companies classified, ``category_rows`` the ``news_category`` rows written, ``failed`` an item the model
+    could not read (retried by the next run), ``name_missing`` the pairs whose ticker is not in the universe (the ticker is read as the name). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
+    completely stop the run.
+    """
+    todo = list(
+        steps.pending_category_items(
+            conn, summary_revision, companies_revision, finder.revision, limit=limit
+        )
+    )
+    if not todo:
+        print("nothing pending", file=sys.stderr)
+    counts: dict[str, int] = {"done": 0, "failed": 0, "category_rows": 0, "name_missing": 0}
+    failed_batches = 0
+    with tqdm(total=len(todo), desc="category", unit="item") as bar:
+        for start in range(0, len(todo), CATEGORY_BATCH):
+            batch = todo[start : start + CATEGORY_BATCH]
+            failed_before = counts["failed"]
+            _classify_items(conn, finder, names, batch, counts)
+            failed_batches = (
+                failed_batches + 1 if counts["failed"] - failed_before == len(batch) else 0
+            )
+            if failed_batches >= MAX_FAILED_BATCHES:
+                raise RunAborted(
+                    f"{failed_batches} batches in a row failed completely after {counts['done']} done "
+                    f"(see the error of a failed item with --status); the failed items are retried by the next run"
+                )
+            bar.update(len(batch))
+    return counts
+
+
+def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    import news_category_stage  # noqa: PLC0415 -- imports torch, loads no model
+
+    if args.status:
+        latest = steps.latest_revision(conn, steps.STEP_CATEGORY)
+        report = steps.status(conn, steps.STEP_CATEGORY, latest)
+        report["revisions"] = steps.revisions(conn, steps.STEP_CATEGORY)
+        report["models"] = news_category_stage.models_of_the_step()
+        print(json.dumps(report, indent=2))
+        return
+    ran_summaries = ", ".join(steps.revisions(conn, steps.STEP_SUMMARY)) or "none"
+    if (
+        conn.execute(
+            "SELECT 1 FROM news_summary WHERE model_revision = ? LIMIT 1", (args.summary_revision,)
+        ).fetchone()
+        is None
+    ):
+        sys.exit(
+            f"step 2 left no text at the summary revision {args.summary_revision} (the revisions that ran: {ran_summaries})"
+        )
+    ran_companies = ", ".join(steps.revisions(conn, steps.STEP_COMPANIES)) or "none"
+    if (
+        conn.execute(
+            "SELECT 1 FROM news_company WHERE model_revision = ? AND is_main = 1 LIMIT 1",
+            (args.companies_revision,),
+        ).fetchone()
+        is None
+    ):
+        sys.exit(
+            f"step 3 found no main company at the companies revision {args.companies_revision} (the revisions that ran: {ran_companies})"
+        )
+    from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
+    from news_category_stage import CategoryFinder  # noqa: PLC0415 -- loads torch
+
+    names = {c.ticker: c.name for c in companies_of(conn)}
+    no_text = steps.category_items_without_text(
+        conn, args.summary_revision, args.companies_revision
+    )
+    if no_text:
+        print(
+            f"warning: {no_text} items with a main company at {args.companies_revision} have no text at {args.summary_revision} and are skipped "
+            "(did the companies step read another summary revision?)",
+            file=sys.stderr,
+        )
+    finder = CategoryFinder()
+    print(
+        f"category model {finder.model_name}@{finder.model_revision[:8]} (provisional, zero-shot) on {finder.scorer.device}, revision {finder.revision}",
+        file=sys.stderr,
+    )
+    try:
+        counts = run_category(
+            conn, finder, names, args.summary_revision, args.companies_revision, args.limit
+        )
+    except RunAborted as exc:
+        print(json.dumps(steps.status(conn, steps.STEP_CATEGORY, finder.revision), indent=2))
+        sys.exit(f"stopped: {exc}")
+    read = {
+        "summary_revision": args.summary_revision,
+        "companies_revision": args.companies_revision,
+        "items_without_text": no_text,
+    }
+    print(json.dumps({**read, **counts}, indent=2))
+    print(json.dumps(steps.status(conn, steps.STEP_CATEGORY, finder.revision), indent=2))
+
+
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     revision = None
     if (args.model_dir / "training_record.json").exists():
@@ -842,7 +1002,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="touch at most this many items (bodies; for summary and companies also sub-news)",
+        help="touch at most this many items (bodies; for summary, companies and category also sub-news)",
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
@@ -891,7 +1051,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--summary-revision",
         default=None,
-        help="companies: the summary revision whose texts are read (required to run; `--step summary --status` lists them), never the latest",
+        help="companies and category: the summary revision whose texts are read (required to run; `--step summary --status` lists them), never the latest",
+    )
+    parser.add_argument(
+        "--companies-revision",
+        default=None,
+        help="category: the companies revision whose main companies are classified (required to run; `--step companies --status` lists them), never the latest",
     )
     parser.add_argument(
         "--threshold",
@@ -917,12 +1082,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the companies step: the two it needs to run, and the ones no other step reads."""
-    if args.step != steps.STEP_COMPANIES and (
-        args.summary_revision is not None or args.threshold is not None
+    if (
+        args.step not in (steps.STEP_COMPANIES, steps.STEP_CATEGORY)
+        and args.summary_revision is not None
     ):
-        parser.error("--summary-revision and --threshold only apply to --step companies")
+        parser.error("--summary-revision only applies to --step companies and --step category")
+    if args.step != steps.STEP_COMPANIES and args.threshold is not None:
+        parser.error("--threshold only applies to --step companies")
     if args.step != steps.STEP_COMPANIES and args.candidates is not None:
         parser.error("--candidates only applies to --step companies")
+    if args.step != steps.STEP_CATEGORY and args.companies_revision is not None:
+        parser.error("--companies-revision only applies to --step category")
     if args.step == steps.STEP_COMPANIES and not args.status:
         if args.summary_revision is None:
             parser.error(
@@ -938,6 +1108,23 @@ def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Nam
             )
         if not 0 < args.threshold <= 1:
             parser.error("--threshold must be over 0 and at most 1")
+
+
+def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the category step: the two it needs to run, and the ones it does not read."""
+    if args.step == steps.STEP_CATEGORY and args.scope_revision is not None:
+        parser.error(
+            "--scope-revision does not apply to --step category (the items are those with a main company at --companies-revision)"
+        )
+    if args.step == steps.STEP_CATEGORY and not args.status:
+        if args.summary_revision is None:
+            parser.error(
+                "--step category needs --summary-revision (the texts it reads; `--step summary --status` lists the revisions)"
+            )
+        if args.companies_revision is None:
+            parser.error(
+                "--step category needs --companies-revision (the main companies it classifies; `--step companies --status` lists the revisions)"
+            )
 
 
 def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -957,7 +1144,11 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     if args.step != steps.STEP_SUMMARY and args.sector_revision is not None:
         parser.error("--sector-revision only applies to --step summary")
     _check_companies_options(parser, args)
-    if args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and args.model_dir is not None:
+    _check_category_options(parser, args)
+    if (
+        args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES, steps.STEP_CATEGORY)
+        and args.model_dir is not None
+    ):
         parser.error(
             f"--model-dir does not apply to --step {args.step} (its models are the pins of config/)"
         )
@@ -1016,6 +1207,9 @@ def main() -> None:
         return
     if args.step == steps.STEP_SECTOR:
         main_sector(args, conn)
+        return
+    if args.step == steps.STEP_CATEGORY:
+        main_category(args, conn)
         return
     main_scope(args, conn)
 

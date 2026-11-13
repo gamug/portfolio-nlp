@@ -77,21 +77,26 @@ def evaluate(name, rows, SL):
     )
 
 
-uni = pd.read_csv(ROOT / "gold/universe.csv").fillna("")
-res = CompanyResolver(
-    [
-        Company(t, c, s, "")
-        for t, c, s in zip(uni.ticker, uni.company, uni.gics_sector, strict=False)
-    ]
-)
-for name, g, t in [
-    ("train", "category_gold_v2", "category_gold_v2_texts"),
-    ("held-out", "category_gold_v2_test", "category_gold_v2_test_texts"),
-]:
-    rows, _ = mock.build_rows(
-        pd.read_csv(ROOT / f"gold/{g}.csv"), pd.read_csv(ROOT / f"gold/texts/{t}.csv"), res
+def main():
+    uni = pd.read_csv(ROOT / "gold/universe.csv").fillna("")
+    res = CompanyResolver(
+        [
+            Company(t, c, s, "")
+            for t, c, s in zip(uni.ticker, uni.company, uni.gics_sector, strict=False)
+        ]
     )
-    rows = rows[rows.label.isin(b.LABELS)].reset_index(drop=True)
-    evaluate(name, rows, b.scores(rows, "company+topic"))
+    for name, g, t in [
+        ("train", "category_gold_v2", "category_gold_v2_texts"),
+        ("held-out", "category_gold_v2_test", "category_gold_v2_test_texts"),
+    ]:
+        rows, _ = mock.build_rows(
+            pd.read_csv(ROOT / f"gold/{g}.csv"), pd.read_csv(ROOT / f"gold/texts/{t}.csv"), res
+        )
+        rows = rows[rows.label.isin(b.LABELS)].reset_index(drop=True)
+        evaluate(name, rows, b.scores(rows, "company+topic"))
+
+
+if __name__ == "__main__":
+    main()
 
 # ruff: noqa: E402, E731, E741, PLC0415  -- one-shot research script

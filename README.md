@@ -20,7 +20,7 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | 3 companies | NER, universe tickers, the main company of each text | `gamug/sec-bert-finer-ord-ner` + `gamug/deberta-v3-company-relevance` (private, not pinned) | `news_company` | pending |
   | 4 sector | the GICS sector of a `sector` body, then its summary | to be chosen | | pending |
   | 6 sentiment | per text and main company | `gamug/FinBERT-company-sentiment` + relevance stack (private, not pinned) | `news_sentiment` | pending |
-  | 7 category | per text and main company, the D15 taxonomy (`docs/category-taxonomy.md`) | trained by the owner (T-174) | `news_category` | pending |
+  | 7 category | per text and main company, the D15 taxonomy (`docs/category-taxonomy.md`) | the pinned zero-shot model, **provisional** (the trained one: T-174; `docs/category_step.md`) | `news_category` | built, provisional |
 
 - **The v1 chain, until the backfill (T-150).** Five stages over (URL, ticker) pairs, run by
   `cli/news_nlp_cli.py` and the FastAPI service: sentiment (`gamug/FinBERT-financial-news`), NER
