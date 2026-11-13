@@ -284,7 +284,7 @@ CREATE TABLE IF NOT EXISTS body_scope (
     PRIMARY KEY (body_hash, classifier_revision)
 );
 
--- Step 3, the sector of a `sector` body (T-167): `assigned` carries the GICS sector (2 digits); a body the step does not
+-- The sector step (T-167): the sector of a `sector` body: `assigned` carries the GICS sector (2 digits); a body the step does not
 -- trust is `out_of_scope` with `sector` = '' and the reason in `candidate` (the best class it saw, a sector or a not-a-sector one).
 CREATE TABLE IF NOT EXISTS body_sector (
     body_hash           TEXT NOT NULL,

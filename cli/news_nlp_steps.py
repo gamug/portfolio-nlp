@@ -15,7 +15,7 @@ Usage:
     uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
     uv run cli/news_nlp_steps.py --step companies --summary-revision summary-... --cut-revision units5-... --threshold 0.5 --candidates ner+text --limit 500   # step 3
     uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
-    uv run cli/news_nlp_steps.py --step sector --limit 200    # step 3: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
+    uv run cli/news_nlp_steps.py --step sector --limit 200    # the sector step: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
     uv run cli/news_nlp_steps.py --step sector --status       # bodies assigned / sent out_of_scope, by sector
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model

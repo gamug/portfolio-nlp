@@ -1,4 +1,4 @@
-"""Step 3, the sector (T-167; PLAN D39 (4)): the gate, the company votes, the revision, and the stored step. The embedder is a stub: no model,
+"""The sector step (T-167; PLAN D39 (4)): the gate, the company votes, the revision, and the stored step. The embedder is a stub: no model,
 no network, no GPU."""
 
 from __future__ import annotations

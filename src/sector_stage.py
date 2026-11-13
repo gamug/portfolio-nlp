@@ -1,4 +1,4 @@
-"""Step 3, the sector of a ``sector`` body: a small embedding model, the companies the body names, and a gate (PLAN D39 (4); T-167).
+"""The sector step: the GICS sector of a ``sector`` body: a small embedding model, the companies the body names, and a gate (PLAN D39 (4); T-167).
 
 A body the scope step calls ``sector`` gets a GICS sector (the 2-digit code, 11 classes) or is sent to ``out_of_scope``:
 

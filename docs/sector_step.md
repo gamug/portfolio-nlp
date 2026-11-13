@@ -1,4 +1,4 @@
-# Step 3: the sector (T-167; PLAN D39 (4), D40)
+# The sector step (T-167; PLAN D39 (4), D40)
 
 `uv run cli/news_nlp_steps.py --step sector [--limit N] [--scope-revision REV]` (and `--step sector --status`)
 
