@@ -585,3 +585,63 @@ def test_the_cut_chunks_are_stored_with_the_body_and_counted_by_the_run(
     assert rows[0][steps.TRUNCATED_KEY] == 3
     clean = _run(pair, Stub())  # a new revision, nothing cut
     assert "truncated_chunks" not in clean
+
+
+# --- the manager's fourth review of #179: the read side of the reserved key, and the tie rule end to end ------------------
+
+
+def test_the_scores_of_a_stored_row_are_read_through_class_scores_which_drops_the_reserved_key() -> (
+    None
+):
+    raw = {"10": 0.61, "45": 0.55, "market_economy": 0.4, steps.TRUNCATED_KEY: 2}
+    assert max(raw, key=raw.get) == steps.TRUNCATED_KEY  # type: ignore[arg-type]  # the trap: a count beats any score
+    clean = steps.class_scores(raw)
+    assert set(clean) == {"10", "45", "market_economy"} and max(clean, key=clean.get) == "10"  # type: ignore[arg-type]
+    assert steps.class_scores(json.dumps(raw)) == clean  # the stored text, as the table holds it
+    assert steps.truncated_chunks(json.dumps(raw)) == 2 and steps.truncated_chunks({"10": 0.6}) == 0
+
+
+def test_a_stored_row_with_cut_chunks_reads_back_as_classes_and_a_count(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    class Cut(Stub):
+        def classify(self, items: Sequence[tuple[str, str]]) -> list[stage.SectorResult]:
+            return [
+                stage.SectorResult(
+                    "assigned",
+                    "10",
+                    "10",
+                    0.5,
+                    "10",
+                    {"10": 0.9, "45": 0.2},
+                    {},
+                    3 if "Oil" in t else 0,
+                )
+                for t, _ in items
+            ]
+
+    _run(pair, Cut())
+    rows = [str(r[0]) for r in pair.execute("SELECT scores FROM body_sector ORDER BY rowid")]
+    assert [steps.truncated_chunks(r) for r in rows] == [3, 0, 0]
+    assert all(
+        set(steps.class_scores(r)) == {"10", "45"} for r in rows
+    )  # no reserved key reaches a reader
+
+
+def test_a_text_that_names_two_companies_of_different_sectors_once_each_is_out_of_scope_with_no_vote_sector() -> (
+    None
+):
+    clf = classifier()
+    split = "oil chip. Exxon Mobil and Nvidia are both mentioned once."
+    [tied] = clf.classify([("Mixed", split)])
+    assert (
+        tied.margin < 0.2
+    )  # below CONFIG margin_threshold: a close call, only the vote could let it through
+    assert tied.votes == {"10": 1, "45": 1}
+    assert (tied.status, tied.vote_sector) == ("out_of_scope", "")  # a tie is not agreement
+    [backed] = clf.classify([("Mixed", split + " Exxon Mobil again.")])
+    assert backed.votes == {"10": 2, "45": 1} and backed.vote_sector == "10"
+    assert (backed.status, backed.sector) == (
+        "assigned",
+        "10",
+    )  # one company named twice makes a top

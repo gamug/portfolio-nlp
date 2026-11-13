@@ -10,7 +10,7 @@ A body the scope step calls ``sector`` gets a GICS sector (the 2-digit code, 11 
 2. **Votes.** ``triage.CompanyResolver`` finds the universe companies the body names; each votes for its own GICS sector
    (at most 3 votes per company).
 3. **Gate.** The sector is assigned when the best class is a sector and either the margin is over the threshold or the companies'
-   top sector is the same one. Anything else is ``out_of_scope``: the owner's rule (2026-11-13), because a wrong sector costs
+   top sector is the same one (a tie at the top of the vote, or no vote, is not agreement). Anything else is ``out_of_scope``: the owner's rule (2026-11-13), because a wrong sector costs
    more than a missing one.
 
 How the choices were made, as it was and not as a protocol would have it: the sector descriptions were written on the tune half of the labelled
@@ -212,7 +212,8 @@ def decide(
 ) -> tuple[str, str, str, float]:
     """``(status, sector, candidate, margin)``: the gate.
 
-    Assigned when the best class is a sector and (the margin is at least ``threshold`` or the companies vote for that same sector).
+    Assigned when the best class is a sector and (the margin is at least ``threshold`` or the companies vote for that same sector: ``top_vote`` is '' for
+    a tie or no vote, which is not agreement).
     """
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     candidate, best = ranked[0]

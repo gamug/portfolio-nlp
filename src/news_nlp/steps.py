@@ -12,7 +12,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from news_nlp import triage
 from news_nlp.db import NewsNlpDatabase, _ensure_article_row
@@ -363,6 +363,22 @@ def pending_sector_bodies(
 ) -> Iterator[Body]:
     """The ``sector`` bodies of step 1 the sector step has not done at ``revision``, at most ``limit`` (T-167)."""
     return _pending_scoped_bodies(conn, classifier_revision, "sector", STEP_SECTOR, revision, limit)
+
+
+def class_scores(stored: str | dict[str, Any]) -> dict[str, float]:
+    """The per-class scores of a stored ``body_sector.scores`` (the JSON text or the decoded object), **without the reserved keys**.
+
+    A key that starts with ``_`` is not a class: ``TRUNCATED_KEY`` holds a count, which is larger than any score, so a reader that took the best entry
+    of the raw object would get the key. Read the column through this function (fourth review of #179).
+    """
+    data = json.loads(stored) if isinstance(stored, str) else stored
+    return {key: float(value) for key, value in data.items() if not key.startswith("_")}
+
+
+def truncated_chunks(stored: str | dict[str, Any]) -> int:
+    """How many chunks of the body filled the embedder's window and were cut there, from a stored ``body_sector.scores`` (0 when the key is absent)."""
+    data = json.loads(stored) if isinstance(stored, str) else stored
+    return int(data.get(TRUNCATED_KEY, 0))
 
 
 def record_sector(

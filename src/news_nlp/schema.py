@@ -293,8 +293,8 @@ CREATE TABLE IF NOT EXISTS body_sector (
     sector              TEXT NOT NULL DEFAULT '',   -- GICS sector code, '' when out_of_scope
     candidate           TEXT NOT NULL,              -- best class of the embedding score
     margin              REAL NOT NULL,              -- best score minus the second
-    vote_sector         TEXT NOT NULL DEFAULT '',   -- sector of the companies the body names, '' when it names none
-    scores              TEXT NOT NULL DEFAULT '{}', -- JSON, per-class score
+    vote_sector         TEXT NOT NULL DEFAULT '',   -- top sector of the companies the body names; '' when it names none or the top is a tie (a tie is not agreement)
+    scores              TEXT NOT NULL DEFAULT '{}', -- JSON, per-class score; plus `_truncated_chunks` (a count) when above 0: read it through steps.class_scores
     votes               TEXT NOT NULL DEFAULT '{}', -- JSON, votes per sector
     processed_at        TEXT NOT NULL,
     PRIMARY KEY (body_hash, classifier_revision)
