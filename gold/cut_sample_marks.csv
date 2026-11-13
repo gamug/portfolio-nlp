@@ -22,7 +22,7 @@ review_order,article_id,segment_index,text_hash,extractor_revision,faithful,one_
 21,67734,2,e867796e05960967e8987521d630856bd33fd0655217f141a5afa9d8fc3bf95e,units5-d3e2cbfa830e,yes,no,yes,kept,The initial part of the news has something coming from the previous news. Nothing excesive wrong
 22,67734,3,159397de0ef5185032ae4491daf2b5e9c17f83cb2c0628b56b21eb7c360ea285,units5-d3e2cbfa830e,yes,no,yes,kept,The initial part of the news has something coming from the previous news. Nothing excesive wrong
 23,67734,4,9405c763fd58ec73837360518976f29abf1697a7aaa1423d43866a65ea437112,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
-24,67734,5,99dc6adadbc11e0dd24f7a0b313cc3b3f6edcc35e67d6fd2913919c774a09796,units5-d3e2cbfa830e,no,no,no,ambiguous,I can understand anything :S
+24,67734,5,99dc6adadbc11e0dd24f7a0b313cc3b3f6edcc35e67d6fd2913919c774a09796,units5-d3e2cbfa830e,no,no,no,kept,I can understand anything :S
 25,67734,6,73158c2933b64dbe000205aa2c16001455de3cf0cd9e43dbcfce1d95fa8b2ce8,units5-d3e2cbfa830e,no,no,no,ambiguous,There are a mixed there I can understand well
 26,67734,7,1319f8f3105a6d4166eb0896f949a1a49c0b5a8342bd9643162a98bc450519ba,units5-d3e2cbfa830e,no,no,no,ambiguous,There are a mixed there I can understand well
 27,67734,8,69fcb02a8c9e475074230776e4071ae7e87c6e7e9cc34287967424fb4b29fb6d,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There a huge mix of companies there
@@ -116,7 +116,7 @@ review_order,article_id,segment_index,text_hash,extractor_revision,faithful,one_
 115,315989,1,48cf4958ea44e020efc21eb55b0665ae1843dfce9be1a0b84f8723642487f712,units5-d3e2cbfa830e,yes,yes,yes,kept,
 116,341514,0,c2d714e17b9acffaaa410e7d6aefd52edac3d072cf7262b8429de3c1a482dd88,units5-d3e2cbfa830e,yes,yes,yes,kept,
 117,341514,1,a859ce6f96ea036f5aef8f8ce021c8cc142d29b1d36c38d4ed3b37f1db04a719,units5-d3e2cbfa830e,yes,yes,yes,kept,
-118,107071,0,98c105cdd6e3d0976148f8a3e93f44435dd2b3d0166f2d7f0ad1d41570bb3181,units5-d3e2cbfa830e,yes,no,yes,ambiguous,There are a large news about market_economy at the beginning
+118,107071,0,98c105cdd6e3d0976148f8a3e93f44435dd2b3d0166f2d7f0ad1d41570bb3181,units5-d3e2cbfa830e,yes,no,yes,kept,There are a large news about market_economy at the beginning
 119,107071,1,e516eba0f606daef044ce6f90f825bdec7e733712c582f5098b3d20b11f9ef4d,units5-d3e2cbfa830e,no,no,no,ambiguous,"This coming from the news beign a mix of investment, company facts and market_economy"
 120,107071,2,e23dba9e04f9b6aac5a2a6602d0975e5396564f5863c20f022cfd922f17e7cea,units5-d3e2cbfa830e,no,no,no,ambiguous,"This coming from the news beign a mix of investment, company facts and market_economy"
 121,107071,3,acff82877801bb768b9c31a89f8993f97907bc306bb8f2adc862c649f72216b4,units5-d3e2cbfa830e,yes,yes,yes,kept,
@@ -128,12 +128,12 @@ review_order,article_id,segment_index,text_hash,extractor_revision,faithful,one_
 127,11578,5,3ba90b3adb535f957e803d1937ee5f493c32dcf191fb7bd5be7ea20b54de9a0f,units5-d3e2cbfa830e,yes,yes,yes,kept,
 128,303658,0,ef35a97bad2bbee34a4a43c9f411d9f2c2ef8418636468c579848abe8c631388,units5-d3e2cbfa830e,yes,yes,yes,kept,
 129,303658,1,b07f6e8826823a9566fd08a5746847f76149c2dad5e1781bc8d849254f9d89df,units5-d3e2cbfa830e,yes,yes,yes,kept,
-130,164937,0,e2a6ada90909bea8b83947df604a921ff63d8e7592162f2d54d33f2ebaf1040d,units5-d3e2cbfa830e,yes,yes,yes,kept,
-131,164937,1,10083f993912407cba9098adf4aa7477a3c7dbaa4b88000c33e80170d74293d2,units5-d3e2cbfa830e,yes,yes,yes,kept,
-132,164937,2,75f899b26b85ac4d491f6284975edfab89eeafefb79f4cacf47e17b3262e95f4,units5-d3e2cbfa830e,yes,yes,yes,kept,
-133,164937,3,b9fce68f5bc48d25b7a363710620fc96885443641a307d88f48d1b6b6fa7b20f,units5-d3e2cbfa830e,yes,yes,yes,kept,
-134,164937,4,decc2ffe0d80ea850b486aa04206b40acb95cbeced3eb40a111478c95a72788e,units5-d3e2cbfa830e,yes,yes,yes,kept,
-135,164937,5,b55b80e62138c4dbf686a6b1f7fdd2c7e74f4caab4b3c0968e3d73ec8b7db496,units5-d3e2cbfa830e,yes,yes,yes,kept,
+130,164937,0,e2a6ada90909bea8b83947df604a921ff63d8e7592162f2d54d33f2ebaf1040d,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
+131,164937,1,10083f993912407cba9098adf4aa7477a3c7dbaa4b88000c33e80170d74293d2,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
+132,164937,2,75f899b26b85ac4d491f6284975edfab89eeafefb79f4cacf47e17b3262e95f4,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
+133,164937,3,b9fce68f5bc48d25b7a363710620fc96885443641a307d88f48d1b6b6fa7b20f,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
+134,164937,4,decc2ffe0d80ea850b486aa04206b40acb95cbeced3eb40a111478c95a72788e,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
+135,164937,5,b55b80e62138c4dbf686a6b1f7fdd2c7e74f4caab4b3c0968e3d73ec8b7db496,units5-d3e2cbfa830e,yes,yes,yes,wrong_scope,
 136,164937,6,5ef2d804242cdf5a75d1f191ab946ca9ef38e6c47b10d86f95e8fe6ea09cccc6,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
 137,164937,7,e7b77cc9fc4a07e307cc983b16d15c157d7c225599fa4a69637d95cfeb872e9d,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model
 138,164937,8,608f460af30f0c5eeef1dc961bd5f28a69b42c60885b3e6ea61be1b17493f8f3,units5-d3e2cbfa830e,no,no,no,wrong_scope,This is a misslabeled news. This should be tagged as investment_general but the presence of company financial tags confuses the scope model

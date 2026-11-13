@@ -8,11 +8,12 @@ Reads the marks the owner gave and ``build_cut_sample_gold_2026_11_12.py`` store
 being the pre-set measure** (every piece of the sample):
 
 - ``all``: every piece;
-- ``right_scope``: without the pieces whose body should have been scoped another way (``wrong_scope``: ``investment_general``, "misslabeled"). That is step
-  1.1's error, not the cut's. The company read from the title (``wrong_company``) is **not** left out: the three answers judge the piece against its
+- ``right_scope``: without the pieces of ``wrong_scope`` (``investment_general``, "misslabeled": a whole body when the owner's note is about the news, a
+  piece when it is about the piece; the build script stores which). That is step 1.1's error, not the cut's. The company read from the title (``wrong_company``) is **not** left out: the three answers judge the piece against its
   article, so a wrong company tag does not touch them, and the cut's own "no" in such a row counts;
-- ``right_scope_unambiguous``: also without the pieces whose body mixes companies or stories so that no cut reads well (``ambiguous``). This level is the most
-  favourable reading of the cut, not a figure to quote alone: those bodies are real input of the cut.
+- ``right_scope_unambiguous``: also without the pieces whose body mixes companies or stories so that no cut reads well (``ambiguous``). Those pieces are
+  the ones the owner marked ``one_story`` no because of the mix, so for this level ``one_story``, ``clean`` and the clean bodies are **by construction** (the
+  report says so and counts them); only ``faithful`` and ``complete`` say something. The most favourable reading of the cut, not a figure to quote alone.
 
 The levels other than ``all`` were chosen after the owner saw the misses; the bar of the extractor, >= 80% faithful (D32), is read on ``all`` first. Per
 question: the share of yes with a Wilson 95% interval over pieces and the interval of a bootstrap over bodies (the pieces of a body are not independent: the
@@ -168,13 +169,25 @@ def report(rows: list[Row], revision: str, seed: int, draws: int) -> str:
     for (name, sub), lv in zip(subsets(rows), levels(rows), strict=True):
         out += [f"## {name}: {lv.pieces} pieces of {lv.bodies} bodies", ""]
         out += ["| measure | pieces (Wilson 95%) | bodies resampled (95%) |", "|---|---|---|"]
+        by = " (by construction)" if name == "right_scope_unambiguous" else ""
         for q in QUESTIONS:
             lo, hi = body_bootstrap(sub, q, seed, draws)
-            out.append(f"| {q} yes | {_fmt(lv.yes[q], lv.pieces)} | [{lo:.1%}, {hi:.1%}] |")
+            tag = by if q == "one_story" else ""
+            out.append(f"| {q} yes{tag} | {_fmt(lv.yes[q], lv.pieces)} | [{lo:.1%}, {hi:.1%}] |")
         lo, hi = body_bootstrap(sub, "clean", seed, draws)
-        out.append(f"| clean (3 yes) | {_fmt(lv.clean_pieces, lv.pieces)} | [{lo:.1%}, {hi:.1%}] |")
-        out.append(f"| faithful and one_story | {_fmt(lv.both, lv.pieces)} | |")
-        out.append(f"| bodies with every piece clean | {_fmt(lv.clean_bodies, lv.bodies)} | |")
+        out.append(
+            f"| clean (3 yes){by} | {_fmt(lv.clean_pieces, lv.pieces)} | [{lo:.1%}, {hi:.1%}] |"
+        )
+        out.append(f"| faithful and one_story{by} | {_fmt(lv.both, lv.pieces)} | |")
+        out.append(f"| bodies with every piece clean{by} | {_fmt(lv.clean_bodies, lv.bodies)} | |")
+        if by:
+            left = [r for r in subsets(rows)[1][1] if r["kind"] == "ambiguous"]
+            one = sum(not _yes(r, "one_story") for r in left)
+            fa = sum(not _yes(r, "faithful") for r in left)
+            out += [
+                "",
+                f"{len(left)} pieces of kind ambiguous left out, {one} of them one_story no, {fa} faithful no: which is why the rows marked by construction say nothing about the cut.",
+            ]
         side = "above" if wilson(lv.yes["faithful"], lv.pieces)[1] >= BAR else "below"
         measure = (
             "pre-set measure, every piece: "

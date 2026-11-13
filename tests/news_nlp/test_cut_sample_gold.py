@@ -115,3 +115,45 @@ def test_the_files_are_written_and_never_overwritten_and_the_metrics_read_them_b
         w.writerows({"review_order": t["review_order"], "text": t["text"] + "!"} for t in texts)
     with pytest.raises(SystemExit, match="review_order 1"):
         metrics.load(marks_path, texts_path)
+
+
+def test_a_note_about_the_news_scopes_the_whole_body_and_a_note_about_a_piece_only_that_piece() -> (
+    None
+):
+    rows = [
+        _owner_row(1, 10, "yes", "yes", "yes"),
+        _owner_row(
+            2, 10, "no", "no", "no", "This is a misslabeled news. This should be investment_general"
+        ),
+        _owner_row(3, 10, "yes", "yes", "yes", "Company missunderstood"),
+        _owner_row(4, 20, "yes", "yes", "yes"),
+        _owner_row(
+            5, 20, "no", "no", "no", "To be fair, this fragment is more like investment_general"
+        ),
+        _owner_row(6, 20, "yes", "yes", "yes"),
+    ]
+    marks, _ = gold.build(rows, _ids(rows))
+    assert [m["kind"] for m in marks] == [
+        "wrong_scope",
+        "wrong_scope",
+        "wrong_scope",
+        "kept",
+        "wrong_scope",
+        "kept",
+    ]
+    assert (
+        marks[0]["notes"] == "" and marks[2]["notes"] == "Company missunderstood"
+    )  # the notes stay the owner's
+
+
+def test_a_macro_section_or_unreadable_text_is_not_ambiguity_and_stays_against_the_cut() -> None:
+    assert gold.kind_of("There are a large news about market_economy at the beginning") == "kept"
+    assert gold.kind_of("I can understand anything :S") == "kept"
+    assert gold.kind_of("This is a very broken story") == "kept"
+    assert gold.kind_of("There a huge mix of companies there") == "ambiguous"
+    assert (
+        gold.kind_of(
+            "This coming from the news beign a mix of investment, company facts and market_economy"
+        )
+        == "ambiguous"
+    )

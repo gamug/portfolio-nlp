@@ -9,13 +9,16 @@ Reads the file the owner marked and its ids file (no database) and writes the tw
 ids file ties to its ``review_order``, or when the ids name more than one cut revision. Neither output is overwritten.
 
 ``kind`` is the one place where the owner's free-text note is read, by the words below, and it is **stored**: the metrics read the column, so they do not
-depend on spelling, and the owner can correct a kind in the file. In this order, the first that fits:
+depend on spelling, and the owner can correct a kind in the file. **The kinds are word matches: the owner has not read them row by row.** In this order, the
+first that fits:
 
-- ``wrong_scope``: the note says the body should have been another scope (``investment_general``, "misslabeled"): step 1.1's error, not the cut's;
+- ``wrong_scope``: the note says the body should have been another scope (``investment_general``, "misslabeled"): step 1.1's error, not the cut's. A note
+  about **the news** ("this is a misslabeled news") is about the body: every piece of that article gets the kind, the ones with no note too. A note about a
+  piece ("this fragment is more like investment_general") is about that piece only;
 - ``wrong_company``: the company was read from the title or is lost ("company missunderstood", "company is lost"): step 3's matter; the three answers are
   about the piece, so these rows stay in every level of the figures;
-- ``ambiguous``: the body mixes companies or stories so that no cut reads well ("mix", "two companies", "two different stories", ``market_economy``,
-  "can understand");
+- ``ambiguous``: the body mixes companies or stories so that no cut reads well ("mix", "two companies", "two different stories"). A macro section the cut
+  did not split off, an unreadable text or a broken story are **not** ambiguity: they stay ``kept`` and count against the cut;
 - ``kept``: any other note, or none.
 """
 
@@ -47,13 +50,8 @@ WRONG_COMPANY_WORDS = (
     "company is lost",
     "tagged from the title",
 )
-AMBIGUOUS_WORDS = (
-    "mix",
-    "two companies",
-    "two different stories",
-    "market_economy",
-    "can understand",
-)
+AMBIGUOUS_WORDS = ("mix", "two companies", "two different stories")
+BODY_SCOPE_WORDS = ("misslabeled news", "mislabeled news")
 Row = dict[str, str]
 
 
@@ -108,6 +106,14 @@ def build(rows: list[Row], ids: list[Row]) -> tuple[list[Row], list[Row]]:
             }
         )
         texts.append({"review_order": order, "text": r["text"].strip()})
+    whole = {
+        m["article_id"]
+        for m in marks
+        if m["kind"] == "wrong_scope" and any(w in m["notes"].lower() for w in BODY_SCOPE_WORDS)
+    }
+    for m in marks:
+        if m["article_id"] in whole:
+            m["kind"] = "wrong_scope"
     return marks, texts
 
 

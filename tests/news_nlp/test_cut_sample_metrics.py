@@ -106,3 +106,15 @@ def test_the_report_leads_with_the_bar_on_all_pieces_and_names_every_row_left_ou
     )
     assert "80%" in text and "pre-set measure" in text
     assert "wrong_scope: 1" in text and "ambiguous: 1" in text and "wrong_company: 1" in text
+
+
+def test_the_last_level_says_its_one_story_and_clean_are_by_construction_with_the_count() -> None:
+    rows = [_row(i, i, "yes", "yes", "yes") for i in range(1, 8)] + [
+        _row(8, 8, "yes", "no", "yes", "ambiguous", "Two companies there"),
+        _row(9, 9, "no", "no", "no", "ambiguous", "mix of companies"),
+    ]
+    text = metrics.report(rows, revision="units5-x", seed=1, draws=50)
+    last = text[text.index("## right_scope_unambiguous") :]
+    assert "by construction" in last
+    assert "2 pieces of kind ambiguous left out, 2 of them one_story no, 1 faithful no" in text
+    assert "by construction" not in text[: text.index("## right_scope_unambiguous")]
