@@ -323,4 +323,6 @@ A quality check of the 15 bodies with an IT code led to seven corrections, made 
 | 341337 (held-out) | 4520 | 4530 | Nvidia is a chipmaker; the code only, the scope and the weights are unchanged |
 | 319048 | 45203030 | 4510 | a cybersecurity story |
 
+An eighth correction came from the sector yes/no review (2026-11-13), outside the IT check: **432785** (Simon Property, the biggest US mall owner) was tagged 3010 (Food & Staples Retailing) and is now `60107010` (Retail REITs); the scope stays `sector`, so no count changes.
+
 Two of the seven change the **scope** (295695 and 1075010 stop being `sector`); the scope model was trained before, with the old tags on those two rows (set 1 and set 7 train it), and it is not retrained: the scope validation is closed (`docs/scope_training.md` section 9.1). Before the rebuild the four `data/` working files were brought back to the committed gold: they had drifted (Excel had turned several multi-code cells into numbers, e.g. `25,503,010` for `2550, 3010`, and the 14 re-review changes of the held-out 200 of 2026-11-11 lived only in `gold/`), and a rebuild from them would have undone those. Only the tag columns were synced; `notes` were kept. The rebuilt `gold/` differs from the previous one in these seven rows only.

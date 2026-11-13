@@ -34,7 +34,7 @@ article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes,rule
 313610,scope_enrich,MAS,market_economy,,,,,economy
 414565,scope_enrich,PFE,sector,,,4010,,sector:Financials
 422175,scope_enrich,RL,sector,,,3010,,sector:Consumer Discretionary
-432785,scope_enrich,SPG,sector,,,3010,,sector:Consumer Discretionary
+432785,scope_enrich,SPG,sector,,,60107010,,sector:Consumer Discretionary
 465069,scope_enrich,UBER,sector,,,"50, 25",,sector:Information Technology
 468176,scope_enrich,UAL,single,United Airlines:labor_human_capital,,,,sector:Industrials
 468242,scope_enrich,UAL,sector,,,203020,,sector:Industrials
