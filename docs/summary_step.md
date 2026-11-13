@@ -1,6 +1,6 @@
 # Step 2: the summary (T-164, T-166, T-184; PLAN D39 (2), (3.3), D40)
 
-`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N] [--scope-revision REV]` (and `--step summary --status`)
+`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single | --items sector --sector-revision REV) [--items sub_news] [--limit N] [--scope-revision REV]` (and `--step summary --status`)
 
 ## What it does
 

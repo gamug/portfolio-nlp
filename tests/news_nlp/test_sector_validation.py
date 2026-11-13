@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,7 +44,12 @@ def test_the_headline_figures_of_the_clean_test() -> None:
         sum(r["correct"] == "yes" for r in controls) == 0
     )  # a reviewer that says yes too soon would fail here
     assert sum(r["correct"] == "yes" for r in dropped) == 7
-    assert {r["step_revision"] for r in fresh} == {"sector-cf81d9b32565"}
+    recorded = {r["step_revision"] for r in fresh}
+    assert len(recorded) == 1 and re.fullmatch(r"sector-[0-9a-f]{12}", next(iter(recorded)))
+    # the revision the draw was made under is a historical fact: the doc must say it, and say which revision the code gives for the same
+    # verdicts (checked by scripts/check_sector_validation_2026_11_13.py, which needs the model and SOURCE, so not here)
+    doc = (ROOT / "docs" / "sector_step.md").read_text(encoding="utf-8")
+    assert next(iter(recorded)) in doc and "check_sector_validation_2026_11_13.py" in doc
 
 
 def test_the_first_review_keeps_its_figures() -> None:
