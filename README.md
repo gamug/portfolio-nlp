@@ -75,7 +75,7 @@ uv run cli/news_nlp_cli.py --limit 50  # 50 pending articles
 ```
 
 Every command that reads article text needs `SOURCE_DATABASE_URL` set to a database with `articles.body_text`
-(`docs/db-topology.md`). The steps' run rules: `docs/scope_training.md` §8 (scope and cut), `docs/summary_step.md`.
+(`docs/db-topology.md`). The steps' run rules: `docs/scope_training.md` §8 (scope and cut), `docs/summary_step.md`, `docs/companies_step.md`.
 
 ## Test / lint
 
@@ -114,7 +114,7 @@ single-`DATABASE_URL` setup").
 ## Documentation
 
 `docs/modules/news-nlp.md` (the module), `docs/db-topology.md` (databases), `docs/scope_training.md`,
-`docs/extractor_training.md`, `docs/summary_step.md`, `docs/sentiment_training.md` (the models of the steps),
+`docs/extractor_training.md`, `docs/summary_step.md`, `docs/companies_step.md`, `docs/sentiment_training.md` (the models of the steps),
 `docs/gold_datasets.md` and `docs/labelling-spec-v2.md` (the owner's gold sets and tagging rules),
 `docs/category-taxonomy.md` (the D15 labels), `docs/evaluation.md` (the LLM-as-judge evaluation of the v1 stages).
 What is out of scope or deprecated is in `docs/legacy/`. The project's rules and plan are in `.specify/memory/`.
