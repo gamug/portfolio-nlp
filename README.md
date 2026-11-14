@@ -15,7 +15,7 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | Step | What it does | Model | Table | State |
   |---|---|---|---|---|
   | 1.1 scope | `single`, `multi`, `sector` or `out_of_scope` from the title and the first 800 characters | `gamug/deberta-v3-news-scope-nli` (pinned, public) | `body_scope` | built; ran on the corpus |
-  | 1.2 cut | cuts a `multi` round-up into sub-news | the `units` extractor, reading `units5` (attribution checkpoint local, not pinned) | `sub_news` | built and run: `units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies; `units5` is final (owner 2026-11-12); faithful 84.6% on all 143 marked pieces, below the 80% bar by its interval, 89.1% without the 15 pieces scoped wrongly (`docs/scope_training.md` §8.3) |
+  | 1.2 cut | cuts a `multi` round-up into sub-news | the `units` extractor, reading `units5` (attribution checkpoint: private Hub copy `gamug/FinBERT-news-attribution@436ad700`; the pin of the cut is its own change, #186) | `sub_news` | built and run: `units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies; `units5` is final (owner 2026-11-12); faithful 84.6% on all 143 marked pieces, below the 80% bar by its interval, 89.1% without the 15 pieces scoped wrongly (`docs/scope_training.md` §8.3) |
   | 2 summary | summarises a text over 2,000 characters, keeps a shorter one as it is | `sshleifer/distilbart-cnn-12-6` (pinned) | `news_summary` | built; corpus run pending |
   | 3 companies | NER, universe tickers, the main company of each text | `gamug/sec-bert-finer-ord-ner` + `gamug/deberta-v3-company-relevance` (private, not pinned) | `news_company` | pending |
   | 4 sector | the GICS sector of a `sector` body, then its summary | to be chosen | | pending |

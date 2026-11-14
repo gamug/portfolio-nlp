@@ -318,8 +318,8 @@ lean `articles` rows itself.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
-- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **not
-  published, not pinned**): a pair classifier, *is this sentence about this company?* (the company's
+- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **published,
+  private: `gamug/FinBERT-news-attribution@436ad700`; the pin of the cut is #186**): a pair classifier, *is this sentence about this company?* (the company's
   name, the previous sentence and the sentence in; trained on `lead` paragraphs only, with the
   company's name masked). A sentence that names universe companies belongs to them; one that names
   none goes to the best-scoring company of the body if the score is at least 0.5, else to nobody.
@@ -403,7 +403,7 @@ the validation score of a run is the mean of those nine figures; accuracy is a d
   only tracked files, `--order-of` repeats the published key order) and `stack` (the logistic regression on the
   out-of-fold scores -> `config/sentiment_stack.json`; `apply_stack` is the formula the model card shows).
 - `scripts/publish_final_models_2026_11_10.py` (T-169) — cards and the private upload of both models (`--dry-run`
-  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. Nothing is pinned. Details and limits:
+  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. The sentiment and relevance repositories are not pinned (the scope model is: `config/scope_model.json`). Details and limits:
   `docs/sentiment_training.md`, "Published".
 - Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
   `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.
