@@ -281,8 +281,13 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
 
     monkeypatch.setattr(cut_stage.UnitsExtractor, "load", staticmethod(load))
     # the stub folders hold no model files: the pin check (tested apart below) is told the folder is the pinned one
-    monkeypatch.setattr(cut_stage, "is_pinned", lambda model_dir, pin_path=None: True)
-    monkeypatch.setattr(cut_stage, "pin_status", lambda model_dir, pin_path=None: "pinned (stub)")
+    monkeypatch.setattr(cut_stage, "folder_identity", lambda model_dir: "stub")
+    monkeypatch.setattr(
+        cut_stage, "is_pinned", lambda model_dir, pin_path=None, identity=None: True
+    )
+    monkeypatch.setattr(
+        cut_stage, "pin_status", lambda model_dir, pin_path=None, identity=None: "pinned (stub)"
+    )
     return asked
 
 
@@ -450,6 +455,7 @@ def test_fetch_pinned_moves_in_only_a_copy_with_the_pinned_identity(
         return local_dir
 
     monkeypatch.setattr("huggingface_hub.snapshot_download", download)
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "token")
     target = tmp_path / "models" / "attribution"
     assert cut_stage.fetch_pinned(target, pin) == am.directory_identity(tmp_path / "source")
     assert seen == {
@@ -474,11 +480,66 @@ def test_fetch_pinned_deletes_a_copy_with_another_identity(
         return local_dir
 
     monkeypatch.setattr("huggingface_hub.snapshot_download", download)
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "token")
     target = tmp_path / "models" / "attribution"
     with pytest.raises(RuntimeError, match="not the pinned"):
         cut_stage.fetch_pinned(target, pin)
     assert not target.exists()
     assert not (tmp_path / "models" / ".attribution.fetching").exists()
+
+
+def test_fetch_pinned_says_what_is_missing_without_a_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_model(tmp_path / "source")
+    pin = _pin(tmp_path, tmp_path / "source")
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: None)
+    monkeypatch.setattr(
+        "huggingface_hub.snapshot_download", lambda *a, **k: pytest.fail("no download")
+    )
+    with pytest.raises(PermissionError, match="HF_TOKEN"):
+        cut_stage.fetch_pinned(tmp_path / "models" / "attribution", pin)
+
+
+def test_a_failed_fetch_exits_with_one_line_not_a_stack(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model: list[Path],
+) -> None:
+    argv = ("--step", "cut", *_paths(pair, tmp_path, results_db_path), "--fetch")
+    folder = tmp_path / "model"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"x")  # a full folder: never overwritten
+    with pytest.raises(SystemExit, match=r"--fetch: .*not empty"):
+        _argv(monkeypatch, *argv, "--model-dir", str(folder))
+
+    def no_token(model_dir: Path, pin_path: Path | None = None) -> str:
+        raise PermissionError("gamug/x is private and no Hub token is set: put HF_TOKEN in .env")
+
+    monkeypatch.setattr(cut_stage, "fetch_pinned", no_token)
+    with pytest.raises(SystemExit, match=r"--fetch: .*HF_TOKEN"):
+        _argv(monkeypatch, *argv, "--model-dir", str(tmp_path / "empty"))
+    assert stub_model == []
+
+
+def test_the_pin_functions_do_not_hash_the_folder_again_when_given_its_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Path] = []
+
+    def identity_of(directory: Path) -> str:
+        calls.append(directory)
+        return "x"
+
+    monkeypatch.setattr(cut_stage.am, "directory_identity", identity_of)
+    pin = tmp_path / "pin.json"
+    pin.write_text(json.dumps({"identity": "x", "model": "o/m", "revision": "r" * 40}))
+    identity = cut_stage.folder_identity(tmp_path)
+    cut_stage.pin_status(tmp_path, pin, identity)
+    assert cut_stage.is_pinned(tmp_path, pin, identity) is True
+    assert len(calls) == 1  # one read of the weights, not three
 
 
 def test_the_cut_refuses_an_unpinned_folder_unless_allowed(
@@ -488,7 +549,9 @@ def test_the_cut_refuses_an_unpinned_folder_unless_allowed(
     monkeypatch: pytest.MonkeyPatch,
     stub_model: list[Path],
 ) -> None:
-    monkeypatch.setattr(cut_stage, "is_pinned", lambda model_dir, pin_path=None: False)
+    monkeypatch.setattr(
+        cut_stage, "is_pinned", lambda model_dir, pin_path=None, identity=None: False
+    )
     argv = ("--step", "cut", *_paths(pair, tmp_path, results_db_path), *_model(tmp_path))
     with pytest.raises(SystemExit, match="not the pinned attribution model"):
         _argv(monkeypatch, *argv)

@@ -6,7 +6,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step scope --status        # counts by state and by scope, no model loaded
     uv run cli/news_nlp_steps.py --step scope --fetch --status   # first: download the pinned model into models/scope_final
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
-    uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2)
+    uv run cli/news_nlp_steps.py --step cut --fetch --status  # first: download the pinned attribution model into an empty --model-dir (private: HF_TOKEN)
+    uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2); a folder that is not the pinned model is refused (--allow-unpinned)
     uv run cli/news_nlp_steps.py --step cut --status          # sub-news written and bodies by state
     uv run cli/news_nlp_steps.py --step summary --items single --limit 200   # step 2: summarise the single bodies over 2,000 characters
     uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
@@ -477,6 +478,7 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         DEFAULT_READING,
         UnitsExtractor,
         companies_of,
+        folder_identity,
         is_pinned,
         pin_status,
     )
@@ -487,8 +489,9 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             "(config/attribution_model.json, private: needs HF_TOKEN) or pass --model-dir"
         )
     try:
-        print(pin_status(args.model_dir), file=sys.stderr)
-        unpinned = is_pinned(args.model_dir) is False
+        identity = folder_identity(args.model_dir)  # once: the weights are large
+        print(pin_status(args.model_dir, identity=identity), file=sys.stderr)
+        unpinned = is_pinned(args.model_dir, identity=identity) is False
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
     if unpinned and not args.allow_unpinned:
@@ -1280,7 +1283,14 @@ def main() -> None:
         else:
             from scope_stage import fetch_pinned  # noqa: PLC0415
 
-        print(f"fetched the pinned model into {args.model_dir}: {fetch_pinned(args.model_dir)}")
+        try:
+            identity = fetch_pinned(args.model_dir)
+        except (
+            OSError,
+            RuntimeError,
+        ) as exc:  # not empty, no token, no access, a wrong copy: one line, not a stack
+            sys.exit(f"--fetch: {exc}")
+        print(f"fetched the pinned model into {args.model_dir}: {identity}")
     with exit_on_schema_error():
         conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     db.init_schema(conn)

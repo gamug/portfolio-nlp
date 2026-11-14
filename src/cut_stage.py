@@ -72,21 +72,31 @@ def distinct(texts: Sequence[str]) -> list[str]:
 PIN_PATH = Path(__file__).resolve().parent.parent / "config" / "attribution_model.json"
 
 
-def is_pinned(model_dir: Path, pin_path: Path | None = None) -> bool | None:
-    """Whether the folder holds the pinned attribution model (same identity); ``None`` when no pin is recorded."""
+def folder_identity(model_dir: Path) -> str:
+    """The identity of the folder (a hash of its files): computed once per run, the weights are large."""
+    return am.directory_identity(model_dir)
+
+
+def is_pinned(
+    model_dir: Path, pin_path: Path | None = None, identity: str | None = None
+) -> bool | None:
+    """Whether the folder holds the pinned attribution model (same identity); ``None`` when no pin is recorded.
+
+    *identity* is the folder's, when the caller has it already (``folder_identity``).
+    """
     path = pin_path or PIN_PATH
     if not path.exists():
         return None
     return bool(
         json.loads(path.read_text(encoding="utf-8")).get("identity")
-        == am.directory_identity(model_dir)
+        == (identity or folder_identity(model_dir))
     )
 
 
-def pin_status(model_dir: Path, pin_path: Path | None = None) -> str:
+def pin_status(model_dir: Path, pin_path: Path | None = None, identity: str | None = None) -> str:
     """One line saying whether *model_dir* is the pinned attribution model (``config/attribution_model.json``, T-194)."""
-    identity = am.directory_identity(model_dir)
-    pinned = is_pinned(model_dir, pin_path)
+    identity = identity or folder_identity(model_dir)
+    pinned = is_pinned(model_dir, pin_path, identity)
     if pinned is None:
         return f"attribution model {identity}: no pin recorded"
     pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
@@ -107,9 +117,15 @@ def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
     """
     import shutil  # noqa: PLC0415 -- only the download needs these
 
-    from huggingface_hub import snapshot_download  # noqa: PLC0415
+    from huggingface_hub import get_token, snapshot_download  # noqa: PLC0415
 
     pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if (
+        not get_token()
+    ):  # the Hub answers "not found" to a private repository without a token: say what is missing
+        raise PermissionError(
+            f"{pin['model']} is private and no Hub token is set: put HF_TOKEN in the environment or in .env"
+        )
     if model_dir.exists() and any(model_dir.iterdir()):
         raise FileExistsError(
             f"{model_dir} is not empty: move it away before fetching the pinned model"
