@@ -106,6 +106,15 @@ def test_a_record_is_written_once_and_an_upload_without_a_commit_records_nothing
     publish.record_upload(published, "a" * 40, "card", "w" * 64, IDENTITY)
     what = json.loads(published.read_text(encoding="utf-8"))["what"]
     assert what == "the models; " + publish.WHAT_ADDED
+    for before, kept in [
+        ("", ""),  # no text yet: no leading separator
+        ("a; attribution: old; later clause", "a; later clause"),  # the clause after it is kept
+        ("attribution: old; b.", "b"),  # first in the text
+    ]:
+        published.write_text(json.dumps({"what": before}), encoding="utf-8")
+        publish.record_upload(published, "a" * 40, "card", "w" * 64, IDENTITY)
+        what = json.loads(published.read_text(encoding="utf-8"))["what"]
+        assert what == (kept + "; " if kept else "") + publish.WHAT_ADDED
 
 
 @pytest.mark.skipif(

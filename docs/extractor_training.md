@@ -63,8 +63,8 @@ What the evidence does not cover:
   `local:8399ccf003c60143` (a hash of its files), trained by `scripts/train_attribution_2026_11_08.py`
   (see "Experiments", 2). The extractor revisions recorded with the marks are in
   `data/faithfulness_stale.json`. The figures belong to that directory. **On 2026-11-14 the owner had it published**, private: `gamug/FinBERT-news-attribution@436ad700`
-  (`scripts/publish_attribution_model_2026_11_14.py`, `config/published_models.json` key `attribution`; `--check` compares the Hub with the local folder). The cut still reads the local
-  directory (`--model-dir`) until #186 pins the Hub copy; T-194 tests that the Hub copy reproduces the cut.
+  (`scripts/publish_attribution_model_2026_11_14.py`, `config/published_models.json` key `attribution`; `--check` compares the Hub with the local folder). The cut runs on the local
+  `--model-dir` or on the Hub copy fetched with `--fetch` (the pin: `config/attribution_model.json`); T-194 tests that the Hub copy reproduces the cut.
 
 ## What the extractor does, in one paragraph
 

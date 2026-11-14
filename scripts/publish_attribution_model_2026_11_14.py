@@ -9,8 +9,8 @@ The cut gives a piece of a round-up that names no company to the company this mo
 One repository, ``gamug/FinBERT-news-attribution``, **private**: ``model.safetensors``, ``config.json``, ``tokenizer.json``,
 ``tokenizer_config.json``, ``metrics.json`` (the training record) and a ``README.md`` card written from that record. The licence is
 ``cc-by-nc-sa-4.0``: the base ``gamug/FinBERT-financial-news`` carries the share-alike of ``ProsusAI/finbert``. After the upload the commit,
-the sha256 of the card and of the weights and the identity are written to ``config/published_models.json`` (key ``attribution``). It is
-**not pinned**: the cut still reads a local ``--model-dir``; to repeat the cut from the Hub copy download only the five model files into a clean
+the sha256 of the card and of the weights and the identity are written to ``config/published_models.json`` (key ``attribution``). The pin of
+the cut is ``config/attribution_model.json`` (#186); to repeat the cut from the Hub copy download only the five model files into a clean
 folder (a ``README.md`` or ``.gitattributes`` in it changes the identity, and so the revision of the cut). ``--check`` is read-only. Needs
 ``HF_TOKEN`` (write scope) in the environment or ``.env``.
 """
@@ -161,10 +161,9 @@ def record_upload(published: Path, revision: str, text: str, weights: str, ident
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise SystemExit(f"the upload returned no commit SHA ({revision!r}); nothing recorded")
     current = json.loads(published.read_text(encoding="utf-8")) if published.exists() else {}
-    what = re.sub(
-        r";\s*attribution:.*$", "", current.get("what", "").rstrip(".")
-    )  # the clause is last: replaced, never doubled
-    current["what"] = what + "; " + WHAT_ADDED
+    # only the attribution clause is replaced (it ends at the next ";"); the clauses of the other models are kept
+    rest = re.sub(r"(^|;\s*)attribution:[^;]*", "", current.get("what", "").rstrip(".")).strip("; ")
+    current["what"] = "; ".join(part for part in (rest, WHAT_ADDED) if part)
     current["attribution"] = {
         "repo": REPO,
         "revision": revision,
