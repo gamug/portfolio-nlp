@@ -69,7 +69,7 @@ def conn(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDat
             company=ticker,
             gics_sector=sector,
             body_text=f"Body of {ticker}. " * 20,
-            fetched_at="2022-01-10T10:00:00Z",
+            fetched_at="2026-08-20T10:00:00Z",  # crawled years after it was published: only the publication date puts a gap in window 1
             pub_date="2022-01-10T10:00:00Z",
         )
     raw.commit()
@@ -733,3 +733,50 @@ def test_the_window_follows_the_publication_date_and_the_crawl_date_only_when_th
         for r in conn.execute("SELECT item_id, period_end FROM period_item")
     }
     assert counted == {"backlog": END1, "no_pub": END1}
+
+
+def test_the_not_counted_pairs_are_dated_by_publication_not_by_crawl(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    steps.record_companies(
+        conn,
+        steps.ITEM_BODY,
+        triage.body_hash("Body of AAPL. " * 20),
+        "companies-t",
+        [steps.CompanyScore("AAPL", 1, 0.9)],
+        0.5,
+    )
+    conn.execute(
+        "INSERT INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, text, text_source, category, sentiment, inputs, processed_at) "
+        "VALUES ('body', 'other', 'AAPL', ?, '2026-08-20T10:00:00Z', '2022-01-12T10:00:00Z', 't', 'summary', 'labor', 'positive', ?, 't')",
+        (SNAP, json.dumps({"companies": "companies-t"})),
+    )
+    conn.commit()
+    _run(conn)
+    missing = conn.execute(
+        "SELECT not_counted FROM period_summary WHERE period_end = ? AND kind = 'company' AND key = 'AAPL'",
+        (END1,),
+    ).fetchone()[0]
+    assert (
+        missing == 1
+    )  # the fixture article is published 2022-01-10 and crawled the same day: window 1 either way
+
+
+def test_the_text_says_how_many_of_the_counted_snapshots_are_late(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    _run(conn, AFTER_P1)
+    _add(
+        conn, "late", "AAPL", "2022-01-20T10:00:00Z"
+    )  # dated in window 1, snapshotted after it was written
+    result = _run(conn, AFTER_P3)
+    text = period.render(conn, END2, result["period_revision"])
+    assert (
+        "1 snapshots counted, of which late (dated before the window, snapshotted after it was written): 1"
+        in text
+    )
+    first = period.render(conn, END1, result["period_revision"])
+    assert "1 snapshots counted, of which late" in first and first.rstrip().splitlines()[
+        1
+    ].endswith(": 0")

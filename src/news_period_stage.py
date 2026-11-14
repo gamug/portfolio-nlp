@@ -146,6 +146,9 @@ def _code() -> str:
         snap.crawl_date_ok,
         snap.normalize_crawl_date,
         snap.normalize_pub_date,
+        snap.published_after_crawl,
+        snap.Article.date.fget,  # type: ignore[attr-defined]
+        snap.Article.date_source.fget,  # type: ignore[attr-defined]
         snap._body_hashes,
     )
     return hashlib.sha256(
@@ -413,7 +416,14 @@ def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     ):
         blocks[str(kind)].append((str(key), json.loads(str(counts)), int(missing)))
     window = f"({run_row[0] or 'the beginning'}, {period_end}]"
-    lines = [f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})"]
+    counted, late = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(late), 0) FROM period_item WHERE period_end = ? AND model_revision = ?",
+        (period_end, period_rev),
+    ).fetchone()
+    lines = [
+        f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})",
+        f"{counted} snapshots counted, of which late (dated before the window, snapshotted after it was written): {late}",
+    ]
     for kind in ("company", "sector"):
         for key, counts, missing in sorted(
             blocks[kind], key=lambda b: (-sum(c["total"] for c in b[1].values()), b[0])

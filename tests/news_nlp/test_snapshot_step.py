@@ -870,6 +870,9 @@ def test_a_body_with_no_publication_date_takes_its_crawl_date_and_says_so(
         ("2022-03-04", "2022-03-04T00:00:00Z"),  # a date with no time is 00:00 UTC
         ("2022-03-04 10:11:12", "2022-03-04T10:11:12Z"),  # a time with no zone is UTC
         ("Fri, 04 Mar 2022 10:11:12 GMT", "2022-03-04T10:11:12Z"),  # RFC 2822
+        ("20220304", "2022-03-04T00:00:00Z"),  # the compact ISO form
+        ("2022-03-04T10:11", "2022-03-04T10:11:00Z"),  # no seconds, no zone
+        ("2022-02-30", ""),  # a day that does not exist
         ("", ""),
         ("yesterday", ""),
         ("1970-01-01", ""),  # a year outside 1990 to 2100 is not a news date
@@ -877,3 +880,41 @@ def test_a_body_with_no_publication_date_takes_its_crawl_date_and_says_so(
 )
 def test_a_publication_date_is_read_in_the_forms_a_source_gives_it(raw: str, expected: str) -> None:
     assert snap.normalize_pub_date(raw) == expected
+
+
+def test_a_publication_date_after_the_crawl_is_not_used_and_the_status_counts_where_the_dates_came_from(
+    tmp_path: Path, results_db_path: Path
+) -> None:
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        ("2022-01-10T12:00:00Z", "2022-01-02T09:00:00Z", "2022-01-05T10:00:00Z"),
+        published=("2030-01-01T00:00:00Z", "2030-06-01T00:00:00Z", "2022-01-04T10:00:00Z"),
+    )
+    try:
+        _seed(conn)
+        steps.record_sentiment(conn, steps.ITEM_BODY, HASH_B, SENT, {"MSFT": _sentiment()}, "m")
+        _run(conn)
+        by_item = {
+            r["item_id"]: (r["pub_date"], json.loads(r["inputs"])["date"])
+            for r in conn.execute("SELECT DISTINCT item_id, pub_date, inputs FROM news_snapshot")
+        }
+        assert by_item[HASH_A] == (
+            "",
+            "crawled_future_pub",
+        )  # both articles claim a future: the crawl date is the date
+        assert by_item[HASH_B] == ("2022-01-04T10:00:00Z", "published")
+        assert snap.status(conn)["date_source"] == {"crawled_future_pub": 2, "published": 1}
+        assert snap.published_after_crawl("2022-01-12T00:00:00Z", "2022-01-10T12:00:00Z")
+        assert not snap.published_after_crawl(
+            "2022-01-11T00:00:00Z", "2022-01-10T12:00:00Z"
+        )  # within a day: a zone
+        assert not snap.published_after_crawl("2022-01-12T00:00:00Z", "")  # nothing to compare with
+    finally:
+        db_module.detach_source(conn)
+
+
+def test_the_revision_hashes_the_rule_of_the_date() -> None:
+    code = inspect.getsource(snap._code)
+    for name in ("published_after_crawl", "Article.date.fget", "Article.date_source.fget"):
+        assert name in code

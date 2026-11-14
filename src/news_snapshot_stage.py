@@ -14,7 +14,7 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -57,6 +57,9 @@ class Article:
     fetched_at: str
     title: str
     pub_date: str
+    future_pub: bool = (
+        False  # a publication date was read but it is later than the crawl: it was not used
+    )
 
     @property
     def date(self) -> str:
@@ -65,12 +68,25 @@ class Article:
 
     @property
     def date_source(self) -> str:
-        return "published" if self.pub_date else "crawled"
+        """Where the date came from: ``published``, ``crawled`` (no valid publication date) or ``crawled_future_pub`` (a publication date later than the crawl)."""
+        if self.pub_date:
+            return "published"
+        return "crawled_future_pub" if self.future_pub else "crawled"
+
+
+def published_after_crawl(published: str, crawled: str) -> bool:
+    """A publication date later than the crawl date (more than a day: the zone of a source is not always known) cannot be right: a news item is not
+    published after it was downloaded. Both are ``YYYY-MM-DDTHH:MM:SSZ``; with no crawl date there is nothing to compare."""
+    if not published or not crawled:
+        return False
+    moment = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    seen = datetime.strptime(crawled, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return moment > seen + timedelta(days=1)
 
 
 def _code() -> str:
     """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
-    the corpus (``articles_of``, ``normalize_crawl_date``, ``normalize_pub_date``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
+    the corpus (``articles_of``, ``normalize_crawl_date``, ``normalize_pub_date``, ``published_after_crawl``, ``Article.date``, ``Article.date_source``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
     docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
     functions = (
         _row_values,
@@ -79,6 +95,9 @@ def _code() -> str:
         articles_of,
         normalize_crawl_date,
         normalize_pub_date,
+        published_after_crawl,
+        Article.date.fget,  # type: ignore[attr-defined]  # the rule of the date: publication, else crawl
+        Article.date_source.fget,  # type: ignore[attr-defined]
         crawl_date_ok,
         _with_articles,
         _sector_todo,
@@ -345,9 +364,12 @@ def articles_of(
                 str(fetched_at or "")
             )  # "" when not a date with a zone: it never decides the window
             published = normalize_pub_date(str(pub_date or ""))
+            future = published_after_crawl(published, when)
+            if future:
+                published = ""  # not a publication date a crawl could have seen
             seen = found.get(key)
             if seen is None:
-                found[key] = Article(when, str(title or ""), published)
+                found[key] = Article(when, str(title or ""), published, future)
             else:
                 earliest_crawl = (
                     when
@@ -359,7 +381,9 @@ def articles_of(
                     if published and (not seen.pub_date or published < seen.pub_date)
                     else seen.pub_date
                 )
-                found[key] = Article(earliest_crawl, seen.title, earliest_pub)
+                found[key] = Article(
+                    earliest_crawl, seen.title, earliest_pub, seen.future_pub or future
+                )
     return {item: found[h] for item, h in hash_of.items() if h in found}
 
 
@@ -587,6 +611,17 @@ def run(
     return result
 
 
+def _date_sources(conn: NewsNlpDatabase, revision_: str) -> dict[str, int]:
+    """How many rows of the revision took their date from the publication date (``published``) and how many from the crawl date (``crawled``: no valid
+    publication date; ``crawled_future_pub``: one later than the crawl). The number that says whether the reader of ``pub_date`` works on the real store."""
+    counts: Counter[str] = Counter()
+    for (raw,) in conn.execute(
+        "SELECT inputs FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (revision_,)
+    ):
+        counts[str(json.loads(str(raw)).get("date", "unknown"))] += 1
+    return dict(counts)
+
+
 def _stale(
     conn: NewsNlpDatabase, named: dict[str, str | None], companies_revision: str
 ) -> dict[str, int]:
@@ -665,6 +700,7 @@ def status(
             {"revision": r, "company_rows": c, "sector_rows": t} for r, (c, t) in counts.items()
         ],
     }
+    out["date_source"] = _date_sources(conn, current)
     if None not in (summary_revision, companies_revision, category_revision, sentiment_revision):
         out["stale_rows"] = _stale(
             conn,
