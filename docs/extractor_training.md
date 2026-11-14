@@ -58,13 +58,13 @@ What the evidence does not cover:
 ### What is not done
 
 - **The selection was a record, not a code change, on 2026-11-08.** Since then it is wired: the cut step (`--step cut`, `src/cut_stage.py`, #168) runs the `units` extractor, read as `units4` from #169 and as `units5` since #176 (2026-11-12). What is still left of T-148b12 is the pin below.
-- **The checkpoint is published (private); the pin of the cut is `config/attribution_model.json` (#186).** The model every `units` figure here was measured with is
+- **The checkpoint is published (private); the pin of the cut is its own change (#186, T-194).** The model every `units` figure here was measured with is
   the local directory `data/models/attribution_2026_11_08` (git-ignored), identified by the draw as
   `local:8399ccf003c60143` (a hash of its files), trained by `scripts/train_attribution_2026_11_08.py`
   (see "Experiments", 2). The extractor revisions recorded with the marks are in
   `data/faithfulness_stale.json`. The figures belong to that directory. **On 2026-11-14 the owner had it published**, private: `gamug/FinBERT-news-attribution@436ad700`
   (`scripts/publish_attribution_model_2026_11_14.py`, `config/published_models.json` key `attribution`; `--check` compares the Hub with the local folder). The cut runs on the local
-  `--model-dir` or on the Hub copy fetched with `--fetch` (the pin: `config/attribution_model.json`); T-194 tests that the Hub copy reproduces the cut.
+  `--model-dir` or, once #186 is in, on the Hub copy it pins; T-194 tests that the Hub copy reproduces the cut.
 
 ## What the extractor does, in one paragraph
 

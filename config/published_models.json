@@ -1,5 +1,5 @@
 {
-  "what": "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); sentiment and relevance: private, not pinned (config/pipeline_models.json); attribution: private (the pin of the cut is config/attribution_model.json, #186; T-194 tests the Hub copy)",
+  "what": "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); sentiment and relevance: private, not pinned (config/pipeline_models.json); attribution: private (the pin of the cut is its own change, #186; T-194 tests the Hub copy)",
   "sentiment": {
     "repo": "gamug/FinBERT-company-sentiment",
     "revision": "9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e",
