@@ -1286,67 +1286,51 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
 
 
 def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
-    """Step 8 (T-195): join the texts, categories and sentiments into ``news_snapshot``. No model; the state is derived from the tables."""
+    """Step 8 (T-195): join the texts, categories and sentiments into ``news_snapshot``. No model; the state is derived from the tables.
+    Always idempotent: a pair that has a row is not read again whatever revisions it was built from, unless ``--reset`` deletes the rows first."""
     import news_snapshot_stage as snap  # noqa: PLC0415
 
     summary, companies, cut = args.summary_revision, args.companies_revision, args.cut_revision
     category, sentiment = args.category_revision, args.sentiment_revision
-    sector_rows = (
-        snap.sector_revision_of(
-            snap.revision(summary, companies, cut, category, sentiment), args.sector_revision
-        )
-        if all((summary, companies, cut, category, sentiment)) and args.sector_revision
-        else None
-    )
-    revision = (
-        snap.revision(summary, companies, cut, category, sentiment)
-        if all((summary, companies, cut, category, sentiment))
-        else None
-    )
     if args.status:
+        given = all((summary, companies, category, sentiment))
         print(
             json.dumps(
                 snap.status(
                     conn,
-                    revision,
-                    summary_revision=summary,
+                    summary_revision=summary if given else None,
                     companies_revision=companies,
                     category_revision=category,
                     sentiment_revision=sentiment,
-                    sector_rows_revision=sector_rows,
                 ),
                 indent=2,
             )
         )
         return
-    if (
-        revision is None
-    ):  # check_options asks for the cut, category and sentiment revisions; these two are checked here
-        sys.exit("--step snapshot needs --summary-revision and --companies-revision")
+    if not (summary and companies and cut and category and sentiment):
+        sys.exit(
+            "--step snapshot needs --summary-revision, --companies-revision, --cut-revision, --category-revision and --sentiment-revision"
+        )
     problems = snap.check_inputs(
         conn, summary, companies, cut, category, sentiment, args.sector_revision
     )
     if problems:
         sys.exit("refused: " + "; ".join(problems))
-    print(f"snapshot revision {revision}", file=sys.stderr)
-    sector = (sector_rows, args.sector_revision) if sector_rows and args.sector_revision else None
-    result = {
-        "revision": revision,
-        **snap.run(conn, revision, summary, companies, category, sentiment, args.limit, sector),
-    }
-    if sector:
-        result["sector_revision"] = sector_rows
+    if args.reset:
+        print(f"reset: {snap.reset(conn)} snapshots of {snap.revision()} deleted", file=sys.stderr)
+    print(f"snapshot revision {snap.revision()}", file=sys.stderr)
+    result = snap.run(
+        conn, summary, companies, cut, category, sentiment, args.limit, args.sector_revision
+    )
     print(json.dumps(result, indent=2))
     print(
         json.dumps(
             snap.status(
                 conn,
-                revision,
-                summary_revision=args.summary_revision,
-                companies_revision=args.companies_revision,
-                category_revision=args.category_revision,
-                sentiment_revision=args.sentiment_revision,
-                sector_rows_revision=sector_rows,
+                summary_revision=summary,
+                companies_revision=companies,
+                category_revision=category,
+                sentiment_revision=sentiment,
                 waiting=result["waiting_by_reason"],
             ),
             indent=2,
@@ -1427,7 +1411,9 @@ RESENTIMENT_SQL = (
     "DELETE FROM news_sentiment WHERE model_revision = '<sentiment revision>';",
 )
 #: To write the snapshots again at one revision (the rows are written with INSERT OR IGNORE; the state is derived from the rows, so there is none to delete).
-RESNAPSHOT_SQL = ("DELETE FROM news_snapshot WHERE model_revision = '<snapshot revision>';",)
+RESNAPSHOT_SQL = (
+    "DELETE FROM news_snapshot WHERE model_revision = '<snapshot revision>';",
+)  # what --reset does
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';",
@@ -1449,7 +1435,7 @@ To run the category step again at one revision (`--step category --status` print
   {recategory}
 To run the sentiment step again at one revision (`--step sentiment --status` prints it):
   {resentiment}
-To write the snapshots again at one revision (`--step snapshot` prints it; sector rows have their own, printed as `sector_revision`):
+To write the snapshots again (`--reset` does it; it is the same SQL; the revision is the code's, `--step snapshot --status` prints it):
   {resnapshot}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
@@ -1475,7 +1461,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="touch at most this many items (bodies; for summary, companies and category also sub-news)",
+        help="touch at most this many items (bodies; for summary, companies and category also sub-news; for snapshot, this many company pairs and, with --sector-revision, this many more sector texts)",
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
@@ -1549,9 +1535,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="summary, with --items sector: the sector revision whose assigned bodies are summarised; required, never the latest (the revisions the sector step has are listed)",
     )
     parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="snapshot: delete the snapshots of the current revision first and write them again (the step is otherwise always idempotent: a pair that has a row is not read again, whatever revisions it came from)",
+    )
+    parser.add_argument(
         "--category-revision",
         default=None,
-        help="snapshot: the category revision whose labels are joined (required to run, never the latest)",
+        help="snapshot: the category revision whose labels are joined (required to run, never the latest); recorded in each row, not in the revision",
     )
     parser.add_argument(
         "--sentiment-revision",
@@ -1628,6 +1619,8 @@ def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Name
 def _check_snapshot_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the snapshot step (step 8): the five revisions it joins to run; the two it alone reads are refused elsewhere."""
     if args.step != steps.STEP_SNAPSHOT:
+        if args.reset:
+            parser.error("--reset only applies to --step snapshot")
         if args.category_revision is not None or args.sentiment_revision is not None:
             parser.error(
                 "--category-revision and --sentiment-revision only apply to --step snapshot"

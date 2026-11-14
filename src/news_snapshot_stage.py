@@ -2,7 +2,7 @@
 the text of step 2, the category (step 7) and the sentiment (step 6). No model and no network: the step only joins what the earlier steps stored.
 
 Design and every decision: ``docs/snapshot_steps.md``. A pair is written only when its text, category and sentiment all exist (complete rows only); the state
-is **derived from the tables** (a pair is pending when it has no row at the revision), not kept in ``pipeline_step_state``.
+is **derived from the tables** (a pair is pending when it has no row at the revision, whatever the input revisions), not kept in ``pipeline_step_state``.
 """
 
 from __future__ import annotations
@@ -97,32 +97,11 @@ def _row_values(pair: Pair, article: Article, sector: str) -> tuple[object, ...]
     )
 
 
-def revision(
-    summary_revision: str,
-    companies_revision: str,
-    cut_revision: str,
-    category_revision: str,
-    sentiment_revision: str,
-) -> str:
-    """The revision of the company rows: the four step revisions a company row reads, the cut revision (the text and the title of a sub-news depend on
-    it) and the code that builds the row. The sector revision is **not** in it (owner, 2026-11-14): a sector rerun never changes a company snapshot."""
-    key = json.dumps(
-        {
-            "summary": summary_revision,
-            "companies": companies_revision,
-            "cut": cut_revision,
-            "category": category_revision,
-            "sentiment": sentiment_revision,
-            "code": _code(),
-        },
-        sort_keys=True,
-    )
-    return PREFIX + hashlib.sha256(key.encode()).hexdigest()[:12]
-
-
-def sector_revision_of(base: str, sector_revision: str) -> str:
-    """The revision of the sector rows: the company revision and the sector step's revision."""
-    return PREFIX + hashlib.sha256(f"{base}|{sector_revision}".encode()).hexdigest()[:12]
+def revision() -> str:
+    """The revision of the snapshots: **the code that builds a row only** (owner, 2026-11-14: the step is always idempotent). The revisions of the five steps
+    it read are not in it: they are recorded in each row (``inputs``), so a sentiment revision that moves (a new company becomes main) neither restarts the
+    snapshots nor the periods built on them. Another revision of these rows is a change of this code, or ``--reset``."""
+    return PREFIX + hashlib.sha256(_code().encode()).hexdigest()[:12]
 
 
 def check_inputs(
@@ -395,29 +374,57 @@ def _sector_row(
 
 _INSERT = (
     "INSERT OR IGNORE INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, title, text, text_source, "
-    "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, processed_at) "
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, inputs, processed_at) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
+
+
+def reset(conn: NewsNlpDatabase) -> int:
+    """Delete the snapshots of the current revision (company and sector rows) and return how many: the one way to rebuild them (``--reset``). A period
+    that counted them keeps its rows; read ``docs/snapshot_steps.md`` before rebuilding after a period was written."""
+    count = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ?", (revision(),)
+        ).fetchone()[0]
+    )
+    conn.execute("DELETE FROM news_snapshot WHERE model_revision = ?", (revision(),))
+    conn.commit()
+    return count
 
 
 def run(
     conn: NewsNlpDatabase,
-    revision_: str,
     summary_revision: str,
     companies_revision: str,
+    cut_revision: str,
     category_revision: str,
     sentiment_revision: str,
     limit: int | None,
-    sector: tuple[str, str] | None = None,
+    sector_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Write the snapshots of up to ``limit`` complete pairs of the company revision (and, with ``sector`` = (the revision of the sector rows, the
-    sector step's revision), up to ``limit`` sector texts); return what was done. The corpus is read **once** for both. ``waiting`` is what
-    cannot be written yet, ``waiting_by_reason`` why (the company pairs), ``ready_left`` the complete rows the limit left for the next run."""
+    """Write the snapshots of up to ``limit`` complete pairs of the company revision (and, with ``sector_revision``, up to ``limit`` more: the sector
+    texts); return what was done. A pair that has a row is never read again, whatever revisions it was built from (they are in the row's ``inputs``).
+    The corpus is read **once** for both. ``waiting`` is what cannot be written yet, ``waiting_by_reason`` why (the company pairs), ``ready_left`` the
+    complete rows the limit left for the next run."""
+    revision_ = revision()
+    inputs = json.dumps(
+        {
+            "summary": summary_revision,
+            "companies": companies_revision,
+            "cut": cut_revision,
+            "category": category_revision,
+            "sentiment": sentiment_revision,
+            "sector": sector_revision or "",
+        },
+        sort_keys=True,
+    )
     ready, waiting = _ready_and_waiting(
         conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
     )
     todo_sector, sector_no_text = (
-        _sector_todo(conn, sector[0], summary_revision, sector[1]) if sector else ([], 0)
+        _sector_todo(conn, revision_, summary_revision, sector_revision)
+        if sector_revision
+        else ([], 0)
     )
     info = articles_of(
         conn,
@@ -429,15 +436,24 @@ def run(
     for pair, article in chosen:
         conn.execute(
             _INSERT,
-            (pair.kind, pair.item_id, pair.ticker, revision_, *_row_values(pair, article, ""), now),
+            (
+                pair.kind,
+                pair.item_id,
+                pair.ticker,
+                revision_,
+                *_row_values(pair, article, ""),
+                inputs,
+                now,
+            ),
         )
     result: dict[str, Any] = {
+        "revision": revision_,
         "written": len(chosen),
         "waiting": sum(waiting.values()),
         "waiting_by_reason": dict(waiting),
         "ready_left": len(complete) - len(chosen),
     }
-    if sector:
+    if sector_revision:
         sector_ready = [
             (h, sec, text, source, info[(steps.ITEM_BODY, h)])
             for h, sec, text, source in todo_sector
@@ -451,8 +467,9 @@ def run(
                     steps.ITEM_BODY,
                     h,
                     "",
-                    sector[0],
+                    revision_,
                     *_sector_row(h, sec, text, source, article),
+                    inputs,
                     now,
                 ),
             )
@@ -467,50 +484,33 @@ def run(
 
 def status(
     conn: NewsNlpDatabase,
-    revision_: str | None,
     *,
     summary_revision: str | None = None,
     companies_revision: str | None = None,
     category_revision: str | None = None,
     sentiment_revision: str | None = None,
-    sector_rows_revision: str | None = None,
     waiting: dict[str, int] | None = None,
 ) -> dict[str, object]:
-    """The rows by revision (company rows and sector rows apart) and, with the four input revisions and the snapshot revision, the main pairs still
-    waiting and why (derived from the tables; it reads the corpus once, unless ``waiting`` is given: the run already knows it). ``sector_rows_revision`` is the revision the sector rows were written at."""
+    """The revision of this code, its rows (company rows and sector rows apart), the revisions that ever wrote rows and, with the four input revisions,
+    the main pairs still waiting and why (derived from the tables; it reads the corpus once, unless ``waiting`` is given: the run already knows it)."""
+    current = revision()
+    counts = {
+        str(r): (int(c), int(t))
+        for r, c, t in conn.execute(
+            "SELECT model_revision, COALESCE(SUM(ticker != ''), 0), COALESCE(SUM(ticker = ''), 0) FROM news_snapshot GROUP BY model_revision"
+        )
+    }
+    company_rows, sector_rows = counts.get(current, (0, 0))
     out: dict[str, object] = {
         "step": "snapshot",
+        "revision": current,
+        "company_rows": company_rows,
+        "sector_rows": sector_rows,
         "revisions": [
-            {"revision": str(r), "company_rows": int(c), "sector_rows": int(t)}
-            for r, c, t in conn.execute(
-                "SELECT model_revision, COALESCE(SUM(ticker != ''), 0), COALESCE(SUM(ticker = ''), 0) FROM news_snapshot "
-                "GROUP BY model_revision ORDER BY MIN(processed_at) DESC"
-            )
+            {"revision": r, "company_rows": c, "sector_rows": t} for r, (c, t) in counts.items()
         ],
     }
-    if revision_ is not None:
-        out["revision"] = revision_
-        out["company_rows"] = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker != ''",
-                (revision_,),
-            ).fetchone()[0]
-        )
-    if sector_rows_revision is not None:
-        out["sector_rows_revision"] = sector_rows_revision
-        out["sector_rows"] = int(
-            conn.execute(
-                "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker = ''",
-                (sector_rows_revision,),
-            ).fetchone()[0]
-        )
-    if None not in (
-        summary_revision,
-        companies_revision,
-        category_revision,
-        sentiment_revision,
-        revision_,
-    ):
+    if None not in (summary_revision, companies_revision, category_revision, sentiment_revision):
         out["waiting_pairs"] = (
             waiting
             if waiting is not None
@@ -521,7 +521,7 @@ def status(
                     str(companies_revision),
                     str(category_revision),
                     str(sentiment_revision),
-                    str(revision_),
+                    current,
                 )
             )
         )

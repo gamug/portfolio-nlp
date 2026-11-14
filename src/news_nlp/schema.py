@@ -366,7 +366,7 @@ CREATE TABLE IF NOT EXISTS news_category (
 );
 
 -- The snapshot (step 8, T-195, D42): one row per (text, main company), or per `sector` text (`ticker` '' and the 2-digit sector, no category and no
--- sentiment). `fetched_at` is the earliest crawl of the unique body, UTC; it places the row in a period window. `companies_mentioned` stays '[]' (T-198).
+-- sentiment). The revision is the code's only: the revisions the row was built from are in `inputs`. `fetched_at` is the earliest crawl of the unique body, UTC; it places the row in a period window. `companies_mentioned` stays '[]' (T-198).
 CREATE TABLE IF NOT EXISTS news_snapshot (
     item_kind           TEXT NOT NULL,
     item_id             TEXT NOT NULL,
@@ -383,6 +383,7 @@ CREATE TABLE IF NOT EXISTS news_snapshot (
     group_label         TEXT NOT NULL DEFAULT '',
     sentiment           TEXT NOT NULL DEFAULT '',
     sentiment_score     REAL,
+    inputs              TEXT NOT NULL DEFAULT '{}',   -- JSON: the summary, companies, cut, category, sentiment and sector revisions the row was built from
     processed_at        TEXT NOT NULL,
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
 );

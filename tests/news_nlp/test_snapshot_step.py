@@ -133,15 +133,15 @@ def _seed(conn: db_module.NewsNlpDatabase) -> None:
 
 
 def _revision() -> str:
-    return snap.revision(SUM, COMP, CUT, CAT, SENT)
+    return snap.revision()
 
 
 def _run(
     conn: db_module.NewsNlpDatabase,
     limit: int | None = None,
-    sector: tuple[str, str] | None = None,
+    sector: str | None = None,
 ) -> dict[str, Any]:
-    return snap.run(conn, _revision(), SUM, COMP, CAT, SENT, limit, sector)
+    return snap.run(conn, SUM, COMP, CUT, CAT, SENT, limit, sector)
 
 
 def _rows(conn: db_module.NewsNlpDatabase) -> list[Any]:
@@ -160,7 +160,6 @@ def test_only_complete_pairs_are_written_and_the_others_wait_with_a_reason(
     assert result["waiting"] == 2
     status = snap.status(
         pair,
-        _revision(),
         summary_revision=SUM,
         companies_revision=COMP,
         category_revision=CAT,
@@ -255,7 +254,6 @@ def test_a_pair_whose_article_is_gone_is_counted_not_written(
 def _waiting(conn: db_module.NewsNlpDatabase) -> dict[str, int]:
     return snap.status(
         conn,
-        _revision(),
         summary_revision=SUM,
         companies_revision=COMP,
         category_revision=CAT,
@@ -310,15 +308,12 @@ def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector
         (HASH_B, SECTOR),
     )
     pair.commit()
-    revision = snap.sector_revision_of(_revision(), SECTOR)
-    # the pairs of the seed have no sentiment for body B in this test and no sector: only the sector text is asked about
-    sector_result = _run(pair, sector=(revision, SECTOR))["sector_rows"]
+    sector_result = _run(pair, sector=SECTOR)["sector_rows"]
     assert sector_result == {"written": 1, "waiting": 0, "ready_left": 0}
-    status = snap.status(pair, _revision(), sector_rows_revision=revision)
+    status = snap.status(pair)
     assert status["sector_rows"] == 1 and status["company_rows"] == 2
-    assert {"revision": revision, "company_rows": 0, "sector_rows": 1} in list(status["revisions"])  # type: ignore[call-overload]
     row = pair.execute(
-        "SELECT * FROM news_snapshot WHERE model_revision = ?", (revision,)
+        "SELECT * FROM news_snapshot WHERE ticker = '' AND model_revision = ?", (_revision(),)
     ).fetchone()
     assert (
         row["ticker"],
@@ -327,22 +322,67 @@ def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector
         row["sentiment"],
         row["sentiment_score"],
     ) == ("", "45", "", "", None)
-    assert _run(pair, sector=(revision, SECTOR))["sector_rows"]["written"] == 0
-    assert revision != _revision()
+    assert json.loads(row["inputs"])["sector"] == SECTOR
+    assert _run(pair, sector=SECTOR)["sector_rows"]["written"] == 0
 
 
-def test_the_revision_follows_each_input_but_not_the_sector_revision() -> None:
-    base = _revision()
-    assert base == snap.revision(SUM, COMP, CUT, CAT, SENT) and base.startswith("snapshot-")
-    for changed in (
-        snap.revision("s2", COMP, CUT, CAT, SENT),
-        snap.revision(SUM, "c2", CUT, CAT, SENT),
-        snap.revision(SUM, COMP, "u2", CAT, SENT),
-        snap.revision(SUM, COMP, CUT, "k2", SENT),
-        snap.revision(SUM, COMP, CUT, CAT, "e2"),
-    ):
-        assert changed != base
-    assert snap.sector_revision_of(base, "a") != snap.sector_revision_of(base, "b")
+def test_the_revision_is_the_codes_only_and_the_inputs_are_in_the_rows(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    assert snap.revision() == _revision() and snap.revision().startswith("snapshot-")
+    _seed(pair)
+    _run(pair)
+    row = pair.execute("SELECT inputs FROM news_snapshot").fetchone()
+    assert json.loads(row["inputs"]) == {
+        "summary": SUM,
+        "companies": COMP,
+        "cut": CUT,
+        "category": CAT,
+        "sentiment": SENT,
+        "sector": "",
+    }
+
+
+def test_a_moved_input_revision_adds_only_the_new_pairs_and_never_rewrites(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """The step is always idempotent (owner, 2026-11-14): the day a sentiment revision moves, the pairs that have a row are not read again."""
+    _seed(pair)
+    _run(pair)
+    before = _rows(pair)
+    steps.record_sentiment(
+        pair, steps.ITEM_BODY, HASH_B, "sentiment-moved", {"MSFT": _sentiment("neutral")}, "m"
+    )
+    steps.record_sentiment(
+        pair,
+        steps.ITEM_BODY,
+        HASH_A,
+        "sentiment-moved",
+        {"AAPL": _sentiment("neutral"), "MSFT": _sentiment("neutral")},
+        "m",
+    )
+    moved = snap.run(pair, SUM, COMP, CUT, CAT, "sentiment-moved", None)
+    assert (
+        moved["written"] == 1
+    )  # body B's pair, which had no sentiment; the two of body A keep their rows
+    assert [r for r in _rows(pair) if r[0] == HASH_A] == [r for r in before if r[0] == HASH_A]
+    assert {
+        json.loads(r["inputs"])["sentiment"]
+        for r in pair.execute("SELECT inputs FROM news_snapshot")
+    } == {SENT, "sentiment-moved"}
+    assert (
+        len({r["model_revision"] for r in pair.execute("SELECT model_revision FROM news_snapshot")})
+        == 1
+    )
+
+
+def test_reset_deletes_the_rows_of_the_revision_and_the_next_run_writes_them_again(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    _run(pair)
+    assert snap.reset(pair) == 2 and _rows(pair) == []
+    assert _run(pair)["written"] == 2
 
 
 def test_the_run_is_refused_for_a_revision_with_no_rows_and_for_rows_of_other_companies(
@@ -408,6 +448,7 @@ def _args(**kw: Any) -> argparse.Namespace:
         "sector_revision": None,
         "status": False,
         "limit": None,
+        "reset": False,
     }
     return argparse.Namespace(**{**base, **kw})
 
@@ -464,6 +505,7 @@ def test_the_command_refuses_inputs_that_do_not_agree(pair: db_module.NewsNlpDat
             "c",
         ],
         ["--step", "snapshot", "--status", "--model-dir", "x"],
+        ["--step", "sentiment", "--reset", "--summary-revision", "s", "--companies-revision", "c"],
     ],
 )
 def test_the_options_of_the_snapshot_step_are_required_and_refused_elsewhere(
@@ -521,17 +563,19 @@ def test_the_corpus_is_read_once_for_the_pairs_and_the_sector_texts(
     )
     steps.record_summary(pair, steps.ITEM_BODY, HASH_B, "summary-sector", "x", "summary", 1)
     pair.commit()
-    result = snap.run(
-        pair,
-        _revision(),
-        SUM,
-        COMP,
-        CAT,
-        SENT,
-        None,
-        (snap.sector_revision_of(_revision(), SECTOR), SECTOR),
+    pair.execute(
+        "INSERT INTO body_sector (body_hash, classifier_revision, status, sector, candidate, margin, processed_at) "
+        "VALUES ('notext', ?, 'assigned', '10', '10', 0.5, 't')",
+        (SECTOR,),
     )
-    assert len(calls) == 1 and result["sector_rows"]["waiting"] >= 0
+    pair.commit()
+    result = _run(pair, sector=SECTOR)
+    assert len(calls) == 1  # the pairs and the sector texts share one read of the corpus
+    assert result["sector_rows"] == {
+        "written": 1,
+        "waiting": 1,
+        "ready_left": 0,
+    }  # 'notext' has no text yet
 
 
 def test_the_command_writes_sector_rows_and_reports_them_in_the_status(
@@ -546,4 +590,24 @@ def test_the_command_writes_sector_rows_and_reports_them_in_the_status(
     pair.commit()
     _load_cli().main_snapshot(_args(sector_revision=SECTOR), pair)
     out = capsys.readouterr().out
-    assert '"sector_revision"' in out and '"sector_rows": 1' in out
+    assert '"sector_rows": 1' in out and '"written": 1' in out
+
+
+def test_the_command_resets_on_request_and_the_status_needs_only_some_revisions(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _seed(pair)
+    cli = _load_cli()
+    cli.main_snapshot(_args(), pair)
+    capsys.readouterr()
+    cli.main_snapshot(_args(reset=True), pair)
+    captured = capsys.readouterr()
+    assert "reset: 2 snapshots" in captured.err and '"written": 2' in captured.out
+    cli.main_snapshot(
+        _args(status=True, cut_revision=None, category_revision=None, sentiment_revision=None),
+        pair,
+    )
+    status = json.loads(capsys.readouterr().out)
+    assert (
+        status["company_rows"] == 2 and "waiting_pairs" not in status
+    )  # rows are known, the waiting list needs the revisions
