@@ -1329,14 +1329,13 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if problems:
         sys.exit("refused: " + "; ".join(problems))
     print(f"snapshot revision {revision}", file=sys.stderr)
-    counts = snap.run(conn, revision, summary, companies, category, sentiment, args.limit)
-    result: dict[str, object] = {"revision": revision, **counts}
-    if args.sector_revision is not None:
-        sector_rev = snap.sector_revision_of(revision, args.sector_revision)
-        result["sector_revision"] = sector_rev
-        result["sector_rows"] = snap.run_sectors(
-            conn, sector_rev, summary, args.sector_revision, args.limit
-        )
+    sector = (sector_rows, args.sector_revision) if sector_rows and args.sector_revision else None
+    result = {
+        "revision": revision,
+        **snap.run(conn, revision, summary, companies, category, sentiment, args.limit, sector),
+    }
+    if sector:
+        result["sector_revision"] = sector_rows
     print(json.dumps(result, indent=2))
     print(
         json.dumps(
@@ -1348,6 +1347,7 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
                 category_revision=args.category_revision,
                 sentiment_revision=args.sentiment_revision,
                 sector_rows_revision=sector_rows,
+                waiting=result["waiting_by_reason"],
             ),
             indent=2,
         )
@@ -1407,6 +1407,9 @@ RECUT_SQL = (
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'sentiment' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    # and step 8: a snapshot of a sub-news is keyed by the same id
+    "DELETE FROM news_snapshot WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
 )
 #: To run the companies step again at one revision (the items on the review list included: they are not retried by themselves).
 RECOMPANIES_SQL = (
@@ -1423,6 +1426,8 @@ RESENTIMENT_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'sentiment' AND model_revision = '<sentiment revision>';",
     "DELETE FROM news_sentiment WHERE model_revision = '<sentiment revision>';",
 )
+#: To write the snapshots again at one revision (the rows are written with INSERT OR IGNORE; the state is derived from the rows, so there is none to delete).
+RESNAPSHOT_SQL = ("DELETE FROM news_snapshot WHERE model_revision = '<snapshot revision>';",)
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';",
@@ -1444,6 +1449,8 @@ To run the category step again at one revision (`--step category --status` print
   {recategory}
 To run the sentiment step again at one revision (`--step sentiment --status` prints it):
   {resentiment}
+To write the snapshots again at one revision (`--step snapshot` prints it; sector rows have their own, printed as `sector_revision`):
+  {resnapshot}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
@@ -1453,6 +1460,7 @@ RERUN_HELP = _RERUN_TEMPLATE.format(
     recompanies="\n  ".join(RECOMPANIES_SQL),
     recategory="\n  ".join(RECATEGORY_SQL),
     resentiment="\n  ".join(RESENTIMENT_SQL),
+    resnapshot="\n  ".join(RESNAPSHOT_SQL),
 )
 
 

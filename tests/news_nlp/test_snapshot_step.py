@@ -136,8 +136,12 @@ def _revision() -> str:
     return snap.revision(SUM, COMP, CUT, CAT, SENT)
 
 
-def _run(conn: db_module.NewsNlpDatabase, limit: int | None = None) -> dict[str, int]:
-    return snap.run(conn, _revision(), SUM, COMP, CAT, SENT, limit)
+def _run(
+    conn: db_module.NewsNlpDatabase,
+    limit: int | None = None,
+    sector: tuple[str, str] | None = None,
+) -> dict[str, Any]:
+    return snap.run(conn, _revision(), SUM, COMP, CAT, SENT, limit, sector)
 
 
 def _rows(conn: db_module.NewsNlpDatabase) -> list[Any]:
@@ -307,14 +311,12 @@ def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector
     )
     pair.commit()
     revision = snap.sector_revision_of(_revision(), SECTOR)
-    assert snap.run_sectors(pair, revision, SUM, SECTOR, None) == {
-        "written": 1,
-        "waiting": 0,
-        "ready_left": 0,
-    }
+    # the pairs of the seed have no sentiment for body B in this test and no sector: only the sector text is asked about
+    sector_result = _run(pair, sector=(revision, SECTOR))["sector_rows"]
+    assert sector_result == {"written": 1, "waiting": 0, "ready_left": 0}
     status = snap.status(pair, _revision(), sector_rows_revision=revision)
-    assert status["sector_rows"] == 1 and status["company_rows"] == 0
-    assert status["revisions"] == [{"revision": revision, "company_rows": 0, "sector_rows": 1}]
+    assert status["sector_rows"] == 1 and status["company_rows"] == 2
+    assert {"revision": revision, "company_rows": 0, "sector_rows": 1} in list(status["revisions"])  # type: ignore[call-overload]
     row = pair.execute(
         "SELECT * FROM news_snapshot WHERE model_revision = ?", (revision,)
     ).fetchone()
@@ -325,7 +327,7 @@ def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector
         row["sentiment"],
         row["sentiment_score"],
     ) == ("", "45", "", "", None)
-    assert snap.run_sectors(pair, revision, SUM, SECTOR, None)["written"] == 0
+    assert _run(pair, sector=(revision, SECTOR))["sector_rows"]["written"] == 0
     assert revision != _revision()
 
 
@@ -367,6 +369,7 @@ def test_the_run_is_refused_when_its_sub_news_are_not_of_the_named_cut(
     steps.record_companies(
         pair, steps.ITEM_SUB_NEWS, sub_id, COMP, [CompanyScore("AAPL", 1, 0.9)], 0.5
     )
+    steps.record_summary(pair, steps.ITEM_SUB_NEWS, sub_id, SUM, "sub text", "original", 0)
     assert snap.check_inputs(pair, SUM, COMP, CUT, CAT, SENT, None) == []
     pair.execute(
         "INSERT INTO sub_news (body_hash, article_id, segment_index, text, extractor_revision, processed_at) "
@@ -385,10 +388,14 @@ def test_the_revision_covers_the_join_and_the_reading_of_the_corpus() -> None:
         "_ready_and_waiting",
         "articles_of",
         "crawl_date_ok",
-        "_pending",
-        "run_sectors",
+        "_with_articles",
+        "_sector_todo",
+        "_sector_row",
     ):
         assert name in code
+    assert (
+        "run_sectors" not in code and "(run," not in code
+    )  # the limit and the counts are not hashed
 
 
 def _args(**kw: Any) -> argparse.Namespace:
@@ -472,3 +479,71 @@ def test_status_alone_needs_no_revision() -> None:
     cli = _load_cli()
     parser = cli.build_parser()
     cli.check_options(parser, parser.parse_args(["--step", "snapshot", "--status"]))
+
+
+def test_a_wrong_summary_revision_is_refused_not_silently_empty(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    steps.record_summary(
+        pair, steps.ITEM_BODY, "other", "summary-other", "x", "summary", 1
+    )  # the revision has rows, but not these items
+    problems = snap.check_inputs(pair, "summary-other", COMP, CUT, CAT, SENT, None)
+    assert len(problems) == 1 and "have no text at the summary revision" in problems[0]
+    with pytest.raises(SystemExit, match="have no text at the summary revision"):
+        _load_cli().main_snapshot(_args(summary_revision="summary-other"), pair)
+
+
+def test_the_recipes_of_a_recut_and_of_a_rerun_name_the_snapshot_rows() -> None:
+    cli = _load_cli()
+    recut = "\n".join(cli.RECUT_SQL)
+    assert "DELETE FROM news_snapshot WHERE item_kind = 'sub_news'" in recut
+    assert "DELETE FROM news_snapshot WHERE model_revision" in "\n".join(cli.RESNAPSHOT_SQL)
+    assert "news_snapshot WHERE model_revision" in cli.RERUN_HELP
+
+
+def test_the_corpus_is_read_once_for_the_pairs_and_the_sector_texts(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed(pair)
+    calls: list[int] = []
+    real = snap.articles_of
+
+    def counted(c: Any, items: Any) -> Any:
+        calls.append(len(items))
+        return real(c, items)
+
+    monkeypatch.setattr(snap, "articles_of", counted)
+    pair.execute(
+        "INSERT INTO body_sector (body_hash, classifier_revision, status, sector, candidate, margin, processed_at) "
+        "VALUES (?, ?, 'assigned', '45', '45', 0.5, 't')",
+        (HASH_B, SECTOR),
+    )
+    steps.record_summary(pair, steps.ITEM_BODY, HASH_B, "summary-sector", "x", "summary", 1)
+    pair.commit()
+    result = snap.run(
+        pair,
+        _revision(),
+        SUM,
+        COMP,
+        CAT,
+        SENT,
+        None,
+        (snap.sector_revision_of(_revision(), SECTOR), SECTOR),
+    )
+    assert len(calls) == 1 and result["sector_rows"]["waiting"] >= 0
+
+
+def test_the_command_writes_sector_rows_and_reports_them_in_the_status(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _seed(pair)
+    pair.execute(
+        "INSERT INTO body_sector (body_hash, classifier_revision, status, sector, candidate, margin, processed_at) "
+        "VALUES (?, ?, 'assigned', '45', '45', 0.5, 't')",
+        (HASH_A, SECTOR),
+    )
+    pair.commit()
+    _load_cli().main_snapshot(_args(sector_revision=SECTOR), pair)
+    out = capsys.readouterr().out
+    assert '"sector_revision"' in out and '"sector_rows": 1' in out

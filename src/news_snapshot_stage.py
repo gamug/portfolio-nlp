@@ -13,6 +13,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 from news_nlp import steps
 from news_nlp.db import NewsNlpDatabase
@@ -52,7 +53,7 @@ class Article:
 
 def _code() -> str:
     """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
-    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_pending``) and the sector rows (``run_sectors``). A comment, a
+    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``) and the sector rows (``_sector_todo``, ``_sector_row``). A comment, a
     docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
     return hashlib.sha256(
         "\n".join(
@@ -60,10 +61,12 @@ def _code() -> str:
             for f in (
                 _row_values,
                 _ready_and_waiting,
+                _body_hashes,
                 articles_of,
                 crawl_date_ok,
-                _pending,
-                run_sectors,
+                _with_articles,
+                _sector_todo,
+                _sector_row,
             )
         ).encode()
     ).hexdigest()[:12]
@@ -131,8 +134,8 @@ def check_inputs(
     sentiment_revision: str,
     sector_revision: str | None,
 ) -> list[str]:
-    """Why the run is refused: a revision with no rows, or a category or sentiment row of a pair that is not a main pair at ``companies_revision``
-    (the step ran on other inputs). The revisions are hashes, so the inputs they read cannot be read back; this is the check the rows allow."""
+    """Why the run is refused: a revision with no rows, an item with a main company and no text at the summary revision, a sub-news not of the named
+    cut, or a category or sentiment row of a pair that is not a main pair at ``companies_revision`` (the step ran on other inputs). The revisions are hashes, so the inputs they read cannot be read back; this is the check the rows allow."""
     problems: list[str] = []
     checks = [
         ("summary", "news_summary", "model_revision", summary_revision, ""),
@@ -166,6 +169,12 @@ def check_inputs(
             problems.append(f"{name} revision {value}: no rows")
     if problems:
         return problems
+    no_text = steps.category_items_without_text(conn, summary_revision, companies_revision)
+    if no_text:
+        problems.append(
+            f"{no_text} items with a main company at {companies_revision} have no text at the summary revision {summary_revision} "
+            "(did the companies step read another summary revision?)"
+        )
     stray_cut = conn.execute(
         "SELECT COUNT(*) FROM (SELECT DISTINCT item_id FROM news_company WHERE model_revision = ? AND is_main = 1 AND item_kind = ?) c "
         "WHERE NOT EXISTS (SELECT 1 FROM sub_news s WHERE CAST(s.id AS TEXT) = c.item_id AND s.extractor_revision = ?)",
@@ -304,20 +313,11 @@ def articles_of(
     return {item: found[h] for item, h in hash_of.items() if h in found}
 
 
-def _pending(
-    conn: NewsNlpDatabase,
-    summary_revision: str,
-    companies_revision: str,
-    category_revision: str,
-    sentiment_revision: str,
-    revision_: str,
-) -> tuple[list[tuple[Pair, Article]], Counter[str]]:
-    """Every pair ready to write with its article, and the reasons the others wait: the join of the earlier steps, then the corpus (a pair whose
-    article is not in it, or has no valid crawl date, waits and does not take a place of the limit). Reads the whole corpus once."""
-    ready, waiting = _ready_and_waiting(
-        conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
-    )
-    info = articles_of(conn, [(p.kind, p.item_id) for p in ready])
+def _with_articles(
+    ready: list[Pair], info: dict[tuple[str, str], Article], waiting: Counter[str]
+) -> list[tuple[Pair, Article]]:
+    """The ready pairs that have an article with a valid crawl date; the others are counted in ``waiting`` with their reason (they do not take a
+    place of the limit)."""
     complete: list[tuple[Pair, Article]] = []
     for pair in ready:
         article = info.get((pair.kind, pair.item_id))
@@ -327,49 +327,30 @@ def _pending(
             waiting[WAIT_NO_DATE] += 1
         else:
             complete.append((pair, article))
-    return complete, waiting
+    return complete
 
 
-def run(
+def _pending(
     conn: NewsNlpDatabase,
-    revision_: str,
     summary_revision: str,
     companies_revision: str,
     category_revision: str,
     sentiment_revision: str,
-    limit: int | None,
-) -> dict[str, int]:
-    """Write the snapshots of up to ``limit`` complete pairs of the company revision; return what was done. ``waiting`` is the pairs that cannot be
-    written yet (``--status`` gives the reasons), ``ready_left`` the complete pairs the limit left for the next run."""
-    complete, waiting = _pending(
+    revision_: str,
+) -> Counter[str]:
+    """Why the pairs of the company revision still wait (the join of the earlier steps, then the corpus). Reads the whole corpus once."""
+    ready, waiting = _ready_and_waiting(
         conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
     )
-    todo = complete if limit is None else complete[:limit]
-    now = steps._now()
-    for pair, article in todo:
-        conn.execute(
-            "INSERT OR IGNORE INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, title, text, text_source, "
-            "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, processed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (pair.kind, pair.item_id, pair.ticker, revision_, *_row_values(pair, article, ""), now),
-        )
-    conn.commit()
-    return {
-        "written": len(todo),
-        "waiting": sum(waiting.values()),
-        "ready_left": len(complete) - len(todo),
-    }
+    _with_articles(ready, articles_of(conn, [(p.kind, p.item_id) for p in ready]), waiting)
+    return waiting
 
 
-def run_sectors(
-    conn: NewsNlpDatabase,
-    revision_: str,
-    summary_revision: str,
-    sector_revision: str,
-    limit: int | None,
-) -> dict[str, int]:
-    """Write the sector texts: a body the sector step assigned (``body_sector.status = 'assigned'``) that has a text at the summary revision.
-    No category and no sentiment (D42); the row has ``ticker`` '' and the 2-digit sector."""
+def _sector_todo(
+    conn: NewsNlpDatabase, revision_: str, summary_revision: str, sector_revision: str
+) -> tuple[list[tuple[str, str, str, str]], int]:
+    """The sector texts still to write, as (body hash, 2-digit sector, text, text source): a body the sector step assigned
+    (``body_sector.status = 'assigned'``) that has a text at the summary revision and no row at ``revision_``; and how many have no text yet."""
     done = {
         str(i)
         for (i,) in conn.execute(
@@ -384,46 +365,104 @@ def run_sectors(
             (summary_revision, steps.ITEM_BODY),
         )
     }
-    todo = [
-        (str(h), str(s))
-        for h, s in conn.execute(
-            "SELECT body_hash, sector FROM body_sector WHERE classifier_revision = ? AND status = 'assigned' ORDER BY rowid",
-            (sector_revision,),
+    todo: list[tuple[str, str, str, str]] = []
+    no_text = 0
+    for h, sector in conn.execute(
+        "SELECT body_hash, sector FROM body_sector WHERE classifier_revision = ? AND status = 'assigned' ORDER BY rowid",
+        (sector_revision,),
+    ):
+        if str(h) in done:
+            continue
+        if str(h) in texts:
+            todo.append((str(h), str(sector), *texts[str(h)]))
+        else:
+            no_text += 1
+    return todo, no_text
+
+
+def _sector_row(
+    body_hash: str, sector: str, text: str, source: str, article: Article
+) -> tuple[object, ...]:
+    """The columns of a sector text: the 2-digit sector, no category and no sentiment (D42)."""
+    values = list(
+        _row_values(
+            Pair(steps.ITEM_BODY, body_hash, "", text, source, "", "", "", 0.0), article, sector
         )
-        if str(h) not in done and str(h) in texts
-    ]
-    waiting = sum(
-        1
-        for (h,) in conn.execute(
-            "SELECT body_hash FROM body_sector WHERE classifier_revision = ? AND status = 'assigned'",
-            (sector_revision,),
-        )
-        if str(h) not in done and str(h) not in texts
     )
-    info = articles_of(conn, [(steps.ITEM_BODY, h) for h, _ in todo])
-    complete = [
-        (h, sector, info[(steps.ITEM_BODY, h)])
-        for h, sector in todo
-        if (steps.ITEM_BODY, h) in info and info[(steps.ITEM_BODY, h)].fetched_at
-    ]
-    waiting += len(todo) - len(
-        complete
-    )  # no article in the corpus, or no valid crawl date: they do not take a place of the limit
+    values[9], values[10] = "", None  # no sentiment, no score
+    return tuple(values)
+
+
+_INSERT = (
+    "INSERT OR IGNORE INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, title, text, text_source, "
+    "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, processed_at) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def run(
+    conn: NewsNlpDatabase,
+    revision_: str,
+    summary_revision: str,
+    companies_revision: str,
+    category_revision: str,
+    sentiment_revision: str,
+    limit: int | None,
+    sector: tuple[str, str] | None = None,
+) -> dict[str, Any]:
+    """Write the snapshots of up to ``limit`` complete pairs of the company revision (and, with ``sector`` = (the revision of the sector rows, the
+    sector step's revision), up to ``limit`` sector texts); return what was done. The corpus is read **once** for both. ``waiting`` is what
+    cannot be written yet, ``waiting_by_reason`` why (the company pairs), ``ready_left`` the complete rows the limit left for the next run."""
+    ready, waiting = _ready_and_waiting(
+        conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
+    )
+    todo_sector, sector_no_text = (
+        _sector_todo(conn, sector[0], summary_revision, sector[1]) if sector else ([], 0)
+    )
+    info = articles_of(
+        conn,
+        [(p.kind, p.item_id) for p in ready] + [(steps.ITEM_BODY, h) for h, *_ in todo_sector],
+    )
+    complete = _with_articles(ready, info, waiting)
     chosen = complete if limit is None else complete[:limit]
     now = steps._now()
-    for h, sector, article in chosen:
-        text, source = texts[h]
-        pair = Pair(steps.ITEM_BODY, h, "", text, source, "", "", "", 0.0)
-        values = list(_row_values(pair, article, sector))
-        values[9], values[10] = "", None  # no sentiment, no score
+    for pair, article in chosen:
         conn.execute(
-            "INSERT OR IGNORE INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, title, text, text_source, "
-            "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, processed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (steps.ITEM_BODY, h, "", revision_, *values, now),
+            _INSERT,
+            (pair.kind, pair.item_id, pair.ticker, revision_, *_row_values(pair, article, ""), now),
         )
+    result: dict[str, Any] = {
+        "written": len(chosen),
+        "waiting": sum(waiting.values()),
+        "waiting_by_reason": dict(waiting),
+        "ready_left": len(complete) - len(chosen),
+    }
+    if sector:
+        sector_ready = [
+            (h, sec, text, source, info[(steps.ITEM_BODY, h)])
+            for h, sec, text, source in todo_sector
+            if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].fetched_at
+        ]
+        sector_chosen = sector_ready if limit is None else sector_ready[:limit]
+        for h, sec, text, source, article in sector_chosen:
+            conn.execute(
+                _INSERT,
+                (
+                    steps.ITEM_BODY,
+                    h,
+                    "",
+                    sector[0],
+                    *_sector_row(h, sec, text, source, article),
+                    now,
+                ),
+            )
+        result["sector_rows"] = {
+            "written": len(sector_chosen),
+            "waiting": sector_no_text + len(todo_sector) - len(sector_ready),
+            "ready_left": len(sector_ready) - len(sector_chosen),
+        }
     conn.commit()
-    return {"written": len(chosen), "waiting": waiting, "ready_left": len(complete) - len(chosen)}
+    return result
 
 
 def status(
@@ -435,9 +474,10 @@ def status(
     category_revision: str | None = None,
     sentiment_revision: str | None = None,
     sector_rows_revision: str | None = None,
+    waiting: dict[str, int] | None = None,
 ) -> dict[str, object]:
     """The rows by revision (company rows and sector rows apart) and, with the four input revisions and the snapshot revision, the main pairs still
-    waiting and why (derived from the tables; it reads the corpus once). ``sector_rows_revision`` is the revision the sector rows were written at."""
+    waiting and why (derived from the tables; it reads the corpus once, unless ``waiting`` is given: the run already knows it). ``sector_rows_revision`` is the revision the sector rows were written at."""
     out: dict[str, object] = {
         "step": "snapshot",
         "revisions": [
@@ -471,13 +511,18 @@ def status(
         sentiment_revision,
         revision_,
     ):
-        _, waiting = _pending(
-            conn,
-            str(summary_revision),
-            str(companies_revision),
-            str(category_revision),
-            str(sentiment_revision),
-            str(revision_),
+        out["waiting_pairs"] = (
+            waiting
+            if waiting is not None
+            else dict(
+                _pending(
+                    conn,
+                    str(summary_revision),
+                    str(companies_revision),
+                    str(category_revision),
+                    str(sentiment_revision),
+                    str(revision_),
+                )
+            )
         )
-        out["waiting_pairs"] = dict(waiting)
     return out
