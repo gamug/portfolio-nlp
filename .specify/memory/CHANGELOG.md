@@ -2326,3 +2326,7 @@ The development tasks of the steps that are built (scope, cut, summary, companie
 ### Work item 18 — T-195 follow-up, progress on the snapshot step (#192, 2026-11-14)
 
 - **Changed behaviour:** `--step snapshot` shows a line before the corpus read and one `tqdm` bar with the time left over the rows to write (company pairs and sector texts together), on stderr. `snapshot.run` takes an optional `on_progress(event, n)` (the bar lives in `cli/news_nlp_steps.py`, like the other steps) and commits every `COMMIT_EVERY` (500) rows instead of once at the end, so an interrupted run keeps its rows. Written rows and the JSON output are unchanged. Tests: 3 new in `tests/news_nlp/test_snapshot_step.py`.
+
+### Work item 18 — T-195 follow-up, the crawl date format (2026-11-14)
+
+- **Fixed:** the first real run of `--step snapshot` wrote nothing: all 159,401 pairs waited with "no crawl date in UTC". The step accepted only `YYYY-MM-DDTHH:MM:SSZ`, but the crawl stores `2026-08-12T22:19:20.655964+00:00` (the tests used `Z`, so they never saw it). `normalize_crawl_date` reads ISO 8601 with any offset and stores UTC whole seconds; a date with no zone still waits. The snapshot revision changes (the code that reads the corpus changed), so no row existed at the old one. Tests: the real form in `tests/news_nlp/test_snapshot_step.py`.
