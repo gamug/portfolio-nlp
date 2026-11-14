@@ -1,6 +1,6 @@
 # The snapshot and the period summary (steps 8 and 9; D42, FR-024; owner, 2026-11-14)
 
-**Status (2026-11-14):** the snapshot step (step 8, T-195) is **built**: `src/news_snapshot_stage.py`, `--step snapshot`, the table `news_snapshot`, `tests/news_nlp/test_snapshot_step.py`. The period summary (step 9, T-196) is **not built**; its tables below are still a proposal.
+**Status (2026-11-14):** the snapshot step (step 8, T-195) is **built**: `src/news_snapshot_stage.py`, `--step snapshot`, the table `news_snapshot`, `tests/news_nlp/test_snapshot_step.py`. The period summary (step 9, T-196) is **built too**: `src/news_period_stage.py`, `--step period`, the tables `period_run`, `period_summary`, `period_item`, `sector` and `company_sector`, `tests/news_nlp/test_period_step.py`. Not run on the real store.
 It replaces D28 and T-152 (the earlier sketch, kept in `.specify/memory/archive/SPEC-PLAN-TASKS-condensed-for-the-snapshot-steps-2026-11-14.md`;
 a reference to D28 in an older file means D42 now). These steps are **Build 3**: after Build 1 (scope to companies, sector) and Build 2 (sentiment, category) have run on the store.
 
@@ -43,7 +43,7 @@ SELECT ROUND(relevance_score, 1) AS bucket, COUNT(*) FROM news_company WHERE mod
 
 The owner picks the floor from it (T-198); the value goes in the config with the date and the revision it was read at.
 
-## Tables (RESULTS store; `news_snapshot` is built, the others are a proposal for T-196)
+## Tables (RESULTS store; all built)
 
 `news_snapshot`, primary key (`item_kind`, `item_id`, `ticker`, `model_revision`); `ticker` is `''` for a sector text, as in `news_category`:
 
@@ -65,9 +65,9 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 |---|---|
 | `period_end` | the cut, UTC (the window is in `period_run`) |
 | `counts` | JSON, per category `total`, `neutral`, `positive`, `negative`; the same shape for a company row and a sector row |
-| `not_counted` | main (text, company) pairs crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten and not a debt: a pair that later gets its snapshot is counted as late in a later period, and is then in that period's counts. A sector row's value is the sum of its companies'. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
+| `not_counted` | main (text, company) pairs (of the companies revision of the latest snapshot written) crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten and not a debt: a pair that later gets its snapshot is counted as late in a later period, and is then in that period's counts. A sector row's value is the sum of its companies'. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
 
-`period_run`, primary key (`period_end`, `model_revision`): `period_start` (UTC; NULL for the first window, no lower bound, and nothing in it is late), `created_at` (the report creation date). **A period is written when its `period_run` row exists**, inserted in the same transaction as its `period_summary` and `period_item` rows. A window with no counted news has a `period_run` row and no other, so it is written and does not block the later periods.
+`period_run`, primary key (`period_end`, `model_revision`): `snapshot_revision` (the snapshots it counted: a reset of those snapshots clears this period), `period_start` (UTC; NULL for the first window, no lower bound, and nothing in it is late), `created_at` (when the row was written; **the report date is `period_end`**, the cut, as the owner decided). **A period is written when its `period_run` row exists**, inserted in the same transaction as its `period_summary` and `period_item` rows. A window with no counted news has a `period_run` row and no other, so it is written and does not block the later periods.
 
 The number of late rows of a period is **computed** from `period_item` (no stored copy, so it cannot drift).
 
@@ -83,7 +83,7 @@ snapshot's `fetched_at` is at or before the period's `period_start` (never, when
 
 Within one period revision, a period run counts every snapshot **not yet in a `period_item` row of an earlier period of that revision** whose `fetched_at` is at or before its own `period_end`. Those with
 `fetched_at` at or before the period's `period_start` are late (their own window was already closed and written). This needs no clock comparison: the
-rows say which period counted which snapshot, so the counts can be audited and a late item can be told from an on-time one. A written period is never rewritten. A new period revision (another snapshot revision, counting code or sector content) starts clean: `--catch-up` then runs from the first period again, each at its own cut, and the earlier revision's rows are kept.
+rows say which period counted which snapshot, so the counts can be audited and a late item can be told from an on-time one. A written period is never rewritten by the step; to write one again the owner deletes **it and every later one** of the period revision (`REPERIOD_SQL` in `--help`: a later period holds the snapshots it took from the earlier windows), and `--catch-up` writes them again. On a period-end day the step loads every company snapshot of the revision (and the keys already counted) into memory, whatever the number of periods to do (a known limit, as in the snapshot step). A new period revision (another snapshot revision, counting code or sector content) starts clean: `--catch-up` then runs from the first period again, each at its own cut, and the earlier revision's rows are kept.
 
 **Order.** A period is refused unless every earlier period of the same revision is written (a gap would let a later period count the earlier window's items as late, and the earlier one, written afterwards, would find them taken). `--period-end` must be on the grid (2022-01-03 + 21k days) and its cut already passed; otherwise it is refused. `--catch-up` runs from the first missing period to the last cut already passed.
 
@@ -105,9 +105,9 @@ corpus, or has no UTC crawl date (`...Z`), waits with that reason and does not t
 deletes the snapshots of its sub-news (`RECUT_SQL`).
 
 The period summary's
-revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
+revision is a hash of the snapshot revision, the counting code (**`_tally`, `_counts_of`, `_load_rows`, `_write`, `_gaps` of `news_period_stage`, and `articles_of`, `crawl_date_ok`, `_body_hashes` of `news_snapshot_stage`**: editing one of them is a new revision and `--catch-up` starts from period 1 again; `run`, the bookkeeping, is not hashed) and the **resolved mapping (ticker, sector code) of every company of the universe** (`company_sector` first, else its GICS sector, through `SECTOR_CODES`; of the universe, not of the companies that have a snapshot: a company gaining its first snapshot must not restart the periods), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
 
-## Commands (`--step snapshot` is built; `--step period` is proposed, T-196)
+## Commands (both built)
 
 ```
 uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... [--sector-revision ...] --category-revision ... --sentiment-revision ... --limit 500   # [--reset] rebuilds
@@ -116,7 +116,7 @@ uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --catch-up   
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03 --render
 ```
 
-**Progress.** `--step snapshot` prints a line to stderr before the corpus read (the slow part: one pass over the corpus, no count, so no bar) and then one bar with the time left over all the rows it will write (company pairs and sector texts together); stdout stays the JSON. Rows are committed every 500, so a run stopped half way keeps what the bar had counted and the next run (always idempotent) writes the rest.
+**Progress.** `--step snapshot` prints a line to stderr before the corpus read (the slow part: one pass over the corpus, no count, so no bar) and then one bar with the time left over all the rows it will write (company pairs and sector texts together); stdout stays the JSON. Rows are committed every 500, so a run stopped half way keeps what the bar had counted and the next run (always idempotent) writes the rest. `--step period` prints the number of periods to do **before** it writes the first, then one `tqdm` bar with the time left over the snapshot rows it will count (the unit is the row, not the period: the first window and a first catch-up carry most of the rows, so a bar of periods would give a time left that jumps). Bars are for a terminal: a run that writes to a file (the 15:00 batch) gets them redrawn with carriage returns, and the JSON printed at the end is the record.
 
 `--render` (and the period part of `--status`) reads **written periods only** and refuses a period with no `period_run` row. `--render` prints `not_counted` on a line only when it is above 0, and the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
 

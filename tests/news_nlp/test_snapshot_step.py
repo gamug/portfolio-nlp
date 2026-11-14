@@ -381,7 +381,7 @@ def test_reset_deletes_the_rows_of_the_revision_and_the_next_run_writes_them_aga
 ) -> None:
     _seed(pair)
     _run(pair)
-    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0}
+    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0, "periods": 0}
     assert _rows(pair) == []
     assert _run(pair)["written"] == 2
 
@@ -645,9 +645,9 @@ def test_a_reset_deletes_the_sector_rows_only_when_their_revision_is_named(
     )
     pair.commit()
     _run(pair, sector=SECTOR)
-    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0}
+    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0, "periods": 0}
     assert snap.status(pair)["sector_rows"] == 1  # kept: nobody would write it again
-    assert snap.reset(pair, sectors=True) == {"company_rows": 0, "sector_rows": 1}
+    assert snap.reset(pair, sectors=True) == {"company_rows": 0, "sector_rows": 1, "periods": 0}
 
 
 def test_the_status_reports_rows_built_from_other_revisions_and_pairs_no_longer_main(

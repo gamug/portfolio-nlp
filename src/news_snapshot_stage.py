@@ -388,7 +388,7 @@ _INSERT = (
 def reset(conn: NewsNlpDatabase, *, sectors: bool) -> dict[str, int]:
     """Delete the snapshots of the current revision and return how many of each kind: the one way to rebuild them (``--reset``). The company rows always;
     the sector rows only when the run names a sector revision (``sectors``), because only then are they written again. Owner, 2026-11-14: a reset of the
-    snapshots resets the period summary built on them too (the period tables, when T-196 builds them, are cleared here for the revision).
+    snapshots resets the period summary built on them too (``news_period_stage.clear_periods_of``).
     **It does not commit**: the caller's ``run`` commits the delete and the rewrite together, so a run that fails or is interrupted leaves the old rows."""
     rev = revision()
     company = int(
@@ -401,10 +401,13 @@ def reset(conn: NewsNlpDatabase, *, sectors: bool) -> dict[str, int]:
             "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker = ''", (rev,)
         ).fetchone()[0]
     )
+    from news_period_stage import clear_periods_of  # noqa: PLC0415 -- it imports this module
+
+    periods = clear_periods_of(conn, rev)
     conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (rev,))
     if sectors:
         conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker = ''", (rev,))
-    return {"company_rows": company, "sector_rows": sector if sectors else 0}
+    return {"company_rows": company, "sector_rows": sector if sectors else 0, "periods": periods}
 
 
 def run(
