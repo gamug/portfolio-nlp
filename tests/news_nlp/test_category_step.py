@@ -1085,3 +1085,95 @@ def test_the_verification_script_compares_labels_and_scores() -> None:
     other = stage.score_of(_scores("other"))
     differs, worst = module.compare(same.slug_scores, "legal_regulatory", other)
     assert differs and worst > 0.5
+
+
+def test_a_change_of_the_loader_or_of_the_order_of_the_definitions_is_a_new_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """How the model is loaded (the precision changes outputs) and the order of the labels (a tie goes to the first) decide a score."""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    source = inspect.getsource(stage.CategoryScorer._load)
+    assert "torch.float32" in source
+    _with_source(
+        monkeypatch, stage.CategoryScorer._load, source.replace("torch.float32", "torch.float16")
+    )
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(stage, "DEFINITIONS", dict(reversed(list(stage.DEFINITIONS.items()))))
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+
+
+def test_an_item_whose_text_changed_or_whose_blank_text_is_not_blank_any_more_is_not_adopted(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+
+    class OldFinder(StubFinder):
+        revision = "category-old"
+
+    steps.record_summary(pair, "body", "blank", SUM_REV, "  ", "original", 0)
+    steps.record_companies(pair, "body", "blank", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    assert (
+        adopt.adopt(pair, "category-old", "category-x", SUM_REV, COMP_REV, execute=False)[
+            "adoptable"
+        ]
+        == 3
+    )
+    # the summary step was run again: b1 has another text there, and the blank item has a text now
+    steps.record_summary(
+        pair, "body", "b1", "summary-new", "earnings_performance: another text", "original", 0
+    )
+    steps.record_summary(
+        pair, "body", "b2", "summary-new", "earnings_performance: results", "original", 0
+    )
+    steps.record_summary(
+        pair, "body", "blank", "summary-new", "legal_regulatory: now it has text", "original", 0
+    )
+    steps.record_summary(
+        pair, "sub_news", "7", "summary-new", "product_innovation: a launch", "original", 0
+    )
+    steps.record_companies(
+        pair,
+        "body",
+        "b1",
+        "companies-new",
+        [CompanyScore("AAPL", 1, 0.9), CompanyScore("MSFT", 1, 0.7)],
+        0.5,
+    )
+    steps.record_companies(
+        pair, "body", "blank", "companies-new", [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )
+    steps.record_companies(
+        pair, "sub_news", "7", "companies-new", [CompanyScore("MSFT", 1, 0.8)], 0.5
+    )
+    report = adopt.adopt(
+        pair,
+        "category-old",
+        "category-x",
+        "summary-new",
+        "companies-new",
+        execute=False,
+        from_summary_revision=SUM_REV,
+    )
+    assert report["text_changed"] == 2  # b1 (another text) and the blank item (a text now)
+    assert report["adoptable"] == 1  # the sub-news: the same text and the same companies
+    assert report["no_text"] == 0
+
+
+def test_a_re_scored_pair_that_differs_in_the_label_the_group_or_a_score_is_found() -> None:
+    adopt = _adopt_module()
+    new = stage.score_of(_scores("legal_regulatory"))
+    stored = {
+        "label": new.label,
+        "group_label": new.group_label,
+        "group_score": new.group_score,
+        "slug_scores": json.dumps({**new.slug_scores, "_truncated_chunks": 1}),
+    }
+    assert adopt.differs(stored, new) is False  # the reserved key is not a score
+    assert adopt.differs({**stored, "label": "other"}, new)
+    assert adopt.differs({**stored, "group_label": "other"}, new)
+    assert adopt.differs({**stored, "group_score": new.group_score + 0.01}, new)
+    short = {k: v for k, v in new.slug_scores.items() if k != "other"}
+    assert adopt.differs({**stored, "slug_scores": json.dumps(short)}, new)  # not the same keys

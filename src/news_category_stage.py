@@ -90,16 +90,17 @@ def models_of_the_step() -> dict[str, str]:
 #: run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity gives (``scoring_revision``); value: the revision
 #: already in the store. **Retired** in the change that first alters a score (a definition, the premise, the model, the code of ``_read_pair`` or ``score_of``):
 #: the test that pins it fails then, and the owner decides whether the legacy rows are still wanted.
-LEGACY_REVISIONS: dict[str, str] = {"category-37c188900f38": "category-65f33b55b26b"}
+LEGACY_REVISIONS: dict[str, str] = {"category-21684b80ec36": "category-65f33b55b26b"}
 
 
 def _scoring_code() -> str:
-    """The code that decides a score: the label, the group and the share of the mass (``score_of``), the reading of the pair by the model (``_read_pair``)
-    and the name of the company in the hypothesis (``company_name``), normalised (comments, docstrings and formatting do not count). The bookkeeping of
+    """The code that decides a score: the label, the group and the share of the mass (``score_of``), the reading of the pair by the model (``_read_pair``),
+    the name of the company in the hypothesis (``company_name``) and how the model is loaded (``CategoryScorer._load``: the precision changes outputs), normalised (comments, docstrings and formatting do not count). The bookkeeping of
     ``CategoryScorer.score`` (which pairs were cut at the window) is not here on purpose: editing it must not restart a run."""
     return hashlib.sha256(
         "\n".join(
-            normalized_code(inspect.getsource(f)) for f in (score_of, _read_pair, company_name)
+            normalized_code(inspect.getsource(f))
+            for f in (score_of, _read_pair, company_name, CategoryScorer._load)
         ).encode()
     ).hexdigest()[:12]
 
@@ -114,8 +115,10 @@ def scoring_revision(model_identity: str, summary_revision: str, companies_revis
             "model": model_identity,
             "summary_revision": summary_revision,
             "companies_revision": companies_revision,
-            "definitions": DEFINITIONS,
-            "groups": {g: list(v) for g, v in GROUPS.items()},
+            "definitions": list(
+                DEFINITIONS.items()
+            ),  # in order: ``LABELS`` follows it and a tie goes to the first label
+            "groups": [[g, list(v)] for g, v in GROUPS.items()],
             "premise": PREMISE,
             "hypothesis": HYPOTHESIS,
             "premise_chars": PREMISE_CHARS,
