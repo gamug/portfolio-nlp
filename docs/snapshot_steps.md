@@ -49,7 +49,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 
 | Column | Meaning |
 |---|---|
-| `fetched_at` | crawl time, UTC; places the item in a window |
+| `fetched_at` | crawl time, UTC; places the item in a window. A unique body can come from several articles: the **earliest** `fetched_at` of its articles (when the news first appeared); the title is the representative article's (the lowest id) |
 | `pub_date` | publication date as stored (from the earlier D28); not used for the window |
 | `title`, `text`, `text_source` | as above |
 | `ticker`, `sector` | the main company, or `''` and the 2-digit GICS sector of `body_sector` |
@@ -88,24 +88,24 @@ rows say which period counted which snapshot, so the counts can be audited and a
 
 ## The revisions
 
-The snapshot's revision is a hash of the five step revisions it reads (summary, companies, sector, category, sentiment), of the **cut revision** (`units5-...`: the text and the
-title of a sub-news depend on it), and of the code that builds the row (and, once the field returns, the mentions floor); a run names each and is refused when one has no rows. The period summary's
+The snapshot's revision is a hash of the four step revisions a company row reads (summary, companies, category, sentiment), of the **cut revision** (`units5-...`: the text and the
+title of a sub-news depend on it), and of the code that builds the row (and, once the field returns, the mentions floor); a run names each and is refused when one has no rows. **The step is refused unless the inputs recorded in the sentiment and category revisions equal the named summary and companies revisions** (the rows would join other inputs). **The sector revision is not in it** (owner, 2026-11-14): `--sector-revision` is needed only to write sector rows, whose own revision also hashes it, so a sector rerun never changes a company snapshot or a period. The period summary's
 revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row at the revision (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
 
 ## Commands (proposed)
 
 ```
-uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... --sector-revision ... --category-revision ... --sentiment-revision ... --limit 500
+uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... [--sector-revision ...] --category-revision ... --sentiment-revision ... --limit 500
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03      # one period
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --catch-up                   # every missing period
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03 --render
 ```
 
-`--render` prints `not_counted` on a line only when it is above 0, and the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
+`--render` (and the period part of `--status`) reads **written periods only** and refuses a period with no `period_run` row. `--render` prints `not_counted` on a line only when it is above 0, and the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
 
 ## Not decided here
 
 * `companies_mentioned` and its floor (T-198): out of scope for now.
-* Which revisions of the five steps the first real run pins: it needs sentiment and category run on the real store (the owner's runs; T-192 and T-193 only validate them, they are not run tasks).
+* Which revisions of the steps the first real run pins: it needs sentiment and category run on the real store (the owner's runs; T-192 and T-193 only validate them, they are not run tasks).
 * Whether a company text with no sentiment because of a skip is retried by hand or left (the list in `--status` is what the owner reads).
 * Extra sectors (T-199): none for now; only the 11 GICS sectors exist.
