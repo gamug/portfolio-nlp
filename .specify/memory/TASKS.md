@@ -167,18 +167,9 @@ change is proposed to the owner in the PR that needs it (constitution AI behavio
       architecture artifacts (AI #11), then Work items 15, 17 and 18 to `CHANGELOG.md` (AI #15,
       closing T-129 and T-138b). → acceptance.
 
-- [ ] **T-152** *(undefined, not started: owner 2026-11-10, D40)* *(P5)* The company snapshot table (**a row only for a (text, main company) pair: an item with no main company, the review list of step 3, gets no company snapshot; owner, 2026-11-14, in place of T-161 and T-147b**; one row per (text, main company), text = summary or sub-news, D39 (i); counted once per body for the per-day signal: text, ticker, D15
-      label, sentiment, `pub_date`) and the sector snapshot table (one row per (body, sector): text,
-      sentiment), RESULTS, the old tables kept as v1 (D28, D19). **Columns approved by the owner on
-      2026-11-06** (for the cut's files and as the base of the table): `body_hash`, `article_id` (first),
-      `pub_date` (as stored), `scope` (rules), `ticker`, `role` (analysed | mention, D23), `text_kind`
-      (summary | company_text | unextracted), `text_source` (summary | parser | baseline | model), `text`,
-      `sentiment`, `p_positive`, `p_negative`, `p_neutral`, `sentiment_checked` (yes | no), the
-      summary, extractor and sentiment model with their revisions, `provisional` (1), `run_id`. The types,
-      the keys and the migration are proposed to the owner in the P5 PR (constitution AI #10); its own FR. → P5.
-- **T-153** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
-- **T-156** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
-- **T-157** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
+- [ ] **T-195** *(Build 3, D42, FR-024; replaces T-152)* **The snapshot step** (`--step snapshot`): `news_snapshot` per (text, main company) or `sector` text, from the five revisions it names; complete rows only; `companies_mentioned` over step 3's main threshold; `.env` `BATCH_TIMEZONE` (default `America/New_York`) in `.env.example` with the options listed in `#`. Design and tables: `docs/snapshot_steps.md`. The first real run waits for sentiment and category on the store (T-192, T-193).
+- [ ] **T-196** *(Build 3, D42, FR-024)* **The period summary step** (`--step period`): window `(previous cut, this cut]` by `fetched_at`, cut at 15:00 in `BATCH_TIMEZONE`, 21 days from 2022-01-03; counts per company and category; the LLM paragraph per sector (temperature 0, prompt hash, snapshot ids; never regenerated); frozen periods, late items flagged in the next; `--catch-up` (prints the LLM calls first), `--render`.
+- [ ] **T-197** *(Build 3, D42; tests of T-195 and T-196)* Hermetic tests: the period ends and the daylight-saving conversion, the first window, a late item, idempotent rerun, a period never rewritten, a sector with no news dropped, the LLM mocked, `BATCH_TIMEZONE` invalid refused.
 - [ ] **T-155** *(gold sets, `docs/gold_datasets.md`; validated against D39 on 2026-11-10)* In place in `gold/`: scope train 284 and test 200, label check 200, extractor faithfulness 453 and its confirmation set 438 (migrated 2026-11-10), sentiment 180, training sets 450 and 405 (marks and ids only). No gold is needed for the relevance model's main company, NER or the sub-news summaries (owner: the relevance model, the trained NER and the existing summariser are the design). **Texts:** tracked in `gold/texts/` since 2026-11-10 (owner: the repository and its data are public; `docs/gold_datasets.md`). **Left:** nothing for D39. Text before 2026-11-10: `archive/PIPELINE-superseded-2026-11-10.md`.
 - **T-154** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 ## Status
