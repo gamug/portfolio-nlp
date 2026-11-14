@@ -2235,7 +2235,7 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 
 ### Work item 18 — T-194, the attribution model of the cut is pinned (#186, 2026-11-14)
 
-- **Changed behaviour:** `--step cut` reads the pin `config/attribution_model.json` (`gamug/FinBERT-news-attribution@436ad700`, private, identity `8399ccf003c60143`). `--fetch` downloads the five model files into an empty `--model-dir` (`HF_TOKEN`; a failure is one line) and keeps them only if the identity matches; a folder with another identity is **refused** unless `--allow-unpinned`, where before any folder ran. The cut revision `units5-d3e2cbfa830e` does not change. The identity is hashed once per run. A run that passes a development copy needs `--allow-unpinned`. The test of the Hub copy is T-194 (in #184).
+- **Changed behaviour:** `--step cut` reads the pin `config/attribution_model.json` (`gamug/FinBERT-news-attribution@436ad700`, private, identity `8399ccf003c60143`). `--fetch` downloads the five model files into an empty `--model-dir` (`HF_TOKEN`; a failure is one line) and keeps them only if the identity matches; a folder with another identity is **refused** unless `--allow-unpinned`, where before any folder ran (a missing pin file refuses every folder, it does not switch the check off). The cut revision `units5-d3e2cbfa830e` does not change. The identity is hashed once per run. A run that passes a development copy needs `--allow-unpinned`. The test of the Hub copy is T-194 (in #184).
 
 ### Work item 18 — T-182, the architecture artifacts reconciled (moved from `TASKS.md`, 2026-11-12)
 

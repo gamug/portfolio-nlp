@@ -512,6 +512,7 @@ def test_a_failed_fetch_exits_with_one_line_not_a_stack(
     folder = tmp_path / "model"
     folder.mkdir()
     (folder / "model.safetensors").write_bytes(b"x")  # a full folder: never overwritten
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "token")  # not the developer's own
     with pytest.raises(SystemExit, match=r"--fetch: .*not empty"):
         _argv(monkeypatch, *argv, "--model-dir", str(folder))
 
@@ -540,6 +541,43 @@ def test_the_pin_functions_do_not_hash_the_folder_again_when_given_its_identity(
     cut_stage.pin_status(tmp_path, pin, identity)
     assert cut_stage.is_pinned(tmp_path, pin, identity) is True
     assert len(calls) == 1  # one read of the weights, not three
+
+
+def test_fetch_pinned_names_a_file_the_hub_copy_lacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_model(tmp_path / "source")
+    pin = _pin(tmp_path, tmp_path / "source")
+
+    def download(repo: str, revision: str, local_dir: str, allow_patterns: list[str]) -> str:
+        Path(local_dir).mkdir(parents=True)
+        (Path(local_dir) / "config.json").write_text("{}")  # model.safetensors is not in the copy
+        return local_dir
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", download)
+    monkeypatch.setattr("huggingface_hub.get_token", lambda: "token")
+    target = tmp_path / "models" / "attribution"
+    with pytest.raises(RuntimeError, match="lacks a model file"):
+        cut_stage.fetch_pinned(target, pin)
+    assert not target.exists() and not (tmp_path / "models" / ".attribution.fetching").exists()
+
+
+def test_the_cut_refuses_every_folder_when_the_pin_file_is_missing(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    results_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_model: list[Path],
+) -> None:
+    monkeypatch.setattr(
+        cut_stage, "is_pinned", lambda model_dir, pin_path=None, identity=None: None
+    )
+    argv = ("--step", "cut", *_paths(pair, tmp_path, results_db_path), *_model(tmp_path))
+    with pytest.raises(SystemExit, match="is missing"):
+        _argv(monkeypatch, *argv)
+    assert stub_model == []
+    _argv(monkeypatch, *argv, "--allow-unpinned")
+    assert len(stub_model) == 1
 
 
 def test_the_cut_refuses_an_unpinned_folder_unless_allowed(

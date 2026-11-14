@@ -138,7 +138,12 @@ def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
             pin["model"], revision=pin["revision"], local_dir=str(tmp), allow_patterns=pin["files"]
         )
         shutil.rmtree(tmp / ".cache", ignore_errors=True)
-        got = am.directory_identity(tmp)
+        try:
+            got = am.directory_identity(tmp)
+        except ValueError as exc:  # a listed file is not in the Hub copy
+            raise RuntimeError(
+                f"{pin['model']}@{pin['revision'][:8]} lacks a model file ({exc}); the download was deleted"
+            ) from exc
         if got != pin["identity"]:
             raise RuntimeError(
                 f"{pin['model']}@{pin['revision'][:8]} has the identity {got}, not the pinned "

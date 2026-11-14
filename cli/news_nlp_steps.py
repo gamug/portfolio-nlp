@@ -491,12 +491,14 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     try:
         identity = folder_identity(args.model_dir)  # once: the weights are large
         print(pin_status(args.model_dir, identity=identity), file=sys.stderr)
-        unpinned = is_pinned(args.model_dir, identity=identity) is False
+        pinned = is_pinned(args.model_dir, identity=identity)
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
-    if unpinned and not args.allow_unpinned:
+    if pinned is not True and not args.allow_unpinned:
         sys.exit(
-            "refused: the folder is not the pinned attribution model (config/attribution_model.json). "
+            "refused: config/attribution_model.json is missing, so no folder can be checked against the pin"
+            if pinned is None
+            else "refused: the folder is not the pinned attribution model (config/attribution_model.json). "
             "Use --fetch into an empty --model-dir, or --allow-unpinned for a development copy"
         )
     try:
