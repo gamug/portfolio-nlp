@@ -365,6 +365,28 @@ CREATE TABLE IF NOT EXISTS news_category (
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
 );
 
+-- The snapshot (step 8, T-195, D42): one row per (text, main company), or per `sector` text (`ticker` '' and the 2-digit sector, no category and no
+-- sentiment). `fetched_at` is the earliest crawl of the unique body, UTC; it places the row in a period window. `companies_mentioned` stays '[]' (T-198).
+CREATE TABLE IF NOT EXISTS news_snapshot (
+    item_kind           TEXT NOT NULL,
+    item_id             TEXT NOT NULL,
+    ticker              TEXT NOT NULL DEFAULT '',
+    model_revision      TEXT NOT NULL,
+    fetched_at          TEXT NOT NULL,
+    pub_date            TEXT NOT NULL DEFAULT '',
+    title               TEXT NOT NULL DEFAULT '',
+    text                TEXT NOT NULL,
+    text_source         TEXT NOT NULL,
+    sector              TEXT NOT NULL DEFAULT '',
+    companies_mentioned TEXT NOT NULL DEFAULT '[]',
+    category            TEXT NOT NULL DEFAULT '',
+    group_label         TEXT NOT NULL DEFAULT '',
+    sentiment           TEXT NOT NULL DEFAULT '',
+    sentiment_score     REAL,
+    processed_at        TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, ticker, model_revision)
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_step_state (
     item_kind      TEXT NOT NULL,   -- body / sub_news / text_company
     item_id        TEXT NOT NULL,
@@ -379,6 +401,7 @@ CREATE TABLE IF NOT EXISTS pipeline_step_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_step_state_status ON pipeline_step_state(step, status);
+CREATE INDEX IF NOT EXISTS idx_news_snapshot_fetched ON news_snapshot(model_revision, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sub_news_article_id ON sub_news(article_id);
 CREATE INDEX IF NOT EXISTS idx_news_company_ticker ON news_company(ticker, is_main);
 """

@@ -480,7 +480,7 @@ def test_the_step_needs_both_revisions_to_run_and_refuses_what_it_does_not_read(
         cli.check_options(
             parser, parser.parse_args(["--step", "summary", "--companies-revision", "c"])
         )
-    assert "category and --step sentiment" in capsys.readouterr().err
+    assert "--step category, --step sentiment" in capsys.readouterr().err
 
 
 def test_the_recipes_of_a_recut_and_of_a_rerun_name_the_sentiment_rows() -> None:

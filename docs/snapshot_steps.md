@@ -1,6 +1,6 @@
 # The snapshot and the period summary (steps 8 and 9; D42, FR-024; owner, 2026-11-14)
 
-Design only: nothing here is built. The tables below are a **proposal** the owner approves in the spec PR (constitution AI #10).
+**Status (2026-11-14):** the snapshot step (step 8, T-195) is **built**: `src/news_snapshot_stage.py`, `--step snapshot`, the table `news_snapshot`, `tests/news_nlp/test_snapshot_step.py`. The period summary (step 9, T-196) is **not built**; its tables below are still a proposal.
 It replaces D28 and T-152 (the earlier sketch, kept in `.specify/memory/archive/SPEC-PLAN-TASKS-condensed-for-the-snapshot-steps-2026-11-14.md`;
 a reference to D28 in an older file means D42 now). These steps are **Build 3**: after Build 1 (scope to companies, sector) and Build 2 (sentiment, category) have run on the store.
 

@@ -22,6 +22,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step category --status     # categories written, by label and by group
     uv run cli/news_nlp_steps.py --step sentiment --summary-revision summary-... --companies-revision companies-... --limit 500   # the sentiment of each main company (pair model + relevance stack)
     uv run cli/news_nlp_steps.py --step sentiment --status    # sentiments written, by label
+    uv run cli/news_nlp_steps.py --step snapshot --summary-revision summary-... --companies-revision companies-... --cut-revision units5-... --category-revision category-... --sentiment-revision sentiment-... --limit 500   # step 8: one snapshot per (text, main company)
+    uv run cli/news_nlp_steps.py --step snapshot --status     # snapshots written by revision (with the five revisions: the pairs still waiting and why)
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -68,6 +70,7 @@ STEPS = (
     steps.STEP_SECTOR,
     steps.STEP_CATEGORY,
     steps.STEP_SENTIMENT,
+    steps.STEP_SNAPSHOT,
 )
 BATCH = 16
 # texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each);
@@ -1282,6 +1285,66 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_SENTIMENT, finder.revision), indent=2))
 
 
+def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    """Step 8 (T-195): join the texts, categories and sentiments into ``news_snapshot``. No model; the state is derived from the tables."""
+    import news_snapshot_stage as snap  # noqa: PLC0415
+
+    summary, companies, cut = args.summary_revision, args.companies_revision, args.cut_revision
+    category, sentiment = args.category_revision, args.sentiment_revision
+    revision = (
+        snap.revision(summary, companies, cut, category, sentiment)
+        if all((summary, companies, cut, category, sentiment))
+        else None
+    )
+    if args.status:
+        print(
+            json.dumps(
+                snap.status(
+                    conn,
+                    revision,
+                    summary_revision=summary,
+                    companies_revision=companies,
+                    category_revision=category,
+                    sentiment_revision=sentiment,
+                ),
+                indent=2,
+            )
+        )
+        return
+    if (
+        revision is None
+    ):  # check_options asks for the cut, category and sentiment revisions; these two are checked here
+        sys.exit("--step snapshot needs --summary-revision and --companies-revision")
+    problems = snap.check_inputs(
+        conn, summary, companies, cut, category, sentiment, args.sector_revision
+    )
+    if problems:
+        sys.exit("refused: " + "; ".join(problems))
+    print(f"snapshot revision {revision}", file=sys.stderr)
+    counts = snap.run(conn, revision, summary, companies, category, sentiment, args.limit)
+    result: dict[str, object] = {"revision": revision, **counts}
+    if args.sector_revision is not None:
+        sector_rev = snap.sector_revision_of(revision, args.sector_revision)
+        result["sector_revision"] = sector_rev
+        result["sector_rows"] = snap.run_sectors(
+            conn, sector_rev, summary, args.sector_revision, args.limit
+        )
+    print(json.dumps(result, indent=2))
+    print(
+        json.dumps(
+            snap.status(
+                conn,
+                revision,
+                summary_revision=args.summary_revision,
+                companies_revision=args.companies_revision,
+                category_revision=args.category_revision,
+                sentiment_revision=args.sentiment_revision,
+            ),
+            indent=2,
+        )
+    )
+
+
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     revision = None
     if (args.model_dir / "training_record.json").exists():
@@ -1468,6 +1531,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="summary, with --items sector: the sector revision whose assigned bodies are summarised; required, never the latest (the revisions the sector step has are listed)",
     )
+    parser.add_argument(
+        "--category-revision",
+        default=None,
+        help="snapshot: the category revision whose labels are joined (required to run, never the latest)",
+    )
+    parser.add_argument(
+        "--sentiment-revision",
+        default=None,
+        help="snapshot: the sentiment revision whose labels are joined (required to run, never the latest)",
+    )
     parser.add_argument("--source-db", default=None)
     parser.add_argument("--results-db", default=None)
     return parser
@@ -1476,21 +1549,29 @@ def build_parser() -> argparse.ArgumentParser:
 def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the companies step: the two it needs to run, and the ones no other step reads."""
     if (
-        args.step not in (steps.STEP_COMPANIES, steps.STEP_CATEGORY, steps.STEP_SENTIMENT)
+        args.step
+        not in (
+            steps.STEP_COMPANIES,
+            steps.STEP_CATEGORY,
+            steps.STEP_SENTIMENT,
+            steps.STEP_SNAPSHOT,
+        )
         and args.summary_revision is not None
     ):
         parser.error(
-            "--summary-revision only applies to --step companies, --step category and --step sentiment"
+            "--summary-revision only applies to --step companies, --step category, --step sentiment and --step snapshot"
         )
     if args.step != steps.STEP_COMPANIES and args.threshold is not None:
         parser.error("--threshold only applies to --step companies")
     if args.step != steps.STEP_COMPANIES and args.candidates is not None:
         parser.error("--candidates only applies to --step companies")
     if (
-        args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT)
+        args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT, steps.STEP_SNAPSHOT)
         and args.companies_revision is not None
     ):
-        parser.error("--companies-revision only applies to --step category and --step sentiment")
+        parser.error(
+            "--companies-revision only applies to --step category, --step sentiment and --step snapshot"
+        )
     if args.step == steps.STEP_COMPANIES and not args.status:
         if args.summary_revision is None:
             parser.error(
@@ -1510,7 +1591,7 @@ def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Nam
 
 def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the category and the sentiment steps: the two they need to run, and the ones they do not read."""
-    if args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT):
+    if args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT, steps.STEP_SNAPSHOT):
         return
     if args.scope_revision is not None:
         parser.error(
@@ -1525,6 +1606,26 @@ def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Name
             parser.error(
                 f"--step {args.step} needs --companies-revision (the main companies it reads; `--step companies --status` lists the revisions)"
             )
+
+
+def _check_snapshot_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the snapshot step (step 8): the five revisions it joins to run; the two it alone reads are refused elsewhere."""
+    if args.step != steps.STEP_SNAPSHOT:
+        if args.category_revision is not None or args.sentiment_revision is not None:
+            parser.error(
+                "--category-revision and --sentiment-revision only apply to --step snapshot"
+            )
+        return
+    if args.items is not None or args.threshold is not None or args.candidates is not None:
+        parser.error("--items, --threshold and --candidates do not apply to --step snapshot")
+    if args.model_dir is not None:
+        parser.error("--model-dir does not apply to --step snapshot (it reads no model)")
+    if not args.status:
+        for flag in ("cut", "category", "sentiment"):
+            if getattr(args, f"{flag}_revision") is None:
+                parser.error(
+                    f"--step snapshot needs --{flag}-revision (never the latest; `--step {flag} --status` lists the revisions)"
+                )
 
 
 def _check_scope_cut_flags(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -1546,12 +1647,18 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     _check_scope_cut_flags(parser, args)
     if args.step != steps.STEP_CUT and args.reading is not None:
         parser.error("--reading only applies to --step cut")
-    if args.step not in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and (
+    if args.step not in (steps.STEP_SUMMARY, steps.STEP_COMPANIES, steps.STEP_SNAPSHOT) and (
         args.items is not None or args.cut_revision is not None
     ):
-        parser.error("--items and --cut-revision only apply to --step summary and --step companies")
-    if args.step != steps.STEP_SUMMARY and args.sector_revision is not None:
-        parser.error("--sector-revision only applies to --step summary")
+        parser.error(
+            "--items and --cut-revision only apply to --step summary, --step companies and --step snapshot (--items not to snapshot)"
+        )
+    if (
+        args.step not in (steps.STEP_SUMMARY, steps.STEP_SNAPSHOT)
+        and args.sector_revision is not None
+    ):
+        parser.error("--sector-revision only applies to --step summary and --step snapshot")
+    _check_snapshot_options(parser, args)
     _check_companies_options(parser, args)
     _check_category_options(parser, args)
     if (
@@ -1620,25 +1727,16 @@ def main() -> None:
     with exit_on_schema_error():
         conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     db.init_schema(conn)
-    if args.step == steps.STEP_CUT:
-        main_cut(args, conn)
-        return
-    if args.step == steps.STEP_SUMMARY:
-        main_summary(args, conn)
-        return
-    if args.step == steps.STEP_COMPANIES:
-        main_companies(args, conn)
-        return
-    if args.step == steps.STEP_SECTOR:
-        main_sector(args, conn)
-        return
-    if args.step == steps.STEP_CATEGORY:
-        main_category(args, conn)
-        return
-    if args.step == steps.STEP_SENTIMENT:
-        main_sentiment(args, conn)
-        return
-    main_scope(args, conn)
+    runners = {
+        steps.STEP_CUT: main_cut,
+        steps.STEP_SUMMARY: main_summary,
+        steps.STEP_COMPANIES: main_companies,
+        steps.STEP_SECTOR: main_sector,
+        steps.STEP_CATEGORY: main_category,
+        steps.STEP_SENTIMENT: main_sentiment,
+        steps.STEP_SNAPSHOT: main_snapshot,
+    }
+    runners.get(args.step, main_scope)(args, conn)
 
 
 if __name__ == "__main__":
