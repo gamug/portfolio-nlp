@@ -24,7 +24,7 @@ Rows go to `news_summary` (`item_kind` `body` with the body hash, or `sub_news` 
 `pipeline_step_state` (step `summary`). The step is idempotent and resumable like the scope and the cut: a rerun at the same revision adds
 nothing, a failed item is retried and keeps its reason (`Type: message`), a batch that fails is redone item by item, an empty summary is a
 failure (never stored), `--limit N` touches at most N pending items (single bodies first), and three batches in a row that fail completely stop the run.
-Options the step does not read are refused, never ignored: `--model-dir`, `--reading`, the scope-only flags, `--cut-revision` with `--items single`, and `--scope-revision` with `--items sub_news`
+Options the step does not read are refused, never ignored: `--model-dir`, `--reading`, `--titles`, `--fetch` and `--allow-unpinned` (the scope's and the cut's), `--cut-revision` with `--items single`, and `--scope-revision` with `--items sub_news`
 (it names the single bodies to read; the JSON a run prints lists only the revisions it read).
 
 **The revision** is `summary-` plus 12 hex digits of the SHA-256 of the model and its pinned revision, **the `transformers` version** (beam search lives there and `pyproject.toml` only requires `>=4.56`; `uv.lock` pins 5.16.1: a lock bump starts a new revision instead of mixing old and new summaries under one; `torch` is left out because its version carries the build, `+cu124` or `+cpu`, and the revision is the same on both devices), the size, the input format, the generation limits and

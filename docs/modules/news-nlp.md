@@ -28,9 +28,9 @@ and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extr
 
 ### Step 1.2: the cut (T-163)
 
-`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
+`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--fetch] [--allow-unpinned] [--status]` reads the `multi`
 bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
-step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
+step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (pinned to the private Hub copy `config/attribution_model.json`: `--fetch` downloads it into an empty `--model-dir` and needs `HF_TOKEN`; any other folder is refused unless `--allow-unpinned`; the local `data/models/attribution_2026_11_08`,
 git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units5`, or `units4` / `units` with `--reading`) plus `-` and a hash of
 the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
 and leaves the old rows. **Rows of another reading (`units-…`, `units4-…`) stay beside the `units5-…` set; `--status` lists all
@@ -318,8 +318,8 @@ lean `articles` rows itself.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
-- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **published,
-  private: `gamug/FinBERT-news-attribution@436ad700`; the pin of the cut is #186**): a pair classifier, *is this sentence about this company?* (the company's
+- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **published
+  private and pinned for the cut**: `config/attribution_model.json`, `--step cut --fetch`): a pair classifier, *is this sentence about this company?* (the company's
   name, the previous sentence and the sentence in; trained on `lead` paragraphs only, with the
   company's name masked). A sentence that names universe companies belongs to them; one that names
   none goes to the best-scoring company of the body if the score is at least 0.5, else to nobody.

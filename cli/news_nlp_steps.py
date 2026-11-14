@@ -6,7 +6,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step scope --status        # counts by state and by scope, no model loaded
     uv run cli/news_nlp_steps.py --step scope --fetch --status   # first: download the pinned model into models/scope_final
     uv run cli/news_nlp_steps.py --step scope --status --titles   # also the bodies with no title (scans the corpus)
-    uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2)
+    uv run cli/news_nlp_steps.py --step cut --fetch --status  # first: download the pinned attribution model into an empty --model-dir (private: HF_TOKEN)
+    uv run cli/news_nlp_steps.py --step cut --limit 500       # cut up to 500 multi bodies into sub-news (step 1.2); a folder that is not the pinned model is refused (--allow-unpinned)
     uv run cli/news_nlp_steps.py --step cut --status          # sub-news written and bodies by state
     uv run cli/news_nlp_steps.py --step summary --items single --limit 200   # step 2: summarise the single bodies over 2,000 characters
     uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
@@ -70,7 +71,7 @@ COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
 MAX_FAILED_BODIES = 10  # the same for the cut, which goes body by body
-SCOPE_ONLY_FLAGS = ("fetch", "allow_unpinned", "titles")
+SCOPE_ONLY_FLAGS = ("titles",)
 
 
 class RunAborted(RuntimeError):
@@ -477,11 +478,28 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         DEFAULT_READING,
         UnitsExtractor,
         companies_of,
+        folder_identity,
+        is_pinned,
+        pin_status,
     )
 
     if not args.model_dir.is_dir():
         sys.exit(
-            f"{args.model_dir} is not a folder: the attribution checkpoint is local (T-148b12), copy it there or pass --model-dir"
+            f"{args.model_dir} is not a folder: run with --fetch to download the pinned attribution model "
+            "(config/attribution_model.json, private: needs HF_TOKEN) or pass --model-dir"
+        )
+    try:
+        identity = folder_identity(args.model_dir)  # once: the weights are large
+        print(pin_status(args.model_dir, identity=identity), file=sys.stderr)
+        pinned = is_pinned(args.model_dir, identity=identity)
+    except ValueError as exc:  # the folder lacks a model file: say so, not a stack
+        sys.exit(str(exc))
+    if pinned is not True and not args.allow_unpinned:
+        sys.exit(
+            "refused: config/attribution_model.json is missing, so no folder can be checked against the pin"
+            if pinned is None
+            else "refused: the folder is not the pinned attribution model (config/attribution_model.json). "
+            "Use --fetch into an empty --model-dir, or --allow-unpinned for a development copy"
         )
     try:
         extractor = UnitsExtractor.load(
@@ -1071,12 +1089,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fetch",
         action="store_true",
-        help="download the pinned model (config/scope_model.json, public repository) into an empty --model-dir first",
+        help="download the pinned model (scope: config/scope_model.json; cut: config/attribution_model.json, private, needs HF_TOKEN) into an empty --model-dir first",
     )
     parser.add_argument(
         "--allow-unpinned",
         action="store_true",
-        help="run on a model whose revision is not the pinned one (a refit, a development copy); the rows are not traceable to the Hub",
+        help="scope or cut: run on a model that is not the pinned one (a refit, a development copy); the rows are not traceable to the Hub",
     )
     parser.add_argument(
         "--titles",
@@ -1190,14 +1208,23 @@ def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Name
             )
 
 
-def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    """Refuse an option the chosen step does not read, so it is never silently ignored."""
-    if args.limit is not None and args.limit < 1:
-        parser.error("--limit must be at least 1")
+def _check_scope_cut_flags(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """``--titles`` is the scope's; ``--fetch`` and ``--allow-unpinned`` are the scope's and the cut's (T-147b, T-194)."""
     if args.step != steps.STEP_SCOPE:
         used = [f"--{n.replace('_', '-')}" for n in SCOPE_ONLY_FLAGS if getattr(args, n)]
         if used:
             parser.error(f"{', '.join(used)} only apply to --step scope")
+    if args.step not in (steps.STEP_SCOPE, steps.STEP_CUT):
+        used = [f"--{n.replace('_', '-')}" for n in ("fetch", "allow_unpinned") if getattr(args, n)]
+        if used:
+            parser.error(f"{', '.join(used)} only apply to --step scope and --step cut")
+
+
+def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Refuse an option the chosen step does not read, so it is never silently ignored."""
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be at least 1")
+    _check_scope_cut_flags(parser, args)
     if args.step != steps.STEP_CUT and args.reading is not None:
         parser.error("--reading only applies to --step cut")
     if args.step not in (steps.STEP_SUMMARY, steps.STEP_COMPANIES) and (
@@ -1253,9 +1280,19 @@ def main() -> None:
     args.model_dir = args.model_dir or default_model_dir(args.step)
     db.env.load_env_file()
     if args.fetch:
-        from scope_stage import fetch_pinned  # noqa: PLC0415 -- the download only
+        if args.step == steps.STEP_CUT:
+            from cut_stage import fetch_pinned  # noqa: PLC0415 -- the download only
+        else:
+            from scope_stage import fetch_pinned  # noqa: PLC0415
 
-        print(f"fetched the pinned model into {args.model_dir}: {fetch_pinned(args.model_dir)}")
+        try:
+            identity = fetch_pinned(args.model_dir)
+        except (
+            OSError,
+            RuntimeError,
+        ) as exc:  # not empty, no token, no access, a wrong copy: one line, not a stack
+            sys.exit(f"--fetch: {exc}")
+        print(f"fetched the pinned model into {args.model_dir}: {identity}")
     with exit_on_schema_error():
         conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     db.init_schema(conn)

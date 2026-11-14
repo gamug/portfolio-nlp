@@ -10,7 +10,7 @@ One repository, ``gamug/FinBERT-news-attribution``, **private**: ``model.safeten
 ``tokenizer_config.json``, ``metrics.json`` (the training record) and a ``README.md`` card written from that record. The licence is
 ``cc-by-nc-sa-4.0``: the base ``gamug/FinBERT-financial-news`` carries the share-alike of ``ProsusAI/finbert``. After the upload the commit,
 the sha256 of the card and of the weights and the identity are written to ``config/published_models.json`` (key ``attribution``). The pin of
-the cut is its own change (#186, T-194); to repeat the cut from the Hub copy download only the five model files into a clean
+the cut is ``config/attribution_model.json`` (T-194); to repeat the cut from the Hub copy download only the five model files into a clean
 folder (a ``README.md`` or ``.gitattributes`` in it changes the identity, and so the revision of the cut). ``--check`` is read-only. Needs
 ``HF_TOKEN`` (write scope) in the environment or ``.env``.
 """
@@ -39,9 +39,7 @@ FILES = (
     "metrics.json",
 )
 WEIGHTS = "model.safetensors"
-WHAT_ADDED = (
-    "attribution: private (the pin of the cut is its own change, #186; T-194 tests the Hub copy)"
-)
+WHAT_ADDED = "attribution: private, pinned for the cut (config/attribution_model.json; --step cut --fetch needs HF_TOKEN; T-194 tests the Hub copy)"
 
 
 def pct(value: float) -> str:

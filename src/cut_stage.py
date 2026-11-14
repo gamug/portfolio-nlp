@@ -69,6 +69,94 @@ def distinct(texts: Sequence[str]) -> list[str]:
     return out
 
 
+PIN_PATH = Path(__file__).resolve().parent.parent / "config" / "attribution_model.json"
+
+
+def folder_identity(model_dir: Path) -> str:
+    """The identity of the folder (a hash of its files): computed once per run, the weights are large."""
+    return am.directory_identity(model_dir)
+
+
+def is_pinned(
+    model_dir: Path, pin_path: Path | None = None, identity: str | None = None
+) -> bool | None:
+    """Whether the folder holds the pinned attribution model (same identity); ``None`` when no pin is recorded.
+
+    *identity* is the folder's, when the caller has it already (``folder_identity``).
+    """
+    path = pin_path or PIN_PATH
+    if not path.exists():
+        return None
+    return bool(
+        json.loads(path.read_text(encoding="utf-8")).get("identity")
+        == (identity or folder_identity(model_dir))
+    )
+
+
+def pin_status(model_dir: Path, pin_path: Path | None = None, identity: str | None = None) -> str:
+    """One line saying whether *model_dir* is the pinned attribution model (``config/attribution_model.json``, T-194)."""
+    identity = identity or folder_identity(model_dir)
+    pinned = is_pinned(model_dir, pin_path, identity)
+    if pinned is None:
+        return f"attribution model {identity}: no pin recorded"
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if pinned:
+        return f"attribution model {identity}: pinned ({pin['model']}@{pin['revision'][:8]})"
+    return (
+        f"attribution model {identity}: NOT the pinned one ({pin.get('identity')}); "
+        "the cut is not traceable to the Hub copy"
+    )
+
+
+def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
+    """Download the pinned attribution model from the Hub into *model_dir* (empty or new) and check its identity.
+
+    The repository is private: the token comes from ``HF_TOKEN`` (never printed). Only the files the pin lists are downloaded,
+    into a temporary folder next to *model_dir*, and moved in only when they hash to the pinned identity; a wrong or altered
+    copy is deleted. A folder that already holds files is refused (move it away first).
+    """
+    import shutil  # noqa: PLC0415 -- only the download needs these
+
+    from huggingface_hub import get_token, snapshot_download  # noqa: PLC0415
+
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if (
+        not get_token()
+    ):  # the Hub answers "not found" to a private repository without a token: say what is missing
+        raise PermissionError(
+            f"{pin['model']} is private and no Hub token is set: put HF_TOKEN in the environment or in .env"
+        )
+    if model_dir.exists() and any(model_dir.iterdir()):
+        raise FileExistsError(
+            f"{model_dir} is not empty: move it away before fetching the pinned model"
+        )
+    model_dir.parent.mkdir(parents=True, exist_ok=True)
+    tmp = model_dir.parent / f".{model_dir.name}.fetching"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        snapshot_download(
+            pin["model"], revision=pin["revision"], local_dir=str(tmp), allow_patterns=pin["files"]
+        )
+        shutil.rmtree(tmp / ".cache", ignore_errors=True)
+        try:
+            got = am.directory_identity(tmp)
+        except ValueError as exc:  # a listed file is not in the Hub copy
+            raise RuntimeError(
+                f"{pin['model']}@{pin['revision'][:8]} lacks a model file ({exc}); the download was deleted"
+            ) from exc
+        if got != pin["identity"]:
+            raise RuntimeError(
+                f"{pin['model']}@{pin['revision'][:8]} has the identity {got}, not the pinned "
+                f"{pin['identity']}; the download was deleted"
+            )
+        if model_dir.exists():
+            model_dir.rmdir()
+        tmp.rename(model_dir)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return got
+
+
 class UnitsExtractor:
     """The selected extractor for a given company universe and scorer; ``cut`` returns the texts of one body."""
 
