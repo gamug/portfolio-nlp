@@ -57,7 +57,7 @@ What the evidence does not cover:
 
 ### What is not done
 
-- **The selection was a record, not a code change, on 2026-11-08.** Since then it is wired: the cut step (`--step cut`, `src/cut_stage.py`, #168) runs the `units` extractor, read as `units4` from #169 and as `units5` since #176 (2026-11-12). What is still left of T-148b12 is the pin below.
+- **The selection was a record, not a code change, on 2026-11-08.** Since then it is wired: the cut step (`--step cut`, `src/cut_stage.py`, #168) runs the `units` extractor, read as `units4` from #169 and as `units5` since #176 (2026-11-12). The cut is pinned to the Hub copy (`gamug/FinBERT-news-attribution@436ad700`, private; `config/attribution_model.json`, T-194): `--step cut --fetch` downloads it into an empty `--model-dir` (needs `HF_TOKEN`), and the run is refused on a folder whose identity (`8399ccf003c60143`) is not the pinned one unless `--allow-unpinned`. The cut revision does not change.
 - **The checkpoint is not published or pinned.** The model every `units` figure here was measured with is
   the local directory `data/models/attribution_2026_11_08` (git-ignored), identified by the draw as
   `local:8399ccf003c60143` (a hash of its files), trained by `scripts/train_attribution_2026_11_08.py`

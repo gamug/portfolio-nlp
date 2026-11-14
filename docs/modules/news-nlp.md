@@ -318,8 +318,8 @@ lean `articles` rows itself.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
-- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **not
-  published, not pinned**): a pair classifier, *is this sentence about this company?* (the company's
+- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **published
+  private and pinned for the cut**: `config/attribution_model.json`, `--step cut --fetch`): a pair classifier, *is this sentence about this company?* (the company's
   name, the previous sentence and the sentence in; trained on `lead` paragraphs only, with the
   company's name masked). A sentence that names universe companies belongs to them; one that names
   none goes to the best-scoring company of the body if the score is at least 0.5, else to nobody.

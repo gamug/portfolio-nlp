@@ -69,6 +69,73 @@ def distinct(texts: Sequence[str]) -> list[str]:
     return out
 
 
+PIN_PATH = Path(__file__).resolve().parent.parent / "config" / "attribution_model.json"
+
+
+def is_pinned(model_dir: Path, pin_path: Path | None = None) -> bool | None:
+    """Whether the folder holds the pinned attribution model (same identity); ``None`` when no pin is recorded."""
+    path = pin_path or PIN_PATH
+    if not path.exists():
+        return None
+    return bool(
+        json.loads(path.read_text(encoding="utf-8")).get("identity")
+        == am.directory_identity(model_dir)
+    )
+
+
+def pin_status(model_dir: Path, pin_path: Path | None = None) -> str:
+    """One line saying whether *model_dir* is the pinned attribution model (``config/attribution_model.json``, T-194)."""
+    identity = am.directory_identity(model_dir)
+    pinned = is_pinned(model_dir, pin_path)
+    if pinned is None:
+        return f"attribution model {identity}: no pin recorded"
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if pinned:
+        return f"attribution model {identity}: pinned ({pin['model']}@{pin['revision'][:8]})"
+    return (
+        f"attribution model {identity}: NOT the pinned one ({pin.get('identity')}); "
+        "the cut is not traceable to the Hub copy"
+    )
+
+
+def fetch_pinned(model_dir: Path, pin_path: Path | None = None) -> str:
+    """Download the pinned attribution model from the Hub into *model_dir* (empty or new) and check its identity.
+
+    The repository is private: the token comes from ``HF_TOKEN`` (never printed). Only the files the pin lists are downloaded,
+    into a temporary folder next to *model_dir*, and moved in only when they hash to the pinned identity; a wrong or altered
+    copy is deleted. A folder that already holds files is refused (move it away first).
+    """
+    import shutil  # noqa: PLC0415 -- only the download needs these
+
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+    pin = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    if model_dir.exists() and any(model_dir.iterdir()):
+        raise FileExistsError(
+            f"{model_dir} is not empty: move it away before fetching the pinned model"
+        )
+    model_dir.parent.mkdir(parents=True, exist_ok=True)
+    tmp = model_dir.parent / f".{model_dir.name}.fetching"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        snapshot_download(
+            pin["model"], revision=pin["revision"], local_dir=str(tmp), allow_patterns=pin["files"]
+        )
+        shutil.rmtree(tmp / ".cache", ignore_errors=True)
+        got = am.directory_identity(tmp)
+        if got != pin["identity"]:
+            raise RuntimeError(
+                f"{pin['model']}@{pin['revision'][:8]} has the identity {got}, not the pinned "
+                f"{pin['identity']}; the download was deleted"
+            )
+        if model_dir.exists():
+            model_dir.rmdir()
+        tmp.rename(model_dir)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return got
+
+
 class UnitsExtractor:
     """The selected extractor for a given company universe and scorer; ``cut`` returns the texts of one body."""
 
