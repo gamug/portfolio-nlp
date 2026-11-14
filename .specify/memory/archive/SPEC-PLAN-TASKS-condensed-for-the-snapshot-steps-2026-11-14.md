@@ -29,3 +29,18 @@ Verbatim text moved out of SPEC.md, PLAN.md and TASKS.md; cut from commit 8424a3
 - **T-153** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 - **T-156** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
 - **T-157** *(out of the MVP, owner 2026-11-10; text in `archive/PIPELINE-superseded-2026-11-10.md`)*
+
+## PLAN.md D39 (iv), superseded by D42 (owner, 2026-11-14)
+
+(iv) **Sector summary:** it gets a sentiment, from
+  `gamug/FinBERT-financial-news` (the pinned chunk-level stage, no company).
+
+Old FR-020 clause: "Build 2: sentiment (pair model + relevance stack; sector summaries by `gamug/FinBERT-financial-news`), then category. Step 5, snapshots, is undefined."
+
+## SPEC.md FR-018, last sentences (pins of other steps)
+
+ The scope model of step 1 is pinned apart, in `config/scope_model.json`, and the attribution model of the cut in `config/attribution_model.json` (private Hub copy, identity checked, `--fetch`/`--allow-unpinned`). The sector embedder is pinned in `config/sector_step.json` and the sentiment pair model (a local folder) in `config/sentiment_step.json`; the category step reads the `category` pin of this file (the same checkpoint and revision as `pipeline.MODEL_REVISIONS`, regression-tested). |
+
+## PLAN.md D40 amendment of 2026-11-11 (full text)
+
+- **D40 amendment (owner, 2026-11-11): scope classifier selected, pinned, accepted under the bar.** The model is `scope-nli-8ff21e50796b`: two fine-tuned NLI models (365 tags), public on the Hub at `gamug/deberta-v3-news-scope-nli@58e4af4b` (card-only commit of 2026-11-11 on `@d14a4d20`, same weights) and pinned in `config/scope_model.json`; step 1 runs on it. Held-out 200, weighted, scored from the saved weights: **83.6% [78.1, 88.9]** (rules 67.2%; paired gain +16.5 [9.6, 23.4]); `single` recall 92%, **`out_of_scope` recall 53% [32, 74]**. **Bar of D20/D33: 80% since 2026-11-14 (owner); it passes.** (Earlier fit of the same recipe: 83.0% [77.5, 88.3], 48%; 81.5% on the key as first tagged.) **The limit is the `out_of_scope` class:** about half of those bodies continue as `single` or `multi`; accepted on purpose (a body wrongly kept costs a review, one wrongly stopped is lost). **Validated on `quarantined` bodies (owner, 2026-11-11, `docs/scope_training.md` §9; tags in `gold/scope_quarantined_validation.csv`):** 200 bodies drawn per predicted scope, final key 90.8% [86.9, 94.7] on 225 bodies (first reading 90.6%; the 200 of the first draw alone: 90.1% and 89.6%); `out_of_scope` precision 93.0% [86.3, 96.6], `single` 90%, `sector` 88%, `multi` 82% on 50. **The gate on the cut's `multi` rows (docs/scope_training.md §8.1) was released by the owner on 2026-11-11, no flag.** Precision only. **The scope validation is closed (owner, 2026-11-11, `docs/scope_training.md` §9.1): the model stays as it is;** the recall of `out_of_scope` among quarantined bodies and the audit of the gold under calls 17, 18 and 21 are not done (closed by decision); the 90.8% and the 83.6% are not compared like for like. **Reopens if** the bar is demanded, or the `out_of_scope` share that continues costs more than the review list takes (6.7% of the bodies was estimated from the 1,000-body sample; over the corpus the model calls 49% `out_of_scope`, 11% of the `ok` and 59% of the `quarantined` bodies, so the share that continues is not known: `docs/scope_training.md` §8). The three-seed check stays open (T-147b), **deferred by the owner on 2026-11-11 (to be fitted later; no time to be picky)**. Story and limits: `docs/scope_training.md`.
