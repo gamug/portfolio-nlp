@@ -1504,6 +1504,13 @@ RESENTIMENT_SQL = (
 RESNAPSHOT_SQL = (
     "DELETE FROM news_snapshot WHERE model_revision = '<snapshot revision>';",
 )  # what --reset does
+#: To write a period again (a written period is frozen): delete it **and every later one** of the same period revision (a later period holds the snapshots it
+#: took from the earlier windows); `--step period --status` prints the revision and the periods written.
+REPERIOD_SQL = (
+    "DELETE FROM period_item WHERE model_revision = '<period revision>' AND period_end >= '<period end, UTC>';",
+    "DELETE FROM period_summary WHERE model_revision = '<period revision>' AND period_end >= '<period end, UTC>';",
+    "DELETE FROM period_run WHERE model_revision = '<period revision>' AND period_end >= '<period end, UTC>';",
+)
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';",
@@ -1525,6 +1532,8 @@ To run the category step again at one revision (`--step category --status` print
   {recategory}
 To run the sentiment step again at one revision (`--step sentiment --status` prints it):
   {resentiment}
+To write a period again (it is frozen; delete it and every later one of the period revision, `--step period --status` prints both):
+  {reperiod}
 To write the snapshots again (`--reset` does it; it is the same SQL; the revision is the code's, `--step snapshot --status` prints it):
   {resnapshot}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
@@ -1537,6 +1546,7 @@ RERUN_HELP = _RERUN_TEMPLATE.format(
     recategory="\n  ".join(RECATEGORY_SQL),
     resentiment="\n  ".join(RESENTIMENT_SQL),
     resnapshot="\n  ".join(RESNAPSHOT_SQL),
+    reperiod="\n  ".join(REPERIOD_SQL),
 )
 
 

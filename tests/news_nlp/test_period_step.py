@@ -667,9 +667,7 @@ def test_the_run_shows_a_progress_bar_with_the_time_left(
     _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
     _run(conn)
     err = capsys.readouterr().err
-    assert (
-        "period:" in err and "4/4" in err and "period/s" in err and "<" in err
-    )  # count, rate, time left
+    assert "period rows:" in err and "1/1" in err and "<" in err  # the count and the time left
 
 
 def test_the_number_of_periods_to_do_is_printed_before_the_first_is_written(
@@ -683,6 +681,31 @@ def test_the_number_of_periods_to_do_is_printed_before_the_first_is_written(
     err = capsys.readouterr().err
     assert "4 periods to do" in err
     assert err.index("4 periods to do") < err.index(
-        "period:"
+        "period rows:"
     )  # the plan comes before the first bar update
     assert "period revision period-" in err
+
+
+def test_the_bar_counts_the_rows_of_the_periods_not_the_periods(
+    conn: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for i in range(5):
+        _add(
+            conn, f"old{i}", "AAPL", "2021-06-01T10:00:00Z"
+        )  # all in the first window, with no lower bound
+    _add(conn, "new", "AAPL", "2022-01-30T10:00:00Z")
+    _run(conn)
+    err = capsys.readouterr().err
+    assert "6/6" in err  # six rows, not four periods
+    assert "0/6" in err  # it starts at zero and the first period alone moves it by five
+
+
+def test_the_recipe_to_write_a_period_again_names_the_three_tables_and_the_later_periods() -> None:
+    cli = _load_cli()
+    sql = "\n".join(cli.REPERIOD_SQL)
+    for table in ("period_item", "period_summary", "period_run"):
+        assert f"DELETE FROM {table} WHERE model_revision" in sql  # noqa: S608 -- a test of the text
+    assert sql.count("period_end >=") == 3  # this period and every later one
+    assert (
+        "period_run WHERE model_revision" in cli.RERUN_HELP and "every later one" in cli.RERUN_HELP
+    )

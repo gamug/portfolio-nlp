@@ -378,13 +378,18 @@ def run(
         )
     }
     gaps = _gaps(conn, snapshot_revision, rows)
-    with tqdm(total=len(todo), desc="period", unit="period") as bar:  # progress and time left
+    # the unit is the snapshot row, not the period: the first window (no lower bound) and the first catch-up carry most of the rows, so a bar of
+    # periods would give a time left that jumps; the total is what the periods to do will count
+    last_cut = cut_utc(max(todo), tz)
+    total = sum(1 for r in rows if r.fetched_at <= last_cut and r.key not in counted)
+    with tqdm(total=total, desc="period rows", unit="row") as bar:  # progress and time left
         for k in todo:
             bar.set_postfix_str(str(period_date(k)))
-            result["periods"].append(
-                _write(conn, k, tz, snapshot_revision, period_rev, rows, counted, mapping, gaps)
+            written_period = _write(
+                conn, k, tz, snapshot_revision, period_rev, rows, counted, mapping, gaps
             )
-            bar.update(1)
+            result["periods"].append(written_period)
+            bar.update(written_period["counted"])
     return result
 
 
