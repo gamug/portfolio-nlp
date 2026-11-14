@@ -12,6 +12,7 @@ import inspect
 import json
 import re
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,10 @@ from news_nlp.db import NewsNlpDatabase
 from news_summary_stage import normalized_code
 
 PREFIX = "snapshot-"
+#: Rows written between two commits: a run stopped half way keeps what was written (the rows are INSERT OR IGNORE and the state is derived from them).
+COMMIT_EVERY = 500
+#: ``on_progress(event, n)``: ``"read"`` before the corpus is read (the slow part, ``n`` = 0), ``"start"`` with the rows to write, ``"advance"`` per rows written.
+ProgressFn = Callable[[str, int], None]
 WAIT_NO_TEXT = "no text at the summary revision"
 WAIT_NO_CATEGORY = "no category yet"
 WAIT_NO_SENTIMENT = "no sentiment yet"
@@ -410,11 +415,14 @@ def run(
     sentiment_revision: str,
     limit: int | None,
     sector_revision: str | None = None,
+    on_progress: ProgressFn | None = None,
 ) -> dict[str, Any]:
     """Write the snapshots of up to ``limit`` complete pairs of the company revision (and, with ``sector_revision``, up to ``limit`` more: the sector
     texts); return what was done. A pair that has a row is never read again, whatever revisions it was built from (they are in the row's ``inputs``).
     The corpus is read **once** for both. ``waiting`` is what cannot be written yet, ``waiting_by_reason`` why (the company pairs), ``ready_left`` the
-    complete rows the limit left for the next run."""
+    complete rows the limit left for the next run. ``on_progress`` (optional) is told when the read starts, how many rows will be written and each
+    batch written (committed every ``COMMIT_EVERY`` rows)."""
+    notify = on_progress or (lambda _event, _n: None)
     revision_ = revision()
     inputs = json.dumps(
         {
@@ -427,6 +435,7 @@ def run(
         },
         sort_keys=True,
     )
+    notify("read", 0)
     ready, waiting = _ready_and_waiting(
         conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
     )
@@ -441,7 +450,25 @@ def run(
     )
     complete = _with_articles(ready, info, waiting)
     chosen = complete if limit is None else complete[:limit]
+    sector_ready = [
+        (h, sec, text, source, info[(steps.ITEM_BODY, h)])
+        for h, sec, text, source in todo_sector
+        if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].fetched_at
+    ]
+    sector_chosen = sector_ready if limit is None else sector_ready[:limit]
     now = steps._now()
+    notify("start", len(chosen) + len(sector_chosen))
+    since_commit = 0
+
+    def written() -> None:
+        """One row written: commit and report every ``COMMIT_EVERY`` rows."""
+        nonlocal since_commit
+        since_commit += 1
+        if since_commit == COMMIT_EVERY:
+            conn.commit()
+            notify("advance", since_commit)
+            since_commit = 0
+
     for pair, article in chosen:
         conn.execute(
             _INSERT,
@@ -455,6 +482,24 @@ def run(
                 now,
             ),
         )
+        written()
+    for h, sec, text, source, article in sector_chosen:
+        conn.execute(
+            _INSERT,
+            (
+                steps.ITEM_BODY,
+                h,
+                "",
+                revision_,
+                *_sector_row(h, sec, text, source, article),
+                inputs,
+                now,
+            ),
+        )
+        written()
+    conn.commit()
+    if since_commit:
+        notify("advance", since_commit)
     result: dict[str, Any] = {
         "revision": revision_,
         "written": len(chosen),
@@ -463,31 +508,11 @@ def run(
         "ready_left": len(complete) - len(chosen),
     }
     if sector_revision:
-        sector_ready = [
-            (h, sec, text, source, info[(steps.ITEM_BODY, h)])
-            for h, sec, text, source in todo_sector
-            if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].fetched_at
-        ]
-        sector_chosen = sector_ready if limit is None else sector_ready[:limit]
-        for h, sec, text, source, article in sector_chosen:
-            conn.execute(
-                _INSERT,
-                (
-                    steps.ITEM_BODY,
-                    h,
-                    "",
-                    revision_,
-                    *_sector_row(h, sec, text, source, article),
-                    inputs,
-                    now,
-                ),
-            )
         result["sector_rows"] = {
             "written": len(sector_chosen),
             "waiting": sector_no_text + len(todo_sector) - len(sector_ready),
             "ready_left": len(sector_ready) - len(sector_chosen),
         }
-    conn.commit()
     return result
 
 

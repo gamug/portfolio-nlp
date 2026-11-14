@@ -729,3 +729,46 @@ def test_the_status_reports_a_sector_text_whose_body_is_no_longer_assigned_to_it
     assert snap.status(pair, **named)["stale_rows"] == {
         "sector_text_no_longer_assigned_to_its_sector": 1
     }
+
+
+def test_run_reports_the_read_the_total_and_the_rows_written(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    events: list[tuple[str, int]] = []
+    snap.run(
+        pair, SUM, COMP, CUT, CAT, SENT, None, None, on_progress=lambda e, n: events.append((e, n))
+    )
+    assert events == [("read", 0), ("start", 2), ("advance", 2)]
+
+
+def test_run_commits_every_batch_so_an_interrupted_run_keeps_what_was_written(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed(pair)
+    monkeypatch.setattr(snap, "COMMIT_EVERY", 1)
+    commits: list[int] = []
+    real_commit = pair.commit
+
+    def counting_commit() -> None:
+        commits.append(1)
+        real_commit()
+
+    monkeypatch.setattr(pair, "commit", counting_commit)
+    events: list[tuple[str, int]] = []
+    snap.run(
+        pair, SUM, COMP, CUT, CAT, SENT, None, None, on_progress=lambda e, n: events.append((e, n))
+    )
+    assert events == [("read", 0), ("start", 2), ("advance", 1), ("advance", 1)]
+    assert len(commits) >= 2
+
+
+def test_the_command_shows_the_progress_on_stderr_and_keeps_stdout_json(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _seed(pair)
+    _load_cli().main_snapshot(_args(), pair)
+    captured = capsys.readouterr()
+    assert "reading the corpus" in captured.err and "snapshot" in captured.err
+    assert "reading the corpus" not in captured.out
+    assert json.loads(captured.out.split("\n}\n")[0] + "\n}")["written"] == 2

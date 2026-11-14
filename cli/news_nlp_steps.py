@@ -1285,6 +1285,26 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_SENTIMENT, finder.revision), indent=2))
 
 
+class _SnapshotProgress:
+    """``on_progress`` of ``snapshot.run``: a line before the corpus read (the slow part, one pass, no count) and one bar with the time left over all
+    the rows to write, company pairs and sector texts together. Written to stderr, so the JSON on stdout stays clean."""
+
+    def __init__(self) -> None:
+        self._bar: tqdm[Any] | None = None
+
+    def __call__(self, event: str, n: int) -> None:
+        if event == "read":
+            print("snapshot: reading the corpus (one pass, no count)...", file=sys.stderr)
+        elif event == "start" and n:
+            self._bar = tqdm(total=n, desc="snapshot", unit="item")
+        elif event == "advance" and self._bar is not None:
+            self._bar.update(n)
+
+    def close(self) -> None:
+        if self._bar is not None:
+            self._bar.close()
+
+
 def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     """Step 8 (T-195): join the texts, categories and sentiments into ``news_snapshot``. No model; the state is derived from the tables.
     Always idempotent: a pair that has a row is not read again whatever revisions it was built from, unless ``--reset`` deletes the rows first."""
@@ -1326,9 +1346,21 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             file=sys.stderr,
         )
     print(f"snapshot revision {snap.revision()}", file=sys.stderr)
-    result = snap.run(
-        conn, summary, companies, cut, category, sentiment, args.limit, args.sector_revision
-    )
+    progress = _SnapshotProgress()
+    try:
+        result = snap.run(
+            conn,
+            summary,
+            companies,
+            cut,
+            category,
+            sentiment,
+            args.limit,
+            args.sector_revision,
+            on_progress=progress,
+        )
+    finally:
+        progress.close()  # also when the run fails: no live bar left on the terminal
     print(json.dumps(result, indent=2))
     print(
         json.dumps(
