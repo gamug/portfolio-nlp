@@ -167,5 +167,5 @@ they break (imports after `sys.path`, one-letter names, lambdas, constants), del
 
 ## Not done
 
-No threshold or review state: every pair gets a label (the owner decides what a low score means). No sector summary (it has no company).
+No threshold or review state, by decision (owner, 2026-11-14): every pair gets a label and the `score` is the confidence, so filter on it; an item with no main company stays on the review list of step 3. A score floor would be another revision (and a change of FR-022); an abstention belongs to the model of T-174. No sector summary (it has no company).
 Sentiment (step 6) is a separate step.

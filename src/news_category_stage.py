@@ -86,7 +86,7 @@ def models_of_the_step() -> dict[str, str]:
 
 #: A revision of the step that was written before the revision followed the scoring only (the first run of the development, 2026-11-13: the code of commit
 #: 82d6b36 over the revisions of step 2 and step 3 named in the key). Its rows are the ones this code would write: the same labels in 10,355 of 10,355 pairs
-#: of its repeats and 1,000 stored pairs re-scored (``scripts/category_verify_revision_2026_11_13.py``, figures in ``docs/category_results_2026_11_13/``), so the
+#: of its repeats and 1,008 of its 64,428 stored pairs re-scored (72 of each label) (``scripts/category_verify_revision_2026_11_13.py``, figures in ``docs/category_results_2026_11_13/``), so the
 #: run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity gives (``scoring_revision``); value: the revision
 #: already in the store. **Retired** in the change that first alters a score (a definition, the premise, the model, the code of ``_read_pair`` or ``score_of``):
 #: the test that pins it fails then, and the owner decides whether the legacy rows are still wanted.

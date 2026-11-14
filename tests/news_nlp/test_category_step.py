@@ -984,7 +984,7 @@ def test_an_edit_that_changes_a_score_is_a_new_revision(monkeypatch: pytest.Monk
 
 def test_the_first_run_of_the_real_store_is_continued_not_restarted() -> None:
     """The revision already in the owner's store (the first run, 48,708 items done) is the one this code writes for its inputs: the same command
-    resumes it, no row is moved. Its labels were checked against a re-scoring of the stored pairs (0 of 40 differ) before it was named here."""
+    resumes it, no row is moved. Its rows were checked against a re-scoring of 1,008 of its 64,428 stored pairs, 72 of each label (0 labels differ, largest score difference 0.0: `docs/category_results_2026_11_13/legacy_revision_check.json`) before it was named here."""
     pinned = stage.pinned_category()
     identity = f"{pinned['model']}@{pinned['revision']}"
     real = stage.revision_of(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
@@ -1177,3 +1177,17 @@ def test_a_re_scored_pair_that_differs_in_the_label_the_group_or_a_score_is_foun
     assert adopt.differs({**stored, "group_score": new.group_score + 0.01}, new)
     short = {k: v for k, v in new.slug_scores.items() if k != "other"}
     assert adopt.differs({**stored, "slug_scores": json.dumps(short)}, new)  # not the same keys
+
+
+def test_the_adoption_script_says_so_when_the_old_revision_is_the_one_the_code_writes() -> None:
+    """Not a traceback: the first run of the store is also the revision the code writes, and a run of the step continues it."""
+    adopt = _adopt_module()
+    legacy = stage.revision_of(
+        f"{stage.pinned_category()['model']}@{stage.pinned_category()['revision']}",
+        "summary-7a9bd2062bc4",
+        "companies-f349536cf701",
+    )
+    assert legacy == "category-65f33b55b26b"
+    said = adopt.nothing_to_adopt("category-65f33b55b26b", legacy)
+    assert said and "nothing to adopt" in said and legacy in said
+    assert adopt.nothing_to_adopt("category-older", legacy) is None

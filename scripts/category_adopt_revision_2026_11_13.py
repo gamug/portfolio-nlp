@@ -30,6 +30,14 @@ import news_nlp as db  # noqa: E402
 TOLERANCE = 1e-3  # an entailment probability re-scored on another device or run may differ in the last digits
 
 
+def nothing_to_adopt(old: str, new: str) -> str | None:
+    """What to say when the old revision is the one this code writes (for example the first run of the store, named in ``LEGACY_REVISIONS``): there is
+    nothing to carry, the run continues it. ``None`` when there is something to adopt."""
+    if old == new:
+        return f"nothing to adopt: this code writes {new} for these inputs, so a run of the step continues it (no row is moved)"
+    return None
+
+
 def adopt(
     conn: Any,
     old: str,
@@ -207,6 +215,10 @@ def main() -> None:
     from news_category_stage import code_revision  # noqa: PLC0415 -- imports torch, loads no model
 
     new = code_revision(args.summary_revision, args.companies_revision)
+    said = nothing_to_adopt(args.from_revision, new)
+    if said:
+        print(said)
+        return
     conn = db.connect_pipeline(results_db=args.results_db, source_db=args.source_db)
     report: dict[str, Any] = {"from": args.from_revision, "to": new}
     if args.check:
