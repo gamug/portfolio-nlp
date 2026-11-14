@@ -76,6 +76,7 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_scope_publish.py",
             "test_steps.py",
             "test_sector_step.py",
+            "test_sentiment_step.py",
             "test_sector_validation.py",
             "test_summary_step.py",
             "test_sentiment_pair.py",

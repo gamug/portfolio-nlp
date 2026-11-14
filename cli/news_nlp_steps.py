@@ -20,6 +20,8 @@ Usage:
     uv run cli/news_nlp_steps.py --step sector --status       # bodies assigned / sent out_of_scope, by sector
     uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --companies-revision companies-... --limit 500   # the category of each main company (provisional model)
     uv run cli/news_nlp_steps.py --step category --status     # categories written, by label and by group
+    uv run cli/news_nlp_steps.py --step sentiment --summary-revision summary-... --companies-revision companies-... --limit 500   # the sentiment of each main company (pair model + relevance stack)
+    uv run cli/news_nlp_steps.py --step sentiment --status    # sentiments written, by label
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
 revision starts a new set of rows and leaves the old ones. ``--model-dir`` is the folder written by
@@ -37,6 +39,9 @@ embedding score is confident or the companies named agree with it, else ``out_of
 The ``category`` step (T-168, **provisional**: the pinned zero-shot model, not yet the fine-tuned one of T-174) reads the texts step 2 left
 (``--summary-revision``) that have a main company at ``--companies-revision`` and writes one ``news_category`` row per (text, main company): one of
 the 14 labels of D15 and its group; see ``src/news_category_stage.py`` and ``docs/category_step.md``.
+The ``sentiment`` step (T-168) reads the same texts and main companies and writes one ``news_sentiment`` row per (text, main company): positive, negative or
+neutral and the three probabilities of the stack of the pair model (``config/sentiment_step.json``, the local folder) and the relevance score step 3 stored;
+nothing is downloaded; see ``src/news_sentiment_stage.py`` and ``docs/sentiment_step.md``.
 """
 
 import argparse
@@ -62,11 +67,13 @@ STEPS = (
     steps.STEP_COMPANIES,
     steps.STEP_SECTOR,
     steps.STEP_CATEGORY,
+    steps.STEP_SENTIMENT,
 )
 BATCH = 16
 # texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each);
 # `batch_size` of config/pipeline_models.json `category` belongs to the v1 stage and is not read here
 CATEGORY_BATCH = 4
+SENTIMENT_BATCH = 8  # texts stored per transaction; the pair model reads one chunk at a time
 COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside
 MAX_FAILED_BATCHES = 3  # consecutive batches in which every body failed: the cause is not one body
@@ -983,6 +990,298 @@ def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     print(json.dumps(steps.status(conn, steps.STEP_CATEGORY, finder.revision), indent=2))
 
 
+class SentimentClassifying(Protocol):
+    """What ``run_sentiment`` needs of a finder (``news_sentiment_stage.SentimentFinder`` or a test stub)."""
+
+    revision: str
+    model_name: str
+
+    def classify(
+        self, triples: Sequence[tuple[str, str, float]]
+    ) -> list[steps.SentimentScore | None]: ...
+
+
+def _named_items(
+    conn: db.NewsNlpDatabase,
+    finder: SentimentClassifying,
+    names: dict[str, str],
+    batch: list[steps.SentimentItem],
+    counts: dict[str, int],
+) -> list[steps.SentimentItem]:
+    """The items of ``batch`` with only the tickers the universe names. A ticker it does not name is not scored: the model was trained on the
+    universe's names, and a ticker read as a name would store a row as sure as any other from an input it never saw. An item with no named ticker is
+    skipped with the reason (rerun it once the universe is fixed)."""
+    named: list[steps.SentimentItem] = []
+    for item in batch:
+        known = tuple((ticker, rel) for ticker, rel in item.tickers if ticker in names)
+        left = tuple(ticker for ticker, _ in item.tickers if ticker not in names)
+        counts["name_missing"] += len(left)
+        if known:
+            named.append(item._replace(tickers=known, dropped=item.dropped + left))
+        else:
+            steps.record_item_skipped(
+                conn,
+                item.kind,
+                item.item_id,
+                steps.STEP_SENTIMENT,
+                finder.revision,
+                "company not in the universe",
+            )
+            counts["skipped"] += 1
+    return named
+
+
+def _score_items(
+    conn: db.NewsNlpDatabase,
+    finder: SentimentClassifying,
+    names: dict[str, str],
+    batch: list[steps.SentimentItem],
+    counts: dict[str, int],
+) -> None:
+    """Score and store one batch; a batch that fails is redone item by item, so one bad text fails alone. A blank text, or one with nothing to read
+    (no sentence), is not scored: the item is ``skipped`` with the reason, a label of nothing would look as sure as any other."""
+    for blank in [item for item in batch if not item.text.strip()]:
+        steps.record_item_skipped(
+            conn, blank.kind, blank.item_id, steps.STEP_SENTIMENT, finder.revision, "blank text"
+        )
+        counts["skipped"] += 1
+    batch = [item for item in batch if item.text.strip()]
+    batch = _named_items(conn, finder, names, batch, counts)
+    if not batch:
+        return
+    triples = [
+        (item.text, names[ticker], relevance)
+        for item in batch
+        for ticker, relevance in item.tickers
+    ]
+    try:
+        results = finder.classify(triples)
+    except Exception as exc:
+        if _gpu_lost(exc):
+            raise RunAborted(
+                f"the GPU failed ({steps.error_text(exc).splitlines()[0]}): the CUDA context of this process is unusable. "
+                "Rerun the same command: the finished items are kept and none was marked failed"
+            ) from exc
+        if len(batch) > 1:
+            for item in batch:
+                _score_items(conn, finder, names, [item], counts)
+            return
+        steps.record_item_failure(
+            conn,
+            batch[0].kind,
+            batch[0].item_id,
+            steps.STEP_SENTIMENT,
+            finder.revision,
+            steps.error_text(exc),
+        )
+        counts["failed"] += 1
+        return
+    taken = iter(results)
+    for item in batch:
+        scored = {ticker: next(taken) for ticker, _ in item.tickers}
+        found = {ticker: score for ticker, score in scored.items() if score is not None}
+        if not found:  # every pair of an item shares its text: the text has no sentence to read
+            steps.record_item_skipped(
+                conn,
+                item.kind,
+                item.item_id,
+                steps.STEP_SENTIMENT,
+                finder.revision,
+                "no sentence to read",
+            )
+            counts["skipped"] += 1
+            continue
+        note = (
+            "not scored, company not in the universe: " + ", ".join(item.dropped)
+            if item.dropped
+            else None
+        )
+        steps.record_sentiment(
+            conn, item.kind, item.item_id, finder.revision, found, finder.model_name, note
+        )
+        counts["done"] += 1
+        counts["sentiment_rows"] += len(found)
+
+
+def run_sentiment(
+    conn: db.NewsNlpDatabase,
+    finder: SentimentClassifying,
+    names: dict[str, str],
+    summary_revision: str,
+    companies_revision: str,
+    limit: int | None,
+) -> dict[str, int]:
+    """Step 6: score up to ``limit`` texts with a main company not yet finished at the finder's revision; return what was done.
+
+    ``done`` is an item with its main companies of the universe scored, ``sentiment_rows`` the ``news_sentiment`` rows written, ``failed`` an item the model could
+    not read (retried by the next run), ``skipped`` an item with a blank text, no sentence or no company of the universe, ``name_missing`` the pairs whose ticker is not in the
+    universe (not scored; an item with none left is skipped). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
+    completely stop the run.
+    """
+    todo = list(
+        steps.pending_sentiment_items(
+            conn, summary_revision, companies_revision, finder.revision, limit=limit
+        )
+    )
+    if not todo:
+        print("nothing pending", file=sys.stderr)
+    else:
+        pairs = sum(len(item.tickers) for item in todo)
+        print(f"{len(todo)} items ({pairs} pairs) to do", file=sys.stderr)
+        warm_up = getattr(finder, "warm_up", None)
+        if warm_up is not None:
+            warm_up()  # the model loads before the progress bar, not inside its first step
+    counts: dict[str, int] = {
+        "done": 0,
+        "failed": 0,
+        "skipped": 0,
+        "sentiment_rows": 0,
+        "name_missing": 0,
+    }
+    failed_batches = 0
+    with tqdm(total=len(todo), desc="sentiment", unit="item") as bar:
+        for start in range(0, len(todo), SENTIMENT_BATCH):
+            batch = todo[start : start + SENTIMENT_BATCH]
+            failed_before = counts["failed"]
+            _score_items(conn, finder, names, batch, counts)
+            failed_batches = (
+                failed_batches + 1 if counts["failed"] - failed_before == len(batch) else 0
+            )
+            if failed_batches >= MAX_FAILED_BATCHES:
+                raise RunAborted(
+                    f"{failed_batches} batches in a row failed completely after {counts['done']} done "
+                    f"(see the error of a failed item with --status); the failed items are retried by the next run"
+                )
+            bar.update(len(batch))
+    return counts
+
+
+def _sentiment_status(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    """``--status`` of the sentiment step: the counts, the revisions that ran, the model, and the revision this code would write for the inputs given
+    (from the pin and the names of the main companies; no weight is read), to compare with "revisions"."""
+    import news_sentiment_stage  # noqa: PLC0415 -- imports torch, loads no model
+    from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
+
+    summary_revision = getattr(args, "summary_revision", None)
+    companies_revision = getattr(args, "companies_revision", None)
+    code_revision = None
+    unknown = (
+        "give --summary-revision and --companies-revision to see the revision this code would write"
+    )
+    if summary_revision and companies_revision:
+        try:
+            known = {c.ticker: c.name for c in companies_of(conn)}
+        except (
+            Exception
+        ) as exc:  # a store with no source articles: the counts and the revisions are still printed
+            known = {}
+            unknown = f"not computed: the universe could not be read ({exc}); give --source-db"
+        if known:
+            code_revision = news_sentiment_stage.code_revision(
+                summary_revision,
+                companies_revision,
+                news_sentiment_stage.names_identity(conn, companies_revision, known),
+            )
+        elif unknown.startswith("give"):
+            unknown = "not computed: the company universe is empty; give --source-db"
+    shown = code_revision or steps.latest_revision(conn, steps.STEP_SENTIMENT)
+    report = steps.status(conn, steps.STEP_SENTIMENT, shown)
+    report["revisions"] = steps.revisions(conn, steps.STEP_SENTIMENT)
+    report["models"] = news_sentiment_stage.models_of_the_step()
+    if summary_revision and companies_revision:
+        # a run is refused when this is not 0 (step 3 read another summary revision)
+        report["items_without_text"] = steps.category_items_without_text(
+            conn, summary_revision, companies_revision
+        )
+    report["code_revision"] = code_revision or unknown
+    print(json.dumps(report, indent=2))
+
+
+def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    import news_sentiment_stage  # noqa: PLC0415 -- imports torch, loads no model
+
+    if args.status:
+        _sentiment_status(args, conn)
+        return
+    ran_summaries = ", ".join(steps.revisions(conn, steps.STEP_SUMMARY)) or "none"
+    if (
+        conn.execute(
+            "SELECT 1 FROM news_summary WHERE model_revision = ? LIMIT 1", (args.summary_revision,)
+        ).fetchone()
+        is None
+    ):
+        sys.exit(
+            f"step 2 left no text at the summary revision {args.summary_revision} (the revisions that ran: {ran_summaries})"
+        )
+    ran_companies = ", ".join(steps.revisions(conn, steps.STEP_COMPANIES)) or "none"
+    if (
+        conn.execute(
+            "SELECT 1 FROM news_company WHERE model_revision = ? AND is_main = 1 LIMIT 1",
+            (args.companies_revision,),
+        ).fetchone()
+        is None
+    ):
+        sys.exit(
+            f"step 3 found no main company at the companies revision {args.companies_revision} (the revisions that ran: {ran_companies})"
+        )
+    # step 3 does not record which summary revision it read, so the check is what can be seen: the relevance score is the one of the text step 6
+    # reads only if every main item of the companies revision has a text at the summary revision. A gap means another summary revision.
+    no_text = steps.category_items_without_text(
+        conn, args.summary_revision, args.companies_revision
+    )
+    if no_text:
+        sys.exit(
+            f"refused: {no_text} items with a main company at {args.companies_revision} have no text at {args.summary_revision}: step 3 read "
+            "another summary revision, and its relevance scores are not those of these texts"
+        )
+    from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
+    from news_sentiment_stage import SentimentFinder  # noqa: PLC0415 -- loads torch
+
+    names = {c.ticker: c.name for c in companies_of(conn)}
+    if not names:
+        sys.exit(
+            "refused: the company universe is empty (give --source-db, a store with 'ok' articles): every item would be skipped as "
+            "'company not in the universe'"
+        )
+    folder = news_sentiment_stage.model_dir()
+    if not folder.is_dir():
+        sys.exit(
+            f"{folder} is not a folder: the pair model of the step is local (git-ignored) and is never downloaded; restore it "
+            "(its Hub copy is recorded in config/sentiment_step.json)"
+        )
+    try:
+        finder = SentimentFinder(
+            args.summary_revision,
+            args.companies_revision,
+            news_sentiment_stage.names_identity(conn, args.companies_revision, names),
+        )
+    except ValueError as exc:  # the folder lacks a model file: say so, not a stack
+        sys.exit(str(exc))
+    pinned = news_sentiment_stage.pin()["identity"]
+    if finder.model_identity != pinned:
+        sys.exit(
+            f"refused: {folder} has the identity {finder.model_identity}, not the pinned {pinned} (config/sentiment_step.json). "
+            "Restore the pinned folder, or change the pin on purpose: it is another revision of the step"
+        )
+    print(
+        f"sentiment model {finder.model_name} (local {folder.name}, identity {finder.model_identity}) on {finder.scorer.device}, revision {finder.revision}",
+        file=sys.stderr,
+    )
+    try:
+        counts = run_sentiment(
+            conn, finder, names, args.summary_revision, args.companies_revision, args.limit
+        )
+    except RunAborted as exc:
+        print(json.dumps(steps.status(conn, steps.STEP_SENTIMENT, finder.revision), indent=2))
+        sys.exit(f"stopped: {exc}")
+    read = {
+        "summary_revision": args.summary_revision,
+        "companies_revision": args.companies_revision,
+    }
+    print(json.dumps({**read, **counts}, indent=2))
+    print(json.dumps(steps.status(conn, steps.STEP_SENTIMENT, finder.revision), indent=2))
+
+
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     revision = None
     if (args.model_dir / "training_record.json").exists():
@@ -1031,6 +1330,11 @@ RECUT_SQL = (
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'category' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    # and step 6
+    "DELETE FROM news_sentiment WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    "DELETE FROM pipeline_step_state WHERE step = 'sentiment' AND item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
 )
 #: To run the companies step again at one revision (the items on the review list included: they are not retried by themselves).
 RECOMPANIES_SQL = (
@@ -1041,6 +1345,11 @@ RECOMPANIES_SQL = (
 RECATEGORY_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'category' AND model_revision = '<category revision>';",
     "DELETE FROM news_category WHERE model_revision = '<category revision>';",
+)
+#: To run the sentiment step again at one revision (the rows are written with INSERT OR IGNORE, the state is keyed by revision).
+RESENTIMENT_SQL = (
+    "DELETE FROM pipeline_step_state WHERE step = 'sentiment' AND model_revision = '<sentiment revision>';",
+    "DELETE FROM news_sentiment WHERE model_revision = '<sentiment revision>';",
 )
 #: To summarise again at one revision of the summary step (the state is keyed by revision, the rows are written with INSERT OR IGNORE).
 RESUMMARIZE_SQL = (
@@ -1061,6 +1370,8 @@ To run the companies step again at one revision (`--step companies --status` pri
   {recompanies}
 To run the category step again at one revision (`--step category --status` prints it):
   {recategory}
+To run the sentiment step again at one revision (`--step sentiment --status` prints it):
+  {resentiment}
 A new revision (another reading, model or code) needs neither: it starts new rows and leaves the old ones.
 `--status` prints the revisions (the latest first). The recipe: docs/scope_training.md, section 8.1.
 """
@@ -1069,6 +1380,7 @@ RERUN_HELP = _RERUN_TEMPLATE.format(
     resummarize="\n  ".join(RESUMMARIZE_SQL),
     recompanies="\n  ".join(RECOMPANIES_SQL),
     recategory="\n  ".join(RECATEGORY_SQL),
+    resentiment="\n  ".join(RESENTIMENT_SQL),
 )
 
 
@@ -1132,12 +1444,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--summary-revision",
         default=None,
-        help="companies and category: the summary revision whose texts are read (required to run; `--step summary --status` lists them), never the latest",
+        help="companies, category and sentiment: the summary revision whose texts are read (required to run; `--step summary --status` lists them), never the latest",
     )
     parser.add_argument(
         "--companies-revision",
         default=None,
-        help="category: the companies revision whose main companies are classified (required to run; `--step companies --status` lists them), never the latest",
+        help="category and sentiment: the companies revision whose main companies are classified (required to run; `--step companies --status` lists them), never the latest",
     )
     parser.add_argument(
         "--threshold",
@@ -1164,16 +1476,21 @@ def build_parser() -> argparse.ArgumentParser:
 def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the companies step: the two it needs to run, and the ones no other step reads."""
     if (
-        args.step not in (steps.STEP_COMPANIES, steps.STEP_CATEGORY)
+        args.step not in (steps.STEP_COMPANIES, steps.STEP_CATEGORY, steps.STEP_SENTIMENT)
         and args.summary_revision is not None
     ):
-        parser.error("--summary-revision only applies to --step companies and --step category")
+        parser.error(
+            "--summary-revision only applies to --step companies, --step category and --step sentiment"
+        )
     if args.step != steps.STEP_COMPANIES and args.threshold is not None:
         parser.error("--threshold only applies to --step companies")
     if args.step != steps.STEP_COMPANIES and args.candidates is not None:
         parser.error("--candidates only applies to --step companies")
-    if args.step != steps.STEP_CATEGORY and args.companies_revision is not None:
-        parser.error("--companies-revision only applies to --step category")
+    if (
+        args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT)
+        and args.companies_revision is not None
+    ):
+        parser.error("--companies-revision only applies to --step category and --step sentiment")
     if args.step == steps.STEP_COMPANIES and not args.status:
         if args.summary_revision is None:
             parser.error(
@@ -1192,19 +1509,21 @@ def _check_companies_options(parser: argparse.ArgumentParser, args: argparse.Nam
 
 
 def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    """The options of the category step: the two it needs to run, and the ones it does not read."""
-    if args.step == steps.STEP_CATEGORY and args.scope_revision is not None:
+    """The options of the category and the sentiment steps: the two they need to run, and the ones they do not read."""
+    if args.step not in (steps.STEP_CATEGORY, steps.STEP_SENTIMENT):
+        return
+    if args.scope_revision is not None:
         parser.error(
-            "--scope-revision does not apply to --step category (the items are those with a main company at --companies-revision)"
+            f"--scope-revision does not apply to --step {args.step} (the items are those with a main company at --companies-revision)"
         )
-    if args.step == steps.STEP_CATEGORY and not args.status:
+    if not args.status:
         if args.summary_revision is None:
             parser.error(
-                "--step category needs --summary-revision (the texts it reads; `--step summary --status` lists the revisions)"
+                f"--step {args.step} needs --summary-revision (the texts it reads; `--step summary --status` lists the revisions)"
             )
         if args.companies_revision is None:
             parser.error(
-                "--step category needs --companies-revision (the main companies it classifies; `--step companies --status` lists the revisions)"
+                f"--step {args.step} needs --companies-revision (the main companies it reads; `--step companies --status` lists the revisions)"
             )
 
 
@@ -1236,11 +1555,16 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     _check_companies_options(parser, args)
     _check_category_options(parser, args)
     if (
-        args.step in (steps.STEP_SUMMARY, steps.STEP_COMPANIES, steps.STEP_CATEGORY)
+        args.step
+        in (steps.STEP_SUMMARY, steps.STEP_COMPANIES, steps.STEP_CATEGORY, steps.STEP_SENTIMENT)
         and args.model_dir is not None
     ):
         parser.error(
             f"--model-dir does not apply to --step {args.step} (its models are the pins of config/)"
+        )
+    if args.step == steps.STEP_SENTIMENT and args.model_dir is not None:
+        parser.error(
+            "--model-dir does not apply to --step sentiment (its model is the folder of config/sentiment_step.json, never downloaded)"
         )
     if args.step == steps.STEP_SECTOR and args.model_dir is not None:
         parser.error(
@@ -1310,6 +1634,9 @@ def main() -> None:
         return
     if args.step == steps.STEP_CATEGORY:
         main_category(args, conn)
+        return
+    if args.step == steps.STEP_SENTIMENT:
+        main_sentiment(args, conn)
         return
     main_scope(args, conn)
 
