@@ -39,9 +39,7 @@ FILES = (
     "metrics.json",
 )
 WEIGHTS = "model.safetensors"
-WHAT_ADDED = (
-    "attribution: private, not pinned (the cut reads a local --model-dir; T-194 tests the Hub copy)"
-)
+WHAT_ADDED = "attribution: private (the pin of the cut is config/attribution_model.json, #186; T-194 tests the Hub copy)"
 
 
 def pct(value: float) -> str:
@@ -163,8 +161,10 @@ def record_upload(published: Path, revision: str, text: str, weights: str, ident
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise SystemExit(f"the upload returned no commit SHA ({revision!r}); nothing recorded")
     current = json.loads(published.read_text(encoding="utf-8")) if published.exists() else {}
-    if WHAT_ADDED not in current.get("what", ""):
-        current["what"] = current.get("what", "").rstrip(".") + "; " + WHAT_ADDED
+    what = re.sub(
+        r";\s*attribution:.*$", "", current.get("what", "").rstrip(".")
+    )  # the clause is last: replaced, never doubled
+    current["what"] = what + "; " + WHAT_ADDED
     current["attribution"] = {
         "repo": REPO,
         "revision": revision,

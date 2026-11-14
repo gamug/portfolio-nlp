@@ -96,10 +96,16 @@ def test_a_record_is_written_once_and_an_upload_without_a_commit_records_nothing
     for _ in range(2):  # a repeat does not add the sentence twice
         publish.record_upload(published, "a" * 40, "card", "w" * 64, IDENTITY)
     saved = json.loads(published.read_text(encoding="utf-8"))
-    assert saved["what"].count("attribution: private, not pinned") == 1 and saved["scope"] == {
-        "repo": "x"
-    }  # the others are kept
+    assert saved["what"].count("attribution:") == 1 and saved["what"].endswith(publish.WHAT_ADDED)
+    assert saved["scope"] == {"repo": "x"}  # the others are kept
     assert saved["attribution"]["card_sha256"] == hashlib.sha256(b"card").hexdigest()
+    published.write_text(
+        json.dumps({"what": "the models; attribution: private, not pinned (an older wording)"}),
+        encoding="utf-8",
+    )  # an older wording of the clause is replaced, not kept beside the new one
+    publish.record_upload(published, "a" * 40, "card", "w" * 64, IDENTITY)
+    what = json.loads(published.read_text(encoding="utf-8"))["what"]
+    assert what == "the models; " + publish.WHAT_ADDED
 
 
 @pytest.mark.skipif(
