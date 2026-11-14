@@ -86,5 +86,5 @@ part of it, so a run stopped and resumed after such an edit resumes. A step 2 or
 * The step was checked on the real weights by scoring two sentences with the pair model (no database, not through the command) and applying the stack to
   their probabilities at a high and a low relevance, not on a store (no run was made on `nlp.db`): the identity of the local
   folder is the pinned one, the three probabilities add to 1, and a positive sentence about another company reads `neutral` at low relevance (a property of the stack: the step itself never feeds it a low relevance).
-* **Not decided here** (the owner's): what a low `score` means; whether sector, market and economy texts (no company) get a sentiment through the
-  text-only model (D39 (ii)); T-171, the update of `CLAUDE.md` and the module docs to the pair model.
+* **Not decided here** (the owner's): what a low `score` means; T-171, the update of `CLAUDE.md` and the module docs to the pair model.
+* **Decided (owner, 2026-11-14, D42):** a sector text gets no sentiment (it supersedes D39 (iv)); market and economy texts stop after the scope (D39).
