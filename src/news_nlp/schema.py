@@ -388,6 +388,52 @@ CREATE TABLE IF NOT EXISTS news_snapshot (
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
 );
 
+-- The period summary (step 9, T-196, D42): every 21 days from 2022-01-03 at 15:00 in BATCH_TIMEZONE. `period_end` is the cut in UTC (`...Z`);
+-- `model_revision` is the period revision (the snapshot revision, the counting code and the sector mapping). `period_run` says a period is written (a window
+-- with no counted news has this row and no other) and which snapshot revision it counted: a reset of the snapshots clears the periods of that revision.
+CREATE TABLE IF NOT EXISTS period_run (
+    period_end        TEXT NOT NULL,
+    model_revision    TEXT NOT NULL,
+    snapshot_revision TEXT NOT NULL,
+    period_start      TEXT,            -- NULL for the first window (no lower bound)
+    created_at        TEXT NOT NULL,   -- the report creation date
+    PRIMARY KEY (period_end, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS period_summary (
+    period_end     TEXT NOT NULL,
+    kind           TEXT NOT NULL CHECK (kind IN ('company', 'sector')),
+    key            TEXT NOT NULL,      -- the ticker, or the sector code ('' = unclassified)
+    model_revision TEXT NOT NULL,
+    counts         TEXT NOT NULL,      -- JSON: per category total, neutral, positive, negative
+    not_counted    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (period_end, kind, key, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS period_item (
+    period_end     TEXT NOT NULL,
+    model_revision TEXT NOT NULL,
+    item_kind      TEXT NOT NULL,
+    item_id        TEXT NOT NULL,
+    ticker         TEXT NOT NULL,
+    late           INTEGER NOT NULL DEFAULT 0 CHECK (late IN (0, 1)),
+    PRIMARY KEY (period_end, model_revision, item_kind, item_id, ticker)
+);
+
+-- The one table of sectors (seeded from the GICS constants of sector_stage; an `extra` sector is a row the owner adds, code from 90) and the
+-- override of a company's sector (empty until the owner gives the extra sectors and their tickers).
+CREATE TABLE IF NOT EXISTS sector (
+    code         TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('gics', 'extra')),
+    descriptions TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS company_sector (
+    ticker      TEXT PRIMARY KEY,
+    sector_code TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_step_state (
     item_kind      TEXT NOT NULL,   -- body / sub_news / text_company
     item_id        TEXT NOT NULL,
@@ -402,6 +448,7 @@ CREATE TABLE IF NOT EXISTS pipeline_step_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_step_state_status ON pipeline_step_state(step, status);
+CREATE INDEX IF NOT EXISTS idx_period_item_revision ON period_item(model_revision, period_end);
 CREATE INDEX IF NOT EXISTS idx_news_snapshot_fetched ON news_snapshot(model_revision, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sub_news_article_id ON sub_news(article_id);
 CREATE INDEX IF NOT EXISTS idx_news_company_ticker ON news_company(ticker, is_main);

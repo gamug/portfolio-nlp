@@ -23,6 +23,9 @@ Usage:
     uv run cli/news_nlp_steps.py --step sentiment --summary-revision summary-... --companies-revision companies-... --limit 500   # the sentiment of each main company (pair model + relevance stack)
     uv run cli/news_nlp_steps.py --step sentiment --status    # sentiments written, by label
     uv run cli/news_nlp_steps.py --step snapshot --summary-revision summary-... --companies-revision companies-... --cut-revision units5-... --category-revision category-... --sentiment-revision sentiment-... --limit 500   # step 8: one snapshot per (text, main company)
+    uv run cli/news_nlp_steps.py --step period --snapshot-revision snapshot-... --period-end 2022-01-03   # step 9: one 21-day period (the earlier ones must be written)
+    uv run cli/news_nlp_steps.py --step period --snapshot-revision snapshot-... --catch-up               # every missing period up to the last cut that has passed
+    uv run cli/news_nlp_steps.py --step period --snapshot-revision snapshot-... --period-end 2022-01-03 --render   # print a written period
     uv run cli/news_nlp_steps.py --step snapshot --status     # snapshots written by revision (with the five revisions: the pairs still waiting and why)
 
 A rerun adds nothing: the bodies already done at the model's revision are skipped, failed ones are retried. A new model
@@ -71,6 +74,7 @@ STEPS = (
     steps.STEP_CATEGORY,
     steps.STEP_SENTIMENT,
     steps.STEP_SNAPSHOT,
+    steps.STEP_PERIOD,
 )
 BATCH = 16
 # texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each);
@@ -1341,7 +1345,8 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if args.reset:
         deleted = snap.reset(conn, sectors=args.sector_revision is not None)
         print(
-            f"reset: {deleted['company_rows']} company and {deleted['sector_rows']} sector snapshots of {snap.revision()} deleted"
+            f"reset: {deleted['company_rows']} company and {deleted['sector_rows']} sector snapshots of {snap.revision()} deleted, "
+            f"{deleted['periods']} periods built on them cleared"
             + ("" if args.sector_revision else " (sector rows kept: no --sector-revision named)"),
             file=sys.stderr,
         )
@@ -1377,6 +1382,43 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             indent=2,
         )
     )
+
+
+def main_period(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    """Step 9 (T-196): the counts of the snapshots per 21-day period, per company and per sector. No model; the state is derived from the tables."""
+    from datetime import date  # noqa: PLC0415
+
+    import news_period_stage as period  # noqa: PLC0415
+    import news_snapshot_stage as snap  # noqa: PLC0415
+
+    try:
+        tz = period.batch_timezone()
+        if args.status:
+            print(json.dumps(period.status(conn, args.snapshot_revision, tz=tz), indent=2))
+            return
+        revision = args.snapshot_revision
+        if (
+            conn.execute(
+                "SELECT 1 FROM news_snapshot WHERE model_revision = ? LIMIT 1", (revision,)
+            ).fetchone()
+            is None
+        ):
+            ran = ", ".join(r["revision"] for r in snap.status(conn)["revisions"]) or "none"  # type: ignore[attr-defined,index]
+            sys.exit(f"no snapshots at {revision} (the revisions that ran: {ran})")
+        if args.render:
+            period.seed_sectors(conn)
+            end = period.cut_utc(period.index_of(date.fromisoformat(args.period_end)), tz)
+            print(period.render(conn, end, period.revision(revision, period.sector_map(conn))))
+            return
+        wanted = period.index_of(date.fromisoformat(args.period_end)) if args.period_end else None
+        result = period.run(conn, revision, tz=tz, index=wanted)
+    except (ValueError, period.PeriodRefused) as exc:
+        sys.exit(f"refused: {exc}")
+    print(
+        f"period revision {result['period_revision']}; {result['to_do']} periods to do in {tz}",
+        file=sys.stderr,
+    )
+    print(json.dumps(result, indent=2))
 
 
 def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
@@ -1576,6 +1618,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="summary, with --items sector: the sector revision whose assigned bodies are summarised; required, never the latest (the revisions the sector step has are listed)",
     )
     parser.add_argument(
+        "--snapshot-revision",
+        default=None,
+        help="period: the snapshot revision whose rows are counted (required to run, never the latest; `--step snapshot --status` prints it)",
+    )
+    parser.add_argument(
+        "--period-end",
+        default=None,
+        help="period: the date a period ends (2022-01-03 + 21k days, 15:00 in BATCH_TIMEZONE); refused off the grid, in the future, or while an earlier period is not written",
+    )
+    parser.add_argument(
+        "--catch-up",
+        action="store_true",
+        help="period: write every missing period in order, up to the last cut that has passed (the number to do is printed first)",
+    )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="period: print the text of the written period named by --period-end (companies, then sectors)",
+    )
+    parser.add_argument(
         "--reset",
         action="store_true",
         help="snapshot: delete the snapshots of the current revision first and write them again (the step is otherwise always idempotent: a pair that has a row is not read again, whatever revisions it came from); sector rows are deleted only with --sector-revision; a reset also resets the period summary built on these snapshots (T-196)",
@@ -1692,6 +1754,32 @@ def _check_snapshot_options(parser: argparse.ArgumentParser, args: argparse.Name
                 )
 
 
+def _check_period_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the period step (step 9) and the refusal of them elsewhere."""
+    own = (args.snapshot_revision, args.period_end, args.catch_up or None, args.render or None)
+    if args.step != steps.STEP_PERIOD:
+        if any(v is not None for v in own):
+            parser.error(
+                "--snapshot-revision, --period-end, --catch-up and --render only apply to --step period"
+            )
+        return
+    if args.limit is not None or args.reset or args.model_dir is not None:
+        parser.error("--limit, --reset and --model-dir do not apply to --step period")
+    if args.catch_up and (args.period_end or args.render):
+        parser.error(
+            "--catch-up writes every missing period: it does not take --period-end or --render"
+        )
+    if args.render and not args.period_end:
+        parser.error("--render needs --period-end (the written period to print)")
+    if not args.status:
+        if args.snapshot_revision is None:
+            parser.error(
+                "--step period needs --snapshot-revision (never the latest; `--step snapshot --status` prints it)"
+            )
+        if not (args.catch_up or args.period_end):
+            parser.error("--step period needs --period-end DATE or --catch-up")
+
+
 def _check_scope_cut_flags(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """``--titles`` is the scope's; ``--fetch`` and ``--allow-unpinned`` are the scope's and the cut's (T-147b, T-194)."""
     if args.step != steps.STEP_SCOPE:
@@ -1723,6 +1811,7 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
     ):
         parser.error("--sector-revision only applies to --step summary and --step snapshot")
     _check_snapshot_options(parser, args)
+    _check_period_options(parser, args)
     _check_companies_options(parser, args)
     _check_category_options(parser, args)
     if (
@@ -1799,6 +1888,7 @@ def main() -> None:
         steps.STEP_CATEGORY: main_category,
         steps.STEP_SENTIMENT: main_sentiment,
         steps.STEP_SNAPSHOT: main_snapshot,
+        steps.STEP_PERIOD: main_period,
     }
     runners.get(args.step, main_scope)(args, conn)
 
