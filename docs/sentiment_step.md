@@ -13,7 +13,7 @@ uv run cli/news_nlp_steps.py --step sentiment --status --summary-revision summar
 ```
 
 `--step summary --status` and `--step companies --status` list the revisions that ran; both are named, never the latest. `--source-db` and
-`--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. `--status` prints the items by state (`done`, `skipped`, `failed`) and the rows by label; a skipped item carries its reason. A rerun adds nothing: an item
+`--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. The run shows a progress bar (`tqdm`, in items, not pairs; its time estimate is rough because items differ in chunks and in companies). `--status` prints the items by state (`done`, `skipped`, `failed`) and the rows by label; a skipped item carries its reason. A rerun adds nothing: an item
 already done or skipped at the revision is not read again, a failed one is retried; a long run can be cut with `--limit` and continued. The
 last form of `--status` prints the revision this code would write for those inputs (no weight is read; it needs the universe, so `--source-db`), to compare with the `revisions` it lists.
 To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RESENTIMENT_SQL`, `RECUT_SQL`).
@@ -30,7 +30,9 @@ revision of the step. The relevance model is not loaded: step 3's score is read 
 
 * **Companies the universe does not name:** a pair whose ticker is not in the universe (`companies_of`) is **not scored** (the model was trained on the
   universe's names; a ticker read as a name would store a row from an input it never saw); it is counted as `name_missing`. An item left with no
-  named ticker is `skipped`, "company not in the universe", and is not retried: run it again after fixing the universe (`RESENTIMENT_SQL`).
+  named ticker is `skipped`, "company not in the universe", and is not retried at that revision. No SQL is needed after fixing the universe: the names of the scored companies are in the revision, so
+  a universe that now names the ticker is a new revision and scores the item (`RESENTIMENT_SQL` is only to rerun at the **same** revision). **A run with an
+  empty universe is refused** (no `--source-db`, or a store without `fetch_status = 'ok'` articles): it would skip every item.
 * **Reads:** the texts of step 2 (`news_summary` at `--summary-revision`) of every item that has a **main** company at `--companies-revision`
   (`news_company.is_main = 1`), and the relevance score of each (text, main company) pair. An item on the review list of step 3 has no main company
   and gets no sentiment. **The run is refused** when a main item of the companies revision has no text at the summary revision: step 3 does not

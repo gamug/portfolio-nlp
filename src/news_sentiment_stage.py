@@ -36,6 +36,7 @@ import chunking
 import sentiment_pair
 from chunking import chunk_text
 from news_nlp import attribution_model as am
+from news_nlp.db import NewsNlpDatabase
 from news_nlp.steps import SentimentScore
 from news_summary_stage import normalized_code
 
@@ -139,7 +140,7 @@ def _scoring_code() -> str:
     ).hexdigest()[:12]
 
 
-def names_identity(conn: Any, companies_revision: str, names: dict[str, str]) -> str:
+def names_identity(conn: NewsNlpDatabase, companies_revision: str, names: dict[str, str]) -> str:
     """A hash of the (ticker, company name) of the main companies at ``companies_revision``: the names the model reads in this run. The universe at
     large is not hashed, so an edit of a company nobody is scored for does not start the step again; a changed name of a scored one does."""
     tickers = sorted(

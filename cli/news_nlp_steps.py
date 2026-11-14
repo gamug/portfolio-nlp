@@ -1159,26 +1159,30 @@ def _sentiment_status(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> Non
     summary_revision = getattr(args, "summary_revision", None)
     companies_revision = getattr(args, "companies_revision", None)
     code_revision = None
+    unknown = (
+        "give --summary-revision and --companies-revision to see the revision this code would write"
+    )
     if summary_revision and companies_revision:
         try:
             known = {c.ticker: c.name for c in companies_of(conn)}
-        except Exception as exc:  # a store with no source articles: the revision needs the names
-            sys.exit(
-                f"the universe could not be read, so the revision cannot be computed ({exc}): give --source-db"
+        except (
+            Exception
+        ) as exc:  # a store with no source articles: the counts and the revisions are still printed
+            known = {}
+            unknown = f"not computed: the universe could not be read ({exc}); give --source-db"
+        if known:
+            code_revision = news_sentiment_stage.code_revision(
+                summary_revision,
+                companies_revision,
+                news_sentiment_stage.names_identity(conn, companies_revision, known),
             )
-        code_revision = news_sentiment_stage.code_revision(
-            summary_revision,
-            companies_revision,
-            news_sentiment_stage.names_identity(conn, companies_revision, known),
-        )
+        elif unknown.startswith("give"):
+            unknown = "not computed: the company universe is empty; give --source-db"
     shown = code_revision or steps.latest_revision(conn, steps.STEP_SENTIMENT)
     report = steps.status(conn, steps.STEP_SENTIMENT, shown)
     report["revisions"] = steps.revisions(conn, steps.STEP_SENTIMENT)
     report["models"] = news_sentiment_stage.models_of_the_step()
-    report["code_revision"] = (
-        code_revision
-        or "give --summary-revision and --companies-revision to see the revision this code would write"
-    )
+    report["code_revision"] = code_revision or unknown
     print(json.dumps(report, indent=2))
 
 
@@ -1223,6 +1227,11 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     from news_sentiment_stage import SentimentFinder  # noqa: PLC0415 -- loads torch
 
     names = {c.ticker: c.name for c in companies_of(conn)}
+    if not names:
+        sys.exit(
+            "refused: the company universe is empty (give --source-db, a store with 'ok' articles): every item would be skipped as "
+            "'company not in the universe'"
+        )
     folder = news_sentiment_stage.model_dir()
     if not folder.is_dir():
         sys.exit(

@@ -642,3 +642,43 @@ def test_the_cut_of_the_text_is_part_of_the_revision(
     source = inspect.getsource(function)
     _with_source(monkeypatch, function, source.rstrip() + "\n    _marker = 1\n")
     assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n") != base
+
+
+def test_a_run_with_an_empty_universe_is_refused_before_the_model_is_touched(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cli = _load_cli()
+    _seed(pair)
+    _universe(monkeypatch, {})
+    monkeypatch.setattr(
+        stage, "SentimentScorer", lambda *a, **k: pytest.fail("the model must not be touched")
+    )
+    with pytest.raises(SystemExit, match="universe is empty"):
+        cli.main_sentiment(_run_args(), pair)
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'sentiment'"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_the_status_prints_the_counts_when_the_universe_cannot_be_read(
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cut_stage  # noqa: PLC0415 -- the universe a run reads
+
+    cli = _load_cli()
+    _seed(pair)
+
+    def broken(conn: object) -> list[object]:
+        raise sqlite3.OperationalError("no such table: source.articles")
+
+    monkeypatch.setattr(cut_stage, "companies_of", broken)
+    args = SimpleNamespace(status=True, summary_revision=SUM_REV, companies_revision=COMP_REV)
+    cli.main_sentiment(args, pair)
+    report = json.loads(capsys.readouterr().out)
+    assert report["step"] == "sentiment" and "not computed" in report["code_revision"]
+    assert "--source-db" in report["code_revision"]
