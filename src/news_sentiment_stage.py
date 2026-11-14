@@ -32,6 +32,7 @@ from typing import Any
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+import chunking
 import sentiment_pair
 from chunking import chunk_text
 from news_nlp import attribution_model as am
@@ -119,11 +120,21 @@ def score_of(
 
 def _scoring_code() -> str:
     """The code that decides a score: the stack's arithmetic (``stacked``), the label (``score_of``), the reading of the pair by the model
-    (``_pair_probabilities``), normalised (comments, docstrings and formatting do not count). The
+    (``_pair_probabilities``) and the cut of the text it calls (``chunking.chunk_text``, ``sentiment_pair.chunk_budget``,
+    ``sentiment_pair.encode_pair``), normalised (comments, docstrings and formatting do not count). The helpers those four call
+    (the sentence splitter and the like) are not hashed: a change there needs a new revision by hand (``docs/sentiment_step.md``). The
     bookkeeping (which texts were cut) is not here on purpose: editing it must not restart a run."""
     return hashlib.sha256(
         "\n".join(
-            normalized_code(inspect.getsource(f)) for f in (stacked, score_of, _pair_probabilities)
+            normalized_code(inspect.getsource(f))
+            for f in (
+                stacked,
+                score_of,
+                _pair_probabilities,
+                chunking.chunk_text,
+                sentiment_pair.chunk_budget,
+                sentiment_pair.encode_pair,
+            )
         ).encode()
     ).hexdigest()[:12]
 
@@ -233,7 +244,8 @@ class SentimentFinder:
     ) -> None:
         self.scorer = scorer or SentimentScorer()
         self.coefficients = coefficients or stack_coefficients()
-        self.model_name: str = f"{pin()['published']['repo']}@{pin()['published']['revision']}"
+        published = pin()["published"]
+        self.model_name: str = f"{published['repo']}@{published['revision']}"
         self.model_identity: str = self.scorer.identity()
         self.revision = scoring_revision(
             self.model_identity, stack_identity(), summary_revision, companies_revision

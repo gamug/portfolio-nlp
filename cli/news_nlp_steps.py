@@ -1001,6 +1001,35 @@ class SentimentClassifying(Protocol):
     ) -> list[steps.SentimentScore | None]: ...
 
 
+def _named_items(
+    conn: db.NewsNlpDatabase,
+    finder: SentimentClassifying,
+    names: dict[str, str],
+    batch: list[steps.SentimentItem],
+    counts: dict[str, int],
+) -> list[steps.SentimentItem]:
+    """The items of ``batch`` with only the tickers the universe names. A ticker it does not name is not scored: the model was trained on the
+    universe's names, and a ticker read as a name would store a row as sure as any other from an input it never saw. An item with no named ticker is
+    skipped with the reason (rerun it once the universe is fixed)."""
+    named: list[steps.SentimentItem] = []
+    for item in batch:
+        known = tuple((ticker, rel) for ticker, rel in item.tickers if ticker in names)
+        counts["name_missing"] += len(item.tickers) - len(known)
+        if known:
+            named.append(item._replace(tickers=known))
+        else:
+            steps.record_item_skipped(
+                conn,
+                item.kind,
+                item.item_id,
+                steps.STEP_SENTIMENT,
+                finder.revision,
+                "company not in the universe",
+            )
+            counts["skipped"] += 1
+    return named
+
+
 def _score_items(
     conn: db.NewsNlpDatabase,
     finder: SentimentClassifying,
@@ -1016,14 +1045,14 @@ def _score_items(
         )
         counts["skipped"] += 1
     batch = [item for item in batch if item.text.strip()]
+    batch = _named_items(conn, finder, names, batch, counts)
     if not batch:
         return
     triples = [
-        (item.text, names.get(ticker, ticker), relevance)
+        (item.text, names[ticker], relevance)
         for item in batch
         for ticker, relevance in item.tickers
     ]
-    nameless = sum(1 for item in batch for ticker, _ in item.tickers if ticker not in names)
     try:
         results = finder.classify(triples)
     except Exception as exc:
@@ -1066,7 +1095,6 @@ def _score_items(
         )
         counts["done"] += 1
         counts["sentiment_rows"] += len(found)
-    counts["name_missing"] += nameless
 
 
 def run_sentiment(
@@ -1079,9 +1107,9 @@ def run_sentiment(
 ) -> dict[str, int]:
     """Step 6: score up to ``limit`` texts with a main company not yet finished at the finder's revision; return what was done.
 
-    ``done`` is an item with all its main companies scored, ``sentiment_rows`` the ``news_sentiment`` rows written, ``failed`` an item the model could
-    not read (retried by the next run), ``skipped`` an item with a blank text or no sentence, ``name_missing`` the pairs whose ticker is not in the
-    universe (the ticker is read as the name). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
+    ``done`` is an item with its main companies of the universe scored, ``sentiment_rows`` the ``news_sentiment`` rows written, ``failed`` an item the model could
+    not read (retried by the next run), ``skipped`` an item with a blank text, no sentence or no company of the universe, ``name_missing`` the pairs whose ticker is not in the
+    universe (not scored; an item with none left is skipped). A batch that fails is redone item by item, and ``MAX_FAILED_BATCHES`` batches in a row that fail
     completely stop the run.
     """
     todo = list(
@@ -1165,6 +1193,16 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         sys.exit(
             f"step 3 found no main company at the companies revision {args.companies_revision} (the revisions that ran: {ran_companies})"
         )
+    # step 3 does not record which summary revision it read, so the check is what can be seen: the relevance score is the one of the text step 6
+    # reads only if every main item of the companies revision has a text at the summary revision. A gap means another summary revision.
+    no_text = steps.category_items_without_text(
+        conn, args.summary_revision, args.companies_revision
+    )
+    if no_text:
+        sys.exit(
+            f"refused: {no_text} items with a main company at {args.companies_revision} have no text at {args.summary_revision}: step 3 read "
+            "another summary revision, and its relevance scores are not those of these texts"
+        )
     from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
     from news_sentiment_stage import SentimentFinder  # noqa: PLC0415 -- loads torch
 
@@ -1185,15 +1223,6 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             "Restore the pinned folder, or change the pin on purpose: it is another revision of the step"
         )
     names = {c.ticker: c.name for c in companies_of(conn)}
-    no_text = steps.category_items_without_text(
-        conn, args.summary_revision, args.companies_revision
-    )
-    if no_text:
-        print(
-            f"warning: {no_text} items with a main company at {args.companies_revision} have no text at {args.summary_revision} and are skipped "
-            "(did the companies step read another summary revision?)",
-            file=sys.stderr,
-        )
     print(
         f"sentiment model {finder.model_name} (local {folder.name}, identity {finder.model_identity}) on {finder.scorer.device}, revision {finder.revision}",
         file=sys.stderr,
@@ -1208,7 +1237,6 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     read = {
         "summary_revision": args.summary_revision,
         "companies_revision": args.companies_revision,
-        "items_without_text": no_text,
     }
     print(json.dumps({**read, **counts}, indent=2))
     print(json.dumps(steps.status(conn, steps.STEP_SENTIMENT, finder.revision), indent=2))

@@ -17,8 +17,10 @@ from typing import Any
 
 import pytest
 
+import chunking
 import news_nlp as db_module
 import news_sentiment_stage as stage
+import sentiment_pair
 from news_nlp import attribution_model as am
 from news_nlp import steps
 from news_nlp.steps import CompanyScore, SentimentScore
@@ -362,9 +364,25 @@ def test_the_pair_is_read_for_the_company_name_of_the_universe_with_its_relevanc
         ("good: the results", "Microsoft Corporation"),
     ]
     counts = cli.run_sentiment(pair, finder, {}, SUM_REV, COMP_REV, None)
-    assert (
-        counts["name_missing"] == 1
-    )  # MSFT of the sub-news: not in the universe given, read as its ticker
+    # MSFT of the sub-news is not in the universe given: it is not read as its ticker, the item is skipped with the reason
+    assert counts["name_missing"] == 1 and counts["skipped"] == 1 and counts["done"] == 0
+    assert len(finder.scorer.calls) == 1  # nothing was sent to the model for it
+    row = pair.execute(
+        "SELECT status, error FROM pipeline_step_state WHERE step = 'sentiment' AND item_id = '7'"
+    ).fetchone()
+    assert row[0] == "skipped" and "not in the universe" in row[1]
+    assert pair.execute("SELECT COUNT(*) FROM news_sentiment").fetchone()[0] == 2
+
+
+def test_a_ticker_outside_the_universe_is_dropped_and_the_others_of_the_item_are_scored(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _load_cli()
+    _seed(pair)
+    counts = cli.run_sentiment(pair, StubFinder(), {"AAPL": "Apple Inc."}, SUM_REV, COMP_REV, None)
+    assert counts["name_missing"] == 2 and counts["done"] == 1 and counts["skipped"] == 1
+    tickers = [r[0] for r in pair.execute("SELECT ticker FROM news_sentiment")]
+    assert tickers == ["AAPL"]
 
 
 def test_a_blank_text_or_one_with_no_sentence_is_skipped_with_a_reason_and_not_retried(
@@ -523,6 +541,13 @@ def test_the_run_on_the_pinned_folder_scores_and_prints_the_counts(
         stage, "SentimentScorer", lambda *a, **k: StubScorer(stage.pin()["identity"])
     )
     monkeypatch.setattr(cli, "tqdm", lambda *a, **k: _NoBar())
+    import cut_stage  # noqa: PLC0415 -- the universe the run reads
+
+    monkeypatch.setattr(
+        cut_stage,
+        "companies_of",
+        lambda conn: [SimpleNamespace(ticker=t, name=n) for t, n in NAMES.items()],
+    )
     cli.main_sentiment(_run_args(), pair)
     out = capsys.readouterr().out
     assert '"sentiment_rows": 3' in out and '"done": 2' in out
@@ -556,4 +581,37 @@ def test_the_pin_names_the_published_copy_the_stack_and_a_local_folder() -> None
     reason="the local pair model is git-ignored and absent from a clean checkout",
 )
 def test_the_local_folder_is_the_pinned_one() -> None:
+    """Skipped on a clean checkout and in CI (the folder is git-ignored): a green CI is not a check of the weights."""
     assert am.directory_identity(stage.model_dir()) == stage.pin()["identity"]
+
+
+def test_the_run_is_refused_when_step_3_read_another_summary_revision(
+    pair: db_module.NewsNlpDatabase,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli = _load_cli()
+    _seed(pair)
+    steps.record_companies(
+        pair, steps.ITEM_BODY, "lost", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )  # a main company of a text that is not at SUM_REV
+    monkeypatch.setattr(
+        stage, "SentimentScorer", lambda *a, **k: pytest.fail("the model must not be touched")
+    )
+    with pytest.raises(SystemExit, match="another summary revision"):
+        cli.main_sentiment(_run_args(), pair)
+    assert pair.execute("SELECT COUNT(*) FROM news_sentiment").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [(chunking, "chunk_text"), (sentiment_pair, "chunk_budget"), (sentiment_pair, "encode_pair")],
+)
+def test_the_cut_of_the_text_is_part_of_the_revision(
+    module: Any, name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    function = getattr(module, name)
+    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV)
+    source = inspect.getsource(function)
+    _with_source(monkeypatch, function, source.rstrip() + "\n    _marker = 1\n")
+    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV) != base
