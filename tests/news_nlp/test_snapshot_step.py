@@ -41,16 +41,29 @@ def _load_cli() -> Any:
 
 
 def _make_pair(
-    tmp_path: Path, results_db_path: Path, dates: tuple[str, str, str]
+    tmp_path: Path,
+    results_db_path: Path,
+    dates: tuple[str, str, str],
+    published: tuple[str | None, str | None, str | None] = (
+        "2021-11-01T08:00:00Z",
+        "2021-11-02T08:00:00Z",
+        "2021-12-01T08:00:00Z",
+    ),
 ) -> db_module.NewsNlpDatabase:
     """A SOURCE store with the body A crawled twice (ids 1 and 2) and the body B once (id 3), attached to a RESULTS store."""
     source = tmp_path / "src.db"
     raw = sqlite3.connect(source)
     raw.executescript(ARTICLES_SCHEMA)
     stamp_source(raw)
-    seed_article(raw, id=1, title="First A", body_text=BODY_A, fetched_at=dates[0])
-    seed_article(raw, id=2, title="Second A", body_text=BODY_A, fetched_at=dates[1])
-    seed_article(raw, id=3, title="Only B", body_text=BODY_B, fetched_at=dates[2])
+    seed_article(
+        raw, id=1, title="First A", body_text=BODY_A, fetched_at=dates[0], pub_date=published[0]
+    )
+    seed_article(
+        raw, id=2, title="Second A", body_text=BODY_A, fetched_at=dates[1], pub_date=published[1]
+    )
+    seed_article(
+        raw, id=3, title="Only B", body_text=BODY_B, fetched_at=dates[2], pub_date=published[2]
+    )
     raw.commit()
     raw.close()
     return db_module.connect_pipeline(results_db=results_db_path, source_db=source)
@@ -75,6 +88,11 @@ def pair_odd_dates(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.
         tmp_path,
         results_db_path,
         ("2021-12-31 08:00:00", "2022-01-02T09:00:00Z", "2022-01-03T09:00:00"),
+        published=(
+            None,
+            None,
+            None,
+        ),  # no publication date: the crawl date is the date, so a bad one waits
     )
     yield conn
     db_module.detach_source(conn)
@@ -340,6 +358,7 @@ def test_the_revision_is_the_codes_only_and_the_inputs_are_in_the_rows(
         "category": CAT,
         "sentiment": SENT,
         "sector": "",
+        "date": "published",
     }
 
 
@@ -805,3 +824,97 @@ def test_articles_crawled_with_an_offset_are_written(tmp_path: Path, results_db_
     assert (
         dates[(HASH_A, "AAPL")] == "2022-01-02T04:00:00Z"
     )  # the earliest of the two crawls of body A
+
+
+def test_the_snapshot_date_is_the_earliest_publication_date_and_the_crawl_date_is_kept_apart(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    _run(pair)
+    row = pair.execute(
+        "SELECT pub_date, fetched_at, inputs FROM news_snapshot WHERE item_id = ? AND ticker = 'AAPL'",
+        (HASH_A,),
+    ).fetchone()
+    assert row["pub_date"] == "2021-11-01T08:00:00Z"  # the earliest of the two articles of the body
+    assert row["fetched_at"] == "2022-01-02T09:00:00Z"  # the crawl date stays, for the audit
+    assert json.loads(row["inputs"])["date"] == "published"
+
+
+def test_a_body_with_no_publication_date_takes_its_crawl_date_and_says_so(
+    tmp_path: Path, results_db_path: Path
+) -> None:
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        ("2022-01-10T12:00:00Z", "2022-01-02T09:00:00Z", "2022-01-05T10:00:00Z"),
+        published=(None, "not a date", None),
+    )
+    try:
+        _seed(conn)
+        _run(conn)
+        row = conn.execute(
+            "SELECT pub_date, inputs FROM news_snapshot WHERE item_id = ? AND ticker = 'AAPL'",
+            (HASH_A,),
+        ).fetchone()
+        assert row["pub_date"] == "" and json.loads(row["inputs"])["date"] == "crawled"
+    finally:
+        db_module.detach_source(conn)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2022-03-04T10:11:12Z", "2022-03-04T10:11:12Z"),
+        ("2022-03-04T10:11:12.655964+00:00", "2022-03-04T10:11:12Z"),
+        ("2022-03-04T10:11:12-05:00", "2022-03-04T15:11:12Z"),  # an offset is converted to UTC
+        ("2022-03-04", "2022-03-04T00:00:00Z"),  # a date with no time is 00:00 UTC
+        ("2022-03-04 10:11:12", "2022-03-04T10:11:12Z"),  # a time with no zone is UTC
+        ("Fri, 04 Mar 2022 10:11:12 GMT", "2022-03-04T10:11:12Z"),  # RFC 2822
+        ("20220304", "2022-03-04T00:00:00Z"),  # the compact ISO form
+        ("2022-03-04T10:11", "2022-03-04T10:11:00Z"),  # no seconds, no zone
+        ("2022-02-30", ""),  # a day that does not exist
+        ("", ""),
+        ("yesterday", ""),
+        ("1970-01-01", ""),  # a year outside 1990 to 2100 is not a news date
+    ],
+)
+def test_a_publication_date_is_read_in_the_forms_a_source_gives_it(raw: str, expected: str) -> None:
+    assert snap.normalize_pub_date(raw) == expected
+
+
+def test_a_publication_date_after_the_crawl_is_not_used_and_the_status_counts_where_the_dates_came_from(
+    tmp_path: Path, results_db_path: Path
+) -> None:
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        ("2022-01-10T12:00:00Z", "2022-01-02T09:00:00Z", "2022-01-05T10:00:00Z"),
+        published=("2030-01-01T00:00:00Z", "2030-06-01T00:00:00Z", "2022-01-04T10:00:00Z"),
+    )
+    try:
+        _seed(conn)
+        steps.record_sentiment(conn, steps.ITEM_BODY, HASH_B, SENT, {"MSFT": _sentiment()}, "m")
+        _run(conn)
+        by_item = {
+            r["item_id"]: (r["pub_date"], json.loads(r["inputs"])["date"])
+            for r in conn.execute("SELECT DISTINCT item_id, pub_date, inputs FROM news_snapshot")
+        }
+        assert by_item[HASH_A] == (
+            "",
+            "crawled_future_pub",
+        )  # both articles claim a future: the crawl date is the date
+        assert by_item[HASH_B] == ("2022-01-04T10:00:00Z", "published")
+        assert snap.status(conn)["date_source"] == {"crawled_future_pub": 2, "published": 1}
+        assert snap.published_after_crawl("2022-01-12T00:00:00Z", "2022-01-10T12:00:00Z")
+        assert not snap.published_after_crawl(
+            "2022-01-11T00:00:00Z", "2022-01-10T12:00:00Z"
+        )  # within a day: a zone
+        assert not snap.published_after_crawl("2022-01-12T00:00:00Z", "")  # nothing to compare with
+    finally:
+        db_module.detach_source(conn)
+
+
+def test_the_revision_hashes_the_rule_of_the_date() -> None:
+    code = inspect.getsource(snap._code)
+    for name in ("published_after_crawl", "Article.date.fget", "Article.date_source.fget"):
+        assert name in code

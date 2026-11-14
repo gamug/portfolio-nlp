@@ -144,6 +144,11 @@ def _code() -> str:
         _gaps,
         snap.articles_of,  # `not_counted` reads the crawl dates through it
         snap.crawl_date_ok,
+        snap.normalize_crawl_date,
+        snap.normalize_pub_date,
+        snap.published_after_crawl,
+        snap.Article.date.fget,  # type: ignore[attr-defined]
+        snap.Article.date_source.fget,  # type: ignore[attr-defined]
         snap._body_hashes,
     )
     return hashlib.sha256(
@@ -170,7 +175,7 @@ class Row:
     kind: str
     item_id: str
     ticker: str
-    fetched_at: str
+    date: str  # the snapshot's date: its publication date, or its crawl date when it has none (owner, 2026-11-14)
     category: str
     sentiment: str
 
@@ -180,12 +185,12 @@ class Row:
 
 
 def _load_rows(conn: NewsNlpDatabase, snapshot_revision: str) -> list[Row]:
-    """The company snapshots of the revision (sector texts are not counted), in crawl order."""
+    """The company snapshots of the revision (sector texts are not counted), by their date: the publication date, the crawl date when there is none."""
     return [
         Row(str(k), str(i), str(t), str(f), str(c), str(s))
         for k, i, t, f, c, s in conn.execute(
-            "SELECT item_kind, item_id, ticker, fetched_at, category, sentiment FROM news_snapshot "
-            "WHERE model_revision = ? AND ticker != '' ORDER BY fetched_at, item_kind, item_id, ticker",
+            "SELECT item_kind, item_id, ticker, CASE WHEN pub_date != '' THEN pub_date ELSE fetched_at END AS date, category, sentiment "
+            "FROM news_snapshot WHERE model_revision = ? AND ticker != '' ORDER BY date, item_kind, item_id, ticker",
             (snapshot_revision,),
         )
     ]
@@ -243,11 +248,7 @@ def _gaps(conn: NewsNlpDatabase, snapshot_revision: str, rows: list[Row]) -> lis
     if not waiting:
         return []
     info = snap.articles_of(conn, sorted({(k, i) for k, i, _ in waiting}))
-    return [
-        (t, info[(k, i)].fetched_at)
-        for k, i, t in waiting
-        if (k, i) in info and info[(k, i)].fetched_at
-    ]
+    return [(t, info[(k, i)].date) for k, i, t in waiting if (k, i) in info and info[(k, i)].date]
 
 
 def written(conn: NewsNlpDatabase, period_rev: str) -> set[str]:
@@ -275,7 +276,7 @@ def _write(
     transaction. Counts every snapshot of the revision whose crawl date is at or before the cut and that no earlier period of this revision counted."""
     end = cut_utc(index, tz)
     start = cut_utc(index - 1, tz) if index > 0 else None
-    todo = [r for r in rows if r.fetched_at <= end and r.key not in counted]
+    todo = [r for r in rows if r.date <= end and r.key not in counted]
     by_company, by_sector = _tally(todo, mapping)
     in_window = Counter(t for t, f in gaps if f <= end and (start is None or f > start))
     sector_gaps: Counter[str] = Counter()
@@ -305,7 +306,7 @@ def _write(
         )
     late = 0
     for row in todo:
-        is_late = start is not None and row.fetched_at <= start
+        is_late = start is not None and row.date <= start
         late += is_late
         conn.execute(
             "INSERT INTO period_item (period_end, model_revision, item_kind, item_id, ticker, late) VALUES (?, ?, ?, ?, ?, ?)",
@@ -381,7 +382,7 @@ def run(
     # the unit is the snapshot row, not the period: the first window (no lower bound) and the first catch-up carry most of the rows, so a bar of
     # periods would give a time left that jumps; the total is what the periods to do will count
     last_cut = cut_utc(max(todo), tz)
-    total = sum(1 for r in rows if r.fetched_at <= last_cut and r.key not in counted)
+    total = sum(1 for r in rows if r.date <= last_cut and r.key not in counted)
     with tqdm(total=total, desc="period rows", unit="row") as bar:  # progress and time left
         for k in todo:
             bar.set_postfix_str(str(period_date(k)))
@@ -399,7 +400,7 @@ def run(
 def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category."""
     run_row = conn.execute(
-        "SELECT period_start FROM period_run WHERE period_end = ? AND model_revision = ?",
+        "SELECT period_start, snapshot_revision FROM period_run WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
     ).fetchone()
     if run_row is None:
@@ -415,7 +416,21 @@ def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     ):
         blocks[str(kind)].append((str(key), json.loads(str(counts)), int(missing)))
     window = f"({run_row[0] or 'the beginning'}, {period_end}]"
-    lines = [f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})"]
+    counted, late = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(late), 0) FROM period_item WHERE period_end = ? AND model_revision = ?",
+        (period_end, period_rev),
+    ).fetchone()
+    oldest = conn.execute(
+        "SELECT MIN(CASE WHEN s.pub_date != '' THEN s.pub_date ELSE s.fetched_at END) FROM period_item i "
+        "JOIN news_snapshot s ON s.item_kind = i.item_kind AND s.item_id = i.item_id AND s.ticker = i.ticker AND s.model_revision = ? "
+        "WHERE i.period_end = ? AND i.model_revision = ?",
+        (run_row[1], period_end, period_rev),
+    ).fetchone()[0]
+    lines = [
+        f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})",
+        f"{counted} snapshots counted, of which late (dated before the window, snapshotted after it was written): {late}"
+        + (f"; the oldest dated {oldest}" if oldest else ""),
+    ]
     for kind in ("company", "sector"):
         for key, counts, missing in sorted(
             blocks[kind], key=lambda b: (-sum(c["total"] for c in b[1].values()), b[0])

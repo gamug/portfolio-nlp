@@ -14,7 +14,8 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from news_nlp import steps
@@ -30,7 +31,7 @@ WAIT_NO_TEXT = "no text at the summary revision"
 WAIT_NO_CATEGORY = "no category yet"
 WAIT_NO_SENTIMENT = "no sentiment yet"
 WAIT_NO_ARTICLE = "the article is not in the corpus"
-WAIT_NO_DATE = "no crawl date in UTC (YYYY-MM-DDTHH:MM:SSZ)"
+WAIT_NO_DATE = "no publication or crawl date (ISO 8601 with a zone, or a publication date)"
 
 
 @dataclass(frozen=True)
@@ -50,16 +51,42 @@ class Pair:
 
 @dataclass(frozen=True)
 class Article:
-    """What the corpus says of a unique body: the earliest crawl of its articles, and the title and publication date of the first (lowest id) one."""
+    """What the corpus says of a unique body: the earliest crawl of its articles, the earliest publication date of them (both UTC seconds, ``""`` when
+    none is valid), and the title of the first (lowest id) one."""
 
     fetched_at: str
     title: str
     pub_date: str
+    future_pub: bool = (
+        False  # a publication date was read but it is later than the crawl: it was not used
+    )
+
+    @property
+    def date(self) -> str:
+        """The date of the snapshot (owner, 2026-11-14): the publication date; the crawl date only when no article of the body has a valid one."""
+        return self.pub_date or self.fetched_at
+
+    @property
+    def date_source(self) -> str:
+        """Where the date came from: ``published``, ``crawled`` (no valid publication date) or ``crawled_future_pub`` (a publication date later than the crawl)."""
+        if self.pub_date:
+            return "published"
+        return "crawled_future_pub" if self.future_pub else "crawled"
+
+
+def published_after_crawl(published: str, crawled: str) -> bool:
+    """A publication date later than the crawl date (more than a day: the zone of a source is not always known) cannot be right: a news item is not
+    published after it was downloaded. Both are ``YYYY-MM-DDTHH:MM:SSZ``; with no crawl date there is nothing to compare."""
+    if not published or not crawled:
+        return False
+    moment = datetime.strptime(published, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    seen = datetime.strptime(crawled, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return moment > seen + timedelta(days=1)
 
 
 def _code() -> str:
     """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
-    the corpus (``articles_of``, ``normalize_crawl_date``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
+    the corpus (``articles_of``, ``normalize_crawl_date``, ``normalize_pub_date``, ``published_after_crawl``, ``Article.date``, ``Article.date_source``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
     docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
     functions = (
         _row_values,
@@ -67,6 +94,10 @@ def _code() -> str:
         _body_hashes,
         articles_of,
         normalize_crawl_date,
+        normalize_pub_date,
+        published_after_crawl,
+        Article.date.fget,  # type: ignore[attr-defined]  # the rule of the date: publication, else crawl
+        Article.date_source.fget,  # type: ignore[attr-defined]
         crawl_date_ok,
         _with_articles,
         _sector_todo,
@@ -100,6 +131,30 @@ def normalize_crawl_date(value: str) -> str:
     if parsed.tzinfo is None:
         return ""
     return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def normalize_pub_date(value: str) -> str:
+    """The publication date as ``YYYY-MM-DDTHH:MM:SSZ`` (UTC, whole seconds), or ``""`` when it is not a date. Read as ISO 8601 (any offset converted to UTC)
+    or RFC 2822; **a date with no time is 00:00 UTC and a time with no zone is UTC** (a publication date is a day more than an instant, and the sources
+    do not always say the zone); a year outside 1990 to 2100 is not a date."""
+    text = value.strip()
+    if not text:
+        return ""
+    if crawl_date_ok(text):
+        return text
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(text)
+        except (TypeError, ValueError, IndexError):
+            return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    moment = parsed.astimezone(UTC)
+    if not 1990 <= moment.year <= 2100:  # noqa: PLR2004 -- the years a news date can have
+        return ""
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _row_values(pair: Pair, article: Article, sector: str) -> tuple[object, ...]:
@@ -285,7 +340,8 @@ def articles_of(
     conn: NewsNlpDatabase, items: list[tuple[str, str]]
 ) -> dict[tuple[str, str], Article]:
     """The crawl date, title and publication date of each item (a body hash, or a ``sub_news`` id). A unique body can come from several articles:
-    the date is the **earliest valid** ``fetched_at`` of them (``normalize_crawl_date``: ISO 8601 with a zone, kept as UTC seconds; a date with no zone is ignored, and a body with none has an empty
+    the snapshot's date is the **earliest valid publication date** of them (``normalize_pub_date``), the crawl date is kept apart, and
+    the **earliest valid** ``fetched_at`` of them is (``normalize_crawl_date``: ISO 8601 with a zone, kept as UTC seconds; a date with no zone is ignored, and a body with none has an empty
     date), the title and the publication date are those of the first (lowest id) article. Reads the whole corpus once (hashing each body, as step 1
     does); an item whose body is not found is missing from the result."""
     from news_nlp import triage  # noqa: PLC0415 -- the body hash of step 1
@@ -307,11 +363,27 @@ def articles_of(
             when = normalize_crawl_date(
                 str(fetched_at or "")
             )  # "" when not a date with a zone: it never decides the window
+            published = normalize_pub_date(str(pub_date or ""))
+            future = published_after_crawl(published, when)
+            if future:
+                published = ""  # not a publication date a crawl could have seen
             seen = found.get(key)
             if seen is None:
-                found[key] = Article(when, str(title or ""), str(pub_date or ""))
-            elif when and (not seen.fetched_at or when < seen.fetched_at):
-                found[key] = Article(when, seen.title, seen.pub_date)
+                found[key] = Article(when, str(title or ""), published, future)
+            else:
+                earliest_crawl = (
+                    when
+                    if when and (not seen.fetched_at or when < seen.fetched_at)
+                    else seen.fetched_at
+                )
+                earliest_pub = (
+                    published
+                    if published and (not seen.pub_date or published < seen.pub_date)
+                    else seen.pub_date
+                )
+                found[key] = Article(
+                    earliest_crawl, seen.title, earliest_pub, seen.future_pub or future
+                )
     return {item: found[h] for item, h in hash_of.items() if h in found}
 
 
@@ -325,7 +397,7 @@ def _with_articles(
         article = info.get((pair.kind, pair.item_id))
         if article is None:
             waiting[WAIT_NO_ARTICLE] += 1
-        elif not article.fetched_at:
+        elif not article.date:
             waiting[WAIT_NO_DATE] += 1
         else:
             complete.append((pair, article))
@@ -445,17 +517,19 @@ def run(
     batch written (committed every ``COMMIT_EVERY`` rows)."""
     notify = on_progress or (lambda _event, _n: None)
     revision_ = revision()
-    inputs = json.dumps(
-        {
-            "summary": summary_revision,
-            "companies": companies_revision,
-            "cut": cut_revision,
-            "category": category_revision,
-            "sentiment": sentiment_revision,
-            "sector": sector_revision or "",
-        },
-        sort_keys=True,
-    )
+    base_inputs = {
+        "summary": summary_revision,
+        "companies": companies_revision,
+        "cut": cut_revision,
+        "category": category_revision,
+        "sentiment": sentiment_revision,
+        "sector": sector_revision or "",
+    }
+
+    def inputs_of(article: Article) -> str:
+        """The revisions the row came from and where its date came from (``published`` or, with no valid publication date, ``crawled``)."""
+        return json.dumps({**base_inputs, "date": article.date_source}, sort_keys=True)
+
     notify("read", 0)
     ready, waiting = _ready_and_waiting(
         conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
@@ -474,7 +548,7 @@ def run(
     sector_ready = [
         (h, sec, text, source, info[(steps.ITEM_BODY, h)])
         for h, sec, text, source in todo_sector
-        if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].fetched_at
+        if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].date
     ]
     sector_chosen = sector_ready if limit is None else sector_ready[:limit]
     now = steps._now()
@@ -499,7 +573,7 @@ def run(
                 pair.ticker,
                 revision_,
                 *_row_values(pair, article, ""),
-                inputs,
+                inputs_of(article),
                 now,
             ),
         )
@@ -513,7 +587,7 @@ def run(
                 "",
                 revision_,
                 *_sector_row(h, sec, text, source, article),
-                inputs,
+                inputs_of(article),
                 now,
             ),
         )
@@ -535,6 +609,17 @@ def run(
             "ready_left": len(sector_ready) - len(sector_chosen),
         }
     return result
+
+
+def _date_sources(conn: NewsNlpDatabase, revision_: str) -> dict[str, int]:
+    """How many rows of the revision took their date from the publication date (``published``) and how many from the crawl date (``crawled``: no valid
+    publication date; ``crawled_future_pub``: one later than the crawl). The number that says whether the reader of ``pub_date`` works on the real store."""
+    counts: Counter[str] = Counter()
+    for (raw,) in conn.execute(
+        "SELECT inputs FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (revision_,)
+    ):
+        counts[str(json.loads(str(raw)).get("date", "unknown"))] += 1
+    return dict(counts)
 
 
 def _stale(
@@ -615,6 +700,7 @@ def status(
             {"revision": r, "company_rows": c, "sector_rows": t} for r, (c, t) in counts.items()
         ],
     }
+    out["date_source"] = _date_sources(conn, current)
     if None not in (summary_revision, companies_revision, category_revision, sentiment_revision):
         out["stale_rows"] = _stale(
             conn,
