@@ -777,9 +777,10 @@ def test_the_text_says_how_many_of_the_counted_snapshots_are_late(
         in text
     )
     first = period.render(conn, END1, result["period_revision"])
-    assert "1 snapshots counted, of which late" in first and first.rstrip().splitlines()[
-        1
-    ].endswith(": 0")
+    assert "1 snapshots counted, of which late" in first
+    assert (
+        "snapshotted after it was written): 0;" in first
+    )  # on time: none of its snapshots is late
 
 
 def test_the_text_of_a_period_prints_the_oldest_date_it_counted(
