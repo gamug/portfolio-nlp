@@ -116,6 +116,8 @@ uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --catch-up   
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03 --render
 ```
 
+**Progress.** `--step snapshot` prints a line to stderr before the corpus read (the slow part: one pass over the corpus, no count, so no bar) and then one bar with the time left over all the rows it will write (company pairs and sector texts together); stdout stays the JSON. Rows are committed every 500, so a run stopped half way keeps what the bar had counted and the next run (always idempotent) writes the rest.
+
 `--render` (and the period part of `--status`) reads **written periods only** and refuses a period with no `period_run` row. `--render` prints `not_counted` on a line only when it is above 0, and the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
 
 ## Not decided here
