@@ -1625,13 +1625,24 @@ def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Name
             )
 
 
+def _check_reset(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """``--reset`` belongs to the snapshot step, rebuilds everything (so no ``--limit``) and changes something (so no ``--status``)."""
+    if not args.reset:
+        return
+    if args.step != steps.STEP_SNAPSHOT:
+        parser.error("--reset only applies to --step snapshot")
+    if args.status:
+        parser.error("--reset and --status cannot be used together (a status changes nothing)")
+    if args.limit is not None:
+        parser.error(
+            "--reset and --limit cannot be used together: a rebuild is a full run (the periods are cleared with it and are built from the whole set)"
+        )
+
+
 def _check_snapshot_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the snapshot step (step 8): the five revisions it joins to run; the two it alone reads are refused elsewhere."""
-    if args.step == steps.STEP_SNAPSHOT and args.reset and args.status:
-        parser.error("--reset and --status cannot be used together (a status changes nothing)")
+    _check_reset(parser, args)
     if args.step != steps.STEP_SNAPSHOT:
-        if args.reset:
-            parser.error("--reset only applies to --step snapshot")
         if args.category_revision is not None or args.sentiment_revision is not None:
             parser.error(
                 "--category-revision and --sentiment-revision only apply to --step snapshot"

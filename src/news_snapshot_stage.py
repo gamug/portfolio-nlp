@@ -382,7 +382,8 @@ _INSERT = (
 def reset(conn: NewsNlpDatabase, *, sectors: bool) -> dict[str, int]:
     """Delete the snapshots of the current revision and return how many of each kind: the one way to rebuild them (``--reset``). The company rows always;
     the sector rows only when the run names a sector revision (``sectors``), because only then are they written again. Owner, 2026-11-14: a reset of the
-    snapshots resets the period summary built on them too (the period tables, when T-196 builds them, are cleared here for the revision)."""
+    snapshots resets the period summary built on them too (the period tables, when T-196 builds them, are cleared here for the revision).
+    **It does not commit**: the caller's ``run`` commits the delete and the rewrite together, so a run that fails or is interrupted leaves the old rows."""
     rev = revision()
     company = int(
         conn.execute(
@@ -397,7 +398,6 @@ def reset(conn: NewsNlpDatabase, *, sectors: bool) -> dict[str, int]:
     conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (rev,))
     if sectors:
         conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker = ''", (rev,))
-    conn.commit()
     return {"company_rows": company, "sector_rows": sector if sectors else 0}
 
 
@@ -504,10 +504,27 @@ def _stale(
             (companies_revision,),
         )
     }
-    for kind, item_id, ticker, raw in conn.execute(
-        "SELECT item_kind, item_id, ticker, inputs FROM news_snapshot WHERE model_revision = ?",
+    sectors = (
+        {
+            str(h): (str(st), str(sec))
+            for h, st, sec in conn.execute(
+                "SELECT body_hash, status, sector FROM body_sector WHERE classifier_revision = ?",
+                (named["sector"],),
+            )
+        }
+        if named.get("sector")
+        else None
+    )
+    for kind, item_id, ticker, raw, sector in conn.execute(
+        "SELECT item_kind, item_id, ticker, inputs, sector FROM news_snapshot WHERE model_revision = ?",
         (revision(),),
     ):
+        if (
+            ticker == ""
+            and sectors is not None
+            and sectors.get(str(item_id)) != ("assigned", str(sector))
+        ):
+            stale["sector_text_no_longer_assigned_to_its_sector"] += 1
         built = json.loads(str(raw))
         keys = (
             ("summary", "sector")

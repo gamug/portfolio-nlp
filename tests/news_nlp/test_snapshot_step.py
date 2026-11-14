@@ -507,6 +507,23 @@ def test_the_command_refuses_inputs_that_do_not_agree(pair: db_module.NewsNlpDat
         ],
         ["--step", "snapshot", "--status", "--model-dir", "x"],
         ["--step", "snapshot", "--status", "--reset"],
+        [
+            "--step",
+            "snapshot",
+            "--reset",
+            "--limit",
+            "5",
+            "--summary-revision",
+            "s",
+            "--companies-revision",
+            "c",
+            "--cut-revision",
+            "u",
+            "--category-revision",
+            "k",
+            "--sentiment-revision",
+            "e",
+        ],
         ["--step", "sentiment", "--reset", "--summary-revision", "s", "--companies-revision", "c"],
     ],
 )
@@ -666,3 +683,49 @@ def test_the_revision_covers_the_statement_that_writes_the_row(
     before = snap.revision()
     monkeypatch.setattr(snap, "_INSERT", snap._INSERT.replace("title, text,", "text, title,"))
     assert snap.revision() != before
+
+
+def test_a_rebuild_that_fails_leaves_the_old_rows(
+    pair: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reset and the rewrite are one transaction: a run that raises after the reset (here: the corpus read) keeps what was there."""
+    _seed(pair)
+    cli = _load_cli()
+    cli.main_snapshot(_args(), pair)
+    assert len(_rows(pair)) == 2
+
+    def broken(*_: Any) -> Any:
+        raise RuntimeError("corpus unreadable")
+
+    monkeypatch.setattr(snap, "articles_of", broken)
+    with pytest.raises(RuntimeError):
+        cli.main_snapshot(_args(reset=True), pair)
+    pair.rollback()  # what closing the connection does
+    assert len(_rows(pair)) == 2
+
+
+def test_the_status_reports_a_sector_text_whose_body_is_no_longer_assigned_to_its_sector(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    pair.execute(
+        "INSERT INTO body_sector (body_hash, classifier_revision, status, sector, candidate, margin, processed_at) "
+        "VALUES (?, ?, 'assigned', '45', '45', 0.5, 't')",
+        (HASH_B, SECTOR),
+    )
+    pair.commit()
+    _run(pair, sector=SECTOR)
+    named: dict[str, Any] = {
+        "summary_revision": SUM,
+        "companies_revision": COMP,
+        "category_revision": CAT,
+        "sentiment_revision": SENT,
+        "cut_revision": CUT,
+        "sector_revision": SECTOR,
+    }
+    assert snap.status(pair, **named)["stale_rows"] == {}
+    pair.execute("UPDATE body_sector SET sector = '50' WHERE body_hash = ?", (HASH_B,))
+    pair.commit()
+    assert snap.status(pair, **named)["stale_rows"] == {
+        "sector_text_no_longer_assigned_to_its_sector": 1
+    }

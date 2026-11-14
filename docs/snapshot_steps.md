@@ -43,7 +43,7 @@ SELECT ROUND(relevance_score, 1) AS bucket, COUNT(*) FROM news_company WHERE mod
 
 The owner picks the floor from it (T-198); the value goes in the config with the date and the revision it was read at.
 
-## Tables (proposal, RESULTS store)
+## Tables (RESULTS store; `news_snapshot` is built, the others are a proposal for T-196)
 
 `news_snapshot`, primary key (`item_kind`, `item_id`, `ticker`, `model_revision`); `ticker` is `''` for a sector text, as in `news_category`:
 
@@ -94,7 +94,7 @@ steps, the reading of the corpus, the choice of the pairs, the sector rows; not 
 sector for sector texts) are **recorded in each row** (`inputs`, JSON), not hashed. A pair that has a row is never read again, whatever revisions it came from, unless `--reset` deletes the rows
 of the revision first. **The daily flow:** the owner names the revisions of the day (any of them can move: the sentiment revision moves the day a new company becomes main, because it hashes the
 names of the main companies); the step writes only the pairs with no row, so a moved revision **never restarts the snapshots or the periods built on them**. The cost of that rule: a row keeps the
-label of the revision that wrote it (`--status` prints `stale_rows`: how many rows were built from other revisions than the ones named, and how many are no longer a main pair); to rebuild after a rerun of a step at the same revision, or to use the new labels, run with `--reset` (the company rows; the sector rows only when `--sector-revision` is named, since only then are they written again; `--reset` with `--status` is refused) (**owner, 2026-11-14: a reset of the snapshots resets the period summary built on them too**: T-196 stores the snapshot revision in `period_run` and `--reset` clears the `period_summary`, `period_run` and `period_item` rows of those periods in the same transaction; the periods are then written again by `--catch-up`). A change of the code is a new revision, and with it new snapshots and new periods.
+label of the revision that wrote it (`--status` prints `stale_rows`: how many rows were built from other revisions than the ones named, and how many are no longer a main pair); to rebuild after a rerun of a step at the same revision, or to use the new labels, run with `--reset` (a full run: `--reset` with `--limit` is refused; the delete and the rewrite are one transaction, so a rebuild that fails or is interrupted leaves the old rows; the company rows; the sector rows only when `--sector-revision` is named, since only then are they written again; `--reset` with `--status` is refused) (**owner, 2026-11-14: a reset of the snapshots resets the period summary built on them too**: T-196 stores the snapshot revision in `period_run` and `--reset` clears the `period_summary`, `period_run` and `period_item` rows of those periods in the same transaction; the periods are then written again by `--catch-up`). A change of the code is a new revision, and with it new snapshots and new periods.
 
 **What a run checks** (`check_inputs`): the step is refused when a revision has no rows, when a category or sentiment row is not a main pair of the companies revision, when a sub-news with a main
 company is not of the named cut, and when an item with a main company has no text at the summary revision (as the sentiment step does: usually the companies step read another summary revision).
@@ -107,7 +107,7 @@ deletes the snapshots of its sub-news (`RECUT_SQL`).
 The period summary's
 revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
 
-## Commands (proposed)
+## Commands (`--step snapshot` is built; `--step period` is proposed, T-196)
 
 ```
 uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... [--sector-revision ...] --category-revision ... --sentiment-revision ... --limit 500   # [--reset] rebuilds
