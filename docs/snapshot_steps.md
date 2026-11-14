@@ -15,7 +15,7 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 | `companies_mentioned` | **Out of scope for now** (owner, 2026-11-14, provisionally; the line is optional in the template). The column exists and stays empty; no floor is needed and nothing refuses to run. When it returns, the design is in "The mentions floor" (T-198). |
 | Sector texts | **No category and no sentiment** (owner, 2026-11-14). The category step writes only (text, main company) pairs, and the pair model needs a company. This **supersedes D39 (iv)** (a sector summary gets a sentiment from `gamug/FinBERT-financial-news`) and the clause of the old FR-020 that said so (text in the archive file above). A sector snapshot is title, text, sector and date. **It is not counted in the period summary** (owner, 2026-11-14); it stays as a stored row, a record with **no consumer for now** (owner, 2026-11-14): no step reads it. |
 | Complete rows only | A company snapshot is written only when its sentiment and category both exist. Otherwise the **pair** waits for the next daily run; `--status` lists the waiting pairs with the reason (a text with one company done and another waiting is handled per pair). A sector snapshot needs the sector (`body_sector`, `status = assigned`) and the text. |
-| When | Snapshots daily, incremental, after the 15:00 batch of `portfolio-data-mining`. The period summary only on a period-end day, after that day's snapshots. |
+| When | **One run per day at 15:00** (owner, 2026-11-14): `portfolio-data-mining`, then every step of this repository in order (1 to 7, then 8 snapshots, then 9 on a period-end day). A day's crawl is therefore snapshotted by the next day's run; the items crawled on a cut day before the cut, and any not yet complete, are counted in the next period as late. That is the normal landing of the last hours of a window, not a fault. |
 | Period | 21 days. Period ends: 2022-01-03 + 21k days, each at **15:00 in `BATCH_TIMEZONE`** (default `America/New_York`). A window is `(previous cut, this cut]` by `fetched_at`; the first has no lower bound. |
 | What closes a window | **A fixed clock time**, 15:00 New York (owner, 2026-11-14): the batch of that day is expected to have finished crawling before it. An item crawled after the cut belongs to the next window even if it came from that day's batch; the end time of the crawl is not read. |
 | Company block | Only companies with news in the window; only categories with news; per category: total and the sentiment split. Companies by total, descending. |
@@ -62,10 +62,11 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 
 | Column | Meaning |
 |---|---|
-| `period_start`, `period_end` | the window, UTC; `period_start` is NULL for the first window (no lower bound), and nothing in it is late |
+| `period_end` | the cut, UTC (the window is in `period_run`) |
 | `counts` | JSON, per category `total`, `neutral`, `positive`, `negative`; the same shape for a company row and a sector row |
-| `not_counted` | main (text, company) pairs crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
-| `created_at` | the report creation date |
+| `not_counted` | main (text, company) pairs crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten and not a debt: a pair that later gets its snapshot is counted as late in a later period, and is then in that period's counts. A sector row's value is the sum of its companies'. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
+
+`period_run`, primary key (`period_end`, `model_revision`): `period_start` (UTC; NULL for the first window, no lower bound, and nothing in it is late), `created_at` (the report creation date). **A period is written when its `period_run` row exists**, inserted in the same transaction as its `period_summary` and `period_item` rows. A window with no counted news has a `period_run` row and no other, so it is written and does not block the later periods.
 
 The number of late rows of a period is **computed** from `period_item` (no stored copy, so it cannot drift).
 
@@ -89,7 +90,7 @@ rows say which period counted which snapshot, so the counts can be audited and a
 
 The snapshot's revision is a hash of the five step revisions it reads (summary, companies, sector, category, sentiment), of the **cut revision** (`units5-...`: the text and the
 title of a sub-news depend on it), and of the code that builds the row (and, once the field returns, the mentions floor); a run names each and is refused when one has no rows. The period summary's
-revision is a hash of the snapshot revision, the counting code and the content of `sector` and `company_sector`. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row at the revision (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_summary` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
+revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row at the revision (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
 
 ## Commands (proposed)
 
