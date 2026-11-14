@@ -359,7 +359,7 @@ above, it says so; nothing else above is touched.
   texts than the draw takes is **drawn whole** (owner, 2026-11-06): the others are unchanged and the report shows the real counts and
   the wider interval; `--pool-only` shows the shortfall before the draw day, and the scored pool is kept so the draw does not score twice (with its conditions: a different extractor, tagged bodies or model revision stops the draw). A stratum drawn whole is held fixed in the bootstrap (owner, 2026-11-06) and marked `(census)` in the report. A company both extractors skipped is in the shares but not in the gain. The model is fine-tuned on summaries only if it misses the bar.
 - **D33 D20 amended: no per-scope recall floor under 40 gold bodies.** The overall target
-  (>= 90% corpus-weighted agreement on all bodies) stays. The recall >= 80% floor applies to a
+  (>= 90% corpus-weighted agreement on all bodies; 80% now) stays. The recall >= 80% floor applies to a
   scope only if it has at least 40 gold bodies; a scope with fewer is reported with its recall and
   95% interval and not gated. No top-up draw is made. The 200 held-out bodies (D30) are therefore
   enough as drawn.

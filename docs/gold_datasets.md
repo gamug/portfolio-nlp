@@ -92,7 +92,7 @@ Not a gold set, listed so nobody mistakes it for one: `gold/company_segments_tra
   or the 44. Drawn once; the set is fixed.
 - **Scope:** the same tag columns as set 1, `session=heldout`, plus `stratum` and `frame` (the weights of D30). In `gold/` the tag columns hold the owner's tags (migrated 2026-11-07).
 - **Used for:** the **only** measure of the scope: the rules' and later the classifier's agreement with
-  the owner (>= 90% corpus-weighted, D20/D33) and the D24 category target. Never trained on (Q3).
+  the owner (>= 90% corpus-weighted, D20/D33; 80% since 2026-11-14) and the D24 category target. Never trained on (Q3).
   `data/heldout_strata.csv` holds the stratum sizes (`frame`) that re-weight a rate to the corpus.
 - **Working file:** `heldout_to_tag.csv`. Migrated by `scripts/build_gold_2026_11_05.py --set test`,
   which refuses a tagged article that is not already in the tracked shell.

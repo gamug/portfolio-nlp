@@ -50,7 +50,7 @@ every headline figure is **weighted to the corpus** with the held-out strata (`g
 seeded bootstrap intervals). Plain (unweighted) numbers are reported only where we say so.
 
 **Metrics.** Agreement (accuracy over the four classes), and precision and recall per class, each with a
-95% interval. The 90% agreement bar comes from D20/D33. Recall per class is gated only where the gold has
+95% interval. The agreement bar comes from D20/D33 (90%; the owner lowered it to 80% on 2026-11-14). Recall per class is gated only where the gold has
 40 or more bodies (D33); `sector` (7) and `out_of_scope` (33) are reported with their interval, not gated.
 
 **Paired gain over the rules** (`gold_metrics.paired_stratified_gain`) tells whether a model is better than
