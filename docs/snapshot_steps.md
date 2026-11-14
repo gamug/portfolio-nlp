@@ -9,18 +9,18 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 | Point | Decision |
 |---|---|
 | Grain of a snapshot | One row per (text, main company); a `sector` text has one row keyed by its sector. An item with no main company (the review list of step 3) has none. |
-| Fields | `date` (the crawl date), `title`, `text`, `main_company` or `sector`, `companies_mentioned` (optional), `category`, `sentiment`. |
-| `date` | In the snapshot, the **crawl date** (`articles.fetched_at`). In the period summary, the **report creation date**: the period-end cut. |
+| Fields | `date` (the publication date), `title`, `text`, `main_company` or `sector`, `companies_mentioned` (optional), `category`, `sentiment`. |
+| `date` | In the snapshot, the **publication date** (`articles.pub_date`, owner, 2026-11-14, after the first real run: the crawl date put a backlog crawled in August 2026 into one window; the crawl date, `articles.fetched_at`, stays in the row for the audit and is the date only when the body has no valid publication date). In the period summary, the **report date**: the period-end cut. |
 | `text` | The step 2 summary (`news_summary`) at the pinned summary revision, or the original body when step 2 stored it as the text (`text_source = original`). The title is `articles.title` (a sub-news takes its article's title). |
 | `companies_mentioned` | **Out of scope for now** (owner, 2026-11-14, provisionally; the line is optional in the template). The column exists and stays empty; no floor is needed and nothing refuses to run. When it returns, the design is in "The mentions floor" (T-198). |
 | Sector texts | **No category and no sentiment** (owner, 2026-11-14). The category step writes only (text, main company) pairs, and the pair model needs a company. This **supersedes D39 (iv)** (a sector summary gets a sentiment from `gamug/FinBERT-financial-news`) and the clause of the old FR-020 that said so (text in the archive file above). A sector snapshot is title, text, sector and date. **It is not counted in the period summary** (owner, 2026-11-14); it stays as a stored row, a record with **no consumer for now** (owner, 2026-11-14): no step reads it. |
 | Complete rows only | A company snapshot is written only when its sentiment and category both exist. Otherwise the **pair** waits for the next daily run; `--status` lists the waiting pairs with the reason (a text with one company done and another waiting is handled per pair). A sector snapshot needs the sector (`body_sector`, `status = assigned`) and the text. |
 | When | **One run per day at 15:00** (owner, 2026-11-14): `portfolio-data-mining`, then every step of this repository in order (1 to 7, then 8 snapshots, then 9 on a period-end day). A day's crawl is therefore snapshotted by the next day's run; the items crawled on a cut day before the cut, and any not yet complete, are counted in the next period as late. That is the normal landing of the last hours of a window, not a fault. |
 | Period | 21 days. Period ends: 2022-01-03 + 21k days, each at **15:00 in `BATCH_TIMEZONE`** (default `America/New_York`). A window is `(previous cut, this cut]` by `fetched_at`; the first has no lower bound. |
-| What closes a window | **A fixed clock time**, 15:00 New York (owner, 2026-11-14): the batch of that day is expected to have finished crawling before it. An item crawled after the cut belongs to the next window even if it came from that day's batch; the end time of the crawl is not read. |
+| What closes a window | **A fixed clock time**, 15:00 New York (owner, 2026-11-14): the batch of that day is expected to have finished crawling before it. An item published or, with no publication date, crawled after the cut belongs to the next window; the end time of the crawl is not read. |
 | Company block | Only companies with news in the window; only categories with news; per category: total and the sentiment split. Companies by total, descending. |
 | Sector block (owner, 2026-11-14, instead of an LLM paragraph) | The **same numbers as a company block** summed over the companies of the sector: per category `total`, `neutral`, `positive`, `negative`, **one count per snapshot** (owner, 2026-11-14): each (text, company) counts, so a sector line equals the sum of its companies' lines, and a body cut into several sub-news about one company counts each (the old one-count-per-body rule of D28 is dropped). No LLM and no tokens. Only sectors with news; a sector with none is dropped. A company's sector: its `company_sector` row if any, else its universe GICS sector (read through the `sector` table), else the line `unclassified`. |
-| Late items | A written period is **frozen**. An item whose crawl date is in a closed window but that reached a snapshot after the period was written is counted in the next period, keeps its true `fetched_at`, and is counted as late there (see "Which period counted what"). |
+| Late items | A written period is **frozen**. An item whose date (publication, else crawl) is in a closed window but that reached a snapshot after the period was written is counted in the next period, keeps its true date, and is counted as late there (see "Which period counted what"). |
 | Backfill | `--catch-up` runs every missing period in order, each at its own cut; a period already written is skipped; the number of periods to do is printed first. |
 
 ## The time rule
@@ -28,7 +28,7 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 `BATCH_TIMEZONE` (`.env`, an IANA name; `.env.example` lists the American options) defaults to `America/New_York`. A period end is a calendar
 date at 15:00 wall time in that zone, converted to UTC (20:00 in winter, 19:00 in summer); a window is always 21 calendar days, which is 503 or 505
 hours across a clock change. `fetched_at` is UTC (`...Z`): the crawl stores `2026-08-12T22:19:20.655964+00:00`, which the step converts to UTC whole seconds (a date with no zone waits). An invalid zone name stops the run. 2022-01-03 is a Monday and every cut falls on one.
-News crawled between 15:00 and the close (16:00) goes to the next window.
+News dated between 15:00 and the close (16:00) goes to the next window. **A publication date is read** as ISO 8601 (an offset converted to UTC) or RFC 2822; **a date with no time is 00:00 UTC and a time with no zone is UTC** (the sources do not always say the zone); a year outside 1990 to 2100 is not a date (`normalize_pub_date`).
 
 ## The mentions floor (kept for when `companies_mentioned` returns; T-198)
 
@@ -49,7 +49,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 
 | Column | Meaning |
 |---|---|
-| `fetched_at` | crawl time, UTC; places the item in a window. A unique body can come from several articles: the **earliest** `fetched_at` of its articles (when the news first appeared); the title is the representative article's (the lowest id) |
+| `fetched_at` | crawl time, UTC, kept for the audit; **the date of the row is `pub_date`** and `fetched_at` only when `pub_date` is empty (`inputs.date` says which: `published` or `crawled`). A unique body can come from several articles: the **earliest** `fetched_at` of its articles (when the news first appeared); the title is the representative article's (the lowest id); `pub_date` is the **earliest valid publication date** of its articles |
 | `pub_date` | publication date as stored (from the earlier D28); not used for the window |
 | `title`, `text`, `text_source` | as above |
 | `ticker`, `sector` | the main company, or `''` and the 2-digit GICS sector of `body_sector` |
@@ -65,7 +65,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 |---|---|
 | `period_end` | the cut, UTC (the window is in `period_run`) |
 | `counts` | JSON, per category `total`, `neutral`, `positive`, `negative`; the same shape for a company row and a sector row |
-| `not_counted` | main (text, company) pairs (of the companies revision of the latest snapshot written) crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten and not a debt: a pair that later gets its snapshot is counted as late in a later period, and is then in that period's counts. A sector row's value is the sum of its companies'. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
+| `not_counted` | main (text, company) pairs (of the companies revision of the latest snapshot written) dated in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten and not a debt: a pair that later gets its snapshot is counted as late in a later period, and is then in that period's counts. A sector row's value is the sum of its companies'. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
 
 `period_run`, primary key (`period_end`, `model_revision`): `snapshot_revision` (the snapshots it counted: a reset of those snapshots clears this period), `period_start` (UTC; NULL for the first window, no lower bound, and nothing in it is late), `created_at` (when the row was written; **the report date is `period_end`**, the cut, as the owner decided). **A period is written when its `period_run` row exists**, inserted in the same transaction as its `period_summary` and `period_item` rows. A window with no counted news has a `period_run` row and no other, so it is written and does not block the later periods.
 

@@ -70,6 +70,7 @@ def conn(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDat
             gics_sector=sector,
             body_text=f"Body of {ticker}. " * 20,
             fetched_at="2022-01-10T10:00:00Z",
+            pub_date="2022-01-10T10:00:00Z",
         )
     raw.commit()
     raw.close()
@@ -709,3 +710,26 @@ def test_the_recipe_to_write_a_period_again_names_the_three_tables_and_the_later
     assert (
         "period_run WHERE model_revision" in cli.RERUN_HELP and "every later one" in cli.RERUN_HELP
     )
+
+
+def test_the_window_follows_the_publication_date_and_the_crawl_date_only_when_there_is_none(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    def add(item: str, published: str, crawled: str) -> None:
+        conn.execute(
+            "INSERT INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, text, text_source, category, sentiment, inputs, processed_at) "
+            "VALUES ('body', ?, 'AAPL', ?, ?, ?, 't', 'summary', 'labor', 'positive', '{}', 't')",
+            (item, SNAP, crawled, published),
+        )
+
+    add(
+        "backlog", "2022-01-05T10:00:00Z", "2026-08-20T10:00:00Z"
+    )  # published in window 1, crawled four years later
+    add("no_pub", "", "2022-01-06T10:00:00Z")  # no publication date: the crawl date places it
+    conn.commit()
+    _run(conn)
+    counted = {
+        r["item_id"]: r["period_end"]
+        for r in conn.execute("SELECT item_id, period_end FROM period_item")
+    }
+    assert counted == {"backlog": END1, "no_pub": END1}

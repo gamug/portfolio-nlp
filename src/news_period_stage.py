@@ -144,6 +144,8 @@ def _code() -> str:
         _gaps,
         snap.articles_of,  # `not_counted` reads the crawl dates through it
         snap.crawl_date_ok,
+        snap.normalize_crawl_date,
+        snap.normalize_pub_date,
         snap._body_hashes,
     )
     return hashlib.sha256(
@@ -170,7 +172,7 @@ class Row:
     kind: str
     item_id: str
     ticker: str
-    fetched_at: str
+    date: str  # the snapshot's date: its publication date, or its crawl date when it has none (owner, 2026-11-14)
     category: str
     sentiment: str
 
@@ -180,12 +182,12 @@ class Row:
 
 
 def _load_rows(conn: NewsNlpDatabase, snapshot_revision: str) -> list[Row]:
-    """The company snapshots of the revision (sector texts are not counted), in crawl order."""
+    """The company snapshots of the revision (sector texts are not counted), by their date: the publication date, the crawl date when there is none."""
     return [
         Row(str(k), str(i), str(t), str(f), str(c), str(s))
         for k, i, t, f, c, s in conn.execute(
-            "SELECT item_kind, item_id, ticker, fetched_at, category, sentiment FROM news_snapshot "
-            "WHERE model_revision = ? AND ticker != '' ORDER BY fetched_at, item_kind, item_id, ticker",
+            "SELECT item_kind, item_id, ticker, CASE WHEN pub_date != '' THEN pub_date ELSE fetched_at END AS date, category, sentiment "
+            "FROM news_snapshot WHERE model_revision = ? AND ticker != '' ORDER BY date, item_kind, item_id, ticker",
             (snapshot_revision,),
         )
     ]
@@ -243,11 +245,7 @@ def _gaps(conn: NewsNlpDatabase, snapshot_revision: str, rows: list[Row]) -> lis
     if not waiting:
         return []
     info = snap.articles_of(conn, sorted({(k, i) for k, i, _ in waiting}))
-    return [
-        (t, info[(k, i)].fetched_at)
-        for k, i, t in waiting
-        if (k, i) in info and info[(k, i)].fetched_at
-    ]
+    return [(t, info[(k, i)].date) for k, i, t in waiting if (k, i) in info and info[(k, i)].date]
 
 
 def written(conn: NewsNlpDatabase, period_rev: str) -> set[str]:
@@ -275,7 +273,7 @@ def _write(
     transaction. Counts every snapshot of the revision whose crawl date is at or before the cut and that no earlier period of this revision counted."""
     end = cut_utc(index, tz)
     start = cut_utc(index - 1, tz) if index > 0 else None
-    todo = [r for r in rows if r.fetched_at <= end and r.key not in counted]
+    todo = [r for r in rows if r.date <= end and r.key not in counted]
     by_company, by_sector = _tally(todo, mapping)
     in_window = Counter(t for t, f in gaps if f <= end and (start is None or f > start))
     sector_gaps: Counter[str] = Counter()
@@ -305,7 +303,7 @@ def _write(
         )
     late = 0
     for row in todo:
-        is_late = start is not None and row.fetched_at <= start
+        is_late = start is not None and row.date <= start
         late += is_late
         conn.execute(
             "INSERT INTO period_item (period_end, model_revision, item_kind, item_id, ticker, late) VALUES (?, ?, ?, ?, ?, ?)",
@@ -381,7 +379,7 @@ def run(
     # the unit is the snapshot row, not the period: the first window (no lower bound) and the first catch-up carry most of the rows, so a bar of
     # periods would give a time left that jumps; the total is what the periods to do will count
     last_cut = cut_utc(max(todo), tz)
-    total = sum(1 for r in rows if r.fetched_at <= last_cut and r.key not in counted)
+    total = sum(1 for r in rows if r.date <= last_cut and r.key not in counted)
     with tqdm(total=total, desc="period rows", unit="row") as bar:  # progress and time left
         for k in todo:
             bar.set_postfix_str(str(period_date(k)))
