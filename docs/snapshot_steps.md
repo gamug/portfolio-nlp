@@ -14,7 +14,7 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 | `text` | The step 2 summary (`news_summary`) at the pinned summary revision, or the original body when step 2 stored it as the text (`text_source = original`). The title is `articles.title` (a sub-news takes its article's title). |
 | `companies_mentioned` | **Out of scope for now** (owner, 2026-11-14, provisionally; the line is optional in the template). The column exists and stays empty; no floor is needed and nothing refuses to run. When it returns, the design is in "The mentions floor" (T-198). |
 | Sector texts | **No category and no sentiment** (owner, 2026-11-14). The category step writes only (text, main company) pairs, and the pair model needs a company. This **supersedes D39 (iv)** (a sector summary gets a sentiment from `gamug/FinBERT-financial-news`) and the clause of the old FR-020 that said so (text in the archive file above). A sector snapshot is title, text, sector and date. **It is not counted in the period summary** (owner, 2026-11-14); it stays as a stored row, a record with **no consumer for now** (owner, 2026-11-14): no step reads it. |
-| Complete rows only | A company snapshot is written only when its sentiment and category both exist. Otherwise the item waits for the next daily run; `--status` lists the waiting items with the reason. A sector snapshot needs the sector (`body_sector`, `status = assigned`) and the text. |
+| Complete rows only | A company snapshot is written only when its sentiment and category both exist. Otherwise the **pair** waits for the next daily run; `--status` lists the waiting pairs with the reason (a text with one company done and another waiting is handled per pair). A sector snapshot needs the sector (`body_sector`, `status = assigned`) and the text. |
 | When | Snapshots daily, incremental, after the 15:00 batch of `portfolio-data-mining`. The period summary only on a period-end day, after that day's snapshots. |
 | Period | 21 days. Period ends: 2022-01-03 + 21k days, each at **15:00 in `BATCH_TIMEZONE`** (default `America/New_York`). A window is `(previous cut, this cut]` by `fetched_at`; the first has no lower bound. |
 | What closes a window | **A fixed clock time**, 15:00 New York (owner, 2026-11-14): the batch of that day is expected to have finished crawling before it. An item crawled after the cut belongs to the next window even if it came from that day's batch; the end time of the crawl is not read. |
@@ -64,8 +64,10 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 |---|---|
 | `period_start`, `period_end` | the window, UTC; `period_start` is NULL for the first window (no lower bound), and nothing in it is late |
 | `counts` | JSON, per category `total`, `neutral`, `positive`, `negative`; the same shape for a company row and a sector row |
-| `late_count` | how many of the rows counted here are late (derived from `period_item`) |
+| `not_counted` | main (text, company) pairs crawled in the window that had no snapshot when the period was written (a sentiment skipped, a category missing); a statement as of that run, not rewritten. Only on rows that exist: **no row is created for a company or sector with no counted news** (owner, 2026-11-14); its gaps show in `--status` |
 | `created_at` | the report creation date |
+
+The number of late rows of a period is **computed** from `period_item` (no stored copy, so it cannot drift).
 
 `period_item`, primary key (`period_end`, `model_revision`, `item_kind`, `item_id`, `ticker`): one row for each snapshot a period counted; `late` is 1 when the
 snapshot's `fetched_at` is at or before the period's `period_start` (never, when it is NULL).
@@ -80,6 +82,8 @@ snapshot's `fetched_at` is at or before the period's `period_start` (never, when
 Within one period revision, a period run counts every snapshot **not yet in a `period_item` row of an earlier period of that revision** whose `fetched_at` is at or before its own `period_end`. Those with
 `fetched_at` at or before the period's `period_start` are late (their own window was already closed and written). This needs no clock comparison: the
 rows say which period counted which snapshot, so the counts can be audited and a late item can be told from an on-time one. A written period is never rewritten. A new period revision (another snapshot revision, counting code or sector content) starts clean: `--catch-up` then runs from the first period again, each at its own cut, and the earlier revision's rows are kept.
+
+**Order.** A period is refused unless every earlier period of the same revision is written (a gap would let a later period count the earlier window's items as late, and the earlier one, written afterwards, would find them taken). `--period-end` must be on the grid (2022-01-03 + 21k days) and its cut already passed; otherwise it is refused. `--catch-up` runs from the first missing period to the last cut already passed.
 
 ## The revisions
 
@@ -96,7 +100,7 @@ uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --catch-up   
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03 --render
 ```
 
-`--render` prints the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
+`--render` prints `not_counted` on a line only when it is above 0, and the text layout the owner described a `{main_company}` block with one line per category, and a `{sector}` block with the same lines.
 
 ## Not decided here
 
