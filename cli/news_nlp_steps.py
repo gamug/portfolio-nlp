@@ -1014,9 +1014,10 @@ def _named_items(
     named: list[steps.SentimentItem] = []
     for item in batch:
         known = tuple((ticker, rel) for ticker, rel in item.tickers if ticker in names)
-        counts["name_missing"] += len(item.tickers) - len(known)
+        left = tuple(ticker for ticker, _ in item.tickers if ticker not in names)
+        counts["name_missing"] += len(left)
         if known:
-            named.append(item._replace(tickers=known))
+            named.append(item._replace(tickers=known, dropped=item.dropped + left))
         else:
             steps.record_item_skipped(
                 conn,
@@ -1090,8 +1091,13 @@ def _score_items(
             )
             counts["skipped"] += 1
             continue
+        note = (
+            "not scored, company not in the universe: " + ", ".join(item.dropped)
+            if item.dropped
+            else None
+        )
         steps.record_sentiment(
-            conn, item.kind, item.item_id, finder.revision, found, finder.model_name
+            conn, item.kind, item.item_id, finder.revision, found, finder.model_name, note
         )
         counts["done"] += 1
         counts["sentiment_rows"] += len(found)
@@ -1182,6 +1188,11 @@ def _sentiment_status(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> Non
     report = steps.status(conn, steps.STEP_SENTIMENT, shown)
     report["revisions"] = steps.revisions(conn, steps.STEP_SENTIMENT)
     report["models"] = news_sentiment_stage.models_of_the_step()
+    if summary_revision and companies_revision:
+        # a run is refused when this is not 0 (step 3 read another summary revision)
+        report["items_without_text"] = steps.category_items_without_text(
+            conn, summary_revision, companies_revision
+        )
     report["code_revision"] = code_revision or unknown
     print(json.dumps(report, indent=2))
 

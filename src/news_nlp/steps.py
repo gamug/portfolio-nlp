@@ -493,12 +493,13 @@ class SentimentScore(NamedTuple):
 
 class SentimentItem(NamedTuple):
     """One text the sentiment step reads: a body (its hash) or a sub-news (its id), the text step 2 left for it, and its main tickers with the
-    relevance score step 3 stored for each pair."""
+    relevance score step 3 stored for each pair. ``dropped`` are the main tickers left out because the universe does not name them (not scored)."""
 
     kind: str
     item_id: str
     text: str
     tickers: tuple[tuple[str, float], ...]
+    dropped: tuple[str, ...] = ()
 
 
 def pending_sentiment_items(
@@ -544,9 +545,11 @@ def record_sentiment(
     revision: str,
     found: dict[str, SentimentScore],
     model_name: str,
+    note: str | None = None,
 ) -> str:
     """Store the sentiment of each main company of one text (one row per ticker) and the state of the item, in one transaction; a repeat changes
-    nothing. Returns the state, always ``done``: the model gives every pair a label (what to do with a low ``score`` is the owner's decision)."""
+    nothing. Returns the state, always ``done``: the model gives every pair a label (what to do with a low ``score`` is the owner's decision).
+    ``note`` is kept in the state's ``error`` column of a ``done`` item that is partial (a main company left unscored), so the loss is in the store."""
     now = _now()
     for ticker, result in found.items():
         conn.execute(
@@ -570,10 +573,10 @@ def record_sentiment(
     conn.execute(
         "INSERT INTO pipeline_step_state "
         "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
-        "VALUES (?, ?, ?, ?, 'done', 1, NULL, ?, ?) "
+        "VALUES (?, ?, ?, ?, 'done', 1, ?, ?, ?) "
         "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
-        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
-        (item_kind, item_id, STEP_SENTIMENT, revision, now, now),
+        "status = 'done', attempts = attempts + 1, error = excluded.error, finished_at = excluded.finished_at",
+        (item_kind, item_id, STEP_SENTIMENT, revision, note, now, now),
     )
     conn.commit()
     return "done"
@@ -589,8 +592,15 @@ def _sentiment_counts(conn: NewsNlpDatabase, revision: str | None) -> dict[str, 
         a,
     ).fetchone()
     by_label = f"SELECT label, COUNT(*) FROM news_sentiment{w} GROUP BY label"  # noqa: S608 -- fixed clauses
+    state_w = " AND model_revision = ?" if revision is not None else ""
+    partial_sql = (
+        "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'sentiment' AND status = 'done' AND error IS NOT NULL"  # noqa: S608 -- fixed clauses
+        + state_w
+    )
+    partial = conn.execute(partial_sql, a).fetchone()[0]
     return {
         "news_sentiment": {"rows": int(rows), "items": int(items)},
+        "done_with_a_company_not_scored": int(partial),
         "by_label": {str(k): int(n) for k, n in conn.execute(by_label, a)},
     }
 

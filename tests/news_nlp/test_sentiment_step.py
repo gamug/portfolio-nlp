@@ -682,3 +682,50 @@ def test_the_status_prints_the_counts_when_the_universe_cannot_be_read(
     report = json.loads(capsys.readouterr().out)
     assert report["step"] == "sentiment" and "not computed" in report["code_revision"]
     assert "--source-db" in report["code_revision"]
+
+
+def test_an_item_with_a_company_not_scored_keeps_the_note_in_its_state_and_the_status_counts_it(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    cli = _load_cli()
+    _seed(pair)
+    cli.run_sentiment(
+        pair, StubFinder(), {"AAPL": "Apple Inc.", "MSFT": "Microsoft"}, SUM_REV, COMP_REV, None
+    )
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'sentiment' AND error IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    rev = StubFinder().revision
+    other = StubFinder()
+    other.revision = "sentiment-partial"
+    counts = cli.run_sentiment(pair, other, {"AAPL": "Apple Inc."}, SUM_REV, COMP_REV, None)
+    assert counts["done"] == 1 and counts["skipped"] == 1 and counts["name_missing"] == 2
+    row = pair.execute(
+        "SELECT error FROM pipeline_step_state WHERE step = 'sentiment' AND model_revision = ? AND item_id = 'b1'",
+        ("sentiment-partial",),
+    ).fetchone()
+    assert row[0] == "not scored, company not in the universe: MSFT"
+    report = steps.status(pair, steps.STEP_SENTIMENT, "sentiment-partial")
+    assert report["done_with_a_company_not_scored"] == 1
+    assert steps.status(pair, steps.STEP_SENTIMENT, rev)["done_with_a_company_not_scored"] == 0
+
+
+def test_the_status_prints_the_items_without_text_the_run_would_refuse(
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli = _load_cli()
+    _seed(pair)
+    _universe(monkeypatch, NAMES)
+    args = SimpleNamespace(status=True, summary_revision=SUM_REV, companies_revision=COMP_REV)
+    cli.main_sentiment(args, pair)
+    assert json.loads(capsys.readouterr().out)["items_without_text"] == 0
+    steps.record_companies(
+        pair, steps.ITEM_BODY, "lost", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )
+    cli.main_sentiment(args, pair)
+    assert json.loads(capsys.readouterr().out)["items_without_text"] == 1

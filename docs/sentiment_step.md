@@ -16,7 +16,9 @@ uv run cli/news_nlp_steps.py --step sentiment --status --summary-revision summar
 `--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. The run shows a progress bar (`tqdm`, in items, not pairs; its time estimate is rough because items differ in chunks and in companies). `--status` prints the items by state (`done`, `skipped`, `failed`) and the rows by label; a skipped item carries its reason. A rerun adds nothing: an item
 already done or skipped at the revision is not read again, a failed one is retried; a long run can be cut with `--limit` and continued. The
 last form of `--status` prints the revision this code would write for those inputs (no weight is read; it needs the universe, so `--source-db`), to compare with the `revisions` it lists.
-To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RESENTIMENT_SQL`, `RECUT_SQL`).
+To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RESENTIMENT_SQL`, `RECUT_SQL`). `--status` with both revisions also prints `items_without_text`: a run is refused when it is not 0.
+The pending list reads every main row of the companies revision into memory on each call, whatever `--limit` is (the category step does the same): a known
+limit for a run over all the bodies.
 
 **Nothing is downloaded.** The pair model is the local, git-ignored folder `models/sentiment_pair_all/final` (419 MB), named in
 `config/sentiment_step.json` with its identity (`directory_identity`, a hash of its files). Its copy on the private Hub,
@@ -30,7 +32,9 @@ revision of the step. The relevance model is not loaded: step 3's score is read 
 
 * **Companies the universe does not name:** a pair whose ticker is not in the universe (`companies_of`) is **not scored** (the model was trained on the
   universe's names; a ticker read as a name would store a row from an input it never saw); it is counted as `name_missing`. An item left with no
-  named ticker is `skipped`, "company not in the universe", and is not retried at that revision. No SQL is needed after fixing the universe: the names of the scored companies are in the revision, so
+  named ticker is `skipped`, "company not in the universe", and is not retried at that revision. An item with **some** of its tickers named is `done`
+  with the named ones scored, and its state keeps the note (`pipeline_step_state.error` = "not scored, company not in the universe: X"); `--status` counts
+  them as `done_with_a_company_not_scored`. No SQL is needed after fixing the universe: the names of the scored companies are in the revision, so
   a universe that now names the ticker is a new revision and scores the item (`RESENTIMENT_SQL` is only to rerun at the **same** revision). **A run with an
   empty universe is refused** (no `--source-db`, or a store without `fetch_status = 'ok'` articles): it would skip every item.
 * **Reads:** the texts of step 2 (`news_summary` at `--summary-revision`) of every item that has a **main** company at `--companies-revision`
@@ -79,7 +83,8 @@ part of it, so a run stopped and resumed after such an edit resumes. A step 2 or
 * The final models are more confident than the fold models the stack was fitted on; the effect is not measured. The check against the 0.862 mean
   confidence is the first thing T-148c4 does.
 * The test that the local folder has the pinned identity is skipped where the folder is absent (a clean checkout, CI): a green CI is not a check of the weights.
-* The step was checked on the real weights with two sentences and the stack, not on a store (no run was made on `nlp.db`): the identity of the local
+* The step was checked on the real weights by scoring two sentences with the pair model (no database, not through the command) and applying the stack to
+  their probabilities at a high and a low relevance, not on a store (no run was made on `nlp.db`): the identity of the local
   folder is the pinned one, the three probabilities add to 1, and a positive sentence about another company reads `neutral` at low relevance (a property of the stack: the step itself never feeds it a low relevance).
 * **Not decided here** (the owner's): what a low `score` means; whether sector, market and economy texts (no company) get a sentiment through the
   text-only model (D39 (ii)); T-171, the update of `CLAUDE.md` and the module docs to the pair model.
