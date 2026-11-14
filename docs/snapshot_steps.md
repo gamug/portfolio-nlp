@@ -12,7 +12,7 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 | Fields | `date` (the crawl date), `title`, `text`, `main_company` or `sector`, `companies_mentioned` (optional), `category`, `sentiment`. |
 | `date` | In the snapshot, the **crawl date** (`articles.fetched_at`). In the period summary, the **report creation date**: the period-end cut. |
 | `text` | The step 2 summary (`news_summary`) at the pinned summary revision, or the original body when step 2 stored it as the text (`text_source = original`). The title is `articles.title` (a sub-news takes its article's title). |
-| `companies_mentioned` | The non-main tickers step 3 stored for the text (`is_main = 0`) whose relevance is **at or over a floor**: see "The mentions floor". |
+| `companies_mentioned` | **Out of scope for now** (owner, 2026-11-14, provisionally; the line is optional in the template). The column exists and stays empty; no floor is needed and nothing refuses to run. When it returns, the design is in "The mentions floor" (T-198). |
 | Sector texts | **No category and no sentiment** (owner, 2026-11-14). The category step writes only (text, main company) pairs, and the pair model needs a company. This **supersedes D39 (iv)** (a sector summary gets a sentiment from `gamug/FinBERT-financial-news`) and the clause of the old FR-020 that said so (text in the archive file above). A sector snapshot is title, text, sector and date. **It is not counted in the period summary** (owner, 2026-11-14); it stays as a row. |
 | Complete rows only | A company snapshot is written only when its sentiment and category both exist. Otherwise the item waits for the next daily run; `--status` lists the waiting items with the reason. A sector snapshot needs the sector (`body_sector`, `status = assigned`) and the text. |
 | When | Snapshots daily, incremental, after the 15:00 batch of `portfolio-data-mining`. The period summary only on a period-end day, after that day's snapshots. |
@@ -30,12 +30,11 @@ date at 15:00 wall time in that zone, converted to UTC (20:00 in winter, 19:00 i
 hours across a clock change. `fetched_at` is UTC (`...Z`). An invalid zone name stops the run. 2022-01-03 is a Monday and every cut falls on one.
 News crawled between 15:00 and the close (16:00) goes to the next window.
 
-## The mentions floor
+## The mentions floor (kept for when `companies_mentioned` returns; T-198)
 
 In step 3 a ticker is main exactly when its relevance is at or over the run's `--threshold` (a required argument of `--step companies`, part of its revision, not a
 config value). Every non-main row is therefore **under** that threshold, so the floor of mentions is a **lower, separate value**: `mentions_floor` in
-`config/snapshot_step.json`. **Its value is not set by this PR**: the store of this repository is empty, the data is the owner's. The snapshot step **refuses to run while it is
-unset**. To choose it, run read-only on the real RESULTS store (never write to it) and give the distribution of the non-main scores at the companies revision:
+`config/snapshot_step.json`. **Its value is not set** and nothing reads it yet: the store of this repository is empty, the data is the owner's. When the field returns, the snapshot step will **refuse to run while it is unset**. To choose it, run read-only on the real RESULTS store (never write to it) and give the distribution of the non-main scores at the companies revision:
 
 ```
 SELECT COUNT(*), MIN(relevance_score), MAX(relevance_score) FROM news_company WHERE model_revision = 'companies-...' AND is_main = 0;
@@ -54,7 +53,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 | `pub_date` | publication date as stored (from the earlier D28); not used for the window |
 | `title`, `text`, `text_source` | as above |
 | `ticker`, `sector` | the main company, or `''` and the 2-digit GICS sector of `body_sector` |
-| `companies_mentioned` | JSON list of tickers |
+| `companies_mentioned` | JSON list of tickers; empty for now |
 | `category`, `group_label` | from `news_category`; `''` for a sector text |
 | `sentiment`, `sentiment_score` | from `news_sentiment`; `''` and NULL for a sector text |
 | `body_hash` | one count per unique body downstream (from the earlier D28) |
@@ -74,7 +73,7 @@ snapshot's `fetched_at` is at or before the period's `period_start`.
 
 `sector` (reference, the one table of sectors): `code` (2 digits, PK), `name`, `kind` (`gics` or `extra`), `descriptions` (JSON, the texts the sector step embeds). It is **seeded**
 (`INSERT OR IGNORE`) from `sector_stage.SECTOR_CODES` and `SECTOR_DESCRIPTIONS`, which stay the source the sector step reads (a test pins the table to them); an `extra` sector
-(one GICS does not have, such as cryptocurrency) is a row the owner adds (T-199). Making the sector step read this table is another revision of that step and is not part of this PR.
+(one GICS does not have, such as cryptocurrency) is a row the owner adds, with a code from 90 up so it never clashes with the GICS codes (10 to 60). **None now** (owner, 2026-11-14): the 507 tickers of `gold/universe.csv` all have a GICS sector, and the only crypto names (COIN, HOOD, XYZ) sit in Financials. Making the sector step read this table is another revision of that step and is not part of this PR.
 `company_sector`: `ticker` (PK), `sector_code`: an override of the universe's GICS sector; empty until the owner gives the extra sectors and their tickers.
 
 ## Which period counted what
@@ -86,7 +85,7 @@ rows say which period counted which snapshot, so the counts can be audited and a
 ## The revisions
 
 The snapshot's revision is a hash of the five step revisions it reads (summary, companies, sector, category, sentiment), of the **cut revision** (`units5-...`: the text and the
-title of a sub-news depend on it), of the mentions floor, and of the code that builds the row; a run names each and is refused when one has no rows. The period summary's
+title of a sub-news depend on it), and of the code that builds the row (and, once the field returns, the mentions floor); a run names each and is refused when one has no rows. The period summary's
 revision is a hash of the snapshot revision, the counting code and the content of `sector` and `company_sector`. Both steps are idempotent and resumable; state is in
 `pipeline_step_state`; `--status` follows the other steps.
 
@@ -103,7 +102,7 @@ uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 
 
 ## Not decided here
 
-* The value of `mentions_floor` (T-198).
+* `companies_mentioned` and its floor (T-198): out of scope for now.
 * Which revisions of the five steps the first real run pins: it needs the real runs of sentiment and category on the store (T-193, T-192).
 * Whether a company text with no sentiment because of a skip is retried by hand or left (the list in `--status` is what the owner reads).
-* The extra sectors (not in GICS, such as cryptocurrency) and their tickers: the owner gives them later (T-199); until then only the 11 GICS sectors exist.
+* Extra sectors (T-199): none for now; only the 11 GICS sectors exist.
