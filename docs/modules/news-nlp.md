@@ -403,7 +403,7 @@ the validation score of a run is the mean of those nine figures; accuracy is a d
   only tracked files, `--order-of` repeats the published key order) and `stack` (the logistic regression on the
   out-of-fold scores -> `config/sentiment_stack.json`; `apply_stack` is the formula the model card shows).
 - `scripts/publish_final_models_2026_11_10.py` (T-169) — cards and the private upload of both models (`--dry-run`
-  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. Nothing is pinned. Details and limits:
+  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. The sentiment and relevance repositories are not pinned (the scope model is: `config/scope_model.json`). Details and limits:
   `docs/sentiment_training.md`, "Published".
 - Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
   `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.

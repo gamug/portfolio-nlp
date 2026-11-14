@@ -1,5 +1,5 @@
 {
-  "what": "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); sentiment and relevance: private, not pinned (config/pipeline_models.json)",
+  "what": "Hub repositories of the final models (T-169, T-147b). scope: public, pinned (config/scope_model.json); sentiment and relevance: private, not pinned (config/pipeline_models.json); attribution: private, pinned for the cut (config/attribution_model.json; --step cut --fetch needs HF_TOKEN; T-194 tests the Hub copy)",
   "sentiment": {
     "repo": "gamug/FinBERT-company-sentiment",
     "revision": "9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e",
@@ -23,5 +23,13 @@
       "stage_b": "88b7d88c51c30f6bfde4db13359be65d28711ef7c4fb8c216c716d2216820a83"
     },
     "step_revision": "scope-nli-8ff21e50796b"
+  },
+  "attribution": {
+    "repo": "gamug/FinBERT-news-attribution",
+    "revision": "436ad7006efa1c112bfb93cd90de70ac73787bac",
+    "private": true,
+    "card_sha256": "4455c434ae6783ddfcac9f9e9b839f35cb4d68bc3fed6ab38df8e6795f1e0eb6",
+    "weights_sha256": "356fda5bdb5c93cb863c3b826cbbbc86dd070074d12208eb15588795988d1e26",
+    "identity": "8399ccf003c60143"
   }
 }

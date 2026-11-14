@@ -51,6 +51,7 @@ TOPICS: dict[str, frozenset[str]] = {
     "wi18": frozenset(
         {
             "test_attribution_model.py",
+            "test_attribution_publish.py",
             "test_attribution_units.py",
             "test_build_sentiment_train.py",
             "test_company_names.py",

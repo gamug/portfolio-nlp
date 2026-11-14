@@ -1,0 +1,222 @@
+{
+  "base": {
+    "model": "gamug/FinBERT-financial-news",
+    "revision": "93863fcb7252874e7c0339081b34f691f9e17ff6"
+  },
+  "args": {
+    "out": "data/models/attribution_2026_11_08",
+    "epochs": "2",
+    "max_pairs": "100000",
+    "batch_size": "32",
+    "lr": "2e-05",
+    "seed": "20261108",
+    "limit_bodies": "None"
+  },
+  "train": {
+    "bodies": 2564,
+    "lead paragraphs": 19724,
+    "hash mismatch": 0
+  },
+  "pairs_used": 74512,
+  "val": {
+    "bodies": 270,
+    "lead paragraphs": 1958,
+    "hash mismatch": 0
+  },
+  "report": {
+    "all model": {
+      "pairs": 3822.0,
+      "ranking": 0.9010989010989011,
+      "threshold": 0.8714024071166928
+    },
+    "all baseline": {
+      "pairs": 3822.0,
+      "ranking": 0.5902668759811617,
+      "threshold": 0.5902668759811617
+    },
+    "2022+ model": {
+      "pairs": 1010.0,
+      "ranking": 0.901980198019802,
+      "threshold": 0.8633663366336634
+    },
+    "2022+ baseline": {
+      "pairs": 1010.0,
+      "ranking": 0.6094059405940594,
+      "threshold": 0.6094059405940594
+    },
+    "before 2022 model": {
+      "pairs": 2812.0,
+      "ranking": 0.9007823613086771,
+      "threshold": 0.8742887624466572
+    },
+    "before 2022 baseline": {
+      "pairs": 2812.0,
+      "ranking": 0.5833926031294452,
+      "threshold": 0.5833926031294452
+    },
+    "first sentences model": {
+      "pairs": 1958.0,
+      "ranking": 0.8580183861082737,
+      "threshold": 0.8260980592441267
+    },
+    "first sentences baseline": {
+      "pairs": 1958.0,
+      "ranking": 0.4647599591419816,
+      "threshold": 0.4647599591419816
+    }
+  },
+  "seconds": 963,
+  "report_at_training": {
+    "val": {
+      "bodies": 270,
+      "lead paragraphs": 1958,
+      "hash mismatch": 0
+    },
+    "report": {
+      "all model": {
+        "pairs": 3822.0,
+        "ranking": 0.9010989010989011,
+        "threshold": 0.8714024071166928
+      },
+      "all baseline": {
+        "pairs": 3822.0,
+        "ranking": 0.5902668759811617,
+        "threshold": 0.5902668759811617
+      },
+      "2022+ model": {
+        "pairs": 1010.0,
+        "ranking": 0.901980198019802,
+        "threshold": 0.8633663366336634
+      },
+      "2022+ baseline": {
+        "pairs": 1010.0,
+        "ranking": 0.6094059405940594,
+        "threshold": 0.6094059405940594
+      },
+      "before 2022 model": {
+        "pairs": 2812.0,
+        "ranking": 0.9007823613086771,
+        "threshold": 0.8742887624466572
+      },
+      "before 2022 baseline": {
+        "pairs": 2812.0,
+        "ranking": 0.5833926031294452,
+        "threshold": 0.5833926031294452
+      },
+      "first sentences model": {
+        "pairs": 1958.0,
+        "ranking": 0.8580183861082737,
+        "threshold": 0.8260980592441267
+      },
+      "first sentences baseline": {
+        "pairs": 1958.0,
+        "ranking": 0.4647599591419816,
+        "threshold": 0.4647599591419816
+      }
+    }
+  },
+  "eval": {
+    "model_files": "8399ccf003c60143",
+    "val": {
+      "bodies": 270,
+      "lead paragraphs": 1958,
+      "hash mismatch": 0,
+      "near-duplicate": 0
+    },
+    "report": {
+      "all model": {
+        "pairs": 3822.0,
+        "ranking": 0.9010989010989011,
+        "threshold": 0.8714024071166928
+      },
+      "all baseline": {
+        "pairs": 3822.0,
+        "ranking": 0.6371009942438514,
+        "threshold": 0.6371009942438514
+      },
+      "all exact name": {
+        "pairs": 3822.0,
+        "ranking": 0.5902668759811617,
+        "threshold": 0.5902668759811617
+      },
+      "2022+ model": {
+        "pairs": 1010.0,
+        "ranking": 0.901980198019802,
+        "threshold": 0.8633663366336634
+      },
+      "2022+ baseline": {
+        "pairs": 1010.0,
+        "ranking": 0.6782178217821783,
+        "threshold": 0.6782178217821783
+      },
+      "2022+ exact name": {
+        "pairs": 1010.0,
+        "ranking": 0.6094059405940594,
+        "threshold": 0.6094059405940594
+      },
+      "before 2022 model": {
+        "pairs": 2812.0,
+        "ranking": 0.9007823613086771,
+        "threshold": 0.8742887624466572
+      },
+      "before 2022 baseline": {
+        "pairs": 2812.0,
+        "ranking": 0.6223328591749644,
+        "threshold": 0.6223328591749644
+      },
+      "before 2022 exact name": {
+        "pairs": 2812.0,
+        "ranking": 0.5833926031294452,
+        "threshold": 0.5833926031294452
+      },
+      "first sentences model": {
+        "pairs": 1958.0,
+        "ranking": 0.8580183861082737,
+        "threshold": 0.8260980592441267
+      },
+      "first sentences baseline": {
+        "pairs": 1958.0,
+        "ranking": 0.41853932584269665,
+        "threshold": 0.41853932584269665
+      },
+      "first sentences exact name": {
+        "pairs": 1958.0,
+        "ranking": 0.4647599591419816,
+        "threshold": 0.4647599591419816
+      },
+      "unnamed sentences model": {
+        "pairs": 1153.0,
+        "ranking": 0.9444926279271466,
+        "threshold": 0.9206418039895924
+      },
+      "unnamed sentences baseline": {
+        "pairs": 1153.0,
+        "ranking": 0.8664353859496965,
+        "threshold": 0.8664353859496965
+      },
+      "unnamed sentences exact name": {
+        "pairs": 1153.0,
+        "ranking": 0.7246313963573288,
+        "threshold": 0.7246313963573288
+      }
+    },
+    "decision": {
+      "sentences": 1153.0,
+      "model right": 0.8638334778837814,
+      "model wrong": 0.11795316565481354,
+      "model nobody": 0.01821335646140503,
+      "baseline right": 0.7077189939288812,
+      "baseline wrong": 0.06418039895923677,
+      "baseline nobody": 0.22810060711188204
+    },
+    "provenance": {
+      "code": "e8f609b20ae5",
+      "training_set": "0de94cd7416280fd",
+      "label_check": {
+        "file": "921fa6754eb0284d",
+        "continuation": 0.38,
+        "train_on_lead_only": true
+      }
+    }
+  }
+}
