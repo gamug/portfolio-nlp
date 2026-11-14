@@ -647,7 +647,16 @@ def test_a_sentiment_outside_the_three_is_refused_not_counted_in_no_split(
 
 def test_the_revision_hashes_the_counting_rule_not_the_bookkeeping() -> None:
     code = inspect.getsource(period._code)
-    for name in ("_tally", "_counts_of", "_load_rows", "_write", "_gaps"):
+    for name in (
+        "_tally",
+        "_counts_of",
+        "_load_rows",
+        "_write",
+        "_gaps",
+        "snap.articles_of",
+        "snap.crawl_date_ok",
+        "snap._body_hashes",
+    ):
         assert name in code
     assert "(run," not in code
 
@@ -661,3 +670,19 @@ def test_the_run_shows_a_progress_bar_with_the_time_left(
     assert (
         "period:" in err and "4/4" in err and "period/s" in err and "<" in err
     )  # count, rate, time left
+
+
+def test_the_number_of_periods_to_do_is_printed_before_the_first_is_written(
+    conn: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(period, "_now", lambda: AFTER_P3)
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    _load_cli().main_period(_args(catch_up=True), conn)
+    err = capsys.readouterr().err
+    assert "4 periods to do" in err
+    assert err.index("4 periods to do") < err.index(
+        "period:"
+    )  # the plan comes before the first bar update
+    assert "period revision period-" in err

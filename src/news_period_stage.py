@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -135,7 +136,16 @@ def sector_names(conn: NewsNlpDatabase) -> dict[str, str]:
 
 def _code() -> str:
     """The code that counts, normalised: a comment, a docstring or the formatting is not a new revision."""
-    functions = (_tally, _counts_of, _load_rows, _write, _gaps)  # not `run` (the bookkeeping)
+    functions = (  # not `run` (the bookkeeping)
+        _tally,
+        _counts_of,
+        _load_rows,
+        _write,
+        _gaps,
+        snap.articles_of,  # `not_counted` reads the crawl dates through it
+        snap.crawl_date_ok,
+        snap._body_hashes,
+    )
     return hashlib.sha256(
         "\n".join(normalized_code(inspect.getsource(f)) for f in functions).encode()
     ).hexdigest()[:12]
@@ -321,6 +331,7 @@ def run(
     tz: ZoneInfo,
     now: datetime | None = None,
     index: int | None = None,
+    on_plan: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Write period ``index`` (a period already written is skipped), or, with ``index`` None, every missing period up to the last cut that has passed, in
     order, each at its own cut. A period is refused unless every earlier one of the same revision is written and its own cut has passed."""
@@ -349,6 +360,8 @@ def run(
         "to_do": len(todo),
         "periods": [],
     }
+    if on_plan is not None:
+        on_plan(result)  # the number of periods to do, before any is written
     if not todo:
         return result
     rows = _load_rows(conn, snapshot_revision)

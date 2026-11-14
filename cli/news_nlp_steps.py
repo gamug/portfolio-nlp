@@ -1384,6 +1384,15 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     )
 
 
+def _print_plan(plan: dict[str, Any], tz: object) -> None:
+    """What the period step is about to do, printed before it writes (the bar then shows the progress and the time left)."""
+    print(
+        f"period revision {plan['period_revision']}; {plan['to_do']} periods to do in {tz}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def main_period(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     """Step 9 (T-196): the counts of the snapshots per 21-day period, per company and per sector. No model; the state is derived from the tables."""
     from datetime import date  # noqa: PLC0415
@@ -1411,13 +1420,11 @@ def main_period(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             print(period.render(conn, end, period.revision(revision, period.sector_map(conn))))
             return
         wanted = period.index_of(date.fromisoformat(args.period_end)) if args.period_end else None
-        result = period.run(conn, revision, tz=tz, index=wanted)
+        result = period.run(
+            conn, revision, tz=tz, index=wanted, on_plan=lambda plan: _print_plan(plan, tz)
+        )
     except (ValueError, period.PeriodRefused) as exc:
         sys.exit(f"refused: {exc}")
-    print(
-        f"period revision {result['period_revision']}; {result['to_do']} periods to do in {tz}",
-        file=sys.stderr,
-    )
     print(json.dumps(result, indent=2))
 
 
