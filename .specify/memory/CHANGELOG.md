@@ -2247,7 +2247,7 @@ T-143's text (D11–D24) now lives in `PLAN.md` Work item 18, "Decision record";
 
 ### Work item 18 — development of the steps closed (owner, 2026-11-14)
 
-The development tasks of the steps that are built (scope, cut, summary, companies, sector, category) closed by the owner on 2026-11-14; what is left of them is tested by T-170, T-173 and T-190 to T-193, or run (T-185). Moved verbatim from `TASKS.md`; the state of the store is the snapshot of 2026-11-13 23:46 UTC. The model tasks are not part of it.
+The development tasks of the steps that are built (scope, cut, summary, companies, sector, category) closed by the owner on 2026-11-14; what is left of them is tested by T-170, T-173 and T-190 to T-194, or run (T-185). Moved verbatim from `TASKS.md`; the state of the store is the snapshot of 2026-11-13 23:46 UTC. The model tasks are not part of it.
 
 - [x] **T-147** *(P3, Build 1, D40; owner 2026-11-10)* **Scope classifier from the title and the first lines of the body.** **Owner's choice (2026-11-10): (b) the body's first lines are added to the title.** First measurement: **a bag of words does not gain from them** (below), because it cannot count the companies a body names, which is what tells `single` from `multi`. Second measurement, title + **matcher features**: agreement level with the rules, `single` recall worse than theirs, `sector` undecided (below); **selected 2026-11-11** (below); weights not pinned (T-147b). → D40, D20, D33.
       - **Decision (owner):** a local classifier reads the **title** of a unique body and gives `single`, `multi`, `sector` or `out_of_scope` (`market_economy`, `investing_general`, `unrelated` merged). New pinned checkpoint in `config/pipeline_models.json` (AI #1, #12); tables to the owner (AI #10).
