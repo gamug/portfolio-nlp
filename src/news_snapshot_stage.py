@@ -159,9 +159,10 @@ def check_inputs(
             f"{no_text} items with a main company at {companies_revision} have no text at the summary revision {summary_revision} "
             "(did the companies step read another summary revision?)"
         )
+    # the cast is on the item side so the primary key of sub_news is used (CAST(s.id AS TEXT) scanned sub_news once per item: quadratic)
     stray_cut = conn.execute(
         "SELECT COUNT(*) FROM (SELECT DISTINCT item_id FROM news_company WHERE model_revision = ? AND is_main = 1 AND item_kind = ?) c "
-        "WHERE NOT EXISTS (SELECT 1 FROM sub_news s WHERE CAST(s.id AS TEXT) = c.item_id AND s.extractor_revision = ?)",
+        "WHERE NOT EXISTS (SELECT 1 FROM sub_news s WHERE s.id = CAST(c.item_id AS INTEGER) AND s.extractor_revision = ?)",
         (companies_revision, steps.ITEM_SUB_NEWS, cut_revision),
     ).fetchone()[0]
     if stray_cut:
