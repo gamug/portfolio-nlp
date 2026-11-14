@@ -13,7 +13,7 @@ It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read
 
 `init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; `news_sentiment` is created and not written yet (step 6 is not built); step 7, `--step category`, writes `news_category` with the pinned zero-shot model (provisional, `docs/category_step.md`).
+`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; step 6, `--step sentiment`, writes `news_sentiment` with the pair model stacked with step 3's relevance score (`docs/sentiment_step.md`); step 7, `--step category`, writes `news_category` with the pinned zero-shot model (provisional, `docs/category_step.md`).
 
 ### Step 1: scope (T-163)
 
@@ -66,7 +66,7 @@ The rule, the figures of the owner's review (35 of 39 assigned right under the c
 
 ### Steps 4 to 7 (pending)
 
-Not built (`TASKS.md` T-168, T-172; the open part of T-167 is the full run and the sub-industry, above; Build 2 after Build 1, D40): **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`): built **provisionally** with the zero-shot model (`docs/category_step.md`); the model trained by the owner (T-174) replaces it by changing the pin. Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+Built since: **6**, sentiment per (text, main company) with the pair model (local folder, `config/sentiment_step.json`; published privately as `gamug/FinBERT-company-sentiment`) stacked with step 3's relevance score (`docs/sentiment_step.md`; the pin of `config/pipeline_models.json` waits for one 180-text gold score, T-148c4). Not built (`TASKS.md` T-168, T-172; the open part of T-167 is the full run and the sub-industry, above; Build 2 after Build 1, D40): the sentiment of a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`): built **provisionally** with the zero-shot model (`docs/category_step.md`); the model trained by the owner (T-174) replaces it by changing the pin. Step 5 of D40, the company snapshots, is undefined (D28, T-152).
 
 ## Models both pipelines use
 

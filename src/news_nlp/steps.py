@@ -23,6 +23,7 @@ STEP_SUMMARY = "summary"
 STEP_COMPANIES = "companies"
 STEP_SECTOR = "sector"
 STEP_CATEGORY = "category"
+STEP_SENTIMENT = "sentiment"
 #: Key of ``body_sector.scores`` that holds, only when it is above 0, the number of chunks of the body that filled the embedder's window and were cut there
 #: (constitution, Pipeline models 3). It is written after the decision, so it never takes part in the ranking of the classes; absent means 0.
 TRUNCATED_KEY = "_truncated_chunks"
@@ -480,6 +481,120 @@ def pending_sector_bodies(
     return _pending_scoped_bodies(conn, classifier_revision, "sector", STEP_SECTOR, revision, limit)
 
 
+class SentimentScore(NamedTuple):
+    """What the sentiment step found for one (text, main company) pair: the label, its probability and the three probabilities (the stack's)."""
+
+    label: str
+    score: float
+    positive: float
+    negative: float
+    neutral: float
+
+
+class SentimentItem(NamedTuple):
+    """One text the sentiment step reads: a body (its hash) or a sub-news (its id), the text step 2 left for it, and its main tickers with the
+    relevance score step 3 stored for each pair."""
+
+    kind: str
+    item_id: str
+    text: str
+    tickers: tuple[tuple[str, float], ...]
+
+
+def pending_sentiment_items(
+    conn: NewsNlpDatabase,
+    summary_revision: str,
+    companies_revision: str,
+    revision: str,
+    *,
+    limit: int | None = None,
+) -> Iterator[SentimentItem]:
+    """The texts of step 2 (``news_summary`` at ``summary_revision``) that have a main company at ``companies_revision`` and no finished sentiment
+    at ``revision``, with their main tickers and the relevance score of each pair; at most ``limit`` in all. An item on the review list of step 3 has
+    no main company and is not read (D39 (ii)); a failed item is retried. The revisions are always named, never "the latest"."""
+    done = {
+        kind: finished(conn, STEP_SENTIMENT, revision, kind, COMPANY_FINISHED)
+        for kind in (ITEM_BODY, ITEM_SUB_NEWS)
+    }
+    mains: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    for kind, item_id, ticker, relevance in conn.execute(
+        "SELECT item_kind, item_id, ticker, relevance_score FROM news_company WHERE model_revision = ? AND is_main = 1 "
+        "ORDER BY item_kind, item_id, ticker",
+        (companies_revision,),
+    ):
+        mains.setdefault((str(kind), str(item_id)), []).append((str(ticker), float(relevance)))
+    taken = 0
+    for kind, item_id, text in conn.execute(
+        "SELECT item_kind, item_id, summary_text FROM news_summary WHERE model_revision = ? ORDER BY item_kind, rowid",
+        (summary_revision,),
+    ):
+        tickers = mains.get((str(kind), str(item_id)))
+        if not tickers or str(item_id) in done.get(str(kind), set()):
+            continue
+        yield SentimentItem(str(kind), str(item_id), str(text), tuple(tickers))
+        taken += 1
+        if limit is not None and taken >= limit:
+            return
+
+
+def record_sentiment(
+    conn: NewsNlpDatabase,
+    item_kind: str,
+    item_id: str,
+    revision: str,
+    found: dict[str, SentimentScore],
+    model_name: str,
+) -> str:
+    """Store the sentiment of each main company of one text (one row per ticker) and the state of the item, in one transaction; a repeat changes
+    nothing. Returns the state, always ``done``: the model gives every pair a label (what to do with a low ``score`` is the owner's decision)."""
+    now = _now()
+    for ticker, result in found.items():
+        conn.execute(
+            "INSERT OR IGNORE INTO news_sentiment "
+            "(item_kind, item_id, ticker, model_revision, label, score, positive, negative, neutral, model_name, sentiment_checked, processed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            (
+                item_kind,
+                item_id,
+                ticker,
+                revision,
+                result.label,
+                result.score,
+                result.positive,
+                result.negative,
+                result.neutral,
+                model_name,
+                now,
+            ),
+        )
+    conn.execute(
+        "INSERT INTO pipeline_step_state "
+        "(item_kind, item_id, step, model_revision, status, attempts, error, started_at, finished_at) "
+        "VALUES (?, ?, ?, ?, 'done', 1, NULL, ?, ?) "
+        "ON CONFLICT (item_kind, item_id, step, model_revision) DO UPDATE SET "
+        "status = 'done', attempts = attempts + 1, error = NULL, finished_at = excluded.finished_at",
+        (item_kind, item_id, STEP_SENTIMENT, revision, now, now),
+    )
+    conn.commit()
+    return "done"
+
+
+def _sentiment_counts(conn: NewsNlpDatabase, revision: str | None) -> dict[str, object]:
+    """The rows of ``news_sentiment`` (of one revision, or of all), by label."""
+    w = " WHERE model_revision = ?" if revision is not None else ""
+    a = [revision] if revision is not None else []
+    rows, items = conn.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT item_kind || ':' || item_id) "  # noqa: S608 -- fixed clauses
+        f"FROM news_sentiment{w}",
+        a,
+    ).fetchone()
+    by_label = f"SELECT label, COUNT(*) FROM news_sentiment{w} GROUP BY label"  # noqa: S608 -- fixed clauses
+    return {
+        "news_sentiment": {"rows": int(rows), "items": int(items)},
+        "by_label": {str(k): int(n) for k, n in conn.execute(by_label, a)},
+    }
+
+
 def _decoded_scores(stored: object) -> dict[str, Any]:
     """The decoded ``body_sector.scores``: the column's JSON text or the object already decoded. A database row is not accepted: the column is."""
     if isinstance(stored, str):
@@ -770,4 +885,6 @@ def status(  # noqa: C901 -- one branch for each step
         }
     if step == STEP_CATEGORY:
         out.update(_category_counts(conn, revision))
+    if step == STEP_SENTIMENT:
+        out.update(_sentiment_counts(conn, revision))
     return out
