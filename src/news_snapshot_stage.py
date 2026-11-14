@@ -15,6 +15,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+from tqdm import tqdm
+
 from news_nlp import steps
 from news_nlp.db import NewsNlpDatabase
 from news_summary_stage import normalized_code
@@ -442,7 +444,7 @@ def run(
     complete = _with_articles(ready, info, waiting)
     chosen = complete if limit is None else complete[:limit]
     now = steps._now()
-    for pair, article in chosen:
+    for pair, article in tqdm(chosen, desc="snapshot", unit="pair"):  # progress and time left
         conn.execute(
             _INSERT,
             (
@@ -469,7 +471,9 @@ def run(
             if info.get((steps.ITEM_BODY, h)) and info[(steps.ITEM_BODY, h)].fetched_at
         ]
         sector_chosen = sector_ready if limit is None else sector_ready[:limit]
-        for h, sec, text, source, article in sector_chosen:
+        for h, sec, text, source, article in tqdm(
+            sector_chosen, desc="snapshot sector", unit="text"
+        ):
             conn.execute(
                 _INSERT,
                 (
