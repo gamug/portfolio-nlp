@@ -169,7 +169,7 @@ def test_the_label_is_the_largest_stacked_probability_and_a_low_relevance_pulls_
 
 
 def test_the_finder_scores_each_triple_and_a_text_with_no_chunk_has_no_score() -> None:
-    finder = stage.SentimentFinder(SUM_REV, COMP_REV, StubScorer(), COEFFICIENTS)
+    finder = stage.SentimentFinder(SUM_REV, COMP_REV, "n", StubScorer(), COEFFICIENTS)
     out = finder.classify(
         [("good news", "Apple Inc.", 0.95), ("bad news", "Apple Inc.", 0.95), ("empty", "A", 0.9)]
     )
@@ -185,12 +185,12 @@ def test_the_finder_scores_each_triple_and_a_text_with_no_chunk_has_no_score() -
 
 
 def test_the_revision_follows_the_model_the_stack_and_the_inputs() -> None:
-    base = stage.scoring_revision("m1", "s1", SUM_REV, COMP_REV)
-    assert base == stage.scoring_revision("m1", "s1", SUM_REV, COMP_REV)
-    assert base != stage.scoring_revision("m2", "s1", SUM_REV, COMP_REV)
-    assert base != stage.scoring_revision("m1", "s2", SUM_REV, COMP_REV)
-    assert base != stage.scoring_revision("m1", "s1", "summary-other", COMP_REV)
-    assert base != stage.scoring_revision("m1", "s1", SUM_REV, "companies-other")
+    base = stage.scoring_revision("m1", "s1", SUM_REV, COMP_REV, "n")
+    assert base == stage.scoring_revision("m1", "s1", SUM_REV, COMP_REV, "n")
+    assert base != stage.scoring_revision("m2", "s1", SUM_REV, COMP_REV, "n")
+    assert base != stage.scoring_revision("m1", "s2", SUM_REV, COMP_REV, "n")
+    assert base != stage.scoring_revision("m1", "s1", "summary-other", COMP_REV, "n")
+    assert base != stage.scoring_revision("m1", "s1", SUM_REV, "companies-other", "n")
 
 
 def _with_source(monkeypatch: pytest.MonkeyPatch, function: Any, source: str) -> None:
@@ -203,7 +203,7 @@ def test_a_comment_a_docstring_or_the_formatting_of_the_scoring_code_is_not_a_ne
     function_name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     function = getattr(stage, function_name)
-    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV)
+    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n")
     tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
     node = tree.body[0]
     assert isinstance(node, ast.FunctionDef)
@@ -213,7 +213,7 @@ def test_a_comment_a_docstring_or_the_formatting_of_the_scoring_code_is_not_a_ne
     ]
     reformatted = "# a comment before\n\n\n" + ast.unparse(tree) + "\n\n# and one after\n"
     _with_source(monkeypatch, function, reformatted)
-    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV) == base
+    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n") == base
 
 
 @pytest.mark.parametrize(
@@ -228,29 +228,29 @@ def test_a_statement_of_the_scoring_code_is_a_new_revision(
     function_name: str, old: str, new: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     function = getattr(stage, function_name)
-    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV)
+    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n")
     source = inspect.getsource(function)
     assert old in source
     _with_source(monkeypatch, function, source.replace(old, new, 1))
-    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV) != base
+    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n") != base
 
 
 def test_the_bookkeeping_of_the_scorer_is_not_part_of_the_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV)
+    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n")
     source = inspect.getsource(stage.SentimentScorer.probabilities)
     _with_source(
         monkeypatch,
         stage.SentimentScorer.probabilities,
         source.replace("out.append(None)", "out.append(None)  # edited"),
     )
-    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV) == base
+    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n") == base
 
 
 def test_the_status_revision_comes_from_the_pin_and_loads_nothing() -> None:
-    assert stage.code_revision(SUM_REV, COMP_REV) == stage.scoring_revision(
-        stage.pin()["identity"], stage.stack_identity(), SUM_REV, COMP_REV
+    assert stage.code_revision(SUM_REV, COMP_REV, "n") == stage.scoring_revision(
+        stage.pin()["identity"], stage.stack_identity(), SUM_REV, COMP_REV, "n"
     )
     models = stage.models_of_the_step()
     assert "gamug/FinBERT-company-sentiment@9a7b1eb3" in models["published_as"]
@@ -493,13 +493,19 @@ def test_the_recipes_of_a_recut_and_of_a_rerun_name_the_sentiment_rows() -> None
 
 
 def test_the_status_prints_the_model_the_stack_and_the_revision_without_loading_anything(
-    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cli = _load_cli()
+    _seed(pair)
+    _universe(monkeypatch, NAMES)
     args = SimpleNamespace(status=True, summary_revision=SUM_REV, companies_revision=COMP_REV)
     cli.main_sentiment(args, pair)
     report = json.loads(capsys.readouterr().out)
-    assert report["code_revision"] == stage.code_revision(SUM_REV, COMP_REV)
+    assert report["code_revision"] == stage.code_revision(
+        SUM_REV, COMP_REV, stage.names_identity(pair, COMP_REV, NAMES)
+    )
     assert report["models"]["published_as"].startswith("gamug/FinBERT-company-sentiment@")
     assert report["step"] == "sentiment"
 
@@ -524,6 +530,27 @@ def test_the_run_refuses_a_folder_that_is_not_the_pinned_one_and_a_missing_folde
     with pytest.raises(SystemExit, match="not the pinned"):
         cli.main_sentiment(_run_args(), pair)
     assert pair.execute("SELECT COUNT(*) FROM news_sentiment").fetchone()[0] == 0
+
+
+def _universe(monkeypatch: pytest.MonkeyPatch, names: dict[str, str]) -> None:
+    import cut_stage  # noqa: PLC0415 -- the universe a run reads
+
+    monkeypatch.setattr(
+        cut_stage,
+        "companies_of",
+        lambda conn: [SimpleNamespace(ticker=t, name=n) for t, n in names.items()],
+    )
+
+
+def test_the_name_of_a_scored_company_is_part_of_the_revision_and_an_unscored_one_is_not(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)  # main: AAPL and MSFT at COMP_REV; the other company of the universe is not scored
+    base = stage.names_identity(pair, COMP_REV, {**NAMES, "TSLA": "Tesla"})
+    assert base == stage.names_identity(pair, COMP_REV, {**NAMES, "TSLA": "Tesla Inc."})
+    assert base != stage.names_identity(pair, COMP_REV, {**NAMES, "AAPL": "Apple"})
+    assert base != stage.names_identity(pair, COMP_REV, {"AAPL": "Apple Inc."})  # a name lost
+    assert base != stage.names_identity(pair, "companies-other", NAMES)
 
 
 def test_the_run_on_the_pinned_folder_scores_and_prints_the_counts(
@@ -611,7 +638,7 @@ def test_the_cut_of_the_text_is_part_of_the_revision(
     module: Any, name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     function = getattr(module, name)
-    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV)
+    base = stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n")
     source = inspect.getsource(function)
     _with_source(monkeypatch, function, source.rstrip() + "\n    _marker = 1\n")
-    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV) != base
+    assert stage.scoring_revision("m", "s", SUM_REV, COMP_REV, "n") != base

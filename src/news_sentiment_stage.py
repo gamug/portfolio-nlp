@@ -139,11 +139,30 @@ def _scoring_code() -> str:
     ).hexdigest()[:12]
 
 
+def names_identity(conn: Any, companies_revision: str, names: dict[str, str]) -> str:
+    """A hash of the (ticker, company name) of the main companies at ``companies_revision``: the names the model reads in this run. The universe at
+    large is not hashed, so an edit of a company nobody is scored for does not start the step again; a changed name of a scored one does."""
+    tickers = sorted(
+        str(t)
+        for (t,) in conn.execute(
+            "SELECT DISTINCT ticker FROM news_company WHERE model_revision = ? AND is_main = 1",
+            (companies_revision,),
+        )
+    )
+    return hashlib.sha256(json.dumps([[t, names.get(t)] for t in tickers]).encode()).hexdigest()[
+        :12
+    ]
+
+
 def scoring_revision(
-    model_identity: str, stack: str, summary_revision: str, companies_revision: str
+    model_identity: str,
+    stack: str,
+    summary_revision: str,
+    companies_revision: str,
+    names: str,
 ) -> str:
     """What the scores of a run depend on, as a revision: the pair model's identity (a hash of its files), the stack file, the revisions of the texts
-    (step 2) and of the main companies and their relevance scores (step 3) it reads, the window and the code that scores. **Nothing else**: an edit of the
+    (step 2) and of the main companies and their relevance scores (step 3) it reads, the names of those companies (``names_identity``), the window and the code that scores. **Nothing else**: an edit of the
     command, of the storage, of the logging or of a document is not a new revision, so a run stopped and resumed after one resumes. The inputs are part of
     it: a step 2 or step 3 run again at a new revision is read as new work."""
     key = json.dumps(
@@ -152,6 +171,7 @@ def scoring_revision(
             "stack": stack,
             "summary_revision": summary_revision,
             "companies_revision": companies_revision,
+            "names": names,
             "max_length": sentiment_pair.MAX_LENGTH,
             "company_chars": sentiment_pair.MAX_COMPANY_CHARS,
             "scoring_code": _scoring_code(),
@@ -239,6 +259,7 @@ class SentimentFinder:
         self,
         summary_revision: str,
         companies_revision: str,
+        names: str,
         scorer: Any | None = None,
         coefficients: dict[str, Any] | None = None,
     ) -> None:
@@ -248,7 +269,7 @@ class SentimentFinder:
         self.model_name: str = f"{published['repo']}@{published['revision']}"
         self.model_identity: str = self.scorer.identity()
         self.revision = scoring_revision(
-            self.model_identity, stack_identity(), summary_revision, companies_revision
+            self.model_identity, stack_identity(), summary_revision, companies_revision, names
         )
 
     def warm_up(self) -> None:
@@ -265,9 +286,9 @@ class SentimentFinder:
         ]
 
 
-def code_revision(summary_revision: str, companies_revision: str) -> str:
+def code_revision(summary_revision: str, companies_revision: str, names: str) -> str:
     """The revision this code would write for those inputs, from the pin and the source (no model is loaded, no weight is read): ``--status`` prints it.
     The identity is the pin's; the run checks that the folder has it."""
     return scoring_revision(
-        pin()["identity"], stack_identity(), summary_revision, companies_revision
+        pin()["identity"], stack_identity(), summary_revision, companies_revision, names
     )

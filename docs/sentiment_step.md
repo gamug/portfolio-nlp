@@ -15,7 +15,7 @@ uv run cli/news_nlp_steps.py --step sentiment --status --summary-revision summar
 `--step summary --status` and `--step companies --status` list the revisions that ran; both are named, never the latest. `--source-db` and
 `--results-db` (or `SOURCE_DATABASE_URL` and `DATABASE_URL`) name the two stores, as for the other steps. `--status` prints the items by state (`done`, `skipped`, `failed`) and the rows by label; a skipped item carries its reason. A rerun adds nothing: an item
 already done or skipped at the revision is not read again, a failed one is retried; a long run can be cut with `--limit` and continued. The
-last form of `--status` prints the revision this code would write for those inputs (no weight is read), to compare with the `revisions` it lists.
+last form of `--status` prints the revision this code would write for those inputs (no weight is read; it needs the universe, so `--source-db`), to compare with the `revisions` it lists.
 To run the step again at one revision, or after a re-cut of the sub-news, the SQL is in `--help` (`RESENTIMENT_SQL`, `RECUT_SQL`).
 
 **Nothing is downloaded.** The pair model is the local, git-ignored folder `models/sentiment_pair_all/final` (419 MB), named in
@@ -57,7 +57,9 @@ revision of the step. The relevance model is not loaded: step 3's score is read 
 
 ## The revision
 
-`sentiment-` + a hash of the pair model's identity, the stack file, the two input revisions, the window, and the code that scores (`stacked`, `score_of`,
+`sentiment-` + a hash of the pair model's identity, the stack file, the two input revisions, the (ticker, name) of the **main companies at the
+companies revision** (the names the model reads; an edit of a company nobody is scored for is not a new revision, a renamed scored one is, and it
+scores the whole run again), the window, and the code that scores (`stacked`, `score_of`,
 `_pair_probabilities` and the cut of the text they call: `chunking.chunk_text`, `sentiment_pair.chunk_budget`, `sentiment_pair.encode_pair`;
 normalised: a comment, a docstring or the formatting is not a new revision). The helpers those call (the sentence splitter and the like) are not
 hashed: a change there needs a new revision made by hand (change the pin or the stack file's note). The storage, the logging and this document are not

@@ -1150,27 +1150,43 @@ def run_sentiment(
     return counts
 
 
+def _sentiment_status(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
+    """``--status`` of the sentiment step: the counts, the revisions that ran, the model, and the revision this code would write for the inputs given
+    (from the pin and the names of the main companies; no weight is read), to compare with "revisions"."""
+    import news_sentiment_stage  # noqa: PLC0415 -- imports torch, loads no model
+    from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
+
+    summary_revision = getattr(args, "summary_revision", None)
+    companies_revision = getattr(args, "companies_revision", None)
+    code_revision = None
+    if summary_revision and companies_revision:
+        try:
+            known = {c.ticker: c.name for c in companies_of(conn)}
+        except Exception as exc:  # a store with no source articles: the revision needs the names
+            sys.exit(
+                f"the universe could not be read, so the revision cannot be computed ({exc}): give --source-db"
+            )
+        code_revision = news_sentiment_stage.code_revision(
+            summary_revision,
+            companies_revision,
+            news_sentiment_stage.names_identity(conn, companies_revision, known),
+        )
+    shown = code_revision or steps.latest_revision(conn, steps.STEP_SENTIMENT)
+    report = steps.status(conn, steps.STEP_SENTIMENT, shown)
+    report["revisions"] = steps.revisions(conn, steps.STEP_SENTIMENT)
+    report["models"] = news_sentiment_stage.models_of_the_step()
+    report["code_revision"] = (
+        code_revision
+        or "give --summary-revision and --companies-revision to see the revision this code would write"
+    )
+    print(json.dumps(report, indent=2))
+
+
 def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     import news_sentiment_stage  # noqa: PLC0415 -- imports torch, loads no model
 
     if args.status:
-        summary_revision = getattr(args, "summary_revision", None)
-        companies_revision = getattr(args, "companies_revision", None)
-        # what this code would write for those inputs, from the pin (no weight is read); compare it with "revisions"
-        code_revision = (
-            news_sentiment_stage.code_revision(summary_revision, companies_revision)
-            if summary_revision and companies_revision
-            else None
-        )
-        shown = code_revision or steps.latest_revision(conn, steps.STEP_SENTIMENT)
-        report = steps.status(conn, steps.STEP_SENTIMENT, shown)
-        report["revisions"] = steps.revisions(conn, steps.STEP_SENTIMENT)
-        report["models"] = news_sentiment_stage.models_of_the_step()
-        report["code_revision"] = (
-            code_revision
-            or "give --summary-revision and --companies-revision to see the revision this code would write"
-        )
-        print(json.dumps(report, indent=2))
+        _sentiment_status(args, conn)
         return
     ran_summaries = ", ".join(steps.revisions(conn, steps.STEP_SUMMARY)) or "none"
     if (
@@ -1206,6 +1222,7 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     from cut_stage import companies_of  # noqa: PLC0415 -- the universe, as the cut reads it
     from news_sentiment_stage import SentimentFinder  # noqa: PLC0415 -- loads torch
 
+    names = {c.ticker: c.name for c in companies_of(conn)}
     folder = news_sentiment_stage.model_dir()
     if not folder.is_dir():
         sys.exit(
@@ -1213,7 +1230,11 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             "(its Hub copy is recorded in config/sentiment_step.json)"
         )
     try:
-        finder = SentimentFinder(args.summary_revision, args.companies_revision)
+        finder = SentimentFinder(
+            args.summary_revision,
+            args.companies_revision,
+            news_sentiment_stage.names_identity(conn, args.companies_revision, names),
+        )
     except ValueError as exc:  # the folder lacks a model file: say so, not a stack
         sys.exit(str(exc))
     pinned = news_sentiment_stage.pin()["identity"]
@@ -1222,7 +1243,6 @@ def main_sentiment(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
             f"refused: {folder} has the identity {finder.model_identity}, not the pinned {pinned} (config/sentiment_step.json). "
             "Restore the pinned folder, or change the pin on purpose: it is another revision of the step"
         )
-    names = {c.ticker: c.name for c in companies_of(conn)}
     print(
         f"sentiment model {finder.model_name} (local {folder.name}, identity {finder.model_identity}) on {finder.scorer.device}, revision {finder.revision}",
         file=sys.stderr,
