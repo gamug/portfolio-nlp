@@ -25,6 +25,7 @@ STEP_SECTOR = "sector"
 STEP_CATEGORY = "category"
 STEP_SENTIMENT = "sentiment"
 STEP_SNAPSHOT = "snapshot"
+STEP_PERIOD = "period"
 #: Key of ``body_sector.scores`` that holds, only when it is above 0, the number of chunks of the body that filled the embedder's window and were cut there
 #: (constitution, Pipeline models 3). It is written after the decision, so it never takes part in the ranking of the classes; absent means 0.
 TRUNCATED_KEY = "_truncated_chunks"
