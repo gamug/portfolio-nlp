@@ -27,7 +27,7 @@ a reference to D28 in an older file means D42 now). These steps are **Build 3**:
 
 `BATCH_TIMEZONE` (`.env`, an IANA name; `.env.example` lists the American options) defaults to `America/New_York`. A period end is a calendar
 date at 15:00 wall time in that zone, converted to UTC (20:00 in winter, 19:00 in summer); a window is always 21 calendar days, which is 503 or 505
-hours across a clock change. `fetched_at` is UTC (`...Z`). An invalid zone name stops the run. 2022-01-03 is a Monday and every cut falls on one.
+hours across a clock change. `fetched_at` is UTC (`...Z`): the crawl stores `2026-08-12T22:19:20.655964+00:00`, which the step converts to UTC whole seconds (a date with no zone waits). An invalid zone name stops the run. 2022-01-03 is a Monday and every cut falls on one.
 News crawled between 15:00 and the close (16:00) goes to the next window.
 
 ## The mentions floor (kept for when `companies_mentioned` returns; T-198)
@@ -101,7 +101,7 @@ company is not of the named cut, and when an item with a main company has no tex
 A revision is a hash, so the inputs it read cannot be read back: **a sentiment or category run made on another summary revision is not detected** (name the revisions that ran together).
 Each run reads the whole corpus **once** (company rows and sector rows together), and loads the summary, category and sentiment rows of the revisions into memory whatever `--limit` is (a known
 limit, as in the sentiment step). `--limit` counts the company pairs and, with `--sector-revision`, the sector texts **each** (so it can write twice that). A pair whose article is not in the
-corpus, or has no UTC crawl date (`...Z`), waits with that reason and does not take a place of `--limit`. The rerun SQL is `RESNAPSHOT_SQL` in `--help` (what `--reset` does); a recut also
+corpus, or has no crawl date with a zone, waits with that reason and does not take a place of `--limit`. The rerun SQL is `RESNAPSHOT_SQL` in `--help` (what `--reset` does); a recut also
 deletes the snapshots of its sub-news (`RECUT_SQL`).
 
 The period summary's

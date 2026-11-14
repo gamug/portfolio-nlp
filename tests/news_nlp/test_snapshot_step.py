@@ -70,11 +70,11 @@ def pair(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDat
 
 @pytest.fixture
 def pair_odd_dates(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
-    """The first article of body A and the only one of body B have a date that is not UTC `...Z`."""
+    """The first article of body A and the only one of body B have a date with no zone (the first is also not ISO 8601)."""
     conn = _make_pair(
         tmp_path,
         results_db_path,
-        ("2021-12-31 08:00:00", "2022-01-02T09:00:00Z", "2022-01-03T09:00:00+01:00"),
+        ("2021-12-31 08:00:00", "2022-01-02T09:00:00Z", "2022-01-03T09:00:00"),
     )
     yield conn
     db_module.detach_source(conn)
@@ -429,6 +429,7 @@ def test_the_revision_covers_the_join_and_the_reading_of_the_corpus() -> None:
         "_ready_and_waiting",
         "articles_of",
         "crawl_date_ok",
+        "normalize_crawl_date",
         "_with_articles",
         "_sector_todo",
         "_sector_row",
@@ -772,3 +773,35 @@ def test_the_command_shows_the_progress_on_stderr_and_keeps_stdout_json(
     assert "reading the corpus" in captured.err and "snapshot" in captured.err
     assert "reading the corpus" not in captured.out
     assert json.loads(captured.out.split("\n}\n")[0] + "\n}")["written"] == 2
+
+
+def test_the_crawl_date_is_read_in_the_form_the_crawl_stores_and_kept_as_utc_seconds() -> None:
+    norm = snap.normalize_crawl_date
+    assert norm("2026-08-12T22:19:20.655964+00:00") == "2026-08-12T22:19:20Z"  # what urls.db holds
+    assert norm("2026-08-12T22:19:20+00:00") == "2026-08-12T22:19:20Z"
+    assert (
+        norm("2026-08-12T18:19:20-04:00") == "2026-08-12T22:19:20Z"
+    )  # another offset is converted
+    assert norm("2022-01-02T09:00:00Z") == "2022-01-02T09:00:00Z"
+    assert (
+        norm("2022-01-02 09:00:00") == "" and norm("not a date") == "" and norm("") == ""
+    )  # no zone: refused
+
+
+def test_articles_crawled_with_an_offset_are_written(tmp_path: Path, results_db_path: Path) -> None:
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        (
+            "2022-01-03T10:00:00.123456+00:00",
+            "2022-01-02T04:00:00.5+00:00",
+            "2022-01-04T10:00:00+00:00",
+        ),
+    )
+    _seed(conn)
+    result = _run(conn)
+    assert result["written"] == 2 and snap.WAIT_NO_DATE not in result["waiting_by_reason"]
+    dates = {(r[0], r[1]): r["fetched_at"] for r in _rows(conn)}
+    assert (
+        dates[(HASH_A, "AAPL")] == "2022-01-02T04:00:00Z"
+    )  # the earliest of the two crawls of body A

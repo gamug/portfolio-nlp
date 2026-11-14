@@ -14,6 +14,7 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from news_nlp import steps
@@ -58,13 +59,14 @@ class Article:
 
 def _code() -> str:
     """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
-    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
+    the corpus (``articles_of``, ``normalize_crawl_date``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
     docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
     functions = (
         _row_values,
         _ready_and_waiting,
         _body_hashes,
         articles_of,
+        normalize_crawl_date,
         crawl_date_ok,
         _with_articles,
         _sector_todo,
@@ -81,8 +83,23 @@ _CRAWL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def crawl_date_ok(value: str) -> bool:
-    """A crawl date the period windows can read: UTC, ``YYYY-MM-DDTHH:MM:SSZ`` (the format the crawl stores). Strings of this shape compare as times."""
+    """A crawl date the period windows can read: UTC, ``YYYY-MM-DDTHH:MM:SSZ`` (the form a snapshot stores; strings of this shape compare as times)."""
     return _CRAWL_DATE.match(value) is not None
+
+
+def normalize_crawl_date(value: str) -> str:
+    """The crawl date as ``YYYY-MM-DDTHH:MM:SSZ`` (UTC, whole seconds), or ``""`` when it is not a date with a zone. The crawl stores
+    ``2026-08-12T22:19:20.655964+00:00`` (ISO 8601 with an offset, microseconds), not ``...Z``; any offset is converted to UTC. A date with no zone is
+    refused: its zone is unknown, and a wrong window is worse than a waiting item."""
+    if crawl_date_ok(value):
+        return value
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        return ""
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _row_values(pair: Pair, article: Article, sector: str) -> tuple[object, ...]:
@@ -268,7 +285,7 @@ def articles_of(
     conn: NewsNlpDatabase, items: list[tuple[str, str]]
 ) -> dict[tuple[str, str], Article]:
     """The crawl date, title and publication date of each item (a body hash, or a ``sub_news`` id). A unique body can come from several articles:
-    the date is the **earliest valid** ``fetched_at`` of them (UTC, ``crawl_date_ok``; another format is ignored, and a body with none has an empty
+    the date is the **earliest valid** ``fetched_at`` of them (``normalize_crawl_date``: ISO 8601 with a zone, kept as UTC seconds; a date with no zone is ignored, and a body with none has an empty
     date), the title and the publication date are those of the first (lowest id) article. Reads the whole corpus once (hashing each body, as step 1
     does); an item whose body is not found is missing from the result."""
     from news_nlp import triage  # noqa: PLC0415 -- the body hash of step 1
@@ -287,9 +304,9 @@ def articles_of(
             key = triage.body_hash(text)
             if key not in wanted:
                 continue
-            when = str(fetched_at or "")
-            if not crawl_date_ok(when):
-                when = ""  # not a UTC time: it never decides the window
+            when = normalize_crawl_date(
+                str(fetched_at or "")
+            )  # "" when not a date with a zone: it never decides the window
             seen = found.get(key)
             if seen is None:
                 found[key] = Article(when, str(title or ""), str(pub_date or ""))
