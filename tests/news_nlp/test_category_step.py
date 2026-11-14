@@ -947,3 +947,50 @@ def test_an_item_whose_companies_changed_or_whose_text_is_gone_is_not_carried(
     assert [i.item_id for i in steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)] == ["b1"]
     other = adopt.adopt(pair, "category-old", "category-x", "summary-none", COMP_REV, execute=False)
     assert other["no_text"] == 2 and other["adoptable"] == 0  # no text at that summary revision
+
+
+# --- the revision follows the scoring only: a stopped run resumes after an edit that does not change a score -------------------
+
+
+def test_an_edit_that_does_not_change_a_score_is_not_a_new_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The idempotency of the step must not depend on the code of the module as a whole: a stopped run is resumed with the same command after the
+    command, the storage, the logging or a document was edited. (This was the failure: the revision hashed the whole module, so each edit was a new
+    revision and a resumed run started from zero.)"""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    monkeypatch.setattr(
+        stage.CategoryScorer, "warm_up", lambda self: None
+    )  # not part of what a score is
+    monkeypatch.setattr(stage.CategoryFinder, "classify", lambda self, pairs: [])
+    monkeypatch.setattr(stage, "pinned_category", lambda: {"model": "x", "revision": "y"})
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_an_edit_that_changes_a_score_is_a_new_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    for name in ("PREMISE", "HYPOTHESIS"):
+        monkeypatch.setattr(stage, name, getattr(stage, name) + " ")
+        assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+        monkeypatch.undo()
+    monkeypatch.setattr(
+        stage, "score_of", lambda entailment: stage.CategoryScore("other", 0.0, "other", 0.0, {})
+    )
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base  # the code that scores is part of it
+
+
+def test_the_first_run_of_the_real_store_is_continued_not_restarted() -> None:
+    """The revision already in the owner's store (the first run, 48,708 items done) is the one this code writes for its inputs: the same command
+    resumes it, no row is moved. Its labels were checked against a re-scoring of the stored pairs (0 of 40 differ) before it was named here."""
+    pinned = stage.pinned_category()
+    identity = f"{pinned['model']}@{pinned['revision']}"
+    real = stage.revision_of(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
+    assert real == "category-65f33b55b26b"
+    assert (
+        stage.scoring_revision(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
+        in stage.LEGACY_REVISIONS
+    )
+    other = stage.revision_of(identity, "summary-other", "companies-f349536cf701")
+    assert (
+        other != real and other not in stage.LEGACY_REVISIONS.values()
+    )  # only those inputs are the legacy run
