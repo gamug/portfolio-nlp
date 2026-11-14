@@ -400,7 +400,7 @@ def run(
 def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category."""
     run_row = conn.execute(
-        "SELECT period_start FROM period_run WHERE period_end = ? AND model_revision = ?",
+        "SELECT period_start, snapshot_revision FROM period_run WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
     ).fetchone()
     if run_row is None:
@@ -420,9 +420,16 @@ def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
         "SELECT COUNT(*), COALESCE(SUM(late), 0) FROM period_item WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
     ).fetchone()
+    oldest = conn.execute(
+        "SELECT MIN(CASE WHEN s.pub_date != '' THEN s.pub_date ELSE s.fetched_at END) FROM period_item i "
+        "JOIN news_snapshot s ON s.item_kind = i.item_kind AND s.item_id = i.item_id AND s.ticker = i.ticker AND s.model_revision = ? "
+        "WHERE i.period_end = ? AND i.model_revision = ?",
+        (run_row[1], period_end, period_rev),
+    ).fetchone()[0]
     lines = [
         f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})",
-        f"{counted} snapshots counted, of which late (dated before the window, snapshotted after it was written): {late}",
+        f"{counted} snapshots counted, of which late (dated before the window, snapshotted after it was written): {late}"
+        + (f"; the oldest dated {oldest}" if oldest else ""),
     ]
     for kind in ("company", "sector"):
         for key, counts, missing in sorted(

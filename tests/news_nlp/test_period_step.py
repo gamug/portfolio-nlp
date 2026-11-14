@@ -780,3 +780,26 @@ def test_the_text_says_how_many_of_the_counted_snapshots_are_late(
     assert "1 snapshots counted, of which late" in first and first.rstrip().splitlines()[
         1
     ].endswith(": 0")
+
+
+def test_the_text_of_a_period_prints_the_oldest_date_it_counted(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    def add(item: str, published: str) -> None:
+        conn.execute(
+            "INSERT INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, text, text_source, category, sentiment, inputs, processed_at) "
+            "VALUES ('body', ?, 'AAPL', ?, '2026-08-20T10:00:00Z', ?, 't', 'summary', 'labor', 'positive', '{}', 't')",
+            (item, SNAP, published),
+        )
+
+    add("old", "2005-03-04T10:00:00Z")  # published long before the first window: period 0 holds it
+    add("near", "2021-12-30T10:00:00Z")
+    add("next", "2022-01-05T10:00:00Z")
+    conn.commit()
+    result = _run(conn)
+    first = period.render(conn, END0, result["period_revision"])
+    assert "2 snapshots counted" in first and "the oldest dated 2005-03-04T10:00:00Z" in first
+    second = period.render(conn, END1, result["period_revision"])
+    assert "the oldest dated 2022-01-05T10:00:00Z" in second
+    empty = period.render(conn, END2, result["period_revision"])
+    assert "0 snapshots counted" in empty and "oldest" not in empty
