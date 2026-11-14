@@ -1302,6 +1302,8 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
                     companies_revision=companies,
                     category_revision=category,
                     sentiment_revision=sentiment,
+                    cut_revision=cut,
+                    sector_revision=args.sector_revision,
                 ),
                 indent=2,
             )
@@ -1317,7 +1319,12 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if problems:
         sys.exit("refused: " + "; ".join(problems))
     if args.reset:
-        print(f"reset: {snap.reset(conn)} snapshots of {snap.revision()} deleted", file=sys.stderr)
+        deleted = snap.reset(conn, sectors=args.sector_revision is not None)
+        print(
+            f"reset: {deleted['company_rows']} company and {deleted['sector_rows']} sector snapshots of {snap.revision()} deleted"
+            + ("" if args.sector_revision else " (sector rows kept: no --sector-revision named)"),
+            file=sys.stderr,
+        )
     print(f"snapshot revision {snap.revision()}", file=sys.stderr)
     result = snap.run(
         conn, summary, companies, cut, category, sentiment, args.limit, args.sector_revision
@@ -1331,6 +1338,8 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
                 companies_revision=companies,
                 category_revision=category,
                 sentiment_revision=sentiment,
+                cut_revision=cut,
+                sector_revision=args.sector_revision,
                 waiting=result["waiting_by_reason"],
             ),
             indent=2,
@@ -1537,7 +1546,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="snapshot: delete the snapshots of the current revision first and write them again (the step is otherwise always idempotent: a pair that has a row is not read again, whatever revisions it came from)",
+        help="snapshot: delete the snapshots of the current revision first and write them again (the step is otherwise always idempotent: a pair that has a row is not read again, whatever revisions it came from); sector rows are deleted only with --sector-revision; a reset also resets the period summary built on these snapshots (T-196)",
     )
     parser.add_argument(
         "--category-revision",
@@ -1618,6 +1627,8 @@ def _check_category_options(parser: argparse.ArgumentParser, args: argparse.Name
 
 def _check_snapshot_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The options of the snapshot step (step 8): the five revisions it joins to run; the two it alone reads are refused elsewhere."""
+    if args.step == steps.STEP_SNAPSHOT and args.reset and args.status:
+        parser.error("--reset and --status cannot be used together (a status changes nothing)")
     if args.step != steps.STEP_SNAPSHOT:
         if args.reset:
             parser.error("--reset only applies to --step snapshot")

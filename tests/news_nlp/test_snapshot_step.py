@@ -381,7 +381,8 @@ def test_reset_deletes_the_rows_of_the_revision_and_the_next_run_writes_them_aga
 ) -> None:
     _seed(pair)
     _run(pair)
-    assert snap.reset(pair) == 2 and _rows(pair) == []
+    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0}
+    assert _rows(pair) == []
     assert _run(pair)["written"] == 2
 
 
@@ -505,6 +506,7 @@ def test_the_command_refuses_inputs_that_do_not_agree(pair: db_module.NewsNlpDat
             "c",
         ],
         ["--step", "snapshot", "--status", "--model-dir", "x"],
+        ["--step", "snapshot", "--status", "--reset"],
         ["--step", "sentiment", "--reset", "--summary-revision", "s", "--companies-revision", "c"],
     ],
 )
@@ -602,7 +604,9 @@ def test_the_command_resets_on_request_and_the_status_needs_only_some_revisions(
     capsys.readouterr()
     cli.main_snapshot(_args(reset=True), pair)
     captured = capsys.readouterr()
-    assert "reset: 2 snapshots" in captured.err and '"written": 2' in captured.out
+    assert (
+        "reset: 2 company and 0 sector snapshots" in captured.err and '"written": 2' in captured.out
+    )
     cli.main_snapshot(
         _args(status=True, cut_revision=None, category_revision=None, sentiment_revision=None),
         pair,
@@ -611,3 +615,54 @@ def test_the_command_resets_on_request_and_the_status_needs_only_some_revisions(
     assert (
         status["company_rows"] == 2 and "waiting_pairs" not in status
     )  # rows are known, the waiting list needs the revisions
+
+
+def test_a_reset_deletes_the_sector_rows_only_when_their_revision_is_named(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    pair.execute(
+        "INSERT INTO body_sector (body_hash, classifier_revision, status, sector, candidate, margin, processed_at) "
+        "VALUES (?, ?, 'assigned', '45', '45', 0.5, 't')",
+        (HASH_B, SECTOR),
+    )
+    pair.commit()
+    _run(pair, sector=SECTOR)
+    assert snap.reset(pair, sectors=False) == {"company_rows": 2, "sector_rows": 0}
+    assert snap.status(pair)["sector_rows"] == 1  # kept: nobody would write it again
+    assert snap.reset(pair, sectors=True) == {"company_rows": 0, "sector_rows": 1}
+
+
+def test_the_status_reports_rows_built_from_other_revisions_and_pairs_no_longer_main(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    _run(pair)
+    named: dict[str, Any] = {
+        "summary_revision": SUM,
+        "companies_revision": COMP,
+        "category_revision": CAT,
+        "sentiment_revision": "sentiment-better",
+        "cut_revision": CUT,
+    }
+    stale = snap.status(pair, **named)["stale_rows"]
+    assert stale == {
+        "built_from_another_sentiment_revision": 2
+    }  # the two rows were built from SENT
+    pair.execute(
+        "UPDATE news_company SET is_main = 0 WHERE ticker = 'MSFT' AND item_id = ?", (HASH_A,)
+    )
+    pair.commit()
+    again = snap.status(pair, **named)["stale_rows"]
+    assert again == {"built_from_another_sentiment_revision": 2, "not_a_main_pair_now": 1}
+    assert snap.status(pair, **{**named, "sentiment_revision": SENT})["stale_rows"] == {
+        "not_a_main_pair_now": 1
+    }
+
+
+def test_the_revision_covers_the_statement_that_writes_the_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = snap.revision()
+    monkeypatch.setattr(snap, "_INSERT", snap._INSERT.replace("title, text,", "text, title,"))
+    assert snap.revision() != before

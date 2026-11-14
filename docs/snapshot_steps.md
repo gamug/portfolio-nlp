@@ -56,6 +56,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 | `companies_mentioned` | JSON list of tickers; empty for now |
 | `category`, `group_label` | from `news_category`; `''` for a sector text |
 | `sentiment`, `sentiment_score` | from `news_sentiment`; `''` and NULL for a sector text |
+| `inputs` | JSON: the summary, companies, cut, category, sentiment and (sector rows) sector revisions the row was built from (not in the revision; `--status` reports the rows built from other revisions than the ones named) |
 | `processed_at` | when the snapshot was written |
 
 `period_summary`, primary key (`period_end`, `kind`, `key`, `model_revision`); `kind` is `company` or `sector`, `key` the ticker or the sector code (`''` for `unclassified`):
@@ -93,8 +94,7 @@ steps, the reading of the corpus, the choice of the pairs, the sector rows; not 
 sector for sector texts) are **recorded in each row** (`inputs`, JSON), not hashed. A pair that has a row is never read again, whatever revisions it came from, unless `--reset` deletes the rows
 of the revision first. **The daily flow:** the owner names the revisions of the day (any of them can move: the sentiment revision moves the day a new company becomes main, because it hashes the
 names of the main companies); the step writes only the pairs with no row, so a moved revision **never restarts the snapshots or the periods built on them**. The cost of that rule: a row keeps the
-label of the revision that wrote it; to rebuild after a rerun of a step at the same revision, or to use the new labels, run with `--reset` (and read "Which period counted what": a period already
-written keeps its counts). A change of the code is a new revision, and with it new snapshots and new periods.
+label of the revision that wrote it (`--status` prints `stale_rows`: how many rows were built from other revisions than the ones named, and how many are no longer a main pair); to rebuild after a rerun of a step at the same revision, or to use the new labels, run with `--reset` (the company rows; the sector rows only when `--sector-revision` is named, since only then are they written again; `--reset` with `--status` is refused) (**owner, 2026-11-14: a reset of the snapshots resets the period summary built on them too**: T-196 stores the snapshot revision in `period_run` and `--reset` clears the `period_summary`, `period_run` and `period_item` rows of those periods in the same transaction; the periods are then written again by `--catch-up`). A change of the code is a new revision, and with it new snapshots and new periods.
 
 **What a run checks** (`check_inputs`): the step is refused when a revision has no rows, when a category or sentiment row is not a main pair of the companies revision, when a sub-news with a main
 company is not of the named cut, and when an item with a main company has no text at the summary revision (as the sentiment step does: usually the companies step read another summary revision).

@@ -53,23 +53,23 @@ class Article:
 
 def _code() -> str:
     """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
-    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``) and the sector rows (``_sector_todo``, ``_sector_row``). A comment, a
+    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_with_articles``), the sector rows (``_sector_todo``, ``_sector_row``) and the statement that writes them (``_INSERT``). A comment, a
     docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
-    return hashlib.sha256(
-        "\n".join(
-            normalized_code(inspect.getsource(f))
-            for f in (
-                _row_values,
-                _ready_and_waiting,
-                _body_hashes,
-                articles_of,
-                crawl_date_ok,
-                _with_articles,
-                _sector_todo,
-                _sector_row,
-            )
-        ).encode()
-    ).hexdigest()[:12]
+    functions = (
+        _row_values,
+        _ready_and_waiting,
+        _body_hashes,
+        articles_of,
+        crawl_date_ok,
+        _with_articles,
+        _sector_todo,
+        _sector_row,
+    )
+    parts = [
+        _INSERT,
+        *(normalized_code(inspect.getsource(f)) for f in functions),
+    ]  # _INSERT: the columns written, in their order
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:12]
 
 
 _CRAWL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
@@ -379,17 +379,26 @@ _INSERT = (
 )
 
 
-def reset(conn: NewsNlpDatabase) -> int:
-    """Delete the snapshots of the current revision (company and sector rows) and return how many: the one way to rebuild them (``--reset``). A period
-    that counted them keeps its rows; read ``docs/snapshot_steps.md`` before rebuilding after a period was written."""
-    count = int(
+def reset(conn: NewsNlpDatabase, *, sectors: bool) -> dict[str, int]:
+    """Delete the snapshots of the current revision and return how many of each kind: the one way to rebuild them (``--reset``). The company rows always;
+    the sector rows only when the run names a sector revision (``sectors``), because only then are they written again. Owner, 2026-11-14: a reset of the
+    snapshots resets the period summary built on them too (the period tables, when T-196 builds them, are cleared here for the revision)."""
+    rev = revision()
+    company = int(
         conn.execute(
-            "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ?", (revision(),)
+            "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (rev,)
         ).fetchone()[0]
     )
-    conn.execute("DELETE FROM news_snapshot WHERE model_revision = ?", (revision(),))
+    sector = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker = ''", (rev,)
+        ).fetchone()[0]
+    )
+    conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker != ''", (rev,))
+    if sectors:
+        conn.execute("DELETE FROM news_snapshot WHERE model_revision = ? AND ticker = ''", (rev,))
     conn.commit()
-    return count
+    return {"company_rows": company, "sector_rows": sector if sectors else 0}
 
 
 def run(
@@ -482,6 +491,37 @@ def run(
     return result
 
 
+def _stale(
+    conn: NewsNlpDatabase, named: dict[str, str | None], companies_revision: str
+) -> dict[str, int]:
+    """What the rows of the current revision say against the revisions named now: for each input, how many rows were built from another one, and
+    how many company rows are not a main pair at the companies revision. Nothing is changed: the step is always idempotent, a reset rebuilds."""
+    stale: Counter[str] = Counter()
+    main = {
+        (str(k), str(i), str(t))
+        for k, i, t in conn.execute(
+            "SELECT item_kind, item_id, ticker FROM news_company WHERE model_revision = ? AND is_main = 1",
+            (companies_revision,),
+        )
+    }
+    for kind, item_id, ticker, raw in conn.execute(
+        "SELECT item_kind, item_id, ticker, inputs FROM news_snapshot WHERE model_revision = ?",
+        (revision(),),
+    ):
+        built = json.loads(str(raw))
+        keys = (
+            ("summary", "sector")
+            if ticker == ""
+            else ("summary", "companies", "cut", "category", "sentiment")
+        )
+        for key in keys:
+            if named.get(key) and built.get(key) != named[key]:
+                stale[f"built_from_another_{key}_revision"] += 1
+        if ticker != "" and (str(kind), str(item_id), str(ticker)) not in main:
+            stale["not_a_main_pair_now"] += 1
+    return dict(stale)
+
+
 def status(
     conn: NewsNlpDatabase,
     *,
@@ -489,6 +529,8 @@ def status(
     companies_revision: str | None = None,
     category_revision: str | None = None,
     sentiment_revision: str | None = None,
+    cut_revision: str | None = None,
+    sector_revision: str | None = None,
     waiting: dict[str, int] | None = None,
 ) -> dict[str, object]:
     """The revision of this code, its rows (company rows and sector rows apart), the revisions that ever wrote rows and, with the four input revisions,
@@ -511,6 +553,18 @@ def status(
         ],
     }
     if None not in (summary_revision, companies_revision, category_revision, sentiment_revision):
+        out["stale_rows"] = _stale(
+            conn,
+            {
+                "summary": summary_revision,
+                "companies": companies_revision,
+                "cut": cut_revision,
+                "category": category_revision,
+                "sentiment": sentiment_revision,
+                "sector": sector_revision,
+            },
+            str(companies_revision),
+        )
         out["waiting_pairs"] = (
             waiting
             if waiting is not None
