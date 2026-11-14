@@ -3,11 +3,14 @@ what is stored and how the step is run. The model is a stub: no network, no GPU.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
+import inspect
 import json
 import re
 import sqlite3
 import sys
+import textwrap
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -127,7 +130,7 @@ def test_the_group_score_is_the_share_of_the_mass_the_group_holds() -> None:
 
 
 def test_the_finder_classifies_each_pair_and_names_the_model_it_ran() -> None:
-    finder = stage.CategoryFinder(StubScorer())
+    finder = stage.CategoryFinder(SUM_REV, COMP_REV, StubScorer())
     out = finder.classify([("legal_regulatory news", "Apple Inc."), ("nothing", "Apple Inc.")])
     assert [r.label for r in out] == ["legal_regulatory", "other"]
     assert finder.revision.startswith("category-")
@@ -141,14 +144,14 @@ def test_the_company_name_loses_its_share_class() -> None:
 def test_the_revision_follows_the_model_the_definitions_and_the_recipe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    base = stage.revision_of("m@1")
-    assert stage.revision_of("m@1") == base  # stable
-    assert stage.revision_of("m@2") != base  # another model, another revision
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base  # stable
+    assert stage.revision_of("m@2", SUM_REV, COMP_REV) != base  # another model, another revision
     monkeypatch.setitem(stage.DEFINITIONS, "other", "something else")
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
     monkeypatch.undo()
     monkeypatch.setattr(stage, "PREMISE_CHARS", 1000)
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
 
 
 def test_the_status_names_the_model_without_loading_it() -> None:
@@ -482,7 +485,9 @@ def test_a_pair_the_model_read_cut_at_its_window_is_recorded_and_read_apart_from
     scorer = stage.CategoryScorer(device=torch.device("cpu"))
     monkeypatch.setattr(scorer, "_load", lambda: None)
     scorer._tokenizer, scorer._model, scorer._entailment = tokenizer, model, 0
-    out = stage.CategoryFinder(scorer).classify([("short", "A"), ("cut text", "B")])
+    out = stage.CategoryFinder(SUM_REV, COMP_REV, scorer).classify(
+        [("short", "A"), ("cut text", "B")]
+    )
     assert steps.TRUNCATED_KEY not in out[0].slug_scores
     assert out[1].slug_scores[steps.TRUNCATED_KEY] == 1
     assert set(steps.class_scores(json.dumps(out[1].slug_scores))) == set(
@@ -562,9 +567,9 @@ def test_the_company_name_is_the_one_of_the_companies_step_and_the_revision_foll
     assert (
         stage.company_name is news_company_stage.company_name
     )  # one definition, not two that drift
-    base = stage.revision_of("m@1")
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
     monkeypatch.setattr(stage, "company_name", lambda company: company.upper())
-    assert stage.revision_of("m@1") != base
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
 
 
 def test_a_gpu_fault_stops_the_run_at_once_and_marks_no_item_failed(
@@ -623,7 +628,15 @@ def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_th
             Company("MSFT", "Microsoft Corporation", "", ""),
         ],
     )
-    monkeypatch.setattr(stage, "CategoryFinder", StubFinder)
+    built: list[tuple[str, str]] = []
+
+    def make_finder(summary_revision: str, companies_revision: str) -> StubFinder:
+        built.append(
+            (summary_revision, companies_revision)
+        )  # the finder is told the inputs: its revision follows them
+        return StubFinder()
+
+    monkeypatch.setattr(stage, "CategoryFinder", make_finder)
 
     class Args:
         status = False
@@ -632,6 +645,7 @@ def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_th
         companies_revision = COMP_REV
 
     cli.main_category(Args(), pair)
+    assert built == [(SUM_REV, COMP_REV)]
     out, err = capsys.readouterr()
     assert (
         "1 items with a main company" in err and "no text" in err
@@ -750,24 +764,30 @@ def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
     assert "D41" in plan and "FR-022" in plan
 
 
-def test_status_prints_the_revision_the_code_would_write_and_it_is_the_finders(
+def test_status_prints_the_revision_the_code_would_write_for_the_inputs_given(
     pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cli = _load_cli()
 
-    class Args:
+    class Bare:
         status = True
 
-    cli.main_category(Args(), pair)
+    class Given(Bare):
+        summary_revision = SUM_REV
+        companies_revision = COMP_REV
+
+    cli.main_category(Given(), pair)
     printed = json.loads(capsys.readouterr().out)
-    assert printed["code_revision"] == stage.code_revision()
+    assert printed["code_revision"] == stage.code_revision(SUM_REV, COMP_REV)
     scorer = StubScorer()  # the identity of the pin, so the finder names the revision of this code
     pinned = stage.pinned_category()
     scorer.model_name, scorer.model_revision = pinned["model"], pinned["revision"]
-    assert (
-        printed["code_revision"] == stage.CategoryFinder(scorer).revision
-    )  # no model loaded for it
+    assert printed["code_revision"] == stage.CategoryFinder(SUM_REV, COMP_REV, scorer).revision
     assert printed["revisions"] == []  # nothing ran: the revision of the code is not one that ran
+    cli.main_category(
+        Bare(), pair
+    )  # without the inputs there is no revision to name, and it says so
+    assert "--summary-revision" in json.loads(capsys.readouterr().out)["code_revision"]
 
 
 def test_the_join_of_the_doc_dates_a_row_by_its_article_and_keeps_the_company_of_the_row(
@@ -816,3 +836,358 @@ def test_the_scripts_that_score_the_held_out_set_refuse_to_do_it_again(
     monkeypatch.setattr(sys, "argv", [script])
     with pytest.raises(SystemExit, match="scored once"):
         module.main()
+
+
+# --- the revision follows its inputs, and finished work can be carried to a new revision ------------------------------------
+
+
+def test_the_revision_follows_the_summary_and_the_companies_revision() -> None:
+    base = stage.revision_of("m@1", "summary-a", "companies-a")
+    assert stage.revision_of("m@1", "summary-a", "companies-a") == base
+    assert stage.revision_of("m@1", "summary-b", "companies-a") != base
+    assert stage.revision_of("m@1", "summary-a", "companies-b") != base
+
+
+def test_a_step_run_again_upstream_is_new_work_not_done_work(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """The case that failed before: step 2 and 3 run again at new revisions (another text, one more main company) and the category step, at the
+    same category revision, found nothing to do and kept the old rows. Now the new inputs are another revision, and the old one stays."""
+    _seed(pair)
+    cli = _load_cli()
+    old = stage.CategoryFinder(SUM_REV, COMP_REV, StubScorer())
+    assert cli.run_category(pair, old, NAMES, SUM_REV, COMP_REV, None)["done"] == 2
+    steps.record_summary(
+        pair, "body", "b1", "summary-new", "earnings_performance: other text", "original", 0
+    )
+    steps.record_companies(
+        pair,
+        "body",
+        "b1",
+        "companies-new",
+        [CompanyScore("AAPL", 1, 0.9), CompanyScore("MSFT", 1, 0.9), CompanyScore("META", 1, 0.9)],
+        0.5,
+    )
+    new = stage.CategoryFinder("summary-new", "companies-new", StubScorer())
+    assert new.revision != old.revision
+    counts = cli.run_category(pair, new, NAMES, "summary-new", "companies-new", None)
+    assert counts["done"] == 1 and counts["category_rows"] == 3  # b1 again, with META
+    kept = pair.execute(
+        "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (old.revision,)
+    ).fetchone()[0]
+    assert kept == 3  # the old revision is untouched
+
+
+def _adopt_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "category_adopt_for_test", DOCS / "scripts" / "category_adopt_revision_2026_11_13.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_finished_work_is_carried_to_the_new_revision_without_deleting_the_old(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+    old = "category-old"
+
+    class OldFinder(StubFinder):
+        revision = old
+
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    before = [
+        tuple(r)
+        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
+    ]
+    report = adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=False)
+    assert report["adoptable"] == 2 and report["finished_at_old"] == 2
+    assert (
+        pair.execute(
+            "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
+        ).fetchone()[0]
+        == 0
+    )  # a report writes nothing
+    assert adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["adoptable"] == 2
+    assert (
+        adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["already_at_new"] == 2
+    )  # a repeat adopts nothing more
+    kept = [
+        tuple(r)
+        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
+    ]
+    assert kept == before  # the old revision is as it was
+    now = pair.execute(
+        "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
+    ).fetchone()[0]
+    assert now == len(before) == 3
+    assert (
+        list(steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)) == []
+    )  # the next run has nothing left to do
+    with pytest.raises(ValueError, match="the same"):
+        adopt.adopt(pair, REV, REV, SUM_REV, COMP_REV, execute=True)
+
+
+def test_an_item_whose_companies_changed_or_whose_text_is_gone_is_not_carried(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+
+    class OldFinder(StubFinder):
+        revision = "category-old"
+
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    steps.record_companies(  # at the companies revision b1 now has a third main company: it must be done again
+        pair, "body", "b1", COMP_REV, [CompanyScore("META", 1, 0.9)], 0.5
+    )
+    report = adopt.adopt(pair, "category-old", REV, SUM_REV, COMP_REV, execute=True)
+    assert report["companies_differ"] == 1 and report["adoptable"] == 1
+    assert [i.item_id for i in steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)] == ["b1"]
+    other = adopt.adopt(pair, "category-old", "category-x", "summary-none", COMP_REV, execute=False)
+    assert other["no_text"] == 2 and other["adoptable"] == 0  # no text at that summary revision
+
+
+# --- the revision follows the scoring only: a stopped run resumes after an edit that does not change a score -------------------
+
+
+def test_an_edit_that_does_not_change_a_score_is_not_a_new_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The idempotency of the step must not depend on the code of the module as a whole: a stopped run is resumed with the same command after the
+    command, the storage, the logging or a document was edited. (This was the failure: the revision hashed the whole module, so each edit was a new
+    revision and a resumed run started from zero.)"""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    monkeypatch.setattr(
+        stage.CategoryScorer, "warm_up", lambda self: None
+    )  # not part of what a score is
+    monkeypatch.setattr(stage.CategoryFinder, "classify", lambda self, pairs: [])
+    monkeypatch.setattr(stage, "pinned_category", lambda: {"model": "x", "revision": "y"})
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_an_edit_that_changes_a_score_is_a_new_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    for name in ("PREMISE", "HYPOTHESIS"):
+        monkeypatch.setattr(stage, name, getattr(stage, name) + " ")
+        assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+        monkeypatch.undo()
+    monkeypatch.setattr(
+        stage, "score_of", lambda entailment: stage.CategoryScore("other", 0.0, "other", 0.0, {})
+    )
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base  # the code that scores is part of it
+
+
+def test_the_first_run_of_the_real_store_is_continued_not_restarted() -> None:
+    """The revision already in the owner's store (the first run, 48,708 items done) is the one this code writes for its inputs: the same command
+    resumes it, no row is moved. Its rows were checked against a re-scoring of 1,008 of its 64,428 stored pairs, 72 of each label (0 labels differ, largest score difference 0.0: `docs/category_results_2026_11_13/legacy_revision_check.json`) before it was named here."""
+    pinned = stage.pinned_category()
+    identity = f"{pinned['model']}@{pinned['revision']}"
+    real = stage.revision_of(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
+    assert real == "category-65f33b55b26b"
+    assert (
+        stage.scoring_revision(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
+        in stage.LEGACY_REVISIONS
+    )
+    other = stage.revision_of(identity, "summary-other", "companies-f349536cf701")
+    assert (
+        other != real and other not in stage.LEGACY_REVISIONS.values()
+    )  # only those inputs are the legacy run
+
+
+# --- what is hashed is what decides a score: formatting and comments are not, a statement is; bookkeeping is not part of it ------
+
+
+def _with_source(monkeypatch: pytest.MonkeyPatch, function: Any, source: str) -> None:
+    real = inspect.getsource
+    monkeypatch.setattr(inspect, "getsource", lambda obj: source if obj is function else real(obj))
+
+
+@pytest.mark.parametrize("function_name", ["score_of", "_read_pair", "company_name"])
+def test_a_comment_a_docstring_or_the_formatting_of_the_scoring_code_is_not_a_new_revision(
+    function_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    function = getattr(stage, function_name)
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    node = tree.body[0]
+    assert isinstance(node, ast.FunctionDef)
+    node.body = [
+        ast.Expr(ast.Constant("another docstring")),
+        *node.body[1 if ast.get_docstring(node) else 0 :],
+    ]
+    reformatted = (
+        "# a comment before\n\n\n" + ast.unparse(tree) + "\n\n# and one after\n"
+    )  # other layout, other docstring
+    _with_source(monkeypatch, function, reformatted)
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_a_statement_of_the_scoring_code_is_a_new_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    source = inspect.getsource(stage.score_of)
+    assert "max(" in source
+    _with_source(monkeypatch, stage.score_of, source.replace("max(", "min(", 1))
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+
+
+def test_the_bookkeeping_of_the_scorer_is_not_part_of_the_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``score`` records which pairs were cut at the window; editing that, or logging inside ``score``, must not restart a run (the reading itself is
+    ``_read_pair``, which is hashed)."""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    monkeypatch.setattr(stage.CategoryScorer, "score", lambda self, pairs: [])
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_the_status_counts_the_revision_this_code_writes_not_the_latest_by_time(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With the inputs given, ``--status`` is about the revision a run would continue; the latest by time can be a partial revision of older code."""
+    _seed(pair)
+    mine = stage.code_revision(SUM_REV, COMP_REV)
+    found = {"AAPL": stage.score_of(_scores("other"))}
+    steps.record_category(pair, "body", "b1", mine, found, "m")
+    steps.record_category(
+        pair, "body", "b2", "category-older-and-later", found, "m"
+    )  # finished after mine
+    cli = _load_cli()
+
+    class Given:
+        status = True
+        summary_revision = SUM_REV
+        companies_revision = COMP_REV
+
+    cli.main_category(Given(), pair)
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["revision"] == mine and printed["news_category"]["items"] == 1
+    assert printed["revisions"] == [mine, "category-older-and-later"]
+
+
+def test_the_verification_script_compares_labels_and_scores() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "category_verify_for_test", DOCS / "scripts" / "category_verify_revision_2026_11_13.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    same = stage.score_of(_scores("legal_regulatory"))
+    differs, worst = module.compare(
+        {**same.slug_scores, "_truncated_chunks": 1}, "legal_regulatory", same
+    )
+    assert (differs, worst) == (False, 0.0)  # the reserved key is not a label
+    other = stage.score_of(_scores("other"))
+    differs, worst = module.compare(same.slug_scores, "legal_regulatory", other)
+    assert differs and worst > 0.5
+
+
+def test_a_change_of_the_loader_or_of_the_order_of_the_definitions_is_a_new_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """How the model is loaded (the precision changes outputs) and the order of the labels (a tie goes to the first) decide a score."""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    source = inspect.getsource(stage.CategoryScorer._load)
+    assert "torch.float32" in source
+    _with_source(
+        monkeypatch, stage.CategoryScorer._load, source.replace("torch.float32", "torch.float16")
+    )
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+    monkeypatch.undo()
+    monkeypatch.setattr(stage, "DEFINITIONS", dict(reversed(list(stage.DEFINITIONS.items()))))
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+
+
+def test_an_item_whose_text_changed_or_whose_blank_text_is_not_blank_any_more_is_not_adopted(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    cli, adopt = _load_cli(), _adopt_module()
+
+    class OldFinder(StubFinder):
+        revision = "category-old"
+
+    steps.record_summary(pair, "body", "blank", SUM_REV, "  ", "original", 0)
+    steps.record_companies(pair, "body", "blank", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
+    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
+    assert (
+        adopt.adopt(pair, "category-old", "category-x", SUM_REV, COMP_REV, execute=False)[
+            "adoptable"
+        ]
+        == 3
+    )
+    # the summary step was run again: b1 has another text there, and the blank item has a text now
+    steps.record_summary(
+        pair, "body", "b1", "summary-new", "earnings_performance: another text", "original", 0
+    )
+    steps.record_summary(
+        pair, "body", "b2", "summary-new", "earnings_performance: results", "original", 0
+    )
+    steps.record_summary(
+        pair, "body", "blank", "summary-new", "legal_regulatory: now it has text", "original", 0
+    )
+    steps.record_summary(
+        pair, "sub_news", "7", "summary-new", "product_innovation: a launch", "original", 0
+    )
+    steps.record_companies(
+        pair,
+        "body",
+        "b1",
+        "companies-new",
+        [CompanyScore("AAPL", 1, 0.9), CompanyScore("MSFT", 1, 0.7)],
+        0.5,
+    )
+    steps.record_companies(
+        pair, "body", "blank", "companies-new", [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )
+    steps.record_companies(
+        pair, "sub_news", "7", "companies-new", [CompanyScore("MSFT", 1, 0.8)], 0.5
+    )
+    report = adopt.adopt(
+        pair,
+        "category-old",
+        "category-x",
+        "summary-new",
+        "companies-new",
+        execute=False,
+        from_summary_revision=SUM_REV,
+    )
+    assert report["text_changed"] == 2  # b1 (another text) and the blank item (a text now)
+    assert report["adoptable"] == 1  # the sub-news: the same text and the same companies
+    assert report["no_text"] == 0
+
+
+def test_a_re_scored_pair_that_differs_in_the_label_the_group_or_a_score_is_found() -> None:
+    adopt = _adopt_module()
+    new = stage.score_of(_scores("legal_regulatory"))
+    stored = {
+        "label": new.label,
+        "group_label": new.group_label,
+        "group_score": new.group_score,
+        "slug_scores": json.dumps({**new.slug_scores, "_truncated_chunks": 1}),
+    }
+    assert adopt.differs(stored, new) is False  # the reserved key is not a score
+    assert adopt.differs({**stored, "label": "other"}, new)
+    assert adopt.differs({**stored, "group_label": "other"}, new)
+    assert adopt.differs({**stored, "group_score": new.group_score + 0.01}, new)
+    short = {k: v for k, v in new.slug_scores.items() if k != "other"}
+    assert adopt.differs({**stored, "slug_scores": json.dumps(short)}, new)  # not the same keys
+
+
+def test_the_adoption_script_says_so_when_the_old_revision_is_the_one_the_code_writes() -> None:
+    """Not a traceback: the first run of the store is also the revision the code writes, and a run of the step continues it."""
+    adopt = _adopt_module()
+    legacy = stage.revision_of(
+        f"{stage.pinned_category()['model']}@{stage.pinned_category()['revision']}",
+        "summary-7a9bd2062bc4",
+        "companies-f349536cf701",
+    )
+    assert legacy == "category-65f33b55b26b"
+    said = adopt.nothing_to_adopt("category-65f33b55b26b", legacy)
+    assert said and "nothing to adopt" in said and legacy in said
+    assert adopt.nothing_to_adopt("category-older", legacy) is None

@@ -22,13 +22,11 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import torch
-import transformers
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from news_company_stage import company_name
@@ -86,41 +84,65 @@ def models_of_the_step() -> dict[str, str]:
     return {"category": f"{pinned['model']}@{pinned['revision']}"}
 
 
-def _module_source(module: Any) -> str:
-    """The source of a module (a function of its own so a test can change what the revision reads)."""
-    return Path(inspect.getsourcefile(module) or "").read_text(encoding="utf-8")
+#: A revision of the step that was written before the revision followed the scoring only (the first run of the development, 2026-11-13: the code of commit
+#: 82d6b36 over the revisions of step 2 and step 3 named in the key). Its rows are the ones this code would write: the same labels in 10,355 of 10,355 pairs
+#: of its repeats and 1,008 of its 64,428 stored pairs re-scored (72 of each label) (``scripts/category_verify_revision_2026_11_13.py``, figures in ``docs/category_results_2026_11_13/``), so the
+#: run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity gives (``scoring_revision``); value: the revision
+#: already in the store. **Retired** in the change that first alters a score (a definition, the premise, the model, the code of ``_read_pair`` or ``score_of``):
+#: the test that pins it fails then, and the owner decides whether the legacy rows are still wanted.
+LEGACY_REVISIONS: dict[str, str] = {"category-21684b80ec36": "category-65f33b55b26b"}
 
 
-def revision_of(model_identity: str) -> str:
-    """The revision of a run of the step: the model (``name@revision``), the labels with their definitions and groups, the premise and the
-    hypothesis, the lengths, the version of ``transformers`` and the code of this module (comments and docstrings do not count)."""
+def _scoring_code() -> str:
+    """The code that decides a score: the label, the group and the share of the mass (``score_of``), the reading of the pair by the model (``_read_pair``),
+    the name of the company in the hypothesis (``company_name``) and how the model is loaded (``CategoryScorer._load``: the precision changes outputs), normalised (comments, docstrings and formatting do not count). The bookkeeping of
+    ``CategoryScorer.score`` (which pairs were cut at the window) is not here on purpose: editing it must not restart a run."""
+    return hashlib.sha256(
+        "\n".join(
+            normalized_code(inspect.getsource(f))
+            for f in (score_of, _read_pair, company_name, CategoryScorer._load)
+        ).encode()
+    ).hexdigest()[:12]
+
+
+def scoring_revision(model_identity: str, summary_revision: str, companies_revision: str) -> str:
+    """What the scores of a run depend on, as a revision: the model (``name@revision``), the revisions of the texts (step 2) and of the main companies (step 3)
+    it reads, the labels with their definitions and groups, the premise and the hypothesis, the lengths and the code that scores. **Nothing else**: an edit of
+    the command, of the storage, of the logging or of a document is not a new revision, so a run stopped and resumed after one resumes (the idempotency of the
+    step does not depend on the code of the module as a whole). The inputs are part of it: a step 2 or step 3 run again at a new revision is read as new work."""
     key = json.dumps(
         {
             "model": model_identity,
-            "definitions": DEFINITIONS,
-            "groups": {g: list(v) for g, v in GROUPS.items()},
+            "summary_revision": summary_revision,
+            "companies_revision": companies_revision,
+            "definitions": list(
+                DEFINITIONS.items()
+            ),  # in order: ``LABELS`` follows it and a tie goes to the first label
+            "groups": [[g, list(v)] for g, v in GROUPS.items()],
             "premise": PREMISE,
             "hypothesis": HYPOTHESIS,
             "premise_chars": PREMISE_CHARS,
             "max_length": MAX_LENGTH,
-            "transformers": transformers.__version__,
-            "code": hashlib.sha256(
-                normalized_code(_module_source(sys.modules[__name__])).encode()
-            ).hexdigest()[:12],
-            "company_name": hashlib.sha256(
-                normalized_code(inspect.getsource(company_name)).encode()
-            ).hexdigest()[:12],
+            "scoring_code": _scoring_code(),
         },
         sort_keys=True,
     )
     return "category-" + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
-def code_revision() -> str:
-    """The revision this code would write, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of a store can be
-    checked against the code that was merged."""
+def revision_of(model_identity: str, summary_revision: str, companies_revision: str) -> str:
+    """The revision a run writes: ``scoring_revision``, or the legacy revision already in the store for that same scoring (``LEGACY_REVISIONS``)."""
+    computed = scoring_revision(model_identity, summary_revision, companies_revision)
+    return LEGACY_REVISIONS.get(computed, computed)
+
+
+def code_revision(summary_revision: str, companies_revision: str) -> str:
+    """The revision this code would write for those inputs, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of
+    a store can be checked against the code that was merged."""
     pinned = pinned_category()
-    return revision_of(f"{pinned['model']}@{pinned['revision']}")
+    return revision_of(
+        f"{pinned['model']}@{pinned['revision']}", summary_revision, companies_revision
+    )
 
 
 def score_of(entailment: Sequence[float]) -> CategoryScore:
@@ -137,6 +159,30 @@ def score_of(entailment: Sequence[float]) -> CategoryScore:
         group_score=float(mass / total),
         slug_scores={name: round(float(p), 6) for name, p in zip(LABELS, entailment, strict=True)},
     )
+
+
+def _read_pair(
+    tokenizer: Any, model: Any, device: Any, entailment: int, text: str, company: str
+) -> tuple[list[float], Any]:
+    """What decides a score: the premise, one hypothesis per label, the model's entailment probability of each. Returns the probabilities and the encoded
+    batch (the caller records from it whether the pair was cut at the window). **This function is part of the revision** (``_scoring_code``): an edit of its
+    statements is a new revision, one of its comments, its docstring or its formatting is not; keep the bookkeeping out of it."""
+    name = company_name(company)
+    premise = PREMISE.format(company=name, text=text[:PREMISE_CHARS])
+    hypotheses = [
+        HYPOTHESIS.format(company=name, definition=DEFINITIONS[label]) for label in LABELS
+    ]
+    encoded = tokenizer(
+        [premise] * len(hypotheses),
+        hypotheses,
+        truncation="only_first",
+        max_length=MAX_LENGTH,
+        padding=True,
+        return_tensors="pt",
+    ).to(device)
+    with torch.no_grad():
+        logits = model(**encoded).logits.float()
+    return torch.softmax(logits, dim=-1)[:, entailment].cpu().tolist(), encoded
 
 
 class CategoryScorer:
@@ -178,39 +224,31 @@ class CategoryScorer:
         out: list[list[float]] = []
         self.last_truncated = []
         for text, company in pairs:
-            name = company_name(company)
-            premise = PREMISE.format(company=name, text=text[:PREMISE_CHARS])
-            hypotheses = [
-                HYPOTHESIS.format(company=name, definition=DEFINITIONS[label]) for label in LABELS
-            ]
-            encoded = self._tokenizer(
-                [premise] * len(hypotheses),
-                hypotheses,
-                truncation="only_first",
-                max_length=MAX_LENGTH,
-                padding=True,
-                return_tensors="pt",
-            ).to(self.device)
-            self.last_truncated.append(
+            probabilities, encoded = _read_pair(
+                self._tokenizer, self._model, self.device, self._entailment, text, company
+            )
+            self.last_truncated.append(  # the record of a pair cut at the window: not part of what a score is
                 bool(
                     encoded["input_ids"].shape[-1] >= MAX_LENGTH
                     and encoded["attention_mask"][:, -1].any()
                 )
             )
-            with torch.no_grad():
-                logits = self._model(**encoded).logits.float()
-            out.append(torch.softmax(logits, dim=-1)[:, self._entailment].cpu().tolist())
+            out.append(probabilities)
         return out
 
 
 class CategoryFinder:
     """What the category step runs: ``classify`` gives a ``CategoryScore`` for each ``(text, company name)`` pair."""
 
-    def __init__(self, scorer: Any | None = None) -> None:
+    def __init__(
+        self, summary_revision: str, companies_revision: str, scorer: Any | None = None
+    ) -> None:
         self.scorer = scorer or CategoryScorer()
         self.model_name: str = self.scorer.model_name
         self.model_revision: str = self.scorer.model_revision
-        self.revision = revision_of(f"{self.model_name}@{self.model_revision}")
+        self.revision = revision_of(
+            f"{self.model_name}@{self.model_revision}", summary_revision, companies_revision
+        )
 
     def warm_up(self) -> None:
         warm = getattr(self.scorer, "warm_up", None)

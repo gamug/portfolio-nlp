@@ -40,3 +40,10 @@ The CV runs did not save their scores (the trainer does now: `data/category_grou
 
 The bar of D24 (80% agreement on the held-out 200) is not met by any of them. Mixed minus flat on the CV label: -2.1 points [-6.0, +1.7], not distinguishable.
 The step of `--step category` uses the untouched model (the first column), not a fine-tune.
+
+## The revision of the first run is what the current code writes (2026-11-14)
+
+`LEGACY_REVISIONS` (`src/news_category_stage.py`) names `category-65f33b55b26b`, written on 2026-11-13 by the code of commit `82d6b36`, as the revision of the current code for
+`summary-7a9bd2062bc4` and `companies-f349536cf701`. Check, read only on the owner's store (`scripts/category_verify_revision_2026_11_13.py`, result in `legacy_revision_check.json`):
+1,008 of its 64,428 stored pairs, 72 of each of the 14 labels (a seeded draw), re-scored with the current code: **0 labels differ and the largest difference of any of the 14 scores is 0.0.**
+Before that, all 7,644 items of the second revision of the same run (`category-981dacf6f68d`) are inside the first, with the same label in all 10,355 pairs.

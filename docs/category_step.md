@@ -52,7 +52,7 @@ Three things to know:
 
 ## Which revision to read
 
-Revisions coexist in `news_category`: the revision hashes the code of the step, the pinned model, the definitions and the version of `transformers`, so any of them changing starts
+Revisions coexist in `news_category`: the revision follows what decides a score and the two input revisions (below), so a change of any of them starts
 a new set of rows beside the old one. **Read one revision, never a mix, and only a complete one.** A revision is complete when its finished items (`done` or `skipped`) are as many as
 the items that have a main company at your companies revision, less the `items_without_text` the run printed (items whose text is not at the summary revision named cannot be done):
 
@@ -65,8 +65,30 @@ SELECT COUNT(DISTINCT item_kind || ':' || item_id) FROM news_company
 WHERE model_revision = '<companies revision>' AND is_main = 1;
 ```
 
-`--step category --status` prints `code_revision`, the revision the code you run would write (no model is loaded for it); compare it with the revisions of the first query: a store whose complete revision is not that one was written by other code (the revision follows the module, the definitions, the pinned model and `transformers`, so any edit of the step is another revision). Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault leaves a partial revision: rerun the same command with
-the same code (same revision) and it completes it. A change of the code between two runs is another revision and starts again.
+**The revision follows what decides a score and nothing else:** the pinned model, the two input revisions (the summary and the companies revision), the definitions and groups, the premise and the hypothesis, the lengths and the code that scores (`score_of`, `_read_pair`, `company_name`), how the model is loaded (`CategoryScorer._load`: the precision changes outputs) and the order of the definitions (a tie goes to the first label); the bookkeeping of `CategoryScorer.score` is not part of it. An edit of the command, the storage, the logging or a document is **not** a new revision, so a run you stop and start again with the same command resumes: it does only the items that have no state at that revision, and no row is moved. A step 2 or step 3 run again at a new revision, or a change of a definition, is a new revision (new work), and then `--step category --status --summary-revision S --companies-revision C` prints `code_revision`, the revision the code you run would write for those inputs (no model is loaded for it): compare it with the revisions of the first query before you start.
+
+Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault or by you leaves a partial revision: rerun the same command and it completes it.
+
+**The first run of the development** (2026-11-13, commit `82d6b36`) wrote `category-65f33b55b26b` at a time when the revision still hashed the whole module. Its rows are what the current code writes (1,000 stored pairs re-scored, stratified by label, `scripts/category_verify_revision_2026_11_13.py`, read only: 1,008 of the 64,428 pairs, 72 of each of the 14 labels: 0 labels differ, largest difference of any score 0.0; `docs/category_results_2026_11_13/legacy_revision_check.json`), so `LEGACY_REVISIONS` names it as the revision of the current code for `summary-7a9bd2062bc4` and `companies-f349536cf701`: the same command continues it where it stopped. Any other inputs get a revision of their own.
+
+**Retiring that mapping.** `LEGACY_REVISIONS` is removed in the change that first alters a score (a definition, the premise, the model, `score_of` or `_read_pair`): a test pins it and fails then, so the decision about the legacy rows is made at that change, not by accident. To check any revision against the current code (read only): `uv run scripts/category_verify_revision_2026_11_13.py --revision R --summary-revision S --companies-revision C --results-db ... --source-db ...`.
+
+**A partial revision of older code** can be later by time than the one you continue (the second run of the development, `category-981dacf6f68d`, 7,644 items, is entirely inside the first, with the same label in all 10,355 pairs). `--status` with `--summary-revision` and `--companies-revision` reports the revision this code writes, not the latest by time; a consumer that takes "the latest revision" (PLAN D39 (vi)) should read the complete one, and the redundant partial one can be deleted with `RECATEGORY_SQL` once the owner agrees.
+
+**Company names are an input of step 3, not of this revision.** The hypothesis names the company, and the names come from the source store's universe. The companies step hashes that universe in its own revision, so a renamed company is a new companies revision and so a new revision here. A rename in the source store with no run of the companies step again leaves the category rows as they are: run step 3 again to take it in.
+
+**Why this revision is not the companies step's.** The companies step hashes the code it reaches and the version of `transformers`; this step hashes the code that decides a score (`score_of`, `_read_pair`, `company_name`, `_load`) and not the library version, because an edit of the command or an upgrade of the library must not make a stopped run start again. The library version is not in the rows: it is pinned in `uv.lock` (`transformers` 5.16.1 on 2026-11-14); a score that changes with a library upgrade shows as a failing verification (the script above), not as a silent new revision.
+
+## Carrying finished work to a new revision
+
+**You do not need this to continue the first run of the development** (the current code continues it, see above); it is for a revision that is not named in `LEGACY_REVISIONS`. A new revision starts empty, but the rows of the old one are not lost and, when the scoring is the same, are still right. `scripts/category_adopt_revision_2026_11_13.py` copies the items an old revision finished under the revision the current code writes, and the next run does only what is missing. **It deletes nothing**: the old revision stays until `RECATEGORY_SQL`.
+
+```
+uv run scripts/category_adopt_revision_2026_11_13.py --from-revision category-OLD --summary-revision S --companies-revision C --source-db ... --results-db ...        # report only
+uv run scripts/category_adopt_revision_2026_11_13.py ... --check 20 --yes     # write
+```
+
+Before anything it re-scores `--check` stored pairs of each label (default 10, 140 pairs) with the current code and refuses if a label, a group, the share of the mass or any score differs by more than 0.001, so the old rows are what this code would write; a sample cannot prove every item, so for a revision you mean to keep also run the verification script above. It adopts an item only if it is finished at the old revision and not at the new one, has the same text as at the summary revision the old run read (`--from-summary-revision` when that is not `--summary-revision`; a skipped item must still be blank), and its stored companies are exactly the main companies of the companies revision; the rest is left for the run. Without `--yes` it only reports. Adopt the largest old revision first, then the others (an item already at the new revision is not copied again). Stop any run on the store before writing, and make a copy of `nlp.db` if you want a way back.
 
 ## The definitions the model reads
 
@@ -145,5 +167,5 @@ they break (imports after `sys.path`, one-letter names, lambdas, constants), del
 
 ## Not done
 
-No threshold or review state: every pair gets a label (the owner decides what a low score means). No sector summary (it has no company).
+No threshold or review state, by decision (owner, 2026-11-14): every pair gets a label and the `score` is the confidence, so filter on it; an item with no main company stays on the review list of step 3. A score floor would be another revision (and a change of FR-022); an abstention belongs to the model of T-174. No sector summary (it has no company).
 Sentiment (step 6) is a separate step.
