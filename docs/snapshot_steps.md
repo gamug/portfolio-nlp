@@ -1,6 +1,6 @@
 # The snapshot and the period summary (steps 8 and 9; D42, FR-024; owner, 2026-11-14)
 
-Design only: nothing here is built. The tables below are a **proposal** the owner approves in the spec PR (constitution AI #10).
+**Status (2026-11-14):** the snapshot step (step 8, T-195) is **built**: `src/news_snapshot_stage.py`, `--step snapshot`, the table `news_snapshot`, `tests/news_nlp/test_snapshot_step.py`. The period summary (step 9, T-196) is **not built**; its tables below are still a proposal.
 It replaces D28 and T-152 (the earlier sketch, kept in `.specify/memory/archive/SPEC-PLAN-TASKS-condensed-for-the-snapshot-steps-2026-11-14.md`;
 a reference to D28 in an older file means D42 now). These steps are **Build 3**: after Build 1 (scope to companies, sector) and Build 2 (sentiment, category) have run on the store.
 
@@ -43,7 +43,7 @@ SELECT ROUND(relevance_score, 1) AS bucket, COUNT(*) FROM news_company WHERE mod
 
 The owner picks the floor from it (T-198); the value goes in the config with the date and the revision it was read at.
 
-## Tables (proposal, RESULTS store)
+## Tables (RESULTS store; `news_snapshot` is built, the others are a proposal for T-196)
 
 `news_snapshot`, primary key (`item_kind`, `item_id`, `ticker`, `model_revision`); `ticker` is `''` for a sector text, as in `news_category`:
 
@@ -56,6 +56,7 @@ The owner picks the floor from it (T-198); the value goes in the config with the
 | `companies_mentioned` | JSON list of tickers; empty for now |
 | `category`, `group_label` | from `news_category`; `''` for a sector text |
 | `sentiment`, `sentiment_score` | from `news_sentiment`; `''` and NULL for a sector text |
+| `inputs` | JSON: the summary, companies, cut, category, sentiment and (sector rows) sector revisions the row was built from (not in the revision; `--status` reports the rows built from other revisions than the ones named) |
 | `processed_at` | when the snapshot was written |
 
 `period_summary`, primary key (`period_end`, `kind`, `key`, `model_revision`); `kind` is `company` or `sector`, `key` the ticker or the sector code (`''` for `unclassified`):
@@ -88,14 +89,28 @@ rows say which period counted which snapshot, so the counts can be audited and a
 
 ## The revisions
 
-The snapshot's revision is a hash of the four step revisions a company row reads (summary, companies, category, sentiment), of the **cut revision** (`units5-...`: the text and the
-title of a sub-news depend on it), and of the code that builds the row (and, once the field returns, the mentions floor); a run names each and is refused when one has no rows. **The step is refused unless the inputs recorded in the sentiment and category revisions equal the named summary and companies revisions** (the rows would join other inputs). **The sector revision is not in it** (owner, 2026-11-14): `--sector-revision` is needed only to write sector rows, whose own revision also hashes it, so a sector rerun never changes a company snapshot or a period. The period summary's
-revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row at the revision (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
+**The snapshot step is always idempotent** (owner, 2026-11-14). Its revision (`snapshot-...`) is a hash of **the code that builds a row only** (the columns, the join of the earlier
+steps, the reading of the corpus, the choice of the pairs, the sector rows; not the limit or the counts). The revisions of the steps it read (summary, companies, cut, category, sentiment, and
+sector for sector texts) are **recorded in each row** (`inputs`, JSON), not hashed. A pair that has a row is never read again, whatever revisions it came from, unless `--reset` deletes the rows
+of the revision first. **The daily flow:** the owner names the revisions of the day (any of them can move: the sentiment revision moves the day a new company becomes main, because it hashes the
+names of the main companies); the step writes only the pairs with no row, so a moved revision **never restarts the snapshots or the periods built on them**. The cost of that rule: a row keeps the
+label of the revision that wrote it (`--status` prints `stale_rows`: how many rows were built from other revisions than the ones named, and how many are no longer a main pair); to rebuild after a rerun of a step at the same revision, or to use the new labels, run with `--reset` (a full run: `--reset` with `--limit` is refused; the delete and the rewrite are one transaction, so a rebuild that fails or is interrupted leaves the old rows; the company rows; the sector rows only when `--sector-revision` is named, since only then are they written again; `--reset` with `--status` is refused) (**owner, 2026-11-14: a reset of the snapshots resets the period summary built on them too**: T-196 stores the snapshot revision in `period_run` and `--reset` clears the `period_summary`, `period_run` and `period_item` rows of those periods in the same transaction; the periods are then written again by `--catch-up`). A change of the code is a new revision, and with it new snapshots and new periods.
 
-## Commands (proposed)
+**What a run checks** (`check_inputs`): the step is refused when a revision has no rows, when a category or sentiment row is not a main pair of the companies revision, when a sub-news with a main
+company is not of the named cut, and when an item with a main company has no text at the summary revision (as the sentiment step does: usually the companies step read another summary revision).
+A revision is a hash, so the inputs it read cannot be read back: **a sentiment or category run made on another summary revision is not detected** (name the revisions that ran together).
+Each run reads the whole corpus **once** (company rows and sector rows together), and loads the summary, category and sentiment rows of the revisions into memory whatever `--limit` is (a known
+limit, as in the sentiment step). `--limit` counts the company pairs and, with `--sector-revision`, the sector texts **each** (so it can write twice that). A pair whose article is not in the
+corpus, or has no UTC crawl date (`...Z`), waits with that reason and does not take a place of `--limit`. The rerun SQL is `RESNAPSHOT_SQL` in `--help` (what `--reset` does); a recut also
+deletes the snapshots of its sub-news (`RECUT_SQL`).
+
+The period summary's
+revision is a hash of the snapshot revision, the counting code and the **resolved mapping (ticker, sector code)** of the companies of the snapshot revision (`company_sector` first, else the universe's GICS sector, through `sector`), so a change of the universe's sectors is a new revision and a written period stays reproducible. Both steps are idempotent and resumable. **State is derived from the tables, not kept in `pipeline_step_state`** (owner, 2026-11-14): a (text, company) pair is pending when it has no `news_snapshot` row (so a text with one company complete and another waiting is handled per pair), and a period is pending when it has no `period_run` row for its `period_end` and revision; `--status` computes the waiting pairs and their reason, and lists the periods done and missing.
+
+## Commands (`--step snapshot` is built; `--step period` is proposed, T-196)
 
 ```
-uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... [--sector-revision ...] --category-revision ... --sentiment-revision ... --limit 500
+uv run cli/news_nlp_steps.py --step snapshot --summary-revision ... --companies-revision ... --cut-revision ... [--sector-revision ...] --category-revision ... --sentiment-revision ... --limit 500   # [--reset] rebuilds
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03      # one period
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --catch-up                   # every missing period
 uv run cli/news_nlp_steps.py --step period --snapshot-revision ... --period-end 2022-01-03 --render
