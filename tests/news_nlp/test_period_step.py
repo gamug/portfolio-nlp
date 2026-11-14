@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import json
 import sqlite3
 import sys
@@ -464,7 +465,7 @@ def test_the_text_of_a_period_lists_companies_by_total_then_sectors_with_the_own
     result = _run(conn)
     text = period.render(conn, END1, result["period_revision"])
     lines = text.splitlines()
-    assert lines[0].startswith(f"Period summary {END1}")
+    assert lines[0].startswith("Period summary of 2022-01-24")
     assert (
         lines.index("AAPL:") < lines.index("MSFT:") < lines.index("Information Technology:")
     )  # by total, companies first
@@ -504,7 +505,7 @@ def test_the_command_writes_a_period_prints_it_and_refuses_an_unknown_snapshot_r
     status = json.loads(capsys.readouterr().out)
     assert len(status["periods_written"]) == 4 and status["periods_written"][1]["counted"] == 1
     cli.main_period(_args(status=True), conn)  # a status changes nothing
-    with pytest.raises(SystemExit, match="no snapshots at snapshot-nope"):
+    with pytest.raises(SystemExit, match="no company snapshots at snapshot-nope"):
         cli.main_period(_args(snapshot_revision="snapshot-nope", catch_up=True), conn)
     with pytest.raises(SystemExit, match="not a period end"):
         cli.main_period(_args(period_end="2022-01-04"), conn)
@@ -556,3 +557,107 @@ def test_the_status_needs_no_revision() -> None:
             ["--step", "period", "--snapshot-revision", "s", "--period-end", "2022-01-03"]
         ),
     )
+
+
+def test_a_revision_with_only_sector_texts_is_refused(
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(period, "_now", lambda: AFTER_P3)
+    _add(conn, "s", "", "2022-01-05T10:00:00Z", ticker_blank=True)
+    with pytest.raises(SystemExit, match="no company snapshots"):
+        _load_cli().main_period(_args(catch_up=True), conn)
+
+
+def test_the_refusal_for_a_date_off_the_grid_names_the_nearest_period_ends() -> None:
+    with pytest.raises(period.PeriodRefused, match="the nearest: 2022-01-24 and 2022-02-14"):
+        period.index_of(date(2022, 2, 1))
+    with pytest.raises(period.PeriodRefused, match="the nearest: 2022-01-03 and 2022-01-24"):
+        period.index_of(date(2021, 12, 1))
+
+
+def test_the_report_date_is_the_cut_and_the_text_does_not_show_the_time_of_the_run(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    result = _run(conn)
+    text = period.render(conn, END1, result["period_revision"])
+    assert (
+        text.splitlines()[0]
+        == f"Period summary of 2022-01-24  (cut {END1}, window ({END0}, {END1}])"
+    )
+    assert "created" not in text
+
+
+def test_the_status_and_the_text_read_only_and_a_sector_name_comes_from_the_constants(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    _add(conn, "z", "ZZZ", "2022-01-05T11:00:00Z")
+    result = _run(conn)  # the run seeds the sector table
+    conn.execute("DELETE FROM sector")  # the reading must not need it, and must not fill it
+    conn.commit()
+    text = period.render(conn, END1, result["period_revision"])
+    assert "Information Technology:" in text and "unclassified:" in text
+    status = period.status(conn, SNAP, tz=NY, now=AFTER_P3)
+    assert (
+        status["missing"] == [] and conn.execute("SELECT COUNT(*) FROM sector").fetchone()[0] == 0
+    )
+
+
+def test_the_status_lists_the_periods_still_missing(conn: db_module.NewsNlpDatabase) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    _run(conn, AFTER_P1)  # periods 0 and 1 written
+    status = period.status(conn, SNAP, tz=NY, now=AFTER_P3)
+    assert status["missing"] == ["2022-02-14", "2022-03-07"]
+    assert [p["period_end"] for p in status["periods_written"]] == [END0, END1]  # type: ignore[attr-defined,index]
+
+
+def test_a_run_in_another_zone_cuts_at_its_own_15_00(conn: db_module.NewsNlpDatabase) -> None:
+    bogota = ZoneInfo("America/Bogota")
+    sao_paulo = ZoneInfo("America/Sao_Paulo")  # UTC-3: the cut is 18:00 UTC
+    _add(conn, "in", "AAPL", "2022-01-03T18:00:00Z")  # exactly at the cut in Sao Paulo
+    _add(conn, "out", "AAPL", "2022-01-03T18:00:01Z")
+    result = period.run(conn, SNAP, tz=sao_paulo, now=datetime(2022, 1, 25, tzinfo=UTC))
+    assert (
+        result["periods"][0]["period_end"] == "2022-01-03T18:00:00Z"
+        and result["periods"][0]["counted"] == 1
+    )
+    assert result["periods"][1]["counted"] == 1
+    assert period.cut_utc(0, bogota) == "2022-01-03T20:00:00Z"
+
+
+def test_the_not_counted_line_is_printed_only_when_above_zero(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    result = _run(conn)
+    assert "not counted yet" not in period.render(conn, END1, result["period_revision"])
+    conn.execute("UPDATE period_summary SET not_counted = 2 WHERE kind = 'company'")
+    conn.commit()
+    assert "  not counted yet: 2" in period.render(conn, END1, result["period_revision"])
+
+
+def test_a_sentiment_outside_the_three_is_refused_not_counted_in_no_split(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z", sentiment="mixed")
+    with pytest.raises(period.PeriodRefused, match="sentiment other than"):
+        _run(conn)
+
+
+def test_the_revision_hashes_the_counting_rule_not_the_bookkeeping() -> None:
+    code = inspect.getsource(period._code)
+    for name in ("_tally", "_counts_of", "_load_rows", "_write", "_gaps"):
+        assert name in code
+    assert "(run," not in code
+
+
+def test_the_run_shows_a_progress_bar_with_the_time_left(
+    conn: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z")
+    _run(conn)
+    err = capsys.readouterr().err
+    assert (
+        "period:" in err and "4/4" in err and "period/s" in err and "<" in err
+    )  # count, rate, time left

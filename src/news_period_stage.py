@@ -18,6 +18,8 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from tqdm import tqdm
+
 import news_snapshot_stage as snap
 from news_nlp.db import NewsNlpDatabase
 from news_summary_stage import normalized_code
@@ -66,8 +68,10 @@ def index_of(day: date) -> int:
     """The index of the period that ends on ``day``; refused when it is not on the grid (2022-01-03 + 21k days, k >= 0)."""
     delta = (day - FIRST_END).days
     if delta < 0 or delta % PERIOD_DAYS:
+        before = period_date(max(0, delta // PERIOD_DAYS))
+        after = period_date(max(0, delta // PERIOD_DAYS) + 1)
         raise PeriodRefused(
-            f"{day} is not a period end: they are {FIRST_END} + {PERIOD_DAYS} * k days (the next ones: {period_date(0)}, {period_date(1)}, {period_date(2)}, ...)"
+            f"{day} is not a period end: they are {FIRST_END} + {PERIOD_DAYS} * k days (the nearest: {before} and {after})"
         )
     return delta // PERIOD_DAYS
 
@@ -118,7 +122,12 @@ def sector_map(conn: NewsNlpDatabase) -> dict[str, str]:
 
 
 def sector_names(conn: NewsNlpDatabase) -> dict[str, str]:
-    return {str(c): str(n) for c, n in conn.execute("SELECT code, name FROM sector")}
+    """The name of each sector code: the GICS constants, overridden by the ``sector`` table (a row the owner changed or added). Reads only."""
+    from sector_stage import SECTOR_CODES  # noqa: PLC0415 -- numpy only
+
+    names = {code: name for name, code in SECTOR_CODES.items()}
+    names.update({str(c): str(n) for c, n in conn.execute("SELECT code, name FROM sector")})
+    return names
 
 
 # --- the revision ----------------------------------------------------------------------------------------------------
@@ -126,7 +135,7 @@ def sector_names(conn: NewsNlpDatabase) -> dict[str, str]:
 
 def _code() -> str:
     """The code that counts, normalised: a comment, a docstring or the formatting is not a new revision."""
-    functions = (_tally, _counts_of, _load_rows)
+    functions = (_tally, _counts_of, _load_rows, _write, _gaps)  # not `run` (the bookkeeping)
     return hashlib.sha256(
         "\n".join(normalized_code(inspect.getsource(f)) for f in functions).encode()
     ).hexdigest()[:12]
@@ -343,6 +352,11 @@ def run(
     if not todo:
         return result
     rows = _load_rows(conn, snapshot_revision)
+    odd = Counter(r.sentiment for r in rows if r.sentiment not in SENTIMENTS)
+    if odd:
+        raise PeriodRefused(
+            f"snapshots with a sentiment other than {', '.join(SENTIMENTS)} ({dict(odd)}): the lines would not add up"
+        )
     counted = {
         (str(k), str(i), str(t))
         for k, i, t in conn.execute(
@@ -351,10 +365,13 @@ def run(
         )
     }
     gaps = _gaps(conn, snapshot_revision, rows)
-    for k in todo:
-        result["periods"].append(
-            _write(conn, k, tz, snapshot_revision, period_rev, rows, counted, mapping, gaps)
-        )
+    with tqdm(total=len(todo), desc="period", unit="period") as bar:  # progress and time left
+        for k in todo:
+            bar.set_postfix_str(str(period_date(k)))
+            result["periods"].append(
+                _write(conn, k, tz, snapshot_revision, period_rev, rows, counted, mapping, gaps)
+            )
+            bar.update(1)
     return result
 
 
@@ -364,7 +381,7 @@ def run(
 def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category."""
     run_row = conn.execute(
-        "SELECT period_start, created_at FROM period_run WHERE period_end = ? AND model_revision = ?",
+        "SELECT period_start FROM period_run WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
     ).fetchone()
     if run_row is None:
@@ -380,7 +397,7 @@ def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
     ):
         blocks[str(kind)].append((str(key), json.loads(str(counts)), int(missing)))
     window = f"({run_row[0] or 'the beginning'}, {period_end}]"
-    lines = [f"Period summary {period_end}  window {window}  created {run_row[1]}"]
+    lines = [f"Period summary of {period_end[:10]}  (cut {period_end}, window {window})"]
     for kind in ("company", "sector"):
         for key, counts, missing in sorted(
             blocks[kind], key=lambda b: (-sum(c["total"] for c in b[1].values()), b[0])
@@ -427,7 +444,6 @@ def status(
         ],
     }
     if snapshot_revision is not None:
-        seed_sectors(conn)
         period_rev = revision(snapshot_revision, sector_map(conn))
         done = written(conn, period_rev)
         passed = last_index(now or _now(), zone)

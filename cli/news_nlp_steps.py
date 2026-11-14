@@ -1399,14 +1399,14 @@ def main_period(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         revision = args.snapshot_revision
         if (
             conn.execute(
-                "SELECT 1 FROM news_snapshot WHERE model_revision = ? LIMIT 1", (revision,)
+                "SELECT 1 FROM news_snapshot WHERE model_revision = ? AND ticker != '' LIMIT 1",
+                (revision,),
             ).fetchone()
             is None
         ):
             ran = ", ".join(r["revision"] for r in snap.status(conn)["revisions"]) or "none"  # type: ignore[attr-defined,index]
-            sys.exit(f"no snapshots at {revision} (the revisions that ran: {ran})")
+            sys.exit(f"no company snapshots at {revision} (the revisions that ran: {ran})")
         if args.render:
-            period.seed_sectors(conn)
             end = period.cut_utc(period.index_of(date.fromisoformat(args.period_end)), tz)
             print(period.render(conn, end, period.revision(revision, period.sector_map(conn))))
             return
