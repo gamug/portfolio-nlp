@@ -66,7 +66,7 @@ or time into portfolio-level signals (`financial-analysis` and
 
 ### 2.1 In scope
 
-- Batch NLP over pre-populated article text. **Target (D39, FR-020/FR-021): a stepped pipeline** (scope, summary, NER, relevance, sub-news extractor, sentiment, category, snapshots), one command per step, tracked and idempotent. **Code today (v1):** five stages (sentiment, NER, category always run; summaries opt-in), each writing its own result table, idempotent and resumable, until the backfill (T-150).
+- Batch NLP over pre-populated article text. **Target (D39, FR-020/FR-021): a stepped pipeline** (scope, summary, NER, relevance, sub-news extractor, sentiment, category, snapshots, period summary), one command per step, tracked and idempotent. **Code today (v1):** five stages (sentiment, NER, category always run; summaries opt-in), each writing its own result table, idempotent and resumable, until the backfill (T-150).
 - The two-tier SOURCE (read-only)/RESULTS (read-write) database contract.
 - A FastAPI serving layer (query + human-correction endpoints) that works
   off the RESULTS store alone.
