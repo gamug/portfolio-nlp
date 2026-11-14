@@ -2303,3 +2303,8 @@ The development tasks of the steps that are built (scope, cut, summary, companie
   - **Closed (owner, 2026-11-14):** proposed, never built; dropped by the owner.
 - [x] **T-148c3e** *(proposed)* Class imbalance of the tags: weights or resampling in the CV.
   - **Closed (owner, 2026-11-14):** proposed, never built; dropped by the owner.
+
+### Work item 18 — T-175, the licence of the sentiment model (done 2026-11-14)
+
+- [x] **T-175** *(owner's decision, small; #164)* `gamug/FinBERT-financial-news` is `cc-by-nc-4.0` but its base `ProsusAI/finbert` is `cc-by-nc-sa-4.0` (share-alike): **Decided (owner, 2026-11-14): correct the card of `gamug/FinBERT-financial-news` to `cc-by-nc-sa-4.0`.** Left: the change on the Hub (needs a write token; the owner's word to do it). The sentiment card already says `cc-by-nc-sa-4.0`.
+  - **Closed (owner, 2026-11-14):** decided and done: the card of `gamug/FinBERT-financial-news` (public) is corrected to `cc-by-nc-sa-4.0`, the licence of the base model `ProsusAI/finbert`: Hub commit `7305d765`, model card only (the pinned revision `93863fcb` still resolves and the weights are identical). The one-shot publish scripts of 2026-09-13/14 still hold the old text and are not run again; the dataset repository `gamug/FinBERT-financial-news-data` is a separate card and was not touched.
