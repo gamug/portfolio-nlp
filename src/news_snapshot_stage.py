@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 
@@ -21,6 +22,8 @@ PREFIX = "snapshot-"
 WAIT_NO_TEXT = "no text at the summary revision"
 WAIT_NO_CATEGORY = "no category yet"
 WAIT_NO_SENTIMENT = "no sentiment yet"
+WAIT_NO_ARTICLE = "the article is not in the corpus"
+WAIT_NO_DATE = "no crawl date in UTC (YYYY-MM-DDTHH:MM:SSZ)"
 
 
 @dataclass(frozen=True)
@@ -48,10 +51,30 @@ class Article:
 
 
 def _code() -> str:
-    """The code that builds a row, normalised: a comment, a docstring or the formatting is not a new revision."""
+    """The code that decides a row, normalised: the columns (``_row_values``), the join of the earlier steps (``_ready_and_waiting``), the reading of
+    the corpus (``articles_of``, ``crawl_date_ok``), the choice of the pairs (``_pending``) and the sector rows (``run_sectors``). A comment, a
+    docstring or the formatting is not a new revision; ``run`` (the bookkeeping: the limit, the counts) is not hashed on purpose."""
     return hashlib.sha256(
-        "\n".join(normalized_code(inspect.getsource(f)) for f in (_row_values,)).encode()
+        "\n".join(
+            normalized_code(inspect.getsource(f))
+            for f in (
+                _row_values,
+                _ready_and_waiting,
+                articles_of,
+                crawl_date_ok,
+                _pending,
+                run_sectors,
+            )
+        ).encode()
     ).hexdigest()[:12]
+
+
+_CRAWL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
+def crawl_date_ok(value: str) -> bool:
+    """A crawl date the period windows can read: UTC, ``YYYY-MM-DDTHH:MM:SSZ`` (the format the crawl stores). Strings of this shape compare as times."""
+    return _CRAWL_DATE.match(value) is not None
 
 
 def _row_values(pair: Pair, article: Article, sector: str) -> tuple[object, ...]:
@@ -143,6 +166,15 @@ def check_inputs(
             problems.append(f"{name} revision {value}: no rows")
     if problems:
         return problems
+    stray_cut = conn.execute(
+        "SELECT COUNT(*) FROM (SELECT DISTINCT item_id FROM news_company WHERE model_revision = ? AND is_main = 1 AND item_kind = ?) c "
+        "WHERE NOT EXISTS (SELECT 1 FROM sub_news s WHERE CAST(s.id AS TEXT) = c.item_id AND s.extractor_revision = ?)",
+        (companies_revision, steps.ITEM_SUB_NEWS, cut_revision),
+    ).fetchone()[0]
+    if stray_cut:
+        problems.append(
+            f"cut revision {cut_revision}: {stray_cut} sub-news with a main company at {companies_revision} are not of that cut"
+        )
     for name, table, value in (
         ("category", "news_category", category_revision),
         ("sentiment", "news_sentiment", sentiment_revision),
@@ -223,18 +255,9 @@ def _ready_and_waiting(
     return ready, waiting
 
 
-def articles_of(
-    conn: NewsNlpDatabase, items: list[tuple[str, str]]
-) -> dict[tuple[str, str], Article]:
-    """The crawl date, title and publication date of each item (a body hash, or a ``sub_news`` id). A unique body can come from several articles:
-    the date is the **earliest** ``fetched_at`` of them, the title and the publication date are those of the first (lowest id) article. Reads the whole
-    corpus once (hashing each body, as step 1 does); an item whose body is not found is missing from the result."""
-    from news_nlp import triage  # noqa: PLC0415 -- the body hash of step 1
-
-    hash_of: dict[tuple[str, str], str] = {}
-    for kind, item_id in items:
-        if kind == steps.ITEM_BODY:
-            hash_of[(kind, item_id)] = item_id
+def _body_hashes(conn: NewsNlpDatabase, items: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    """The body hash of each item: a body is its own hash, a sub-news is looked up (``sub_news.body_hash``)."""
+    hash_of = {(k, i): i for k, i in items if k == steps.ITEM_BODY}
     sub_ids = [int(i) for k, i in items if k == steps.ITEM_SUB_NEWS]
     for start in range(0, len(sub_ids), 500):
         chunk = sub_ids[start : start + 500]
@@ -244,6 +267,19 @@ def articles_of(
             chunk,
         ):
             hash_of[(steps.ITEM_SUB_NEWS, str(sub_id))] = str(body_hash)
+    return hash_of
+
+
+def articles_of(
+    conn: NewsNlpDatabase, items: list[tuple[str, str]]
+) -> dict[tuple[str, str], Article]:
+    """The crawl date, title and publication date of each item (a body hash, or a ``sub_news`` id). A unique body can come from several articles:
+    the date is the **earliest valid** ``fetched_at`` of them (UTC, ``crawl_date_ok``; another format is ignored, and a body with none has an empty
+    date), the title and the publication date are those of the first (lowest id) article. Reads the whole corpus once (hashing each body, as step 1
+    does); an item whose body is not found is missing from the result."""
+    from news_nlp import triage  # noqa: PLC0415 -- the body hash of step 1
+
+    hash_of = _body_hashes(conn, items)
     wanted = set(hash_of.values())
     found: dict[str, Article] = {}
     if wanted:
@@ -257,13 +293,41 @@ def articles_of(
             key = triage.body_hash(text)
             if key not in wanted:
                 continue
-            seen = found.get(key)
             when = str(fetched_at or "")
+            if not crawl_date_ok(when):
+                when = ""  # not a UTC time: it never decides the window
+            seen = found.get(key)
             if seen is None:
                 found[key] = Article(when, str(title or ""), str(pub_date or ""))
             elif when and (not seen.fetched_at or when < seen.fetched_at):
                 found[key] = Article(when, seen.title, seen.pub_date)
     return {item: found[h] for item, h in hash_of.items() if h in found}
+
+
+def _pending(
+    conn: NewsNlpDatabase,
+    summary_revision: str,
+    companies_revision: str,
+    category_revision: str,
+    sentiment_revision: str,
+    revision_: str,
+) -> tuple[list[tuple[Pair, Article]], Counter[str]]:
+    """Every pair ready to write with its article, and the reasons the others wait: the join of the earlier steps, then the corpus (a pair whose
+    article is not in it, or has no valid crawl date, waits and does not take a place of the limit). Reads the whole corpus once."""
+    ready, waiting = _ready_and_waiting(
+        conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
+    )
+    info = articles_of(conn, [(p.kind, p.item_id) for p in ready])
+    complete: list[tuple[Pair, Article]] = []
+    for pair in ready:
+        article = info.get((pair.kind, pair.item_id))
+        if article is None:
+            waiting[WAIT_NO_ARTICLE] += 1
+        elif not article.fetched_at:
+            waiting[WAIT_NO_DATE] += 1
+        else:
+            complete.append((pair, article))
+    return complete, waiting
 
 
 def run(
@@ -275,34 +339,25 @@ def run(
     sentiment_revision: str,
     limit: int | None,
 ) -> dict[str, int]:
-    """Write the snapshots of up to ``limit`` ready pairs of the company revision; return what was done. ``waiting`` is the pairs that were not ready (see
-    ``--status`` for the reasons), ``no_article`` the ready pairs whose article has no crawl date or is not in the corpus."""
-    ready, waiting = _ready_and_waiting(
+    """Write the snapshots of up to ``limit`` complete pairs of the company revision; return what was done. ``waiting`` is the pairs that cannot be
+    written yet (``--status`` gives the reasons), ``ready_left`` the complete pairs the limit left for the next run."""
+    complete, waiting = _pending(
         conn, summary_revision, companies_revision, category_revision, sentiment_revision, revision_
     )
-    if limit is not None:
-        ready = ready[:limit]
-    info = articles_of(conn, [(p.kind, p.item_id) for p in ready])
+    todo = complete if limit is None else complete[:limit]
     now = steps._now()
-    written = no_article = 0
-    for pair in ready:
-        article = info.get((pair.kind, pair.item_id))
-        if article is None or not article.fetched_at:
-            no_article += 1
-            continue
+    for pair, article in todo:
         conn.execute(
             "INSERT OR IGNORE INTO news_snapshot (item_kind, item_id, ticker, model_revision, fetched_at, pub_date, title, text, text_source, "
             "sector, companies_mentioned, category, group_label, sentiment, sentiment_score, processed_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (pair.kind, pair.item_id, pair.ticker, revision_, *_row_values(pair, article, ""), now),
         )
-        written += 1
     conn.commit()
     return {
-        "written": written,
-        "no_article": no_article,
+        "written": len(todo),
         "waiting": sum(waiting.values()),
-        "ready_left": max(0, len(ready) - written - no_article),
+        "ready_left": len(complete) - len(todo),
     }
 
 
@@ -345,16 +400,18 @@ def run_sectors(
         )
         if str(h) not in done and str(h) not in texts
     )
-    if limit is not None:
-        todo = todo[:limit]
     info = articles_of(conn, [(steps.ITEM_BODY, h) for h, _ in todo])
+    complete = [
+        (h, sector, info[(steps.ITEM_BODY, h)])
+        for h, sector in todo
+        if (steps.ITEM_BODY, h) in info and info[(steps.ITEM_BODY, h)].fetched_at
+    ]
+    waiting += len(todo) - len(
+        complete
+    )  # no article in the corpus, or no valid crawl date: they do not take a place of the limit
+    chosen = complete if limit is None else complete[:limit]
     now = steps._now()
-    written = no_article = 0
-    for h, sector in todo:
-        article = info.get((steps.ITEM_BODY, h))
-        if article is None or not article.fetched_at:
-            no_article += 1
-            continue
+    for h, sector, article in chosen:
         text, source = texts[h]
         pair = Pair(steps.ITEM_BODY, h, "", text, source, "", "", "", 0.0)
         values = list(_row_values(pair, article, sector))
@@ -365,9 +422,8 @@ def run_sectors(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (steps.ITEM_BODY, h, "", revision_, *values, now),
         )
-        written += 1
     conn.commit()
-    return {"written": written, "no_article": no_article, "waiting": waiting}
+    return {"written": len(chosen), "waiting": waiting, "ready_left": len(complete) - len(chosen)}
 
 
 def status(
@@ -378,33 +434,36 @@ def status(
     companies_revision: str | None = None,
     category_revision: str | None = None,
     sentiment_revision: str | None = None,
+    sector_rows_revision: str | None = None,
 ) -> dict[str, object]:
-    """The rows by revision and, with the four input revisions and the snapshot revision, the main pairs still waiting and why (derived from the tables)."""
+    """The rows by revision (company rows and sector rows apart) and, with the four input revisions and the snapshot revision, the main pairs still
+    waiting and why (derived from the tables; it reads the corpus once). ``sector_rows_revision`` is the revision the sector rows were written at."""
     out: dict[str, object] = {
         "step": "snapshot",
         "revisions": [
-            {"revision": str(r), "rows": int(n)}
-            for r, n in conn.execute(
-                "SELECT model_revision, COUNT(*) FROM news_snapshot GROUP BY model_revision ORDER BY MIN(processed_at) DESC"
+            {"revision": str(r), "company_rows": int(c), "sector_rows": int(t)}
+            for r, c, t in conn.execute(
+                "SELECT model_revision, COALESCE(SUM(ticker != ''), 0), COALESCE(SUM(ticker = ''), 0) FROM news_snapshot "
+                "GROUP BY model_revision ORDER BY MIN(processed_at) DESC"
             )
         ],
     }
     if revision_ is not None:
         out["revision"] = revision_
-        out["rows"] = {
-            "company": int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker != ''",
-                    (revision_,),
-                ).fetchone()[0]
-            ),
-            "sector_texts": int(
-                conn.execute(
-                    "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker = ''",
-                    (revision_,),
-                ).fetchone()[0]
-            ),
-        }
+        out["company_rows"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker != ''",
+                (revision_,),
+            ).fetchone()[0]
+        )
+    if sector_rows_revision is not None:
+        out["sector_rows_revision"] = sector_rows_revision
+        out["sector_rows"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM news_snapshot WHERE model_revision = ? AND ticker = ''",
+                (sector_rows_revision,),
+            ).fetchone()[0]
+        )
     if None not in (
         summary_revision,
         companies_revision,
@@ -412,7 +471,7 @@ def status(
         sentiment_revision,
         revision_,
     ):
-        _, waiting = _ready_and_waiting(
+        _, waiting = _pending(
             conn,
             str(summary_revision),
             str(companies_revision),

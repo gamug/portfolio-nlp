@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import json
 import sqlite3
 import sys
@@ -39,19 +40,42 @@ def _load_cli() -> Any:
     return module
 
 
-@pytest.fixture
-def pair(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
-    """A SOURCE store with the body A crawled twice (ids 1 and 2, the later first in time) and the body B once, attached to a RESULTS store."""
+def _make_pair(
+    tmp_path: Path, results_db_path: Path, dates: tuple[str, str, str]
+) -> db_module.NewsNlpDatabase:
+    """A SOURCE store with the body A crawled twice (ids 1 and 2) and the body B once (id 3), attached to a RESULTS store."""
     source = tmp_path / "src.db"
     raw = sqlite3.connect(source)
     raw.executescript(ARTICLES_SCHEMA)
     stamp_source(raw)
-    seed_article(raw, id=1, title="First A", body_text=BODY_A, fetched_at="2022-01-10T12:00:00Z")
-    seed_article(raw, id=2, title="Second A", body_text=BODY_A, fetched_at="2022-01-02T09:00:00Z")
-    seed_article(raw, id=3, title="Only B", body_text=BODY_B, fetched_at="2022-01-05T10:00:00Z")
+    seed_article(raw, id=1, title="First A", body_text=BODY_A, fetched_at=dates[0])
+    seed_article(raw, id=2, title="Second A", body_text=BODY_A, fetched_at=dates[1])
+    seed_article(raw, id=3, title="Only B", body_text=BODY_B, fetched_at=dates[2])
     raw.commit()
     raw.close()
-    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+    return db_module.connect_pipeline(results_db=results_db_path, source_db=source)
+
+
+@pytest.fixture
+def pair(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
+    """Body A crawled on 2022-01-10 (id 1) and 2022-01-02 (id 2, the later id), body B on 2022-01-05."""
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        ("2022-01-10T12:00:00Z", "2022-01-02T09:00:00Z", "2022-01-05T10:00:00Z"),
+    )
+    yield conn
+    db_module.detach_source(conn)
+
+
+@pytest.fixture
+def pair_odd_dates(tmp_path: Path, results_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
+    """The first article of body A and the only one of body B have a date that is not UTC `...Z`."""
+    conn = _make_pair(
+        tmp_path,
+        results_db_path,
+        ("2021-12-31 08:00:00", "2022-01-02T09:00:00Z", "2022-01-03T09:00:00+01:00"),
+    )
     yield conn
     db_module.detach_source(conn)
 
@@ -139,7 +163,7 @@ def test_only_complete_pairs_are_written_and_the_others_wait_with_a_reason(
         sentiment_revision=SENT,
     )
     assert status["waiting_pairs"] == {snap.WAIT_NO_SENTIMENT: 1, snap.WAIT_NO_CATEGORY: 1}
-    assert status["rows"] == {"company": 2, "sector_texts": 0}
+    assert status["company_rows"] == 2
 
 
 def test_a_row_carries_the_text_the_earliest_crawl_and_the_first_articles_title(
@@ -218,7 +242,57 @@ def test_a_pair_whose_article_is_gone_is_counted_not_written(
     steps.record_category(pair, steps.ITEM_BODY, "gone", CAT, {"AAPL": _category()}, "m")
     steps.record_sentiment(pair, steps.ITEM_BODY, "gone", SENT, {"AAPL": _sentiment()}, "m")
     result = _run(pair)
-    assert result["no_article"] == 1 and result["written"] == 2
+    assert (
+        result["written"] == 2 and result["waiting"] == 3
+    )  # the missing article waits with the two other gaps
+    assert _waiting(pair)[snap.WAIT_NO_ARTICLE] == 1
+
+
+def _waiting(conn: db_module.NewsNlpDatabase) -> dict[str, int]:
+    return snap.status(
+        conn,
+        _revision(),
+        summary_revision=SUM,
+        companies_revision=COMP,
+        category_revision=CAT,
+        sentiment_revision=SENT,
+    )["waiting_pairs"]  # type: ignore[return-value]
+
+
+def test_a_pair_with_no_article_does_not_take_a_place_of_the_limit(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    steps.record_summary(pair, steps.ITEM_BODY, "gone", SUM, "t", "summary", 1)
+    steps.record_companies(pair, steps.ITEM_BODY, "gone", COMP, [CompanyScore("AAA", 1, 0.9)], 0.5)
+    steps.record_category(pair, steps.ITEM_BODY, "gone", CAT, {"AAA": _category()}, "m")
+    steps.record_sentiment(pair, steps.ITEM_BODY, "gone", SENT, {"AAA": _sentiment()}, "m")
+    first = _run(pair, limit=1)
+    assert (
+        first["written"] == 1 and first["ready_left"] == 1
+    )  # one complete pair is left, not the pair with no article
+    second = _run(pair, limit=1)
+    assert second["written"] == 1 and second["ready_left"] == 0
+
+
+def test_a_date_that_is_not_utc_never_decides_the_window(
+    pair_odd_dates: db_module.NewsNlpDatabase,
+) -> None:
+    pair = pair_odd_dates
+    _seed(pair)
+    steps.record_sentiment(pair, steps.ITEM_BODY, HASH_B, SENT, {"MSFT": _sentiment()}, "m")
+    _run(pair)
+    rows = {(r[0], r[1]): r for r in _rows(pair)}
+    assert (
+        rows[(HASH_A, "AAPL")]["fetched_at"] == "2022-01-02T09:00:00Z"
+    )  # article 1 is ignored, article 2 is valid
+    assert (
+        _waiting(pair)[snap.WAIT_NO_DATE] == 1
+    )  # body B has no valid date: it waits, not written with a wrong one
+    assert (HASH_B, "MSFT") not in {(r[0], r[1]) for r in _rows(pair)}
+    assert not snap.crawl_date_ok("2022-01-02 09:00:00") and snap.crawl_date_ok(
+        "2022-01-02T09:00:00Z"
+    )
 
 
 def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector(
@@ -235,9 +309,12 @@ def test_the_sector_texts_have_no_category_no_sentiment_and_the_two_digit_sector
     revision = snap.sector_revision_of(_revision(), SECTOR)
     assert snap.run_sectors(pair, revision, SUM, SECTOR, None) == {
         "written": 1,
-        "no_article": 0,
         "waiting": 0,
+        "ready_left": 0,
     }
+    status = snap.status(pair, _revision(), sector_rows_revision=revision)
+    assert status["sector_rows"] == 1 and status["company_rows"] == 0
+    assert status["revisions"] == [{"revision": revision, "company_rows": 0, "sector_rows": 1}]
     row = pair.execute(
         "SELECT * FROM news_snapshot WHERE model_revision = ?", (revision,)
     ).fetchone()
@@ -282,6 +359,38 @@ def test_the_run_is_refused_for_a_revision_with_no_rows_and_for_rows_of_other_co
     assert len(problems) == 1 and "not main pairs" in problems[0]
 
 
+def test_the_run_is_refused_when_its_sub_news_are_not_of_the_named_cut(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    _seed(pair)
+    sub_id = str(pair.execute("SELECT id FROM sub_news").fetchone()[0])
+    steps.record_companies(
+        pair, steps.ITEM_SUB_NEWS, sub_id, COMP, [CompanyScore("AAPL", 1, 0.9)], 0.5
+    )
+    assert snap.check_inputs(pair, SUM, COMP, CUT, CAT, SENT, None) == []
+    pair.execute(
+        "INSERT INTO sub_news (body_hash, article_id, segment_index, text, extractor_revision, processed_at) "
+        "VALUES (?, 1, 0, 's', 'units5-other', 't')",
+        (HASH_B,),
+    )
+    pair.commit()
+    problems = snap.check_inputs(pair, SUM, COMP, "units5-other", CAT, SENT, None)
+    assert len(problems) == 1 and "not of that cut" in problems[0]
+
+
+def test_the_revision_covers_the_join_and_the_reading_of_the_corpus() -> None:
+    code = inspect.getsource(snap._code)
+    for name in (
+        "_row_values",
+        "_ready_and_waiting",
+        "articles_of",
+        "crawl_date_ok",
+        "_pending",
+        "run_sectors",
+    ):
+        assert name in code
+
+
 def _args(**kw: Any) -> argparse.Namespace:
     base: dict[str, Any] = {
         "summary_revision": SUM,
@@ -305,7 +414,7 @@ def test_the_command_writes_the_snapshots_and_prints_the_counts(
     out = capsys.readouterr().out
     assert json.loads(out.split("\n}\n")[0] + "\n}")["written"] == 2
     cli.main_snapshot(_args(status=True), pair)
-    assert '"company": 2' in capsys.readouterr().out
+    assert '"company_rows": 2' in capsys.readouterr().out
 
 
 def test_the_command_refuses_inputs_that_do_not_agree(pair: db_module.NewsNlpDatabase) -> None:

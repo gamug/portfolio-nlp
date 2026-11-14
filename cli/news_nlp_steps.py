@@ -1291,6 +1291,13 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
 
     summary, companies, cut = args.summary_revision, args.companies_revision, args.cut_revision
     category, sentiment = args.category_revision, args.sentiment_revision
+    sector_rows = (
+        snap.sector_revision_of(
+            snap.revision(summary, companies, cut, category, sentiment), args.sector_revision
+        )
+        if all((summary, companies, cut, category, sentiment)) and args.sector_revision
+        else None
+    )
     revision = (
         snap.revision(summary, companies, cut, category, sentiment)
         if all((summary, companies, cut, category, sentiment))
@@ -1306,6 +1313,7 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
                     companies_revision=companies,
                     category_revision=category,
                     sentiment_revision=sentiment,
+                    sector_rows_revision=sector_rows,
                 ),
                 indent=2,
             )
@@ -1339,6 +1347,7 @@ def main_snapshot(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
                 companies_revision=args.companies_revision,
                 category_revision=args.category_revision,
                 sentiment_revision=args.sentiment_revision,
+                sector_rows_revision=sector_rows,
             ),
             indent=2,
         )
