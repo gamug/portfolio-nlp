@@ -85,19 +85,21 @@ def models_of_the_step() -> dict[str, str]:
 
 
 #: A revision of the step that was written before the revision followed the scoring only (the first run of the development, 2026-11-13: the code of commit
-#: 82d6b36 over the revisions of step 2 and step 3 named in the key). Its rows are the ones this code would write (the same labels in 10,355 of 10,355 pairs
-#: of its repeats, and the stored pairs re-scored), so the run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity
-#: gives (``scoring_revision``); value: the revision already in the store.
-LEGACY_REVISIONS: dict[str, str] = {"category-9e432cb9acb3": "category-65f33b55b26b"}
+#: 82d6b36 over the revisions of step 2 and step 3 named in the key). Its rows are the ones this code would write: the same labels in 10,355 of 10,355 pairs
+#: of its repeats and 1,000 stored pairs re-scored (``scripts/category_verify_revision_2026_11_13.py``, figures in ``docs/category_results_2026_11_13/``), so the
+#: run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity gives (``scoring_revision``); value: the revision
+#: already in the store. **Retired** in the change that first alters a score (a definition, the premise, the model, the code of ``_read_pair`` or ``score_of``):
+#: the test that pins it fails then, and the owner decides whether the legacy rows are still wanted.
+LEGACY_REVISIONS: dict[str, str] = {"category-37c188900f38": "category-65f33b55b26b"}
 
 
 def _scoring_code() -> str:
-    """The code that decides a score: the label, the group and the share of the mass (``score_of``), the reading of the pair by the model (``CategoryScorer.score``)
-    and the name of the company in the hypothesis (``company_name``), normalised (comments, docstrings and formatting do not count)."""
+    """The code that decides a score: the label, the group and the share of the mass (``score_of``), the reading of the pair by the model (``_read_pair``)
+    and the name of the company in the hypothesis (``company_name``), normalised (comments, docstrings and formatting do not count). The bookkeeping of
+    ``CategoryScorer.score`` (which pairs were cut at the window) is not here on purpose: editing it must not restart a run."""
     return hashlib.sha256(
         "\n".join(
-            normalized_code(inspect.getsource(f))
-            for f in (score_of, CategoryScorer.score, company_name)
+            normalized_code(inspect.getsource(f)) for f in (score_of, _read_pair, company_name)
         ).encode()
     ).hexdigest()[:12]
 
@@ -156,6 +158,30 @@ def score_of(entailment: Sequence[float]) -> CategoryScore:
     )
 
 
+def _read_pair(
+    tokenizer: Any, model: Any, device: Any, entailment: int, text: str, company: str
+) -> tuple[list[float], Any]:
+    """What decides a score: the premise, one hypothesis per label, the model's entailment probability of each. Returns the probabilities and the encoded
+    batch (the caller records from it whether the pair was cut at the window). **This function is part of the revision** (``_scoring_code``): an edit of its
+    statements is a new revision, one of its comments, its docstring or its formatting is not; keep the bookkeeping out of it."""
+    name = company_name(company)
+    premise = PREMISE.format(company=name, text=text[:PREMISE_CHARS])
+    hypotheses = [
+        HYPOTHESIS.format(company=name, definition=DEFINITIONS[label]) for label in LABELS
+    ]
+    encoded = tokenizer(
+        [premise] * len(hypotheses),
+        hypotheses,
+        truncation="only_first",
+        max_length=MAX_LENGTH,
+        padding=True,
+        return_tensors="pt",
+    ).to(device)
+    with torch.no_grad():
+        logits = model(**encoded).logits.float()
+    return torch.softmax(logits, dim=-1)[:, entailment].cpu().tolist(), encoded
+
+
 class CategoryScorer:
     """The pinned zero-shot model: ``score`` gives the entailment probability of every label for each (text, company name) pair."""
 
@@ -195,28 +221,16 @@ class CategoryScorer:
         out: list[list[float]] = []
         self.last_truncated = []
         for text, company in pairs:
-            name = company_name(company)
-            premise = PREMISE.format(company=name, text=text[:PREMISE_CHARS])
-            hypotheses = [
-                HYPOTHESIS.format(company=name, definition=DEFINITIONS[label]) for label in LABELS
-            ]
-            encoded = self._tokenizer(
-                [premise] * len(hypotheses),
-                hypotheses,
-                truncation="only_first",
-                max_length=MAX_LENGTH,
-                padding=True,
-                return_tensors="pt",
-            ).to(self.device)
-            self.last_truncated.append(
+            probabilities, encoded = _read_pair(
+                self._tokenizer, self._model, self.device, self._entailment, text, company
+            )
+            self.last_truncated.append(  # the record of a pair cut at the window: not part of what a score is
                 bool(
                     encoded["input_ids"].shape[-1] >= MAX_LENGTH
                     and encoded["attention_mask"][:, -1].any()
                 )
             )
-            with torch.no_grad():
-                logits = self._model(**encoded).logits.float()
-            out.append(torch.softmax(logits, dim=-1)[:, self._entailment].cpu().tolist())
+            out.append(probabilities)
         return out
 
 

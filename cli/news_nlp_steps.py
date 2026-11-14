@@ -890,17 +890,23 @@ def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     import news_category_stage  # noqa: PLC0415 -- imports torch, loads no model
 
     if args.status:
-        latest = steps.latest_revision(conn, steps.STEP_CATEGORY)
-        report = steps.status(conn, steps.STEP_CATEGORY, latest)
-        report["revisions"] = steps.revisions(conn, steps.STEP_CATEGORY)
-        report["models"] = news_category_stage.models_of_the_step()
         summary_revision = getattr(args, "summary_revision", None)
         companies_revision = getattr(args, "companies_revision", None)
         # what this code would write for those inputs; compare it with "revisions" (no model is loaded for it)
-        report["code_revision"] = (
+        code_revision = (
             news_category_stage.code_revision(summary_revision, companies_revision)
             if summary_revision and companies_revision
-            else "give --summary-revision and --companies-revision to see the revision this code would write"
+            else None
+        )
+        # with the inputs the counts are those of the revision this code writes (the one a run continues); without them the latest by time,
+        # which can be a partial revision of an older code
+        shown = code_revision or steps.latest_revision(conn, steps.STEP_CATEGORY)
+        report = steps.status(conn, steps.STEP_CATEGORY, shown)
+        report["revisions"] = steps.revisions(conn, steps.STEP_CATEGORY)
+        report["models"] = news_category_stage.models_of_the_step()
+        report["code_revision"] = (
+            code_revision
+            or "give --summary-revision and --companies-revision to see the revision this code would write"
         )
         print(json.dumps(report, indent=2))
         return

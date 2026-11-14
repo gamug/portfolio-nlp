@@ -52,7 +52,7 @@ Three things to know:
 
 ## Which revision to read
 
-Revisions coexist in `news_category`: the revision hashes the code of the step, the pinned model, the definitions and the version of `transformers`, so any of them changing starts
+Revisions coexist in `news_category`: the revision follows what decides a score and the two input revisions (below), so a change of any of them starts
 a new set of rows beside the old one. **Read one revision, never a mix, and only a complete one.** A revision is complete when its finished items (`done` or `skipped`) are as many as
 the items that have a main company at your companies revision, less the `items_without_text` the run printed (items whose text is not at the summary revision named cannot be done):
 
@@ -69,7 +69,13 @@ WHERE model_revision = '<companies revision>' AND is_main = 1;
 
 Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault or by you leaves a partial revision: rerun the same command and it completes it.
 
-**The first run of the development** (2026-11-13, commit `82d6b36`) wrote `category-65f33b55b26b` at a time when the revision still hashed the whole module. Its rows are what the current code writes (the stored pairs re-scored: 0 of 40 differ, largest difference of a score 0.000000), so `LEGACY_REVISIONS` names it as the revision of the current code for `summary-7a9bd2062bc4` and `companies-f349536cf701`: the same command continues it where it stopped. Any other inputs get a revision of their own.
+**The first run of the development** (2026-11-13, commit `82d6b36`) wrote `category-65f33b55b26b` at a time when the revision still hashed the whole module. Its rows are what the current code writes (1,000 stored pairs re-scored, stratified by label, `scripts/category_verify_revision_2026_11_13.py`, read only: 1,008 of the 64,428 pairs, 72 of each of the 14 labels: 0 labels differ, largest difference of any score 0.0; `docs/category_results_2026_11_13/legacy_revision_check.json`), so `LEGACY_REVISIONS` names it as the revision of the current code for `summary-7a9bd2062bc4` and `companies-f349536cf701`: the same command continues it where it stopped. Any other inputs get a revision of their own.
+
+**Retiring that mapping.** `LEGACY_REVISIONS` is removed in the change that first alters a score (a definition, the premise, the model, `score_of` or `_read_pair`): a test pins it and fails then, so the decision about the legacy rows is made at that change, not by accident. To check any revision against the current code (read only): `uv run scripts/category_verify_revision_2026_11_13.py --revision R --summary-revision S --companies-revision C --results-db ... --source-db ...`.
+
+**A partial revision of older code** can be later by time than the one you continue (the second run of the development, `category-981dacf6f68d`, 7,644 items, is entirely inside the first, with the same label in all 10,355 pairs). `--status` with `--summary-revision` and `--companies-revision` reports the revision this code writes, not the latest by time; a consumer that takes "the latest revision" (PLAN D39 (vi)) should read the complete one, and the redundant partial one can be deleted with `RECATEGORY_SQL` once the owner agrees.
+
+**Why this revision is not the companies step's.** The companies step hashes the code it reaches and the version of `transformers`; this step hashes the code that decides a score (`score_of`, `_read_pair`, `company_name`) and not the library version, because an edit of the command or an upgrade of the library must not make a stopped run start again. The library version is not in the rows: it is pinned in `uv.lock` (`transformers` 5.16.1 on 2026-11-14); a score that changes with a library upgrade shows as a failing verification (the script above), not as a silent new revision.
 
 ## Carrying finished work to a new revision
 

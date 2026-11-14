@@ -3,11 +3,14 @@ what is stored and how the step is run. The model is a stub: no network, no GPU.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
+import inspect
 import json
 import re
 import sqlite3
 import sys
+import textwrap
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from types import SimpleNamespace
@@ -994,3 +997,91 @@ def test_the_first_run_of_the_real_store_is_continued_not_restarted() -> None:
     assert (
         other != real and other not in stage.LEGACY_REVISIONS.values()
     )  # only those inputs are the legacy run
+
+
+# --- what is hashed is what decides a score: formatting and comments are not, a statement is; bookkeeping is not part of it ------
+
+
+def _with_source(monkeypatch: pytest.MonkeyPatch, function: Any, source: str) -> None:
+    real = inspect.getsource
+    monkeypatch.setattr(inspect, "getsource", lambda obj: source if obj is function else real(obj))
+
+
+@pytest.mark.parametrize("function_name", ["score_of", "_read_pair", "company_name"])
+def test_a_comment_a_docstring_or_the_formatting_of_the_scoring_code_is_not_a_new_revision(
+    function_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    function = getattr(stage, function_name)
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    node = tree.body[0]
+    assert isinstance(node, ast.FunctionDef)
+    node.body = [
+        ast.Expr(ast.Constant("another docstring")),
+        *node.body[1 if ast.get_docstring(node) else 0 :],
+    ]
+    reformatted = (
+        "# a comment before\n\n\n" + ast.unparse(tree) + "\n\n# and one after\n"
+    )  # other layout, other docstring
+    _with_source(monkeypatch, function, reformatted)
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_a_statement_of_the_scoring_code_is_a_new_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    source = inspect.getsource(stage.score_of)
+    assert "max(" in source
+    _with_source(monkeypatch, stage.score_of, source.replace("max(", "min(", 1))
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
+
+
+def test_the_bookkeeping_of_the_scorer_is_not_part_of_the_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``score`` records which pairs were cut at the window; editing that, or logging inside ``score``, must not restart a run (the reading itself is
+    ``_read_pair``, which is hashed)."""
+    base = stage.revision_of("m@1", SUM_REV, COMP_REV)
+    monkeypatch.setattr(stage.CategoryScorer, "score", lambda self, pairs: [])
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
+
+
+def test_the_status_counts_the_revision_this_code_writes_not_the_latest_by_time(
+    pair: db_module.NewsNlpDatabase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With the inputs given, ``--status`` is about the revision a run would continue; the latest by time can be a partial revision of older code."""
+    _seed(pair)
+    mine = stage.code_revision(SUM_REV, COMP_REV)
+    found = {"AAPL": stage.score_of(_scores("other"))}
+    steps.record_category(pair, "body", "b1", mine, found, "m")
+    steps.record_category(
+        pair, "body", "b2", "category-older-and-later", found, "m"
+    )  # finished after mine
+    cli = _load_cli()
+
+    class Given:
+        status = True
+        summary_revision = SUM_REV
+        companies_revision = COMP_REV
+
+    cli.main_category(Given(), pair)
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["revision"] == mine and printed["news_category"]["items"] == 1
+    assert printed["revisions"] == [mine, "category-older-and-later"]
+
+
+def test_the_verification_script_compares_labels_and_scores() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "category_verify_for_test", DOCS / "scripts" / "category_verify_revision_2026_11_13.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    same = stage.score_of(_scores("legal_regulatory"))
+    differs, worst = module.compare(
+        {**same.slug_scores, "_truncated_chunks": 1}, "legal_regulatory", same
+    )
+    assert (differs, worst) == (False, 0.0)  # the reserved key is not a label
+    other = stage.score_of(_scores("other"))
+    differs, worst = module.compare(same.slug_scores, "legal_regulatory", other)
+    assert differs and worst > 0.5
