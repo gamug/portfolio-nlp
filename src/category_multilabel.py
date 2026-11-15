@@ -511,3 +511,63 @@ def body_overlap(
         ),
         "crossing_rows": rows,
     }
+
+
+def data_hash_problems(pin: dict[str, object], root: Path) -> list[str]:
+    """The data files of the pin (``data.*.file`` with a ``sha256``) whose hash on disk is not the pinned one, or that are missing: a refit must fit the data
+    the figures were measured on, not an edited copy (T-200 allows an edit, and an edit changes the pin first)."""
+    problems: list[str] = []
+    data = pin.get("data")
+    entries = data.values() if isinstance(data, dict) else []
+    for entry in entries:
+        if not (isinstance(entry, dict) and "file" in entry and "sha256" in entry):
+            continue
+        path = root / str(entry["file"])
+        if not path.exists():
+            problems.append(f"{entry['file']}: missing")
+        elif sha256_file(path) != entry["sha256"]:
+            problems.append(f"{entry['file']}: the sha256 is not the pinned one")
+    return problems
+
+
+def recipe_hyperparameters(pin: dict[str, object]) -> dict[str, float | int]:
+    """The hyper-parameters of the refit, from ``recipe`` of the pin and nowhere else: epochs, lr, negatives per positive, batch size, accumulation, max length."""
+    recipe = pin.get("recipe")
+    if not isinstance(recipe, dict):
+        raise ValueError("the pin has no recipe")  # noqa: TRY004 -- a wrong pin file, not a wrong argument type
+    keys = {
+        "epochs": "epochs",
+        "lr": "learning_rate",
+        "neg": "negatives",
+        "bs": "batch_size",
+        "accum": "gradient_accumulation",
+        "max_len": "max_length",
+    }
+    missing = [v for v in keys.values() if v not in recipe]
+    if missing:
+        raise ValueError(f"recipe lacks {missing}")
+    return {k: recipe[v] for k, v in keys.items()}
+
+
+def check_refit_folder(folder: Path) -> dict[str, object]:
+    """The record of a refit folder, after checking that the weights in it are the ones the record names (sha256 of ``model.safetensors``). A folder with no
+    record, or whose weights were replaced, is refused: a score has to say which weights it is of (T-201)."""
+    import json  # noqa: PLC0415
+
+    record_path = folder / "refit_record.json"
+    weights = folder / "model.safetensors"
+    if not record_path.exists() or not weights.exists():
+        raise ValueError(
+            f"{folder} has no refit_record.json or no model.safetensors: not a refit folder"
+        )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if sha256_file(weights) != record.get("model_safetensors_sha256"):
+        raise ValueError(f"{weights} is not the file the record names")
+    return dict(record)
+
+
+def refit_flag_problems(
+    hyper: dict[str, float | int], values: dict[str, object]
+) -> dict[str, object]:
+    """The flags given to ``refit`` whose value is not the pin's: the refit takes its recipe from ``recipe`` of the pin, never from the command line."""
+    return {k: v for k, v in values.items() if k in hyper and v != hyper[k]}

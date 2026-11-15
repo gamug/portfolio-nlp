@@ -30,6 +30,7 @@
     "output": "the top label of the row (one tag per row); the extra-label rule of the multi-label experiments is not used",
     "epochs": 3,
     "learning_rate": 2e-05,
+    "negatives": 4,
     "batch_size": 4,
     "gradient_accumulation": 4,
     "max_length": 512,
