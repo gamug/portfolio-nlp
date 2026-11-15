@@ -59,6 +59,17 @@ def _coerce[V: BaseModel](text: str, model_cls: type[V]) -> V | None:
         return None
 
 
+def coerce[V: BaseModel](text: str, model_cls: type[V]) -> V | None:
+    """The public name of the reply reader (the first ``{...}`` of ``text`` validated as ``model_cls``, or ``None``): other judges, such as
+    ``scripts/summary_judge_2026_11_13.py``, use it instead of the private ``_coerce``."""
+    return _coerce(text, model_cls)
+
+
+def repair_prompt() -> str:
+    """The message sent once when a reply cannot be read (read at call time, so a change of ``_REPAIR_PROMPT`` is seen)."""
+    return _REPAIR_PROMPT
+
+
 def _invoke_with_repair[V: BaseModel](
     agent: JudgeAgent, user_prompt: str, model_cls: type[V], *, fallback: V
 ) -> V:

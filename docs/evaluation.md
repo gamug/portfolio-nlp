@@ -1298,3 +1298,6 @@ the readings that need it, with a line, while it was written by other code.
 and 30 bodies translated: 387 articles = 387 paid calls, 0 failures; 150,259 prompt and 134,950 completion
 tokens (retries and rejected replies included). Files: `data/faithfulness_confirmation/`.
 
+## Judge of step 2, the summary (2026-11-15; T-190)
+
+The summaries of `--step summary` are measured by `scripts/summary_judge_2026_11_13.py` (claim by claim against the source, main event covered, by single and multi and by source length), described in `docs/summary_step.md` ("Measuring the summaries"). It is **not** an `eval_run` of this package: it has its own sample (`sample.meta.json`), verdicts and report, no MLflow, and the owner's marks (`tag-sheet`, `agree`) are its check. Its judge is the `.env` model and must not be the model that wrote the summaries.
