@@ -461,3 +461,53 @@ def scores_dir(root: Path, name: str) -> Path:
     """The folder of one run's out-of-fold scores: the local ``data/<name>`` when a run left it there, else the committed copy."""
     local = root / "data" / name
     return local if local.is_dir() else root / COMMITTED_SCORES / name
+
+
+def refit_seed(pin: dict[str, object]) -> int:
+    """The seed of the one refit on all rows, read from ``config/category_model.json`` (``recipe.refit_seed``); a missing or non-integer seed stops the refit,
+    so the weights that are scored on the held-out and wired are always the ones of a seed that is written down (T-201, T-202)."""
+    recipe = pin.get("recipe")
+    seed = recipe.get("refit_seed") if isinstance(recipe, dict) else None
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"recipe.refit_seed must be an integer, not {seed!r}")  # noqa: TRY004 -- a wrong value in the pin file, not a wrong argument type
+    return seed
+
+
+def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
+    """The sha256 of a file (the weights of a refit are identified by it)."""
+    import hashlib  # noqa: PLC0415
+
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(chunk):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def body_overlap(
+    article_ids: Sequence[int], body_hashes: dict[int, str], folds: Sequence[int]
+) -> dict[str, object]:
+    """Which bodies are shared by several articles and sit in more than one fold (the leak the grouping by ``article_id`` cannot see).
+    ``body_hashes`` maps an article id to the hash of its body; the rows are ``article_ids`` and their ``folds``, in the same order."""
+    articles_of: dict[str, set[int]] = {}
+    for article, digest in body_hashes.items():
+        articles_of.setdefault(digest, set()).add(article)
+    shared = {d: a for d, a in articles_of.items() if len(a) > 1}
+    folds_of_body: dict[str, set[int]] = {}
+    rows_of_body: dict[str, list[int]] = {}
+    for i, (article, fold) in enumerate(zip(article_ids, folds, strict=True)):
+        digest = body_hashes[article]
+        folds_of_body.setdefault(digest, set()).add(int(fold))
+        rows_of_body.setdefault(digest, []).append(i)
+    crossing = sorted(d for d in shared if len(folds_of_body.get(d, ())) > 1)
+    rows = sorted(i for d in crossing for i in rows_of_body[d])
+    return {
+        "articles": len(set(article_ids)),
+        "bodies": len(folds_of_body),
+        "shared_bodies": len(shared),
+        "crossing_bodies": len(crossing),
+        "crossing_articles": sorted(
+            a for d in crossing for a in shared[d] if a in set(article_ids)
+        ),
+        "crossing_rows": rows,
+    }

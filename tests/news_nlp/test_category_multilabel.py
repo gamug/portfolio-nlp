@@ -3,7 +3,9 @@ the pairs a fine-tune learns from, and the figures."""
 
 from __future__ import annotations
 
+import hashlib
 import random
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -306,3 +308,38 @@ def test_pos_weights_are_the_capped_root_of_the_odds() -> None:
 
 def test_one_global_cut_gives_every_label_the_same_threshold() -> None:
     assert ml.global_thresholds(LABELS, 0.4) == {"a": 0.4, "b": 0.4, "c": 0.4, "d": 0.4}
+
+
+def test_refit_seed_must_be_an_integer_in_the_pin() -> None:
+    assert ml.refit_seed({"recipe": {"refit_seed": 100}}) == 100
+    assert ml.refit_seed({"recipe": {"refit_seed": 0}}) == 0
+    bad: list[dict[str, object]] = [
+        {"recipe": {"refit_seed": None}},
+        {"recipe": {}},
+        {},
+        {"recipe": {"refit_seed": True}},
+        {"recipe": {"refit_seed": "1"}},
+    ]
+    for pin in bad:
+        with pytest.raises(ValueError, match="refit_seed"):
+            ml.refit_seed(pin)
+
+
+def test_sha256_file_identifies_the_weights(tmp_path: Path) -> None:
+    f = tmp_path / "model.safetensors"
+    f.write_bytes(b"abc" * 1000)
+    assert ml.sha256_file(f, chunk=7) == hashlib.sha256(b"abc" * 1000).hexdigest()
+
+
+def test_body_overlap_finds_a_body_shared_by_articles_in_two_folds() -> None:
+    hashes = {1: "A", 2: "A", 3: "B", 4: "C", 5: "C"}
+    # articles 1 and 2 share a body and are in folds 0 and 1; 4 and 5 share one and are in the same fold
+    out = ml.body_overlap([1, 2, 3, 4, 5], hashes, [0, 1, 0, 2, 2])
+    assert out["bodies"] == 3 and out["shared_bodies"] == 2
+    assert (
+        out["crossing_bodies"] == 1
+        and out["crossing_articles"] == [1, 2]
+        and out["crossing_rows"] == [0, 1]
+    )
+    clean = ml.body_overlap([1, 2, 3], {1: "A", 2: "B", 3: "C"}, [0, 1, 2])
+    assert clean["shared_bodies"] == 0 and clean["crossing_rows"] == []

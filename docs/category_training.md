@@ -74,7 +74,7 @@ added columns, `claude_review` and `final_tag`. Scripts that build the files ref
 ### 3.3 What the review of the sheet changed (1,000 rows)
 
 227 of the 1,000 rows end with a tag other than the owner's first tag (114 of the 777 rows that had one tag, 113 of the 223 that had several: the
-best of several was chosen). The largest moves:
+best of several was chosen). **In the 999-row file the count is 226**: the 227th is row 166, left out. 226 is the number the audit of section 8 draws from. The largest moves:
 
 | owner's first tag | final tag | rows |
 |---|---|---|
@@ -259,9 +259,9 @@ Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/categor
 * **The bar of D24 (80% on the held-out single rows) is not shown.** The held-out 200 was tagged under the earlier convention (analyst ratings partly as `investor_activity`); scoring it with this model would
   need the owner's word, and the held-out tags may need the same review first.
 * **Wide intervals** for 8 of the 12 classes (6.1).
-* **Rows of one body.** Folds are grouped by `article_id`, and about a third of the bodies of the corpus are shared by several tickers, so the grouping might put two copies of one body in two folds. **Measured on 2026-11-15** (`triage.body_hash` of the SOURCE body of each article): the 1,216 rows are 1,049 articles and 1,048 distinct bodies; **one** body is shared by two articles (116568 and 439320), and they sit in two folds: 16 rows (1.3%), all 16 predicted right. Without them the accuracy is 87.7% (1,200 rows), against 87.8%: the leak is not a source of the figure, so the cross-validation was not repeated with a body grouping. The sheet was drawn from structured multi bodies, which is why it has so few shared bodies.
+* **Rows of one body.** Folds are grouped by `article_id`, and about a third of the `ok` bodies of the corpus are shared by several tickers (`docs/category_step.md`), so the grouping might put two copies of one body in two folds. **Measured** with `scripts/category_body_overlap_2026_11_15.py` (`--source-db` the crawl database; output `docs/category_results_2026_11_15/body_overlap.md`, from the committed folds): the 1,216 rows are 1,049 articles and 1,048 distinct bodies (`triage.body_hash`); **one** body is the text of two articles (116568 and 439320) and they sit in two folds: 16 rows (1.3%), all 16 predicted right; without them the accuracy is 87.7% (1,200 rows), against 87.8%. The leak is not a source of the figure, so the cross-validation was not repeated with a body grouping. Why the sheet has so few shared bodies was not investigated.
 * **Long texts.** The fine-tune reads at most 512 tokens (the first 2,000 characters of the text), as the step does; nothing was measured on what a longer text would change.
-* **The review of the sheet, the single tags and the older-rows tags are mine, accepted by the owner** (the sheet) or **not yet read by the owner** (the older rows' `gold/category_v2_single.csv`). **No second reader has checked the reviewer's changes**: 227 of the sheet's 1,000 tags (226 in the 999-row file; the 227th is row 166, left out) and 47 of the older 225 were changed by the review; T-200 asks the owner to read a random sample of 50 of the 227 sheet changes (`scripts/draw_category_review_audit_2026_11_15.py`) and records the agreement, which says whether 87.8% is measured on tags a person would defend.
+* **The review of the sheet, the single tags and the older-rows tags are mine, accepted by the owner** (the sheet) or **not yet read by the owner** (the older rows' `gold/category_v2_single.csv`). **No second reader has checked the reviewer's changes** (226 tags of the sheet changed, 47 of the older 225; section 3.3). T-200 asks the owner to read a blind sheet of **75 rows**: 50 changed rows (the review's tag against the owner's first) and 25 unchanged rows (the row's tag against the label the model scored highest among the others), drawn at random (`scripts/draw_category_review_audit_2026_11_15.py`, seed 1) and mixed. Read the figures as: the share of picks of the review's tag on the changed rows, and of the row's tag on the unchanged ones; with 50 and 25 rows the 95% intervals are about ±0.13 and ±0.2. The rule for what they mean is in `TASKS.md` T-200 and was written before the sheet was read. The reading is not fully blind: on a changed row one option is the owner's own earlier tag, and the owner may lean to it.
 
 ## 9. What is pinned and what is not
 
@@ -270,7 +270,7 @@ SHA-256, and the evidence. A test (`tests/news_nlp/test_category_selection.py`) 
 
 **Not done, in order, each on the owner's word:**
 
-1. **Refit once on all 1,216 rows, with a fixed seed, and keep the weights** (`recipe.refit_seed` is 0 in the pin): a git-ignored folder with its identity, as the sentiment pair model is (`config/sentiment_step.json`). Record the seed and the hash of `model.safetensors`.
+1. **Refit once on all 1,216 rows, with a fixed seed, and keep the weights**: `uv run scripts/category_single_cv_2026_11_15.py refit` (GPU, the owner's word; seed `recipe.refit_seed` = 100 in the pin, which is not the seed of any fold, 0 to 4; it stops if the seed is not an integer or if the output folder is not empty). It saves the weights and the tokenizer to the git-ignored `data/models/category_2026_11_15/` with `refit_record.json` (the seed, the rows, the labels, the sha256 of `model.safetensors` and of the pin), the identity the step will check, as the sentiment pair model does (`config/sentiment_step.json`).
    A private Hub copy is a record (`config/published_models.json`), uploaded by a script like `scripts/publish_final_models_2026_11_10.py`; it needs `HF_TOKEN` with write scope and the owner's word.
 2. **Score the held-out 200 with those same weights**, the **second** look at them (the first, on 2026-11-13, was the older mixed fine-tune, 48.9%; both scores stay in the record), after deciding whether its single rows get the one-tag review first; the bar is 80%. The weights that are scored are the ones that get wired.
 3. **Wire it into `--step category`.** This is a new revision of the step: the step's tables (14 labels, groups, definitions) are pinned by a test and have to change to 12 labels or map the 12 back to the 14; `LEGACY_REVISIONS`
@@ -286,6 +286,7 @@ The out-of-fold scores of every run are **committed without text** in `docs/cate
 
 ```
 uv run scripts/category_single_cv_2026_11_15.py cv            # the selected recipe, 5 folds -> data/category_single/oof_single.npz (~1 h on the GPU)
+uv run scripts/category_body_overlap_2026_11_15.py --source-db <urls.db>   # shared bodies in two folds (committed folds; reads SOURCE)
 uv run scripts/category_single_report_2026_11_15.py --out docs/category_results_2026_11_15   # per-class precision, recall, ROC AUC, intervals
 uv run scripts/category_single_compare_2026_11_15.py --out docs/category_results_2026_11_15  # first run -> second run; predictions without text
 uv run scripts/category_arms_summary_2026_11_15.py --out docs/category_results_2026_11_15    # the arms on the old tags
@@ -306,5 +307,6 @@ Rebuilding the data: `scripts/build_gold_category_multi_2026_11_14.py` (the owne
 | final results | `docs/category_results_2026_11_15/`: `ovr_single.md` (second run, per class, with intervals, and the three models), `ovr_single_first_run.md`, `single_comparison.md`, `arms_old_tags.md`, `single_predictions.csv` (no text), `scores/` (the out-of-fold scores of every run, no text) |
 | the first results | `docs/category_results_2026_11_13/` |
 | tag files | `gold/category_multi_gold.csv`, `gold/category_single_gold.csv`, `gold/category_v2_single.csv`, texts in `gold/texts/` (list: `docs/gold_datasets.md`, rows 13 to 15; the sheet's `review` column holds the comment behind each change) |
+| the refit, the body overlap and the audit sheet | `scripts/category_single_cv_2026_11_15.py refit`, `scripts/category_body_overlap_2026_11_15.py` (output `docs/category_results_2026_11_15/body_overlap.md`), `scripts/draw_category_review_audit_2026_11_15.py` (tests: `tests/news_nlp/test_category_review_audit.py`) |
 | the tagging rules ("One tag per row"), the definitions | `docs/category-taxonomy.md`, `docs/category_step.md` |
 | the decision and the task | `PLAN.md` D43, `TASKS.md` T-187 |

@@ -2,17 +2,23 @@
 """The entailment fine-tune on ONE tag per (article, company), 12 labels, cross-validated (T-187, owner 2026-11-15).
 
     uv run scripts/category_single_cv_2026_11_15.py cv [--smoke]
+    uv run scripts/category_single_cv_2026_11_15.py refit        # T-202: one fit on all rows, the seed of the pin, the weights kept
 
 Rows: ``gold/category_single_gold.csv`` (the owner's sheet after the review: one tag per row, ``competitive_actions`` and
 ``peer_comparison`` read as ``other``) and the 225 single-label train rows of ``gold/category_gold_v2.csv`` with the same merge. The
 held-out 200 is never read. The recipe is the one of ``category_multilabel_cv_2026_11_14.py`` (pairs: the tag a positive, 4 negatives
 from the other labels; 3 epochs, lr 2e-5), but the model is trained on the 12 labels, so the merge is a real training choice. Folds
 are grouped by article. Saves ``data/category_single/oof_single.npz`` (scores of the 12 labels, fold) and ``rows.csv``.
+
+``refit`` (T-202) trains once on every row, with ``recipe.refit_seed`` of ``config/category_model.json`` (it stops if the seed is not an integer), and saves the
+weights and the tokenizer to the git-ignored ``data/models/category_2026_11_15/`` with ``refit_record.json`` (the seed, the rows, the labels, the sha256 of
+``model.safetensors`` and of the pin). The held-out is scored with these weights (T-201) and they are the ones T-203 wires. It needs a GPU and the owner's word.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -31,6 +37,8 @@ from news_category_stage import LABELS as L14
 L12 = ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER)
 cvs.LABELS = L12  # train() and score() read the module's label list
 OUT = ROOT / "data" / "category_single"
+PIN = ROOT / "config" / "category_model.json"
+REFIT_OUT = ROOT / "data" / "models" / "category_2026_11_15"
 
 
 def rows_old() -> pd.DataFrame:
@@ -69,9 +77,37 @@ def rows() -> pd.DataFrame:
     return pd.concat([old, new], ignore_index=True)
 
 
+def refit(df: pd.DataFrame, args: argparse.Namespace) -> None:
+    """One fit on every row with the seed of the pin; keep the weights and say which they are (T-202)."""
+    seed = ml.refit_seed(json.loads(PIN.read_text(encoding="utf-8")))
+    if REFIT_OUT.exists() and any(REFIT_OUT.iterdir()):
+        sys.exit(f"{REFIT_OUT} is not empty: the refit is made once; move it first")
+    print(f"[refit] {len(df)} rows, {df.article_id.nunique()} articles, seed {seed}", flush=True)
+    tok, model, _ = cvs.train(df.reset_index(drop=True), True, args, seed)
+    REFIT_OUT.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(REFIT_OUT)
+    tok.save_pretrained(REFIT_OUT)
+    record = {
+        "seed": seed,
+        "rows": len(df),
+        "articles": int(df.article_id.nunique()),
+        "labels": list(L12),
+        "epochs": args.epochs,
+        "lr": args.lr,
+        "negatives": args.neg,
+        "batch_size": args.bs,
+        "gradient_accumulation": args.accum,
+        "max_length": args.max_len,
+        "model_safetensors_sha256": ml.sha256_file(REFIT_OUT / "model.safetensors"),
+        "pin_sha256": ml.sha256_file(PIN),
+    }
+    (REFIT_OUT / "refit_record.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    print(f"saved {REFIT_OUT}: {record['model_safetensors_sha256']}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("cmd", choices=["cv"])
+    ap.add_argument("cmd", choices=["cv", "refit"])
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--lr", type=float, default=2e-5)
@@ -84,6 +120,9 @@ def main() -> None:
     args = ap.parse_args()
     df = rows()
     assert all(g[0] in L12 for g in df.gold), "a label outside the 12"
+    if args.cmd == "refit":
+        refit(df, args)
+        return
     if args.smoke:
         df = df.sample(40, random_state=0).reset_index(drop=True)
         args.epochs, args.folds = 1, 2
