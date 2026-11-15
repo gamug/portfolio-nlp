@@ -23,7 +23,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import category_multilabel as ml
-from news_category_stage import LABELS
+
+LABELS = ml.LABELS14
 
 SHEET = Path("/workspaces/portfolio-nlp/data/category_multi_to_tag_claude_review.csv")
 LEFT_OUT = {"166"}

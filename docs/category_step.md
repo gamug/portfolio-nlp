@@ -1,10 +1,10 @@
-# The category step (`--step category`, T-168; provisional)
+# The category step (`--step category`, T-168, T-203; fine-tuned model pinned by the owner although the bar is not met)
 
-One of the 14 labels of D15 (`docs/category-taxonomy.md`) and its group, for each **main company** of each text. It is built
-**provisionally with the pinned zero-shot model** so the next team can read a category; the trained model of T-174 replaces it
-by changing the pin (it is then another revision of the step; the rows of this one stay).
-
-## Run it
+One of the **12 labels** (the 14 of D15, `docs/category-taxonomy.md`, with `competitive_actions` and `peer_comparison` read as `other`, owner 2026-11-14) and its group, for each **main company** of each text.
+Since 2026-11-15 (T-203, D43) the step runs **the entailment fine-tune `category-entailment-single-12`** (`config/category_step.json`, a git-ignored folder; training, datasets and every measure:
+`docs/category_training.md`), **pinned as the default by the owner although it does not meet the bar of D24** (80% on the held-out single rows): it agrees with the owner on 54.1% of them
+(the untouched zero-shot model: 43.7%) and with the assistant's tags on 71.3% of 300 real sub-news under 1,000 characters (65.7%). The labels are a first version, not the accepted ones. The rows the
+untouched model wrote (revisions `category-65f33b55b26b` and `category-981dacf6f68d`, 14 labels) stay beside this revision, unchanged.
 
 ```
 uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --companies-revision companies-... --limit 500
@@ -69,9 +69,10 @@ WHERE model_revision = '<companies revision>' AND is_main = 1;
 
 Read the newest revision that is complete (the first row of the first query that reaches the number of the second, less `items_without_text`); delete an old or partial one with `RECATEGORY_SQL` (`--help`). A run stopped by a GPU fault or by you leaves a partial revision: rerun the same command and it completes it.
 
-**The first run of the development** (2026-11-13, commit `82d6b36`) wrote `category-65f33b55b26b` at a time when the revision still hashed the whole module. Its rows are what the current code writes (1,000 stored pairs re-scored, stratified by label, `scripts/category_verify_revision_2026_11_13.py`, read only: 1,008 of the 64,428 pairs, 72 of each of the 14 labels: 0 labels differ, largest difference of any score 0.0; `docs/category_results_2026_11_13/legacy_revision_check.json`), so `LEGACY_REVISIONS` names it as the revision of the current code for `summary-7a9bd2062bc4` and `companies-f349536cf701`: the same command continues it where it stopped. Any other inputs get a revision of their own.
-
-**Retiring that mapping.** `LEGACY_REVISIONS` is removed in the change that first alters a score (a definition, the premise, the model, `score_of` or `_read_pair`): a test pins it and fails then, so the decision about the legacy rows is made at that change, not by accident. To check any revision against the current code (read only): `uv run scripts/category_verify_revision_2026_11_13.py --revision R --summary-revision S --companies-revision C --results-db ... --source-db ...`.
+**The first run of the development** (2026-11-13, commit `82d6b36`) wrote `category-65f33b55b26b` with the untouched zero-shot model and 14 labels, at a time when the revision still hashed the whole module; the second run
+(`category-981dacf6f68d`, 10,355 pairs) is entirely inside it. **`LEGACY_REVISIONS`, which let the current code continue that run, is retired** (T-203): the fine-tuned model changes every score, so the revision this code writes
+for the same inputs is another one, and a run starts that revision from zero. Delete the old revisions with `RECATEGORY_SQL` when the owner no longer wants them (T-189). The verification and the adoption scripts of 2026-11-13 are **removed** with the mapping (they re-scored with the model of their time and would always report a difference now; recover them from git history, commit `0d5ede7` or earlier);
+the evidence of that run stays in `docs/category_results_2026_11_13/legacy_revision_check.json`.
 
 **A partial revision of older code** can be later by time than the one you continue (the second run of the development, `category-981dacf6f68d`, 7,644 items, is entirely inside the first, with the same label in all 10,355 pairs). `--status` with `--summary-revision` and `--companies-revision` reports the revision this code writes, not the latest by time; a consumer that takes "the latest revision" (PLAN D39 (vi)) should read the complete one, and the redundant partial one can be deleted with `RECATEGORY_SQL` once the owner agrees.
 
@@ -79,20 +80,27 @@ Read the newest revision that is complete (the first row of the first query that
 
 **Why this revision is not the companies step's.** The companies step hashes the code it reaches and the version of `transformers`; this step hashes the code that decides a score (`score_of`, `_read_pair`, `company_name`, `_load`) and not the library version, because an edit of the command or an upgrade of the library must not make a stopped run start again. The library version is not in the rows: it is pinned in `uv.lock` (`transformers` 5.16.1 on 2026-11-14); a score that changes with a library upgrade shows as a failing verification (the script above), not as a silent new revision.
 
-## Carrying finished work to a new revision
+## The first run of this model: cost, and what the consumers do
 
-**You do not need this to continue the first run of the development** (the current code continues it, see above); it is for a revision that is not named in `LEGACY_REVISIONS`. A new revision starts empty, but the rows of the old one are not lost and, when the scoring is the same, are still right. `scripts/category_adopt_revision_2026_11_13.py` copies the items an old revision finished under the revision the current code writes, and the next run does only what is missing. **It deletes nothing**: the old revision stays until `RECATEGORY_SQL`.
+**Cost.** The revision starts from zero over the 159,401 (text, main company) pairs of the first corpus run. The zero-shot run wrote its 159,401 pairs between 2026-11-13 18:48 and 2026-11-14 04:19 (the `processed_at` of `news_category`), about **9.5 hours** on the RTX 4050 with 14 hypotheses per pair; this model reads 12, so **expect about 8 to 10 hours** (an estimate from that run, not a measure of this model). The run is resumable: cut it with `--limit` and continue with the same command.
+
+**Consumers.** `--step snapshot` and `--step period` take the category revision **by name** (`--category-revision`), and a snapshot row keeps the label of the revision that wrote it (`docs/snapshot_steps.md`). So the snapshots already built stay on the 14-label revision, and the per-category counts of a period summary count 14 labels in those and 12 in new ones until the snapshots are rebuilt with the new revision (`--step snapshot ... --category-revision <new> --reset`, which resets the period summary built on them). Read one category revision, never a mix, for a given consumer.
+
+## Restore the weights
+
+The pinned folder is **not in git** (712 MB; `models/` is git-ignored). It is published as a **private** Hub repository, `gamug/deberta-v3-news-category-12` at revision `4485970a` (recorded in `published` of `config/category_step.json` and in `config/published_models.json`; the card says the bar of D24 is not met). To run the step on another machine:
 
 ```
-uv run scripts/category_adopt_revision_2026_11_13.py --from-revision category-OLD --summary-revision S --companies-revision C --source-db ... --results-db ...        # report only
-uv run scripts/category_adopt_revision_2026_11_13.py ... --check 20 --yes     # write
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('gamug/deberta-v3-news-category-12', revision='4485970ae653be8844f51dcd67b51326ea48b104', local_dir='models/category_single_all')"   # needs HF_TOKEN (read)
+rm models/category_single_all/README.md      # the card is not part of the pinned folder (identity = every top-level file)
+uv run cli/news_nlp_steps.py --step category --status
 ```
 
-Before anything it re-scores `--check` stored pairs of each label (default 10, 140 pairs) with the current code and refuses if a label, a group, the share of the mass or any score differs by more than 0.001, so the old rows are what this code would write; a sample cannot prove every item, so for a revision you mean to keep also run the verification script above. It adopts an item only if it is finished at the old revision and not at the new one, has the same text as at the summary revision the old run read (`--from-summary-revision` when that is not `--summary-revision`; a skipped item must still be blank), and its stored companies are exactly the main companies of the companies revision; the rest is left for the run. Without `--yes` it only reports. Adopt the largest old revision first, then the others (an item already at the new revision is not copied again). Stop any run on the store before writing, and make a copy of `nlp.db` if you want a way back.
+The step checks the identity and the manifest of the pin at the first text and names the files that differ; `uv run python scripts/publish_category_model_2026_11_15.py --check` (read-only) checks the repository itself. Training the model again does **not** give the same folder (another identity): the pin would have to change with the new weights and their evidence. Keep a backup of the folder as well.
 
 ## The definitions the model reads
 
-The model reads one short definition per label, the ones of the baseline of T-174 (measured: `docs/category_results_2026_11_13/`). They are shorter than the rules of the
+The model reads one short definition per label, the ones of the baseline of 2026-11-13 (measured: `docs/category_results_2026_11_13/`). They are shorter than the rules of the
 tagger in `docs/category-taxonomy.md` (the "Not this label when" column, owner calls 6 and 15 and so on are not read); the taxonomy is the authority for the human tagger, this table for the
 step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187). The fine-tuned candidate selected on 2026-11-15 (12 labels, one tag per row, not wired) and its measures are in `docs/category_training.md`.
 
@@ -108,49 +116,44 @@ step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the cod
 | `market_analyst_sentiment` | `market_view` | analyst ratings and price targets, stock price moves, an investor's bullish or bearish view |
 | `partnerships_business_dev` | `deals_alliances` | strategic alliances, joint ventures, distribution deals |
 | `reputational_harm` | `governance_legal_reputation` | an event that damages or repairs the company's public standing: apologies, service failures, controversies, boycotts |
-| `competitive_actions` | `deals_alliances` | the company's own move or statement against or about a competitor: share fights, pricing pressure |
 | `investor_activity` | `market_view` | a fund or famous investor buys or sells the stock, an activist position, 13F filings, block trades |
-| `peer_comparison` | `market_view` | a comparison between companies: which is the better stock, who is ahead |
 | `other` | `other` | an event that fits none of the other topics |
 
-## The model (provisional)
+## The model
 
-`MoritzLaurer/deberta-v3-base-zeroshot-v2.0` at the pin of `config/pipeline_models.json` (`category`), untouched. For each pair the
-premise is `<company>: <text>` (the first 2,000 characters) and there is one hypothesis per label,
-`The news about <company> is about <definition>.`; the best entailment probability gives the label, and the group is the group of that
-label (option B, owner 2026-11-13: `results_capital`, `market_view`, `deals_alliances`, `product_people`,
-`governance_legal_reputation`, `other`).
+`category-entailment-single-12` (`config/category_step.json`: the folder `models/category_single_all`, identity `4ac093410757bc50`; **the step refuses a folder whose identity is not this one** and never downloads a model):
+the zero-shot model `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` (revision `8e7e5af5`) fine-tuned on 1,216 rows, one tag per row, 12 labels (3 epochs, lr 2e-5, seed 0; MLflow experiment `news_nlp_train/category`, registered model
+`category-entailment-single-12` version 1; it is not published on the Hub). For each pair the premise is `<company>: <text>` (the first 2,000 characters) and there is one hypothesis per label,
+`The news about <company> is about <definition>.`; the best entailment probability gives the label, and the group is the group of that label (option B, owner 2026-11-13: `results_capital`, `market_view`, `deals_alliances`,
+`product_people`, `governance_legal_reputation`, `other`, the two folded labels no longer in `market_view` and `deals_alliances`). `config/pipeline_models.json` (`category`) is the zero-shot start model that the v1 stage still reads; the step does not.
 
 ## How good it is (read before using the labels)
 
-Agreement with the owner's labels (`scripts/category_baseline_2026_11_13.py`; held-out scored once):
+The bar of D24 is **80%** agreement with the owner's labels on the held-out single rows, and **it is not met**. The figures (label agreement; every one of them in `docs/category_training.md` with the per-class precision, recall and ROC):
 
-| | Train rows (225) | Held-out single rows (135) |
+| | the model of this step (fine-tune) | the model before (untouched zero-shot) |
 |---|---|---|
-| label | 56.4% | 43.0% |
-| group | 62.7% | 55.6% |
+| held-out, 135 single rows, the owner's earlier tags, scored once | **54.1%** [45.9, 62.3] | 43.7% (43.0% with 14 labels) |
+| 300 real sub-news under 1,000 characters, the assistant's tags | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
+| out of fold, 1,216 rows, tags reviewed after the first results | 87.8% | 75.5% |
 
-The bar of D24 is **80%**: the labels are a first version, not the accepted ones. They are reliable for `earnings_performance`
-(recall about 95%) and weak for the rare labels (`capital_shareholder_returns`, `competitive_actions`, `peer_comparison`, `other`
-are almost never found). The held-out 200 also has 44 narrative multi bodies that are not scored. The group is the better field to rely on.
-
-A fine-tune of the same model (`scripts/category_train_cv_2026_11_13.py`, the mixed recipe) reached 62.2% out-of-fold on the train rows
-and 48.9% on the held-out single rows: better than the untouched model, still under the bar; it is not published and the step does not use it.
+Only the held-out is tagged by the owner and held out, and it is the one that fails. It reads best on short company segments (the texts of the cut) and worst on full articles. `earnings_performance`, `market_analyst_sentiment` and
+`mergers_acquisitions` are reliable; **`other` is not** (it gets 3 of 39 right on the real sample), and `investor_activity` and `leadership_governance` have too few rows to measure. The group agrees more than the label does (65.2% held-out).
 
 ## The fields, and how they differ from v1
 
-`score` is the entailment probability of `label` (0 to 1; the best of 14 independent probabilities, so it can be low: a text of two companies may have a best score of 0.01). `group_label` is the group of
+`score` is the entailment probability of `label` (0 to 1; the best of 12 independent probabilities, so it can be low: a text of two companies may have a best score of 0.01). `group_label` is the group of
 `label`. **`group_score` is not the `group_score` of the v1 `article_category`** (a softmax over the groups): here it is the share of the entailment mass that the labels of that group hold
-(0 to 1), and the group is not decided by a group hypothesis. Do not compare the two columns. `slug_scores` is the JSON of the 14 probabilities; a pair the model read cut at its window of 512
+(0 to 1), and the group is not decided by a group hypothesis. Do not compare the two columns. `slug_scores` is the JSON of the 12 probabilities; a pair the model read cut at its window of 512
 tokens also has `_truncated_chunks` = 1 (read the column with `steps.class_scores`; the `--status` counts them). In the 123,146 items of the first corpus run: 11,476 have 1,000 or more characters, and
-0 of 4,000 of them with the longest definition reached the window.
+0 of 4,000 of them with the longest definition reached the window (measured with the zero-shot model and 14 definitions; the window does not depend on the model).
 
 ## Edge cases
 
 A blank text is not classified: the item is `skipped` in `pipeline_step_state` with the reason `blank text`, and is not retried at this
 revision. A ticker that is not in the universe is read as its own name (counted as `name_missing` in the run output). The `batch_size`
-of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not read here: the model scores one pair at a time,
-14 hypotheses each, and the step stores four items per transaction.
+of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not read here (nor is its model): the model scores one pair at a time,
+12 hypotheses each, and the step stores four items per transaction.
 
 ## Metrics
 
@@ -167,5 +170,5 @@ they break (imports after `sys.path`, one-letter names, lambdas, constants), del
 
 ## Not done
 
-No threshold or review state, by decision (owner, 2026-11-14): every pair gets a label and the `score` is the confidence, so filter on it; an item with no main company stays on the review list of step 3. A score floor would be another revision (and a change of FR-022); an abstention belongs to the model of T-174. No sector summary (it has no company).
+No threshold or review state, by decision (owner, 2026-11-14): every pair gets a label and the `score` is the confidence, so filter on it; an item with no main company stays on the review list of step 3. A score floor would be another revision (and a change of FR-022); an abstention would be another model and revision (T-205 settles `other`). No sector summary (it has no company).
 Sentiment (step 6) is a separate step.

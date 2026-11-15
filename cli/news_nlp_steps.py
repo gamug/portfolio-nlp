@@ -18,7 +18,7 @@ Usage:
     uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
     uv run cli/news_nlp_steps.py --step sector --limit 200    # the sector step: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
     uv run cli/news_nlp_steps.py --step sector --status       # bodies assigned / sent out_of_scope, by sector
-    uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --companies-revision companies-... --limit 500   # the category of each main company (provisional model)
+    uv run cli/news_nlp_steps.py --step category --summary-revision summary-... --companies-revision companies-... --limit 500   # the category of each main company (the fine-tune of config/category_step.json)
     uv run cli/news_nlp_steps.py --step category --status     # categories written, by label and by group
     uv run cli/news_nlp_steps.py --step sentiment --summary-revision summary-... --companies-revision companies-... --limit 500   # the sentiment of each main company (pair model + relevance stack)
     uv run cli/news_nlp_steps.py --step sentiment --status    # sentiments written, by label
@@ -41,9 +41,9 @@ company at ``--threshold`` or over it as main; an item with none goes to the rev
 The ``sector`` step (T-167) reads the ``sector`` bodies of step 1 and writes ``body_sector``: the GICS sector (2 digits) when the
 embedding score is confident or the companies named agree with it, else ``out_of_scope``; its model is the pin of
 ``config/sector_step.json``; see ``src/sector_stage.py`` and ``docs/sector_step.md``.
-The ``category`` step (T-168, **provisional**: the pinned zero-shot model, not yet the fine-tuned one of T-174) reads the texts step 2 left
+The ``category`` step (T-168, T-203: the fine-tune of ``config/category_step.json``, **pinned although the 80% bar of D24 is not met**) reads the texts step 2 left
 (``--summary-revision``) that have a main company at ``--companies-revision`` and writes one ``news_category`` row per (text, main company): one of
-the 14 labels of D15 and its group; see ``src/news_category_stage.py`` and ``docs/category_step.md``.
+the 12 labels of `config/category_step.json` (D15's 14, two read as `other`) and its group; see ``src/news_category_stage.py`` and ``docs/category_step.md``.
 The ``sentiment`` step (T-168) reads the same texts and main companies and writes one ``news_sentiment`` row per (text, main company): positive, negative or
 neutral and the three probabilities of the stack of the pair model (``config/sentiment_step.json``, the local folder) and the relevance score step 3 stored;
 nothing is downloaded; see ``src/news_sentiment_stage.py`` and ``docs/sentiment_step.md``.
@@ -978,7 +978,7 @@ def main_category(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
         )
     finder = CategoryFinder(args.summary_revision, args.companies_revision)
     print(
-        f"category model {finder.model_name}@{finder.model_revision[:8]} (provisional, zero-shot) on {finder.scorer.device}, revision {finder.revision}",
+        f"category model {finder.model_name}@{finder.model_revision[:8]} (fine-tuned, pinned; bar of D24 not met) on {finder.scorer.device}, revision {finder.revision}",
         file=sys.stderr,
     )
     try:

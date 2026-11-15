@@ -31,5 +31,11 @@
     "card_sha256": "4455c434ae6783ddfcac9f9e9b839f35cb4d68bc3fed6ab38df8e6795f1e0eb6",
     "weights_sha256": "356fda5bdb5c93cb863c3b826cbbbc86dd070074d12208eb15588795988d1e26",
     "identity": "8399ccf003c60143"
+  },
+  "category": {
+    "repo": "gamug/deberta-v3-news-category-12",
+    "revision": "4485970ae653be8844f51dcd67b51326ea48b104",
+    "private": true,
+    "card_sha256": "4b852e850f0d00b6afeb96c029681586c8ecee9f2ffa0ccd2edde59294ddc366"
   }
 }

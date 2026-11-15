@@ -18,7 +18,9 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from news_category_stage import GROUP_OF, GROUPS, LABELS  # noqa: E402
+import category_multilabel as ml  # noqa: E402
+
+GROUP_OF, GROUPS, LABELS = ml.GROUP_OF14, ml.GROUPS14, ml.LABELS14
 
 OUT = ROOT / "data" / "category_groups"  # local runs (git-ignored)
 RECORD = (
