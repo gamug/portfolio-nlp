@@ -332,8 +332,8 @@ the definitions, groups, hypothesis and premise); `tests/news_nlp/test_category_
 **Not pinned or not done**, each tracked in `TASKS.md`:
 
 * **The weights are published** (T-202, owner's word 2026-11-15): private repository `gamug/deberta-v3-news-category-12`, revision recorded in the pin and in `config/published_models.json`; CI still cannot read them (the test that reads the folder skips when it is absent; the manifest test runs).
-* **The constitution's rule for a swapped model** (an `news_nlp.eval` run against the baseline, AI behavior #1) was not followed: the owner's override is recorded in the constitution (version 2.13.0) and the eval is owed (T-207).
-* **T-200:** the owner reads the older rows' tags, the close calls of the sheet and the 26 share-move rows. **T-204:** more rows for `investor_activity`, `other`, `partnerships_business_dev`, `capital_shareholder_returns`, `legal_regulatory`. **T-205:** settle `other` and partner versus product. **T-206:** the taxonomy's full definitions as hypotheses.
+* **The constitution's rule for a swapped model** (an `news_nlp.eval` run against the baseline, AI behavior #1) was not followed: the owner's override is recorded in the constitution (version 2.13.0) and the eval is owed (T-209).
+* **T-200:** the owner reads the older rows' tags, the close calls of the sheet and the 26 share-move rows. **T-204:** more rows for `investor_activity`, `other`, `partnerships_business_dev`, `capital_shareholder_returns`, `legal_regulatory`. **T-205:** settle `other` and partner versus product. **T-208:** the taxonomy's full definitions as hypotheses.
 * Baselines not run: embeddings with a logistic regression, and an LLM few-shot reader (paid; confirm the spend first).
 
 ## 10. Reproduce
