@@ -1,0 +1,10 @@
+{
+  "what": "the pair model the sentiment step (step 6) runs: a git-ignored local folder, never downloaded; the step refuses a folder whose identity is not this one. Its Hub copy (private) is a record. The stack is config/sentiment_stack.json (T-168, docs/sentiment_training.md, 'The decision')",
+  "model_dir": "models/sentiment_pair_all/final",
+  "identity": "685a5f64f427a4ff",
+  "published": {
+    "repo": "gamug/FinBERT-company-sentiment",
+    "revision": "9a7b1eb34c3f2e03c841173e18812f0d3d6f2d3e"
+  },
+  "run": "final_all__e2_lr3e-05_s4 (start gamug/FinBERT-financial-news@93863fcb, 809 rows + 341 replay, 2 epochs, lr 3e-5, seed 4)"
+}

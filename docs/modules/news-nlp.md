@@ -6,14 +6,14 @@ It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read
 
 **Two pipelines live here, one replacing the other.**
 
-- **The stepped pipeline (Work item 18, `PLAN.md` D39 and D40), the current approach.** It works on **unique article bodies** (81,961 unique `ok` bodies, D19; with the `quarantined` ones kept, D36, 309,972), finds the scope of each first, cuts a round-up into sub-news, and gives every text one main company before sentiment and category. One command per step (`cli/news_nlp_steps.py`), tracked in `pipeline_step_state`, idempotent. **State on 2026-11-12. Built:** 1.1 scope, 1.2 the cut, 2 the summary. **Pending:** 3 the companies (NER, matcher, relevance model), 4 sector, 6 sentiment (pair model + relevance stack, published privately, not pinned), 7 category (the D15 taxonomy, `docs/category-taxonomy.md`; model trained by the owner, T-174); the company snapshots are undefined. Section "The stepped pipeline" below.
+- **The stepped pipeline (Work item 18, `PLAN.md` D39 and D40), the current approach.** It works on **unique article bodies** (81,961 unique `ok` bodies, D19; with the `quarantined` ones kept, D36, 309,972), finds the scope of each first, cuts a round-up into sub-news, and gives every text one main company before sentiment and category. One command per step (`cli/news_nlp_steps.py`), tracked in `pipeline_step_state`, idempotent. **State on 2026-11-14. Built:** 1.1 scope, 1.2 the cut, 2 the summary, 3 the companies, 4 sector, 6 sentiment (pair model + relevance stack, local weights; the pin of `config/pipeline_models.json` waits for the gold score, T-148c4), 7 category (provisional zero-shot). **Pending:** the category model trained by the owner on the D15 taxonomy (`docs/category-taxonomy.md`, T-174); the company snapshots are undefined. Section "The stepped pipeline" below.
 - **The v1 chain (`pipeline.run_pipeline`, `cli/news_nlp_cli.py`, the FastAPI service), until the backfill (T-150).** Five stages over (URL, ticker) pairs: sentiment, NER, category, and the opt-in `c_summary` and `sector_summary`. Downstream repos still read its `article_*` tables. **The owner deprecated its sentiment, zero-shot category and `sector_summary` stages on 2026-11-12**; their description and evaluations are in `docs/legacy/news-nlp-v1-stages.md` and `docs/legacy/evaluation-v1-stages.md`. NER and the summariser stay documented here because the stepped pipeline uses them (steps 3 and 2).
 
 ## The stepped pipeline (D39, D40; the current approach)
 
-`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`
+`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`, `news_snapshot`, `period_run`, `period_summary`, `period_item`, `sector`, `company_sector`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
-`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; `news_sentiment` and `news_category` are created and not written yet (steps 6 and 7 are not built).
+`article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; step 6, `--step sentiment`, writes `news_sentiment` with the pair model stacked with step 3's relevance score (`docs/sentiment_step.md`); step 7, `--step category`, writes `news_category` with the pinned zero-shot model (provisional, `docs/category_step.md`).
 
 ### Step 1: scope (T-163)
 
@@ -28,9 +28,9 @@ and `uv run scripts/score_scope_validation_2026_11_11.py [--draw main|multi_extr
 
 ### Step 1.2: the cut (T-163)
 
-`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--status]` reads the `multi`
+`uv run cli/news_nlp_steps.py --step cut [--limit N] [--scope-revision REV] [--model-dir DIR] [--fetch] [--allow-unpinned] [--status]` reads the `multi`
 bodies of `body_scope` (at `--scope-revision`, default the latest), finds them in SOURCE by hash (the same proper corpus as
-step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (`data/models/attribution_2026_11_08`,
+step 1) and cuts each with the `units` extractor (read as `units5` by default, T-177; `units4` was the default of 2026-11-11, T-176) and the attribution checkpoint (pinned to the private Hub copy `config/attribution_model.json`: `--fetch` downloads it into an empty `--model-dir` and needs `HF_TOKEN`; any other folder is refused unless `--allow-unpinned`; the local `data/models/attribution_2026_11_08`,
 git-ignored, a GPU is advised); one `sub_news` row per company text (`src/cut_stage.py`). The revision is the reading (`units5`, or `units4` / `units` with `--reading`) plus `-` and a hash of
 the model folder's files, the company names it is asked about, its threshold and the code that cuts: any change starts a new set
 and leaves the old rows. **Rows of another reading (`units-…`, `units4-…`) stay beside the `units5-…` set; `--status` lists all
@@ -46,7 +46,7 @@ reproduced from the repository alone.** Measurements and the quality check: `doc
 
 ### Step 2: the summary (T-164, T-166)
 
-`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
+`uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single | --items sector --sector-revision REV) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
 step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
 `c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
 (`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). **The sub-news come from a
@@ -57,9 +57,16 @@ run it again and the first run: `docs/summary_step.md`.
 
 `uv run cli/news_nlp_steps.py --step companies --summary-revision REV --threshold T --candidates ner|ner+text [--cut-revision REV | --items single] [--limit N]` (and `--step companies --status`) reads the text step 2 left for each `single` body and sub-news, finds the universe companies it names (NER, then the matcher: a span with no ticker is ignored), scores each (text, ticker) with the relevance model `gamug/deberta-v3-company-relevance` (private, `HF_TOKEN`) and writes one `news_company` row per ticker; every ticker at the threshold or over it is main (`is_main`), an item with none is `review`. Revision `companies-…` (the two models, the threshold, the candidates, the universe, the code). **The threshold (0.5) and `--candidates` (`ner+text`) are the owner's, decided 2026-11-13 (the corrected definition of the text candidates confirmed), and have no default**; the measurements for choosing, the dry run and the limits (the relevance model never saw a sub-news): `docs/companies_step.md`.
 
+### The sector step (T-167)
+
+`uv run cli/news_nlp_steps.py --step sector [--limit N]` (and `--step sector --status`) gives each `sector` body of step 1 its 2-digit GICS sector or `out_of_scope`, in `body_sector`:
+a small embedder (`BAAI/bge-small-en-v1.5`, MIT licence, pinned in `config/sector_step.json`) scores chunks against sector descriptions and four *not a sector* classes, the companies the body names
+vote for their sector, and a sector is assigned only if the margin is high or the companies agree. The summary of the assigned bodies is `--step summary --items sector --sector-revision REV`.
+The rule, the figures of the owner's review (35 of 39 assigned right under the corrected tie rule; 35 of 40 as drawn) and what they do not show: `docs/sector_step.md`; code: `src/sector_stage.py`.
+
 ### Steps 4 to 7 (pending)
 
-Not built (`TASKS.md` T-167, T-168, T-172; Build 2 after Build 1, D40): **4**, the GICS sector of a `sector` body, then its summary; **6**, sentiment per (text, main company) with the pair model `gamug/FinBERT-company-sentiment` stacked with the relevance model (`docs/sentiment_training.md`; published privately, not pinned until the threshold and one 180-text gold score, T-169, T-148c4), a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`), model trained by the owner (T-174). Step 5 of D40, the company snapshots, is undefined (D28, T-152).
+Built since: **8**, the snapshot per (text, main company) or `sector` text (`--step snapshot`, `docs/snapshot_steps.md`, T-195): a join of steps 2, 7 and 6 with the earliest publication date (the crawl date only when there is none) and the title, always idempotent (the revision is the code's, the input revisions are in each row; `--reset` rebuilds); **9**, the period summary (`--step period`, T-196): the counts of the snapshots of each 21-day window (from 2022-01-03, 15:00 `BATCH_TIMEZONE`) per company and per sector, frozen once written, with `period_item` saying which period counted which snapshot; **6**, sentiment per (text, main company) with the pair model (local folder, `config/sentiment_step.json`; published privately as `gamug/FinBERT-company-sentiment`) stacked with step 3's relevance score (`docs/sentiment_step.md`; the pin of `config/pipeline_models.json` waits for one 180-text gold score, T-148c4). Not built (`TASKS.md` T-168, T-172; the open part of T-167 is the full run and the sub-industry, above; Build 2 after Build 1, D40): the sentiment of a sector summary by `gamug/FinBERT-financial-news` with no company; **7**, category per (text, main company) with the D15 taxonomy (`docs/category-taxonomy.md`): built **provisionally** with the zero-shot model (`docs/category_step.md`); the model trained by the owner (T-174) replaces it by changing the pin. Step 5 of D40, the company snapshots, is undefined (D28, T-152).
 
 ## Models both pipelines use
 
@@ -187,7 +194,7 @@ processed that article, `"summary"` until stage 4 has), `GET /stats/categories` 
 
 ```bash
 uv sync                          # torch is a pinned direct dep (cu124 wheel index) — no manual install
-uv run python -m setup           # pre-fetch the four HF models into the local cache (one-time, safe to re-run)
+uv run python -m setup           # pre-fetch the four HF models and the sector embedder into the local cache (one-time, safe to re-run)
 ```
 
 ### Model pins
@@ -200,6 +207,7 @@ Production model selection (name, commit SHA, and batch size per ML stage) lives
 | NER | `gamug/sec-bert-finer-ord-ner` | `ba7b9e43e4aa023ec5691f955b276dc58158354c` (batch size 8) |
 | Category (v1 zero-shot stage, deprecated; also the base checkpoint of the scope and relevance models) | `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` | `8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8` (batch size 8) |
 | Summarization (step 2 and v1 `c_summary`) | `sshleifer/distilbart-cnn-12-6` | `a4f8f3ea906ed274767e9906dbaede7531d660ff` (batch size 4) |
+| Sector embedder (the sector step; pinned in `config/sector_step.json`, MIT) | `BAAI/bge-small-en-v1.5` | `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a` (batch size 32) |
 
 The scope model of step 1 is pinned in a second file, `config/scope_model.json` (repository `gamug/deberta-v3-news-scope-nli`, public; commit; and the step revision stored in every `body_scope` row), because no stage of the v1 pipeline uses it and the pin carries a step revision the four stages do not have. `uv run cli/news_nlp_steps.py --step scope --fetch` downloads that commit into an empty `models/scope_final` (no token needed) and deletes a copy whose step revision is not the pinned one; the step refuses a model that is not the pinned one unless `--allow-unpinned`.
 
@@ -310,8 +318,8 @@ lean `articles` rows itself.
 - `news_nlp/gold_review.py` — writes the owner's review and key CSVs; refuses to overwrite a review
   file that already holds a `human_label`.
 - `news_nlp/retag.py` — gold v2 (T-146b): the re-tag file of the 720 (v1 tag shown, LLM label hidden), D15 label set and the check of the returned file (`scripts/retag_gold_2026_10_29.py export|check`).
-- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **not
-  published, not pinned**): a pair classifier, *is this sentence about this company?* (the company's
+- `news_nlp/attribution_model.py` — the trained attribution model of step 4 (T-148b3, D27; **published
+  private and pinned for the cut**: `config/attribution_model.json`, `--step cut --fetch`): a pair classifier, *is this sentence about this company?* (the company's
   name, the previous sentence and the sentence in; trained on `lead` paragraphs only, with the
   company's name masked). A sentence that names universe companies belongs to them; one that names
   none goes to the best-scoring company of the body if the score is at least 0.5, else to nobody.
@@ -395,7 +403,7 @@ the validation score of a run is the mean of those nine figures; accuracy is a d
   only tracked files, `--order-of` repeats the published key order) and `stack` (the logistic regression on the
   out-of-fold scores -> `config/sentiment_stack.json`; `apply_stack` is the formula the model card shows).
 - `scripts/publish_final_models_2026_11_10.py` (T-169) — cards and the private upload of both models (`--dry-run`
-  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. Nothing is pinned. Details and limits:
+  needs no token; `--check` is a read-only check of the live repositories); writes the revisions and card hashes to `config/published_models.json`. The sentiment and relevance repositories are not pinned (the scope model is: `config/scope_model.json`). Details and limits:
   `docs/sentiment_training.md`, "Published".
 - Where things are, all git-ignored: `data/sentiment_pair/` (`grid_results.json`, the record of the numbers,
   `baseline.json`, `replay.json`, `predictions/<tag>__<run>.csv`), `models/sentiment_pair/final`, `models/sentiment_pair_all/final` (`--final-all`), `mlruns/`.

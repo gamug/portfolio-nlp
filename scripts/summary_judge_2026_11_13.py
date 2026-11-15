@@ -56,11 +56,12 @@ sys.path.insert(0, str(ROOT / "src"))
 csv.field_size_limit(sys.maxsize)
 
 from news_nlp import triage  # noqa: E402
-from news_nlp.eval.judges import _REPAIR_PROMPT, JudgeAgent, _coerce  # noqa: E402
+from news_nlp.eval.judges import JudgeAgent, coerce, repair_prompt  # noqa: E402
 
 DEFAULT_DIR = ROOT / "data" / "summary_judge"
 GROUPS = ("single", "multi")
 BUCKETS = (0, 1, 2)
+BUCKET_BY = ("chunks", "chars")
 DEFAULT_SEED = 20261113
 MAX_CLAIMS = 12  # the prompt says "At most 12 claims" (a test ties the two): a summary that reaches it may have more
 SAMPLE_COLUMNS = (
@@ -77,6 +78,7 @@ SAMPLE_COLUMNS = (
     "summary_text",
     "source_chars",
     "summary_chars",
+    "language",
     "compression",
     "source_tickers",
     "summary_tickers",
@@ -135,6 +137,7 @@ PROMPT_SHA = hashlib.sha256((PROMPT + user_prompt("{source}", "{summary}")).enco
     :16
 ]
 MAX_CONSECUTIVE_ERRORS = 5
+DEFAULT_MAX_CALLS = 1000  # the planned sample is 300; a call is one request, so a repeat after an unreadable reply counts
 
 
 class ProviderError(RuntimeError):
@@ -148,12 +151,12 @@ class JudgeOutage(RuntimeError):
 def judge_one(agent: JudgeAgent, source: str, summary: str) -> ClaimsVerdict:
     """The judge's verdict on one summary: one repair prompt for a reply that cannot be read, then ``parse_failed``. A provider error raises
     ``ProviderError``."""
-    for prompt in (user_prompt(source, summary), _REPAIR_PROMPT):
+    for prompt in (user_prompt(source, summary), repair_prompt()):
         try:
             reply = str(agent(prompt))
         except Exception as exc:
             raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
-        parsed = _coerce(reply, ClaimsVerdict)
+        parsed = coerce(reply, ClaimsVerdict)
         if parsed is not None:
             return parsed
     return ClaimsVerdict(
@@ -202,10 +205,12 @@ def run_judge(
     limit: int | None = None,
     judge_model: str = "",
     sample_id: str | None = None,
+    max_calls: int | None = None,
 ) -> dict[str, int]:
     """Judge the rows without a good verdict **of this judge** in ``out`` (the model and the prompt are compared), appending each as it arrives
     (a run can stop and go on). A reply that arrived and could not be read is stored with ``parse_failed`` and judged again by the next run; a
-    provider error is not stored, is counted, and ``MAX_CONSECUTIVE_ERRORS`` in a row stop the run with ``JudgeOutage``."""
+    provider error is not stored, is counted, and ``MAX_CONSECUTIVE_ERRORS`` in a row stop the run with ``JudgeOutage``.
+    ``max_calls`` is a hard cap on the calls made in this run, errors and repeats included: the rows left over are counted in ``not_called`` and a rerun goes on."""
     done = {
         i
         for i, v in read_verdicts(out).items()
@@ -219,13 +224,25 @@ def run_judge(
         todo = todo[:limit]
     lock = threading.Lock()
     stop = threading.Event()
-    counts = {"judged": 0, "parse_failed": 0, "provider_errors": 0, "longest_verdict_chars": 0}
+    counts = {
+        "judged": 0,
+        "parse_failed": 0,
+        "provider_errors": 0,
+        "longest_verdict_chars": 0,
+        "calls": 0,
+        "not_called": 0,
+    }
     streak = {"n": 0, "last": ""}
     out.parent.mkdir(parents=True, exist_ok=True)
 
     def one(row: dict[str, Any]) -> None:
         if stop.is_set():
             return
+        with lock:
+            if max_calls is not None and counts["calls"] >= max_calls:
+                counts["not_called"] += 1
+                return
+            counts["calls"] += 1
         try:
             verdict = judge_one(agent_factory(), row["source_text"], row["summary_text"])
         except ProviderError as exc:
@@ -323,22 +340,44 @@ def eligible(
     }
 
 
-def fetch_sources(source: sqlite3.Connection, hashes: set[str]) -> dict[str, tuple[str, str]]:
-    """``(title, body)`` of the first article that carries each body hash, the one step 2 read; one pass over SOURCE, stopped when all are found."""
-    found: dict[str, tuple[str, str]] = {}
-    for title, text in source.execute(
-        "SELECT title, body_text FROM articles WHERE fetch_status IN ('ok', 'quarantined') "
+def fetch_sources(source: sqlite3.Connection, hashes: set[str]) -> dict[str, tuple[str, str, str]]:
+    """``(title, body, language)`` of the first article that carries each body hash, the one step 2 read; one pass over SOURCE, stopped when all are found."""
+    found: dict[str, tuple[str, str, str]] = {}
+    for title, text, language in source.execute(
+        "SELECT title, body_text, language FROM articles WHERE fetch_status IN ('ok', 'quarantined') "
         "AND body_text IS NOT NULL AND body_text != '' ORDER BY id"
     ):
         key = triage.body_hash(text)
         if key in hashes and key not in found:
-            found[key] = (title or "", text)
+            found[key] = (title or "", text, language or "")
             if len(found) == len(hashes):
                 break
     return found
 
 
-def draw(
+def sub_news_languages(
+    results: sqlite3.Connection, source: sqlite3.Connection, ids: Sequence[int]
+) -> dict[int, str]:
+    """The language of the article each sub-news was cut from (``''`` when SOURCE does not say): the summariser reads English only."""
+    out: dict[int, str] = {}
+    for i in range(0, len(ids), 500):
+        chunk = list(ids[i : i + 500])
+        marks = ",".join("?" * len(chunk))
+        sql = f"SELECT id, article_id FROM sub_news WHERE id IN ({marks})"  # noqa: S608 -- placeholders only
+        article_of = dict(results.execute(sql, chunk).fetchall())
+        wanted = sorted({a for a in article_of.values() if a is not None})
+        langs: dict[int, str] = {}
+        for j in range(0, len(wanted), 500):
+            part = wanted[j : j + 500]
+            sql = f"SELECT id, language FROM articles WHERE id IN ({','.join('?' * len(part))})"  # noqa: S608 -- placeholders only
+            for a, lang in source.execute(sql, part):
+                langs[int(a)] = lang or ""
+        for sid, art in article_of.items():
+            out[int(sid)] = langs.get(int(art), "") if art is not None else ""
+    return out
+
+
+def draw(  # noqa: C901 -- one pipeline: frame, buckets, draw, sources, rows
     results: sqlite3.Connection,
     source: sqlite3.Connection,
     summary_revision: str,
@@ -346,12 +385,36 @@ def draw(
     cut_revision: str,
     per_group: int,
     seed: int,
+    bucket_by: str = "chunks",
 ) -> list[dict[str, Any]]:
-    """The sample: ``per_group`` summarised items of each group, the same number from each length bucket, with the deterministic measures."""
+    """The sample: ``per_group`` summarised items of each group, the same number from each length bucket, with the deterministic measures.
+    ``bucket_by`` is ``chunks`` (terciles of the number of chunks the summariser used: the model of the chunk-and-reduce path) or ``chars`` (terciles of the
+    characters of the source the summariser read: the only definition that exists for a summary with no chunks, such as one written by an API, T-206)."""
+    if bucket_by not in BUCKET_BY:
+        raise ValueError(f"bucket_by must be one of {BUCKET_BY}, not {bucket_by!r}")
     import news_company_stage as ncs  # noqa: PLC0415 -- loads torch
     from news_summary_stage import input_of_body  # noqa: PLC0415 -- loads torch
 
     frame = eligible(results, summary_revision, scope_revision, cut_revision)
+    everything: dict[str, tuple[str, str, str]] = {}
+    if (
+        bucket_by == "chars"
+    ):  # the length of a single body is known only from SOURCE: one pass over all of them
+        everything = fetch_sources(source, {item[0] for item in frame["single"]})
+        lacking = len(frame["single"]) - len(everything)
+        if lacking:
+            raise ValueError(
+                f"the SOURCE copy lacks {lacking} bodies of the single summaries: copy RESULTS and SOURCE at the same time"
+            )
+
+    def size_of(group: str, item: tuple[str, str, int, str | None]) -> int:
+        if bucket_by == "chunks":
+            return item[2]
+        if group == "multi":
+            return len(item[3] or "")
+        title, body, _ = everything[item[0]]
+        return len(input_of_body(title, body))
+
     universe = [
         triage.Company(*(x or "" for x in r))
         for r in source.execute(
@@ -362,19 +425,18 @@ def draw(
     picked: list[tuple[str, int, int, int, tuple[str, str, int, str | None]]] = []
     for group in GROUPS:
         items = frame[group]
-        edges = bucket_edges([c for _, _, c, _ in items])
+        edges = bucket_edges([size_of(group, item) for item in items])
         by_bucket: dict[int, list[tuple[str, str, int, str | None]]] = {b: [] for b in BUCKETS}
         for item in items:
-            by_bucket[bucket_of(item[2], edges)].append(item)
+            by_bucket[bucket_of(size_of(group, item), edges)].append(item)
         take = allocate({b: len(v) for b, v in by_bucket.items()}, per_group)
         for b in BUCKETS:
             chosen = random.Random(f"{seed}:{group}:{b}").sample(by_bucket[b], take[b])  # noqa: S311 -- a reproducible draw, not security
             picked.extend((group, b, len(by_bucket[b]), take[b], item) for item in chosen)  # type: ignore[misc]
-    sources = fetch_sources(
-        source,
-        {item[0] for group, _, _, _, item in picked if group == "single"},  # type: ignore[index]
-    )
     wanted = {item[0] for group, _, _, _, item in picked if group == "single"}  # type: ignore[index]
+    sources = everything or fetch_sources(source, wanted)
+    sub_ids = [int(item[0]) for group, _, _, _, item in picked if group == "multi"]  # type: ignore[index]
+    language_of_sub = sub_news_languages(results, source, sub_ids)
     if len(sources) < len(wanted):
         raise ValueError(
             f"the SOURCE copy lacks {len(wanted) - len(sources)} of {len(wanted)} bodies of the sampled single summaries: "
@@ -384,8 +446,10 @@ def draw(
     for group, bucket, pop_n, sample_n, item in picked:  # type: ignore[misc]
         item_id, summary, chunks, text = item
         if group == "single":
-            title, body = sources[item_id]
+            title, body, language = sources[item_id]
             text = input_of_body(title, body)
+        else:
+            language = language_of_sub.get(int(item_id), "")
         assert text is not None
         src_tickers = ncs.direct_mentions(resolver, text)
         sum_tickers = ncs.direct_mentions(resolver, summary)
@@ -404,6 +468,7 @@ def draw(
                 "summary_text": summary,
                 "source_chars": len(text),
                 "summary_chars": len(summary),
+                "language": language,
                 "compression": len(summary) / len(text) if text else 0.0,
                 "source_tickers": json.dumps(src_tickers, sort_keys=True),
                 "summary_tickers": json.dumps(sum_tickers, sort_keys=True),
@@ -431,6 +496,7 @@ def make_meta(
     seed: int,
     results_db: Path,
     source_db: Path,
+    bucket_by: str = "chunks",
 ) -> dict[str, Any]:
     """What a sample was drawn from: the three revisions (the ids of the sub-news mean nothing without the cut's), the seed, the size, the
     population of each group, the two database copies, and the identity ``sample_id`` (a hash of all that and of the ids drawn, not of the date)."""
@@ -443,6 +509,7 @@ def make_meta(
         "cut_revision": cut_revision,
         "seed": seed,
         "per_group": per_group,
+        "bucket_by": bucket_by,
         "populations": populations,
         "ids": sorted(r["id"] for r in rows),
     }
@@ -689,7 +756,15 @@ def summarise(
             "compression_median": statistics.median(float(r["compression"]) for r in mine),
             "longer_than_source": sum(1 for r in mine if float(r["compression"]) > 1) / len(mine),
             "by_bucket": {},
+            "by_language": {},
         }
+        for language in sorted({str(r.get("language", "")) for r in mine}):
+            in_language = [(r, m) for r, m in checkable if str(r.get("language", "")) == language]
+            out["by_language"][language or "unknown"] = {
+                "n": sum(1 for r in mine if str(r.get("language", "")) == language),
+                "clean": _plain([bool(m["clean"]) for _, m in in_language]),
+                "main_event_covered": _plain([m["covered"] for _, m in in_language]),
+            }
         for bucket in sorted({str(r["bucket"]) for r in mine}):
             in_bucket = [(r, m) for r, m in checkable if str(r["bucket"]) == bucket]
             out["by_bucket"][bucket] = {
@@ -719,7 +794,7 @@ def render(report: dict[str, Any], judge: str) -> str:
     lines = [
         f"Summary judge: `{judge}`. Rates are per summary, weighted by the bucket's share of its group (interval: bootstrap within buckets, 95%).",
         "These are the judge's figures, **not checked against the owner's marks** (`tag-sheet`, `agree`).",
-        "The three buckets are terciles of a discrete chunk count and can collapse (a bucket with no sampled item is not listed).",
+        "The three buckets are terciles of the chunk count or of the source characters (`bucket_by` in `sample.meta.json`); a discrete count can collapse them (a bucket with no sampled item is not listed). The summariser reads English only: the language table is not weighted.",
         "",
     ]
     for group, g in report.items():
@@ -746,6 +821,15 @@ def render(report: dict[str, Any], judge: str) -> str:
         for bucket, v in g["by_bucket"].items():
             lines.append(
                 f"| {bucket} | {v['population']} | {v['n']} | {v['unreadable']} | {v['median_chars']:.0f} | {_pct(v['clean'])} | {_pct(v['any_contradicted'])} | {_pct(v['main_event_covered'])} |"
+            )
+        lines += [
+            "",
+            "| language | sampled | clean | main event |",
+            "|---|---|---|---|",
+        ]
+        for language, v in g["by_language"].items():
+            lines.append(
+                f"| {language} | {v['n']} | {_pct(v['clean'])} | {_pct(v['main_event_covered'])} |"
             )
         lines.append("")
     return "\n".join(lines)
@@ -1101,11 +1185,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cut-revision", required=True)
     p.add_argument("--per-group", type=int, default=150)
     p.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p.add_argument(
+        "--bucket-by",
+        choices=BUCKET_BY,
+        default="chunks",
+        help="terciles of the chunk count (the chunk-and-reduce summariser) or of the source characters (any summariser, e.g. an API)",
+    )
     p.add_argument("--out", type=Path, default=DEFAULT_DIR / "sample.csv")
     j = sub.add_parser("judge")
     j.add_argument("--sample", type=Path, default=DEFAULT_DIR / "sample.csv")
     j.add_argument("--out", type=Path, default=DEFAULT_DIR / "verdicts.jsonl")
     j.add_argument("--limit", type=int, default=None)
+    j.add_argument(
+        "--max-calls",
+        type=int,
+        default=DEFAULT_MAX_CALLS,
+        help="a hard cap on the calls of this run, errors and repeats included",
+    )
     j.add_argument("--workers", type=int, default=None)
     r = sub.add_parser("report")
     r.add_argument("--sample", type=Path, default=DEFAULT_DIR / "sample.csv")
@@ -1160,6 +1256,7 @@ def main() -> None:
             args.cut_revision,
             args.per_group,
             args.seed,
+            args.bucket_by,
         )
         meta = make_meta(
             rows,
@@ -1170,6 +1267,7 @@ def main() -> None:
             seed=args.seed,
             results_db=Path(args.results_db),
             source_db=Path(args.source_db),
+            bucket_by=args.bucket_by,
         )
         write_sample(args.out, rows, meta)
         print(f"wrote {len(rows)} rows to {args.out}\n{_identity_line(args.out)}")
@@ -1194,6 +1292,7 @@ def main() -> None:
             args.limit,
             judge_model=settings.llm_model,
             sample_id=_sample_id(args.sample),
+            max_calls=args.max_calls,
         )
         print(json.dumps(counts))
     elif args.cmd == "report":

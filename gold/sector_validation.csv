@@ -1,0 +1,168 @@
+review,review_order,article_id,shown_sector,control,correct,right_sector,notes,status,candidate,margin,vote_sector,sure,step_revision
+first,1,475522,45,no,yes,,,,45,0.0068,,no,
+first,2,183282,50,no,yes,,,,50,0.0127,,no,
+first,3,142,10,no,no,60,This is like housing and so on,,10,0.0387,,yes,
+first,4,93852,25,no,yes,,,,25,0.0100,,no,
+first,5,1110642,55,no,no,25,"This is more like electric cars. The confusion comes from the masive use of ""electric cars"" in the article. Guesing this can be improved by adding some statements to the cars sector",,55,0.0245,,no,
+first,6,318192,45,no,yes,,,,45,0.0079,,no,
+first,7,322852,35,no,yes,,The problem comes with the sector: Robot has'nt a unique sector. Could be also 20 or 45,,35,0.0110,,no,
+first,8,155182,10,no,yes,,,,10,0.0363,,yes,
+first,9,323362,55,no,yes,,,,55,0.0597,,yes,
+first,10,322872,60,no,no,,Is like a misslabeled. Could be investment_activity,,60,0.0340,,yes,
+first,11,303432,60,no,yes,,,,60,0.1157,,yes,
+first,12,127892,15,no,no,,Is like a misslabeled. Could be market_economy,,15,0.0161,,no,
+first,13,296822,25,no,yes,,,,25,0.0358,,yes,
+first,14,266452,10,no,yes,,,,10,0.0324,,yes,
+first,15,1092502,15,no,no,,Is like a misslabeled. Could be market_economy,,15,0.0062,,no,
+first,16,287062,45,no,yes,,,,45,0.0685,,yes,
+first,17,480052,60,no,yes,,,,60,0.0213,,no,
+first,18,326092,25,no,yes,,,,25,0.0230,,no,
+first,19,158642,20,no,yes,,,,20,0.0102,,no,
+first,20,266042,15,no,yes,,,,15,0.0425,,yes,
+first,21,156652,20,no,yes,,,,20,0.0805,,yes,
+first,22,90342,25,no,yes,,,,25,0.0180,,no,
+first,23,163752,20,no,yes,,,,20,0.0057,,no,
+first,24,255942,35,no,yes,,,,35,0.0929,,yes,
+first,25,323522,40,no,no,,"Seems like an error: not a sector, is more like ""unrelated""",,40,0.0031,,no,
+first,26,297372,40,no,no,,Misslabel: is multi,,40,0.0070,,no,
+first,27,94192,25,no,yes,,,,25,0.0034,,no,
+first,28,169082,35,yes,no,,This is more like market_economy,,15,0.0037,,no,
+first,29,263292,45,no,no,,Is more like investment_activity,,45,0.0110,,no,
+first,30,251572,30,no,yes,,,,30,0.0508,,yes,
+first,31,438862,30,no,yes,,,,30,0.0731,,yes,
+first,32,325272,25,no,yes,,,,25,0.0814,,yes,
+first,33,92302,25,no,no,45,,,25,0.0307,,no,
+first,34,127872,10,no,no,,Is more like laboral market wich can be flagged as market_economy,,10,0.0202,,no,
+first,35,296512,30,no,no,25,,,30,0.0037,,no,
+first,36,90432,30,yes,no,45,,,45,0.0452,,yes,
+first,37,131132,35,no,yes,,,,35,0.0457,,yes,
+first,38,94402,30,no,no,25,,,30,0.0146,,no,
+first,39,325832,15,no,yes,,,,15,0.0369,,yes,
+first,40,319342,35,no,no,45,"It is ambiguos, is a sector asking for some finantial unrelated stuff. I flagged it anyway but should be ""unrelated""",,35,0.0008,,no,
+first,41,327202,50,no,yes,,,,50,0.0813,,yes,
+first,42,89252,50,no,no,,Is an scope error. Should be investment_general,,50,0.0139,,no,
+first,43,312902,35,no,no,,"Is an scope error. Should be ""unrelated""",,35,0.0090,,no,
+first,44,157632,20,no,yes,,,,20,0.0358,,yes,
+first,45,465662,35,no,no,,"Is an scope error. Should be ""unrelated""",,35,0.0066,,no,
+first,46,296722,40,no,yes,,,,40,0.0418,,yes,
+first,47,130332,15,no,yes,,,,15,0.0044,,no,
+first,48,155662,60,no,yes,,,,60,0.1057,,yes,
+first,49,296152,10,no,yes,,,,10,0.0497,,yes,
+first,50,324202,10,no,yes,,,,10,0.0325,,yes,
+first,51,263982,55,no,yes,,,,55,0.0857,,yes,
+first,52,165142,60,no,no,,"Is an scope error. Should be ""market_economy""",,60,0.0307,,no,
+first,53,143542,50,yes,no,15,,,10,0.0316,,no,
+first,54,90632,50,no,no,,"Is an scope error. Should be ""unrelated""",,50,0.0071,,no,
+first,55,263472,40,no,yes,,,,40,0.0002,,no,
+first,56,342942,45,no,yes,,,,45,0.0440,,yes,
+first,57,93742,50,no,yes,,,,50,0.0695,,yes,
+first,58,480022,15,yes,no,45,,,50,0.0013,,no,
+first,59,263402,30,yes,no,,"Is an scope error. Should be ""single""",,60,0.0076,,no,
+first,60,121612,40,no,no,25,,,40,0.0121,,no,
+first,61,862,25,no,yes,,,,25,0.0385,,yes,
+first,62,464902,20,no,yes,,,,20,0.0115,,no,
+first,63,296112,55,no,no,,"Is an scope error. Should be ""market_economy""",,55,0.0088,,no,
+first,64,155592,60,no,yes,,,,60,0.0855,,yes,
+first,65,130002,55,no,yes,,,,55,0.0571,,yes,
+first,66,1107812,50,no,yes,,,,50,0.0907,,yes,
+first,67,264332,50,no,yes,,,,50,0.0764,,yes,
+first,68,318172,45,no,yes,,,,45,0.0017,,no,
+first,69,175592,55,no,no,20,,,55,0.0015,,no,
+first,70,323912,35,no,yes,,,,35,0.0614,,yes,
+first,71,93552,10,no,yes,,,,10,0.0075,,no,
+first,72,325432,40,no,yes,,,,40,0.0634,,yes,
+first,73,96232,35,no,yes,,,,35,0.0239,,no,
+first,74,323562,25,no,yes,,,,25,0.0592,,yes,
+first,75,132262,15,yes,no,45,,,45,0.0389,,yes,
+first,76,324002,10,no,yes,,,,10,0.0203,,no,
+first,77,323162,45,no,yes,,,,45,0.0242,,no,
+first,78,170902,30,no,yes,,,,30,0.0192,,no,
+first,79,340912,45,yes,no,15,,,15,0.0978,,yes,
+first,80,154812,40,no,yes,,,,40,0.0368,,yes,
+first,81,471932,35,yes,no,20,,,20,0.0762,,yes,
+first,82,451722,55,no,no,15,,,55,0.0025,,no,
+first,83,297142,60,no,yes,,,,60,0.0406,,yes,
+first,84,1101172,10,no,no,45,,,10,0.0016,,no,
+first,85,323762,55,no,yes,,,,55,0.0097,,no,
+first,86,122432,50,no,yes,,,,50,0.0055,,no,
+first,87,264772,40,no,yes,,,,40,0.0593,,yes,
+first,88,168922,55,no,no,15,,,55,0.0403,,yes,
+first,89,466582,20,no,yes,,,,20,0.0192,,no,
+first,90,90842,60,no,no,15,,,60,0.0038,,no,
+first,91,157502,20,no,yes,,,,20,0.0704,,yes,
+first,92,476212,40,yes,no,15,"I saw that this mistake mention a lot the word ""retail"". Though this could be the key",,30,0.0141,,no,
+first,93,325062,15,no,no,45,Cryptocurrency as technology,,15,0.0529,,yes,
+first,94,155552,20,no,no,,"Is an scope error. Should be ""unrelated""",,20,0.0157,,no,
+first,95,264232,50,yes,no,15,,,15,0.0701,,yes,
+first,96,263502,45,no,yes,,,,45,0.0486,,yes,
+first,97,247882,40,no,no,,"The article is ambious, I clasify it as ""unrelated""",,40,0.0143,,no,
+first,98,163732,20,no,yes,,,,20,0.0342,,yes,
+first,99,137462,40,no,yes,,,,40,0.0499,,yes,
+first,100,146452,30,no,no,25,,,30,0.0109,,no,
+first,101,323372,10,no,yes,,,,10,0.0489,,yes,
+first,102,170402,30,no,yes,,,,30,0.0708,,yes,
+first,103,479382,15,no,no,5,,,15,0.0141,,no,
+first,104,480042,35,no,yes,,,,35,0.0665,,yes,
+first,105,117402,60,no,no,45,"Anyway, this is a very ambiguos article",,60,0.0039,,no,
+first,106,1110252,55,no,yes,,,,55,0.0849,,yes,
+first,107,302442,15,no,yes,,Is hard to decide wherever this article belongs,,15,0.0019,,no,
+first,108,474602,50,no,yes,,,,50,0.0755,,yes,
+first,109,119972,35,no,no,45,,,35,0.0567,,yes,
+first,110,295732,25,no,no,,,,25,0.0353,,yes,
+fresh,1,295973,35,no,yes,,,assigned,35,0.0320,35,,sector-cf81d9b32565
+fresh,2,465343,20,no,yes,,,assigned,20,0.0074,20,,sector-cf81d9b32565
+fresh,3,121693,25,no,yes,,,assigned,25,0.0815,45,,sector-cf81d9b32565
+fresh,4,95843,25,no,yes,,,assigned,25,0.0347,25,,sector-cf81d9b32565
+fresh,5,480713,60,no,yes,,,assigned,60,0.0485,40,,sector-cf81d9b32565
+fresh,6,323283,25,no,no,50,,assigned,25,0.0353,40,,sector-cf81d9b32565
+fresh,7,118103,50,no,yes,,,assigned,50,0.0473,45,,sector-cf81d9b32565
+fresh,8,183243,50,no,yes,,,assigned,50,0.0189,50,,sector-cf81d9b32565
+fresh,9,161513,40,no,yes,,,assigned,40,0.0562,40,,sector-cf81d9b32565
+fresh,10,466193,45,no,yes,,,assigned,45,0.0345,20,,sector-cf81d9b32565
+fresh,11,318883,55,no,yes,,,assigned,55,0.0473,45,,sector-cf81d9b32565
+fresh,12,480133,,no,yes,,,out_of_scope,50,0.0254,40,,sector-cf81d9b32565
+fresh,13,263893,60,no,yes,,,assigned,60,0.0466,40,,sector-cf81d9b32565
+fresh,14,106923,40,no,yes,,,assigned,40,0.0046,40,,sector-cf81d9b32565
+fresh,15,115413,,no,no,50,"Is a real sector news, not out_of_scope",out_of_scope,50,0.0130,45,,sector-cf81d9b32565
+fresh,16,128983,10,no,yes,,,assigned,10,0.0666,40,,sector-cf81d9b32565
+fresh,17,340903,15,no,yes,,,assigned,15,0.0532,15,,sector-cf81d9b32565
+fresh,18,159773,45,no,yes,,,assigned,45,0.0245,45,,sector-cf81d9b32565
+fresh,19,119113,,no,no,25,"Is a real sector news, not out_of_scope",out_of_scope,25,0.0282,45,,sector-cf81d9b32565
+fresh,20,324363,,no,no,10,"Is a real sector news, not out_of_scope",out_of_scope,10,0.0224,40,,sector-cf81d9b32565
+fresh,21,479723,55,no,yes,,,assigned,55,0.0600,55,,sector-cf81d9b32565
+fresh,22,291713,10,no,yes,,,assigned,10,0.0558,40,,sector-cf81d9b32565
+fresh,23,105013,,no,yes,,"Confirm out_of_scope, market_economy",out_of_scope,market_economy,0.0415,40,,sector-cf81d9b32565
+fresh,24,1074563,,no,no,45,"Is a real sector news, not out_of_scope",out_of_scope,35,0.0131,25,,sector-cf81d9b32565
+fresh,25,157513,20,no,yes,,,assigned,20,0.1066,20,,sector-cf81d9b32565
+fresh,26,157833,25,yes,no,,out_of_scope: unrelated,assigned,20,0.0443,20,,sector-cf81d9b32565
+fresh,27,285613,45,no,yes,45,,assigned,45,0.0351,45,,sector-cf81d9b32565
+fresh,28,479413,50,yes,no,10,,assigned,10,0.0731,,,sector-cf81d9b32565
+fresh,29,464913,,no,yes,,,out_of_scope,market_economy,0.0069,20,,sector-cf81d9b32565
+fresh,30,169853,40,no,yes,,,assigned,40,0.0179,40,,sector-cf81d9b32565
+fresh,31,166763,10,no,yes,,,assigned,10,0.0442,10,,sector-cf81d9b32565
+fresh,32,469733,20,no,yes,,,assigned,20,0.0696,20,,sector-cf81d9b32565
+fresh,33,291613,35,no,yes,,,assigned,35,0.0663,35,,sector-cf81d9b32565
+fresh,34,266203,,no,yes,,,out_of_scope,10,0.0174,40,,sector-cf81d9b32565
+fresh,35,187223,30,no,no,25,,assigned,30,0.0151,30,,sector-cf81d9b32565
+fresh,36,325243,30,no,yes,,,assigned,30,0.0695,30,,sector-cf81d9b32565
+fresh,37,326983,55,yes,no,50,,assigned,50,0.0650,50,,sector-cf81d9b32565
+fresh,38,263743,40,no,no,,out_of_scope:investment_general,assigned,40,0.0072,40,,sector-cf81d9b32565
+fresh,39,275823,35,no,yes,,,assigned,35,0.0493,35,,sector-cf81d9b32565
+fresh,40,1111493,45,no,yes,,,assigned,45,0.0164,45,,sector-cf81d9b32565
+fresh,41,413583,35,no,no,30,,assigned,35,0.0435,30,,sector-cf81d9b32565
+fresh,42,250433,,no,yes,,,out_of_scope,55,0.0095,30,,sector-cf81d9b32565
+fresh,43,1080813,50,yes,no,,"out_of_scope, market_economy",assigned,10,0.0309,10,,sector-cf81d9b32565
+fresh,44,295283,15,no,no,,"out_of_scope, market_economy",assigned,15,0.0319,45,,sector-cf81d9b32565
+fresh,45,266663,60,no,yes,,,assigned,60,0.0304,25,,sector-cf81d9b32565
+fresh,46,88283,,no,no,50,real sector,out_of_scope,50,0.0029,25,,sector-cf81d9b32565
+fresh,47,323623,45,no,yes,,,assigned,45,0.0458,40,,sector-cf81d9b32565
+fresh,48,220653,,no,yes,,,out_of_scope,45,0.0251,40,,sector-cf81d9b32565
+fresh,49,264223,25,no,yes,,,assigned,25,0.0394,25,,sector-cf81d9b32565
+fresh,50,169143,,no,yes,,,out_of_scope,20,0.0133,40,,sector-cf81d9b32565
+fresh,51,177093,50,no,yes,,,assigned,50,0.1000,50,,sector-cf81d9b32565
+fresh,52,453953,50,no,yes,,,assigned,50,0.0544,50,,sector-cf81d9b32565
+fresh,53,157553,20,no,yes,,,assigned,20,0.0414,20,,sector-cf81d9b32565
+fresh,54,315213,55,yes,no,35,,assigned,35,0.0696,35,,sector-cf81d9b32565
+fresh,55,164683,15,no,yes,,,assigned,15,0.0523,20,,sector-cf81d9b32565
+fresh,56,169413,40,no,yes,,,assigned,40,0.0117,40,,sector-cf81d9b32565
+fresh,57,121113,25,no,yes,,,assigned,25,0.0685,25,,sector-cf81d9b32565

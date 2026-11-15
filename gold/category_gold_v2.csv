@@ -166,15 +166,15 @@ article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes
 295642,sector_extra,JPM,market_economy,,,,Is not about EEUU economy
 295682,sector_extra,JPM,single,bitcoin:other,,,
 295688,sector_extra,JPM,sector,,,"5510, 30",
-295695,sector_extra,JPM,sector,,,45103010,"GICS has no cryptocurrency class; 45103010 Application Software is where S&P classifies the listed bitcoin miners (RIOT, MARA)"
-295717,sector_extra,JPM,sector,,,4510,
+295695,sector_extra,JPM,market_economy,,,,"GICS has no cryptocurrency class; 45103010 Application Software is where S&P classifies the listed bitcoin miners (RIOT, MARA) | 2026-11-12: was sector 45103010 (bitcoin miners are not in the S&P 500); crypto is an asset, call 17"
+295717,sector_extra,JPM,sector,,,4530,2026-11-12: was 4510; the tech recovery is the chip boom
 295878,sector_extra,JPM,multi,"Western Alliance:investor_activity, Comerica:investor_activity, Zions Bancorporation:investor_activity",,,
 295910,sector_extra,JPM,sector,,,401010,
-296070,sector_extra,JPM,sector,,,4510,
+296070,sector_extra,JPM,sector,,,4530,2026-11-12: was 4510; a chip-sector story is semiconductors
 296075,sector_extra,JPM,sector,,,1010,
 296118,sector_extra,JPM,multi,"United Airlines:investor_activity, American Airlines:investor_activity",,,
 296227,sector_extra,JPM,market_economy,,,,
-296320,sector_extra,JPM,sector,,,4510,
+296320,sector_extra,JPM,sector,,,25,"2026-11-12: was 4510; Alibaba, JD.com and Meituan are consumer discretionary in GICS"
 296504,gate240,JPM,market_economy,,,,This is about the entire S&P500
 296588,sector_extra,JPM,sector,,"J.P. Morgan, ETF, KBE",401010,
 296679,gate240,JPM,single,"GoPro:mergers_acquisitions, GoPro:labor_human_capital",,,
@@ -193,7 +193,7 @@ article_id,session,ticker,scope,company_labels,mentions,sub_industry,notes
 318107,sector_extra,MSFT,sector,,,4510,
 318321,gate240,MSFT,single,Microsoft:reputational_harm,,,
 319024,gate240,MSFT,multi,"Amazon:partnerships_business_dev, Google:partnerships_business_dev, Microsoft:partnerships_business_dev, Oracle:partnerships_business_dev",,,
-319048,gate240,MSFT,sector,,Microsoft,45203030,
+319048,gate240,MSFT,sector,,Microsoft,4510,2026-11-12: was 45203030 (technology distributors); a cybersecurity story
 319066,gate240,MSFT,multi,"Disney:labor_human_capital, Microsoft:labor_human_capital, Columbia Sportswear:labor_human_capital, Walgreens Boots Alliance:labor_human_capital",,,
 319163,gate240,MSFT,single,Microsoft:reputational_harm,,,
 319415,gate240,MSFT,multi,"Apple:peer_comparison, Amazon:peer_comparison, Microsoft:peer_comparison, Alphabet:peer_comparison",,,

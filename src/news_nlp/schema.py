@@ -284,6 +284,22 @@ CREATE TABLE IF NOT EXISTS body_scope (
     PRIMARY KEY (body_hash, classifier_revision)
 );
 
+-- The sector step (T-167): the sector of a `sector` body: `assigned` carries the GICS sector (2 digits); a body the step does not
+-- trust is `out_of_scope` with `sector` = '' and the reason in `candidate` (the best class it saw, a sector or a not-a-sector one).
+CREATE TABLE IF NOT EXISTS body_sector (
+    body_hash           TEXT NOT NULL,
+    classifier_revision TEXT NOT NULL,
+    status              TEXT NOT NULL CHECK (status IN ('assigned', 'out_of_scope')),
+    sector              TEXT NOT NULL DEFAULT '',   -- GICS sector code, '' when out_of_scope
+    candidate           TEXT NOT NULL,              -- best class of the embedding score
+    margin              REAL NOT NULL,              -- best score minus the second
+    vote_sector         TEXT NOT NULL DEFAULT '',   -- top sector of the companies the body names; '' when it names none or the top is a tie (a tie is not agreement)
+    scores              TEXT NOT NULL DEFAULT '{}', -- JSON, per-class score; plus `_truncated_chunks` (a count) when above 0: read it through steps.class_scores(row['scores'])
+    votes               TEXT NOT NULL DEFAULT '{}', -- JSON, votes per sector
+    processed_at        TEXT NOT NULL,
+    PRIMARY KEY (body_hash, classifier_revision)
+);
+
 CREATE TABLE IF NOT EXISTS sub_news (
     id                 {autoincrement_pk},
     body_hash          TEXT NOT NULL,
@@ -349,6 +365,75 @@ CREATE TABLE IF NOT EXISTS news_category (
     PRIMARY KEY (item_kind, item_id, ticker, model_revision)
 );
 
+-- The snapshot (step 8, T-195, D42): one row per (text, main company), or per `sector` text (`ticker` '' and the 2-digit sector, no category and no
+-- sentiment). The revision is the code's only: the revisions the row was built from are in `inputs`. `fetched_at` is the earliest crawl of the unique body, UTC; it places the row in a period window. `companies_mentioned` stays '[]' (T-198).
+CREATE TABLE IF NOT EXISTS news_snapshot (
+    item_kind           TEXT NOT NULL,
+    item_id             TEXT NOT NULL,
+    ticker              TEXT NOT NULL DEFAULT '',
+    model_revision      TEXT NOT NULL,
+    fetched_at          TEXT NOT NULL,
+    pub_date            TEXT NOT NULL DEFAULT '',
+    title               TEXT NOT NULL DEFAULT '',
+    text                TEXT NOT NULL,
+    text_source         TEXT NOT NULL,
+    sector              TEXT NOT NULL DEFAULT '',
+    companies_mentioned TEXT NOT NULL DEFAULT '[]',
+    category            TEXT NOT NULL DEFAULT '',
+    group_label         TEXT NOT NULL DEFAULT '',
+    sentiment           TEXT NOT NULL DEFAULT '',
+    sentiment_score     REAL,
+    inputs              TEXT NOT NULL DEFAULT '{}',   -- JSON: the summary, companies, cut, category, sentiment and sector revisions the row was built from
+    processed_at        TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, ticker, model_revision)
+);
+
+-- The period summary (step 9, T-196, D42): every 21 days from 2022-01-03 at 15:00 in BATCH_TIMEZONE. `period_end` is the cut in UTC (`...Z`);
+-- `model_revision` is the period revision (the snapshot revision, the counting code and the sector mapping). `period_run` says a period is written (a window
+-- with no counted news has this row and no other) and which snapshot revision it counted: a reset of the snapshots clears the periods of that revision.
+CREATE TABLE IF NOT EXISTS period_run (
+    period_end        TEXT NOT NULL,
+    model_revision    TEXT NOT NULL,
+    snapshot_revision TEXT NOT NULL,
+    period_start      TEXT,            -- NULL for the first window (no lower bound)
+    created_at        TEXT NOT NULL,   -- the report creation date
+    PRIMARY KEY (period_end, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS period_summary (
+    period_end     TEXT NOT NULL,
+    kind           TEXT NOT NULL CHECK (kind IN ('company', 'sector')),
+    key            TEXT NOT NULL,      -- the ticker, or the sector code ('' = unclassified)
+    model_revision TEXT NOT NULL,
+    counts         TEXT NOT NULL,      -- JSON: per category total, neutral, positive, negative
+    not_counted    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (period_end, kind, key, model_revision)
+);
+
+CREATE TABLE IF NOT EXISTS period_item (
+    period_end     TEXT NOT NULL,
+    model_revision TEXT NOT NULL,
+    item_kind      TEXT NOT NULL,
+    item_id        TEXT NOT NULL,
+    ticker         TEXT NOT NULL,
+    late           INTEGER NOT NULL DEFAULT 0 CHECK (late IN (0, 1)),
+    PRIMARY KEY (period_end, model_revision, item_kind, item_id, ticker)
+);
+
+-- The one table of sectors (seeded from the GICS constants of sector_stage; an `extra` sector is a row the owner adds, code from 90) and the
+-- override of a company's sector (empty until the owner gives the extra sectors and their tickers).
+CREATE TABLE IF NOT EXISTS sector (
+    code         TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL CHECK (kind IN ('gics', 'extra')),
+    descriptions TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS company_sector (
+    ticker      TEXT PRIMARY KEY,
+    sector_code TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS pipeline_step_state (
     item_kind      TEXT NOT NULL,   -- body / sub_news / text_company
     item_id        TEXT NOT NULL,
@@ -363,6 +448,8 @@ CREATE TABLE IF NOT EXISTS pipeline_step_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_step_state_status ON pipeline_step_state(step, status);
+CREATE INDEX IF NOT EXISTS idx_period_item_revision ON period_item(model_revision, period_end);
+CREATE INDEX IF NOT EXISTS idx_news_snapshot_fetched ON news_snapshot(model_revision, fetched_at);
 CREATE INDEX IF NOT EXISTS idx_sub_news_article_id ON sub_news(article_id);
 CREATE INDEX IF NOT EXISTS idx_news_company_ticker ON news_company(ticker, is_main);
 """

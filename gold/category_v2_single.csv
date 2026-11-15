@@ -1,0 +1,226 @@
+row,article_id,company,label_old,label,why
+0,1744,AMD,market_analyst_sentiment,market_analyst_sentiment,unchanged
+1,61320,Airbnb,capital_shareholder_returns,capital_shareholder_returns,unchanged
+2,88609,Alphabet,reputational_harm,other,a spin-out of Alphabet raises money; not a harm to Alphabet
+3,88889,Alphabet,earnings_performance,earnings_performance,unchanged
+4,90768,Amazon,product_innovation,product_innovation,unchanged
+5,91799,Amazon,labor_human_capital,labor_human_capital,unchanged
+6,91828,Amazon,labor_human_capital,labor_human_capital,unchanged
+7,91959,Amazon,partnerships_business_dev,partnerships_business_dev,unchanged
+8,92154,Amazon,labor_human_capital,labor_human_capital,unchanged
+9,92797,Amazon,labor_human_capital,labor_human_capital,unchanged
+10,92868,Amazon,market_analyst_sentiment,market_analyst_sentiment,unchanged
+11,93030,Amazon,product_innovation,product_innovation,unchanged
+12,93030,Amazon,partnerships_business_dev,,same article and company as row 11 (product_innovation kept)
+13,93090,Best Buy,product_innovation,product_innovation,unchanged
+14,93090,Amazon,other,other,unchanged
+15,93090,Walmart,other,other,unchanged
+16,93136,Amazon,labor_human_capital,labor_human_capital,unchanged
+17,93680,98point6,partnerships_business_dev,other,profile of a start-up led by a former Amazon executive
+18,93824,Capital One,mergers_acquisitions,mergers_acquisitions,unchanged
+19,93929,International Paper,capital_shareholder_returns,capital_shareholder_returns,unchanged
+20,93929,Amazon,partnerships_business_dev,partnerships_business_dev,unchanged
+21,93929,Procter & Gamble,legal_regulatory,legal_regulatory,unchanged
+22,93929,PPG Industries,investor_activity,investor_activity,unchanged
+23,93929,McDonald's,investor_activity,market_analyst_sentiment,upgrade to buy with a price target
+24,93929,Fastenal,earnings_performance,earnings_performance,unchanged
+25,94858,Amazon,reputational_harm,reputational_harm,unchanged
+26,94858,Amazon,leadership_governance,,same article and company as row 25 (reputational_harm kept)
+27,95346,Amazon,product_innovation,product_innovation,unchanged
+28,95353,Amazon,labor_human_capital,labor_human_capital,unchanged
+29,96300,Amazon,labor_human_capital,labor_human_capital,unchanged
+30,115772,Apple,product_innovation,product_innovation,unchanged
+31,115964,TSMC,earnings_performance,earnings_performance,unchanged
+32,116011,Apple,partnerships_business_dev,product_innovation,iPhone production cut at the Zhengzhou plant; the analyst only comments
+33,116011,Apple,market_analyst_sentiment,,same article and company as row 32
+34,116487,Apple,labor_human_capital,labor_human_capital,unchanged
+35,116568,Starbucks,earnings_performance,earnings_performance,unchanged
+36,116568,Amazon,earnings_performance,earnings_performance,unchanged
+37,116568,Apple,earnings_performance,earnings_performance,unchanged
+38,116568,Chevron,earnings_performance,earnings_performance,unchanged
+39,116568,Gilead Sciences,earnings_performance,earnings_performance,unchanged
+40,116568,Western Digital,earnings_performance,earnings_performance,unchanged
+41,116568,Church & Dwight,earnings_performance,earnings_performance,unchanged
+42,116568,AbbVie,earnings_performance,earnings_performance,unchanged
+43,121146,Apple,product_innovation,product_innovation,unchanged
+44,121575,Apple,product_innovation,product_innovation,unchanged
+45,122027,Apple,product_innovation,product_innovation,unchanged
+46,122437,Apple,mergers_acquisitions,mergers_acquisitions,unchanged
+47,123387,Apple,market_analyst_sentiment,market_analyst_sentiment,unchanged
+48,126761,Archer Daniels Midland,market_analyst_sentiment,market_analyst_sentiment,unchanged
+49,128002,ADP,leadership_governance,leadership_governance,unchanged
+50,128080,ADP,labor_human_capital,other,"the ADP payroll report is a macro data release, not news about the company"
+51,135578,Bank of America,capital_shareholder_returns,capital_shareholder_returns,unchanged
+52,136983,Bank of America,product_innovation,product_innovation,unchanged
+53,137758,Bank of America,reputational_harm,reputational_harm,unchanged
+54,137874,Bank of America,mergers_acquisitions,market_analyst_sentiment,an analyst's research note is the story
+55,139529,Berkshire Hathaway,market_analyst_sentiment,market_analyst_sentiment,unchanged
+56,139632,Berkshire Hathaway,investor_activity,investor_activity,unchanged
+57,140051,Wesco Financial,capital_shareholder_returns,mergers_acquisitions,Berkshire plans to buy the rest of Wesco
+58,140952,Best Buy,reputational_harm,reputational_harm,unchanged
+59,155187,Intel,earnings_performance,earnings_performance,unchanged
+60,155187,Goldman Sachs,earnings_performance,earnings_performance,unchanged
+61,155187,Citigroup,earnings_performance,earnings_performance,unchanged
+62,155187,Wells Fargo,earnings_performance,earnings_performance,unchanged
+63,155187,BlackRock,earnings_performance,earnings_performance,unchanged
+64,155187,Analog Devices,earnings_performance,earnings_performance,unchanged
+65,155278,Blackrock,investor_activity,market_analyst_sentiment,upgrade to buy
+66,156178,Boeing,reputational_harm,reputational_harm,unchanged
+67,156260,Boeing,reputational_harm,reputational_harm,unchanged
+68,156697,Alphabet,earnings_performance,earnings_performance,unchanged
+69,156697,Starbucks,earnings_performance,earnings_performance,unchanged
+70,156697,Microsoft,earnings_performance,earnings_performance,unchanged
+71,156697,McDonald's,earnings_performance,earnings_performance,unchanged
+72,156697,Boeing,earnings_performance,earnings_performance,unchanged
+73,156697,Pfizer,earnings_performance,earnings_performance,unchanged
+74,156697,Generac,earnings_performance,earnings_performance,unchanged
+75,156697,Mondelez International,earnings_performance,earnings_performance,unchanged
+76,156697,Advanced Micro Devices,earnings_performance,earnings_performance,unchanged
+77,156711,Boeing,leadership_governance,leadership_governance,unchanged
+78,157004,Boeing,reputational_harm,reputational_harm,unchanged
+79,157171,boeing,reputational_harm,reputational_harm,unchanged
+80,158282,Boeing,reputational_harm,product_innovation,787 delivery date
+81,163279,Capital One,labor_human_capital,labor_human_capital,unchanged
+82,163735,Carnival,market_analyst_sentiment,market_analyst_sentiment,unchanged
+83,164573,Caterpillar,earnings_performance,earnings_performance,unchanged
+84,164573,American Express,reputational_harm,reputational_harm,unchanged
+85,164573,Walmart,product_innovation,product_innovation,unchanged
+86,164573,MGM Resorts,partnerships_business_dev,partnerships_business_dev,unchanged
+87,164573,Walt Disney,legal_regulatory,mergers_acquisitions,shareholders approve the sale of Fox assets; China approval is pending
+88,164573,Synchrony Financial,investor_activity,market_analyst_sentiment,downgrade
+89,164573,Starbucks,partnerships_business_dev,partnerships_business_dev,unchanged
+90,164573,Amazon,reputational_harm,reputational_harm,unchanged
+91,165954,Charles Schwab,labor_human_capital,labor_human_capital,unchanged
+92,166583,Apple,market_analyst_sentiment,earnings_performance,results with a share move
+93,166583,Robinhood,market_analyst_sentiment,earnings_performance,results with a share move
+94,166583,Visa,market_analyst_sentiment,earnings_performance,results with a share move
+95,166583,Western Digital,market_analyst_sentiment,earnings_performance,results with a share move
+96,166583,Chevron,market_analyst_sentiment,earnings_performance,results with a share move
+97,166583,Caterpillar,market_analyst_sentiment,earnings_performance,results with a share move
+98,166583,Synchrony,market_analyst_sentiment,earnings_performance,results with a share move
+99,166583,Mondelez,market_analyst_sentiment,earnings_performance,results with a share move
+100,167495,Micron Technology,partnerships_business_dev,earnings_performance,loss per share and job cuts: results
+101,167495,Tesla Motors,reputational_harm,legal_regulatory,federal regulators open an investigation
+102,167495,Nike,leadership_governance,leadership_governance,unchanged
+103,167495,Apple,mergers_acquisitions,mergers_acquisitions,unchanged
+104,167495,Oracle,legal_regulatory,legal_regulatory,unchanged
+105,167495,Walt Disney,mergers_acquisitions,mergers_acquisitions,unchanged
+106,167495,Hershey,capital_shareholder_returns,mergers_acquisitions,rejects a takeover bid
+107,167495,Starbucks,reputational_harm,labor_human_capital,accusation about employee work hours
+108,167495,Chipotle Mexican Grill,reputational_harm,reputational_harm,unchanged
+109,169162,Citigroup,partnerships_business_dev,other,closing a country business; not a deal
+110,169716,Citigroup,other,investor_activity,the Treasury sells the warrants it holds
+111,170342,Clorox,reputational_harm,earnings_performance,cyberattack weighed on sales and profit
+112,171238,Coinbase,partnerships_business_dev,partnerships_business_dev,unchanged
+113,171463,coinbase,market_analyst_sentiment,legal_regulatory,SEC enforcement rumour drives the drop
+114,174853,Constellation Brands,earnings_performance,earnings_performance,unchanged
+115,175348,OnCore Golf,other,leadership_governance,new president and COO
+116,208180,MercadoLibre,partnerships_business_dev,earnings_performance,profits earned in Venezuela cannot be converted
+117,219332,FedEx,earnings_performance,earnings_performance,unchanged
+118,219332,Oracle,earnings_performance,earnings_performance,unchanged
+119,219332,Starbucks,other,earnings_performance,comparable sales guidance below forecasts
+120,219332,Ford,partnerships_business_dev,partnerships_business_dev,unchanged
+121,219332,PayPal,mergers_acquisitions,mergers_acquisitions,unchanged
+122,219332,AT&T,mergers_acquisitions,mergers_acquisitions,unchanged
+123,219332,Tesla,product_innovation,product_innovation,unchanged
+124,219332,Citigroup,investor_activity,market_analyst_sentiment,upgrade to buy
+125,219360,Microsoft,investor_activity,market_analyst_sentiment,upgrade to buy
+126,219360,Amazon,other,product_innovation,Amazon tests its own delivery service
+127,219360,Verizon,leadership_governance,leadership_governance,unchanged
+128,219360,ADP,partnerships_business_dev,leadership_governance,proxy fight (same rule as row 49)
+129,219360,Apple,product_innovation,product_innovation,unchanged
+130,219360,Alphabet,product_innovation,partnerships_business_dev,nearing a deal to develop an urban area
+131,219360,Cigna,product_innovation,other,a coverage decision on one drug
+132,219360,Norwegian Cruise Line,mergers_acquisitions,other,index membership change
+133,219582,FedEx,earnings_performance,other,"a company profile, not results"
+134,247122,GE,market_analyst_sentiment,mergers_acquisitions,break-up of the business
+135,247811,GEHC,earnings_performance,earnings_performance,unchanged
+136,252406,General Motors,product_innovation,product_innovation,unchanged
+137,252726,GM,product_innovation,product_innovation,unchanged
+138,252773,Coca-Cola,earnings_performance,earnings_performance,unchanged
+139,252773,McDonald's,earnings_performance,earnings_performance,unchanged
+140,252773,Boeing,earnings_performance,earnings_performance,unchanged
+141,252773,General Motors,earnings_performance,earnings_performance,unchanged
+142,252773,Microsoft,earnings_performance,earnings_performance,unchanged
+143,252773,Alphabet,earnings_performance,earnings_performance,unchanged
+144,252773,Robinhood,earnings_performance,earnings_performance,unchanged
+145,252773,Visa,earnings_performance,earnings_performance,unchanged
+146,252773,F5 Networks,earnings_performance,earnings_performance,unchanged
+147,252773,Fiserv,earnings_performance,earnings_performance,unchanged
+148,253656,GM,leadership_governance,leadership_governance,unchanged
+149,255218,GM,labor_human_capital,labor_human_capital,unchanged
+150,262959,CoreWeave,market_analyst_sentiment,capital_shareholder_returns,"IPO (same rule as the HCA IPO, row 154)"
+151,265242,Circle,product_innovation,product_innovation,unchanged
+152,265908,Goldman Sachs,product_innovation,product_innovation,unchanged
+153,265908,Goldman Sachs,mergers_acquisitions,,same article and company as row 152
+154,275664,HCA Holdings,capital_shareholder_returns,capital_shareholder_returns,unchanged
+155,295682,bitcoin,other,other,unchanged
+156,296679,GoPro,mergers_acquisitions,mergers_acquisitions,unchanged
+157,296679,GoPro,labor_human_capital,,same article and company as row 156
+158,296753,JPMorgan,reputational_harm,reputational_harm,unchanged
+159,296943,JPMorgan,leadership_governance,leadership_governance,unchanged
+160,297128,JPMorgan,market_analyst_sentiment,earnings_performance,quarterly profit fell on legal costs
+161,297695,JPMorgan,labor_human_capital,labor_human_capital,unchanged
+162,302560,Kraft Heinz,partnerships_business_dev,earnings_performance,first-quarter results will be hurt
+163,314774,McDonald's,labor_human_capital,labor_human_capital,unchanged
+164,318321,Microsoft,reputational_harm,labor_human_capital,two employees dismissed
+165,319163,Microsoft,reputational_harm,reputational_harm,unchanged
+166,319415,Apple,other,other,unchanged
+167,319415,Amazon,other,other,unchanged
+168,319415,Microsoft,other,other,unchanged
+169,319415,Alphabet,other,other,unchanged
+170,320296,Biogen,earnings_performance,earnings_performance,unchanged
+171,320296,Amazon,earnings_performance,earnings_performance,unchanged
+172,320296,Microsoft,earnings_performance,earnings_performance,unchanged
+173,320296,Starbucks,earnings_performance,earnings_performance,unchanged
+174,320296,Best Buy,investor_activity,market_analyst_sentiment,downgrade
+175,321594,Moderna,product_innovation,product_innovation,unchanged
+176,321594,Moderna,legal_regulatory,,same article and company as row 175
+177,326112,Morgan Stanley,partnerships_business_dev,partnerships_business_dev,unchanged
+178,328159,Netflix,labor_human_capital,labor_human_capital,unchanged
+179,328733,Netflix,labor_human_capital,labor_human_capital,unchanged
+180,328872,Apple,market_analyst_sentiment,market_analyst_sentiment,unchanged
+181,328872,Netflix,earnings_performance,earnings_performance,unchanged
+182,328872,EBAY,earnings_performance,earnings_performance,unchanged
+183,328872,American Express,earnings_performance,earnings_performance,unchanged
+184,328872,Las Vegas Sands,earnings_performance,earnings_performance,unchanged
+185,341135,Nvidia,partnerships_business_dev,other,a CEO joins a state visit
+186,412971,Paychex,labor_human_capital,labor_human_capital,unchanged
+187,413269,PayPal,labor_human_capital,labor_human_capital,unchanged
+188,414161,Pfizer,product_innovation,product_innovation,unchanged
+189,414161,Pfizer,legal_regulatory,,same article and company as row 188
+190,414317,Pfizer,product_innovation,product_innovation,unchanged
+191,414770,Pfizer,product_innovation,product_innovation,unchanged
+192,425225,Salesforce,mergers_acquisitions,mergers_acquisitions,unchanged
+193,425328,Salesforce,partnerships_business_dev,other,a customer policy
+194,436001,Southwest Airlines,reputational_harm,reputational_harm,unchanged
+195,436158,Southwest Airlines,product_innovation,product_innovation,unchanged
+196,439320,Starbucks,earnings_performance,earnings_performance,unchanged
+197,439320,Amazon,earnings_performance,earnings_performance,unchanged
+198,439320,Apple,earnings_performance,earnings_performance,unchanged
+199,439320,Chevron,earnings_performance,earnings_performance,unchanged
+200,439320,Gilead Sciences,earnings_performance,earnings_performance,unchanged
+201,439320,Western Digital,earnings_performance,earnings_performance,unchanged
+202,439320,Church & Dwight,earnings_performance,earnings_performance,unchanged
+203,439320,AbbVie,earnings_performance,earnings_performance,unchanged
+204,450194,Texas Instruments,market_analyst_sentiment,earnings_performance,outlook for chip demand
+205,464700,UBER,mergers_acquisitions,mergers_acquisitions,unchanged
+206,474491,AXP,earnings_performance,earnings_performance,unchanged
+207,474491,HON,earnings_performance,earnings_performance,unchanged
+208,474491,SLB,earnings_performance,earnings_performance,unchanged
+209,474491,INTC,earnings_performance,earnings_performance,unchanged
+210,474491,DIS,product_innovation,product_innovation,unchanged
+211,474491,SWKS,earnings_performance,earnings_performance,unchanged
+212,476217,Walmart,mergers_acquisitions,mergers_acquisitions,unchanged
+213,480093,Wells Fargo,reputational_harm,reputational_harm,unchanged
+214,480422,Procter & Gamble,leadership_governance,leadership_governance,unchanged
+215,480422,BlackRock,earnings_performance,earnings_performance,unchanged
+216,480422,Wells Fargo,reputational_harm,reputational_harm,unchanged
+217,480422,Western Digital,legal_regulatory,legal_regulatory,unchanged
+218,480422,Citigroup,product_innovation,product_innovation,unchanged
+219,480422,Crown Castle International,mergers_acquisitions,mergers_acquisitions,unchanged
+220,480422,Church & Dwight,mergers_acquisitions,mergers_acquisitions,unchanged
+221,480602,Wells Fargo,reputational_harm,,same article and company as row 222
+222,480602,Wells Fargo,leadership_governance,leadership_governance,CEO steps down from the Fed advisory council
+223,480622,Wells Fargo,reputational_harm,reputational_harm,unchanged
+224,1074866,Alphabet,product_innovation,product_innovation,unchanged

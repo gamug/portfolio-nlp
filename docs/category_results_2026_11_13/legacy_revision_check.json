@@ -1,0 +1,79 @@
+{
+  "revision": "category-65f33b55b26b",
+  "pairs_rescored": 1008,
+  "of_stored_pairs": 64428,
+  "labels_differ": 0,
+  "largest_score_difference": 0.0,
+  "per_label": {
+    "capital_shareholder_returns": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "competitive_actions": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "earnings_performance": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "investor_activity": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "labor_human_capital": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "leadership_governance": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "legal_regulatory": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "market_analyst_sentiment": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "mergers_acquisitions": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "other": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "partnerships_business_dev": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "peer_comparison": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "product_innovation": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    },
+    "reputational_harm": {
+      "pairs": 72,
+      "labels_differ": 0,
+      "largest_score_difference": 0.0
+    }
+  }
+}

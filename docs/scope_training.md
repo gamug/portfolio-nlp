@@ -19,7 +19,7 @@ it. It ends with the decision, its advantages, and its limits. Per-task detail i
 | **Trained on** | 365 tagged bodies: `category_gold_v2.csv` (284) + `scope_enrich.csv` (51) + `scope_hook.csv` (30). |
 | **Measured on** | `category_gold_v2_test.csv`: 200 bodies, never trained on, weighted to the corpus by stratum (D30/D33). |
 | **Result** | The **pinned model** (saved weights, section 7): **83.6% [78.1, 88.9]** weighted agreement (new key); the current rules reach 67.2%; paired gain **+16.5 [9.6, 23.4]**; `out_of_scope` recall 53%. The first fit of the recipe, which the rest of this document analyses: 83.0% [77.5, 88.3], gain +15.9 [9.1, 22.6]. **On the old key** (the held-out as first tagged, the conservative one): 81.5%, rules 68.2%, paired gain **+13.3 [6.4, 20.1]**. **Optimistic:** the 200 were seen many times and their key was corrected after the errors were visible (limitations 4 and 5). The interval does not include that selection. |
-| **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. |
+| **Against the bar** | Under the 90% bar of D20/D33. Above the owner's 80% mark by its point estimate; the lower end of the interval (77.5%) is under it. The owner decided to go with this model. **On 2026-11-14 the owner lowered the bar to 80%** (the pinned model measures 83.6% [78.1, 88.9]: it passes). |
 | **Known trade-off** | `out_of_scope` recall is about 48% on the first fit (11 of 33 are read as `single`) and 53% [32, 74] on the pinned weights, while `single` recall is 92%. We accept it on purpose; see [section 6](#6-advantages-and-limitations-of-the-selected-model). |
 
 ## 2. What is measured, and how
@@ -50,7 +50,7 @@ every headline figure is **weighted to the corpus** with the held-out strata (`g
 seeded bootstrap intervals). Plain (unweighted) numbers are reported only where we say so.
 
 **Metrics.** Agreement (accuracy over the four classes), and precision and recall per class, each with a
-95% interval. The 90% agreement bar comes from D20/D33. Recall per class is gated only where the gold has
+95% interval. The agreement bar comes from D20/D33 (90%; the owner lowered it to 80% on 2026-11-14). Recall per class is gated only where the gold has
 40 or more bodies (D33); `sector` (7) and `out_of_scope` (33) are reported with their interval, not gated.
 
 **Paired gain over the rules** (`gold_metrics.paired_stratified_gain`) tells whether a model is better than
@@ -254,7 +254,7 @@ Confusion matrix (plain counts), rows = gold, columns = predicted:
    perhaps a review item; the second costs a news item. We prefer the first.
    *What it means in numbers (the corpus run of section 8: 11.3% of the `ok` bodies and 58.8% of the `quarantined` ones; read it first):* expect about half of the out-of-scope bodies to go on to steps 2 and 3. Weighted to the corpus, `out_of_scope` is about 12.8% of the unique bodies and the ones read as something else about 6.7%; if the frame mirrors the 309,882 bodies, that is about 39,700 out-of-scope bodies and about **20,600 that continue** (6.7% extra work in steps 2 and 3, plus their entries in the review list). This assumes the 1,000-body sample of D30 (the `frame` sizes sum to 1,000) mirrors the unique-body corpus; the 309,882 were not weighted directly. Do not
    present step 1 as a filter of out-of-scope news.
-2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3). The owner decided to go with it; a model that
+2. **Under the 90% bar** of D20/D33 (83.0%, interval 77.5 to 88.3; the owner lowered the bar to 80% on 2026-11-14). The owner decided to go with it; a model that
    clears 90% would need more data in the thin classes or a larger model.
 3. **Small evaluation for the rare classes.** The held-out 200 has 7 `sector` and 33 `out_of_scope` bodies, so
    their intervals are wide (`sector` recall [51, 98], `out_of_scope` recall [27, 69]). D33 does not gate recall
@@ -646,6 +646,8 @@ Two tasks that were open at that point are **closed by decision, not done**:
 - **Audit of the gold under calls 17, 18 and 21** (was T-178): the 365 training and 200 held-out tags are not re-read, and the five borderline rows (#39, #85, #199, #76, #154) stay as tagged. The cost is known: part of the `multi`/`single` confusion may be label noise on deals and pick lists, and the 90.8% and the 83.6% are not comparable like for like (different population, mix and key).
 - **Recall of `out_of_scope` among quarantined bodies** (was T-179): not measured. The share of true company news hidden in `single`/`multi`/`sector` among them stays unknown; precision (93.0% [86.3, 96.6]) is the only figure.
 What stays open on the scope model is only T-147b (FTI pattern, MLflow, three seeds), which is training hygiene, not validation, and which the owner **deferred the same day** ("leave this apart to fit later, we don't have enough time to get picky"): the model runs as pinned, on one seed and plain scripts, until then. The tags in `gold/scope_quarantined_validation.csv` are final. If the gold is ever re-tagged, the pinned figures in `tests/news_nlp/test_scope_publish.py` change with it.
+
+**Two tags changed afterwards (2026-11-12, the sector step).** While checking the sector tags the owner moved two bodies out of `sector`: 295695 (bitcoin miners, not in the S&P 500; call 17) to `market_economy` in set 1, and 1075010 (a CEO talk with no sector theme; call 16) to `investing_general` in set 7. The scope model was trained with the old tags on those two rows and is **not** retrained (this section's decision stands); the held-out 200 and the quarantined sample are untouched, so no figure above changes. The details are in `docs/gold_datasets.md`, "Sector tags, 2026-11-12".
 
 **Suggested next steps** (the owner decides): filter the paywall pages before step 2; keep the 10,274 low-margin bodies as the review queue. The Hub card of the scope model named this file under its old name and was republished on 2026-11-11
 (card-only commit `58e4af4b`, weights unchanged, `--check` passes; the pin moved to it).

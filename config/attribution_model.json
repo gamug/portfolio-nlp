@@ -1,0 +1,7 @@
+{
+  "what": "the attribution model the cut (step 1.2) runs on (T-194); the pin of scripts/publish_attribution_model_2026_11_14.py. The repository is private: --fetch needs HF_TOKEN",
+  "model": "gamug/FinBERT-news-attribution",
+  "revision": "436ad7006efa1c112bfb93cd90de70ac73787bac",
+  "identity": "8399ccf003c60143",
+  "files": ["model.safetensors", "config.json", "tokenizer.json", "tokenizer_config.json", "metrics.json"]
+}

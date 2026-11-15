@@ -1,0 +1,1223 @@
+article_id,company,gold,source
+1744,AMD,market_analyst_sentiment,v2
+61320,Airbnb,capital_shareholder_returns,v2
+88609,Alphabet,reputational_harm,v2
+88889,Alphabet,earnings_performance,v2
+90768,Amazon,product_innovation,v2
+91799,Amazon,labor_human_capital,v2
+91828,Amazon,labor_human_capital,v2
+91959,Amazon,partnerships_business_dev,v2
+92154,Amazon,labor_human_capital,v2
+92797,Amazon,labor_human_capital,v2
+92868,Amazon,market_analyst_sentiment,v2
+93030,Amazon,product_innovation,v2
+93030,Amazon,partnerships_business_dev,v2
+93090,Best Buy,product_innovation,v2
+93090,Amazon,competitive_actions,v2
+93090,Walmart,competitive_actions,v2
+93136,Amazon,labor_human_capital,v2
+93680,98point6,partnerships_business_dev,v2
+93824,Capital One,mergers_acquisitions,v2
+93929,International Paper,capital_shareholder_returns,v2
+93929,Amazon,partnerships_business_dev,v2
+93929,Procter & Gamble,legal_regulatory,v2
+93929,PPG Industries,investor_activity,v2
+93929,McDonald's,investor_activity,v2
+93929,Fastenal,earnings_performance,v2
+94858,Amazon,reputational_harm,v2
+94858,Amazon,leadership_governance,v2
+95346,Amazon,product_innovation,v2
+95353,Amazon,labor_human_capital,v2
+96300,Amazon,labor_human_capital,v2
+115772,Apple,product_innovation,v2
+115964,TSMC,earnings_performance,v2
+116011,Apple,partnerships_business_dev,v2
+116011,Apple,market_analyst_sentiment,v2
+116487,Apple,labor_human_capital,v2
+116568,Starbucks,earnings_performance,v2
+116568,Amazon,earnings_performance,v2
+116568,Apple,earnings_performance,v2
+116568,Chevron,earnings_performance,v2
+116568,Gilead Sciences,earnings_performance,v2
+116568,Western Digital,earnings_performance,v2
+116568,Church & Dwight,earnings_performance,v2
+116568,AbbVie,earnings_performance,v2
+121146,Apple,product_innovation,v2
+121575,Apple,product_innovation,v2
+122027,Apple,product_innovation,v2
+122437,Apple,mergers_acquisitions,v2
+123387,Apple,market_analyst_sentiment,v2
+126761,Archer Daniels Midland,market_analyst_sentiment,v2
+128002,ADP,leadership_governance,v2
+128080,ADP,labor_human_capital,v2
+135578,Bank of America,capital_shareholder_returns,v2
+136983,Bank of America,product_innovation,v2
+137758,Bank of America,reputational_harm,v2
+137874,Bank of America,mergers_acquisitions,v2
+139529,Berkshire Hathaway,market_analyst_sentiment,v2
+139632,Berkshire Hathaway,investor_activity,v2
+140051,Wesco Financial,capital_shareholder_returns,v2
+140952,Best Buy,reputational_harm,v2
+155187,Intel,earnings_performance,v2
+155187,Goldman Sachs,earnings_performance,v2
+155187,Citigroup,earnings_performance,v2
+155187,Wells Fargo,earnings_performance,v2
+155187,BlackRock,earnings_performance,v2
+155187,Analog Devices,earnings_performance,v2
+155278,Blackrock,investor_activity,v2
+156178,Boeing,reputational_harm,v2
+156260,Boeing,reputational_harm,v2
+156697,Alphabet,earnings_performance,v2
+156697,Starbucks,earnings_performance,v2
+156697,Microsoft,earnings_performance,v2
+156697,McDonald's,earnings_performance,v2
+156697,Boeing,earnings_performance,v2
+156697,Pfizer,earnings_performance,v2
+156697,Generac,earnings_performance,v2
+156697,Mondelez International,earnings_performance,v2
+156697,Advanced Micro Devices,earnings_performance,v2
+156711,Boeing,leadership_governance,v2
+157004,Boeing,reputational_harm,v2
+157171,boeing,reputational_harm,v2
+158282,Boeing,reputational_harm,v2
+163279,Capital One,labor_human_capital,v2
+163735,Carnival,market_analyst_sentiment,v2
+164573,Caterpillar,earnings_performance,v2
+164573,American Express,reputational_harm,v2
+164573,Walmart,product_innovation,v2
+164573,MGM Resorts,partnerships_business_dev,v2
+164573,Walt Disney,legal_regulatory,v2
+164573,Synchrony Financial,investor_activity,v2
+164573,Starbucks,partnerships_business_dev,v2
+164573,Amazon,reputational_harm,v2
+165954,Charles Schwab,labor_human_capital,v2
+166583,Apple,market_analyst_sentiment,v2
+166583,Robinhood,market_analyst_sentiment,v2
+166583,Visa,market_analyst_sentiment,v2
+166583,Western Digital,market_analyst_sentiment,v2
+166583,Chevron,market_analyst_sentiment,v2
+166583,Caterpillar,market_analyst_sentiment,v2
+166583,Synchrony,market_analyst_sentiment,v2
+166583,Mondelez,market_analyst_sentiment,v2
+167495,Micron Technology,partnerships_business_dev,v2
+167495,Tesla Motors,reputational_harm,v2
+167495,Nike,leadership_governance,v2
+167495,Apple,mergers_acquisitions,v2
+167495,Oracle,legal_regulatory,v2
+167495,Walt Disney,mergers_acquisitions,v2
+167495,Hershey,capital_shareholder_returns,v2
+167495,Starbucks,reputational_harm,v2
+167495,Chipotle Mexican Grill,reputational_harm,v2
+169162,Citigroup,partnerships_business_dev,v2
+169716,Citigroup,other,v2
+170342,Clorox,reputational_harm,v2
+171238,Coinbase,partnerships_business_dev,v2
+171463,coinbase,market_analyst_sentiment,v2
+174853,Constellation Brands,earnings_performance,v2
+175348,OnCore Golf,other,v2
+208180,MercadoLibre,partnerships_business_dev,v2
+219332,FedEx,earnings_performance,v2
+219332,Oracle,earnings_performance,v2
+219332,Starbucks,competitive_actions,v2
+219332,Ford,partnerships_business_dev,v2
+219332,PayPal,mergers_acquisitions,v2
+219332,AT&T,mergers_acquisitions,v2
+219332,Tesla,product_innovation,v2
+219332,Citigroup,investor_activity,v2
+219360,Microsoft,investor_activity,v2
+219360,Amazon,competitive_actions,v2
+219360,Verizon,leadership_governance,v2
+219360,ADP,partnerships_business_dev,v2
+219360,Apple,product_innovation,v2
+219360,Alphabet,product_innovation,v2
+219360,Cigna,product_innovation,v2
+219360,Norwegian Cruise Line,mergers_acquisitions,v2
+219582,FedEx,earnings_performance,v2
+247122,GE,market_analyst_sentiment,v2
+247811,GEHC,earnings_performance,v2
+252406,General Motors,product_innovation,v2
+252726,GM,product_innovation,v2
+252773,Coca-Cola,earnings_performance,v2
+252773,McDonald's,earnings_performance,v2
+252773,Boeing,earnings_performance,v2
+252773,General Motors,earnings_performance,v2
+252773,Microsoft,earnings_performance,v2
+252773,Alphabet,earnings_performance,v2
+252773,Robinhood,earnings_performance,v2
+252773,Visa,earnings_performance,v2
+252773,F5 Networks,earnings_performance,v2
+252773,Fiserv,earnings_performance,v2
+253656,GM,leadership_governance,v2
+255218,GM,labor_human_capital,v2
+262959,CoreWeave,market_analyst_sentiment,v2
+265242,Circle,product_innovation,v2
+265908,Goldman Sachs,product_innovation,v2
+265908,Goldman Sachs,mergers_acquisitions,v2
+275664,HCA Holdings,capital_shareholder_returns,v2
+295682,bitcoin,other,v2
+296679,GoPro,mergers_acquisitions,v2
+296679,GoPro,labor_human_capital,v2
+296753,JPMorgan,reputational_harm,v2
+296943,JPMorgan,leadership_governance,v2
+297128,JPMorgan,market_analyst_sentiment,v2
+297695,JPMorgan,labor_human_capital,v2
+302560,Kraft Heinz,partnerships_business_dev,v2
+314774,McDonald's,labor_human_capital,v2
+318321,Microsoft,reputational_harm,v2
+319163,Microsoft,reputational_harm,v2
+319415,Apple,peer_comparison,v2
+319415,Amazon,peer_comparison,v2
+319415,Microsoft,peer_comparison,v2
+319415,Alphabet,peer_comparison,v2
+320296,Biogen,earnings_performance,v2
+320296,Amazon,earnings_performance,v2
+320296,Microsoft,earnings_performance,v2
+320296,Starbucks,earnings_performance,v2
+320296,Best Buy,investor_activity,v2
+321594,Moderna,product_innovation,v2
+321594,Moderna,legal_regulatory,v2
+326112,Morgan Stanley,partnerships_business_dev,v2
+328159,Netflix,labor_human_capital,v2
+328733,Netflix,labor_human_capital,v2
+328872,Apple,market_analyst_sentiment,v2
+328872,Netflix,earnings_performance,v2
+328872,EBAY,earnings_performance,v2
+328872,American Express,earnings_performance,v2
+328872,Las Vegas Sands,earnings_performance,v2
+341135,Nvidia,partnerships_business_dev,v2
+412971,Paychex,labor_human_capital,v2
+413269,PayPal,labor_human_capital,v2
+414161,Pfizer,product_innovation,v2
+414161,Pfizer,legal_regulatory,v2
+414317,Pfizer,product_innovation,v2
+414770,Pfizer,product_innovation,v2
+425225,Salesforce,mergers_acquisitions,v2
+425328,Salesforce,partnerships_business_dev,v2
+436001,Southwest Airlines,reputational_harm,v2
+436158,Southwest Airlines,product_innovation,v2
+439320,Starbucks,earnings_performance,v2
+439320,Amazon,earnings_performance,v2
+439320,Apple,earnings_performance,v2
+439320,Chevron,earnings_performance,v2
+439320,Gilead Sciences,earnings_performance,v2
+439320,Western Digital,earnings_performance,v2
+439320,Church & Dwight,earnings_performance,v2
+439320,AbbVie,earnings_performance,v2
+450194,Texas Instruments,market_analyst_sentiment,v2
+464700,UBER,mergers_acquisitions,v2
+474491,AXP,earnings_performance,v2
+474491,HON,earnings_performance,v2
+474491,SLB,earnings_performance,v2
+474491,INTC,earnings_performance,v2
+474491,DIS,product_innovation,v2
+474491,SWKS,earnings_performance,v2
+476217,Walmart,mergers_acquisitions,v2
+480093,Wells Fargo,reputational_harm,v2
+480422,Procter & Gamble,leadership_governance,v2
+480422,BlackRock,earnings_performance,v2
+480422,Wells Fargo,reputational_harm,v2
+480422,Western Digital,legal_regulatory,v2
+480422,Citigroup,product_innovation,v2
+480422,Crown Castle International,mergers_acquisitions,v2
+480422,Church & Dwight,mergers_acquisitions,v2
+480602,Wells Fargo,reputational_harm,v2
+480602,Wells Fargo,leadership_governance,v2
+480622,Wells Fargo,reputational_harm,v2
+1074866,Alphabet,product_innovation,v2
+154594,Coca-Cola Company (The),earnings_performance,multi
+119,Capital One,market_analyst_sentiment,multi
+339852,"Nike, Inc.",investor_activity,multi
+412533,Berkshire Hathaway,leadership_governance,multi
+473849,IBM,earnings_performance,multi
+228897,United Parcel Service,capital_shareholder_returns,multi
+163715,"Tesla, Inc.",leadership_governance,multi
+320734,Microsoft,mergers_acquisitions,multi
+284578,McDonald's,capital_shareholder_returns,multi
+410882,Coinbase,"product_innovation,partnerships_business_dev",multi
+113741,Amgen,"partnerships_business_dev,mergers_acquisitions",multi
+321811,Moderna,"product_innovation,reputational_harm",multi
+175571,Corning Inc.,investor_activity,multi
+267640,Bank of America,legal_regulatory,multi
+219445,FedEx,competitive_actions,multi
+154599,McDonald's,product_innovation,multi
+154535,Walt Disney Company (The),product_innovation,multi
+849,Lilly (Eli),product_innovation,multi
+177950,Costco,"capital_shareholder_returns,earnings_performance",multi
+267630,Halliburton,"mergers_acquisitions,legal_regulatory,labor_human_capital",multi
+410882,Microsoft,product_innovation,multi
+483901,"Workday, Inc.",earnings_performance,multi
+174636,Constellation Brands,earnings_performance,multi
+247493,Apple,product_innovation,multi
+170876,Walt Disney Company (The),mergers_acquisitions,multi
+723,FedEx,investor_activity,multi
+343096,Coinbase,investor_activity,multi
+448801,Lululemon Athletica,earnings_performance,multi
+412321,Keysight Technologies,earnings_performance,multi
+172093,Comcast,investor_activity,multi
+464702,Blackstone Inc.,mergers_acquisitions,multi
+286216,Mosaic Company (The),earnings_performance,multi
+179105,Interactive Brokers,earnings_performance,multi
+185748,Constellation Energy,competitive_actions,multi
+413250,Moderna,"product_innovation,legal_regulatory",multi
+126777,Hartford (The),"earnings_performance,partnerships_business_dev",multi
+140394,Vertiv,earnings_performance,multi
+296393,Walmart,investor_activity,multi
+171552,"Tesla, Inc.",market_analyst_sentiment,multi
+121198,Micron Technology,investor_activity,multi
+483354,"Williams-Sonoma, Inc.",investor_activity,multi
+345072,ON Semiconductor,earnings_performance,multi
+128318,AutoZone,market_analyst_sentiment,multi
+168216,Amazon,legal_regulatory,multi
+164209,Coinbase,earnings_performance,multi
+93669,Chevron Corporation,earnings_performance,multi
+92628,PG&E Corporation,capital_shareholder_returns,multi
+284979,United Airlines Holdings,earnings_performance,multi
+154625,Biogen,product_innovation,multi
+268873,Royal Caribbean Group,earnings_performance,multi
+1005,Charter Communications,"mergers_acquisitions,legal_regulatory",multi
+61475,"Tesla, Inc.","investor_activity,leadership_governance",multi
+117841,Apple,product_innovation,multi
+89872,Schlumberger,earnings_performance,multi
+163671,Coinbase,market_analyst_sentiment,multi
+1289,Nvidia,earnings_performance,multi
+93461,Western Digital,investor_activity,multi
+174674,MGM Resorts,investor_activity,multi
+286031,Netflix,investor_activity,multi
+477358,General Motors,product_innovation,multi
+180191,"Nike, Inc.",earnings_performance,multi
+118323,Boeing,"product_innovation,legal_regulatory,reputational_harm",multi
+253956,Paccar,investor_activity,multi
+168561,JPMorgan Chase,product_innovation,multi
+177591,Medtronic,earnings_performance,multi
+115486,Apple,competitive_actions,multi
+90011,Johnson & Johnson,legal_regulatory,multi
+154576,AT&T,earnings_performance,multi
+319486,PayPal,earnings_performance,multi
+413628,3M,earnings_performance,multi
+343247,Occidental Petroleum,market_analyst_sentiment,multi
+171404,Coinbase,"market_analyst_sentiment,legal_regulatory",multi
+247866,Amcor,capital_shareholder_returns,multi
+416661,PPG Industries,mergers_acquisitions,multi
+253383,Uber,investor_activity,multi
+161000,Capital One,mergers_acquisitions,multi
+443977,Twilio,earnings_performance,multi
+154550,United Airlines Holdings,earnings_performance,multi
+219099,FedEx,market_analyst_sentiment,multi
+291583,CSX Corporation,market_analyst_sentiment,multi
+167612,CSX Corporation,earnings_performance,multi
+321446,Southwest Airlines,investor_activity,multi
+157025,McDonald's,earnings_performance,multi
+302861,United Parcel Service,investor_activity,multi
+88630,Alphabet Inc. (Class C),"competitive_actions,legal_regulatory",multi
+144406,Starbucks,investor_activity,multi
+154618,MetLife,capital_shareholder_returns,multi
+128265,AutoZone,earnings_performance,multi
+470026,"F5, Inc.",earnings_performance,multi
+91684,AbbVie,earnings_performance,multi
+163716,Moderna,product_innovation,multi
+284310,"Tesla, Inc.",market_analyst_sentiment,multi
+163712,Cisco,investor_activity,multi
+233644,Dominion Energy,earnings_performance,multi
+142903,Best Buy,leadership_governance,multi
+179149,"Workday, Inc.",earnings_performance,multi
+90761,Apple,earnings_performance,multi
+268286,Chipotle Mexican Grill,earnings_performance,multi
+159269,Wynn Resorts,investor_activity,multi
+303431,Lockheed Martin,earnings_performance,multi
+139749,Berkshire Hathaway,earnings_performance,multi
+166745,American Express,partnerships_business_dev,multi
+1704,Advanced Micro Devices,investor_activity,multi
+155548,Wynn Resorts,leadership_governance,multi
+92831,McDonald's,partnerships_business_dev,multi
+139244,"Tesla, Inc.",earnings_performance,multi
+88100,Starbucks,earnings_performance,multi
+1875,Advanced Micro Devices,earnings_performance,multi
+124858,Cisco,"earnings_performance,capital_shareholder_returns",multi
+425459,"Williams-Sonoma, Inc.",earnings_performance,multi
+219071,Johnson & Johnson,legal_regulatory,multi
+163793,Dell Technologies,"capital_shareholder_returns,reputational_harm",multi
+1238,Domino's,earnings_performance,multi
+163692,General Mills,earnings_performance,multi
+143436,Salesforce,earnings_performance,multi
+113737,PG&E Corporation,legal_regulatory,multi
+134131,Best Buy,investor_activity,multi
+142321,Accenture,labor_human_capital,multi
+449029,Synopsys,earnings_performance,multi
+283414,Ralph Lauren Corporation,investor_activity,multi
+414038,Carnival Corporation,earnings_performance,multi
+319416,"Tesla, Inc.",earnings_performance,multi
+840,Lennar,earnings_performance,multi
+163728,Kroger,earnings_performance,multi
+157116,PG&E Corporation,legal_regulatory,multi
+293347,Elevance Health,earnings_performance,multi
+95944,Amazon,labor_human_capital,multi
+264245,United Airlines Holdings,market_analyst_sentiment,multi
+231277,Ford Motor Company,market_analyst_sentiment,multi
+286380,Dell Technologies,investor_activity,multi
+473709,Nvidia,product_innovation,multi
+284970,Simon Property Group,investor_activity,multi
+168500,PG&E Corporation,market_analyst_sentiment,multi
+343392,Cboe Global Markets,investor_activity,multi
+207179,Wells Fargo,"mergers_acquisitions,legal_regulatory",multi
+133179,"Nike, Inc.","earnings_performance,partnerships_business_dev",multi
+1104716,Boeing,reputational_harm,multi
+213996,Wells Fargo,investor_activity,multi
+291681,General Motors,other,multi
+219146,Moderna,product_innovation,multi
+115990,Biogen,"product_innovation,reputational_harm",multi
+1093017,"Illumina, Inc.","mergers_acquisitions,legal_regulatory",multi
+171933,Colgate-Palmolive,earnings_performance,multi
+168592,Hormel Foods,earnings_performance,multi
+116991,Apple,market_analyst_sentiment,multi
+187591,"Williams-Sonoma, Inc.","earnings_performance,capital_shareholder_returns",multi
+155506,"Nike, Inc.",leadership_governance,multi
+178053,Costco,earnings_performance,multi
+124718,Ross Stores,earnings_performance,multi
+165298,"Nike, Inc.",market_analyst_sentiment,multi
+133727,Microsoft,leadership_governance,multi
+340298,Western Digital,investor_activity,multi
+118198,Advanced Micro Devices,earnings_performance,multi
+339825,Digital Realty,investor_activity,multi
+253367,General Motors,labor_human_capital,multi
+851,Adobe Inc.,earnings_performance,multi
+171259,CrowdStrike,earnings_performance,multi
+93877,Apple,other,multi
+159565,Cooper Companies (The),earnings_performance,multi
+1107,Amazon,mergers_acquisitions,multi
+176891,PG&E Corporation,legal_regulatory,multi
+313408,Costco,earnings_performance,multi
+302005,Steel Dynamics,earnings_performance,multi
+171459,Coinbase,earnings_performance,multi
+164359,Teradyne,earnings_performance,multi
+155860,Invesco,investor_activity,multi
+126923,Everest Group,earnings_performance,multi
+94726,United Parcel Service,legal_regulatory,multi
+181144,Netflix,labor_human_capital,multi
+180114,HP Inc.,capital_shareholder_returns,multi
+1086984,Moderna,product_innovation,multi
+166641,KKR & Co.,mergers_acquisitions,multi
+164190,Carvana,market_analyst_sentiment,multi
+100076,Boeing,"labor_human_capital,leadership_governance",multi
+416731,Garmin,earnings_performance,multi
+246708,Veeva Systems,leadership_governance,multi
+114553,Twilio,earnings_performance,multi
+168,Apple,"product_innovation,reputational_harm",multi
+303375,Lennar,"earnings_performance,other",multi
+176344,FedEx,"investor_activity,market_analyst_sentiment",multi
+129226,KeyCorp,investor_activity,multi
+293641,Boeing,market_analyst_sentiment,multi
+87840,Microsoft,earnings_performance,multi
+164378,Molson Coors Beverage Company,earnings_performance,multi
+196443,Dollar Tree,capital_shareholder_returns,multi
+90219,Amazon,earnings_performance,multi
+156551,Coinbase,investor_activity,multi
+478189,Starbucks,product_innovation,multi
+176586,Costco,earnings_performance,multi
+105590,Regions Financial Corporation,leadership_governance,multi
+275645,Kimberly-Clark,earnings_performance,multi
+476649,T-Mobile US,reputational_harm,multi
+448760,Texas Instruments,earnings_performance,multi
+155865,Copart,earnings_performance,multi
+284592,Wynn Resorts,"earnings_performance,capital_shareholder_returns",multi
+170757,GE Aerospace,earnings_performance,multi
+127749,CrowdStrike,earnings_performance,multi
+212110,Take-Two Interactive,earnings_performance,multi
+117523,Medtronic,earnings_performance,multi
+156684,Boeing,"partnerships_business_dev,competitive_actions",multi
+202867,"Nike, Inc.",investor_activity,multi
+1091,Autodesk,mergers_acquisitions,multi
+120443,McDonald's,mergers_acquisitions,multi
+92684,KKR & Co.,"partnerships_business_dev,mergers_acquisitions",multi
+168296,TKO Group Holdings,"partnerships_business_dev,product_innovation",multi
+265132,BlackRock,earnings_performance,multi
+125076,AppLovin,market_analyst_sentiment,multi
+155606,"Tesla, Inc.",investor_activity,multi
+303447,UnitedHealth Group,"leadership_governance,other",multi
+119759,Stanley Black & Decker,investor_activity,multi
+89874,Baker Hughes,"partnerships_business_dev,product_innovation",multi
+287562,Omnicom Group,earnings_performance,multi
+88284,Apple,"earnings_performance,product_innovation",multi
+164536,AT&T,"legal_regulatory,mergers_acquisitions",multi
+292240,Ares Management,capital_shareholder_returns,multi
+342686,Deckers Brands,investor_activity,multi
+410963,Paramount Skydance Corporation,mergers_acquisitions,multi
+181694,Apple,partnerships_business_dev,multi
+156635,Boeing,"product_innovation,reputational_harm",multi
+164525,Delta Air Lines,mergers_acquisitions,multi
+341843,Veeva Systems,earnings_performance,multi
+88400,Boeing,"legal_regulatory,reputational_harm",multi
+254147,Hasbro,earnings_performance,multi
+734,Apple,other,multi
+170822,Ulta Beauty,earnings_performance,multi
+95881,Colgate-Palmolive,"earnings_performance,market_analyst_sentiment",multi
+93177,Boeing,"product_innovation,legal_regulatory",multi
+114914,Take-Two Interactive,product_innovation,multi
+339838,Charles Schwab Corporation,investor_activity,multi
+423984,Applied Materials,legal_regulatory,multi
+315486,Ford Motor Company,earnings_performance,multi
+320566,Micron Technology,earnings_performance,multi
+172085,Morgan Stanley,earnings_performance,multi
+176553,Broadcom,earnings_performance,multi
+414634,Royal Caribbean Group,earnings_performance,multi
+155024,BlackRock,mergers_acquisitions,multi
+142348,Best Buy,earnings_performance,multi
+119360,Tyson Foods,"investor_activity,leadership_governance",multi
+343012,Charles Schwab Corporation,capital_shareholder_returns,multi
+187590,Dollar General,earnings_performance,multi
+278027,Home Depot (The),earnings_performance,multi
+157866,Zoetis,investor_activity,multi
+156120,First Solar,"investor_activity,capital_shareholder_returns",multi
+448672,Regeneron Pharmaceuticals,mergers_acquisitions,multi
+155436,CrowdStrike,earnings_performance,multi
+89899,PepsiCo,investor_activity,multi
+484172,Wynn Resorts,earnings_performance,multi
+304411,Live Nation Entertainment,legal_regulatory,multi
+117144,"Tesla, Inc.",capital_shareholder_returns,multi
+87839,Carvana,earnings_performance,multi
+849,Adobe Inc.,earnings_performance,multi
+163673,Carnival Corporation,earnings_performance,multi
+166533,Chevron Corporation,"earnings_performance,leadership_governance",multi
+92458,"Tesla, Inc.",product_innovation,multi
+170351,Clorox,"earnings_performance,other",multi
+475118,Vertex Pharmaceuticals,product_innovation,multi
+118043,Apple,investor_activity,multi
+417170,Wynn Resorts,earnings_performance,multi
+123370,Apple,"earnings_performance,product_innovation",multi
+413182,Robinhood Markets,reputational_harm,multi
+286250,Halliburton,earnings_performance,multi
+1110328,Southwest Airlines,other,multi
+464843,ConocoPhillips,capital_shareholder_returns,multi
+207909,Edwards Lifesciences,earnings_performance,multi
+119360,Apple,leadership_governance,multi
+124973,DoorDash,earnings_performance,multi
+340720,Hasbro,investor_activity,multi
+186,Coca-Cola Company (The),investor_activity,multi
+707,Darden Restaurants,earnings_performance,multi
+412377,Ross Stores,"earnings_performance,partnerships_business_dev",multi
+179078,Las Vegas Sands,earnings_performance,multi
+314827,"Tesla, Inc.",leadership_governance,multi
+140536,Best Buy,"product_innovation,partnerships_business_dev",multi
+468309,Truist Financial,earnings_performance,multi
+87828,Nvidia,earnings_performance,multi
+622,Apple,product_innovation,multi
+864,Uber,earnings_performance,multi
+122602,JPMorgan Chase,legal_regulatory,multi
+1110240,Medtronic,earnings_performance,multi
+100215,American Express,earnings_performance,multi
+450000,Accenture,leadership_governance,multi
+141796,Intel,investor_activity,multi
+89868,Kinder Morgan,mergers_acquisitions,multi
+1078324,Amazon,investor_activity,multi
+88164,Visa Inc.,earnings_performance,multi
+248472,Humana,earnings_performance,multi
+101872,Goldman Sachs,investor_activity,multi
+60871,Wynn Resorts,earnings_performance,multi
+1522,Western Digital,earnings_performance,multi
+411058,Oracle Corporation,earnings_performance,multi
+339825,"Nike, Inc.",earnings_performance,multi
+154569,Hasbro,earnings_performance,multi
+1424,Huntington Bancshares,earnings_performance,multi
+468182,Blackstone Inc.,earnings_performance,multi
+193840,Dollar General,earnings_performance,multi
+473721,UnitedHealth Group,earnings_performance,multi
+158083,Boeing,legal_regulatory,multi
+179154,Cintas,capital_shareholder_returns,multi
+124718,Keysight Technologies,earnings_performance,multi
+292237,TE Connectivity,mergers_acquisitions,multi
+342686,Nvidia,market_analyst_sentiment,multi
+175877,Cooper Companies (The),earnings_performance,multi
+286272,Deckers Brands,earnings_performance,multi
+178733,Lennar,earnings_performance,multi
+171181,Deere & Company,earnings_performance,multi
+181713,Dell Technologies,"capital_shareholder_returns,leadership_governance",multi
+96358,Crown Castle,"capital_shareholder_returns,leadership_governance",multi
+60855,Airbnb,earnings_performance,multi
+159709,Broadcom,"earnings_performance,market_analyst_sentiment",multi
+163797,Lululemon Athletica,leadership_governance,multi
+343445,Nvidia,earnings_performance,multi
+119759,"Tesla, Inc.",earnings_performance,multi
+1105833,Brown–Forman,earnings_performance,multi
+113,3M,"earnings_performance,labor_human_capital,other",multi
+214000,Walmart,partnerships_business_dev,multi
+100600,Schlumberger,"earnings_performance,capital_shareholder_returns",multi
+126917,Cadence Design Systems,earnings_performance,multi
+321560,Coinbase,market_analyst_sentiment,multi
+1091,Regions Financial Corporation,capital_shareholder_returns,multi
+221038,JPMorgan Chase,earnings_performance,multi
+141323,Coinbase,investor_activity,multi
+4571,Aflac,earnings_performance,multi
+96430,Expedia Group,earnings_performance,multi
+208193,Humana,"legal_regulatory,market_analyst_sentiment",multi
+122017,Wynn Resorts,market_analyst_sentiment,multi
+484582,Yum! Brands,"legal_regulatory,reputational_harm",multi
+322369,"Tesla, Inc.",investor_activity,multi
+207169,"Tesla, Inc.",leadership_governance,multi
+284560,Gilead Sciences,"earnings_performance,capital_shareholder_returns",multi
+286199,Twilio,"investor_activity,market_analyst_sentiment",multi
+168316,Cboe Global Markets,"investor_activity,market_analyst_sentiment",multi
+118846,Boeing,"product_innovation,partnerships_business_dev",multi
+907,Intuitive Surgical,earnings_performance,multi
+123626,Crown Castle,"investor_activity,market_analyst_sentiment",multi
+117438,Johnson & Johnson,product_innovation,multi
+176923,Philip Morris International,capital_shareholder_returns,multi
+163641,Reddit,market_analyst_sentiment,multi
+286594,American Express,earnings_performance,multi
+163515,Intel,"partnerships_business_dev,other",multi
+293999,Apple,mergers_acquisitions,multi
+287104,MGM Resorts,investor_activity,multi
+180278,Expedia Group,"earnings_performance,market_analyst_sentiment",multi
+90449,Church & Dwight,earnings_performance,multi
+285114,Delta Air Lines,reputational_harm,multi
+340704,D. R. Horton,"earnings_performance,capital_shareholder_returns",multi
+90361,Amazon,earnings_performance,multi
+100,PepsiCo,"earnings_performance,capital_shareholder_returns",multi
+157781,Boeing,"investor_activity,market_analyst_sentiment",multi
+129129,PNC Financial Services,earnings_performance,multi
+61491,Salesforce,earnings_performance,multi
+121210,Apple,"product_innovation,earnings_performance",multi
+466436,Bristol Myers Squibb,legal_regulatory,multi
+92826,FedEx,"earnings_performance,market_analyst_sentiment",multi
+170368,Lennar,investor_activity,multi
+339798,Revvity,investor_activity,multi
+949,Adobe Inc.,earnings_performance,multi
+95788,Tractor Supply,market_analyst_sentiment,multi
+129692,Bank of America,earnings_performance,multi
+278079,Home Depot (The),earnings_performance,multi
+254094,General Motors,"earnings_performance,market_analyst_sentiment",multi
+117455,"Nike, Inc.","earnings_performance,market_analyst_sentiment",multi
+343620,Fastenal,earnings_performance,multi
+342031,HP Inc.,earnings_performance,multi
+170412,Adobe Inc.,earnings_performance,multi
+90449,Western Digital,earnings_performance,multi
+262881,Goldman Sachs,earnings_performance,multi
+316999,MetLife,earnings_performance,multi
+464297,Norwegian Cruise Line Holdings,legal_regulatory,multi
+448737,Copart,earnings_performance,multi
+96414,Domino's,"earnings_performance,market_analyst_sentiment",multi
+164392,Arista Networks,earnings_performance,multi
+267752,Take-Two Interactive,earnings_performance,multi
+91309,Gilead Sciences,"earnings_performance,capital_shareholder_returns",multi
+160822,Qualcomm,market_analyst_sentiment,multi
+159678,Cooper Companies (The),"earnings_performance,market_analyst_sentiment",multi
+317687,Micron Technology,market_analyst_sentiment,multi
+93156,Apple,investor_activity,multi
+155613,UnitedHealth Group,"earnings_performance,capital_shareholder_returns",multi
+1092990,Advanced Micro Devices,"investor_activity,market_analyst_sentiment",multi
+90209,NRG Energy,earnings_performance,multi
+213996,Nvidia,"legal_regulatory,mergers_acquisitions",multi
+96078,Apple,other,multi
+247869,EchoStar,"earnings_performance,market_analyst_sentiment",multi
+234581,Oracle Corporation,"mergers_acquisitions,market_analyst_sentiment",multi
+321841,HP Inc.,"earnings_performance,mergers_acquisitions",multi
+101786,American Express,earnings_performance,multi
+417226,Apple,"legal_regulatory,competitive_actions",multi
+849,Visa Inc.,market_analyst_sentiment,multi
+1081,Pfizer,legal_regulatory,multi
+128269,Micron Technology,investor_activity,multi
+252732,Boeing,product_innovation,multi
+94762,Target Corporation,earnings_performance,multi
+160504,Southwest Airlines,investor_activity,multi
+425094,MGM Resorts,"earnings_performance,investor_activity",multi
+168718,Cisco,earnings_performance,multi
+158104,Prudential Financial,earnings_performance,multi
+316575,Align Technology,earnings_performance,multi
+157337,Bank of America,investor_activity,multi
+911,Netflix,"investor_activity,market_analyst_sentiment",multi
+144309,Cisco,"investor_activity,market_analyst_sentiment",multi
+179155,FedEx,investor_activity,multi
+106034,Bristol Myers Squibb,"investor_activity,market_analyst_sentiment",multi
+168500,Cisco,"earnings_performance,other",multi
+753,Accenture,earnings_performance,multi
+157025,JPMorgan Chase,labor_human_capital,multi
+297407,JPMorgan Chase,capital_shareholder_returns,multi
+127747,Dell Technologies,earnings_performance,multi
+106090,First Solar,"earnings_performance,leadership_governance",multi
+444085,Sysco,earnings_performance,multi
+222229,ON Semiconductor,earnings_performance,multi
+141323,Salesforce,"earnings_performance,capital_shareholder_returns",multi
+219232,Nvidia,"investor_activity,market_analyst_sentiment",multi
+313350,Ulta Beauty,earnings_performance,multi
+476074,Fiserv,market_analyst_sentiment,multi
+182012,Uber,"product_innovation,partnerships_business_dev",multi
+122354,Apple,earnings_performance,multi
+296910,JPMorgan Chase,investor_activity,multi
+284373,"Illumina, Inc.",mergers_acquisitions,multi
+174926,Constellation Energy,"investor_activity,market_analyst_sentiment,partnerships_business_dev",multi
+293927,Palo Alto Networks,market_analyst_sentiment,multi
+294048,Netflix,product_innovation,multi
+1257,Advanced Micro Devices,investor_activity,multi
+171132,Robinhood Markets,"legal_regulatory,reputational_harm",multi
+208625,Amazon,product_innovation,multi
+88097,CVS Health,earnings_performance,multi
+284970,KeyCorp,earnings_performance,multi
+327572,United Airlines Holdings,earnings_performance,multi
+874,Hasbro,"investor_activity,market_analyst_sentiment",multi
+128013,Goldman Sachs,legal_regulatory,multi
+207183,Microsoft,product_innovation,multi
+294049,IBM,leadership_governance,multi
+414705,Cigna,"earnings_performance,capital_shareholder_returns",multi
+157306,Molson Coors Beverage Company,"investor_activity,market_analyst_sentiment",multi
+119005,Verizon,leadership_governance,multi
+166290,"Tesla, Inc.",investor_activity,multi
+115555,Carvana,earnings_performance,multi
+219136,FedEx,"earnings_performance,partnerships_business_dev",multi
+159709,Boeing,reputational_harm,multi
+60919,Biogen,earnings_performance,multi
+342934,Nvidia,"investor_activity,market_analyst_sentiment",multi
+96102,Boeing,market_analyst_sentiment,multi
+219382,Tyson Foods,earnings_performance,multi
+157116,Micron Technology,"investor_activity,market_analyst_sentiment",multi
+469028,Nucor,"earnings_performance,market_analyst_sentiment",multi
+164728,Caterpillar Inc.,earnings_performance,multi
+117294,Uber,mergers_acquisitions,multi
+176220,Palantir Technologies,market_analyst_sentiment,multi
+118478,Apple,labor_human_capital,multi
+439972,JPMorgan Chase,other,multi
+254273,Intel,mergers_acquisitions,multi
+170771,"Tesla, Inc.","investor_activity,leadership_governance,capital_shareholder_returns",multi
+208806,Lilly (Eli),"investor_activity,product_innovation",multi
+267583,PPG Industries,"earnings_performance,market_analyst_sentiment",multi
+171931,Western Digital,"earnings_performance,market_analyst_sentiment",multi
+121323,Cigna,mergers_acquisitions,multi
+479531,BlackRock,earnings_performance,multi
+425176,Booking Holdings,"earnings_performance,market_analyst_sentiment",multi
+318845,Moderna,product_innovation,multi
+129320,Netflix,market_analyst_sentiment,multi
+82716,Bristol Myers Squibb,product_innovation,multi
+157828,Boeing,"labor_human_capital,competitive_actions",multi
+179070,Lilly (Eli),market_analyst_sentiment,multi
+118579,Apple,partnerships_business_dev,multi
+315047,Micron Technology,"investor_activity,earnings_performance",multi
+171181,Coherent Corp.,earnings_performance,multi
+157586,Lululemon Athletica,"earnings_performance,market_analyst_sentiment",multi
+211,3M,earnings_performance,multi
+265860,TJX Companies,"earnings_performance,market_analyst_sentiment",multi
+159657,Broadcom,earnings_performance,multi
+171254,Tyson Foods,earnings_performance,multi
+448816,Wynn Resorts,"earnings_performance,market_analyst_sentiment",multi
+127775,Apple,"legal_regulatory,competitive_actions",multi
+339816,Alexandria Real Estate Equities,earnings_performance,multi
+120190,Boeing,"earnings_performance,capital_shareholder_returns",multi
+166648,Invesco,"earnings_performance,capital_shareholder_returns",multi
+92657,"Tesla, Inc.",legal_regulatory,multi
+123544,Amgen,earnings_performance,multi
+156898,"Tesla, Inc.","investor_activity,market_analyst_sentiment",multi
+154548,Micron Technology,market_analyst_sentiment,multi
+94762,Alphabet Inc. (Class C),"partnerships_business_dev,competitive_actions",multi
+164405,Comcast,earnings_performance,multi
+158623,Clorox,earnings_performance,multi
+287139,Biogen,"product_innovation,legal_regulatory",multi
+327049,Loews Corporation,earnings_performance,multi
+321791,Fortinet,"earnings_performance,market_analyst_sentiment",multi
+176230,Darden Restaurants,earnings_performance,multi
+234581,Coinbase,"partnerships_business_dev,product_innovation",multi
+316246,Chipotle Mexican Grill,earnings_performance,multi
+234614,Sysco,earnings_performance,multi
+202936,Fortinet,earnings_performance,multi
+339883,"Nike, Inc.",earnings_performance,multi
+321770,Moderna,product_innovation,multi
+123065,Texas Instruments,"investor_activity,market_analyst_sentiment",multi
+90302,Constellation Brands,earnings_performance,multi
+164712,3M,earnings_performance,multi
+113713,Amgen,product_innovation,multi
+284930,Lam Research,earnings_performance,multi
+156889,Lululemon Athletica,"mergers_acquisitions,leadership_governance",multi
+127748,Monster Beverage,earnings_performance,multi
+411073,"Tesla, Inc.",earnings_performance,multi
+413152,Qualcomm,earnings_performance,multi
+116498,Coinbase,market_analyst_sentiment,multi
+171527,Clorox,earnings_performance,multi
+166647,Amazon,"earnings_performance,market_analyst_sentiment",multi
+301402,IBM,earnings_performance,multi
+124834,Applied Materials,"earnings_performance,leadership_governance",multi
+94977,Procter & Gamble,leadership_governance,multi
+168375,Synopsys,earnings_performance,multi
+342497,Nvidia,market_analyst_sentiment,multi
+172377,Expedia Group,"earnings_performance,market_analyst_sentiment",multi
+178693,Occidental Petroleum,investor_activity,multi
+164161,Live Nation Entertainment,earnings_performance,multi
+342099,T-Mobile US,earnings_performance,multi
+87852,Dollar Tree,earnings_performance,multi
+254273,CRH plc,mergers_acquisitions,multi
+101290,Lululemon Athletica,"investor_activity,market_analyst_sentiment",multi
+164113,Carvana,earnings_performance,multi
+92,Pfizer,earnings_performance,multi
+475159,Vertex Pharmaceuticals,"product_innovation,reputational_harm",multi
+118443,Stryker Corporation,earnings_performance,multi
+285031,IBM,earnings_performance,multi
+96121,Verizon,"market_analyst_sentiment,partnerships_business_dev",multi
+207790,JPMorgan Chase,other,multi
+248505,Generac,earnings_performance,multi
+175727,Reddit,earnings_performance,multi
+155602,Blackstone Inc.,mergers_acquisitions,multi
+1083630,Robinhood Markets,"earnings_performance,market_analyst_sentiment",multi
+466379,Ulta Beauty,earnings_performance,multi
+262693,Wells Fargo,earnings_performance,multi
+121989,Apple,reputational_harm,multi
+411087,Adobe Inc.,investor_activity,multi
+121931,Apple,reputational_harm,multi
+120594,"Tesla, Inc.",mergers_acquisitions,multi
+414597,PepsiCo,"investor_activity,market_analyst_sentiment",multi
+182764,Delta Air Lines,capital_shareholder_returns,multi
+145242,Wynn Resorts,earnings_performance,multi
+163698,Delta Air Lines,investor_activity,multi
+169122,Dollar General,"investor_activity,leadership_governance",multi
+113778,Moody's Corporation,capital_shareholder_returns,multi
+267583,Halliburton,earnings_performance,multi
+194512,CrowdStrike,earnings_performance,multi
+157451,Lennar,"earnings_performance,market_analyst_sentiment",multi
+60906,Wynn Resorts,earnings_performance,multi
+120853,Wynn Resorts,"earnings_performance,market_analyst_sentiment",multi
+180254,Datadog,earnings_performance,multi
+432968,McDonald's,"investor_activity,market_analyst_sentiment",multi
+171132,Nvidia,market_analyst_sentiment,multi
+432755,Simon Property Group,earnings_performance,multi
+209298,Equifax,reputational_harm,multi
+1097384,Paychex,earnings_performance,multi
+166634,Devon Energy,mergers_acquisitions,multi
+96337,Cooper Companies (The),"mergers_acquisitions,legal_regulatory,labor_human_capital",multi
+422902,Western Digital,partnerships_business_dev,multi
+179094,Texas Instruments,earnings_performance,multi
+168320,Cisco,"earnings_performance,labor_human_capital",multi
+82718,Corteva,earnings_performance,multi
+156481,EOG Resources,earnings_performance,multi
+286134,Akamai Technologies,earnings_performance,multi
+227882,Live Nation Entertainment,earnings_performance,multi
+176402,Salesforce,leadership_governance,multi
+219040,FedEx,earnings_performance,multi
+324796,"Tesla, Inc.",partnerships_business_dev,multi
+106038,American International Group,capital_shareholder_returns,multi
+158107,BlackRock,"legal_regulatory,reputational_harm",multi
+252137,Danaher Corporation,earnings_performance,multi
+115778,Apple,"earnings_performance,investor_activity",multi
+114644,KLA Corporation,earnings_performance,multi
+163695,Palo Alto Networks,"earnings_performance,market_analyst_sentiment",multi
+113780,MGM Resorts,"earnings_performance,leadership_governance,capital_shareholder_returns",multi
+297967,CVS Health,product_innovation,multi
+254147,PepsiCo,earnings_performance,multi
+88277,United Airlines Holdings,earnings_performance,multi
+90527,Moderna,earnings_performance,multi
+96374,Expedia Group,earnings_performance,multi
+126922,Arista Networks,earnings_performance,multi
+119,Truist Financial,mergers_acquisitions,multi
+178653,"Tesla, Inc.","earnings_performance,product_innovation",multi
+89901,Best Buy,leadership_governance,multi
+156636,Moderna,"investor_activity,reputational_harm",multi
+343692,Nvidia,earnings_performance,multi
+844,Interactive Brokers,earnings_performance,multi
+117826,Johnson & Johnson,"legal_regulatory,reputational_harm",multi
+158628,Live Nation Entertainment,earnings_performance,multi
+122560,Cintas,earnings_performance,multi
+114725,Robinhood Markets,investor_activity,multi
+123455,Apple,"earnings_performance,investor_activity",multi
+114025,Analog Devices,"earnings_performance,market_analyst_sentiment",multi
+91152,Airbnb,earnings_performance,multi
+439275,"Tesla, Inc.",earnings_performance,multi
+410861,Ross Stores,earnings_performance,multi
+286777,JPMorgan Chase,earnings_performance,multi
+181085,Deere & Company,earnings_performance,multi
+426245,Lam Research,earnings_performance,multi
+303398,AbbVie,mergers_acquisitions,multi
+449017,Verizon,"investor_activity,other",multi
+91241,Amazon,earnings_performance,multi
+463544,TransDigm Group,earnings_performance,multi
+94124,Johnson & Johnson,earnings_performance,multi
+156441,Boeing,"product_innovation,reputational_harm",multi
+144237,Deckers Brands,"investor_activity,market_analyst_sentiment",multi
+212108,Expedia Group,earnings_performance,multi
+247791,Starbucks,"earnings_performance,other",multi
+253921,Marriott International,partnerships_business_dev,multi
+164551,Marathon Petroleum,capital_shareholder_returns,multi
+90781,NXP Semiconductors,"earnings_performance,other",multi
+464324,"Tesla, Inc.",investor_activity,multi
+124794,PayPal,mergers_acquisitions,multi
+476703,Twilio,earnings_performance,multi
+466412,Ulta Beauty,earnings_performance,multi
+250947,Monster Beverage,"investor_activity,market_analyst_sentiment",multi
+175575,Corning Inc.,capital_shareholder_returns,multi
+219002,Oneok,"investor_activity,market_analyst_sentiment",multi
+179974,Southwest Airlines,reputational_harm,multi
+114177,Align Technology,investor_activity,multi
+6000,Agilent Technologies,earnings_performance,multi
+343037,Nvidia,investor_activity,multi
+127106,Citigroup,"earnings_performance,market_analyst_sentiment",multi
+1073,Regency Centers,"earnings_performance,capital_shareholder_returns",multi
+161181,Western Digital,earnings_performance,multi
+156936,Boeing,mergers_acquisitions,multi
+424917,Ciena,earnings_performance,multi
+1677,Advanced Micro Devices,"product_innovation,investor_activity",multi
+157612,Kraft Heinz,reputational_harm,multi
+157964,TJX Companies,earnings_performance,multi
+234667,Garmin,earnings_performance,multi
+182013,Builders FirstSource,market_analyst_sentiment,multi
+174927,Paramount Skydance Corporation,"leadership_governance,legal_regulatory",multi
+175784,Trade Desk (The),market_analyst_sentiment,multi
+286281,Kenvue,"investor_activity,reputational_harm",multi
+449974,General Mills,earnings_performance,multi
+117218,Wynn Resorts,market_analyst_sentiment,multi
+894,First Solar,investor_activity,multi
+178576,Marvell Technology,earnings_performance,multi
+329132,Ameriprise Financial,"earnings_performance,capital_shareholder_returns",multi
+425084,Dollar Tree,"earnings_performance,investor_activity",multi
+181398,Estée Lauder Companies (The),mergers_acquisitions,multi
+170359,Micron Technology,capital_shareholder_returns,multi
+180106,Microsoft,capital_shareholder_returns,multi
+313350,"Workday, Inc.",earnings_performance,multi
+285031,Capital One,earnings_performance,multi
+327247,Meta Platforms,"market_analyst_sentiment,legal_regulatory",multi
+181774,Fifth Third Bancorp,capital_shareholder_returns,multi
+464413,Deckers Brands,earnings_performance,multi
+1283,L3Harris,"capital_shareholder_returns,partnerships_business_dev",multi
+119977,General Motors,"partnerships_business_dev,labor_human_capital",multi
+291427,Ross Stores,earnings_performance,multi
+141428,Best Buy,earnings_performance,multi
+166641,Starbucks,"investor_activity,market_analyst_sentiment",multi
+178707,Keurig Dr Pepper,other,multi
+116498,Apple,partnerships_business_dev,multi
+168342,Palo Alto Networks,earnings_performance,multi
+167916,Ciena,earnings_performance,multi
+170828,Wells Fargo,leadership_governance,multi
+412562,Coherent Corp.,earnings_performance,multi
+343302,Broadcom,earnings_performance,multi
+286347,Intel,partnerships_business_dev,multi
+313406,Paramount Skydance Corporation,"capital_shareholder_returns,market_analyst_sentiment",multi
+275797,Henry Schein,earnings_performance,multi
+88705,Southwest Airlines,earnings_performance,multi
+127753,Broadcom,earnings_performance,multi
+266367,Royal Caribbean Group,"reputational_harm,investor_activity",multi
+60882,Reddit,earnings_performance,multi
+114025,Palo Alto Networks,earnings_performance,multi
+286134,Paramount Skydance Corporation,earnings_performance,multi
+303376,Lennar,earnings_performance,multi
+286583,Intel,earnings_performance,multi
+163539,CVS Health,earnings_performance,multi
+164365,Starbucks,earnings_performance,multi
+155858,Akamai Technologies,earnings_performance,multi
+317425,Marvell Technology,earnings_performance,multi
+421421,Airbnb,market_analyst_sentiment,multi
+133692,"Tesla, Inc.",leadership_governance,multi
+90287,Steel Dynamics,earnings_performance,multi
+88400,Corning Inc.,earnings_performance,multi
+284987,CSX Corporation,earnings_performance,multi
+118339,Take-Two Interactive,mergers_acquisitions,multi
+219048,Reddit,market_analyst_sentiment,multi
+142029,Best Buy,earnings_performance,multi
+321489,American International Group,"investor_activity,market_analyst_sentiment",multi
+484567,Dell Technologies,earnings_performance,multi
+464698,Quest Diagnostics,"investor_activity,mergers_acquisitions",multi
+219317,Lilly (Eli),capital_shareholder_returns,multi
+171616,PayPal,mergers_acquisitions,multi
+155073,JPMorgan Chase,"earnings_performance,market_analyst_sentiment",multi
+303383,McDonald's,"investor_activity,market_analyst_sentiment",multi
+164525,T-Mobile US,"legal_regulatory,mergers_acquisitions",multi
+115341,Southwest Airlines,"earnings_performance,investor_activity",multi
+102171,American Express,earnings_performance,multi
+311691,Hewlett Packard Enterprise,mergers_acquisitions,multi
+296032,Delta Air Lines,"investor_activity,market_analyst_sentiment",multi
+115555,Live Nation Entertainment,"earnings_performance,market_analyst_sentiment",multi
+155438,Cboe Global Markets,market_analyst_sentiment,multi
+154521,Norwegian Cruise Line Holdings,earnings_performance,multi
+202876,Cintas,earnings_performance,multi
+344009,Uber,"legal_regulatory,labor_human_capital",multi
+93575,AT&T,"leadership_governance,labor_human_capital",multi
+60902,Akamai Technologies,earnings_performance,multi
+324796,Morgan Stanley,mergers_acquisitions,multi
+188261,Veeva Systems,earnings_performance,multi
+91558,Stanley Black & Decker,"earnings_performance,investor_activity,market_analyst_sentiment",multi
+219445,Waters Corporation,earnings_performance,multi
+207169,Comcast,product_innovation,multi
+133189,United Parcel Service,labor_human_capital,multi
+156381,Boeing,"earnings_performance,reputational_harm",multi
+342248,Marriott International,earnings_performance,multi
+321738,Moderna,legal_regulatory,multi
+313352,"Workday, Inc.",earnings_performance,multi
+166,Lowe's,market_analyst_sentiment,multi
+246885,Uber,"investor_activity,market_analyst_sentiment",multi
+95189,Western Digital,mergers_acquisitions,multi
+473650,UnitedHealth Group,"investor_activity,market_analyst_sentiment",multi
+156221,Alphabet Inc. (Class C),legal_regulatory,multi
+182730,Twilio,earnings_performance,multi
+163524,Tyson Foods,earnings_performance,multi
+297963,Ford Motor Company,"partnerships_business_dev,labor_human_capital,product_innovation",multi
+118582,CVS Health,"mergers_acquisitions,legal_regulatory",multi
+156687,Robinhood Markets,market_analyst_sentiment,multi
+88417,Alphabet Inc. (Class C),partnerships_business_dev,multi
+246626,Pfizer,"partnerships_business_dev,product_innovation",multi
+61,3M,earnings_performance,multi
+343392,Occidental Petroleum,capital_shareholder_returns,multi
+286640,Nvidia,earnings_performance,multi
+208015,PepsiCo,earnings_performance,multi
+164804,McDonald's,earnings_performance,multi
+142250,Dollar Tree,earnings_performance,multi
+180061,Micron Technology,"earnings_performance,market_analyst_sentiment",multi
+317955,Micron Technology,earnings_performance,multi
+128296,AutoZone,earnings_performance,multi
+164350,Pfizer,earnings_performance,multi
+156132,Domino's,earnings_performance,multi
+171143,Berkshire Hathaway,earnings_performance,multi
+134120,Lowe's,earnings_performance,multi
+343027,Ross Stores,earnings_performance,multi
+88796,Intel,"earnings_performance,labor_human_capital,leadership_governance",multi
+121905,Apple,reputational_harm,multi
+247317,Occidental Petroleum,capital_shareholder_returns,multi
+117357,Lululemon Athletica,"investor_activity,market_analyst_sentiment",multi
+115821,Chipotle Mexican Grill,market_analyst_sentiment,multi
+413123,Dell Technologies,labor_human_capital,multi
+444537,Take-Two Interactive,earnings_performance,multi
+115778,Meta Platforms,"legal_regulatory,reputational_harm",multi
+423287,ResMed|,"investor_activity,competitive_actions",multi
+432697,FedEx,earnings_performance,multi
+414952,Salesforce,"investor_activity,market_analyst_sentiment",multi
+231147,Accenture,capital_shareholder_returns,multi
+145242,Best Buy,earnings_performance,multi
+465125,"Tesla, Inc.","investor_activity,market_analyst_sentiment",multi
+277224,MGM Resorts,earnings_performance,multi
+170876,Ralph Lauren Corporation,earnings_performance,multi
+88032,Alphabet Inc. (Class C),earnings_performance,multi
+327517,Interactive Brokers,earnings_performance,multi
+745,McDonald's,capital_shareholder_returns,multi
+178725,Western Digital,mergers_acquisitions,multi
+88241,Starbucks,earnings_performance,multi
+318080,Starbucks,labor_human_capital,multi
+126744,Archer Daniels Midland,"leadership_governance,investor_activity",multi
+179415,DoorDash,earnings_performance,multi
+94161,Colgate-Palmolive,partnerships_business_dev,multi
+94092,Colgate-Palmolive,earnings_performance,multi
+119585,Apple,product_innovation,multi
+92733,Delta Air Lines,earnings_performance,multi
+170773,Palantir Technologies,earnings_performance,multi
+262881,Johnson & Johnson,earnings_performance,multi
+291577,Netflix,earnings_performance,multi
+130,Salesforce,earnings_performance,multi
+212227,Expedia Group,investor_activity,multi
+479658,BlackRock,earnings_performance,multi
+93299,Molson Coors Beverage Company,"investor_activity,market_analyst_sentiment",multi
+178749,Cintas,earnings_performance,multi
+451532,AutoZone,earnings_performance,multi
+95647,Waste Management,leadership_governance,multi
+171541,AutoZone,"investor_activity,market_analyst_sentiment",multi
+449180,American Express,earnings_performance,multi
+182178,Delta Air Lines,earnings_performance,multi
+303005,Biogen,investor_activity,multi
+317649,Microsoft,partnerships_business_dev,multi
+484017,Amazon,earnings_performance,multi
+470539,Charter Communications,earnings_performance,multi
+156218,AppLovin,"investor_activity,market_analyst_sentiment",multi
+61054,United Parcel Service,"investor_activity,market_analyst_sentiment",multi
+159805,"Tesla, Inc.",investor_activity,multi
+123370,Qualcomm,investor_activity,multi
+247791,Seagate Technology,earnings_performance,multi
+1409,Estée Lauder Companies (The),earnings_performance,multi
+270117,Hasbro,earnings_performance,multi
+317589,GE Vernova,"investor_activity,market_analyst_sentiment",multi
+478189,McDonald's,"earnings_performance,market_analyst_sentiment",multi
+121451,General Motors,"mergers_acquisitions,legal_regulatory",multi
+277855,CVS Health,earnings_performance,multi
+122203,Apple,investor_activity,multi
+477961,Simon Property Group,earnings_performance,multi
+156258,Advanced Micro Devices,earnings_performance,multi
+343946,Micron Technology,"earnings_performance,market_analyst_sentiment",multi
+139254,Kraft Heinz,earnings_performance,multi
+121915,Procter & Gamble,"legal_regulatory,reputational_harm",multi
+126766,"Tesla, Inc.",mergers_acquisitions,multi
+253,Molson Coors Beverage Company,investor_activity,multi
+169466,Citigroup,earnings_performance,multi
+168019,Expedia Group,earnings_performance,multi
+314803,Coinbase,earnings_performance,multi
+129324,Citigroup,earnings_performance,multi
+158043,Host Hotels & Resorts,capital_shareholder_returns,multi
+267630,Roper Technologies,earnings_performance,multi
+127758,Live Nation Entertainment,earnings_performance,multi
+117469,Walt Disney Company (The),"other,peer_comparison",multi
+179782,Take-Two Interactive,mergers_acquisitions,multi
+125050,Fortinet,earnings_performance,multi
+121183,Exelon,"mergers_acquisitions,legal_regulatory",multi
+87911,Oracle Corporation,earnings_performance,multi
+320616,Altria,"investor_activity,market_analyst_sentiment",multi
+82715,Qualcomm,earnings_performance,multi
+171471,Regeneron Pharmaceuticals,competitive_actions,multi
+1346,Cisco,"investor_activity,market_analyst_sentiment",multi
+187356,Dollar Tree,earnings_performance,multi
+121061,Apple,product_innovation,multi
+143106,Medtronic,earnings_performance,multi
+130,Labcorp,"reputational_harm,leadership_governance",multi
+327334,Netflix,product_innovation,multi
+302410,Johnson & Johnson,earnings_performance,multi
+118308,Boeing,reputational_harm,multi
+317930,Humana,mergers_acquisitions,multi
+447,Abbott Laboratories,"product_innovation,legal_regulatory",multi
+170732,Nucor,earnings_performance,multi
+115918,Xylem Inc.,mergers_acquisitions,multi
+916,Meta Platforms,"peer_comparison,investor_activity",multi
+121323,McDonald's,earnings_performance,multi
+215892,Freeport-McMoRan,market_analyst_sentiment,multi
+116938,Union Pacific Corporation,"earnings_performance,market_analyst_sentiment",multi
+163631,Meta Platforms,earnings_performance,multi
+284496,Boeing,"earnings_performance,reputational_harm",multi
+88547,"Tesla, Inc.",partnerships_business_dev,multi
+122686,Dell Technologies,investor_activity,multi
+105124,American International Group,capital_shareholder_returns,multi
+156381,Walmart,investor_activity,multi
+341260,Salesforce,earnings_performance,multi
+247852,"Tesla, Inc.",product_innovation,multi
+105086,Clorox,earnings_performance,multi
+287571,Omnicom Group,earnings_performance,multi
+90216,Chevron Corporation,earnings_performance,multi
+96,Chipotle Mexican Grill,"earnings_performance,market_analyst_sentiment",multi
+286137,Expedia Group,earnings_performance,multi
+168232,FedEx,capital_shareholder_returns,multi
+473677,Akamai Technologies,earnings_performance,multi
+88758,"Tesla, Inc.",product_innovation,multi
+159582,Ciena,"earnings_performance,investor_activity",multi
+400,United Airlines Holdings,earnings_performance,multi
+449974,Lululemon Athletica,"earnings_performance,leadership_governance",multi
+159289,Walt Disney Company (The),mergers_acquisitions,multi
+128267,Colgate-Palmolive,"investor_activity,market_analyst_sentiment",multi
+145530,Best Buy,other,multi
+483974,Costco,"earnings_performance,market_analyst_sentiment",multi
+95603,Walt Disney Company (The),"investor_activity,capital_shareholder_returns",multi
+156962,Henry Schein,product_innovation,multi
+164373,Caterpillar Inc.,earnings_performance,multi
+168332,Deere & Company,earnings_performance,multi
+464567,Vertex Pharmaceuticals,earnings_performance,multi
+117447,"Nike, Inc.",earnings_performance,multi
+116652,Apple,other,multi
+115327,Amgen,earnings_performance,multi
+341999,Palantir Technologies,investor_activity,multi
+139248,General Motors,earnings_performance,multi
+292242,Oracle Corporation,earnings_performance,multi
+432780,Simon Property Group,earnings_performance,multi
+174635,Constellation Brands,earnings_performance,multi
+279683,Boeing,legal_regulatory,multi
+293776,Johnson & Johnson,"legal_regulatory,reputational_harm",multi
+291430,"Workday, Inc.",earnings_performance,multi
+88676,Western Digital,mergers_acquisitions,multi
+234690,Host Hotels & Resorts,earnings_performance,multi
+156765,Twilio,partnerships_business_dev,multi
+425264,Lululemon Athletica,"investor_activity,market_analyst_sentiment",multi
+425321,Uber,leadership_governance,multi
+343458,Sysco,earnings_performance,multi
+104165,American International Group,market_analyst_sentiment,multi
+438987,T-Mobile US,earnings_performance,multi
+139168,Baxter International,reputational_harm,multi
+467841,Paramount Skydance Corporation,mergers_acquisitions,multi
+310855,Best Buy,"investor_activity,leadership_governance",multi
+154569,Biogen,"investor_activity,product_innovation",multi
+114950,Best Buy,other,multi
+155,Domino's,market_analyst_sentiment,multi
+183035,GoDaddy,earnings_performance,multi
+284565,Humana,earnings_performance,multi
+414143,Garmin,"investor_activity,other",multi
+155861,Verizon,earnings_performance,multi
+155636,Blackstone Inc.,"investor_activity,market_analyst_sentiment",multi
+202880,First Solar,investor_activity,multi
+91907,Gilead Sciences,earnings_performance,multi
+319878,Hormel Foods,"mergers_acquisitions,earnings_performance",multi
+82716,Flex Ltd.,"mergers_acquisitions,earnings_performance",multi
+158100,Microchip Technology,earnings_performance,multi
+117643,Apple,mergers_acquisitions,multi
+175784,Costco,earnings_performance,multi
+179095,Netflix,capital_shareholder_returns,multi
+158020,McDonald's,capital_shareholder_returns,multi
+155476,Blackstone Inc.,capital_shareholder_returns,multi
+327004,Netflix,earnings_performance,multi
+168313,"Tapestry, Inc.",mergers_acquisitions,multi
+328898,Netflix,investor_activity,multi
+94449,Dollar General,"earnings_performance,capital_shareholder_returns",multi
+329093,Netflix,earnings_performance,multi
+202968,Ford Motor Company,earnings_performance,multi
+166647,Amgen,"earnings_performance,product_innovation",multi
+226005,First Solar,"earnings_performance,other",multi
+291605,Microsoft,earnings_performance,multi
+1102204,FedEx,market_analyst_sentiment,multi
+94385,PayPal,product_innovation,multi
+219242,Cigna,capital_shareholder_returns,multi
+170414,Microsoft,reputational_harm,multi
+168005,Best Buy,investor_activity,multi
+164231,"Tesla, Inc.",earnings_performance,multi
+168535,Wynn Resorts,investor_activity,multi
+413067,Sherwin-Williams,earnings_performance,multi
+475139,Royal Caribbean Group,market_analyst_sentiment,multi
+87759,United Rentals,earnings_performance,multi
+291431,Ross Stores,earnings_performance,multi
+169275,"Tesla, Inc.",other,multi
+283643,Agilent Technologies,earnings_performance,multi
+145167,Lam Research,leadership_governance,multi
+94362,IBM,earnings_performance,multi
+464250,Loews Corporation,earnings_performance,multi
+91287,TJX Companies,earnings_performance,multi
+96161,Amazon,earnings_performance,multi
+156606,Pfizer,"legal_regulatory,product_innovation",multi
+157662,Boeing,product_innovation,multi
+326819,NetApp,labor_human_capital,multi
+124720,Moderna,other,multi
+178660,American Express,earnings_performance,multi
+142348,"NVR, Inc.","market_analyst_sentiment,peer_comparison",multi
+439150,Starbucks,labor_human_capital,multi
+286396,Tyson Foods,earnings_performance,multi
+88443,Amgen,product_innovation,multi
+155858,Take-Two Interactive,product_innovation,multi
+159512,Costco,earnings_performance,multi
+177611,Costco,partnerships_business_dev,multi
+117943,Dell Technologies,mergers_acquisitions,multi
+155856,Dell Technologies,earnings_performance,multi
+1102204,Cintas,earnings_performance,multi
+247493,Morgan Stanley,investor_activity,multi
+90690,"Tesla, Inc.",earnings_performance,multi
+90005,Cintas,earnings_performance,multi
+314997,"Tapestry, Inc.","earnings_performance,investor_activity",multi
+321555,Moderna,legal_regulatory,multi
+265752,Philip Morris International,product_innovation,multi
+320461,Microsoft,earnings_performance,multi
+164708,Norwegian Cruise Line Holdings,earnings_performance,multi
+92038,Skyworks Solutions,earnings_performance,multi
+219084,Starbucks,investor_activity,multi
+90364,Rockwell Automation,earnings_performance,multi
+178724,Southwest Airlines,labor_human_capital,multi
+284985,Ford Motor Company,reputational_harm,multi
+411408,Citigroup,market_analyst_sentiment,multi
+119986,Citigroup,earnings_performance,multi
+314792,Walt Disney Company (The),earnings_performance,multi
+256076,MGM Resorts,"investor_activity,market_analyst_sentiment",multi
+122153,Intel,earnings_performance,multi
+284985,Huntington Bancshares,earnings_performance,multi
+421746,Target Corporation,earnings_performance,multi
+325633,Palo Alto Networks,earnings_performance,multi
+175575,Chevron Corporation,legal_regulatory,multi
+154662,Apollo Global Management,mergers_acquisitions,multi
+222804,Uber,investor_activity,multi
+302815,Oracle Corporation,"investor_activity,earnings_performance",multi
+1095224,JPMorgan Chase,earnings_performance,multi
+253042,Las Vegas Sands,earnings_performance,multi
+189910,Walt Disney Company (The),capital_shareholder_returns,multi
+120533,Apple,reputational_harm,multi
+171527,Fortinet,earnings_performance,multi
+219177,Molson Coors Beverage Company,investor_activity,multi
+342167,General Mills,earnings_performance,multi
+88669,Johnson & Johnson,product_innovation,multi
+119389,Apple,other,multi
+156884,Netflix,leadership_governance,multi
+102034,Skyworks Solutions,earnings_performance,multi
+212212,Intel,"investor_activity,market_analyst_sentiment",multi
+158100,Boeing,legal_regulatory,multi
+113,PulteGroup,earnings_performance,multi
+695,Accenture,labor_human_capital,multi
+94871,FedEx,investor_activity,multi
+265562,Walt Disney Company (The),market_analyst_sentiment,multi
+343380,Nvidia,earnings_performance,multi
+212105,"Illumina, Inc.",earnings_performance,multi
+436280,Union Pacific Corporation,"earnings_performance,peer_comparison",multi
+90758,Intel,earnings_performance,multi
+61474,Berkshire Hathaway,earnings_performance,multi
+166573,Lockheed Martin,partnerships_business_dev,multi
+180270,Datadog,earnings_performance,multi
+126776,United Parcel Service,capital_shareholder_returns,multi
+177534,Apple,capital_shareholder_returns,multi
+87764,Fifth Third Bancorp,earnings_performance,multi
+449027,Caterpillar Inc.,"investor_activity,market_analyst_sentiment",multi
+256076,Goldman Sachs,"investor_activity,earnings_performance",multi
+163520,Norwegian Cruise Line Holdings,earnings_performance,multi
+179078,Equifax,earnings_performance,multi
+159543,"Tesla, Inc.",earnings_performance,multi
+315031,Microsoft,other,multi
+302197,"Tesla, Inc.",earnings_performance,multi

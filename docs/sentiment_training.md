@@ -222,7 +222,7 @@ are those of "The assumptions" above):
   **History:** the first revisions keep the wrong text ("three quarters", "S&P 500", `cc-by-nc-4.0`); harmless while the
   repositories are private, but a repository must be recreated before it is made public (T-148c4).
   The owner should also decide whether `gamug/FinBERT-financial-news` itself needs its licence corrected; this PR does not
-  touch it. The repositories are private; nothing is public.
+  touch it. **Done on 2026-11-14 (owner's word, T-175): corrected to `cc-by-nc-sa-4.0`, Hub commit `7305d765`, model card only (the pinned revision `93863fcb` and the weights are unchanged).** The repositories are private; nothing is public.
 - **Smoke test** (3 examples, local and from the Hub at these revisions): the stack turns a positive text about another company
   into neutral for the company asked (Apple, a Microsoft sentence: sentiment alone positive 0.97, stack neutral 0.91). Not a
   measurement.

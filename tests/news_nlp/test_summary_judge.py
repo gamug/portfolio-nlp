@@ -77,12 +77,12 @@ def _results(path: Path) -> sqlite3.Connection:
 def _source(path: Path, rows: list[tuple[int, str, str]]) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.execute(
-        "CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT, body_text TEXT, fetch_status TEXT, ticker TEXT, company TEXT, gics_sector TEXT, gics_sub_industry TEXT)"
+        "CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT, body_text TEXT, fetch_status TEXT, ticker TEXT, company TEXT, gics_sector TEXT, gics_sub_industry TEXT, language TEXT)"
     )
     for i, title, body in rows:
         conn.execute(
-            "INSERT INTO articles VALUES (?, ?, ?, 'ok', 'AAPL', 'Apple Inc.', 'IT', 'HW')",
-            (i, title, body),
+            "INSERT INTO articles VALUES (?, ?, ?, 'ok', 'AAPL', 'Apple Inc.', 'IT', 'HW', ?)",
+            (i, title, body, "es" if i % 5 == 0 else "en"),
         )
     conn.commit()
     return conn
@@ -620,6 +620,8 @@ def test_an_unreadable_reply_is_still_recorded_apart_from_a_provider_error(tmp_p
         "parse_failed": 1,
         "provider_errors": 0,
         "longest_verdict_chars": 0,
+        "calls": 1,
+        "not_called": 0,
     }
 
 
@@ -1132,3 +1134,114 @@ def test_the_interval_is_the_95_percent_band_not_the_extremes() -> None:
     low, high = sj._interval(values)
     assert low == pytest.approx(25.0) and high == pytest.approx(975.0)
     assert sj._interval([]) is None
+
+
+# --- the points of the manager's review of #180 --------------------------------------------------------------------------------
+
+
+def test_the_draw_carries_the_language_of_each_source_and_the_report_splits_by_it(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    results, source = dbs
+    rows = sj.draw(
+        results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=18, seed=7
+    )  # all 18 summarised single bodies
+    single = [r for r in rows if r["group"] == "single"]
+    assert {r["language"] for r in single} == {
+        "en",
+        "es",
+    }  # bodies 5, 10 and 15 of the fixture are Spanish
+    multi = [r for r in rows if r["group"] == "multi"]
+    assert {r["language"] for r in multi} == {"en"}  # their article (id 1) is English
+    verdicts = {
+        r["id"]: {
+            "claims": [{"text": "a", "verdict": "supported", "evidence": ""}],
+            "main_event_covered": True,
+            "parse_failed": False,
+        }
+        for r in rows
+    }
+    report = sj.summarise(rows, verdicts, draws=50)
+    assert set(report["single"]["by_language"]) == {"en", "es"}
+    assert sum(v["n"] for v in report["single"]["by_language"].values()) == len(single)
+    assert "| es |" in sj.render(report, "m")
+
+
+def test_buckets_by_characters_are_terciles_of_the_source_length_and_work_without_chunks(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    results, source = dbs
+    # an API summary has no chunks: the chunk counts are made all equal, so the chunk terciles collapse and the character terciles do not
+    results.execute("UPDATE news_summary SET num_chunks = 1")
+    by_chunks = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+    assert {r["bucket"] for r in by_chunks if r["group"] == "multi"} == {0}
+    by_chars = sj.draw(
+        results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7, bucket_by="chars"
+    )
+    for group in ("single", "multi"):
+        mine = [r for r in by_chars if r["group"] == group]
+        assert sorted({r["bucket"] for r in mine}) == [0, 1, 2]
+        median = {
+            b: sorted(int(r["source_chars"]) for r in mine if r["bucket"] == b) for b in (0, 1, 2)
+        }
+        assert (
+            max(median[0]) <= min(median[1]) <= max(median[1]) <= min(median[2])
+        )  # the buckets are ordered by length
+    with pytest.raises(ValueError, match="bucket_by"):
+        sj.draw(
+            results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7, bucket_by="words"
+        )
+
+
+def test_the_meta_records_how_the_buckets_were_made(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection], tmp_path: Path
+) -> None:
+    results, source = dbs
+    rows = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+    a = sj.make_meta(
+        rows,
+        SUM_REV,
+        SCOPE_REV,
+        CUT_REV,
+        per_group=12,
+        seed=7,
+        results_db=tmp_path / "r",
+        source_db=tmp_path / "s",
+    )
+    b = sj.make_meta(
+        rows,
+        SUM_REV,
+        SCOPE_REV,
+        CUT_REV,
+        per_group=12,
+        seed=7,
+        results_db=tmp_path / "r",
+        source_db=tmp_path / "s",
+        bucket_by="chars",
+    )
+    assert a["bucket_by"] == "chunks" and b["bucket_by"] == "chars"
+    assert a["sample_id"] != b["sample_id"]  # another way of cutting the buckets is another sample
+
+
+def test_max_calls_is_a_hard_cap_on_the_calls_of_a_run_and_a_rerun_goes_on(tmp_path: Path) -> None:
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(5)
+    ]
+    out = tmp_path / "v.jsonl"
+    agent = StubAgent([GOOD])
+    first = sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="m", max_calls=2)
+    assert first["calls"] == 2 and first["not_called"] == 3 and first["judged"] == 2
+    second = sj.run_judge(rows, lambda: agent, out, workers=1, judge_model="m", max_calls=10)
+    assert second["calls"] == 3 and second["not_called"] == 0  # only the three left were judged
+
+
+def test_the_judge_uses_the_public_names_of_the_eval_package() -> None:
+    from news_nlp.eval import judges  # noqa: PLC0415
+
+    assert judges.coerce(GOOD, sj.ClaimsVerdict) is not None
+    assert judges.coerce("prose", sj.ClaimsVerdict) is None
+    assert judges.repair_prompt() == judges._REPAIR_PROMPT
+    source = (ROOT / "scripts" / "summary_judge_2026_11_13.py").read_text(encoding="utf-8")
+    assert "from news_nlp.eval.judges import JudgeAgent, coerce, repair_prompt" in source
+    assert "_REPAIR_PROMPT" not in source and "_coerce" not in source

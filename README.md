@@ -15,12 +15,14 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | Step | What it does | Model | Table | State |
   |---|---|---|---|---|
   | 1.1 scope | `single`, `multi`, `sector` or `out_of_scope` from the title and the first 800 characters | `gamug/deberta-v3-news-scope-nli` (pinned, public) | `body_scope` | built; ran on the corpus |
-  | 1.2 cut | cuts a `multi` round-up into sub-news | the `units` extractor, reading `units5` (attribution checkpoint local, not pinned) | `sub_news` | built and run: `units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies; `units5` is final (owner 2026-11-12); faithful 84.6% on all 143 marked pieces, below the 80% bar by its interval, 89.1% without the 15 pieces scoped wrongly (`docs/scope_training.md` §8.3) |
+  | 1.2 cut | cuts a `multi` round-up into sub-news | the `units` extractor, reading `units5` (attribution checkpoint: private Hub copy `gamug/FinBERT-news-attribution@436ad700`; the pin is `config/attribution_model.json`) | `sub_news` | built and run: `units5-d3e2cbfa830e`, 161,574 sub-news of 30,305 bodies; `units5` is final (owner 2026-11-12); faithful 84.6% on all 143 marked pieces, below the 80% bar by its interval, 89.1% without the 15 pieces scoped wrongly (`docs/scope_training.md` §8.3) |
   | 2 summary | summarises a text over 2,000 characters, keeps a shorter one as it is | `sshleifer/distilbart-cnn-12-6` (pinned) | `news_summary` | built; corpus run pending |
   | 3 companies | NER, universe tickers, the main company of each text | `gamug/sec-bert-finer-ord-ner` + `gamug/deberta-v3-company-relevance` (private, not pinned) | `news_company` | pending |
   | 4 sector | the GICS sector of a `sector` body, then its summary | to be chosen | | pending |
   | 6 sentiment | per text and main company | `gamug/FinBERT-company-sentiment` + relevance stack (private, not pinned) | `news_sentiment` | pending |
-  | 7 category | per text and main company, the D15 taxonomy (`docs/category-taxonomy.md`) | trained by the owner (T-174) | `news_category` | pending |
+  | 7 category | per text and main company, the D15 taxonomy (`docs/category-taxonomy.md`) | the pinned zero-shot model, **provisional** (the trained one: T-174; `docs/category_step.md`) | `news_category` | built, provisional |
+  | 8 snapshot | one row per (text, main company), or per `sector` text: publication date, title, text, category, sentiment; always idempotent (`--reset` rebuilds) | none (a join) | `news_snapshot` | built (T-195; `docs/snapshot_steps.md`); not run on the corpus |
+  | 9 period summary | every 21 days from 2022-01-03 at 15:00 `BATCH_TIMEZONE`: counts per company and category (total, neutral, positive, negative), and per sector summed from the companies (no LLM) | none (counts) | `period_run`, `period_summary`, `period_item`, `sector`, `company_sector` | built (T-196; `docs/snapshot_steps.md`); not run on the corpus |
 
 - **The v1 chain, until the backfill (T-150).** Five stages over (URL, ticker) pairs, run by
   `cli/news_nlp_cli.py` and the FastAPI service: sentiment (`gamug/FinBERT-financial-news`), NER

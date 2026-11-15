@@ -196,6 +196,7 @@ _PIPELINE_TABLES = {
     "news_company",
     "news_sentiment",
     "news_category",
+    "news_snapshot",
     "pipeline_step_state",
 }
 
@@ -240,6 +241,7 @@ def test_each_new_table_keeps_one_row_for_the_same_key(test_db_path: Path) -> No
         "news_company": "('body', 'h', 'AAPL', 'r', 0.9, 1, 3, 't')",
         "news_sentiment": "('body', 'h', '', 'r', 'positive', 0.9, 0.9, 0.05, 0.05, 'm', 0, 't')",
         "news_category": "('body', 'h', '', 'r', 'other', 0.5, '', 0.0, '{}', 'm', 't')",
+        "news_snapshot": "('body', 'h', 'AAPL', 'r', '2022-01-02T09:00:00Z', '', 'T', 'x', 'summary', '', '[]', 'other', '', 'positive', 0.9, '{}', 't')",
         "pipeline_step_state": "('body', 'h', 'scope', 'r', 'done', 1, NULL, NULL, NULL)",
     }
     for table, values in rows.items():

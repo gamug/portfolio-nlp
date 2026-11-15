@@ -4036,7 +4036,9 @@ def test_the_rare_scope_set_is_tagged_and_has_its_texts() -> None:
         texts = list(csv.DictReader(fh))
     assert len(marks) == len(texts) == 51
     assert {r["article_id"] for r in marks} == {r["article_id"] for r in texts}
-    assert Counter(r["scope"] for r in marks)["sector"] == 27
+    assert (
+        Counter(r["scope"] for r in marks)["sector"] == 26
+    )  # 27 until 2026-11-12: 1075010 is investing_general (call 16)
     assert all(r["scope"] for r in marks) and all(r["text"].strip() for r in texts)
     with (gold / "category_gold_v2_test.csv").open(encoding="utf-8-sig", newline="") as fh:
         held_out = {r["article_id"] for r in csv.DictReader(fh)}
