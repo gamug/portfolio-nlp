@@ -164,7 +164,7 @@ uv run scripts/summary_lead_experiment_2026_11_13.py judge      # needs LLM_API_
 uv run scripts/summary_lead_experiment_2026_11_13.py report
 ```
 
-## T-200: DeepSeek as the summariser (owner, 2026-11-15)
+## T-206: DeepSeek as the summariser (owner, 2026-11-15)
 
 **Evidence.** The same 300 articles and judge (`scripts/summary_deepseek_arm_2026_11_15.py`; prompt: about 60 words, facts only, name the actors; temperature 0).
 DeepSeek (D) against the current step (B), paired 95% intervals: faithfulness 4.99 against 4.60 (+0.39 [+0.29, +0.49]), coverage 4.54 against 3.24
