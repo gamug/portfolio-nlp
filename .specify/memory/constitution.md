@@ -134,7 +134,7 @@ component; every rule below assumes the stack actually pinned in
 of `.env`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
 model is chosen by name in `.env` and recorded per row (`news_summary_call`), and the revision follows the prompt and the model name. Against 2: the call is remote and
 its text is not repeatable at temperature 0 (measured: 30 articles twice, none identical), so the revision promises its rows, not its words; there is no CUDA path to
-break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser. The article text leaves the machine (accepted).
+break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser (checked by name from `news_summary_call`). The article text leaves the machine (accepted), and an article can carry instructions to the model (the summary is what the next steps read: a known limit, AI #4).
 No other stage may use this exception.
 
 *Claude Code / coding-agent conduct on this repo:*

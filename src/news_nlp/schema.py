@@ -327,6 +327,7 @@ CREATE TABLE IF NOT EXISTS news_summary_call (
     item_id           TEXT NOT NULL,
     model_revision    TEXT NOT NULL,
     api_model         TEXT NOT NULL,   -- the model id the API named in its reply (T-206)
+    model_asked       TEXT NOT NULL,   -- the model name the request carried (the API may answer with another)
     prompt_tokens     INTEGER NOT NULL,
     completion_tokens INTEGER NOT NULL,
     called_at         TEXT NOT NULL,

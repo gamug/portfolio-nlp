@@ -1332,6 +1332,46 @@ def test_the_judge_is_not_the_model_that_wrote_the_summaries() -> None:
     assert sj.pinned_summariser() == "sshleifer/distilbart-cnn-12-6"
 
 
+def _results_with_calls(tmp_path: Path, revision: str, rows: list[tuple[str, str]]) -> Path:
+    path = tmp_path / "results.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE news_summary_call (item_kind TEXT, item_id TEXT, model_revision TEXT, api_model TEXT, model_asked TEXT, "
+        "prompt_tokens INTEGER, completion_tokens INTEGER, called_at TEXT)"
+    )
+    for i, (asked, answered) in enumerate(rows):
+        conn.execute(
+            "INSERT INTO news_summary_call VALUES ('body', ?, ?, ?, ?, 1, 1, 't')",
+            (str(i), revision, answered, asked),
+        )
+    conn.commit()
+    conn.close()
+    return path
+
+
+def test_the_summariser_of_an_api_revision_is_read_from_its_calls_so_the_guard_needs_no_flag(
+    tmp_path: Path,
+) -> None:
+    """The API answers ``deepseek-flash`` for ``deepseek-chat``: both names are the summariser, and a judge that is either is refused."""
+    db_path = _results_with_calls(
+        tmp_path, "summary-llm-abc", [("deepseek-chat", "deepseek-flash")] * 3
+    )
+    named = sj.summariser_of(db_path, "summary-llm-abc", None)
+    assert named == "deepseek-chat,deepseek-flash"
+    assert sj.is_self_judge(named, "deepseek-chat") and sj.is_self_judge(named, "deepseek-flash")
+    assert not sj.is_self_judge(named, "another-model")
+    assert sj.summariser_of(db_path, "summary-llm-abc", "mine") == "mine"  # the flag wins
+    assert sj.summariser_of(db_path, "summary-abc", None) == sj.pinned_summariser()  # the local one
+
+
+def test_an_api_revision_with_no_call_recorded_cannot_be_drawn_without_the_flag(
+    tmp_path: Path,
+) -> None:
+    db_path = _results_with_calls(tmp_path, "summary-llm-other", [("m", "m")])
+    with pytest.raises(SystemExit, match="no call recorded"):
+        sj.summariser_of(db_path, "summary-llm-abc", None)
+
+
 def test_the_meta_names_the_summariser_and_it_is_part_of_the_sample_identity(
     dbs: tuple[sqlite3.Connection, sqlite3.Connection], tmp_path: Path
 ) -> None:
