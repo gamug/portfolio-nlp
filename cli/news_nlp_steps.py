@@ -69,7 +69,9 @@ from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
 from news_summary_llm import (
     CONCURRENCY,
+    UNCAPPED_RUN_ITEMS,
     ApiError,
+    CallBudget,
     FatalApiError,
     LLMSummarizer,
     Outcome,
@@ -319,6 +321,7 @@ class ApiSummarizing(Protocol):
     max_chars: int
     texts_per_batch: int
     model: str
+    budget: CallBudget
 
     def summarize_each(self, texts: Sequence[str]) -> list[Outcome]: ...
 
@@ -468,6 +471,24 @@ def _split_by_size(
     return over, kept
 
 
+def _say_the_api_plan(
+    summarizer: Summarizing, over: Sequence[SummaryItem], limit: int | None
+) -> None:
+    """For an API summariser: refuse a run of more than ``UNCAPPED_RUN_ITEMS`` texts with neither ``--limit`` nor ``--max-calls`` (it is money), and say before
+    the first call how many calls, tokens and dollars to expect."""
+    if not (over and isinstance(summarizer, ApiSummarizing)):
+        return
+    if len(over) > UNCAPPED_RUN_ITEMS and limit is None and summarizer.budget.max_calls is None:
+        raise RunAborted(
+            f"refused: {len(over):,} texts would be sent to a paid API with no --limit and no --max-calls (more than {UNCAPPED_RUN_ITEMS:,}); "
+            "run in slices (--limit 2000, repeated) or cap the requests"
+        )
+    print(
+        f"the API will be called for {estimate([len(i.text) for i in over], summarizer.model)}",
+        file=sys.stderr,
+    )
+
+
 def run_summary(
     conn: db.NewsNlpDatabase,
     summarizer: Summarizing,
@@ -489,11 +510,7 @@ def run_summary(
     )
     over, kept = _split_by_size(todo, summarizer)
     _say_the_plan(todo, len(over), len(kept), summarizer.min_chars)
-    if over and isinstance(summarizer, ApiSummarizing):
-        print(
-            f"the API will be called for {estimate([len(i.text) for i in over], summarizer.model)}",
-            file=sys.stderr,
-        )
+    _say_the_api_plan(summarizer, over, limit)
     batch_size = (
         summarizer.texts_per_batch if isinstance(summarizer, ApiSummarizing) else SUMMARY_BATCH
     )
@@ -685,7 +702,10 @@ def _build_summarizer(args: argparse.Namespace) -> Summarizing:
     missing = missing_settings()
     if missing:
         sys.exit(f"the API summariser needs {', '.join(missing)} in .env (or --summariser local)")
-    llm = LLMSummarizer(max_calls=args.max_calls, concurrency=args.concurrency)
+    try:
+        llm = LLMSummarizer(max_calls=args.max_calls, concurrency=args.concurrency)
+    except ValueError as exc:  # an endpoint that is not https
+        sys.exit(str(exc))
     print(
         f"summariser {llm.model} through {llm.url} (the article text leaves this machine), size {llm.min_chars}, "
         f"up to {llm.concurrency} calls at a time, cap {llm.budget.max_calls or 'none'} requests",

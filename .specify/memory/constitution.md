@@ -79,8 +79,10 @@ component; every rule below assumes the stack actually pinned in
    uses). Mypy: `.code_quality/mypy.ini`. Pytest: root `pytest.ini`. Don't
    fork a second config file for a tool that already has one.
 6. **Environment**: `.env` (git-ignored) holds `DATABASE_URL` /
-   `SOURCE_DATABASE_URL` and, for `news_nlp.eval` only, `LLM_API_KEY` /
-   `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI`, plus an optional
+   `SOURCE_DATABASE_URL` and, for the judge of `news_nlp.eval`, `LLM_API_KEY` /
+   `LLM_MODEL` / `LLM_URL` / `MLFLOW_TRACKING_URI` (the summary step, T-206, reads
+   `SUMMARY_LLM_API_KEY` / `_MODEL` / `_URL`, each falling back to the `LLM_*` of
+   the same name, so a judge of another model does not change what it writes with), plus an optional
    `HF_TOKEN` (Hub downloads rate limit; write scope for
    `scripts/publish_*.py`); `.env.example` is the committed template —
    keep it in sync with every env var a new feature reads. `.env` is
@@ -130,8 +132,8 @@ component; every rule below assumes the stack actually pinned in
    (tracked in MLflow) against the recorded baseline
    (`docs/evaluation.md`), not a handful of manually inspected examples.
 
-*Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`LLM_*`
-of `.env`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
+*Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`SUMMARY_LLM_*`
+of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
 model is chosen by name in `.env` and recorded per row (`news_summary_call`), and the revision follows the prompt and the model name. Against 2: the call is remote and
 its text is not repeatable at temperature 0 (measured: 30 articles twice, none identical), so the revision promises its rows, not its words; there is no CUDA path to
 break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser (checked by name from `news_summary_call`). The article text leaves the machine (accepted), and an article can carry instructions to the model (the summary is what the next steps read: a known limit, AI #4).

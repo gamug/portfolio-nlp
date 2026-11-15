@@ -175,10 +175,9 @@ against 3.08, hallucination 4% against 21%; it is small and the arms are guessab
 **Decided by the owner.** (a) Scope: the stepped pipeline only (`--step summary`: single bodies and sub-news over 2,000 characters, and the assigned `sector`
 bodies); the v1 chain stays on distilbart. (b) No gate before the run: the corpus run goes first and the evaluation after it (the blind marks, the company and
 main-event metric, an `news_nlp.eval` run against run 44). (c) Failure: fail fast and resumable (a few retries, then stop; rows written stay; no fallback to
-distilbart, no empty summary). (d) Revision: a hash of the prompt, the model name, the temperature and the size rule; each row stores the API model id and the date.
+distilbart, no empty summary). (d) Revision: a hash of the prompt, the model name, the temperature and the size rule; each row stores the API model id and the date. (Added in the build, #200: the host of the endpoint and the reply limit are in the hash too, and each row stores the model name asked for beside the one the API named.)
 
-**To build.** The summariser in `news_summary_stage` (OpenAI-compatible `chat/completions`, `LLM_*` from `.env`, bounded concurrency, the prompt in a tracked
-file), tokens in and out in `--status`, a logged call or spend cap, tests with the API mocked, `docs/summary_step.md` updated.
+**Built (#200, 2026-11-15).** `src/news_summary_llm.py` (OpenAI-compatible `chat/completions`; `SUMMARY_LLM_*` of `.env`, each falling back to the judge's `LLM_*`; 8 requests at once, which is also the batch; the prompt in `config/summary_prompt.md`), tokens, the model asked for and the model the API named in `news_summary_call` and `--status`, `--max-calls`, a cost estimate before the run, tests with the API mocked, `docs/summary_step.md` ("DeepSeek is the summariser"). What a run does when the API fails is there.
 
 **Cost.** The scope of T-206 (a) is three populations, not two: the single bodies and the sub-news over 2,000 characters **and the sector bodies the step summarises** (T-167). Measured on the real databases by `scripts/summary_chars_to_summarise_2026_11_15.py` (`docs/summarization_results_2026_11_15/chars_to_summarise.md`):
 

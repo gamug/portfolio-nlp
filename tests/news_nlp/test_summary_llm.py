@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import email.message
+import http.client
 import io
 import json
 import sqlite3
@@ -46,6 +48,12 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_URL", "https://api.example/v1/")
     monkeypatch.setenv("LLM_MODEL", "model-a")
     monkeypatch.setenv("LLM_API_KEY", "k")
+    for name in (
+        "URL",
+        "API_KEY",
+        "MODEL",
+    ):  # the owner's .env (loaded by `pipeline` at import) must not decide a test
+        monkeypatch.delenv(f"SUMMARY_LLM_{name}", raising=False)
 
 
 def _script(monkeypatch: pytest.MonkeyPatch, outcomes: list[Any]) -> list[dict[str, Any]]:
@@ -155,6 +163,79 @@ def test_a_wrong_key_no_balance_or_a_refusal_is_fatal_at_once(
     assert len(sent) == 1
     with pytest.raises(llm.FatalApiError, match=word):
         llm.LLMSummarizer(concurrency=1).summarize(["t"])
+
+
+def test_a_body_cut_while_it_is_read_or_a_binary_reply_is_retried_not_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _script(
+        monkeypatch,
+        [
+            http.client.IncompleteRead(b"{", 10),
+            Reply(b"\xff\xfe\x00"),
+            http.client.RemoteDisconnected("x"),
+            _ok(),
+        ],
+    )
+    assert llm.LLMSummarizer(concurrency=1).summarize(["t"]) == [("A summary.", 0)]
+
+
+def test_an_error_nobody_foresaw_fails_that_text_alone_and_the_batch_goes_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake(req: Any, timeout: int = 0) -> Reply:
+        if json.loads(req.data)["messages"][1]["content"] == "t1":
+            raise RuntimeError("boom")
+        return _ok()
+
+    monkeypatch.setattr(llm.urllib.request, "urlopen", fake)
+    out = llm.LLMSummarizer(concurrency=3).summarize_each(["t0", "t1", "t2"])
+    assert isinstance(out[1], llm.ApiError) and "unexpected RuntimeError: boom" in str(out[1])
+    assert not isinstance(out[0], llm.ApiError) and not isinstance(out[2], llm.ApiError)
+
+
+def _retry_after(seconds: str | None) -> urllib.error.HTTPError:
+    headers = email.message.Message()
+    if seconds is not None:
+        headers["Retry-After"] = seconds
+    return urllib.error.HTTPError("http://x", 429, "err", headers, None)
+
+
+def test_a_retry_waits_at_least_what_the_api_asked_and_is_spread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+    _script(monkeypatch, [_retry_after("7"), _retry_after(None), _ok()])
+    monkeypatch.setattr(llm.time, "sleep", sleeps.append)
+    llm.LLMSummarizer(concurrency=1, sleep=2.0).summarize(["t"])
+    assert 7 <= sleeps[0] <= 7 * 1.5  # the header is longer than the 2 seconds of the first attempt
+    assert 4 <= sleeps[1] <= 4 * 1.5  # no header: the growing wait, spread
+    assert llm.retry_after(_retry_after("900")) == llm.MAX_RETRY_AFTER
+    assert (
+        llm.retry_after(_retry_after("soon")) == 0.0 and llm.retry_after(_retry_after(None)) == 0.0
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "ok"),
+    [
+        ("https://api.deepseek.com", True),
+        ("http://localhost:8000/v1", True),
+        ("http://127.0.0.1:8000", True),
+        ("http://api.example/v1", False),
+        ("ftp://api.example", False),
+        ("api.example", False),
+    ],
+)
+def test_the_endpoint_is_tls_unless_it_is_this_machine(
+    monkeypatch: pytest.MonkeyPatch, url: str, ok: bool
+) -> None:
+    monkeypatch.setenv("SUMMARY_LLM_URL", url)
+    if ok:
+        assert llm.LLMSummarizer().url.startswith(url.rstrip("/"))
+    else:
+        with pytest.raises(ValueError, match="not https"):
+            llm.LLMSummarizer()
 
 
 def test_a_reply_that_is_empty_cut_or_not_a_completion_is_an_error_not_a_summary(
@@ -411,6 +492,67 @@ def test_a_text_over_the_limit_is_kept_as_it_is_for_every_kind_of_item() -> None
     ]
     over, kept = cli._split_by_size(items, s)
     assert [i.text for i in over] == [fits, fits] and len(kept) == 4
+
+
+def test_a_long_api_run_needs_a_limit_or_a_cap_and_a_short_one_does_not(
+    monkeypatch: pytest.MonkeyPatch, pair: db_module.NewsNlpDatabase
+) -> None:
+    monkeypatch.setattr(llm, "UNCAPPED_RUN_ITEMS", 1)  # the command imports it when it is loaded
+    cli: Any = _cli()
+    sent = _script(monkeypatch, [_ok()])
+    with pytest.raises(cli.RunAborted, match="no --limit and no --max-calls"):
+        cli.run_summary(pair, llm.LLMSummarizer(concurrency=2), "scope-x", None, ("single",), None)
+    assert sent == []  # nothing was asked
+    capped = llm.LLMSummarizer(concurrency=2, max_calls=10)
+    assert cli.run_summary(pair, capped, "scope-x", None, ("single",), None)["summary"] == 2
+    again = llm.LLMSummarizer(concurrency=2)
+    assert (
+        cli.run_summary(pair, again, "scope-x", None, ("single",), 5)["failed"] == 0
+    )  # a limit is a choice too
+
+
+def _main_args(cli: Any, *extra: str) -> Any:
+    return cli.build_parser().parse_args(
+        ["--step", "summary", "--items", "single", "--scope-revision", "scope-x", *extra]
+    )
+
+
+def test_the_command_prints_the_estimate_the_counts_the_status_and_the_tokens_of_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli: Any = _cli()
+    _script(monkeypatch, [_ok()])
+    monkeypatch.setattr(db_module.env, "load_env_file", lambda *a, **k: None)
+    cli.main_summary(_main_args(cli), pair)
+    captured = capsys.readouterr()
+    assert "the API will be called for about 2 calls" in captured.err
+    assert "tokens of this run: 20 in, 6 out, 2 requests" in captured.err
+    assert '"summary": 2' in captured.out and '"prompt_tokens": 20' in captured.out
+
+
+def test_the_command_stops_with_the_status_when_the_account_has_no_balance(
+    monkeypatch: pytest.MonkeyPatch,
+    pair: db_module.NewsNlpDatabase,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli: Any = _cli()
+    _script(monkeypatch, [_http(402)])
+    monkeypatch.setattr(db_module.env, "load_env_file", lambda *a, **k: None)
+    with pytest.raises(SystemExit, match=r"stopped: .*balance"):
+        cli.main_summary(_main_args(cli), pair)
+    assert '"by_state"' in capsys.readouterr().out  # the status is printed before the exit
+
+
+def test_the_command_exits_on_an_endpoint_that_is_not_https(
+    monkeypatch: pytest.MonkeyPatch, pair: db_module.NewsNlpDatabase
+) -> None:
+    cli: Any = _cli()
+    monkeypatch.setenv("SUMMARY_LLM_URL", "http://api.example")
+    monkeypatch.setattr(db_module.env, "load_env_file", lambda *a, **k: None)
+    with pytest.raises(SystemExit, match="not https"):
+        cli.main_summary(_main_args(cli), pair)
 
 
 def test_the_command_defaults_to_the_api_and_refuses_api_options_elsewhere() -> None:

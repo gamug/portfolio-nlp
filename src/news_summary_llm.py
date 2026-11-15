@@ -18,8 +18,10 @@ the rows, not the words.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
+import random
 import threading
 import time
 import urllib.error
@@ -43,6 +45,11 @@ RETRYABLE = {408, 429, 500, 502, 503, 504}
 HTTP_UNAUTHORIZED = (401, 403)
 #: the vendor's codes that are not worth a retry, with what to read in them
 API_REASONS = {402: "insufficient balance on the account", 422: "invalid parameters in the request"}
+MAX_RETRY_AFTER = (
+    60.0  # seconds: a ``Retry-After`` longer than this is not waited for inside a call
+)
+LOCAL_HOSTS = ("localhost", "127.0.0.1", "::1")
+UNCAPPED_RUN_ITEMS = 5000  # an API run of more calls than this needs ``--limit`` or ``--max-calls`` (it is money, owner 2026-11-15)
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "config" / "summary_prompt.md"
 
 
@@ -61,6 +68,17 @@ class Usage(NamedTuple):
     prompt_tokens: int
     completion_tokens: int
     asked: str = ""  # the model name the request carried (``LLM_MODEL``): the API can answer with another name (``deepseek-chat`` -> ``deepseek-flash``)
+
+
+def retry_after(exc: urllib.error.HTTPError) -> float:
+    """The seconds a ``Retry-After`` header asks for (a number; a date is not read), at most ``MAX_RETRY_AFTER``; 0 when there is none."""
+    try:
+        return min(
+            max(float(exc.headers.get("Retry-After", 0) if exc.headers else 0), 0.0),
+            MAX_RETRY_AFTER,
+        )
+    except (TypeError, ValueError):
+        return 0.0
 
 
 class Settings(NamedTuple):
@@ -82,6 +100,16 @@ def settings(env: Mapping[str, str] | None = None) -> Settings:
         return value
 
     return Settings(pick("URL"), pick("API_KEY"), pick("MODEL"))
+
+
+def check_url(url: str) -> str:
+    """The endpoint, if it is safe to send a key and article text to: ``https``, or ``http`` only for this machine. Anything else is a ``ValueError``."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme == "https" or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS):
+        return url
+    raise ValueError(
+        f"the endpoint {url!r} is not https: the key and the article text would travel in clear (http is accepted only for localhost)"
+    )
 
 
 def missing_settings(env: Mapping[str, str] | None = None) -> list[str]:
@@ -202,6 +230,7 @@ class LLMSummarizer:
     ) -> None:
         self.min_chars = min_chars
         configured = settings()
+        check_url(configured.url)
         self.model = configured.model
         self.url = configured.url.rstrip("/") + "/chat/completions"
         self._key = configured.api_key
@@ -211,6 +240,7 @@ class LLMSummarizer:
         #: the texts the step gives at once: as many as there are requests at once (a batch waits for its slowest call)
         self.texts_per_batch = self.concurrency
         self.sleep = sleep
+        self._rng = random.Random()  # noqa: S311 -- the spread of the retries, not security
         self.prompt_tokens = 0  # of this run, every call that answered
         self.completion_tokens = 0
         self._lock = threading.Lock()
@@ -226,6 +256,7 @@ class LLMSummarizer:
             ],
         }
         last = "no attempt"
+        wait = 0.0  # a ``Retry-After`` of the last answer
         for attempt in range(MAX_ATTEMPTS):
             if not self.budget.take():
                 raise FatalApiError(f"the cap of {self.budget.max_calls} calls was reached")
@@ -245,16 +276,27 @@ class LLMSummarizer:
                     raise FatalApiError(f"{last}: {API_REASONS[exc.code]}") from exc
                 if exc.code not in RETRYABLE:
                     raise ApiError(last) from exc
-            except json.JSONDecodeError as exc:  # a proxy page, a cut reply: worth another attempt
+                wait = retry_after(exc)
+            except (
+                json.JSONDecodeError,
+                UnicodeDecodeError,
+            ) as exc:  # a proxy page, a cut or binary reply: worth another attempt
                 last = f"the reply is not JSON ({exc})"
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            except (
+                urllib.error.URLError,
+                http.client.HTTPException,  # a body cut while it is read (IncompleteRead) is not an OSError
+                TimeoutError,
+                OSError,
+            ) as exc:
                 last = f"{type(exc).__name__}: {exc}"
             else:
                 with self._lock:
                     self.prompt_tokens += reply[1].prompt_tokens
                     self.completion_tokens += reply[1].completion_tokens
                 return reply[0], reply[1]._replace(asked=self.model)
-            time.sleep(self.sleep * 2**attempt)
+            # a growing wait, at least what the API asked for, spread so that the calls that failed together do not come back together
+            time.sleep(max(self.sleep * 2**attempt, wait) * (1 + self._rng.random() / 2))
+            wait = 0.0
         raise ApiError(f"{MAX_ATTEMPTS} attempts failed (the last: {last})")
 
     def _outcome(self, text: str) -> Outcome:
@@ -262,6 +304,8 @@ class LLMSummarizer:
             return self._call(text)
         except ApiError as exc:
             return exc
+        except Exception as exc:
+            return ApiError(f"unexpected {type(exc).__name__}: {exc}")
 
     def summarize_each(self, texts: Sequence[str]) -> list[Outcome]:
         """One ``Outcome`` for each text, in the order given, with up to ``concurrency`` calls at a time. Nothing raises: the step stores the summaries that

@@ -1364,6 +1364,29 @@ def test_the_summariser_of_an_api_revision_is_read_from_its_calls_so_the_guard_n
     assert sj.summariser_of(db_path, "summary-abc", None) == sj.pinned_summariser()  # the local one
 
 
+def test_the_draw_command_records_the_summariser_it_read_from_the_calls(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Through ``main``: the name lands in ``sample.meta.json`` with no ``--summariser-model``, so ``judge`` can refuse a self-judge."""
+    db_path = _results_with_calls(
+        tmp_path, "summary-llm-abc", [("deepseek-chat", "deepseek-flash")]
+    )
+    source = tmp_path / "source.db"
+    source.write_bytes(b"")
+    monkeypatch.setattr(sj, "draw", lambda *a, **k: [])
+    monkeypatch.setattr(sj, "_ro", lambda path: object())
+    out = tmp_path / "sample.csv"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["x", "draw", "--results-db", str(db_path), "--source-db", str(source),
+         "--summary-revision", "summary-llm-abc", "--scope-revision", "scope-x", "--cut-revision", "cut-x", "--out", str(out)],
+    )  # fmt: skip
+    sj.main()
+    meta = json.loads(sj.meta_path(out).read_text(encoding="utf-8"))
+    assert meta["summariser_model"] == "deepseek-chat,deepseek-flash"
+
+
 def test_an_api_revision_with_no_call_recorded_cannot_be_drawn_without_the_flag(
     tmp_path: Path,
 ) -> None:
