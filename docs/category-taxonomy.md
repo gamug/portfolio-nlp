@@ -20,9 +20,23 @@ page, sources and calibration are in `docs/legacy/category-taxonomy-v1.md`.
 
 **The groups (option B, owner 2026-11-13).** Each label belongs to one group of six; `news_category.group_label` carries it. `results_capital`: `earnings_performance`, `capital_shareholder_returns`. `market_view`: `market_analyst_sentiment`, `investor_activity`, `peer_comparison`. `deals_alliances`: `mergers_acquisitions`, `partnerships_business_dev`, `competitive_actions`. `product_people`: `product_innovation`, `labor_human_capital`. `governance_legal_reputation`: `leadership_governance`, `legal_regulatory`, `reputational_harm`. `other`: `other`. The single source in code is `GROUPS` of `src/news_category_stage.py`.
 
-**`uncertain` is a human answer.** The provisional step chooses among the 14 labels above and never writes `uncertain` (a model that abstains is T-174's decision); a row the owner tagged `uncertain` is not in the train or the test rows of the model.
+**`uncertain` is a human answer.** The provisional step chooses among the 14 labels above and never writes `uncertain` (a model that abstains is T-174's decision); a row the owner tagged `uncertain` is not in the train or the test rows of the model, unless the review of 2026-11-15 gave it a tag (two rows of the 1,000-row sheet did; `docs/category_train.md` 3.2).
 
 **The model reads shorter definitions.** The "The text is about" column above is the rule for the human tagger; the provisional step reads the short forms of `docs/category_step.md` (the ones measured in the baseline of T-174; a test keeps that table equal to the code), and does not read the "Not this label when" column. Reading the full rules is another revision, to be measured first (T-187).
+
+## One tag per row (owner, 2026-11-14 and 2026-11-15)
+
+The model of T-187 (D43) is trained on **twelve labels and one tag per (article, company)**: `competitive_actions` and `peer_comparison` are tagged `other` (owner, 2026-11-14), and when several labels fit, the tag is the best fit. These are the rules the sheet of 1,000 rows and the 225 older rows were read with (2026-11-15); they add to the owner's calls of the table below and to `docs/labelling-spec-v2.md`, and a new row is tagged by them. The record of how they were applied and what they changed is `docs/category_train.md` 3.
+
+1. An analyst rating or price target is the story: `market_analyst_sentiment`. A fund or an investor buying or selling a stake: `investor_activity`.
+2. Results with guidance, a delay, a charge or a share move on the results: `earnings_performance`, even when a dividend or a buyback is also named.
+3. A regulator acting on the company (an investigation, a fine, a ban, a ruling, a hearing): `legal_regulatory`.
+4. A drug, vaccine or product approval, a trial result, a delay, a feature or a launch: `product_innovation`.
+5. A launch built on a partner is `partnerships_business_dev` when the partner is the story and `product_innovation` when the product is.
+6. A deal, a bid, a break-up or the sale of a unit: `mergers_acquisitions`. An IPO: `capital_shareholder_returns`.
+7. A change of index membership, a rate or price change, a discount or a macro data release is `other`, even when the share price moves.
+8. A proxy fight or pressure on the board: `leadership_governance`, not `investor_activity`.
+9. An (article, company) pair gets one row and one tag.
 
 ## The labels
 
