@@ -461,3 +461,113 @@ def scores_dir(root: Path, name: str) -> Path:
     """The folder of one run's out-of-fold scores: the local ``data/<name>`` when a run left it there, else the committed copy."""
     local = root / "data" / name
     return local if local.is_dir() else root / COMMITTED_SCORES / name
+
+
+def refit_seed(pin: dict[str, object]) -> int:
+    """The seed of the one refit on all rows, read from ``config/category_model.json`` (``recipe.refit_seed``); a missing or non-integer seed stops the refit,
+    so the weights that are scored on the held-out and wired are always the ones of a seed that is written down (T-201, T-202)."""
+    recipe = pin.get("recipe")
+    seed = recipe.get("refit_seed") if isinstance(recipe, dict) else None
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError(f"recipe.refit_seed must be an integer, not {seed!r}")  # noqa: TRY004 -- a wrong value in the pin file, not a wrong argument type
+    return seed
+
+
+def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
+    """The sha256 of a file (the weights of a refit are identified by it)."""
+    import hashlib  # noqa: PLC0415
+
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(chunk):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def body_overlap(
+    article_ids: Sequence[int], body_hashes: dict[int, str], folds: Sequence[int]
+) -> dict[str, object]:
+    """Which bodies are shared by several articles and sit in more than one fold (the leak the grouping by ``article_id`` cannot see).
+    ``body_hashes`` maps an article id to the hash of its body; the rows are ``article_ids`` and their ``folds``, in the same order."""
+    articles_of: dict[str, set[int]] = {}
+    for article, digest in body_hashes.items():
+        articles_of.setdefault(digest, set()).add(article)
+    shared = {d: a for d, a in articles_of.items() if len(a) > 1}
+    folds_of_body: dict[str, set[int]] = {}
+    rows_of_body: dict[str, list[int]] = {}
+    for i, (article, fold) in enumerate(zip(article_ids, folds, strict=True)):
+        digest = body_hashes[article]
+        folds_of_body.setdefault(digest, set()).add(int(fold))
+        rows_of_body.setdefault(digest, []).append(i)
+    crossing = sorted(d for d in shared if len(folds_of_body.get(d, ())) > 1)
+    rows = sorted(i for d in crossing for i in rows_of_body[d])
+    return {
+        "articles": len(set(article_ids)),
+        "bodies": len(folds_of_body),
+        "shared_bodies": len(shared),
+        "crossing_bodies": len(crossing),
+        "crossing_articles": sorted(
+            a for d in crossing for a in shared[d] if a in set(article_ids)
+        ),
+        "crossing_rows": rows,
+    }
+
+
+def data_hash_problems(pin: dict[str, object], root: Path) -> list[str]:
+    """The data files of the pin (``data.*.file`` with a ``sha256``) whose hash on disk is not the pinned one, or that are missing: a refit must fit the data
+    the figures were measured on, not an edited copy (T-200 allows an edit, and an edit changes the pin first)."""
+    problems: list[str] = []
+    data = pin.get("data")
+    entries = data.values() if isinstance(data, dict) else []
+    for entry in entries:
+        if not (isinstance(entry, dict) and "file" in entry and "sha256" in entry):
+            continue
+        path = root / str(entry["file"])
+        if not path.exists():
+            problems.append(f"{entry['file']}: missing")
+        elif sha256_file(path) != entry["sha256"]:
+            problems.append(f"{entry['file']}: the sha256 is not the pinned one")
+    return problems
+
+
+def recipe_hyperparameters(pin: dict[str, object]) -> dict[str, float | int]:
+    """The hyper-parameters of the refit, from ``recipe`` of the pin and nowhere else: epochs, lr, negatives per positive, batch size, accumulation, max length."""
+    recipe = pin.get("recipe")
+    if not isinstance(recipe, dict):
+        raise ValueError("the pin has no recipe")  # noqa: TRY004 -- a wrong pin file, not a wrong argument type
+    keys = {
+        "epochs": "epochs",
+        "lr": "learning_rate",
+        "neg": "negatives",
+        "bs": "batch_size",
+        "accum": "gradient_accumulation",
+        "max_len": "max_length",
+    }
+    missing = [v for v in keys.values() if v not in recipe]
+    if missing:
+        raise ValueError(f"recipe lacks {missing}")
+    return {k: recipe[v] for k, v in keys.items()}
+
+
+def check_refit_folder(folder: Path) -> dict[str, object]:
+    """The record of a refit folder, after checking that the weights in it are the ones the record names (sha256 of ``model.safetensors``). A folder with no
+    record, or whose weights were replaced, is refused: a score has to say which weights it is of (T-201)."""
+    import json  # noqa: PLC0415
+
+    record_path = folder / "refit_record.json"
+    weights = folder / "model.safetensors"
+    if not record_path.exists() or not weights.exists():
+        raise ValueError(
+            f"{folder} has no refit_record.json or no model.safetensors: not a refit folder"
+        )
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    if sha256_file(weights) != record.get("model_safetensors_sha256"):
+        raise ValueError(f"{weights} is not the file the record names")
+    return dict(record)
+
+
+def refit_flag_problems(
+    hyper: dict[str, float | int], values: dict[str, object]
+) -> dict[str, object]:
+    """The flags given to ``refit`` whose value is not the pin's: the refit takes its recipe from ``recipe`` of the pin, never from the command line."""
+    return {k: v for k, v in values.items() if k in hyper and v != hyper[k]}

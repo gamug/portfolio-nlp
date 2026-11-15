@@ -1,5 +1,5 @@
 {
-  "what": "the SELECTED category model (T-187, owner 2026-11-15): a recipe and the data it is measured on, not weights. No model is fitted, published or read by the step yet; --step category still runs the untouched zero-shot model of config/pipeline_models.json. Wiring it is another revision of the step and needs the held-out 200 scored once and a refit on all rows, both on the owner's word (docs/category_train.md, 'What is pinned and what is not')",
+  "what": "the SELECTED category model (T-187, owner 2026-11-15): a recipe and the data it is measured on, not weights. No model is fitted, published or read by the step yet; --step category still runs the untouched zero-shot model of config/pipeline_models.json. Wiring it is another revision of the step and needs the held-out 200 scored once and a refit on all rows, both on the owner's word (docs/category_training.md, 'What is pinned and what is not')",
   "status": "selected, not fitted, not wired",
   "selected": "2026-11-15",
   "start_model": {
@@ -30,6 +30,7 @@
     "output": "the top label of the row (one tag per row); the extra-label rule of the multi-label experiments is not used",
     "epochs": 3,
     "learning_rate": 2e-05,
+    "negatives": 4,
     "batch_size": 4,
     "gradient_accumulation": 4,
     "max_length": 512,
@@ -37,7 +38,7 @@
     "script": "scripts/category_single_cv_2026_11_15.py",
     "cv_seed": 0,
     "cv_seed_per_fold": "cv_seed + the number of the fold",
-    "refit_seed": null,
+    "refit_seed": 100,
     "reading_sha256": "15cd5a14886796997411f0ef7408f624a965ff7373cf10795415eb93845add36",
     "reading_sha256_of": "definitions, groups, hypothesis template and premise length of src/news_category_stage.py (json, sorted keys); a definition edited later breaks the test"
   },

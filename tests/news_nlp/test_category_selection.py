@@ -1,6 +1,6 @@
 """The selected category model (T-187): ``config/category_model.json`` and the gold files it names stay the ones it says.
 
-A change to a tag file or to the recipe has to change the pin, so the figures in ``docs/category_train.md`` are not left describing
+A change to a tag file or to the recipe has to change the pin, so the figures in ``docs/category_training.md`` are not left describing
 other data. Reads files only: no model, no GPU.
 """
 
@@ -175,6 +175,9 @@ def test_the_reading_of_the_pin_is_the_one_of_the_code() -> None:
     )
 
 
-def test_the_seed_of_the_refit_is_not_decided_yet() -> None:
-    assert PIN["recipe"]["refit_seed"] is None
-    assert PIN["recipe"]["cv_seed"] == 0
+def test_the_refit_has_a_fixed_seed() -> None:
+    """One refit, one seed: the weights that are scored on the held-out are the ones that get wired (T-201)."""
+    seed = ml.refit_seed(PIN)
+    assert seed == 100
+    cv_seeds = range(PIN["recipe"]["cv_seed"], PIN["recipe"]["cv_seed"] + 5)  # one per fold
+    assert seed not in cv_seeds  # the refit is not a repeat of a fold's initialisation
