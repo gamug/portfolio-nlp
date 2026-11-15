@@ -11,7 +11,7 @@ It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read
 
 ## The stepped pipeline (D39, D40; the current approach)
 
-`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_company`, `news_sentiment`, `news_category`, `news_snapshot`, `period_run`, `period_summary`, `period_item`, `sector`, `company_sector`
+`init_schema()` also creates `body_scope`, `sub_news`, `news_summary`, `news_summary_call` (the model asked for, the one the API named and the tokens of each API summary), `news_company`, `news_sentiment`, `news_category`, `news_snapshot`, `period_run`, `period_summary`, `period_item`, `sector`, `company_sector`
 and `pipeline_step_state` (RESULTS only; keys in `SPEC.md`), and adds the nullable `sub_news_id` and `ticker` to
 `article_entities` (**unused**: the raw NER spans of step 3 are not stored, owner 2026-11-13; `score` stays the NER confidence). Step 1.1 writes `body_scope`, step 1.2 `sub_news`, step 2 `news_summary` and step 3 `news_company`, each with its state in `pipeline_step_state`; step 6, `--step sentiment`, writes `news_sentiment` with the pair model stacked with step 3's relevance score (`docs/sentiment_step.md`); step 7, `--step category`, writes `news_category` with the pinned zero-shot model (provisional, `docs/category_step.md`).
 
@@ -47,7 +47,7 @@ reproduced from the repository alone.** Measurements and the quality check: `doc
 ### Step 2: the summary (T-164, T-166)
 
 `uv run cli/news_nlp_steps.py --step summary (--cut-revision REV | --items single | --items sector --sector-revision REV) [--items sub_news] [--limit N]` (and `--step summary --status`) gives each `single` body of
-step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by the pinned
+step 1 and each sub-news of the cut one text in `news_summary`: over **2,000 characters** (the owner, 2026-11-12) it is summarised by DeepSeek through an API (the default, T-206: `src/news_summary_llm.py`, `docs/summary_step.md`) or, with `--summariser local`, by the pinned
 `c_summary` (`src/news_summary_stage.py`, reusing `summary_stage.hierarchical_summarize_batch`), at or under it the text is stored as it is
 (`text_source = original`). Tracked and idempotent in `pipeline_step_state`, revision `summary-…` (model, size, input, limits, code). **The sub-news come from a
 cut named with `--cut-revision`, never "the latest"** (the command stops and lists the cuts that ran); `--items single` needs none. The size, its measure, how to

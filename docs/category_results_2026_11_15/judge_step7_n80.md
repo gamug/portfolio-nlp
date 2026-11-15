@@ -1,7 +1,7 @@
 # The LLM judge on step 7: 80 real sub-news, blind (T-209)
 
-- Judge model: `deepseek-chat` (the `LLM_MODEL` of `.env`; it wrote none of the labels compared). Date 2026-11-15. Sample: a seeded draw (seed 20261115) of 80 of the 300 real sub-news under 1,000 characters (the text the step reads).
-- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `4acd175ff9ee5e98…`; temperature 0.
+- Judge model: `deepseek-chat` (the model of the `.env` on that date, entered by hand: the first run did not store it); it wrote none of the labels compared. Date 2026-11-15. Sample: a seeded draw (seed 20261115) of 80 of the 300 real sub-news under 1,000 characters (the text the step reads); the same seed's draw is inside the 300 of the larger run. Rules: the tagging rules of the project, new convention (`docs/category-taxonomy.md`, "One tag per row"), not the older one of the held-out.
+- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `4acd175ff9ee5e98…`; temperature 0, **not repeatable** (see "Two runs, one sample" when both runs exist).
 - 80 judged, 0 parse failures (excluded). The judge is a model: agreement with a judge, not truth.
 - The judge never saw a model's label. The assistant's tags and the judge are both LLM output: their agreement is not an independent check.
 

@@ -46,6 +46,11 @@
     "judge_selected_agreement": 0.77,
     "judge_untouched_agreement": 0.71,
     "judge_sign_test_p": 0.033,
-    "judge_note": "blind LLM judge, 300 real sub-news (docs/category_results_2026_11_15/judge_step7_n300.md); LLM output like the assistant's tags, not an independent reader; the pinned model is worse than the untouched one on market_analyst_sentiment; does not speak to the bar of D24"
+    "judge_note": "blind LLM judge, 300 real sub-news (docs/category_results_2026_11_15/judge_step7_n300.md); LLM output like the assistant's tags, not an independent reader; the pinned model is worse than the untouched one on market_analyst_sentiment; does not speak to the bar of D24",
+    "judge_sign_test_note": "nominal: a second look at a sample that began with a first run of 80; one judge, not repeatable (2 of 80 labels changed between runs)",
+    "judge_outside_first_run_rows": 220,
+    "judge_outside_first_run_selected_agreement": 0.782,
+    "judge_outside_first_run_untouched_agreement": 0.709,
+    "judge_outside_first_run_sign_test_p": 0.029
   }
 }

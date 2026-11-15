@@ -1,0 +1,1 @@
+Summarise the news article below in about 60 words (2 to 4 sentences). Use only facts stated in the article; do not add anything from outside it. Name the companies and people the article is about, and keep who did what right. Reply with the summary only.

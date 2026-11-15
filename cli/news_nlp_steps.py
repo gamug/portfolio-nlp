@@ -13,7 +13,9 @@ Usage:
     uv run cli/news_nlp_steps.py --step summary --cut-revision units5-... --limit 200   # the single bodies and the sub-news of that cut
     uv run cli/news_nlp_steps.py --step summary --items sub_news --cut-revision units5-...   # only the sub-news of one cut revision
     uv run cli/news_nlp_steps.py --step summary --items sector --sector-revision sector-... --limit 200   # the sector bodies the sector step assigned
-    uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state
+    uv run cli/news_nlp_steps.py --step summary --items single --limit 200 --max-calls 400 --concurrency 8   # the API summariser (DeepSeek, the default) with a cap of requests
+    uv run cli/news_nlp_steps.py --step summary --items single --summariser local --limit 200   # the pinned local distilbart instead (GPU)
+    uv run cli/news_nlp_steps.py --step summary --status      # summaries and originals stored, items by state (and, for the API, the tokens and the model ids)
     uv run cli/news_nlp_steps.py --step companies --summary-revision summary-... --cut-revision units5-... --threshold 0.5 --candidates ner+text --limit 500   # step 3
     uv run cli/news_nlp_steps.py --step companies --status    # companies found, main rows, items on the review list
     uv run cli/news_nlp_steps.py --step sector --limit 200    # the sector step: the GICS sector of up to 200 `sector` bodies (or out_of_scope)
@@ -33,8 +35,9 @@ revision starts a new set of rows and leaves the old ones. ``--model-dir`` is th
 ``scripts/train_scope_final_2026_11_11.py`` (default ``models/scope_final``). The ``cut`` step reads the ``multi`` bodies
 step 1 wrote (``--scope-revision``, default the latest) and writes ``sub_news`` with the ``units`` extractor; its model is the
 attribution checkpoint (default ``data/models/attribution_2026_11_08``). The ``summary`` step (step 2) reads the ``single`` bodies of step 1
-and the sub-news of the cut (``--cut-revision``, default the latest); an item over 2,000 characters is summarised by the pinned local
-summariser, a shorter one is stored as it is (``news_summary.text_source`` = ``original``); see ``src/news_summary_stage.py``.
+and the sub-news of the cut (``--cut-revision``, named, never the latest); an item over 2,000 characters is summarised by DeepSeek through an
+OpenAI-compatible API (the default, T-206: ``SUMMARY_LLM_*`` or ``LLM_*`` of ``.env``, the article text leaves the machine; ``src/news_summary_llm.py``) or, with
+``--summariser local``, by the pinned local summariser (``src/news_summary_stage.py``); a shorter item is stored as it is (``news_summary.text_source`` = ``original``).
 The ``companies`` step (step 3) reads the texts step 2 left (``--summary-revision``, the single bodies of ``--scope-revision`` and the sub-news of
 ``--cut-revision``), finds the universe companies each names with NER and the matcher, scores each pair with the relevance model and marks every
 company at ``--threshold`` or over it as main; an item with none goes to the review list; see ``src/news_company_stage.py``.
@@ -54,7 +57,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
@@ -64,6 +67,17 @@ from tqdm import tqdm
 import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
+from news_summary_llm import (
+    CONCURRENCY,
+    UNCAPPED_RUN_ITEMS,
+    ApiError,
+    CallBudget,
+    FatalApiError,
+    LLMSummarizer,
+    Outcome,
+    estimate,
+    missing_settings,
+)
 
 STEPS = (
     steps.STEP_SCOPE,
@@ -298,6 +312,20 @@ class Summarizing(Protocol):
     def summarize(self, texts: Sequence[str]) -> list[tuple[str, int]]: ...
 
 
+@runtime_checkable
+class ApiSummarizing(Protocol):
+    """What ``run_summary`` needs of a summariser that calls an API (``news_summary_llm.LLMSummarizer``): a limit over which a text is kept as it is, how many texts to give
+    at once (as many as there are requests at once), and one ``Outcome`` for each text, so a text that failed does not cost the others of its batch."""
+
+    revision: str
+    max_chars: int
+    texts_per_batch: int
+    model: str
+    budget: CallBudget
+
+    def summarize_each(self, texts: Sequence[str]) -> list[Outcome]: ...
+
+
 class SummaryItem(NamedTuple):
     """One thing the summary step reads: a body (its hash) or a sub-news (its id), and the text the summariser would read."""
 
@@ -347,7 +375,11 @@ def _summarize_items(
     batch: list[SummaryItem],
     counts: dict[str, int],
 ) -> None:
-    """Summarise and store one batch; a batch that fails is redone item by item, so one bad item fails alone."""
+    """Summarise and store one batch; a batch that fails is redone item by item, so one bad item fails alone.
+    A summariser that calls an API answers text by text (``_store_outcomes``): nothing is redone, so nothing is paid twice."""
+    if isinstance(summarizer, ApiSummarizing):
+        _store_outcomes(conn, summarizer, batch, counts)
+        return
     try:
         results = summarizer.summarize([item.text for item in batch])
     except Exception as exc:
@@ -383,6 +415,80 @@ def _summarize_items(
         counts["summary"] += 1
 
 
+def _store_outcomes(
+    conn: db.NewsNlpDatabase,
+    summarizer: ApiSummarizing,
+    batch: list[SummaryItem],
+    counts: dict[str, int],
+) -> None:
+    """One batch of an API summariser: store the summaries that arrived (with the model the API named and the tokens), record each text that failed with its
+    reason, and then stop if one of the errors was fatal (a wrong key, no balance, the cap of calls): what was written stays and a rerun goes on."""
+    fatal: FatalApiError | None = None
+    for item, outcome in zip(
+        batch, summarizer.summarize_each([i.text for i in batch]), strict=True
+    ):
+        if isinstance(outcome, FatalApiError):
+            fatal = fatal or outcome
+            continue  # not the text's fault: it stays pending, not failed
+        if isinstance(outcome, ApiError):
+            steps.record_item_failure(
+                conn,
+                item.kind,
+                item.item_id,
+                steps.STEP_SUMMARY,
+                summarizer.revision,
+                steps.error_text(outcome),
+            )
+            counts["failed"] += 1
+            continue
+        summary, usage = outcome
+        steps.record_summary(
+            conn,
+            item.kind,
+            item.item_id,
+            summarizer.revision,
+            summary,
+            "summary",
+            0,
+            (usage.api_model, usage.asked, usage.prompt_tokens, usage.completion_tokens),
+        )
+        counts["summary"] += 1
+    if fatal is not None:
+        raise RunAborted(f"{fatal} (the rows written stay; run again to go on)") from fatal
+
+
+def _split_by_size(
+    todo: Sequence[SummaryItem], summarizer: Summarizing
+) -> tuple[list[SummaryItem], list[SummaryItem]]:
+    """The items that go to the summariser (over the size) and the ones stored as they are. An API summariser has a limit too: a text over it is kept as it is
+    (owner, 2026-11-15)."""
+    max_chars = summarizer.max_chars if isinstance(summarizer, ApiSummarizing) else None
+    over: list[SummaryItem] = []
+    kept: list[SummaryItem] = []
+    for item in todo:
+        too_long = max_chars is not None and len(item.text) > max_chars
+        (over if len(item.text) > summarizer.min_chars and not too_long else kept).append(item)
+    return over, kept
+
+
+def _say_the_api_plan(
+    summarizer: Summarizing, over: Sequence[SummaryItem], limit: int | None
+) -> None:
+    """For an API summariser: refuse a run of more than ``UNCAPPED_RUN_ITEMS`` texts with neither ``--limit`` nor ``--max-calls`` (it is money), and say before
+    the first call how many calls, tokens and dollars to expect."""
+    if not (over and isinstance(summarizer, ApiSummarizing)):
+        return
+    if len(over) > UNCAPPED_RUN_ITEMS and limit is None and summarizer.budget.max_calls is None:
+        raise RunAborted(
+            f"refused: {len(over):,} texts would be sent to a paid API with no --limit and no --max-calls (more than {UNCAPPED_RUN_ITEMS:,}); "
+            "run in slices (--limit 2000, repeated) or cap the requests"
+        )
+    print(
+        f"the API will be called for {estimate([len(i.text) for i in over], summarizer.model)}",
+        file=sys.stderr,
+    )
+
+
 def run_summary(
     conn: db.NewsNlpDatabase,
     summarizer: Summarizing,
@@ -399,16 +505,15 @@ def run_summary(
     ``failed`` with its reason and retried by the next run, and ``MAX_FAILED_BATCHES`` batches in a row that fail
     completely stop the run (the cause is then not one text: out of memory, a lost GPU).
     """
-    from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
-
     todo = _summary_items(
         conn, summarizer.revision, scope_revision, cut_revision, items, limit, sector_revision
     )
-    over: list[SummaryItem] = []
-    kept: list[SummaryItem] = []
-    for item in todo:
-        (over if needs_summary(item.text, summarizer.min_chars) else kept).append(item)
+    over, kept = _split_by_size(todo, summarizer)
     _say_the_plan(todo, len(over), len(kept), summarizer.min_chars)
+    _say_the_api_plan(summarizer, over, limit)
+    batch_size = (
+        summarizer.texts_per_batch if isinstance(summarizer, ApiSummarizing) else SUMMARY_BATCH
+    )
     counts: dict[str, int] = {"summary": 0, "original": 0, "failed": 0}
     failed_batches = 0
     waiting: list[SummaryItem] = []
@@ -441,7 +546,7 @@ def run_summary(
         with tqdm(total=len(over), desc="summary", unit="item") as bar:
             for item in over:
                 waiting.append(item)
-                if len(waiting) >= SUMMARY_BATCH:
+                if len(waiting) >= batch_size:
                     size = len(waiting)
                     flush()
                     bar.update(size)
@@ -582,6 +687,33 @@ def _sector_revision_read(conn: db.NewsNlpDatabase, sector_revision: str | None)
     return sector_revision
 
 
+def _build_summarizer(args: argparse.Namespace) -> Summarizing:
+    """The summariser of a run: DeepSeek (an OpenAI-compatible API, ``LLM_*`` of ``.env``) by default (T-206, owner 2026-11-15), or the pinned local one."""
+    if args.summariser == "local":
+        from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
+
+        local = Summarizer()
+        print(
+            f"summariser {local.model_name}@{local.model_revision[:8]} on {local.device}, size {local.min_chars}",
+            file=sys.stderr,
+        )
+        return local
+    db.env.load_env_file()
+    missing = missing_settings()
+    if missing:
+        sys.exit(f"the API summariser needs {', '.join(missing)} in .env (or --summariser local)")
+    try:
+        llm = LLMSummarizer(max_calls=args.max_calls, concurrency=args.concurrency)
+    except ValueError as exc:  # an endpoint that is not https
+        sys.exit(str(exc))
+    print(
+        f"summariser {llm.model} through {llm.url} (the article text leaves this machine), size {llm.min_chars}, "
+        f"up to {llm.concurrency} calls at a time, cap {llm.budget.max_calls or 'none'} requests",
+        file=sys.stderr,
+    )
+    return llm
+
+
 def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if args.status:
         latest = steps.latest_revision(conn, steps.STEP_SUMMARY)
@@ -615,13 +747,7 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     sector_revision = args.sector_revision
     if "sector" in items:
         sector_revision = _sector_revision_read(conn, sector_revision)
-    from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
-
-    summarizer = Summarizer()
-    print(
-        f"summariser {summarizer.model_name}@{summarizer.model_revision[:8]} on {summarizer.device}, size {summarizer.min_chars}",
-        file=sys.stderr,
-    )
+    summarizer = _build_summarizer(args)
     try:
         counts = run_summary(
             conn, summarizer, scope_revision, cut_revision, items, args.limit, sector_revision
@@ -629,6 +755,11 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     except RunAborted as exc:
         print(json.dumps(steps.status(conn, steps.STEP_SUMMARY, summarizer.revision), indent=2))
         sys.exit(f"stopped: {exc}")
+    if isinstance(summarizer, LLMSummarizer):
+        print(
+            f"tokens of this run: {summarizer.prompt_tokens:,} in, {summarizer.completion_tokens:,} out, {summarizer.budget.calls:,} requests",
+            file=sys.stderr,
+        )
     read = {
         "scope_revision": scope_revision,
         "cut_revision": cut_revision,
@@ -1464,6 +1595,8 @@ def main_scope(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
 RECUT_SQL = (
     "DELETE FROM news_summary WHERE item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
+    "DELETE FROM news_summary_call WHERE item_kind = 'sub_news' AND item_id IN "
+    "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND item_kind = 'sub_news' AND item_id IN "
     "(SELECT CAST(id AS TEXT) FROM sub_news WHERE extractor_revision = '<cut revision>');",
     # step 3 keys its rows by the same ids
@@ -1515,6 +1648,7 @@ REPERIOD_SQL = (
 RESUMMARIZE_SQL = (
     "DELETE FROM pipeline_step_state WHERE step = 'summary' AND model_revision = '<summary revision>';",
     "DELETE FROM news_summary WHERE model_revision = '<summary revision>';",
+    "DELETE FROM news_summary_call WHERE model_revision = '<summary revision>';",  # what an API summariser kept of each call
 )
 _RERUN_TEMPLATE = """\
 To run a step again on bodies it already did: a finished body is found in `pipeline_step_state`, not in the result table,
@@ -1564,6 +1698,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="touch at most this many items (bodies; for summary, companies and category also sub-news; for snapshot, this many company pairs and, with --sector-revision, this many more sector texts)",
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
+    parser.add_argument(
+        "--summariser",
+        choices=("deepseek", "local"),
+        default="deepseek",
+        help="summary: who writes the summaries (default deepseek: the API of LLM_URL/LLM_MODEL/LLM_API_KEY in .env, the article text leaves the machine, T-206); local = the pinned distilbart",
+    )
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help="summary with the API: stop after this many requests, retries included (a rerun goes on)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=CONCURRENCY,
+        help="summary with the API: requests at the same time",
+    )
     parser.add_argument(
         "--fetch",
         action="store_true",
@@ -1847,7 +1999,28 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error(
             "--model-dir does not apply to --step sector (its model is the pin of config/sector_step.json)"
         )
+    _check_summariser_options(parser, args)
     _check_summary_items(parser, args)
+
+
+def _check_summariser_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the API summariser: refused where they do not apply, never ignored."""
+    if args.step != steps.STEP_SUMMARY:
+        for flag, given in (
+            ("--summariser", args.summariser != "deepseek"),
+            ("--max-calls", args.max_calls is not None),
+            ("--concurrency", args.concurrency != CONCURRENCY),
+        ):
+            if given:
+                parser.error(f"{flag} only applies to --step summary")
+    elif args.summariser == "local" and (
+        args.max_calls is not None or args.concurrency != CONCURRENCY
+    ):
+        parser.error("--max-calls and --concurrency only apply to the API summariser")
+    if args.max_calls is not None and args.max_calls < 1:
+        parser.error("--max-calls must be at least 1")
+    if args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")
 
 
 def _check_summary_items(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:

@@ -139,7 +139,7 @@ The bar of D24 is **80%** agreement with the owner's labels on the held-out sing
 
 | the same 300, a blind LLM judge (`deepseek-chat`; T-209) | 77.0% [72.0, 81.7] | 71.0% [66.0, 76.0] |
 
-The judge agrees on the direction (paired 41 against 23, p = 0.033; its first 80 texts alone were inconclusive) but is LLM output like the assistant's tags, not a second independent reader; the pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115). 
+The judge agrees on the direction (paired 41 against 23, **nominal** p = 0.033; on the 220 texts outside its first run of 80, 78.2% against 70.9%, p = 0.029). It is LLM output like the assistant's tags, not a second independent reader, and it is not repeatable (2 of 80 labels changed between runs). The pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115; T-210).
 
 Only the held-out is tagged by the owner and held out, and it is the one that fails. It reads best on short company segments (the texts of the cut) and worst on full articles. `earnings_performance`, `market_analyst_sentiment` and
 `mergers_acquisitions` are reliable; **`other` is not** (it gets 3 of 39 right on the real sample), and `investor_activity` and `leadership_governance` have too few rows to measure. The group agrees more than the label does (65.2% held-out).

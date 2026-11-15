@@ -116,3 +116,24 @@ def test_report_has_the_header_the_models_and_the_per_class_table() -> None:
         "| earnings_performance | 2 | 2 | 0 |" in text
     )  # judge puts 2 texts in `a`; fine-tune right on 2, untouched on 0
     assert "`labor_human_capital` -> `other`: 1" in text
+
+
+def test_compare_runs_counts_changed_labels_and_scores_the_texts_outside_the_first_run() -> None:
+    def r(idx: str, judge: str, selected: str, untouched: str) -> dict[str, str]:
+        row = _row(judge, selected, untouched)
+        row["idx"] = idx
+        return row
+
+    small = [r("1", "other", "other", "legal_regulatory"), r("2", "other", "other", "other")]
+    big = [
+        r("1", "legal_regulatory", "other", "legal_regulatory"),  # the judge changed its label
+        r("2", "other", "other", "other"),
+        r("3", "other", "other", "legal_regulatory"),  # outside: fine-tune right only
+        r("4", "other", "legal_regulatory", "legal_regulatory"),  # outside: neither
+    ]
+    text = "\n".join(sc.compare_runs(big, small))
+    assert "changed on 1 of 2" in text
+    assert (
+        "The 2 texts the first run did not see: fine-tune 50.0%, untouched 0.0%; paired 1 against 0"
+        in text
+    )

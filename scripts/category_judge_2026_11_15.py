@@ -1,4 +1,4 @@
-# ruff: noqa: E402, PLR2004, PLC0415, S311  -- one-shot research script (the eval deps load only on a real run; a seeded draw)
+# ruff: noqa: E402, PLC0415, S311  -- one-shot research script (the eval deps load only on a real run; a seeded draw)
 """The LLM judge on step 7 (T-209, AI behavior #1; the owner approved a small paid run on 2026-11-15).
 
     uv run --group eval scripts/category_judge_2026_11_15.py --dry-run     # no call: the sample and the size of the bill
@@ -32,14 +32,21 @@ from news_nlp.eval import step_category as sc
 OUT = ROOT / "docs" / "category_results_2026_11_15"
 TEXTS = ROOT / "gold" / "texts" / "category_real_sample_texts.csv"
 LABELS = OUT / "real_sample.csv"
+POPULATION = 300
 CHARS_PER_TOKEN = 4  # a rough size for the dry run
 
 
-def draw(n: int, seed: int) -> pd.DataFrame:
-    texts = pd.read_csv(TEXTS, dtype=str).fillna("")
-    labels = pd.read_csv(LABELS, dtype=str).fillna("")
+def draw(
+    n: int,
+    seed: int,
+    texts_csv: Path = TEXTS,
+    labels_csv: Path = LABELS,
+    population: int = POPULATION,
+) -> pd.DataFrame:
+    texts = pd.read_csv(texts_csv, dtype=str).fillna("")
+    labels = pd.read_csv(labels_csv, dtype=str).fillna("")
     df = texts.merge(labels[["idx", "tag", "selected", "untouched"]], on="idx", how="inner")
-    assert len(df) == len(texts) == 300, (len(df), len(texts))
+    assert len(df) == len(texts) == population, (len(df), len(texts))
     keep = sorted(random.Random(seed).sample(range(len(df)), n))
     return df.iloc[keep].reset_index(drop=True)
 
@@ -60,13 +67,29 @@ def judge_all(df: pd.DataFrame, workers: int) -> list[sc.StepCategoryVerdict]:
         return list(pool.map(one, zip(df.company, df.text, strict=True)))
 
 
-def header(n_asked: int, seed: int, model: str, date: str) -> list[str]:
+def header(n_asked: int, seed: int, model: str, date: str, *, by_hand: bool = False) -> list[str]:
     prompt = hashlib.sha256(sc.system_prompt().encode()).hexdigest()[:16]
+    which = (
+        "all 300 real sub-news under 1,000 characters (the text the step reads)"
+        if n_asked == POPULATION
+        else f"a seeded draw (seed {seed}) of {n_asked} of the {POPULATION} real sub-news under 1,000 characters (the text the step reads); the same seed's draw is inside the {POPULATION} of the larger run"
+    )
+    note = (
+        " (the model of the `.env` on that date, entered by hand: the first run did not store it)"
+        if by_hand
+        else ""
+    )
     return [
-        f"- Judge model: `{model}` (the `LLM_MODEL` of `.env`; it wrote none of the labels compared). Date {date}. "
-        f"Sample: a seeded draw (seed {seed}) of {n_asked} of the 300 real sub-news under 1,000 characters (the text the step reads).",
-        f"- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `{prompt}…`; temperature 0.",
+        f'- Judge model: `{model}`{note}; it wrote none of the labels compared. Date {date}. Sample: {which}. Rules: the tagging rules of the project, new convention (`docs/category-taxonomy.md`, "One tag per row"), not the older one of the held-out.',
+        f'- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `{prompt}…`; temperature 0, **not repeatable** (see "Two runs, one sample" when both runs exist).',
     ]
+
+
+def extra_for(n: int) -> list[str]:
+    big, small = OUT / "judge_step7_n300.csv", OUT / "judge_step7_n80.csv"
+    if n == POPULATION and small.exists():
+        return sc.compare_runs(read_rows(big), read_rows(small))
+    return []
 
 
 def read_rows(csv: Path) -> list[sc.JudgedRow]:
@@ -92,7 +115,12 @@ def main() -> None:
     if args.report_only:
         rows = read_rows(csv)
         md.write_text(
-            sc.report(rows, header(args.n, args.seed, args.model, args.date)), encoding="utf-8"
+            sc.report(
+                rows,
+                header(args.n, args.seed, args.model, args.date, by_hand=args.n != POPULATION),
+                extra_for(args.n),
+            ),
+            encoding="utf-8",
         )
         print(md)
         return
@@ -120,7 +148,7 @@ def main() -> None:
         local, index=False
     )
     df.drop(columns=["text"]).to_csv(csv, index=False)
-    text = sc.report(read_rows(csv), header(args.n, args.seed, model, args.date))
+    text = sc.report(read_rows(csv), header(args.n, args.seed, model, args.date), extra_for(args.n))
     md.write_text(text, encoding="utf-8")
     print(text)
 

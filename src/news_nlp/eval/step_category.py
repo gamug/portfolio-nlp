@@ -140,7 +140,7 @@ def summary(rows: Sequence[JudgedRow]) -> dict[str, float | int]:
     }
 
 
-def report(rows: Sequence[JudgedRow], header: Sequence[str]) -> str:
+def report(rows: Sequence[JudgedRow], header: Sequence[str], extra: Sequence[str] = ()) -> str:
     """The markdown of a judged sample: agreement of each model with the judge, paired test, per class, confusions."""
     ok = [r for r in rows if r["parse_failed"] != "True"]
     judge = [r["judge"] for r in ok]
@@ -183,4 +183,26 @@ def report(rows: Sequence[JudgedRow], header: Sequence[str]) -> str:
     lines += [
         f"- `{g}` -> `{p}`: {k}" for (g, p), k in sorted(pairs.items(), key=lambda x: -x[1])[:6]
     ]
+    if extra:
+        lines += ["", *extra]
     return "\n".join(lines) + "\n"
+
+
+def compare_runs(big: Sequence[JudgedRow], small: Sequence[JudgedRow]) -> list[str]:
+    """What a second judge run on the same texts shows: how many labels changed, and the figures on the texts the first run did not see.
+
+    ``small`` is the first run and is contained in ``big`` (rows keyed by ``idx``). The judge is not repeatable at temperature 0, and a
+    figure on the texts outside the first look is the one that is not a second look at the same data.
+    """
+    first = {r["idx"]: r for r in small}
+    changed = sum(1 for r in big if r["idx"] in first and first[r["idx"]]["judge"] != r["judge"])
+    inside = sum(1 for r in big if r["idx"] in first)
+    rest = [r for r in big if r["idx"] not in first]
+    s = summary(rest)
+    return [
+        "## Two runs, one sample",
+        f"- The {len(first)} texts of the first run are inside these {len(big)}; on them the judge's label **changed on {changed} of {inside}** between the two runs "
+        "(temperature 0 does not make this judge repeatable).",
+        f"- The {s['n']} texts the first run did not see: fine-tune {s['selected']:.1%}, untouched {s['untouched']:.1%}; paired {s['selected_only']} against "
+        f"{s['untouched_only']}, exact sign test p = {s['sign_test_p']:.3f}. The p of all {len(big)} is a second look at a sample that began with the first run: read it as nominal.",
+    ]

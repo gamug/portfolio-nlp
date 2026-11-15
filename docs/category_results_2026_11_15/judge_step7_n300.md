@@ -1,7 +1,7 @@
 # The LLM judge on step 7: 300 real sub-news, blind (T-209)
 
-- Judge model: `deepseek-chat` (the `LLM_MODEL` of `.env`; it wrote none of the labels compared). Date 2026-11-15. Sample: a seeded draw (seed 20261115) of 300 of the 300 real sub-news under 1,000 characters (the text the step reads).
-- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `4acd175ff9ee5e98…`; temperature 0.
+- Judge model: `deepseek-chat`; it wrote none of the labels compared. Date 2026-11-15. Sample: all 300 real sub-news under 1,000 characters (the text the step reads). Rules: the tagging rules of the project, new convention (`docs/category-taxonomy.md`, "One tag per row"), not the older one of the held-out.
+- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `4acd175ff9ee5e98…`; temperature 0, **not repeatable** (see "Two runs, one sample" when both runs exist).
 - 300 judged, 0 parse failures (excluded). The judge is a model: agreement with a judge, not truth.
 - The judge never saw a model's label. The assistant's tags and the judge are both LLM output: their agreement is not an independent check.
 
@@ -39,3 +39,7 @@ Largest disagreements (judge -> pinned model):
 - `partnerships_business_dev` -> `product_innovation`: 4
 - `market_analyst_sentiment` -> `legal_regulatory`: 3
 - `other` -> `market_analyst_sentiment`: 3
+
+## Two runs, one sample
+- The 80 texts of the first run are inside these 300; on them the judge's label **changed on 2 of 80** between the two runs (temperature 0 does not make this judge repeatable).
+- The 220 texts the first run did not see: fine-tune 78.2%, untouched 70.9%; paired 32 against 16, exact sign test p = 0.029. The p of all 300 is a second look at a sample that began with the first run: read it as nominal.
