@@ -322,6 +322,17 @@ CREATE TABLE IF NOT EXISTS news_summary (
     PRIMARY KEY (item_kind, item_id, model_revision)
 );
 
+CREATE TABLE IF NOT EXISTS news_summary_call (
+    item_kind         TEXT NOT NULL,
+    item_id           TEXT NOT NULL,
+    model_revision    TEXT NOT NULL,
+    api_model         TEXT NOT NULL,   -- the model id the API named in its reply (T-206)
+    prompt_tokens     INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL,
+    called_at         TEXT NOT NULL,
+    PRIMARY KEY (item_kind, item_id, model_revision)
+);
+
 CREATE TABLE IF NOT EXISTS news_company (
     item_kind       TEXT NOT NULL,
     item_id         TEXT NOT NULL,

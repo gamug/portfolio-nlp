@@ -51,6 +51,7 @@ nothing is downloaded; see ``src/news_sentiment_stage.py`` and ``docs/sentiment_
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -64,6 +65,7 @@ from tqdm import tqdm
 import news_nlp as db
 from news_nlp import steps
 from news_nlp.db import exit_on_schema_error
+from news_summary_llm import CONCURRENCY, FatalApiError
 
 STEPS = (
     steps.STEP_SCOPE,
@@ -298,6 +300,14 @@ class Summarizing(Protocol):
     def summarize(self, texts: Sequence[str]) -> list[tuple[str, int]]: ...
 
 
+def _usage_of(summarizer: Summarizing) -> list[tuple[str, int, int] | None]:
+    """The API usage of the last ``summarize`` (an LLM summariser), or nothing for the local one."""
+    return [
+        None if u is None else (u.api_model, u.prompt_tokens, u.completion_tokens)
+        for u in getattr(summarizer, "last_usage", [])
+    ]
+
+
 class SummaryItem(NamedTuple):
     """One thing the summary step reads: a body (its hash) or a sub-news (its id), and the text the summariser would read."""
 
@@ -350,6 +360,8 @@ def _summarize_items(
     """Summarise and store one batch; a batch that fails is redone item by item, so one bad item fails alone."""
     try:
         results = summarizer.summarize([item.text for item in batch])
+    except FatalApiError as exc:  # no other text will do better: stop, what is written stays (fail fast, owner 2026-11-15)
+        raise RunAborted(f"{exc} (the rows written stay; run again to go on)") from exc
     except Exception as exc:
         if len(batch) > 1:
             for item in batch:
@@ -365,7 +377,10 @@ def _summarize_items(
         )
         counts["failed"] += 1
         return
-    for item, (summary, chunks) in zip(batch, results, strict=True):
+    usage = _usage_of(summarizer)
+    if len(usage) != len(batch):
+        usage = [None] * len(batch)
+    for item, (summary, chunks), used in zip(batch, results, usage, strict=True):
         if not summary.strip():  # an empty text would be read by the next steps as the item's text
             steps.record_item_failure(
                 conn,
@@ -378,7 +393,7 @@ def _summarize_items(
             counts["failed"] += 1
             continue
         steps.record_summary(
-            conn, item.kind, item.item_id, summarizer.revision, summary, "summary", chunks
+            conn, item.kind, item.item_id, summarizer.revision, summary, "summary", chunks, used
         )
         counts["summary"] += 1
 
@@ -399,15 +414,17 @@ def run_summary(
     ``failed`` with its reason and retried by the next run, and ``MAX_FAILED_BATCHES`` batches in a row that fail
     completely stop the run (the cause is then not one text: out of memory, a lost GPU).
     """
-    from news_summary_stage import needs_summary  # noqa: PLC0415 -- loads torch
-
     todo = _summary_items(
         conn, summarizer.revision, scope_revision, cut_revision, items, limit, sector_revision
     )
     over: list[SummaryItem] = []
     kept: list[SummaryItem] = []
+    max_chars = getattr(
+        summarizer, "max_chars", None
+    )  # an API summariser's limit: a text over it is kept as it is (owner, 2026-11-15)
     for item in todo:
-        (over if needs_summary(item.text, summarizer.min_chars) else kept).append(item)
+        too_long = max_chars is not None and len(item.text) > max_chars
+        (over if len(item.text) > summarizer.min_chars and not too_long else kept).append(item)
     _say_the_plan(todo, len(over), len(kept), summarizer.min_chars)
     counts: dict[str, int] = {"summary": 0, "original": 0, "failed": 0}
     failed_batches = 0
@@ -582,6 +599,32 @@ def _sector_revision_read(conn: db.NewsNlpDatabase, sector_revision: str | None)
     return sector_revision
 
 
+def _build_summarizer(args: argparse.Namespace) -> Summarizing:
+    """The summariser of a run: DeepSeek (an OpenAI-compatible API, ``LLM_*`` of ``.env``) by default (T-206, owner 2026-11-15), or the pinned local one."""
+    if args.summariser == "local":
+        from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
+
+        local = Summarizer()
+        print(
+            f"summariser {local.model_name}@{local.model_revision[:8]} on {local.device}, size {local.min_chars}",
+            file=sys.stderr,
+        )
+        return local
+    from news_summary_llm import LLMSummarizer  # noqa: PLC0415
+
+    db.env.load_env_file()
+    missing = [k for k in ("LLM_URL", "LLM_API_KEY", "LLM_MODEL") if not os.environ.get(k)]
+    if missing:
+        sys.exit(f"the API summariser needs {', '.join(missing)} in .env (or --summariser local)")
+    llm = LLMSummarizer(max_calls=args.max_calls, concurrency=args.concurrency)
+    print(
+        f"summariser {llm.model} through {llm.url} (the article text leaves this machine), size {llm.min_chars}, "
+        f"up to {llm.concurrency} calls at a time, cap {llm.budget.max_calls or 'none'} requests",
+        file=sys.stderr,
+    )
+    return llm
+
+
 def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     if args.status:
         latest = steps.latest_revision(conn, steps.STEP_SUMMARY)
@@ -615,13 +658,7 @@ def main_summary(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     sector_revision = args.sector_revision
     if "sector" in items:
         sector_revision = _sector_revision_read(conn, sector_revision)
-    from news_summary_stage import Summarizer  # noqa: PLC0415 -- loads torch
-
-    summarizer = Summarizer()
-    print(
-        f"summariser {summarizer.model_name}@{summarizer.model_revision[:8]} on {summarizer.device}, size {summarizer.min_chars}",
-        file=sys.stderr,
-    )
+    summarizer = _build_summarizer(args)
     try:
         counts = run_summary(
             conn, summarizer, scope_revision, cut_revision, items, args.limit, sector_revision
@@ -1565,6 +1602,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--status", action="store_true", help="print the counts and exit")
     parser.add_argument(
+        "--summariser",
+        choices=("deepseek", "local"),
+        default="deepseek",
+        help="summary: who writes the summaries (default deepseek: the API of LLM_URL/LLM_MODEL/LLM_API_KEY in .env, the article text leaves the machine, T-206); local = the pinned distilbart",
+    )
+    parser.add_argument(
+        "--max-calls",
+        type=int,
+        default=None,
+        help="summary with the API: stop after this many requests, retries included (a rerun goes on)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=CONCURRENCY,
+        help="summary with the API: requests at the same time",
+    )
+    parser.add_argument(
         "--fetch",
         action="store_true",
         help="download the pinned model (scope: config/scope_model.json; cut: config/attribution_model.json, private, needs HF_TOKEN) into an empty --model-dir first",
@@ -1847,7 +1902,28 @@ def check_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error(
             "--model-dir does not apply to --step sector (its model is the pin of config/sector_step.json)"
         )
+    _check_summariser_options(parser, args)
     _check_summary_items(parser, args)
+
+
+def _check_summariser_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The options of the API summariser: refused where they do not apply, never ignored."""
+    if args.step != steps.STEP_SUMMARY:
+        for flag, given in (
+            ("--summariser", args.summariser != "deepseek"),
+            ("--max-calls", args.max_calls is not None),
+            ("--concurrency", args.concurrency != CONCURRENCY),
+        ):
+            if given:
+                parser.error(f"{flag} only applies to --step summary")
+    elif args.summariser == "local" and (
+        args.max_calls is not None or args.concurrency != CONCURRENCY
+    ):
+        parser.error("--max-calls and --concurrency only apply to the API summariser")
+    if args.max_calls is not None and args.max_calls < 1:
+        parser.error("--max-calls must be at least 1")
+    if args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")
 
 
 def _check_summary_items(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:

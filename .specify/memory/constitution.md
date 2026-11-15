@@ -130,6 +130,13 @@ component; every rule below assumes the stack actually pinned in
    (tracked in MLflow) against the recorded baseline
    (`docs/evaluation.md`), not a handful of manually inspected examples.
 
+*Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`LLM_*`
+of `.env`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
+model is chosen by name in `.env` and recorded per row (`news_summary_call`), and the revision follows the prompt and the model name. Against 2: the call is remote and
+its text is not repeatable at temperature 0 (measured: 30 articles twice, none identical), so the revision promises its rows, not its words; there is no CUDA path to
+break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser. The article text leaves the machine (accepted).
+No other stage may use this exception.
+
 *Claude Code / coding-agent conduct on this repo:*
 
 6. **Match existing structure before introducing new structure** — check

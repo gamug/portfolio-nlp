@@ -229,10 +229,18 @@ def record_summary(
     summary_text: str,
     text_source: str,
     num_chunks: int,
+    usage: tuple[str, int, int] | None = None,
 ) -> None:
     """Store the text the next steps read for one item (its summary, or its own text when it is under the size) and mark
-    the summary step done, in one transaction; a repeat changes nothing."""
+    the summary step done, in one transaction; a repeat changes nothing. ``usage`` (the model id the API named, the tokens in and out) is
+    kept for a summary an API wrote (T-206)."""
     now = _now()
+    if usage is not None:
+        conn.execute(
+            "INSERT OR IGNORE INTO news_summary_call "
+            "(item_kind, item_id, model_revision, api_model, prompt_tokens, completion_tokens, called_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (item_kind, item_id, revision, *usage, now),
+        )
     conn.execute(
         "INSERT OR IGNORE INTO news_summary "
         "(item_kind, item_id, model_revision, summary_text, text_source, num_chunks, processed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -880,6 +888,24 @@ def status(  # noqa: C901 -- one branch for each step
         by_kind = f"SELECT item_kind, COUNT(*) FROM news_summary{w} GROUP BY item_kind"  # noqa: S608 -- fixed clauses
         out["news_summary"] = {str(s): int(n) for s, n in conn.execute(by_source, a)}
         out["by_item_kind"] = {str(k): int(n) for k, n in conn.execute(by_kind, a)}
+        calls, tin, tout = conn.execute(
+            f"SELECT COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0) FROM news_summary_call{w}",  # noqa: S608 -- fixed clauses
+            a,
+        ).fetchone()
+        if calls:
+            models = [
+                str(m)
+                for (m,) in conn.execute(
+                    f"SELECT DISTINCT api_model FROM news_summary_call{w} ORDER BY 1",  # noqa: S608 -- fixed clauses
+                    a,
+                )
+            ]
+            out["api"] = {
+                "summaries": int(calls),
+                "prompt_tokens": int(tin),
+                "completion_tokens": int(tout),
+                "models": models,
+            }
     if step == STEP_COMPANIES:
         w = " WHERE model_revision = ?" if revision is not None else ""
         a = [revision] if revision is not None else []

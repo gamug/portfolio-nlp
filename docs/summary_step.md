@@ -38,6 +38,17 @@ shared code that this step does not run must not make it redo about 15 GPU hours
 cuts that ran (`--items single` needs none). The same rule as for every reader of `sub_news` (`docs/scope_training.md` §8.1). **The steps after this one read
 `news_summary` at the revision they name, never "the latest".**
 
+## DeepSeek is the summariser (T-206, owner 2026-11-15)
+
+`--step summary` summarises with **DeepSeek by default**: one OpenAI-compatible `chat/completions` call for each text over 2,000 characters (`src/news_summary_llm.py`; `LLM_URL`, `LLM_API_KEY`, `LLM_MODEL` of `.env`; prompt `config/summary_prompt.md`, temperature 0, input `Title-...\nBody-...` as before). `--summariser local` runs the pinned distilbart described above (its revision, `summary-<12 hex>`, is untouched). The v1 chain keeps distilbart. **The article text leaves the machine** for the API (accepted by the owner).
+
+- **Revision:** `summary-llm-` plus 12 hex digits of the hash of the prompt, the model name (`LLM_MODEL`), the temperature, the size rule (2,000 and the 100,000-character limit) and the input format. A new prompt, model or size starts new rows; the rows of another revision stay.
+- **Each row keeps who answered:** `news_summary_call` (`api_model` as the API names it in its reply, `prompt_tokens`, `completion_tokens`, `called_at`), because the same name can be served by another model later. `--status` shows the summaries, tokens in and out and the model ids (`api`). Estimated cost for the three populations (79,283 items): about $16 to $32 (`docs/summarization_training.md`, "T-206").
+- **A text over 100,000 characters** is not sent: it is stored as it is (`text_source = original`). None of the 79,283 items is over it (longest 84,177).
+- **Failure: fail fast and resumable.** A rate limit, a server error or a dropped connection is retried four times with a growing wait; a text the API refuses or answers with an empty or cut reply fails alone with its reason and is retried by the next run; a wrong key, no balance (402), an invalid request (422) or the cap of calls stops the run at once (`stopped: ...`), the rows written stay and a rerun goes on. There is no fallback to distilbart and an empty summary is never stored. `--max-calls N` is a hard cap on the requests (retries included), `--concurrency N` the requests at once (8). A batch with one failing text is redone item by item, so a few calls are repeated.
+- **Not repeatable:** at temperature 0 two runs give different words (30 articles twice: 0 identical, same scores), so a revision promises its rows, not its text.
+- **Evaluation after the run** (owner): `scripts/summary_judge_2026_11_13.py` with a judge that is **not** the summariser: `judge` refuses `LLM_MODEL` equal to the summariser it recorded (`--allow-self-judge` overrides), so put another model in `LLM_MODEL` for the judge, or use the owner's marks first. Constitution AI #1/#2/#5 have a scoped exception for this step (constitution, "AI behavior").
+
 ## Running it, and running it again
 
 Run it in slices (`--limit 2000`, repeated): a run holds the text of every pending item in memory, about 280 MB for all the 93,034 single bodies, and writes
