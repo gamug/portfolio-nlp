@@ -1,0 +1,31 @@
+{
+ "cmd": "cv",
+ "model": "microsoft/deberta-v3-base",
+ "revision": null,
+ "folds": 5,
+ "epochs": 10,
+ "lr": 3e-05,
+ "head_lr": 0.0005,
+ "bs": 8,
+ "accum": 2,
+ "max_len": 512,
+ "seed": 0,
+ "no_pos_weight": false,
+ "smoke": false,
+ "labels": [
+  "earnings_performance",
+  "mergers_acquisitions",
+  "leadership_governance",
+  "legal_regulatory",
+  "product_innovation",
+  "capital_shareholder_returns",
+  "labor_human_capital",
+  "market_analyst_sentiment",
+  "partnerships_business_dev",
+  "reputational_harm",
+  "investor_activity",
+  "other"
+ ],
+ "model_commit": "8ccc9b6f36199bec6961081d44eb72fb3f7353f3",
+ "rows": 1222
+}

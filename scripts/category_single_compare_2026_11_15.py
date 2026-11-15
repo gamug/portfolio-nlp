@@ -28,9 +28,9 @@ L12 = list(ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER))
 
 
 def load(folder: str) -> tuple[pd.DataFrame, np.ndarray]:
-    rows = pd.read_csv(ROOT / "data" / folder / "rows_single.csv", dtype=str)
+    rows = pd.read_csv(ml.scores_dir(ROOT, folder) / "rows_single.csv", dtype=str)
     rows["gold"] = rows.gold.str.split(",").str[0]
-    return rows, np.load(ROOT / "data" / folder / "oof_single.npz")["scores"]
+    return rows, np.load(ml.scores_dir(ROOT, folder) / "oof_single.npz")["scores"]
 
 
 def measure(
@@ -57,17 +57,23 @@ def main() -> None:
     a = ap.parse_args()
     r2, s2 = load("category_single")
     r1, s1 = load("category_single_v1")
-    m = (
-        r2.drop_duplicates(["article_id", "company"])
-        .reset_index()
-        .merge(
-            r1.drop_duplicates(["article_id", "company"]).reset_index(),
-            on=["article_id", "company"],
-            suffixes=("_2", "_1"),
-        )
-    )
-    S1, S2 = s1[m.index_1.to_numpy()], s2[m.index_2.to_numpy()]
-    g1, g2, src = m.gold_1.to_numpy(), m.gold_2.to_numpy(), m.source_2.to_numpy()
+    # a pair that carried two tags in the first run keeps one row in the second: match it to the first-run row with the same tag when
+    # there is one (an unchanged row is then not counted as changed), else to the first row of the pair
+    by_key: dict[tuple[str, str], list[int]] = {}
+    for i, key in enumerate(zip(r1.article_id, r1.company, strict=True)):
+        by_key.setdefault(key, []).append(i)
+    i1, i2 = [], []
+    for j, (key, tag) in enumerate(
+        zip(zip(r2.article_id, r2.company, strict=True), r2.gold, strict=True)
+    ):
+        found = by_key.get(key)
+        if found:
+            i1.append(next((i for i in found if r1.gold[i] == tag), found[0]))
+            i2.append(j)
+    S1, S2 = s1[np.array(i1)], s2[np.array(i2)]
+    g1, g2 = r1.gold.to_numpy()[i1], r2.gold.to_numpy()[i2]
+    src = r2.source.to_numpy()[i2]
+    m = i2
     out = [
         f"# First run -> second run: {len(m)} rows both have ({len(r1)} and {len(r2)} rows in all)\n"
     ]

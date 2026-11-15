@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -450,3 +451,13 @@ def pos_weights(
 def global_thresholds(labels: Sequence[str], cut: float) -> dict[str, float]:
     """The same cut for every label (the parameter of a run that does not fit one per label)."""
     return {label: cut for label in labels}
+
+
+#: Where the out-of-fold scores of the 2026-11-14/15 runs are kept in the repository (no text: article id, company, tag, scores).
+COMMITTED_SCORES = Path("docs") / "category_results_2026_11_15" / "scores"
+
+
+def scores_dir(root: Path, name: str) -> Path:
+    """The folder of one run's out-of-fold scores: the local ``data/<name>`` when a run left it there, else the committed copy."""
+    local = root / "data" / name
+    return local if local.is_dir() else root / COMMITTED_SCORES / name

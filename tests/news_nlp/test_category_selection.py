@@ -11,7 +11,10 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
+
 import category_multilabel as ml
+import news_category_stage as stage
 from news_category_stage import LABELS as L14
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,3 +84,97 @@ def test_the_held_out_file_is_named_but_not_a_training_input() -> None:
 def test_the_pin_says_it_is_not_fitted_and_not_wired() -> None:
     assert PIN["status"] == "selected, not fitted, not wired"
     assert "NOT shown" in PIN["evidence"]["bar"]
+
+
+def _scores(name: str) -> tuple[list[dict[str, str]], np.ndarray]:
+    folder = ROOT / ml.COMMITTED_SCORES / name
+    with (folder / "rows_single.csv").open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    return rows, np.load(folder / "oof_single.npz")["scores"]
+
+
+def _accuracy_and_macro_f1(gold: list[str], top: list[str]) -> tuple[float, float]:
+    per = ml.per_label([[g] for g in gold], [[t] for t in top], L12)
+    f1 = []
+    for label in L12:
+        p, r = per[label]["precision"] or 0.0, per[label]["recall"] or 0.0
+        f1.append(2 * p * r / (p + r) if p + r else 0.0)
+    return float(np.mean([g == t for g, t in zip(gold, top, strict=True)])), float(np.mean(f1))
+
+
+def test_the_evidence_of_the_pin_is_what_the_committed_scores_give() -> None:
+    rows, scores = _scores("category_single")
+    assert len(rows) == PIN["data"]["training_rows"]
+    top = [L12[j] for j in scores.argmax(1)]
+    acc, f1 = _accuracy_and_macro_f1([r["gold"] for r in rows], top)
+    assert round(acc, 3) == PIN["evidence"]["accuracy"]
+    assert round(f1, 3) == PIN["evidence"]["macro_f1"]
+
+
+def test_the_untouched_model_figures_are_on_the_rows_it_was_scored_on() -> None:
+    rows, _ = _scores("category_single")
+    folder = ROOT / ml.COMMITTED_SCORES / "category_multilabel"
+    with (folder / "rows.csv").open(encoding="utf-8", newline="") as f:
+        old_rows = list(csv.DictReader(f))
+    base = ml.merge_scores(
+        np.load(folder / "oof_base.npz")["scores"], tuple(L14), ml.FOLD_INTO_OTHER
+    )
+    index = {(r["article_id"], r["company"]): i for i, r in enumerate(old_rows)}
+    pairs = [
+        (i, index[(r["article_id"], r["company"])])
+        for i, r in enumerate(rows)
+        if (r["article_id"], r["company"]) in index
+    ]
+    claim = PIN["evidence"]["untouched_on_the_same_rows_and_tags"]
+    assert len(pairs) == claim["rows"]
+    left_out = {(r["article_id"], r["company"]) for r in rows} - set(index)
+    assert (
+        len(left_out) == len(rows) - claim["rows"]
+    )  # exactly the rows the earlier cross-validation never saw
+    acc, f1 = _accuracy_and_macro_f1(
+        [rows[i]["gold"] for i, _ in pairs], [L12[int(base[j].argmax())] for _, j in pairs]
+    )
+    assert round(acc, 3) == claim["accuracy"]
+    assert round(f1, 3) == claim["macro_f1"]
+
+
+def test_the_older_rows_review_lines_up_with_the_rows_of_the_earlier_runs() -> None:
+    folder = ROOT / ml.COMMITTED_SCORES / "category_multilabel"
+    with (folder / "rows.csv").open(encoding="utf-8", newline="") as f:
+        v2 = [r for r in csv.DictReader(f) if r["source"] == "v2"]
+    review = _rows(PIN["data"]["older_rows_reviewed"]["file"])
+    assert len(v2) == len(review)
+    for i, (old, new) in enumerate(zip(v2, review, strict=True)):
+        assert (old["article_id"], old["company"]) == (new["article_id"], new["company"]), (
+            f"row {i}"
+        )
+        assert ml.FOLD_INTO_OTHER.get(old["gold"], old["gold"]) == new["label_old"], f"row {i}"
+
+
+def test_every_change_of_the_sheet_has_its_review_comment() -> None:
+    rows = _rows(PIN["data"]["sheet_single_tags"]["file"])
+    assert {"label", "label_owner", "review"} <= set(rows[0])
+    for r in rows:
+        owner = r["label_owner"].strip()
+        if r["label"] != ml.FOLD_INTO_OTHER.get(owner, owner):
+            assert r["review"], f"review order {r['review_order']}: the tag changed with no comment"
+
+
+def test_the_reading_of_the_pin_is_the_one_of_the_code() -> None:
+    reading = {
+        "definitions": stage.DEFINITIONS,
+        "groups": {k: list(v) for k, v in stage.GROUPS.items()},
+        "hypothesis": stage.HYPOTHESIS,
+        "premise_chars": stage.PREMISE_CHARS,
+    }
+    digest = hashlib.sha256(
+        json.dumps(reading, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    assert digest == PIN["recipe"]["reading_sha256"], (
+        "a definition, a group, the hypothesis or the premise changed: it is another model"
+    )
+
+
+def test_the_seed_of_the_refit_is_not_decided_yet() -> None:
+    assert PIN["recipe"]["refit_seed"] is None
+    assert PIN["recipe"]["cv_seed"] == 0

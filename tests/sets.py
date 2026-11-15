@@ -36,6 +36,7 @@ HEAVY = frozenset(
         "test_sentiment_pipeline.py",
         "test_setup.py",
         "test_summary_pipeline.py",
+        "test_category_selection.py",
         "test_category_step.py",
         "test_sector_step.py",
         "test_sector_validation.py",

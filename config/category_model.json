@@ -20,7 +20,10 @@
     "investor_activity",
     "other"
   ],
-  "folded_into_other": ["competitive_actions", "peer_comparison"],
+  "folded_into_other": [
+    "competitive_actions",
+    "peer_comparison"
+  ],
   "recipe": {
     "reading": "entailment: premise '<company>: <text[:2000]>', hypothesis 'The news about <company> is about <definition>.', one per label (docs/category_step.md)",
     "pairs": "per row, the gold tag a positive and 4 negatives drawn from the other labels",
@@ -31,15 +34,38 @@
     "gradient_accumulation": 4,
     "max_length": 512,
     "fp16": true,
-    "seed": 0,
-    "script": "scripts/category_single_cv_2026_11_15.py"
+    "script": "scripts/category_single_cv_2026_11_15.py",
+    "cv_seed": 0,
+    "cv_seed_per_fold": "cv_seed + the number of the fold",
+    "refit_seed": null,
+    "reading_sha256": "15cd5a14886796997411f0ef7408f624a965ff7373cf10795415eb93845add36",
+    "reading_sha256_of": "definitions, groups, hypothesis template and premise length of src/news_category_stage.py (json, sorted keys); a definition edited later breaks the test"
   },
   "data": {
-    "sheet_single_tags": {"file": "gold/category_single_gold.csv", "rows": 999, "sha256": "15f347acff9303cf790e518cacc2130a908cf952c88d263c03daaf29821c30cd"},
-    "older_rows_reviewed": {"file": "gold/category_v2_single.csv", "rows": 225, "kept": 217, "sha256": "2b9c30bd788c01a95f28fd8d595f90b6c390590434bc05d7877df79e2c12d812"},
-    "older_rows_source": {"file": "gold/category_gold_v2.csv", "sha256": "1cadd050bd416d41a6550c0e6125d74af7e2e24a13e15ada1e3f890bfff19650"},
-    "multi_tags_original": {"file": "gold/category_multi_gold.csv", "rows": 997, "sha256": "e2d7352ea12221bb364e3d7fd03fd3c418672233f8e5855f8034dab6f9d75b96"},
-    "held_out_not_read": {"file": "gold/category_gold_v2_test.csv", "sha256": "17877f91f8f563eb86bc7e2ca4bb4e8a20e310cd3442cd605355e5b0f37a9aae"},
+    "sheet_single_tags": {
+      "file": "gold/category_single_gold.csv",
+      "rows": 999,
+      "sha256": "2625871315d8b3849bb4f3fb5b554656030c2f7bf5172dbfa30ebc38d51528a6"
+    },
+    "older_rows_reviewed": {
+      "file": "gold/category_v2_single.csv",
+      "rows": 225,
+      "kept": 217,
+      "sha256": "2b9c30bd788c01a95f28fd8d595f90b6c390590434bc05d7877df79e2c12d812"
+    },
+    "older_rows_source": {
+      "file": "gold/category_gold_v2.csv",
+      "sha256": "1cadd050bd416d41a6550c0e6125d74af7e2e24a13e15ada1e3f890bfff19650"
+    },
+    "multi_tags_original": {
+      "file": "gold/category_multi_gold.csv",
+      "rows": 997,
+      "sha256": "e2d7352ea12221bb364e3d7fd03fd3c418672233f8e5855f8034dab6f9d75b96"
+    },
+    "held_out_not_read": {
+      "file": "gold/category_gold_v2_test.csv",
+      "sha256": "17877f91f8f563eb86bc7e2ca4bb4e8a20e310cd3442cd605355e5b0f37a9aae"
+    },
     "training_rows": 1216
   },
   "evidence": {
@@ -47,7 +73,13 @@
     "method": "5-fold cross-validation grouped by article, out of fold, top label of each row",
     "accuracy": 0.878,
     "macro_f1": 0.748,
-    "untouched_on_the_same_rows_and_tags": {"accuracy": 0.755, "macro_f1": 0.525},
-    "bar": "80% agreement on the held-out single rows (D24): NOT shown; the held-out 200 has not been scored with this model"
+    "untouched_on_the_same_rows_and_tags": {
+      "accuracy": 0.755,
+      "macro_f1": 0.525,
+      "rows": 1214,
+      "why_1214": "the two sheet rows that carried only `uncertain` (review order 37 and 568) were not in the earlier cross-validation of the untouched model"
+    },
+    "bar": "80% agreement on the held-out single rows (D24): NOT shown; the held-out 200 has not been scored with this model",
+    "scores": "docs/category_results_2026_11_15/scores/category_single/ (rows_single.csv, oof_single.npz)"
   }
 }

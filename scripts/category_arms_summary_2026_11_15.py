@@ -24,7 +24,7 @@ import category_multilabel as ml
 from news_category_stage import LABELS as L14
 
 L12 = ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER)
-DATA = ROOT / "data" / "category_multilabel"
+DATA = ml.scores_dir(ROOT, "category_multilabel")
 ARMS = {
     "untouched zero-shot": "base",
     "entailment fine-tune, old recipe (first label the only positive)": "first",

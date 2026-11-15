@@ -23,8 +23,8 @@ import category_multilabel as ml
 from news_category_stage import LABELS as L14
 
 L12 = ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER)
-OLD = ROOT / "data" / "category_multilabel"
-NEW = ROOT / "data" / "category_single"
+OLD = ml.scores_dir(ROOT, "category_multilabel")
+NEW = ml.scores_dir(ROOT, "category_single")
 
 
 def cell(v: float | None, ci: tuple[float, float] | None) -> str:

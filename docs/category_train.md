@@ -23,11 +23,10 @@ ones (1,216 rows, 12 labels). "Untouched" is the model the step runs today; the 
 | | accuracy | macro F1 |
 |---|---|---|
 | untouched zero-shot model | 75.5% | 0.525 |
-| entailment fine-tune, first run (1,224 rows, older rows not yet reviewed) | 85.4% | 0.706 |
+| entailment fine-tune, first run (older rows not yet reviewed) | 85.5% | 0.708 |
 | **entailment fine-tune, second run (selected recipe, 1,216 rows)** | **87.8%** | **0.748** |
 
-(Both runs on the 1,216 rows they share; the untouched model is scored on 1,214 of them, two rows did not match by (article, company); `docs/category_results_2026_11_15/single_comparison.md`,
-`ovr_single.md`.)
+(Both runs on the 1,216 rows they share; the first run has 1,224 rows in all, 85.0% and 0.701 on them (E8). **The untouched model is scored on 1,214 of the 1,216 rows**: the earlier cross-validation never saw the two sheet rows that carried only `uncertain` (review order 37, Best Buy; 568, Fastenal), which the review later tagged; they are not a join error. `docs/category_results_2026_11_15/single_comparison.md`, `ovr_single.md`.)
 
 ## 2. What a category is here
 
@@ -66,8 +65,8 @@ older rows: **1,216 rows, 1,049 articles**.
 | 2026-11-12/13 | the older set `v2` (284 tagged rows; 225 single-label rows train) and the held-out 200 (`gold/category_gold_v2_test.csv`) are fixed; 14-label taxonomy, groups of option B | `gold/category_gold_v2*.csv`, `docs/category_results_2026_11_13/` |
 | 2026-11-13 | the 1,000-row sheet is drawn from structured multi bodies (`scripts/draw_category_multi_2026_11_13.py`) and translated for the owner | `data/category_multi_to_tag.csv` (git-ignored) |
 | 2026-11-14 | the owner tags the sheet, one to three labels per row (774 with one label, 213 with two, 10 with three); 3 rows hold only `uncertain` and are left out of the multi file; the owner folds two labels into `other` and decides on **one tag per row** | `gold/category_multi_gold.csv` (997 rows) |
-| 2026-11-15 | a `claude_review` column (comments and a suggested single tag; 355 of the 1,000 rows have a comment) is added to a copy of the sheet; the owner reads it and accepts the suggestions; the single tag of a row is the suggestion, or the owner's tag when there is none | `data/category_multi_to_tag_claude_review.csv` (git-ignored), `gold/category_single_gold.csv` (999 rows; row 166, whose text has a gap where the topic should be, is left out) |
-| 2026-11-15 | the 225 older rows are read again with the same rules: 55 tags change, 8 rows are dropped (an (article, company) pair that carried two tags keeps one) | `gold/category_v2_single.csv` (one line per row: old tag, new tag, reason) |
+| 2026-11-15 | a `claude_review` column (comments and a suggested single tag; 355 of the 1,000 rows have a comment) is added to a copy of the sheet; the owner reads it and accepts the suggestions; the single tag of a row is the suggestion, or the owner's tag when there is none. Three rows had only `uncertain`: the review tagged them `market_analyst_sentiment`; two (orders 37 and 568) are in the set, order 166, whose text has a gap where the topic should be, is left out | `data/category_multi_to_tag_claude_review.csv` (git-ignored, the full copy), `gold/category_single_gold.csv` (999 rows; **`review` keeps the comment of each row that has one**, so every change can be audited without the ignored copy) |
+| 2026-11-15 | the 225 older rows are read again with the same rules: 47 tags change and 8 rows are dropped (an (article, company) pair that carried two tags keeps one); 170 are unchanged | `gold/category_v2_single.csv` (one line per row: old tag, new tag, reason) |
 
 The original `data/category_multi_to_tag.csv` is unchanged (it could not be written; the review is a separate copy). The review copy has two
 added columns, `claude_review` and `final_tag`. Scripts that build the files refuse to overwrite without `--force`.
@@ -88,21 +87,16 @@ best of several was chosen). The largest moves:
 Class sizes before (owner's first tag) and after: `investor_activity` 145 → 17, `market_analyst_sentiment` 54 → 200,
 `earnings_performance` 488 → 469, the others within a few rows. **The convention that changed is the one that matters**: an analyst's rating or
 price target is `market_analyst_sentiment`; `investor_activity` is for a fund or investor moving a stake. The taxonomy already said so
-(`docs/category-taxonomy.md`); the sheet had tagged about 160 analyst-rating items as `investor_activity` (82 single and about 75 multi rows).
+(`docs/category-taxonomy.md`); the sheet had tagged analyst-rating items as `investor_activity`: 124 rows whose first tag was `investor_activity` ended as `market_analyst_sentiment` (table above).
 
 ### 3.4 The rules of the review (the same for the sheet and the older rows)
 
-1. An analyst rating or price target is the story → `market_analyst_sentiment`; a fund or investor buying or selling a stake → `investor_activity`.
-2. Results with guidance, a delay, a charge, or a share move on results → `earnings_performance`, even when a dividend or buyback is also named.
-3. A regulator acting on the company (investigation, fine, ban, ruling, hearing) → `legal_regulatory`.
-4. A drug, vaccine or product approval, a trial result, a delay, a feature or a launch → `product_innovation`.
-5. A launch built on a partner → `partnerships_business_dev` when the partner is the story, `product_innovation` when the product is.
-6. A deal, a bid, a break-up or a sale of a unit → `mergers_acquisitions`; an IPO → `capital_shareholder_returns`.
-7. A change of index membership, a rate or price change, a discount, a macro data release → `other`, even when the share price moves.
-8. A proxy fight or pressure on the board → `leadership_governance`, not `investor_activity`.
-9. An (article, company) pair that carried two tags keeps one tag; the other row is dropped.
+The nine rules are kept in `docs/category-taxonomy.md`, "One tag per row", because that page is the authority for whoever tags (they are not repeated here, so there is one text to
+keep). In short: an analyst rating or price target is `market_analyst_sentiment` and a stake moving is `investor_activity`; results with guidance, a delay or a share move are
+`earnings_performance`; a regulator acting on the company is `legal_regulatory`; a launch built on a partner is `partnerships_business_dev` when the partner is the story and
+`product_innovation` when the product is; an index change, a rate rise, a discount or a macro release is `other`; a proxy fight is `leadership_governance`; a pair gets one row.
 
-The review of the older rows (55 changes: 8 rows of article 166583 from `market_analyst_sentiment` to `earnings_performance`; analyst
+The review of the older rows (47 retagged and 8 dropped: 8 rows of article 166583 from `market_analyst_sentiment` to `earnings_performance`; analyst
 upgrades and downgrades into `market_analyst_sentiment`; the SEC rumour on Coinbase and the Tesla investigation into `legal_regulatory`;
 and so on) is in `gold/category_v2_single.csv` with a reason on every line. A handful are close calls (Microsoft dismissing protesting
 engineers, `labor_human_capital`; the Treasury selling Citigroup warrants, `investor_activity`); the reason column says why.
@@ -193,19 +187,19 @@ The owner would not accept low precision and recall on classes that are "very cl
 ### E8. First run on the new tags (2026-11-15, 04:04)
 
 The sheet's 999 rows with their single tags plus the 225 older rows still with their old tags (1,224 rows, 12 labels), entailment fine-tune as E3 with one positive per row,
-3 epochs, lr 2e-5. Accuracy **85.0%**, macro F1 **0.701**. On the same rows and the same tags the untouched model scores 73.9% (it was 66.0% on the old tags: a part of the
+3 epochs, lr 2e-5. Accuracy **85.0%**, macro F1 **0.701** on its 1,224 rows (85.5% and 0.708 on the 1,216 rows the second run also has; the comparison tables use the latter). On the same rows and the same tags the untouched model scores 73.9% (it was 66.0% on the old tags: a part of the
 gap was the tags) and the E3 model trained on the old tags 73.6% (`investor_activity` precision 0.11, `market_analyst_sentiment` recall 0.16). Of the older rows, article 166583 (ten
 companies, all tagged `market_analyst_sentiment`, the text is earnings reactions) was still wrong in training.
 
 ### E9. Second run: the older rows read again (2026-11-15, 13:58) — the selected recipe
 
-The 225 older rows read with the rules of 3.4 (55 changes, 8 dropped): 1,216 rows. **87.8% accuracy, macro F1 0.748.**
+The 225 older rows read with the one-tag rules of the taxonomy (47 retagged, 8 dropped): 1,216 rows. **87.8% accuracy, macro F1 0.748.**
 
 | view | first run | second run |
 |---|---|---|
-| each run on its own tags | 85.4% / 0.706 | **87.8% / 0.748** |
+| each run on its own tags | 85.5% / 0.708 | **87.8% / 0.748** |
 | both runs on the second tags (is it the training or the tags?) | 87.9% / 0.738 | 87.8% / 0.748 |
-| the older 225 rows only, each on its own tags | 69.6% / 0.558 | 81.6% / 0.714 |
+| the older rows only (217 matched), each on its own tags | 70.0% / 0.565 | 81.6% / 0.714 |
 | the older rows only, both on the second tags | 83.4% / 0.719 | 81.6% / 0.714 |
 | the sheet's 999 rows only (tags unchanged) | 88.9% / 0.748 | 89.2% / 0.759 |
 
@@ -239,13 +233,13 @@ Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/categor
 ### 6.1 What the weak classes show
 
 * **`other` is a definition problem, not a model one.** It is "an event that fits none of the other topics"; its rows are one-line blurbs inside "stocks making the biggest moves" articles (an index
-  addition, a rate rise at a competitor, a discount) and the model reads them as `market_analyst_sentiment` (a price move). On the older rows its precision and recall are 0.14 and 0.06. A rule (3.4, 7) is written,
+  addition, a rate rise at a competitor, a discount) and the model reads them as `market_analyst_sentiment` (a price move). On the older rows its precision and recall are 0.14 and 0.06. The rule is written (the taxonomy, "One tag per row", rule 7),
   but 32 rows do not teach it.
 * **`investor_activity` is small now.** After the review only 20 rows are a fund or investor moving a stake (145 before). The misses go to `market_analyst_sentiment` with `investor_activity` second.
-* **`market_analyst_sentiment` and `partnerships_business_dev` errors are related to the label the model gives.** Of the 35 false positives of `market_analyst_sentiment` in the first run, 22 were gold
-  `investor_activity` (15) or `other` (7); the `partnerships_business_dev` misses went to `product_innovation` (6 of 18) when a launch is built on a partner (Coinbase and Cloudflare's x402 Foundation, Coinbase
-  prediction markets "powered by Kalshi", an American Express plan for merchants) and the model ranked `partnerships_business_dev` second. Rule 5 of 3.4 is the answer; both tags defend themselves, so a few of these
-  stay disagreements.
+* **`market_analyst_sentiment` and `partnerships_business_dev` errors are related to the label the model gives.** In the selected run, 13 of the 23 false positives of `market_analyst_sentiment` are gold `other` (7) or
+  `investor_activity` (6), and its 25 misses are spread thinly; `partnerships_business_dev` has 8 misses (3 to `mergers_acquisitions`, 2 to `product_innovation`, 2 to `other`, 1 to `market_analyst_sentiment`) and 7 false
+  positives (3 gold `product_innovation`). In the **first** run the same class lost 6 of 18 to `product_innovation`, launches built on a partner (Coinbase and Cloudflare's x402 Foundation, Coinbase prediction markets
+  "powered by Kalshi", an American Express plan for merchants), with `partnerships_business_dev` ranked second; rule 5 of the taxonomy settles them, and 2 remain in the second run. Both tags defend themselves in a few rows.
 * **The intervals do not get narrower by cleaning.** Their width follows the number of rows. Mean interval width of precision: 0.27 (first run) and 0.24 (second); recall 0.23 and 0.22. A class with 20 to 45 rows stays at ±0.12 to ±0.15 (a
   0.25 to 0.30 range), whatever the model. **A difference of a few hundredths in a small class is not a finding**: partnerships precision 0.66 → 0.77 and `investor_activity` recall 0.35 → 0.50 between the runs sit inside their intervals. Only
   `earnings_performance`, `market_analyst_sentiment`, `mergers_acquisitions` and `product_innovation` are tight enough to compare runs by.
@@ -260,7 +254,7 @@ Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/categor
 
 ## 8. Caveats (read before quoting a figure)
 
-* **The tags were reviewed after seeing results.** The review rules (3.4) were written after the first per-class tables showed which classes failed, and the single tag of a multi-tag row was chosen by
+* **The tags were reviewed after seeing results.** The review rules (the taxonomy, "One tag per row") were written after the first per-class tables showed which classes failed, and the single tag of a multi-tag row was chosen by
   the reviewer (the owner accepted it). 87.8% is a measure of how well the recipe learns *these* tags; it is not a clean held-out figure and not comparable with the 48.9% of 2026-11-13.
 * **The bar of D24 (80% on the held-out single rows) is not shown.** The held-out 200 was tagged under the earlier convention (analyst ratings partly as `investor_activity`); scoring it with this model would
   need the owner's word, and the held-out tags may need the same review first.
@@ -277,19 +271,19 @@ SHA-256, and the evidence. A test (`tests/news_nlp/test_category_selection.py`) 
 
 **Not done, in order, each on the owner's word:**
 
-1. **Score the held-out 200 once** with a model refit on the 1,216 rows (and decide whether the held-out single rows get the review of 3.4 first; the bar is 80%).
+1. **Score the held-out 200 once** with a model refit on the 1,216 rows (and decide whether the held-out single rows get the one-tag review first; the bar is 80%).
 2. **Refit on all rows** (no fold held out) and keep the weights: a git-ignored folder with its identity, as the sentiment pair model is (`config/sentiment_step.json`). A private Hub copy is a record
    (`config/published_models.json`), uploaded by a script like `scripts/publish_final_models_2026_11_10.py`; it needs `HF_TOKEN` with write scope.
 3. **Wire it into `--step category`.** This is a new revision of the step: the step's tables (14 labels, groups, definitions) are pinned by a test and have to change to 12 labels or map the 12 back to the 14; `LEGACY_REVISIONS`
    is retired in that change; `docs/category_step.md` and FR-018 change; the old rows of the untouched revision stay.
 4. **More rows for the small classes.** About 100 rows per class would bring the intervals to ±0.08. The cheapest source is the rows the model already scores low on for `investor_activity`, `other`,
    `partnerships_business_dev`, `legal_regulatory` and `capital_shareholder_returns`.
-5. **Settle `other`** (a written definition, or an abstention) and **partner versus product** (rule 5).
+5. **Settle `other`** (a written definition, or an abstention) and **partner versus product** (rule 5 of the taxonomy).
 6. Baselines not run: embeddings with a logistic regression, and an LLM few-shot reader (paid; confirm the spend first).
 
 ## 10. Reproduce
 
-All of it runs from the repository; the data folders are git-ignored (the owner's sheets and the out-of-fold scores are local). With the gold files in `gold/`:
+The out-of-fold scores of every run are **committed without text** in `docs/category_results_2026_11_15/scores/` (`category_multilabel/` the four arms of the old tags and their rows, `category_single_v1/` the first run, `category_single/` the second, selected run; about 1 MB). The three report scripts read `data/<name>/` when a run left it there and the committed copy otherwise (`category_multilabel.scores_dir`), so **the three report commands below run from a clean checkout** and give the committed tables. Only the cross-validation itself (the first command, about an hour on the GPU) needs the gold files and writes to the ignored `data/`. The owner's sheet and its review copy (`data/category_multi_to_tag*.csv`) stay local; the review comments of every row are in `gold/category_single_gold.csv` (`review`).
 
 ```
 uv run scripts/category_single_cv_2026_11_15.py cv            # the selected recipe, 5 folds -> data/category_single/oof_single.npz (~1 h on the GPU)
@@ -301,7 +295,7 @@ uv run scripts/category_arms_summary_2026_11_15.py --out docs/category_results_2
 Rebuilding the data: `scripts/build_gold_category_multi_2026_11_14.py` (the owner's tags), `scripts/build_gold_category_single_2026_11_15.py` (one tag per row from the review copy),
 `scripts/build_gold_category_v2_single_2026_11_15.py` (the older rows read again; the table of changes is in the script). The arms on the old tags:
 `scripts/category_multilabel_cv_2026_11_14.py` (modes `base`, `first`, `multi`), `scripts/category_head_cv_2026_11_14.py`, `scripts/category_deberta_cv_2026_11_14.py`,
-`scripts/category_ovr_report_2026_11_14.py`. The torch-free helpers (parsing labels, the set rule, folds, per-class figures, intervals, ROC AUC, the merge) are `src/category_multilabel.py`
+`scripts/category_ovr_report_2026_11_14.py` (these four need the local `data/category_multilabel/`; their scores are in the committed folder). The torch-free helpers (parsing labels, the set rule, folds, per-class figures, intervals, ROC AUC, the merge) are `src/category_multilabel.py`
 (`tests/news_nlp/test_category_multilabel.py`).
 
 ## 11. File index
@@ -309,9 +303,9 @@ Rebuilding the data: `scripts/build_gold_category_multi_2026_11_14.py` (the owne
 | what | where |
 |---|---|
 | the pin (selected recipe) | `config/category_model.json` |
-| the tests of the pin and the tag files | `tests/news_nlp/test_category_selection.py` |
-| final results | `docs/category_results_2026_11_15/`: `ovr_single.md` (second run, per class, with intervals, and the three models), `ovr_single_first_run.md`, `single_comparison.md`, `arms_old_tags.md`, `single_predictions.csv` (no text) |
+| the tests of the pin and the tag files (hashes; the accuracy and macro F1 of the pin against the committed scores; the untouched model's rows; the older-rows table against the rows of the earlier runs; a review comment for every changed tag; the hash of the definitions, hypothesis and premise) | `tests/news_nlp/test_category_selection.py` |
+| final results | `docs/category_results_2026_11_15/`: `ovr_single.md` (second run, per class, with intervals, and the three models), `ovr_single_first_run.md`, `single_comparison.md`, `arms_old_tags.md`, `single_predictions.csv` (no text), `scores/` (the out-of-fold scores of every run, no text) |
 | the first results | `docs/category_results_2026_11_13/` |
-| tag files | `gold/category_multi_gold.csv`, `gold/category_single_gold.csv`, `gold/category_v2_single.csv`, texts in `gold/texts/` (list: `docs/gold_datasets.md`, row 13) |
-| the taxonomy and the definitions | `docs/category-taxonomy.md`, `docs/category_step.md` |
+| tag files | `gold/category_multi_gold.csv`, `gold/category_single_gold.csv`, `gold/category_v2_single.csv`, texts in `gold/texts/` (list: `docs/gold_datasets.md`, rows 13 to 15; the sheet's `review` column holds the comment behind each change) |
+| the tagging rules ("One tag per row"), the definitions | `docs/category-taxonomy.md`, `docs/category_step.md` |
 | the decision and the task | `PLAN.md` D43, `TASKS.md` T-187 |

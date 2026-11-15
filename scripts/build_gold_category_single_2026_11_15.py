@@ -6,7 +6,7 @@
 Reads ``data/category_multi_to_tag_claude_review.csv`` (the owner's sheet + a ``claude_review`` column). The tag of a row is the one the
 review suggests ("SUGGEST: <tag>"), else the owner's single tag. ``competitive_actions`` and ``peer_comparison`` are read as ``other``
 (owner, 2026-11-14), so the labels are the 12 of ``category_multilabel.merge_labels``. Row 166 is left out: its text has a gap where
-the topic should be. Writes ``gold/category_single_gold.csv`` and ``gold/texts/category_single_gold_texts.csv`` (refuses to overwrite
+the topic should be. Writes ``gold/category_single_gold.csv`` (``label`` the tag, ``label_owner`` the owner's cell, ``review`` the comment of the review, so a change can be audited without the git-ignored copy) and ``gold/texts/category_single_gold_texts.csv`` (refuses to overwrite
 without ``--force``) and adds a ``final_tag`` column to the review copy of the sheet.
 """
 
@@ -68,8 +68,8 @@ def main() -> None:
     use = df[~df.review_order.isin(LEFT_OUT)]
     gold_f.parent.mkdir(parents=True, exist_ok=True)
     text_f.parent.mkdir(parents=True, exist_ok=True)
-    use.assign(label_owner=use.label, label=use.final_tag)[
-        ["review_order", "article_id", "ticker", "company", "label", "label_owner"]
+    use.assign(label_owner=use.label, label=use.final_tag, review=use.claude_review)[
+        ["review_order", "article_id", "ticker", "company", "label", "label_owner", "review"]
     ].to_csv(gold_f, index=False, lineterminator="\n")
     use[TEXT_COLUMNS].to_csv(text_f, index=False, lineterminator="\n")
     print(
