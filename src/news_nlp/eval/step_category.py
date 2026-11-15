@@ -108,3 +108,79 @@ def sign_test(a_only: int, b_only: int) -> float:
         return 1.0
     tail = sum(math.comb(n, k) for k in range(min(a_only, b_only) + 1)) / float(2**n)
     return min(1.0, 2 * tail)
+
+
+JudgedRow = dict[
+    str, str
+]  # keys: judge, second, parse_failed ("True"/"False"), tag, selected, untouched
+MODELS: tuple[tuple[str, str], ...] = (
+    ("untouched zero-shot (the step until now)", "untouched"),
+    ("**fine-tune pinned in `config/category_step.json`**", "selected"),
+)
+LABELLERS: tuple[tuple[str, str], ...] = (("the assistant's tags (a second LLM labeller)", "tag"),)
+
+
+def summary(rows: Sequence[JudgedRow]) -> dict[str, float | int]:
+    """The headline figures of a judged sample (parse failures excluded); what the pin records."""
+    ok = [r for r in rows if r["parse_failed"] != "True"]
+    judge = [r["judge"] for r in ok]
+    sel = [r["selected"] == j for r, j in zip(ok, judge, strict=True)]
+    unt = [r["untouched"] == j for r, j in zip(ok, judge, strict=True)]
+    sel_only = sum(s and not u for s, u in zip(sel, unt, strict=True))
+    unt_only = sum(u and not s for s, u in zip(sel, unt, strict=True))
+    n = len(ok)
+    return {
+        "n": n,
+        "parse_failed": len(rows) - n,
+        "selected": sum(sel) / n if n else 0.0,
+        "untouched": sum(unt) / n if n else 0.0,
+        "selected_only": sel_only,
+        "untouched_only": unt_only,
+        "sign_test_p": sign_test(sel_only, unt_only),
+    }
+
+
+def report(rows: Sequence[JudgedRow], header: Sequence[str]) -> str:
+    """The markdown of a judged sample: agreement of each model with the judge, paired test, per class, confusions."""
+    ok = [r for r in rows if r["parse_failed"] != "True"]
+    judge = [r["judge"] for r in ok]
+    second = [r["second"] or None for r in ok]
+    lines = [
+        f"# The LLM judge on step 7: {len(rows)} real sub-news, blind (T-209)\n",
+        *header,
+        f"- {len(ok)} judged, {len(rows) - len(ok)} parse failures (excluded). The judge is a model: agreement with a judge, not truth.",
+        "- The judge never saw a model's label. The assistant's tags and the judge are both LLM output: their agreement is not an independent check.\n",
+        "| labels | agree with the judge (strict) [95%] | with the judge's second label too |\n|---|---|---|",
+    ]
+    for name, col in (*MODELS, *LABELLERS):
+        labels = [r[col] for r in ok]
+        a = agreement(judge, labels, second)
+        lo, hi = bootstrap_ci([m == j for m, j in zip(labels, judge, strict=True)])
+        lines.append(f"| {name} | {a['strict']:.1%} [{lo:.1%}, {hi:.1%}] | {a['lenient']:.1%} |")
+    s = summary(rows)
+    lines.append(
+        f"\nPaired: the fine-tune agrees with the judge where the untouched model does not on {s['selected_only']} texts, "
+        f"the reverse on {s['untouched_only']}; exact sign test p = {s['sign_test_p']:.3f}."
+    )
+    lines.append(
+        f"\n`other`: the judge says `other` on {sum(j == 'other' for j in judge)} texts, the pinned model on "
+        f"{sum(r['selected'] == 'other' for r in ok)}."
+    )
+    lines.append(
+        "\n## Per class of the judge (the texts the judge puts in the class)\n\n| class | texts | fine-tune right | untouched right |\n|---|---|---|---|"
+    )
+    for lab in STEP_LABELS:
+        mine = [r for r in ok if r["judge"] == lab]
+        if mine:
+            lines.append(
+                f"| {lab} | {len(mine)} | {sum(r['selected'] == lab for r in mine)} | {sum(r['untouched'] == lab for r in mine)} |"
+            )
+    pairs: dict[tuple[str, str], int] = {}
+    for r in ok:
+        if r["judge"] != r["selected"]:
+            pairs[(r["judge"], r["selected"])] = pairs.get((r["judge"], r["selected"]), 0) + 1
+    lines.append("\nLargest disagreements (judge -> pinned model):")
+    lines += [
+        f"- `{g}` -> `{p}`: {k}" for (g, p), k in sorted(pairs.items(), key=lambda x: -x[1])[:6]
+    ]
+    return "\n".join(lines) + "\n"

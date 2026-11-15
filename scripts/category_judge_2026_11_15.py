@@ -15,9 +15,12 @@ run again. The judge is a model: the figures are agreement with a judge, not tru
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import random
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -57,51 +60,17 @@ def judge_all(df: pd.DataFrame, workers: int) -> list[sc.StepCategoryVerdict]:
         return list(pool.map(one, zip(df.company, df.text, strict=True)))
 
 
-def figures(df: pd.DataFrame) -> str:
-    ok = df[~df.parse_failed].reset_index(drop=True)
-    judge, second = list(ok.judge), [s or None for s in ok.second]
-    lines = [
-        f"# The LLM judge on step 7: {len(df)} real sub-news, blind (T-209)\n",
-        f"- {len(ok)} judged, {len(df) - len(ok)} parse failures (excluded). The judge is a model: agreement with a judge, not truth.",
-        "- Texts: a seeded draw of the 300 real sub-news under 1,000 characters (the text the step reads); the judge never saw a model's label.\n",
-        "| labels | agree with the judge (strict) [95%] | with the judge's second label too |\n|---|---|---|",
+def header(n_asked: int, seed: int, model: str, date: str) -> list[str]:
+    prompt = hashlib.sha256(sc.system_prompt().encode()).hexdigest()[:16]
+    return [
+        f"- Judge model: `{model}` (the `LLM_MODEL` of `.env`; it wrote none of the labels compared). Date {date}. "
+        f"Sample: a seeded draw (seed {seed}) of {n_asked} of the 300 real sub-news under 1,000 characters (the text the step reads).",
+        f"- Judge prompt `src/news_nlp/eval/prompts/category_step.md`, SHA-256 `{prompt}…`; temperature 0.",
     ]
-    hits: dict[str, list[bool]] = {}
-    for name, col in (
-        ("untouched zero-shot (the step until now)", "untouched"),
-        ("**fine-tune pinned in `config/category_step.json`**", "selected"),
-        ("the assistant's tags (calibration of the judge)", "tag"),
-    ):
-        model = list(ok[col])
-        hits[col] = [m == j for m, j in zip(model, judge, strict=True)]
-        a = sc.agreement(judge, model, second)
-        lo, hi = sc.bootstrap_ci(hits[col])
-        lines.append(f"| {name} | {a['strict']:.1%} [{lo:.1%}, {hi:.1%}] | {a['lenient']:.1%} |")
-    sel_only = sum(s and not u for s, u in zip(hits["selected"], hits["untouched"], strict=True))
-    unt_only = sum(u and not s for s, u in zip(hits["selected"], hits["untouched"], strict=True))
-    p = sc.sign_test(sel_only, unt_only)
-    lines.append(
-        f"\nPaired: the fine-tune agrees with the judge where the untouched model does not on {sel_only} texts, the reverse on {unt_only}; "
-        f"exact sign test p = {p:.3f}."
-    )
-    other_j = sum(j == "other" for j in judge)
-    other_s = sum(m == "other" for m in ok.selected)
-    lines.append(
-        f"\n`other`: the judge says `other` on {other_j} texts, the pinned model on {other_s}."
-    )
-    conf = pd.crosstab(pd.Series(judge, name="judge"), pd.Series(ok.selected, name="pinned model"))
-    pairs = sorted(
-        (
-            (g, p_, int(conf.loc[g, p_]))
-            for g in conf.index
-            for p_ in conf.columns
-            if g != p_ and conf.loc[g, p_] > 0
-        ),
-        key=lambda x: -x[2],
-    )
-    lines.append("\nLargest disagreements (judge -> pinned model):")
-    lines += [f"- `{g}` -> `{p_}`: {k}" for g, p_, k in pairs[:6]]
-    return "\n".join(lines) + "\n"
+
+
+def read_rows(csv: Path) -> list[sc.JudgedRow]:
+    return pd.read_csv(csv, dtype=str).fillna("").to_dict("records")  # type: ignore[return-value]
 
 
 def main() -> None:
@@ -110,8 +79,23 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=20261115)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--report-only",
+        action="store_true",
+        help="rewrite the .md from the committed .csv; no call",
+    )
+    ap.add_argument("--model", default="", help="with --report-only: the judge model of that run")
+    ap.add_argument("--date", default=date.today().isoformat())
     args = ap.parse_args()
-    csv = OUT / "judge_step7.csv"
+    csv = OUT / f"judge_step7_n{args.n}.csv"
+    md = OUT / f"judge_step7_n{args.n}.md"
+    if args.report_only:
+        rows = read_rows(csv)
+        md.write_text(
+            sc.report(rows, header(args.n, args.seed, args.model, args.date)), encoding="utf-8"
+        )
+        print(md)
+        return
     df = draw(args.n, args.seed)
     chars = int(df.text.str.len().sum())
     print(
@@ -124,15 +108,27 @@ def main() -> None:
         return
     if csv.exists():
         sys.exit(f"{csv} exists: the judge was run on this sample; delete it by hand to run again")
+    model = os.environ.get("LLM_MODEL") or load_dotenv_model()
     verdicts = judge_all(df, args.workers)
     df["judge"] = [v.ideal_slug for v in verdicts]
     df["second"] = [v.second_slug or "" for v in verdicts]
-    df["parse_failed"] = [v.parse_failed for v in verdicts]
-    df["rationale"] = [v.rationale for v in verdicts]
+    df["parse_failed"] = [str(v.parse_failed) for v in verdicts]
+    # The rationales paraphrase the articles: kept local (git-ignored data/), not committed.
+    local = ROOT / "data" / f"judge_step7_n{args.n}_rationales.csv"
+    local.parent.mkdir(exist_ok=True)
+    pd.DataFrame({"idx": df.idx, "rationale": [v.rationale for v in verdicts]}).to_csv(
+        local, index=False
+    )
     df.drop(columns=["text"]).to_csv(csv, index=False)
-    text = figures(df)
-    (OUT / "judge_step7.md").write_text(text, encoding="utf-8")
+    text = sc.report(read_rows(csv), header(args.n, args.seed, model, args.date))
+    md.write_text(text, encoding="utf-8")
     print(text)
+
+
+def load_dotenv_model() -> str:
+    from news_nlp.eval.config import EvalSettings
+
+    return EvalSettings.load().llm_model
 
 
 if __name__ == "__main__":

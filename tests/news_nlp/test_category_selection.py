@@ -15,6 +15,7 @@ import numpy as np
 
 import category_multilabel as ml
 import news_category_stage as stage
+from news_nlp.eval import step_category as sc
 
 ROOT = Path(__file__).resolve().parents[2]
 PIN = json.loads((ROOT / "config" / "category_model.json").read_text(encoding="utf-8"))
@@ -183,3 +184,16 @@ def test_the_refit_seed_is_the_one_of_the_weights_that_are_wired() -> None:
     assert ml.refit_seed(PIN) == 0
     assert "seed 0" in PIN["recipe"]["refit_note"]
     assert PIN["recipe"]["cv_seed"] == 0
+
+
+def test_the_judge_evidence_of_the_pin_is_what_the_committed_judge_rows_give() -> None:
+    path = ROOT / "docs" / "category_results_2026_11_15" / "judge_step7_n300.csv"
+    with path.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    s = sc.summary(rows)
+    ev = stage.pin()["evidence"]
+    assert s["n"] == ev["judge_rows"] == 300
+    assert round(float(s["selected"]), 3) == ev["judge_selected_agreement"]
+    assert round(float(s["untouched"]), 3) == ev["judge_untouched_agreement"]
+    assert round(float(s["sign_test_p"]), 3) == ev["judge_sign_test_p"]
+    assert "rationale" not in rows[0]  # the rationales paraphrase the articles: not committed

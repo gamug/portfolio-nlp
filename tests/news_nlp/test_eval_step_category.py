@@ -73,3 +73,46 @@ def test_bootstrap_ci_is_seeded_and_brackets_the_mean() -> None:
     lo, hi = sc.bootstrap_ci(hits, boot=500, seed=1)
     assert lo <= 0.75 <= hi
     assert (lo, hi) == sc.bootstrap_ci(hits, boot=500, seed=1)
+
+
+def _row(
+    judge: str, selected: str, untouched: str, tag: str = "other", failed: bool = False
+) -> dict[str, str]:
+    return {
+        "judge": judge,
+        "second": "",
+        "parse_failed": str(failed),
+        "tag": tag,
+        "selected": selected,
+        "untouched": untouched,
+    }
+
+
+ROWS = [
+    _row("earnings_performance", "earnings_performance", "other"),  # only the fine-tune right
+    _row("earnings_performance", "earnings_performance", "other"),
+    _row("legal_regulatory", "other", "legal_regulatory"),  # only the untouched right
+    _row("product_innovation", "product_innovation", "product_innovation"),  # both
+    _row("labor_human_capital", "other", "other"),  # neither
+    _row("earnings_performance", "other", "other", failed=True),  # excluded
+]
+
+
+def test_summary_counts_the_paired_texts_and_drops_parse_failures() -> None:
+    s = sc.summary(ROWS)
+    assert s["n"] == 5 and s["parse_failed"] == 1
+    assert s["selected"] == 0.6 and s["untouched"] == 0.4
+    assert (s["selected_only"], s["untouched_only"]) == (2, 1)
+    assert s["sign_test_p"] == sc.sign_test(2, 1)
+
+
+def test_report_has_the_header_the_models_and_the_per_class_table() -> None:
+    text = sc.report(ROWS, ["- Judge model: `m`."])
+    assert text.startswith("# The LLM judge on step 7: 6 real sub-news")
+    assert "- Judge model: `m`." in text
+    assert "5 judged, 1 parse failures" in text
+    assert "| 60.0% [" in text
+    assert (
+        "| earnings_performance | 2 | 2 | 0 |" in text
+    )  # judge puts 2 texts in `a`; fine-tune right on 2, untouched on 0
+    assert "`labor_human_capital` -> `other`: 1" in text

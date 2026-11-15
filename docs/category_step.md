@@ -102,7 +102,7 @@ The step checks the identity and the manifest of the pin at the first text and n
 
 The model reads one short definition per label, the ones of the baseline of 2026-11-13 (measured: `docs/category_results_2026_11_13/`). They are shorter than the rules of the
 tagger in `docs/category-taxonomy.md` (the "Not this label when" column, owner calls 6 and 15 and so on are not read); the taxonomy is the authority for the human tagger, this table for the
-step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187). The fine-tuned candidate selected on 2026-11-15 (12 labels, one tag per row, not wired) and its measures are in `docs/category_training.md`.
+step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187). The fine-tuned candidate selected on 2026-11-15 (12 labels, one tag per row; now the default) and its measures are in `docs/category_training.md`.
 
 | Label | Group | Definition read by the model |
 |---|---|---|
@@ -137,9 +137,9 @@ The bar of D24 is **80%** agreement with the owner's labels on the held-out sing
 | 300 real sub-news under 1,000 characters, the assistant's tags | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
 | out of fold, 1,216 rows, tags reviewed after the first results | 87.8% | 75.5% |
 
-| 80 of those sub-news, an independent blind LLM judge (T-209) | 73.8% [63.7, 83.8] | 72.5% [62.5, 82.5] |
+| the same 300, a blind LLM judge (`deepseek-chat`; T-209) | 77.0% [72.0, 81.7] | 71.0% [66.0, 76.0] |
 
-The judge sees no difference between the two models on 80 texts (paired sign test p = 1.0), so the gain of the assistant's tags on the same kind of text (71.3% against 65.7%) is not confirmed by it.
+The judge agrees on the direction (paired 41 against 23, p = 0.033; its first 80 texts alone were inconclusive) but is LLM output like the assistant's tags, not a second independent reader; the pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115). 
 
 Only the held-out is tagged by the owner and held out, and it is the one that fails. It reads best on short company segments (the texts of the cut) and worst on full articles. `earnings_performance`, `market_analyst_sentiment` and
 `mergers_acquisitions` are reliable; **`other` is not** (it gets 3 of 39 right on the real sample), and `investor_activity` and `leadership_governance` have too few rows to measure. The group agrees more than the label does (65.2% held-out).
