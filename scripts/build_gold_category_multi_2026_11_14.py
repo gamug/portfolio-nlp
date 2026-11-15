@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import category_multilabel as ml  # noqa: E402
-from news_category_stage import LABELS  # noqa: E402
+
+LABELS = ml.LABELS14
 
 
 def write(path: Path, columns: tuple[str, ...], rows: list[dict[str, str]]) -> None:

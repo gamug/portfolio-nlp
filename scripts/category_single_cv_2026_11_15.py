@@ -35,7 +35,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import category_multilabel_cv_2026_11_14 as cvs
 
 import category_multilabel as ml
-from news_category_stage import LABELS as L14
+
+L14 = ml.LABELS14
 
 L12 = ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER)
 cvs.LABELS = L12  # train() and score() read the module's label list

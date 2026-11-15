@@ -1,7 +1,6 @@
 """The multi-label reading of the category scores (T-187, owner 2026-11-14).
 
-A news text can carry more than one category (a design feature: 225 of the owner's 1,000 rows carry two and 10 carry
-three). The zero-shot model already scores each label by itself (entailment, the scores do not sum to 1); the step
+A news text can carry more than one category (the sheet of 1,000 rows was tagged that way: 213 rows carry two and 10 carry three; the decision of 2026-11-15, D43, is one tag per row). The zero-shot model already scores each label by itself (entailment, the scores do not sum to 1); the step
 keeps the largest. This module holds what a multi-label reading needs and no model: the labels of a row, the set a
 row is given from its 14 scores, the pairs a fine-tune learns from (every gold label is a positive, and a negative is
 never a gold label), the figures, and the choice of the rule on other folds only. No torch here, so it is tested.
@@ -192,7 +191,7 @@ def gold_rows(
     sheet: Sequence[dict[str, str]], labels: Sequence[str]
 ) -> tuple[list[dict[str, str]], list[dict[str, str]], list[str]]:
     """The tags and the texts of the owner's sheet. A row whose cell is empty, holds a label that is not one, or
-    holds only ``uncertain`` stops the build with the row named: the owner fixes the sheet, nothing is guessed."""
+    holds only ``uncertain`` is left out and listed in ``left_out``; the other cases stop the build with the row named: the owner fixes the sheet, nothing is guessed."""
     gold: list[dict[str, str]] = []
     texts: list[dict[str, str]] = []
     left_out: list[str] = []
@@ -571,3 +570,37 @@ def refit_flag_problems(
 ) -> dict[str, object]:
     """The flags given to ``refit`` whose value is not the pin's: the refit takes its recipe from ``recipe`` of the pin, never from the command line."""
     return {k: v for k, v in values.items() if k in hyper and v != hyper[k]}
+
+
+#: The 14 labels of D15 with the short definitions and the groups they were measured with (2026-11-13 to 2026-11-15). The step (``news_category_stage``) reads 12 since T-203
+#: (``competitive_actions`` and ``peer_comparison`` read as ``other``); the research scripts of those days keep reading these 14, in this order, so their figures can be reproduced.
+DEFINITIONS14: dict[str, str] = {
+    "earnings_performance": "results, guidance, revenue or profit figures",
+    "mergers_acquisitions": "deals, takeovers, divestitures",
+    "leadership_governance": "executive appointments and departures, board actions, an executive's insider trade",
+    "legal_regulatory": "litigation, regulatory action, sanctions, bankruptcy",
+    "product_innovation": "product launches, R&D, technology",
+    "capital_shareholder_returns": "dividends, buybacks, debt and credit actions of the company",
+    "labor_human_capital": "layoffs, hiring, workforce and labour relations",
+    "market_analyst_sentiment": "analyst ratings and price targets, stock price moves, an investor's bullish or bearish view",
+    "partnerships_business_dev": "strategic alliances, joint ventures, distribution deals",
+    "reputational_harm": "an event that damages or repairs the company's public standing: apologies, service failures, controversies, boycotts",
+    "competitive_actions": "the company's own move or statement against or about a competitor: share fights, pricing pressure",
+    "investor_activity": "a fund or famous investor buys or sells the stock, an activist position, 13F filings, block trades",
+    "peer_comparison": "a comparison between companies: which is the better stock, who is ahead",
+    "other": "an event that fits none of the other topics",
+}
+LABELS14: tuple[str, ...] = tuple(DEFINITIONS14)
+GROUPS14: dict[str, tuple[str, ...]] = {
+    "results_capital": ("earnings_performance", "capital_shareholder_returns"),
+    "market_view": ("market_analyst_sentiment", "investor_activity", "peer_comparison"),
+    "deals_alliances": ("mergers_acquisitions", "partnerships_business_dev", "competitive_actions"),
+    "product_people": ("product_innovation", "labor_human_capital"),
+    "governance_legal_reputation": (
+        "leadership_governance",
+        "legal_regulatory",
+        "reputational_harm",
+    ),
+    "other": ("other",),
+}
+GROUP_OF14: dict[str, str] = {label: g for g, labels in GROUPS14.items() for label in labels}

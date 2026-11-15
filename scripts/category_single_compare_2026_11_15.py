@@ -22,7 +22,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 import category_multilabel as ml
-from news_category_stage import LABELS as L14
+
+L14 = ml.LABELS14
 
 L12 = list(ml.merge_labels(tuple(L14), ml.FOLD_INTO_OTHER))
 
