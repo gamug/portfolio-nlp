@@ -467,6 +467,8 @@ def _summary_argv(tmp_path: Path, results_db_path: Path, *extra: str) -> list[st
         "news_nlp_steps.py",
         "--step",
         "summary",
+        "--summariser",
+        "local",  # these tests patch the local summariser; the API one has its own file (test_summary_llm.py) and needs no .env here
         "--results-db",
         str(results_db_path),
         "--source-db",

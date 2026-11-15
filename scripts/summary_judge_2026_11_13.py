@@ -45,6 +45,7 @@ import threading
 from collections import Counter
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -587,12 +588,38 @@ def pinned_summariser() -> str:
 
 def is_self_judge(summariser_model: str, judge_model: str) -> bool:
     """Is the judge the model that wrote the summaries? Compared by name without the owner and in lower case (``sshleifer/distilbart-cnn-12-6`` and
-    ``distilbart-cnn-12-6`` are the same model; ``deepseek-chat`` writing and judging is the case this exists for)."""
+    ``distilbart-cnn-12-6`` are the same model; ``deepseek-chat`` writing and judging is the case this exists for). ``summariser_model`` may hold several names
+    separated by commas (the model asked for and the one the API named): the judge is a self-judge if it is any of them."""
 
     def norm(name: str) -> str:
         return name.strip().lower().rsplit("/", 1)[-1]
 
-    return bool(norm(summariser_model)) and norm(summariser_model) == norm(judge_model)
+    names = {norm(n) for n in summariser_model.split(",")} - {""}
+    return norm(judge_model) in names
+
+
+API_REVISION_PREFIX = "summary-llm-"
+
+
+def summariser_of(results_db: Path, summary_revision: str, given: str | None) -> str:
+    """The model(s) that wrote the summaries of a revision. ``--summariser-model`` wins. A revision of the API summariser (``summary-llm-``) names them itself:
+    the model asked for and the one the API answered with, from ``news_summary_call`` (``deepseek-chat`` is answered as ``deepseek-flash``), so the guard against a
+    self-judge does not depend on the flag being typed; with no call recorded the sample cannot be drawn. Any other revision is the pinned local summariser."""
+    if given:
+        return given
+    if not summary_revision.startswith(API_REVISION_PREFIX):
+        return pinned_summariser()
+    with closing(sqlite3.connect(f"file:{results_db}?mode=ro", uri=True)) as conn:
+        rows = conn.execute(
+            "SELECT model_asked, api_model FROM news_summary_call WHERE model_revision = ?",
+            (summary_revision,),
+        ).fetchall()
+    names = sorted({str(n) for row in rows for n in row if n})
+    if not names:
+        sys.exit(
+            f"{summary_revision} is an API revision with no call recorded in news_summary_call: pass --summariser-model with the model that wrote it"
+        )
+    return ",".join(names)
 
 
 def make_meta(
@@ -1305,7 +1332,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--summariser-model",
         default=None,
-        help="the model that wrote the summaries (default: c_summary of config/pipeline_models.json); recorded, and the judge must not be it",
+        help="the model that wrote the summaries (default: for a summary-llm- revision the models recorded in news_summary_call, else c_summary of config/pipeline_models.json); recorded, and the judge must not be it",
     )
     p.add_argument("--out", type=Path, default=DEFAULT_DIR / "sample.csv")
     j = sub.add_parser("judge")
@@ -1389,7 +1416,9 @@ def main() -> None:
             results_db=Path(args.results_db),
             source_db=Path(args.source_db),
             bucket_by=args.bucket_by,
-            summariser_model=args.summariser_model,
+            summariser_model=summariser_of(
+                Path(args.results_db), args.summary_revision, args.summariser_model
+            ),
         )
         write_sample(args.out, rows, meta)
         print(f"wrote {len(rows)} rows to {args.out}\n{_identity_line(args.out)}")

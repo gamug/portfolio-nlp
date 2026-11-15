@@ -175,10 +175,9 @@ against 3.08, hallucination 4% against 21%; it is small and the arms are guessab
 **Decided by the owner.** (a) Scope: the stepped pipeline only (`--step summary`: single bodies and sub-news over 2,000 characters, and the assigned `sector`
 bodies); the v1 chain stays on distilbart. (b) No gate before the run: the corpus run goes first and the evaluation after it (the blind marks, the company and
 main-event metric, an `news_nlp.eval` run against run 44). (c) Failure: fail fast and resumable (a few retries, then stop; rows written stay; no fallback to
-distilbart, no empty summary). (d) Revision: a hash of the prompt, the model name, the temperature and the size rule; each row stores the API model id and the date.
+distilbart, no empty summary). (d) Revision: a hash of the prompt, the model name, the temperature and the size rule; each row stores the API model id and the date. (Added in the build, #200: the host of the endpoint and the reply limit are in the hash too, and each row stores the model name asked for beside the one the API named.)
 
-**To build.** The summariser in `news_summary_stage` (OpenAI-compatible `chat/completions`, `LLM_*` from `.env`, bounded concurrency, the prompt in a tracked
-file), tokens in and out in `--status`, a logged call or spend cap, tests with the API mocked, `docs/summary_step.md` updated.
+**Built (#200, 2026-11-15).** `src/news_summary_llm.py` (OpenAI-compatible `chat/completions`; `SUMMARY_LLM_*` of `.env`, each falling back to the judge's `LLM_*`; 8 requests at once, which is also the batch; the prompt in `config/summary_prompt.md`), tokens, the model asked for and the model the API named in `news_summary_call` and `--status`, `--max-calls`, a cost estimate before the run, tests with the API mocked, `docs/summary_step.md` ("DeepSeek is the summariser"). What a run does when the API fails is there.
 
 **Cost.** The scope of T-206 (a) is three populations, not two: the single bodies and the sub-news over 2,000 characters **and the sector bodies the step summarises** (T-167). Measured on the real databases by `scripts/summary_chars_to_summarise_2026_11_15.py` (`docs/summarization_results_2026_11_15/chars_to_summarise.md`):
 
@@ -195,13 +194,11 @@ That is about 78.9M input and 6.9M output tokens (4.31 characters per input toke
 
 **Run to run.** At temperature 0 DeepSeek's text is **not** repeatable: 30 articles summarised a second time gave **0 identical summaries** (mean word overlap 0.66), but the judge's scores held (faithfulness 5.00 and 5.00, coverage 4.70 and 4.63, conciseness 4.97 and 4.97, no hallucination flagged either time; `deepseek_repeat_30.csv`, `tables.md`). So a revision of this step cannot promise the same summary twice, and a "no new rows when run again" check is a check on the rows, not on regenerating them; the quality figures are stable to this size of test, which is small.
 
-**Long texts.** The script cuts the body it sends at 100,000 characters and records `truncated`; none of the 300 articles (longest 68,537) was cut, and none of the three populations above has a text over 84,177 characters. SOURCE holds one body of 143,948 characters (not in these populations). T-206 has no rule for a text over the limit of the model: **the owner chooses** between summarising it in chunks and joining them, keeping it as the original, or sending it to the review list; the build does not invent it.
+**Long texts.** The script cuts the body it sends at 100,000 characters and records `truncated`; none of the 300 articles (longest 68,537) was cut, and none of the three populations above has a text over 84,177 characters. SOURCE holds one body of 143,948 characters (not in these populations). **Decided by the owner (2026-11-15): a text over the limit is kept as the original** (`text_source = original`, not sent; `src/news_summary_llm.py` `MAX_CHARS`).
 
 **Judging the corpus run.** The judge of step 2 (`docs/summary_step.md`, "Measuring the summaries", PR #180, merged) must **not be DeepSeek** when the summaries are DeepSeek's (it would grade its own text, the limit of this evidence): `judge` stops when its `LLM_MODEL` is the `summariser_model` recorded by `draw` unless `--allow-self-judge` is given (added by PR #180, merged: `docs/summary_step.md`, "Measuring the summaries"), and its buckets for summaries with no chunks are cut by `--bucket-by chars`. The owner's marks (`tag-sheet`, `agree`) are the primary measure then.
 
-**Open.** Constitution AI #1 (a model swap needs an eval run first) and #2 (CPU-capable, deterministic inference) against the owner's choice to evaluate after the
-run: reconcile `SPEC.md` and the constitution in the same change. A text the API refuses (kept as the original, or the review list). That article text leaves
-the machine for an external API: to confirm.
+**Built (2026-11-15).** DeepSeek is the default summariser of `--step summary` (`--summariser local` keeps distilbart); the constitution has a scoped exception to AI #1/#2/#5; the egress of the article text is accepted by the owner; a text the API refuses fails alone with its reason and is retried (`docs/summary_step.md`). **Still open:** the corpus run and its evaluation (the judge must not be the summariser).
 
 **Reproducing the arm.** The scratch (`experiments/results/summary_lead_2026_11_13/`, git-ignored) is built by `summary_lead_experiment_2026_11_13.py sample` from `eval_run` 44 of the owner's RESULTS file and SOURCE copy, so it cannot be downloaded; the first three commands need it and `LLM_*` in `.env`, the last two need only the repository:
 
