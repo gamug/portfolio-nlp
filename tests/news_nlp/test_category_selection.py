@@ -1,6 +1,6 @@
 """The selected category model (T-187): ``config/category_model.json`` and the gold files it names stay the ones it says.
 
-A change to a tag file or to the recipe has to change the pin, so the figures in ``docs/category_train.md`` are not left describing
+A change to a tag file or to the recipe has to change the pin, so the figures in ``docs/category_training.md`` are not left describing
 other data. Reads files only: no model, no GPU.
 """
 
@@ -175,6 +175,23 @@ def test_the_reading_of_the_pin_is_the_one_of_the_code() -> None:
     )
 
 
-def test_the_seed_of_the_refit_is_not_decided_yet() -> None:
-    assert PIN["recipe"]["refit_seed"] is None
+def test_the_refit_has_a_fixed_seed() -> None:
+    """One refit, one seed: the weights that are scored on the held-out are the ones that get wired (T-201)."""
+    assert PIN["recipe"]["refit_seed"] == 0
     assert PIN["recipe"]["cv_seed"] == 0
+
+
+def test_the_review_audit_draws_the_changed_rows_blind_and_by_seed() -> None:
+    """T-200: the second reader's sample comes from the 226 rows whose tag the review changed,"""
+    import importlib.util  # noqa: PLC0415
+
+    path = ROOT / "scripts" / "draw_category_review_audit_2026_11_15.py"
+    spec = importlib.util.spec_from_file_location("draw_audit", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with (ROOT / "gold" / "category_single_gold.csv").open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    changed = mod.changed_rows(rows)
+    assert len(changed) == 226
+    assert all(mod.first_tag(r["label_owner"]) != r["label"] for r in changed)

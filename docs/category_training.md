@@ -13,7 +13,7 @@ documentation: the step that runs a category is `docs/category_step.md`; the tax
 * **The bar is not shown.** The bar of D24 is 80% agreement on the held-out 200. This model has **not** scored them (the owner's rule:
   not without the owner's word). Its figures are out-of-fold on the training rows: 87.8% accuracy, macro F1 0.748, on tags that were
   reviewed after the first results were seen (section 8). Read them as "this recipe learns the tags well", not as "the step is at 80%".
-* **Wiring is another revision** of the step, and needs the held-out scored once and a refit on all rows (section 9).
+* **Wiring is another revision** of the step, and needs one refit on all rows (a fixed seed) and the held-out scored with those weights (section 9).
 
 ## 1. The result in one table
 
@@ -52,10 +52,10 @@ ones (1,216 rows, 12 labels). "Untouched" is the model the step runs today; the 
 |---|---|---|---|---|
 | older single-label rows (set `v2`, train) | `gold/category_gold_v2.csv` → reviewed in `gold/category_v2_single.csv` | 225, 217 kept | training and cross-validation | read again 2026-11-15 (3.4) |
 | the 1,000-row sheet (multi-label by design) | `gold/category_multi_gold.csv` (the owner's tags) → `gold/category_single_gold.csv` (one tag per row) | 997 tagged, 999 in the single file | training and cross-validation | tagged by the owner 2026-11-14, reviewed 2026-11-15 (3.3) |
-| held-out | `gold/category_gold_v2_test.csv` | 200 (135 single rows score; 44 narrative bodies do not) | the bar of D24 | **never read by these experiments**; scored once on 2026-11-13 with the older mixed fine-tune (48.9%) |
+| held-out | `gold/category_gold_v2_test.csv` | 200 (135 single rows score; 44 narrative bodies do not) | the bar of D24 | **never read by these experiments**; **already scored once**, on 2026-11-13, with the older mixed fine-tune (48.9%); a score of the selected model is the second look (T-201) |
 
 Texts are in `gold/texts/` (`category_gold_v2_texts.csv`, `category_multi_gold_texts.csv`, `category_single_gold_texts.csv`). The
-held-out is not scored again without the owner's word. The training rows of the selected recipe are the sheet's 999 plus the 217 kept
+held-out is not scored again without the owner's word (it has been scored once; the next score is the second look). The training rows of the selected recipe are the sheet's 999 plus the 217 kept
 older rows: **1,216 rows, 1,049 articles**.
 
 ### 3.2 The record of changes, in order
@@ -64,7 +64,7 @@ older rows: **1,216 rows, 1,049 articles**.
 |---|---|---|
 | 2026-11-12/13 | the older set `v2` (284 tagged rows; 225 single-label rows train) and the held-out 200 (`gold/category_gold_v2_test.csv`) are fixed; 14-label taxonomy, groups of option B | `gold/category_gold_v2*.csv`, `docs/category_results_2026_11_13/` |
 | 2026-11-13 | the 1,000-row sheet is drawn from structured multi bodies (`scripts/draw_category_multi_2026_11_13.py`) and translated for the owner | `data/category_multi_to_tag.csv` (git-ignored) |
-| 2026-11-14 | the owner tags the sheet, one to three labels per row (774 with one label, 213 with two, 10 with three); 3 rows hold only `uncertain` and are left out of the multi file; the owner folds two labels into `other` and decides on **one tag per row** | `gold/category_multi_gold.csv` (997 rows) |
+| 2026-11-14 | the owner tags the sheet, one to three labels per row (774 with one label, 213 with two, 10 with three: 997 rows); 3 more rows hold only `uncertain` and are left out of the multi file (so section 3.3 counts 777 rows with one tag, 774 + 3, and 223 with several); the owner folds two labels into `other` and decides on **one tag per row** | `gold/category_multi_gold.csv` (997 rows) |
 | 2026-11-15 | a `claude_review` column (comments and a suggested single tag; 355 of the 1,000 rows have a comment) is added to a copy of the sheet; the owner reads it and accepts the suggestions; the single tag of a row is the suggestion, or the owner's tag when there is none. Three rows had only `uncertain`: the review tagged them `market_analyst_sentiment`; two (orders 37 and 568) are in the set, order 166, whose text has a gap where the topic should be, is left out | `data/category_multi_to_tag_claude_review.csv` (git-ignored, the full copy), `gold/category_single_gold.csv` (999 rows; **`review` keeps the comment of each row that has one**, so every change can be audited without the ignored copy) |
 | 2026-11-15 | the 225 older rows are read again with the same rules: 47 tags change and 8 rows are dropped (an (article, company) pair that carried two tags keeps one); 170 are unchanged | `gold/category_v2_single.csv` (one line per row: old tag, new tag, reason) |
 
@@ -105,7 +105,7 @@ engineers, `labor_human_capital`; the Treasury selling Citigroup warrants, `inve
 
 `earnings_performance` 547, `market_analyst_sentiment` 214, `product_innovation` 90, `mergers_acquisitions` 81, `legal_regulatory` 45,
 `leadership_governance` 40, `capital_shareholder_returns` 40, `reputational_harm` 39, `labor_human_capital` 36, `partnerships_business_dev` 32,
-`other` 32, `investor_activity` 20. **Seven classes have 45 rows or fewer; their intervals are wide (section 6).**
+`other` 32, `investor_activity` 20. **Eight classes have 45 rows or fewer; their intervals are wide (section 6).**
 
 ## 4. How a run is measured
 
@@ -137,10 +137,10 @@ of the entailment head with one tag per row (the "mixed" recipe): 62.2% out of f
 The top label against the first tag: 59.7%; against any tag: 66.0%; on single-tag rows: 65.0%; macro F1 0.429. `market_analyst_sentiment`
 precision 0.15 (it takes every stock-move line), `other` 0.14.
 
-### E2. Entailment fine-tune, first tag the only positive (the old recipe)
+### E2. Entailment fine-tune, first tag the only positive (the old recipe): **no result**
 
 Pairs: the first tag a positive, four labels that are *not* gold tags as negatives. **Stopped before it finished; no scores were kept**, so it has no
-figures here. The 2026-11-13 "mixed" fine-tune (E0) is the earlier figure of the same recipe, and E3 reads the same rows with every tag a positive.
+figures and is not an arm of any table. The 2026-11-13 "mixed" fine-tune (E0) is the earlier figure of the same recipe, and E3 reads the same rows with every tag a positive. The number is kept so that E3 to E9 keep theirs.
 
 ### E3. Entailment fine-tune, every tag a positive
 
@@ -156,7 +156,7 @@ precision. `market_analyst_sentiment` stayed low (precision 0.64, recall 0.37, R
 
 ### E5. A multi-label head on the zero-shot encoder
 
-The zero-shot model's encoder with its 3-way head replaced by 14 sigmoid outputs (BCE), reading `<company>: <text>` once per row. **A failure**: 65.0%
+The zero-shot model's encoder with its 3-way head replaced by 12 sigmoid outputs (BCE), reading `<company>: <text>` once per row. **A failure**: 65.0%
 against the first tag, macro F1 0.267; `leadership_governance`, `labor_human_capital`, `partnerships_business_dev` and `other` are never predicted. A likely reason (not tested): the encoder
 of an NLI model is tuned to read a pair, and ~1,200 rows are too few to train a new head on it.
 
@@ -233,7 +233,7 @@ Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/categor
 ### 6.1 What the weak classes show
 
 * **`other` is a definition problem, not a model one.** It is "an event that fits none of the other topics"; its rows are one-line blurbs inside "stocks making the biggest moves" articles (an index
-  addition, a rate rise at a competitor, a discount) and the model reads them as `market_analyst_sentiment` (a price move). On the older rows its precision and recall are 0.14 and 0.06. The rule is written (the taxonomy, "One tag per row", rule 7),
+  addition, a rate rise at a competitor, a discount) and the model often reads them as a price move: 7 of its 26 missed rows go to `market_analyst_sentiment`, the rest are spread (5 to `earnings_performance`, 3 to `capital_shareholder_returns`, 2 to `product_innovation`). On the older rows its precision and recall are 0.14 and 0.06. The rule is written (the taxonomy, "One tag per row", rule 7),
   but 32 rows do not teach it.
 * **`investor_activity` is small now.** After the review only 20 rows are a fund or investor moving a stake (145 before). The misses go to `market_analyst_sentiment` with `investor_activity` second.
 * **`market_analyst_sentiment` and `partnerships_business_dev` errors are related to the label the model gives.** In the selected run, 13 of the 23 false positives of `market_analyst_sentiment` are gold `other` (7) or
@@ -259,10 +259,9 @@ Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/categor
 * **The bar of D24 (80% on the held-out single rows) is not shown.** The held-out 200 was tagged under the earlier convention (analyst ratings partly as `investor_activity`); scoring it with this model would
   need the owner's word, and the held-out tags may need the same review first.
 * **Wide intervals** for 8 of the 12 classes (6.1).
-* **Rows of one article.** Folds are grouped by article, but a body that is the text of several articles (about a third of the bodies in the corpus are shared by several tickers) was handled by the grouping of
-  `article_id`, which does not see the sharing; a few near-duplicate rows may sit in two folds. Not measured.
+* **Rows of one body.** Folds are grouped by `article_id`, and about a third of the bodies of the corpus are shared by several tickers, so the grouping might put two copies of one body in two folds. **Measured on 2026-11-15** (`triage.body_hash` of the SOURCE body of each article): the 1,216 rows are 1,049 articles and 1,048 distinct bodies; **one** body is shared by two articles (116568 and 439320), and they sit in two folds: 16 rows (1.3%), all 16 predicted right. Without them the accuracy is 87.7% (1,200 rows), against 87.8%: the leak is not a source of the figure, so the cross-validation was not repeated with a body grouping. The sheet was drawn from structured multi bodies, which is why it has so few shared bodies.
 * **Long texts.** The fine-tune reads at most 512 tokens (the first 2,000 characters of the text), as the step does; nothing was measured on what a longer text would change.
-* **The review of the sheet, the single tags and the older-rows tags are mine, accepted by the owner** (the sheet) or **not yet read by the owner** (the older rows' `gold/category_v2_single.csv`).
+* **The review of the sheet, the single tags and the older-rows tags are mine, accepted by the owner** (the sheet) or **not yet read by the owner** (the older rows' `gold/category_v2_single.csv`). **No second reader has checked the reviewer's changes**: 227 of the sheet's 1,000 tags (226 in the 999-row file; the 227th is row 166, left out) and 47 of the older 225 were changed by the review; T-200 asks the owner to read a random sample of 50 of the 227 sheet changes (`scripts/draw_category_review_audit_2026_11_15.py`) and records the agreement, which says whether 87.8% is measured on tags a person would defend.
 
 ## 9. What is pinned and what is not
 
@@ -271,9 +270,9 @@ SHA-256, and the evidence. A test (`tests/news_nlp/test_category_selection.py`) 
 
 **Not done, in order, each on the owner's word:**
 
-1. **Score the held-out 200 once** with a model refit on the 1,216 rows (and decide whether the held-out single rows get the one-tag review first; the bar is 80%).
-2. **Refit on all rows** (no fold held out) and keep the weights: a git-ignored folder with its identity, as the sentiment pair model is (`config/sentiment_step.json`). A private Hub copy is a record
-   (`config/published_models.json`), uploaded by a script like `scripts/publish_final_models_2026_11_10.py`; it needs `HF_TOKEN` with write scope.
+1. **Refit once on all 1,216 rows, with a fixed seed, and keep the weights** (`recipe.refit_seed` is 0 in the pin): a git-ignored folder with its identity, as the sentiment pair model is (`config/sentiment_step.json`). Record the seed and the hash of `model.safetensors`.
+   A private Hub copy is a record (`config/published_models.json`), uploaded by a script like `scripts/publish_final_models_2026_11_10.py`; it needs `HF_TOKEN` with write scope and the owner's word.
+2. **Score the held-out 200 with those same weights**, the **second** look at them (the first, on 2026-11-13, was the older mixed fine-tune, 48.9%; both scores stay in the record), after deciding whether its single rows get the one-tag review first; the bar is 80%. The weights that are scored are the ones that get wired.
 3. **Wire it into `--step category`.** This is a new revision of the step: the step's tables (14 labels, groups, definitions) are pinned by a test and have to change to 12 labels or map the 12 back to the 14; `LEGACY_REVISIONS`
    is retired in that change; `docs/category_step.md` and FR-018 change; the old rows of the untouched revision stay.
 4. **More rows for the small classes.** About 100 rows per class would bring the intervals to ±0.08. The cheapest source is the rows the model already scores low on for `investor_activity`, `other`,

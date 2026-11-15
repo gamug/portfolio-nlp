@@ -94,7 +94,7 @@ Before anything it re-scores `--check` stored pairs of each label (default 10, 1
 
 The model reads one short definition per label, the ones of the baseline of T-174 (measured: `docs/category_results_2026_11_13/`). They are shorter than the rules of the
 tagger in `docs/category-taxonomy.md` (the "Not this label when" column, owner calls 6 and 15 and so on are not read); the taxonomy is the authority for the human tagger, this table for the
-step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187). The fine-tuned candidate selected on 2026-11-15 (12 labels, one tag per row, not wired) and its measures are in `docs/category_train.md`.
+step, and a test keeps this table equal to `DEFINITIONS` and `GROUPS` of the code. Reading the full rules is another revision and has to be measured first (T-187). The fine-tuned candidate selected on 2026-11-15 (12 labels, one tag per row, not wired) and its measures are in `docs/category_training.md`.
 
 | Label | Group | Definition read by the model |
 |---|---|---|
