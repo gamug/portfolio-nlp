@@ -15,6 +15,14 @@ Paired by article, 300 articles; 95% bootstrap intervals (seed 0, 4000 draws). B
 
 Tokens of the DeepSeek calls: 487589 in (1625 a call), 26085 out (86 a call).
 
+Run to run (temperature 0, 30 articles summarised twice by DeepSeek; `deepseek_repeat_30.csv`):
+
+* identical summaries: 0 of 30; mean word overlap (Jaccard) 0.66
+* faithfulness: first run 5.00, repeat 5.00
+* coverage: first run 4.70, repeat 4.63
+* conciseness: first run 4.97, repeat 4.97
+* hallucinated: first run 0, repeat 0 of 30
+
 Blind re-scoring of 24 pairs (8 per tier, English; the arm hidden when scored; `blind_24.csv`):
 
 | | B | D |

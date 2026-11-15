@@ -7,7 +7,8 @@ The choice (``choose``): from the 300 articles of the experiment, the **English*
 (``random.Random(7)``), shuffled, and for each pair a coin decides which summary is shown first as ``X`` (the other is ``Y``). **The filters leave the long bodies
 out** (the tier of 3 or more chunks, where the current step is weakest, is therefore represented by its shorter bodies) and the sample is 24: read the result as a
 check of the direction of the judge's figures, not as an estimate. The reading itself (the scores of ``blind_24.csv``) was made by the assistant reading the article
-and the two summaries, not by a person and not by a script.
+and the two summaries, not by a person and not by a script. ``sheet`` writes the **whole** bodies; when the reading was made five long bodies were shown
+cut (the first 5,500 to 6,000 characters), so ``sheet`` reproduces the pairs and their order, not the conditions of that display.
 """
 
 from __future__ import annotations

@@ -36,6 +36,7 @@ class Reply(io.BytesIO):
 
 def _ok(text: str = "A summary.") -> Reply:
     body = {
+        "model": "deepseek-test-1",
         "choices": [{"message": {"content": text}}],
         "usage": {"prompt_tokens": 10, "completion_tokens": 3},
     }
@@ -62,7 +63,7 @@ def _script(monkeypatch: pytest.MonkeyPatch, mod: ModuleType, outcomes: list[Any
         if isinstance(outcome, BaseException):
             raise outcome
         assert isinstance(outcome, Reply)
-        return outcome
+        return Reply(outcome.getvalue())  # a fresh reply each time: a stream is read once
 
     monkeypatch.setattr(mod.urllib.request, "urlopen", fake)
     return calls
@@ -73,7 +74,7 @@ def test_a_rate_limit_is_retried_and_the_summary_comes_back(
 ) -> None:
     mod = _arm()
     calls = _script(monkeypatch, mod, [_http(429), _http(503), _ok("Done.")])
-    assert mod.call("t", "b", mod.CallBudget(None), sleep=0) == ("Done.", 10, 3)
+    assert mod.call("t", "b", mod.CallBudget(None), sleep=0) == ("Done.", 10, 3, "deepseek-test-1")
     assert len(calls) == 3
 
 
@@ -179,11 +180,11 @@ def test_generate_keeps_the_summaries_that_arrived_when_a_reply_is_malformed_or_
     (tmp_path / "deepseek.json").unlink()
     seen: list[int] = []
 
-    def flaky(_title: str, _body: str, _budget: object) -> tuple[str, int, int]:
+    def flaky(_title: str, _body: str, _budget: object) -> tuple[str, int, int, str]:
         seen.append(1)
         if len(seen) == 3:
             raise KeyboardInterrupt
-        return "ok", 1, 1
+        return "ok", 1, 1, "m"
 
     monkeypatch.setattr(mod, "call", flaky)
     with pytest.raises(KeyboardInterrupt):
@@ -195,3 +196,45 @@ def test_generate_keeps_the_summaries_that_arrived_when_a_reply_is_malformed_or_
     assert (
         kept == {1, 2, 4, 5, 6}
     )  # the interrupted article (the third) is the only one missing: the file was written in the `finally`
+
+
+def test_a_balance_error_is_named_and_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    mod = _arm()
+    calls = _script(monkeypatch, mod, [_http(402)])
+    with pytest.raises(mod.ApiError, match="insufficient balance"):
+        mod.call("t", "b", mod.CallBudget(None), sleep=0)
+    calls422 = _script(monkeypatch, mod, [_http(422)])
+    with pytest.raises(mod.ApiError, match="invalid parameters"):
+        mod.call("t", "b", mod.CallBudget(None), sleep=0)
+    assert len(calls) == 1 and len(calls422) == 1
+
+
+def test_generate_records_the_model_the_date_and_whether_the_body_was_cut_and_a_repeat_goes_to_its_own_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _arm()
+    sample = [
+        {"article_id": i, "title": f"t{i}", "body": "x" * (mod.CAP + 1 if i == 2 else 10)}
+        for i in range(1, 6)
+    ]
+    (tmp_path / "sample.json").write_text(json.dumps(sample), encoding="utf-8")
+    monkeypatch.setattr(mod, "OUT", tmp_path)
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+    _script(monkeypatch, mod, [_ok("s")])
+    mod.generate(None)
+    rows = {
+        r["article_id"]: r
+        for r in json.loads((tmp_path / "deepseek.json").read_text(encoding="utf-8"))
+    }
+    assert {r["model"] for r in rows.values()} == {"deepseek-test-1"} and all(
+        len(r["date"]) == 10 for r in rows.values()
+    )
+    assert [i for i, r in rows.items() if r["truncated"]] == [
+        2
+    ]  # only the body longer than the cap
+    before = (tmp_path / "deepseek.json").read_text(encoding="utf-8")
+    mod.generate(None, repeat=2, seed=1)
+    assert (tmp_path / "deepseek.json").read_text(
+        encoding="utf-8"
+    ) == before  # the first run is not touched
+    assert len(json.loads((tmp_path / "deepseek_repeat.json").read_text(encoding="utf-8"))) == 2

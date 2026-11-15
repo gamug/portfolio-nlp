@@ -52,3 +52,30 @@ def test_the_committed_figures_hold_no_article_or_summary_text() -> None:
         assert all(
             len(v) < 40 for r in rows for v in r.values()
         )  # numbers, ids and short codes only
+
+
+def test_the_cost_and_the_populations_of_the_doc_are_the_committed_table() -> None:
+    table = (FOLDER / "chars_to_summarise.md").read_text(encoding="utf-8")
+    doc = (ROOT / "docs" / "summarization_training.md").read_text(encoding="utf-8")
+    tasks = (ROOT / ".specify" / "memory" / "TASKS.md").read_text(encoding="utf-8")
+    for figure in (
+        "59,432",
+        "235,078,518",
+        "5,048",
+        "15,263,579",
+        "14,803",
+        "60,503,969",
+        "79,283",
+        "310,846,066",
+    ):
+        assert figure in table and figure in doc, figure
+    assert "$16.0" in table and "$31.9" in table  # the range the doc rounds to about $16 to $32
+    assert "about $16 (off-peak) to $32 (peak)" in doc and "79,283 items" in tasks
+
+
+def test_the_repeat_file_has_30_articles_and_the_doc_quotes_its_result() -> None:
+    with (FOLDER / "deepseek_repeat_30.csv").open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 30 and not any(len(v) > 40 for r in rows for v in r.values())
+    doc = (ROOT / "docs" / "summarization_training.md").read_text(encoding="utf-8")
+    assert sum(int(r["identical"]) for r in rows) == 0 and "0 identical summaries" in doc

@@ -61,7 +61,7 @@ def export(results: Path) -> None:
     columns = ["article_id", "tier", "language", "body_chars"]
     for arm in ("B", "D"):
         columns += [f"{arm}_{m}" for m in MEASURES] + [f"{arm}_hallucinated", f"{arm}_words"]
-    columns += ["D_tokens_in", "D_tokens_out"]
+    columns += ["D_tokens_in", "D_tokens_out", "D_model"]
     with (OUT / "deepseek_vs_current.csv").open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(columns)
@@ -74,7 +74,7 @@ def export(results: Path) -> None:
                     int(bool(v["hallucinations"])),
                     len(a["arms"][arm].split()),
                 ]
-            row += [deepseek[aid]["in"], deepseek[aid]["out"]]
+            row += [deepseek[aid]["in"], deepseek[aid]["out"], deepseek[aid].get("model", "")]
             writer.writerow(row)
     print(f"wrote {OUT / 'deepseek_vs_current.csv'} ({len(arms)} rows, no text)")
 
@@ -131,6 +131,24 @@ def tables() -> str:
         "",
         f"Tokens of the DeepSeek calls: {tin} in ({tin // len(rows)} a call), {tout} out ({tout // len(rows)} a call).",
     ]
+    if (OUT / "deepseek_repeat_30.csv").exists():
+        rep = read("deepseek_repeat_30.csv")
+        n = len(rep)
+        lines += [
+            "",
+            f"Run to run (temperature 0, {n} articles summarised twice by DeepSeek; `deepseek_repeat_30.csv`):",
+            "",
+        ]
+        lines.append(
+            f"* identical summaries: {sum(int(r['identical']) for r in rep)} of {n}; mean word overlap (Jaccard) {sum(float(r['word_jaccard']) for r in rep) / n:.2f}"
+        )
+        for m in ("faithfulness", "coverage", "conciseness"):
+            first = sum(float(r[f"first_{m}"]) for r in rep) / n
+            again = sum(float(r[f"repeat_{m}"]) for r in rep) / n
+            lines.append(f"* {m}: first run {first:.2f}, repeat {again:.2f}")
+        lines.append(
+            f"* hallucinated: first run {sum(int(r['first_hallucinated']) for r in rep)}, repeat {sum(int(r['repeat_hallucinated']) for r in rep)} of {n}"
+        )
     blind = read("blind_24.csv")
     lines += [
         "",
