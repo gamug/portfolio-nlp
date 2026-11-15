@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -138,3 +139,59 @@ def test_attach_does_not_overwrite_arm_d_without_force_and_keeps_a_backup(
     with pytest.raises(SystemExit, match="--force"):
         mod.attach(False)
     mod.attach(True)
+
+
+def test_a_reply_that_is_not_a_chat_completion_is_an_api_error_and_a_cut_reply_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _arm()
+    _script(monkeypatch, mod, [Reply(b'{"error": "bad gateway"}')])
+    with pytest.raises(mod.ApiError, match="not a chat completion"):
+        mod.call("t", "b", mod.CallBudget(None), sleep=0)
+    calls = _script(
+        monkeypatch, mod, [Reply(b"<html>proxy</html>"), Reply(b'{"choices": '), _ok("Third time.")]
+    )
+    assert mod.call("t", "b", mod.CallBudget(None), sleep=0)[0] == "Third time."
+    assert len(calls) == 3
+
+
+def test_generate_keeps_the_summaries_that_arrived_when_a_reply_is_malformed_or_the_run_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mod = _arm()
+    sample = [{"article_id": i, "title": f"t{i}", "body": f"b{i}"} for i in range(1, 7)]
+    (tmp_path / "sample.json").write_text(json.dumps(sample), encoding="utf-8")
+    monkeypatch.setattr(mod, "OUT", tmp_path)
+    monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+
+    class OneWorker(ThreadPoolExecutor):
+        def __init__(self, max_workers: int | None = None) -> None:
+            super().__init__(max_workers=1)
+
+    monkeypatch.setattr(mod, "ThreadPoolExecutor", OneWorker)
+    # three good replies, then ones that are not completions: the run stops (5 failures in a row) and the three are on disk
+    _script(monkeypatch, mod, [_ok("one"), _ok("two"), _ok("three")] + [Reply(b"{}")] * 40)
+    with pytest.raises(SystemExit, match="goes on from it"):
+        mod.generate(None)
+    assert len(json.loads((tmp_path / "deepseek.json").read_text(encoding="utf-8"))) == 3
+
+    # an unexpected exception inside a worker (here the API function itself breaks) still leaves the file with what arrived
+    (tmp_path / "deepseek.json").unlink()
+    seen: list[int] = []
+
+    def flaky(_title: str, _body: str, _budget: object) -> tuple[str, int, int]:
+        seen.append(1)
+        if len(seen) == 3:
+            raise KeyboardInterrupt
+        return "ok", 1, 1
+
+    monkeypatch.setattr(mod, "call", flaky)
+    with pytest.raises(KeyboardInterrupt):
+        mod.generate(None)
+    kept = {
+        r["article_id"]
+        for r in json.loads((tmp_path / "deepseek.json").read_text(encoding="utf-8"))
+    }
+    assert (
+        kept == {1, 2, 4, 5, 6}
+    )  # the interrupted article (the third) is the only one missing: the file was written in the `finally`

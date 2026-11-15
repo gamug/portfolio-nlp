@@ -84,16 +84,26 @@ def call(title: str, body: str, budget: CallBudget, sleep: float = 2.0) -> tuple
         try:
             with urllib.request.urlopen(req, timeout=120) as r:  # noqa: S310
                 d = json.load(r)
-            text = d["choices"][0]["message"]["content"].strip()
+            try:
+                text = d["choices"][0]["message"]["content"].strip()
+                tokens = (int(d["usage"]["prompt_tokens"]), int(d["usage"]["completion_tokens"]))
+            except (KeyError, IndexError, TypeError, AttributeError, ValueError) as exc:
+                raise ApiError(
+                    f"the reply is not a chat completion ({type(exc).__name__}: {exc})"
+                ) from exc
             if not text:
                 raise ApiError("the reply was empty")
-            return text, d["usage"]["prompt_tokens"], d["usage"]["completion_tokens"]
+            return text, tokens[0], tokens[1]
         except urllib.error.HTTPError as exc:
             last = f"HTTP {exc.code}"
             if exc.code in HTTP_UNAUTHORIZED:
                 raise ApiError(f"{last}: the key or the endpoint is wrong") from exc
             if exc.code not in RETRYABLE:
                 raise ApiError(last) from exc
+        except (
+            json.JSONDecodeError
+        ) as exc:  # a body that is not JSON (a proxy page, a cut reply): worth another attempt
+            last = f"the reply is not JSON ({exc})"
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last = f"{type(exc).__name__}: {exc}"
         time.sleep(sleep * 2**attempt)
@@ -138,17 +148,18 @@ def generate(max_calls: int | None) -> None:
                 "out": tout,
             }
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        list(ex.map(one, todo))
-    path.write_text(
-        json.dumps(list(done.values())), encoding="utf-8"
-    )  # what arrived is kept; a rerun goes on
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(one, todo))
+    finally:  # what arrived is kept whatever happened (an unexpected error, Ctrl-C); a rerun goes on
+        path.write_text(json.dumps(list(done.values())), encoding="utf-8")
     print(
         f"{len(done)} of {len(sample)} summaries; {budget.calls} requests; input tokens {sum(r['in'] for r in done.values())}, output {sum(r['out'] for r in done.values())}"
     )
     if len(done) < len(sample):
         sys.exit(
-            f"stopped with {len(sample) - len(done)} articles left (the last error: {streak['last'] or 'none'}); nothing was written for them, rerun to go on"
+            f"stopped with {len(sample) - len(done)} articles left (the last error: {streak['last'] or 'none'}); nothing was written for them; "
+            "what arrived is in deepseek.json and the same command goes on from it (the cap counts the requests of each run)"
         )
 
 

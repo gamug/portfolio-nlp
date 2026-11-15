@@ -42,6 +42,21 @@ def export(results: Path) -> None:
     for line in (results / "verdicts.jsonl").read_text(encoding="utf-8").splitlines():
         r = json.loads(line)
         verdicts[(r["article_id"], r["sha"])] = r["verdict"]
+    missing = [a["article_id"] for a in arms if "D" not in a["arms"]]
+    if missing:
+        raise SystemExit(
+            f"{len(missing)} articles have no arm D in arms.json: run `summary_deepseek_arm_2026_11_15.py generate` and `attach` first"
+        )
+    unjudged = [
+        a["article_id"]
+        for a in arms
+        if (a["article_id"], sha(a["arms"]["D"])) not in verdicts
+        or (a["article_id"], sha(a["arms"]["B"])) not in verdicts
+    ]
+    if unjudged:
+        raise SystemExit(
+            f"{len(unjudged)} articles have no verdict for arm B or D: run `summary_lead_experiment_2026_11_13.py judge` first"
+        )
     OUT.mkdir(parents=True, exist_ok=True)
     columns = ["article_id", "tier", "language", "body_chars"]
     for arm in ("B", "D"):
