@@ -115,7 +115,7 @@ component; every rule below assumes the stack actually pinned in
    the default ("pin it as default now"), told that it scored 54.1% on the held-out single rows against the 80% bar of D24 (the
    untouched model it replaces: 43.7%), **without** the `news_nlp.eval` comparison this rule asks for: the evidence is the
    owner's gold, 300 real sub-news tagged by the assistant and cross-validation (`docs/category_training.md`). The exception covers
-   this stage only; the eval run owed is task T-209.
+   this stage only; the judge run it asks for was made afterwards on 80 sub-news with a judge written for step 7 (T-209, `docs/category_training.md` E13): it sees no difference between the two models.
 2. **Inference is deterministic and CPU-capable.** `DEVICE` selects CUDA
    when available, else CPU — every stage must run correctly (not just fast)
    on CPU, since hermetic tests and some deployments have no GPU. Don't add

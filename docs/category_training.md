@@ -267,6 +267,10 @@ The arms of E1 to E7 were compared on the old tags only; this one is retrained o
 **85.7% accuracy, macro F1 0.705, D37 score 0.792**, against 87.8%, 0.748 and 0.821 for the entailment recipe: the entailment recipe is ahead by 2 points of accuracy (not tested for significance). Every run of this document is in MLflow (experiment
 `news_nlp_train/category`; `scripts/category_mlflow_log_2026_11_15.py` logs them from the saved scores) with its per-class precision, recall and ROC AUC and the D37 selection score (the macro mean of the three).
 
+### E13. An independent judge on the real sub-news (2026-11-15; T-209)
+
+**The LLM judge on step 7 (T-209, owner's approval of a small paid run, 2026-11-15).** 80 of the 300 real sub-news, a seeded draw; a blind judge (it never saw a model's label) over the `.env` model, 0 parse failures: the fine-tune pinned in `config/category_step.json` agrees with the judge on **73.8%** [63.7, 83.8] and the untouched zero-shot model it replaced on **72.5%** [62.5, 82.5] (with the judge's second label: 87.5% and 88.8%); paired, the fine-tune is right where the other is not on 8 texts and the reverse on 7 (exact sign test p = 1.0). The assistant's own tags agree with the judge on 81.2%. **This judge does not confirm the gain of the assistant's tags (71.3% against 65.7%)**: on 80 texts it sees no difference, and the sample is too small to tell one of a few points from none. Files: `scripts/category_judge_2026_11_15.py`, `src/news_nlp/eval/step_category.py` (judge, figures; hermetic tests), `src/news_nlp/eval/prompts/category_step.md`, `docs/category_results_2026_11_15/judge_step7.{md,csv}` (no article text). The existing `cli/news_nlp_eval.py --stage category` was **not** used: it judges the v1 stage's rows and scores a candidate through the v1 two-level zero-shot stage, not through step 7.
+
 ## 6. The selected model, per class
 
 Out of fold, 1,216 rows, 1,049 articles, 95% intervals by article (`docs/category_results_2026_11_15/ovr_single.md`):
@@ -332,7 +336,7 @@ the definitions, groups, hypothesis and premise); `tests/news_nlp/test_category_
 **Not pinned or not done**, each tracked in `TASKS.md`:
 
 * **The weights are published** (T-202, owner's word 2026-11-15): private repository `gamug/deberta-v3-news-category-12`, revision recorded in the pin and in `config/published_models.json`; CI still cannot read them (the test that reads the folder skips when it is absent; the manifest test runs).
-* **The constitution's rule for a swapped model** (an `news_nlp.eval` run against the baseline, AI behavior #1) was not followed: the owner's override is recorded in the constitution (version 2.13.0) and the eval is owed (T-209).
+* **The constitution's rule for a swapped model** (an `news_nlp.eval` run against the baseline, AI behavior #1) was not followed: the owner's override is recorded in the constitution (version 2.13.0) and the judge run it asks for was made on a small sample (T-209, E13): it sees no difference between the two models.
 * **T-200:** the owner reads the older rows' tags, the close calls of the sheet and the 26 share-move rows. **T-204:** more rows for `investor_activity`, `other`, `partnerships_business_dev`, `capital_shareholder_returns`, `legal_regulatory`. **T-205:** settle `other` and partner versus product. **T-208:** the taxonomy's full definitions as hypotheses.
 * Baselines not run: embeddings with a logistic regression, and an LLM few-shot reader (paid; confirm the spend first).
 

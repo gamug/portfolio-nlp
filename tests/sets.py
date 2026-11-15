@@ -131,6 +131,7 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_eval_calibration_judge.py",
             "test_eval_candidate.py",
             "test_eval_judges.py",
+            "test_eval_step_category.py",
             "test_eval_metrics.py",
             "test_eval_partition.py",
             "test_eval_regression.py",

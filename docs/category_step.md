@@ -137,6 +137,10 @@ The bar of D24 is **80%** agreement with the owner's labels on the held-out sing
 | 300 real sub-news under 1,000 characters, the assistant's tags | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
 | out of fold, 1,216 rows, tags reviewed after the first results | 87.8% | 75.5% |
 
+| 80 of those sub-news, an independent blind LLM judge (T-209) | 73.8% [63.7, 83.8] | 72.5% [62.5, 82.5] |
+
+The judge sees no difference between the two models on 80 texts (paired sign test p = 1.0), so the gain of the assistant's tags on the same kind of text (71.3% against 65.7%) is not confirmed by it.
+
 Only the held-out is tagged by the owner and held out, and it is the one that fails. It reads best on short company segments (the texts of the cut) and worst on full articles. `earnings_performance`, `market_analyst_sentiment` and
 `mergers_acquisitions` are reliable; **`other` is not** (it gets 3 of 39 right on the real sample), and `investor_activity` and `leadership_governance` have too few rows to measure. The group agrees more than the label does (65.2% held-out).
 
