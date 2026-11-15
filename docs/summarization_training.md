@@ -163,3 +163,26 @@ uv run scripts/summary_lead_experiment_2026_11_13.py assemble
 uv run scripts/summary_lead_experiment_2026_11_13.py judge      # needs LLM_API_KEY / LLM_MODEL / LLM_URL
 uv run scripts/summary_lead_experiment_2026_11_13.py report
 ```
+
+## T-200: DeepSeek as the summariser (owner, 2026-11-15)
+
+**Evidence.** The same 300 articles and judge (`scripts/summary_deepseek_arm_2026_11_15.py`; prompt: about 60 words, facts only, name the actors; temperature 0).
+DeepSeek (D) against the current step (B), paired 95% intervals: faithfulness 4.99 against 4.60 (+0.39 [+0.29, +0.49]), coverage 4.54 against 3.24
+(+1.29 [+1.21, +1.39]), conciseness 4.98 against 4.08, hallucination 0.7% against 15.0% (-14.3 pts [-18.7, -10.3]); 0% against 20% in the 3+ tier.
+Limits: DeepSeek was summariser and judge. A blind re-scoring of 24 pairs by Claude (8 per tier, English) agreed: faithfulness 4.92 against 4.42, coverage 4.75
+against 3.08, hallucination 4% against 21%; it is small and the arms are guessable by style. There is no company or main-event metric, and the prompt is one run.
+
+**Decided by the owner.** (a) Scope: the stepped pipeline only (`--step summary`: single bodies and sub-news over 2,000 characters, and the assigned `sector`
+bodies); the v1 chain stays on distilbart. (b) No gate before the run: the corpus run goes first and the evaluation after it (the blind marks, the company and
+main-event metric, an `news_nlp.eval` run against run 44). (c) Failure: fail fast and resumable (a few retries, then stop; rows written stay; no fallback to
+distilbart, no empty summary). (d) Revision: a hash of the prompt, the model name, the temperature and the size rule; each row stores the API model id and the date.
+
+**To build.** The summariser in `news_summary_stage` (OpenAI-compatible `chat/completions`, `LLM_*` from `.env`, bounded concurrency, the prompt in a tracked
+file), tokens in and out in `--status`, a logged call or spend cap, tests with the API mocked, `docs/summary_step.md` updated.
+
+**Cost.** 64,480 items over 2,000 characters hold 250.3M characters (single bodies 235.1M, sub-news 15.3M; mean 3,882): about 63.5M input and 5.6M output
+tokens, about $20 at an assumed $0.28 and $0.42 per million. The rates were not checked. The sample itself cost about 14 cents.
+
+**Open.** Constitution AI #1 (a model swap needs an eval run first) and #2 (CPU-capable, deterministic inference) against the owner's choice to evaluate after the
+run: reconcile `SPEC.md` and the constitution in the same change. A text the API refuses (kept as the original, or the review list). That article text leaves
+the machine for an external API: to confirm.
