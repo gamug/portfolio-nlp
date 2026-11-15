@@ -12,8 +12,8 @@ bodies and for the sub-news, by the length of the source.
 
 **The frame.** Only the items the summariser actually summarised (``news_summary.text_source = 'summary'``): the ones under the size are
 stored as they are, so they are trivially faithful and would inflate every rate. Two groups: ``single`` (the single bodies of the named scope
-revision) and ``multi`` (the sub-news of the named cut revision). Each group is cut in three buckets by the number of chunks the summariser
-used (terciles of the population: a long source goes through the chunk-and-reduce path, where errors compound), and the draw takes the same
+revision) and ``multi`` (the sub-news of the named cut revision). Each group is cut in three buckets by the characters of the source the summariser
+read (terciles of the population; ``--bucket-by chunks`` cuts them by the chunk count instead, which collapses on this corpus), and the draw takes the same
 number from each bucket. A bucket's weight is its population over its sample, so the overall rate is weighted and says it.
 
 **The judge** reads the source exactly as the summariser did (a single body as ``Title-<title>\\nBody-<body>``, a sub-news alone, because its
@@ -137,7 +137,68 @@ PROMPT_SHA = hashlib.sha256((PROMPT + user_prompt("{source}", "{summary}")).enco
     :16
 ]
 MAX_CONSECUTIVE_ERRORS = 5
-DEFAULT_MAX_CALLS = 1000  # the planned sample is 300; a call is one request, so a repeat after an unreadable reply counts
+DEFAULT_MAX_CALLS = 1000  # requests: the planned sample is 300 rows, at most two requests each (the repair prompt); a retry inside the provider is not seen
+
+
+class CallCap(RuntimeError):
+    """The cap of requests of the run was reached before this request was made."""
+
+
+class CallBudget:
+    """The requests of a run, counted where they are made (a row can take two: the prompt and the repair prompt), with the tokens the provider reported."""
+
+    def __init__(self, max_calls: int | None) -> None:
+        self.max_calls = max_calls
+        self.calls = 0
+        self.tokens_in = 0
+        self.tokens_out = 0
+        self._lock = threading.Lock()
+
+    def take(self) -> bool:
+        with self._lock:
+            if self.max_calls is not None and self.calls >= self.max_calls:
+                return False
+            self.calls += 1
+            return True
+
+    def add_tokens(self, tin: int, tout: int) -> None:
+        with self._lock:
+            self.tokens_in += tin
+            self.tokens_out += tout
+
+
+def usage_of(result: object) -> tuple[int, int]:
+    """The tokens ``(in, out)`` a reply reports, ``(0, 0)`` when the agent does not say (a stub). The strands result keeps ``metrics.accumulated_usage``
+    (``inputTokens`` and ``outputTokens``), accumulated over the agent's calls."""
+    usage = getattr(getattr(result, "metrics", None), "accumulated_usage", None)
+    if not isinstance(usage, dict):
+        return 0, 0
+    return int(usage.get("inputTokens", 0) or 0), int(usage.get("outputTokens", 0) or 0)
+
+
+class CountedAgent:
+    """Wraps a judge agent: every request is taken from the budget first (``CallCap`` when it is spent) and its tokens are recorded, for this row and for the run."""
+
+    def __init__(self, agent: JudgeAgent, budget: CallBudget) -> None:
+        self.agent = agent
+        self.budget = budget
+        self.tokens_in = 0
+        self.tokens_out = 0
+
+    def __call__(self, prompt: str) -> object:
+        if not self.budget.take():
+            raise CallCap("the cap of requests was reached")
+        result = self.agent(prompt)
+        total_in, total_out = usage_of(
+            result
+        )  # accumulated over this agent's calls: take the difference
+        delta_in, delta_out = max(0, total_in - self.tokens_in), max(0, total_out - self.tokens_out)
+        self.tokens_in, self.tokens_out = (
+            max(total_in, self.tokens_in),
+            max(total_out, self.tokens_out),
+        )
+        self.budget.add_tokens(delta_in, delta_out)
+        return result
 
 
 class ProviderError(RuntimeError):
@@ -154,6 +215,8 @@ def judge_one(agent: JudgeAgent, source: str, summary: str) -> ClaimsVerdict:
     for prompt in (user_prompt(source, summary), repair_prompt()):
         try:
             reply = str(agent(prompt))
+        except CallCap:
+            raise
         except Exception as exc:
             raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
         parsed = coerce(reply, ClaimsVerdict)
@@ -206,11 +269,13 @@ def run_judge(
     judge_model: str = "",
     sample_id: str | None = None,
     max_calls: int | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     """Judge the rows without a good verdict **of this judge** in ``out`` (the model and the prompt are compared), appending each as it arrives
     (a run can stop and go on). A reply that arrived and could not be read is stored with ``parse_failed`` and judged again by the next run; a
     provider error is not stored, is counted, and ``MAX_CONSECUTIVE_ERRORS`` in a row stop the run with ``JudgeOutage``.
-    ``max_calls`` is a hard cap on the calls made in this run, errors and repeats included: the rows left over are counted in ``not_called`` and a rerun goes on."""
+    ``max_calls`` is a hard cap on the **requests** made in this run (a row takes one, or two when its first reply cannot be read; an error counts): the rows left
+    over are counted in ``not_called`` and a rerun goes on. ``calls``, ``tokens_in`` and ``tokens_out`` are the run's own figures (the tokens only when the agent reports them)."""
     done = {
         i
         for i, v in read_verdicts(out).items()
@@ -231,20 +296,23 @@ def run_judge(
         "longest_verdict_chars": 0,
         "calls": 0,
         "not_called": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
     }
+    budget = CallBudget(max_calls)
     streak = {"n": 0, "last": ""}
     out.parent.mkdir(parents=True, exist_ok=True)
 
     def one(row: dict[str, Any]) -> None:
         if stop.is_set():
             return
-        with lock:
-            if max_calls is not None and counts["calls"] >= max_calls:
-                counts["not_called"] += 1
-                return
-            counts["calls"] += 1
+        agent = CountedAgent(agent_factory(), budget)
         try:
-            verdict = judge_one(agent_factory(), row["source_text"], row["summary_text"])
+            verdict = judge_one(agent, row["source_text"], row["summary_text"])
+        except CallCap:
+            with lock:
+                counts["not_called"] += 1
+            return
         except ProviderError as exc:
             with lock:
                 counts["provider_errors"] += 1
@@ -264,6 +332,9 @@ def run_judge(
             "prompt_sha": PROMPT_SHA,
             "sample_id": sample_id,
             "summary_revision": row.get("summary_revision"),
+            "tokens_in": agent.tokens_in,
+            "tokens_out": agent.tokens_out,
+            **(extra or {}),
         }
         with lock:
             streak["n"] = 0
@@ -274,6 +345,11 @@ def run_judge(
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(one, todo))
+    counts["calls"], counts["tokens_in"], counts["tokens_out"] = (
+        budget.calls,
+        budget.tokens_in,
+        budget.tokens_out,
+    )
     if stop.is_set():
         raise JudgeOutage(
             f"{streak['n']} provider errors in a row after {counts['judged'] + counts['parse_failed']} verdicts "
@@ -355,6 +431,23 @@ def fetch_sources(source: sqlite3.Connection, hashes: set[str]) -> dict[str, tup
     return found
 
 
+def source_lengths(source: sqlite3.Connection, hashes: set[str]) -> dict[str, int]:
+    """The characters of the text the summariser read (``Title-...\\nBody-...``) for each body hash, from one pass over SOURCE that keeps no text."""
+    from news_summary_stage import input_of_body  # noqa: PLC0415 -- loads torch
+
+    found: dict[str, int] = {}
+    for title, text in source.execute(
+        "SELECT title, body_text FROM articles WHERE fetch_status IN ('ok', 'quarantined') "
+        "AND body_text IS NOT NULL AND body_text != '' ORDER BY id"
+    ):
+        key = triage.body_hash(text)
+        if key in hashes and key not in found:
+            found[key] = len(input_of_body(title or "", text))
+            if len(found) == len(hashes):
+                break
+    return found
+
+
 def sub_news_languages(
     results: sqlite3.Connection, source: sqlite3.Connection, ids: Sequence[int]
 ) -> dict[int, str]:
@@ -385,26 +478,27 @@ def draw(  # noqa: C901 -- one pipeline: frame, buckets, draw, sources, rows
     cut_revision: str,
     per_group: int,
     seed: int,
-    bucket_by: str = "chunks",
+    bucket_by: str = "chars",
 ) -> list[dict[str, Any]]:
     """The sample: ``per_group`` summarised items of each group, the same number from each length bucket, with the deterministic measures.
-    ``bucket_by`` is ``chunks`` (terciles of the number of chunks the summariser used: the model of the chunk-and-reduce path) or ``chars`` (terciles of the
-    characters of the source the summariser read: the only definition that exists for a summary with no chunks, such as one written by an API, T-206)."""
+    ``bucket_by`` is ``chars`` (the default: terciles of the characters of the source the summariser read, which exists for any summariser, such as an API one,
+    T-206) or ``chunks`` (terciles of the number of chunks the chunk-and-reduce summariser used; **on this corpus a discrete count collapses**: 78% of the single
+    bodies and 93% of the sub-news have one chunk, so the middle bucket is empty and the draw is one chunk against more)."""
     if bucket_by not in BUCKET_BY:
         raise ValueError(f"bucket_by must be one of {BUCKET_BY}, not {bucket_by!r}")
     import news_company_stage as ncs  # noqa: PLC0415 -- loads torch
     from news_summary_stage import input_of_body  # noqa: PLC0415 -- loads torch
 
     frame = eligible(results, summary_revision, scope_revision, cut_revision)
-    everything: dict[str, tuple[str, str, str]] = {}
+    lengths: dict[str, int] = {}
     if (
         bucket_by == "chars"
-    ):  # the length of a single body is known only from SOURCE: one pass over all of them
-        everything = fetch_sources(source, {item[0] for item in frame["single"]})
-        lacking = len(frame["single"]) - len(everything)
+    ):  # the length of a single body is known only from SOURCE: one pass over all of them, keeping the lengths and not the texts
+        lengths = source_lengths(source, {item[0] for item in frame["single"]})
+        lacking = len(frame["single"]) - len(lengths)
         if lacking:
             raise ValueError(
-                f"the SOURCE copy lacks {lacking} bodies of the single summaries: copy RESULTS and SOURCE at the same time"
+                f"the SOURCE copy lacks {lacking} of {len(frame['single'])} bodies of the single summaries: copy RESULTS and SOURCE at the same time"
             )
 
     def size_of(group: str, item: tuple[str, str, int, str | None]) -> int:
@@ -412,8 +506,7 @@ def draw(  # noqa: C901 -- one pipeline: frame, buckets, draw, sources, rows
             return item[2]
         if group == "multi":
             return len(item[3] or "")
-        title, body, _ = everything[item[0]]
-        return len(input_of_body(title, body))
+        return lengths[item[0]]
 
     universe = [
         triage.Company(*(x or "" for x in r))
@@ -434,7 +527,7 @@ def draw(  # noqa: C901 -- one pipeline: frame, buckets, draw, sources, rows
             chosen = random.Random(f"{seed}:{group}:{b}").sample(by_bucket[b], take[b])  # noqa: S311 -- a reproducible draw, not security
             picked.extend((group, b, len(by_bucket[b]), take[b], item) for item in chosen)  # type: ignore[misc]
     wanted = {item[0] for group, _, _, _, item in picked if group == "single"}  # type: ignore[index]
-    sources = everything or fetch_sources(source, wanted)
+    sources = fetch_sources(source, wanted)
     sub_ids = [int(item[0]) for group, _, _, _, item in picked if group == "multi"]  # type: ignore[index]
     language_of_sub = sub_news_languages(results, source, sub_ids)
     if len(sources) < len(wanted):
@@ -486,6 +579,22 @@ def _file_identity(path: Path) -> dict[str, Any]:
     return {"name": path.name, "bytes": stat.st_size, "mtime": int(stat.st_mtime)}
 
 
+def pinned_summariser() -> str:
+    """The model of the summary step as pinned (``config/pipeline_models.json``, ``c_summary``): the default author of the summaries of a sample."""
+    pin = json.loads((ROOT / "config" / "pipeline_models.json").read_text(encoding="utf-8"))
+    return str(pin["c_summary"]["model"])
+
+
+def is_self_judge(summariser_model: str, judge_model: str) -> bool:
+    """Is the judge the model that wrote the summaries? Compared by name without the owner and in lower case (``sshleifer/distilbart-cnn-12-6`` and
+    ``distilbart-cnn-12-6`` are the same model; ``deepseek-chat`` writing and judging is the case this exists for)."""
+
+    def norm(name: str) -> str:
+        return name.strip().lower().rsplit("/", 1)[-1]
+
+    return bool(norm(summariser_model)) and norm(summariser_model) == norm(judge_model)
+
+
 def make_meta(
     rows: Sequence[dict[str, Any]],
     summary_revision: str,
@@ -496,7 +605,8 @@ def make_meta(
     seed: int,
     results_db: Path,
     source_db: Path,
-    bucket_by: str = "chunks",
+    bucket_by: str = "chars",
+    summariser_model: str | None = None,
 ) -> dict[str, Any]:
     """What a sample was drawn from: the three revisions (the ids of the sub-news mean nothing without the cut's), the seed, the size, the
     population of each group, the two database copies, and the identity ``sample_id`` (a hash of all that and of the ids drawn, not of the date)."""
@@ -510,6 +620,7 @@ def make_meta(
         "seed": seed,
         "per_group": per_group,
         "bucket_by": bucket_by,
+        "summariser_model": summariser_model or pinned_summariser(),
         "populations": populations,
         "ids": sorted(r["id"] for r in rows),
     }
@@ -1188,14 +1299,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--bucket-by",
         choices=BUCKET_BY,
-        default="chunks",
-        help="terciles of the chunk count (the chunk-and-reduce summariser) or of the source characters (any summariser, e.g. an API)",
+        default="chars",
+        help="terciles of the source characters (default; any summariser) or of the chunk count (the chunk-and-reduce summariser; collapses on this corpus)",
+    )
+    p.add_argument(
+        "--summariser-model",
+        default=None,
+        help="the model that wrote the summaries (default: c_summary of config/pipeline_models.json); recorded, and the judge must not be it",
     )
     p.add_argument("--out", type=Path, default=DEFAULT_DIR / "sample.csv")
     j = sub.add_parser("judge")
     j.add_argument("--sample", type=Path, default=DEFAULT_DIR / "sample.csv")
     j.add_argument("--out", type=Path, default=DEFAULT_DIR / "verdicts.jsonl")
     j.add_argument("--limit", type=int, default=None)
+    j.add_argument(
+        "--allow-self-judge",
+        action="store_true",
+        help="judge summaries written by the judge's own model (recorded in every verdict)",
+    )
     j.add_argument(
         "--max-calls",
         type=int,
@@ -1268,6 +1389,7 @@ def main() -> None:
             results_db=Path(args.results_db),
             source_db=Path(args.source_db),
             bucket_by=args.bucket_by,
+            summariser_model=args.summariser_model,
         )
         write_sample(args.out, rows, meta)
         print(f"wrote {len(rows)} rows to {args.out}\n{_identity_line(args.out)}")
@@ -1283,6 +1405,14 @@ def main() -> None:
         settings = EvalSettings.load()
         model = build_model(settings)
         rows = read_sample(args.sample)
+        meta = read_meta(args.sample) or {}
+        summariser = str(meta.get("summariser_model") or "")
+        self_judge = is_self_judge(summariser, settings.llm_model)
+        if self_judge and not args.allow_self_judge:
+            sys.exit(
+                f"refused: the judge ({settings.llm_model}) is the model that wrote the summaries ({summariser}): it would grade its own text. "
+                "Set LLM_MODEL to another model, or pass --allow-self-judge (recorded in every verdict) if the owner's marks are the primary measure"
+            )
         print(f"judging with {settings.llm_model}; {_identity_line(args.sample)}", file=sys.stderr)
         counts = run_judge(
             rows,
@@ -1293,6 +1423,7 @@ def main() -> None:
             judge_model=settings.llm_model,
             sample_id=_sample_id(args.sample),
             max_calls=args.max_calls,
+            extra={"summariser_model": summariser, "self_judge_allowed": self_judge},
         )
         print(json.dumps(counts))
     elif args.cmd == "report":

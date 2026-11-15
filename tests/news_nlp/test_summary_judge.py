@@ -620,8 +620,10 @@ def test_an_unreadable_reply_is_still_recorded_apart_from_a_provider_error(tmp_p
         "parse_failed": 1,
         "provider_errors": 0,
         "longest_verdict_chars": 0,
-        "calls": 1,
+        "calls": 2,  # the prompt and the repair prompt: two requests for one row
         "not_called": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
     }
 
 
@@ -1173,7 +1175,9 @@ def test_buckets_by_characters_are_terciles_of_the_source_length_and_work_withou
     results, source = dbs
     # an API summary has no chunks: the chunk counts are made all equal, so the chunk terciles collapse and the character terciles do not
     results.execute("UPDATE news_summary SET num_chunks = 1")
-    by_chunks = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+    by_chunks = sj.draw(
+        results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7, bucket_by="chunks"
+    )
     assert {r["bucket"] for r in by_chunks if r["group"] == "multi"} == {0}
     by_chars = sj.draw(
         results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7, bucket_by="chars"
@@ -1217,9 +1221,9 @@ def test_the_meta_records_how_the_buckets_were_made(
         seed=7,
         results_db=tmp_path / "r",
         source_db=tmp_path / "s",
-        bucket_by="chars",
+        bucket_by="chunks",
     )
-    assert a["bucket_by"] == "chunks" and b["bucket_by"] == "chars"
+    assert a["bucket_by"] == "chars" and b["bucket_by"] == "chunks"
     assert a["sample_id"] != b["sample_id"]  # another way of cutting the buckets is another sample
 
 
@@ -1245,3 +1249,207 @@ def test_the_judge_uses_the_public_names_of_the_eval_package() -> None:
     source = (ROOT / "scripts" / "summary_judge_2026_11_13.py").read_text(encoding="utf-8")
     assert "from news_nlp.eval.judges import JudgeAgent, coerce, repair_prompt" in source
     assert "_REPAIR_PROMPT" not in source and "_coerce" not in source
+
+
+# --- second review of #180 ------------------------------------------------------------------------------------------------------
+
+
+class Usage:
+    """A reply that carries the tokens like the strands result does (``metrics.accumulated_usage``, accumulated over the agent's calls)."""
+
+    def __init__(self, text: str, total_in: int, total_out: int) -> None:
+        self.text = text
+        self.metrics = type(
+            "M", (), {"accumulated_usage": {"inputTokens": total_in, "outputTokens": total_out}}
+        )()
+
+    def __str__(self) -> str:
+        return self.text
+
+
+class UsageAgent:
+    def __init__(self, replies: list[str]) -> None:
+        self.replies = replies
+        self.n = 0
+
+    def __call__(self, prompt: str) -> object:
+        reply = self.replies[min(self.n, len(self.replies) - 1)]
+        self.n += 1
+        return Usage(reply, 100 * self.n, 10 * self.n)  # accumulated: 100 in and 10 out per request
+
+
+def test_a_cap_counts_requests_and_a_row_that_needs_the_repair_prompt_costs_two(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(2)
+    ]
+    out = tmp_path / "v.jsonl"
+    # two rows that answer in prose twice (the prompt and the repair prompt): 4 requests; a cap of 3 stops in the middle of the second row
+    counts = sj.run_judge(
+        rows, lambda: StubAgent(["prose"]), out, workers=1, judge_model="m", max_calls=3
+    )
+    assert counts["calls"] == 3
+    assert counts["parse_failed"] == 1 and counts["not_called"] == 1
+    assert len(sj.read_verdicts(out)) == 1  # the half-judged row left no verdict
+    again = sj.run_judge(
+        rows, lambda: StubAgent([GOOD]), out, workers=1, judge_model="m", max_calls=10
+    )
+    assert (
+        again["calls"] == 2 and again["judged"] == 2
+    )  # the unreadable row is judged again, with the other
+
+
+def test_the_tokens_the_provider_reports_are_counted_per_row_and_for_the_run(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {"id": f"r{i}", "group": "single", "source_text": "s", "summary_text": "t"}
+        for i in range(2)
+    ]
+    out = tmp_path / "v.jsonl"
+    counts = sj.run_judge(rows, lambda: UsageAgent([GOOD]), out, workers=1, judge_model="m")
+    assert counts["calls"] == 2 and counts["tokens_in"] == 200 and counts["tokens_out"] == 20
+    first = next(iter(sj.read_verdicts(out).values()))
+    assert (first["tokens_in"], first["tokens_out"]) == (100, 10)
+    stub = sj.run_judge(
+        [{"id": "x", "group": "single", "source_text": "s", "summary_text": "t"}],
+        lambda: StubAgent([GOOD]),
+        tmp_path / "w.jsonl",
+        workers=1,
+        judge_model="m",
+    )
+    assert stub["tokens_in"] == 0  # a stub that reports nothing counts as zero, not as an error
+
+
+def test_the_judge_is_not_the_model_that_wrote_the_summaries() -> None:
+    assert sj.is_self_judge("deepseek-chat", "deepseek-chat")
+    assert sj.is_self_judge("sshleifer/distilbart-cnn-12-6", "distilbart-cnn-12-6")
+    assert sj.is_self_judge("DeepSeek-Chat", " deepseek-chat ")
+    assert not sj.is_self_judge("sshleifer/distilbart-cnn-12-6", "deepseek-chat")
+    assert not sj.is_self_judge("", "deepseek-chat")
+    assert sj.pinned_summariser() == "sshleifer/distilbart-cnn-12-6"
+
+
+def test_the_meta_names_the_summariser_and_it_is_part_of_the_sample_identity(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection], tmp_path: Path
+) -> None:
+    results, source = dbs
+    rows = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+    kw = {"per_group": 12, "seed": 7, "results_db": tmp_path / "r", "source_db": tmp_path / "s"}
+    default = sj.make_meta(rows, SUM_REV, SCOPE_REV, CUT_REV, **kw)
+    api = sj.make_meta(rows, SUM_REV, SCOPE_REV, CUT_REV, summariser_model="deepseek-chat", **kw)
+    assert (
+        default["summariser_model"] == "sshleifer/distilbart-cnn-12-6"
+        and api["summariser_model"] == "deepseek-chat"
+    )
+    assert default["sample_id"] != api["sample_id"]
+
+
+def test_the_judge_command_refuses_to_grade_its_own_summaries(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sample = tmp_path / "sample.csv"
+    sj.write_sample(sample, [], {"sample_id": "s1", "summariser_model": "deepseek-chat"})
+
+    class Settings:
+        llm_model = "deepseek-chat"
+        max_workers = 1
+
+        @classmethod
+        def load(cls) -> type[Settings]:
+            return cls
+
+    monkeypatch.setattr("news_nlp.eval.config.EvalSettings", Settings)
+    monkeypatch.setattr("news_nlp.eval.model.build_model", lambda _s: object())
+    monkeypatch.setattr(
+        sys, "argv", ["x", "judge", "--sample", str(sample), "--out", str(tmp_path / "v.jsonl")]
+    )
+    with pytest.raises(SystemExit, match="would grade its own text"):
+        sj.main()
+
+
+def test_the_character_lengths_keep_no_text_and_a_null_language_is_unknown(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    results, source = dbs
+    frame = sj.eligible(results, SUM_REV, SCOPE_REV, CUT_REV)
+    lengths = sj.source_lengths(source, {item[0] for item in frame["single"]})
+    assert len(lengths) == len(frame["single"]) and all(
+        isinstance(v, int) and v > 0 for v in lengths.values()
+    )
+    source.execute("UPDATE articles SET language = NULL WHERE id % 2 = 0")
+    source.execute("UPDATE articles SET language = '' WHERE id = 3")
+    source.commit()
+    rows = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=18, seed=7)
+    assert all(isinstance(r["language"], str) for r in rows)
+    verdicts = {
+        r["id"]: {
+            "claims": [{"text": "a", "verdict": "supported", "evidence": ""}],
+            "main_event_covered": True,
+            "parse_failed": False,
+        }
+        for r in rows
+    }
+    report = sj.summarise(rows, verdicts, draws=20)
+    assert "unknown" in report["single"]["by_language"]
+
+
+def test_tokens_of_a_row_with_two_requests_are_the_difference_of_the_accumulated_figures(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "v.jsonl"
+    rows = [{"id": "r0", "group": "single", "source_text": "s", "summary_text": "t"}]
+    # prose, then a good reply: the second request reports 200 / 20 accumulated, so the row used 200 / 20 and not 100 + 200
+    counts = sj.run_judge(
+        rows, lambda: UsageAgent(["prose", GOOD]), out, workers=1, judge_model="m"
+    )
+    assert counts["calls"] == 2 and counts["tokens_in"] == 200 and counts["tokens_out"] == 20
+    assert next(iter(sj.read_verdicts(out).values()))["tokens_in"] == 200
+
+
+def test_the_default_buckets_are_made_on_characters_in_the_function_and_on_the_command_line(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    args = sj.build_parser().parse_args(
+        [
+            "draw",
+            "--results-db",
+            "r",
+            "--source-db",
+            "s",
+            "--summary-revision",
+            "a",
+            "--scope-revision",
+            "b",
+            "--cut-revision",
+            "c",
+        ]
+    )
+    assert args.bucket_by == "chars" and args.summariser_model is None
+    results, source = dbs
+    results.execute(
+        "UPDATE news_summary SET num_chunks = 1"
+    )  # the chunk terciles collapse, the character ones do not: the two defaults differ
+    default = sj.draw(results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7)
+    explicit = sj.draw(
+        results, source, SUM_REV, SCOPE_REV, CUT_REV, per_group=12, seed=7, bucket_by="chars"
+    )
+    assert [(r["id"], r["bucket"]) for r in default] == [(r["id"], r["bucket"]) for r in explicit]
+    assert {r["bucket"] for r in default if r["group"] == "multi"} == {0, 1, 2}
+
+
+def test_source_lengths_are_the_length_of_the_text_the_summariser_read(
+    dbs: tuple[sqlite3.Connection, sqlite3.Connection],
+) -> None:
+    from news_summary_stage import input_of_body  # noqa: PLC0415
+
+    results, source = dbs
+    frame = sj.eligible(results, SUM_REV, SCOPE_REV, CUT_REV)
+    lengths = sj.source_lengths(source, {item[0] for item in frame["single"]})
+    for i in (1, 2, 3):
+        title, body = source.execute(
+            "SELECT title, body_text FROM articles WHERE id = ?", (i,)
+        ).fetchone()
+        assert lengths[triage.body_hash(body)] == len(input_of_body(title, body))
