@@ -64,6 +64,12 @@
   ],
   "rows_with_such_labels": 11
  },
+ "repairs": {
+  "labels_not_in_the_text": 14,
+  "replaced": 9,
+  "kept": 1,
+  "dropped": 4
+ },
  "views": {
   "as_is/all_organisations": {
    "tp": 274,

@@ -157,8 +157,9 @@ def _structure(data: pd.DataFrame, key: pd.DataFrame) -> None:
 def integrity(data: pd.DataFrame, key: pd.DataFrame, resolver: CompanyResolver) -> dict[str, Any]:
     """The checks on the owner's file. Raises ``IntegrityError`` for a structural failure; the labels that are not in the text are returned.
 
-    A label is *not in the text* when it is not written in the title or text as a whole word (case ignored) and does not name a universe company the text
-    names (``direct_mentions``, no model: ``United Airlines`` for ``UAL`` passes, ``Casa Blanca`` does not)."""
+    A label is *not in the text* when it is not written in the ``text`` column as a whole word (case ignored) and does not name a universe company the text
+    names (``direct_mentions``, no model: ``United Airlines`` for ``UAL`` passes, ``Casa Blanca`` does not). **Only ``text`` is searched, because it is the
+    only column the model reads**: a label written from the title alone is reported, as the model could never find it."""
     _structure(data, key)
     canon = make_canon(resolver)
     not_in_text: list[tuple[int, str]] = []
@@ -168,8 +169,8 @@ def integrity(data: pd.DataFrame, key: pd.DataFrame, resolver: CompanyResolver) 
         labels = split_labels(row.organizations)
         total += len(labels)
         repeated += len(labels) - len(set(labels))
-        haystack = f"{row.title} {row.text}"
-        named = {"T:" + t for t in ncs.direct_mentions(resolver, f"{row.title} {row.text}")}
+        haystack = str(row.text)
+        named = {"T:" + t for t in ncs.direct_mentions(resolver, haystack)}
         for label in labels:
             if not _written(label, haystack) and canon(label) not in named:
                 not_in_text.append((int(row.review_order), label))
@@ -183,8 +184,8 @@ def integrity(data: pd.DataFrame, key: pd.DataFrame, resolver: CompanyResolver) 
 
 
 def check_repairs(data: pd.DataFrame, flagged: Sequence[tuple[int, str]]) -> None:
-    """Every repaired name must be in its text, and every flagged label must have a repair entry (so a new flagged label is noticed)."""
-    by_row = {int(r.review_order): f"{r.title} {r.text}" for r in data.itertuples()}
+    """Every repaired name must be in its ``text`` (the model's input), and every flagged label must have a repair entry (so a new flagged label is noticed)."""
+    by_row = {int(r.review_order): str(r.text) for r in data.itertuples()}
     unknown = [f for f in flagged if f not in REPAIRS]
     if unknown:
         raise IntegrityError(f"labels not in the text that REPAIRS does not list: {unknown}")
@@ -265,8 +266,8 @@ def miss_causes(
     spans: Sequence[Sequence[Mapping[str, Any]]],
     canon: Any,
 ) -> dict[str, list[str]]:
-    """For every universe company the owner names and the NER-plus-matcher misses: *ner_untagged* (no ORG span overlaps the name in the text),
-    *matcher_unmapped* (a span overlaps it and the matcher gives it another company or none) or *not_located* (the label is not written in the
+    """For every universe company the owner names and the NER-plus-matcher misses: *ner_untagged* (no ORG span overlaps **any** occurrence of the name in the text),
+    *matcher_unmapped* (a span overlaps one and the matcher gives it another company or none) or *not_located* (the label is not written in the
     text, so no place to look: a ticker written as ``MSFT`` for ``Microsoft``)."""
     causes: dict[str, list[str]] = {"ner_untagged": [], "matcher_unmapped": [], "not_located": []}
     for row, g, sp in zip(data.itertuples(), gold, spans, strict=True):
@@ -276,20 +277,31 @@ def miss_causes(
             target = canon(name)
             if not target.startswith("T:") or target in found:
                 continue
-            at = text.lower().find(name.lower())
+            places = [m.start() for m in re.finditer(re.escape(name), text, flags=re.IGNORECASE)]
             label = f"{int(row.review_order)}:{name}"
-            if at < 0:
+            if not places:
                 causes["not_located"].append(label)
-            elif any(
+            elif any(  # a span over ANY occurrence of the name: the NER tagged it
                 s.get("entity_type") == "ORG"
                 and s["start_char"] < at + len(name)
                 and s["end_char"] > at
                 for s in sp
+                for at in places
             ):
                 causes["matcher_unmapped"].append(label)
             else:
                 causes["ner_untagged"].append(label)
     return causes
+
+
+def repairs_summary(flagged: Sequence[tuple[int, str]]) -> dict[str, int]:
+    """What the repair overlay does with the labels not in the text: *replaced* by another name, *kept* (the label is right, the text is
+    defective: the replacement is the same name) or *dropped* (no replacement is possible)."""
+    out = {"labels_not_in_the_text": len(flagged), "replaced": 0, "kept": 0, "dropped": 0}
+    for row, label in flagged:
+        names = REPAIRS[(row, label)]
+        out["dropped" if not names else "kept" if names == [label] else "replaced"] += 1
+    return out
 
 
 def run(
@@ -327,6 +339,7 @@ def run(
     return {
         "texts": len(data),
         "integrity": checks,
+        "repairs": repairs_summary(flagged),
         "views": views,
         "near_miss_pairs_repaired_all": near_misses(errors["repaired/all_organisations"]),
         "miss_causes_repaired_universe": {k: v for k, v in causes.items()},
@@ -335,25 +348,21 @@ def run(
     }
 
 
-def main() -> None:
-    universe_rows = pd.read_csv(ROOT / "gold" / "universe.csv").fillna("")
-    resolver = CompanyResolver(
-        [Company(r.ticker, r.company, r.gics_sector, "") for r in universe_rows.itertuples()]
-    )
-    data = pd.read_csv(SET_PATH, encoding="utf-8-sig")
-    key = pd.read_csv(KEY_PATH, encoding="utf-8-sig")
-    finder = ncs.SpanFinder()
-    spans = finder.spans(data.text.tolist())
-    result = run(data, key, resolver, spans)
-    errors, ner = result.pop("_errors"), result.pop("_ner")
-    result["model"] = f"{finder.model_name}@{finder.model_revision}"
-    OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "ner_metrics.json").write_text(
+def write_outputs(
+    out_dir: Path,
+    result: dict[str, Any],
+    errors: Sequence[tuple[set[str], set[str]]],
+    ner: Sequence[Sequence[str]],
+    data: pd.DataFrame,
+    canon: Any,
+) -> None:
+    """``ner_metrics.json`` and ``ner_errors.csv`` (both LF; one row per text that has a miss or an extra, with the span text of each extra)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "ner_metrics.json").write_text(
         json.dumps(result, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    canon = make_canon(resolver)
-    with (OUT / "ner_errors.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
+    with (out_dir / "ner_errors.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(
             ["review_order", "missed", "extra", "extra_spans"]
         )  # T:<ticker> = a universe company, N:<name> = a normalised name
@@ -368,6 +377,21 @@ def main() -> None:
                         "; ".join(sorted(spans_of)),
                     ]
                 )
+
+
+def main() -> None:
+    universe_rows = pd.read_csv(ROOT / "gold" / "universe.csv").fillna("")
+    resolver = CompanyResolver(
+        [Company(r.ticker, r.company, r.gics_sector, "") for r in universe_rows.itertuples()]
+    )
+    data = pd.read_csv(SET_PATH, encoding="utf-8-sig")
+    key = pd.read_csv(KEY_PATH, encoding="utf-8-sig")
+    finder = ncs.SpanFinder()
+    spans = finder.spans(data.text.tolist())
+    result = run(data, key, resolver, spans)
+    errors, ner = result.pop("_errors"), result.pop("_ner")
+    result["model"] = f"{finder.model_name}@{finder.model_revision}"
+    write_outputs(OUT, result, errors, ner, data, make_canon(resolver))
     print(json.dumps(result, indent=1, ensure_ascii=False))
 
 

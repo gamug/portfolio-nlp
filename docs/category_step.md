@@ -157,7 +157,7 @@ tokens also has `_truncated_chunks` = 1 (read the column with `steps.class_score
 A blank text is not classified: the item is `skipped` in `pipeline_step_state` with the reason `blank text`, and is not retried at this
 revision. A ticker that is not in the universe is read as its own name (counted as `name_missing` in the run output). The `batch_size`
 of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not read here (nor is its model): the model scores one pair at a time,
-12 hypotheses each, and the step stores four items per transaction.
+12 hypotheses each, and the step stores 100 items per transaction (`CATEGORY_BATCH`, 2026-11-16; it was 4). The batch size does not change a score, so it is not part of the revision; it changes the unit of a failure (a batch that fails is redone item by item, and three batches in a row that fail completely stop the run: 300 items). The `batch_size` of the v1 stage was **not** raised with it: measured on the 6 GB GPU of the project (the real model, premise of 522 tokens), 8 articles a pass peak at 1.4 GB and take 1.3 s, and 100 peak at 13.8 GB (past the GPU memory) and take 259 s.
 
 ## Metrics
 

@@ -1,19 +1,18 @@
 # Precisión y recall (uno contra el resto) de los pasos del pipeline
 
-Fecha: 2026-11-16 (las cifras de las secciones 5.1 y 3.3 son del 2026-11-16 y del 2026-11-15; las demás, de las fechas que cada sección indica). El número del encabezado es el número de paso propio del pipeline; las secciones siguen el orden en que corren los pasos. "El dueño" es el término del proyecto para quien marca y decide. Pasos cubiertos, en el orden del pipeline: scope (con el paso de sector), cut, NER y la elección de la empresa, summarization, sentiment, category.
+Fecha: 2026-11-16 (los held-out del NER, de la relevancia y del sentiment son del 2026-11-15 y 2026-11-16; los demás, de las fechas que cada sección indica). El número del encabezado es el número de paso propio del pipeline; las secciones siguen el orden en que corren los pasos. "El dueño" es el término del proyecto para quien marca y decide. Pasos cubiertos, en el orden del pipeline: scope (con el paso de sector), cut, NER y la elección de la empresa, summarization, sentiment, category. Al final, una sección junta las métricas de todos los modelos.
 
 Todas las cifras de abajo salen de los documentos del repositorio y de archivos de resultados versionados, o se recalcularon a partir de archivos versionados (las tablas de category
-y de sector se recalcularon para este informe a partir de `docs/category_results_2026_11_13/*.csv` y `gold/sector_validation.csv`; las cifras del candidato de
-category son los archivos del PR #196, `docs/category_results_2026_11_15/`, y sus corridas de MLflow, sección 6). **Las cifras medidas sobre la corrida real del corpus son
-la muestra de datos reales de category (6.4), las marcas de empresa principal sobre piezas (3.3) y la verificación de sentiment sobre 190 piezas (5.1)**; la muestra de category se leyó del almacén RESULTS (solo lectura: `news_category`, `news_summary`, `sub_news`); todas las demás salen de archivos versionados o
+y de sector se recalcularon para este informe a partir de `docs/category_results_2026_11_13/*.csv` y `gold/sector_validation.csv`; las cifras de category son los archivos del PR #196, `docs/category_results_2026_11_15/`, y sus corridas de MLflow, sección 6; las del NER, `docs/ner_results_2026_11_16/`). **Las cifras medidas sobre textos de la corrida real del corpus son
+el held-out del NER (100 textos del paso 2), las marcas de empresa principal sobre piezas (sección 3.2), la verificación de sentiment sobre 190 piezas (sección 5) y la muestra de datos reales de category (sección 6)**; la muestra de category se leyó del almacén RESULTS (solo lectura: `news_category`, `news_summary`, `sub_news`); todas las demás salen de archivos versionados o
 de resultados.
 
 **Uno contra el resto (OVR)** significa: para cada clase, precisión = de lo que el paso llamó de esa clase, la proporción que es correcta; recall = de los miembros verdaderos de
 esa clase, la proporción que el paso encontró. Donde un paso no tiene clases de ese tipo, o el dueño del proyecto nunca las midió, la tabla lo dice en lugar de
 inventar una cifra.
 
-**Qué métricas se conservan.** Para todo modelo entrenado en el proyecto (los clasificadores de scope, el clasificador de pares del cut, el modelo de relevancia, el modelo de pares y el stack de sentiment, el candidato de category) este informe conserva solo dos tipos de métricas: **de entrenamiento-validación** (validación cruzada, puntajes fuera de pliegue y de una división de validación) y **held-out** (puntajes sobre textos con los que el modelo no se entrenó ni se ajustó).
-Lo que se quitó en esta versión es toda otra medida: la proporción de ítems de una corrida que un paso etiquetó (una proporción de salida de una corrida de prueba) y los conteos de una corrida del corpus, que dicen qué produce un modelo, no si acierta. Se conservan las descripciones de los datasets, las narrativas de selección del modelo y las limitaciones. Los modelos que no se entrenan aquí (summarization, el modelo zero-shot del paso de category, las reglas) conservan las cifras que tenían.
+**Qué métricas se conservan.** Para todo modelo entrenado en el proyecto (los clasificadores de scope, el clasificador de pares del cut, el modelo de relevancia, el modelo de pares y el stack de sentiment, el fine-tune de category) este informe conserva solo dos tipos de métricas: **de entrenamiento-validación** (validación cruzada, puntajes fuera de pliegue y de una división de validación) y **held-out** (puntajes sobre textos con los que el modelo no se entrenó ni se ajustó).
+Lo que se quitó en esta versión es toda otra medida: la proporción de ítems de una corrida que un paso etiquetó (una proporción de salida de una corrida de prueba) y los conteos de una corrida del corpus, que dicen qué produce un modelo, no si acierta. Se conservan las descripciones de los datasets, las narrativas de selección del modelo y las limitaciones. Los modelos que no se entrenan aquí (summarization, el modelo zero-shot anterior del paso de category, las reglas) conservan las cifras que tenían.
 Las proporciones y los conteos quitados siguen en los documentos de los pasos (`docs/companies_step.md`, `docs/main_company_training.md`, `docs/summary_step.md`), que no son informes de todo el pipeline y los conservan. Las descripciones de datasets conservan las cifras de calidad de etiquetas de sus conjuntos (por ejemplo la verificación de etiquetas de entrenamiento del cut): describen los datos, no un modelo.
 
 ## Resumen
@@ -23,14 +22,14 @@ Las proporciones y los conteos quitados siguen en los documentos de los pasos (`
 | Scope | una de 4 clases por texto (`single`, `multi`, `sector`, `out_of_scope`) | **Sí**, cuatro clases (sección 1.1) | acuerdo en el held-out 83.6% [78.1, 88.9]; recall de `out_of_scope` 53%; precisión en cuarentena 90.8% | Sí (200 textos, vistos muchas veces), más 225 leídos por el dueño |
 | Sector | el sector GICS de 2 dígitos asignado a un texto `sector` | **Solo precisión** (por sector, de 2 a 5 textos cada uno); el recall no se midió | 87.5% de los sectores asignados correctos (35 de 40) | Sí (un sorteo hecho después de construir el paso), un solo revisor |
 | Cut | las piezas ("sub-news") que el cut hace de un texto con varias empresas | **Sin clases.** Tres preguntas de sí/no por pieza (parecidas a una precisión) | 84.6% de las piezas fieles; 75.5% limpias | Sí (28 textos, 143 piezas) |
-| Empresa: NER | los tramos de organización que encuentra NER | No por clase sobre los textos actuales; una corrida anterior juzgada (v1, artículos completos) | recall 0.84, precisión 0.66 (corrida anterior) | Juzgado por un LLM, no por un gold |
-| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases, fuera de pliegue (out-of-fold) | precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5 (validación cruzada sobre resúmenes); **sobre 119 filas marcadas de 59 piezas, los textos que lee el paso: precisión 90.9%, recall 30.0%** | **Sí**: las marcas del dueño sobre piezas que el modelo nunca vio (sección 3.3, parciales: 119 filas de 59 piezas); el 94.7% es validación cruzada sobre 809 resúmenes marcados, no held-out |
+| Empresa: NER | los tramos de organización que encuentra NER (y las empresas del universo que el matcher saca de ellos) | **Sin clases**: precisión, recall y F1 sobre 100 textos etiquetados por el dueño (321 organizaciones) | empresas del universo: precisión 90.1%, recall 95.4% con las etiquetas del dueño tal como están (92.6% / 95.5% con la superposición del desarrollador; recall 98.7% con `ner+text`); todas las organizaciones: 72.6% / 90.4% con la superposición | **Sí** (100 textos, un revisor; 14 etiquetas que no están en el texto, superposición: 9 reemplazadas, 1 conservada, 4 descartadas); además una corrida v1 juzgada por un LLM |
+| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases | validación cruzada (809 resúmenes): precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5; **held-out (119 filas marcadas de 59 piezas, los textos que lee el paso): precisión 90.9%, recall 30.0%** | **Sí** (marcas parciales sobre piezas, un revisor); la validación cruzada no lo es |
 | Summarization | el resumen de un texto de más de unos 2,000 caracteres | **Sin clases.** Puntajes de un juez LLM (1 a 5) | **DeepSeek, el summarizer del paso desde T-206:** fidelidad 4.99, cobertura 4.54, alucinación 0.7% (300 artículos); el paso anterior con distilbart: 4.60, 3.24, 15.0% | El juez también es DeepSeek (calificó sus propios resúmenes); no un gold; la corrida sobre el corpus no se mide |
-| Sentiment | positivo, negativo, neutral para un par (texto, empresa) | **Sí**, tres clases | puntaje 0.814; P/R negativo 0.747 / 0.748 (validación cruzada); sobre 190 piezas reales: exactitud 73.7%, precisión de negativo 69.4% | **No** para el 0.814 (validación cruzada anidada, 809 filas); **sí** para las 190 piezas (sección 5.1) |
-| Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el candidato lee 12 | **Sí**, por etiqueta (precisión, recall y ROC) | modelo del paso: 43.0% en el held-out. **Candidato (sin conectar): 54.1% en el held-out, 71.3% en 300 sub-news reales (etiquetas del asistente), 87.8% fuera de pliegue (etiquetas revisadas)** | Sí (135 filas single, evaluadas una sola vez); la barra de 80% **no se cumple** |
+| Sentiment | positivo, negativo, neutral para un par (texto, empresa) | **Sí**, tres clases | validación cruzada anidada (809 filas): puntaje 0.814, negativo P/R 0.747 / 0.748; **held-out (190 piezas reales): exactitud 73.7%, negativo 69.4% / 80.6%** | **Sí** (190 piezas, un lector); la validación cruzada no lo es |
+| Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el modelo fijado en el paso lee 12 | **Sí**, por etiqueta (precisión y recall) | fuera de pliegue 87.8%; **held-out 54.1%**; 71.3% en 300 sub-news reales (etiquetas del asistente) | Sí (135 filas single, evaluadas una sola vez); la barra de 80% **no se cumple** |
 
-**Lee primero la última columna.** Solo el scope, el cut, category, la prueba limpia de sector y las dos verificaciones sobre piezas de la corrida real (las marcas de empresa principal del dueño, sección 3.3, y la verificación de sentiment sobre 190 piezas, sección 5.1) son medidas sobre textos con los que el modelo o las reglas no eligieron
-sus ajustes; las cifras de validación cruzada del modelo de relevancia y del stack de sentiment son fuera de pliegue y no son held-out. Ninguno de los pasos ha sido evaluado por un segundo
+**Lee primero la última columna.** Solo el scope, el cut, el NER, la relevancia sobre piezas, el sentiment sobre 190 piezas, category y la prueba limpia de sector son medidas sobre textos con los que el modelo o las reglas no eligieron
+sus ajustes; las cifras de validación cruzada de relevancia y de sentiment son fuera de pliegue y no son held-out. Ninguno de los pasos ha sido evaluado por un segundo
 lector. La barra que el dueño fijó para las etiquetas es 80% (D24 para category; 70% para precisión y recall del negativo en sentiment, D32).
 
 ## 1. Scope (paso 1, `docs/scope_training.md`)
@@ -191,20 +190,32 @@ Detrás del cut hay tres tipos de datos; el cut es un modelo que decide a qué e
 
 ### Selección del modelo
 
-Se compararon cinco extractores sobre los conjuntos de fidelidad; todos cortan el cuerpo en piezas y deciden a qué empresa pertenece cada pieza. La barra es 80% de textos fieles.
+Se compararon cinco extractores sobre los conjuntos de fidelidad; todos cortan el cuerpo en piezas y deciden a qué empresa pertenece cada pieza. Después se comparó `units` con dos lecturas posteriores, `units4` y `units5`. La barra es 80% de textos fieles.
 
 | Extractor | Cómo corta y decide |
 |---|---|
 | `baseline` | oraciones; una oración pertenece a las empresas que nombra, o a las de la oración anterior; sin modelo |
 | `model` | oraciones; una oración que no nombra a nadie va a la empresa a la que el modelo entrenado da el puntaje más alto (al menos 0.5) |
-| **`units`** | líneas, viñetas y cláusulas, sin el pie de página; decide el modelo entrenado |
+| **`units`** | líneas, viñetas y cláusulas, sin el pie de página; decide el modelo entrenado (selección del 2026-11-08) |
 | `units2` | como `units`, con una guarda sobre formas cortas de nombres y sobre líneas que abren con nombres y un guion |
 | `units3` | como `units2`, y una pieza de esa línea también pertenece a las empresas que ella misma nombra |
+| `units4` | como `units`, con el resolvedor simple (sin guarda); el encabezado de una oración "Nombres – texto" se lee por oración (también a mitad de párrafo) y un ticker entre paréntesis forma parte del encabezado; la oración va a las empresas del universo del encabezado y a las que su texto nombra, y a nadie si el encabezado no nombra ninguna; una oración con encabezado no se corta en cláusulas (T-176; el corte del 2026-11-11 al 2026-11-12) |
+| **`units5`** | como `units4`, y además lee los encabezados que `units4` no leía: un nombre corto en mayúsculas ("SAP —", "UBS –"), una etiqueta de grupo ("Memory stocks —"), un punto dentro de un nombre ("Amazon.com (AMZN) –") y un texto en minúsculas tras el guion solo cuando el encabezado trae su ticker entre paréntesis; una oración sin encabezado tras un encabezado de nadie va a las empresas del universo que nombra (T-177; **el corte final desde el 2026-11-12**) |
 
 El modelo entrenado es un clasificador de pares ("¿esta oración trata de esta empresa?") afinado sobre el codificador del modelo de sentiment, con el nombre de la empresa enmascarado y la oración anterior como contexto, solo con etiquetas `lead`.
 `units` se seleccionó el 2026-11-08: en el conjunto de confirmación pasa la barra (86.1% [80.9, 90.7] sobre toda empresa nombrada, 95.3% [92.0, 98.2] sobre empresas reales), con textos más cortos que el baseline (570 caracteres frente a 952) con la misma proporción de fieles (86.5% y 86.6%) y
-menos texto de otras empresas. No se muestra mejor que el baseline en cuerpos nuevos; se mantuvo porque no es peor y es más magro. El margen es estrecho: pasar de una a tres marcas a `no` baja el extremo inferior de 80%. Luego el cut se releyó como `units4`, y **`units5` (`units5-d3e2cbfa830e`) es el cut final**;
-su checkpoint está fijado a la copia privada del Hub `gamug/FinBERT-news-attribution@436ad700`.
+menos texto de otras empresas. No se muestra mejor que el baseline en cuerpos nuevos; se mantuvo porque no es peor y es más magro. El margen es estrecho: pasar de una a tres marcas a `no` baja el extremo inferior de 80%.
+
+**`units4` y `units5` (lecturas de `units`, mismo modelo entrenado).** La primera corrida del cut sobre 232 cuerpos `multi` mostró dos fallos de `units`: 162 textos de empresa (en 79 cuerpos) con dos o más encabezados "Nombre —" y 6 textos que eran solo un encabezado. Sobre esos 232 cuerpos (`scripts/compare_cut_readings_2026_11_11.py`, GPU):
+
+| | `units` | `units4` | `units5` |
+|---|---|---|---|
+| textos de empresa | 1,671 | 1,589 | 1,638 |
+| textos con varios encabezados | 162 (79 cuerpos) | 23 (18 cuerpos) | 10 (los diez solapes legítimos, leídos con `several_headings_owner`) |
+| textos que son solo un encabezado | 6 | 0 | no se registra |
+| fieles sobre los textos con marca del dueño (marcas anteriores de fidelidad) | no se compara aquí | 304 de 313, 97.1% [94.5, 99.1] | 351 de 359, 97.8% [95.5, 99.4] |
+
+La ganancia de `units5` sobre `units4` viene de textos añadidos que son fieles, no de textos ya existentes que mejoren (`docs/extractor_training.md`, actualización del 2026-11-11; `docs/scope_training.md` sección 8.1). **`units5` (`units5-d3e2cbfa830e`) es el corte final** (dueño, 2026-11-12, tras la muestra de sí/no de la sección de abajo); su checkpoint está fijado a la copia privada del Hub `gamug/FinBERT-news-attribution@436ad700`.
 
 **Muestra**: 28 textos sorteados al azar del cut, 143 piezas, marcadas por el dueño el 2026-11-12. Proporción de sí con intervalo de Wilson de 95% sobre piezas:
 
@@ -219,95 +230,81 @@ Los intervalos que remuestrean textos completos son más amplios (para `faithful
 
 **Frente a la barra de 80% para `faithful`**: la estimación puntual pasa (84.6%), el extremo inferior del intervalo (77.8%) no.
 
-**La empresa principal por pieza** es una medida del paso 3 (el modelo de relevancia), no del cut: sus cifras de entrenamiento-validación y held-out están en las secciones 3.2 y 3.3.
+**La empresa principal por pieza** es una medida del paso 3 (el modelo de relevancia), no del cut: sus cifras de entrenamiento-validación y held-out están en la sección 3.2.
 
 **Qué no se mide.**
 - El **recall** del cut (si el cut encontró todas las historias del texto): no se midió.
 
 ## 3. NER y la elección de la empresa (paso 3, `docs/companies_step.md`)
 
-El paso 3 tiene dos partes que se miden por separado: NER (encuentra tramos de organización) y el modelo de relevancia (decide cuáles empresas de un texto son las principales).
+El paso 3 tiene dos partes que se miden por separado: NER (encuentra tramos de organización) y el modelo de relevancia (decide cuáles empresas de un texto son las principales). Cada una tiene su sección y una sola tabla de métricas, con la validación y el held-out juntos.
 
 ### Descripción del dataset
 
-No hay un gold de NER sobre los textos que lee el paso 3. Lo que existe:
+El NER tiene desde el 2026-11-16 un conjunto held-out del dueño sobre textos del paso 2; la relevancia tiene sus 809 resúmenes marcados y, además, marcas sobre piezas. Lo que existe:
 
 | Conjunto | Tamaño | Columnas y etiquetas | Características |
 |---|---|---|---|
 | Datos de entrenamiento de NER (FiNER-ORD, usados por quien publicó el modelo) | no se conservan en este repositorio | tramos de entidad de tipo `PER`, `LOC`, `ORG` | datos públicos de NER de noticias financieras; el repo registra el modelo, no los datos |
 | Evaluación juzgada (v1, `docs/evaluation.md`) | 1,000 artículos completos muestreados, 953 procesados | tramos juzgados `wrong` o `missed` por un juez LLM | no es un gold hecho a mano; artículos completos, no los resúmenes ni piezas que lee el paso 3 |
+| **Held-out de NER** (`data/ner_val100/to_tag.csv`, local y fuera de git; `docs/ner_training.md`) | 100 textos, 321 organizaciones | `review_order`, `article_id`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `key`, `organizations`, `notes` | el dueño escribe las organizaciones de cada texto separadas por comas, tal como aparecen en el texto; los textos son resúmenes u originales del paso 2 (`summary-7a9bd2062bc4`); **14 etiquetas de 11 filas no están escritas en el texto** (nombres en español, erratas, nombres pegados, un texto defectuoso, cuatro de otro artículo): el desarrollador propone una superposición (9 reemplazadas, 1 conservada, 4 descartadas) y el archivo no se tocó (T-213) |
 | Entrenamiento y evaluación de relevancia (los 809 resúmenes marcados) | 809 pares (texto, empresa) de 855 resúmenes etiquetados (dos sorteos, 450 y 405) | `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, más la marca | cada fila es un texto (un resumen de un artículo, unas pocas oraciones) y una empresa; relevante = la marca tiene dirección (positiva o negativa), no relevante = neutral (202 de las 809 son neutrales); los sorteos equilibran las clases que predijo el modelo de sentiment anterior, por eso las cifras usan pesos |
-| Marcas de empresa principal sobre sub-news (`data/main_company/to_tag.csv`, local) | 290 filas sobre 153 sub-news del corte `units5` (la primera versión tenía 353 sobre 180) | `item_id`, `texto`, `texto_es`, `ticker`, `empresa`, `es_principal` (si es la empresa principal, `yes`/`no`), `falta_la_principal` (si falta la empresa principal), `notas` | seis bandas de relevancia; 119 filas de 59 ítems están marcadas (100 `yes`, 19 `no`) |
+| **Held-out de relevancia**: marcas de empresa principal sobre sub-news (`data/main_company/to_tag.csv`, local; `gold/main_company_marks.csv`) | 290 filas sobre 153 sub-news del corte `units5` (la primera versión tenía 353 sobre 180); 119 filas de 59 ítems están marcadas (100 `yes`, 19 `no`) | `item_id`, `texto`, `texto_es`, `ticker`, `empresa`, `es_principal` (si es la empresa principal, `yes`/`no`), `falta_la_principal`, `notas` | seis bandas de relevancia de 30 ítems (empresas `companies-f349536cf701`, semilla 20261113); el modelo nunca vio sub-news; un lector |
 
 ### Selección del modelo
 
-**NER.** `gamug/sec-bert-finer-ord-ner` (SEC-BERT-BASE afinado sobre FiNER-ORD, fijado en `ba7b9e43`) es el modelo del pipeline; solo encuentra tramos de organización, que un matcher convierte en tickers del universo. Los documentos leídos para este informe **no registran comparación con otro modelo de NER**, solo la corrida juzgada de la sección 3.1. La opción `--candidates ner+text`
-(NER más el matcher aplicado sobre el texto, sin coincidencias en minúsculas y sin coincidencias dentro de líneas de divulgación) se eligió sobre `ner` solo por el dueño el 2026-11-13, por la proporción de ítems que etiqueta (una proporción de salida de una corrida de prueba, no una métrica de corrección: sus cifras no se conservan aquí; véase `docs/companies_step.md`, "Dry run").
+**NER.** `gamug/sec-bert-finer-ord-ner` (SEC-BERT-BASE afinado sobre FiNER-ORD, fijado en `ba7b9e43`) es el modelo del pipeline; solo encuentra tramos de organización, que un matcher convierte en tickers del universo. Los documentos leídos para este informe **no registran comparación con otro modelo de NER**: se mide sobre la corrida juzgada v1 y sobre el held-out de 100 textos de la sección 3.1; no se cambió ni se fijó nada con esa medida. La opción `--candidates ner+text`
+(NER más el matcher aplicado sobre el texto, sin coincidencias en minúsculas y sin coincidencias dentro de líneas de divulgación) se eligió sobre `ner` solo por el dueño el 2026-11-13, por la proporción de ítems que etiqueta (una proporción de salida de una corrida de prueba, no una métrica de corrección: sus cifras no se conservan aquí; véase `docs/companies_step.md`, "Dry run"); el held-out de 100 textos la mide ahora.
 
 **Relevancia (cuál empresa es la principal).** La base es la lectura zero-shot del modelo de category (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, "este texto trata principalmente de <empresa>"), la mejor de nueve variantes zero-shot por AUC (0.743; el ranking del propio modelo de sentiment fue 0.795). Afinado sobre las 809 marcas, su AUC fuera de pliegue es 0.90, y el
-modelo publicado (`gamug/deberta-v3-company-relevance@8812c8bc`, privado) es el que corre el paso. El umbral 0.5 se eligió sobre esos puntajes fuera de pliegue (recall de principal 94.7%, precisión 90.0%); los otros valores probados (0.3, 0.7, 0.9) cambian poco en resúmenes, pero en sub-news la proporción de ítems con empresa principal se mueve mucho a lo largo del rango (una proporción de salida de una corrida de prueba, que no se conserva aquí), lo que los 809 resúmenes no pueden resolver.
+modelo publicado (`gamug/deberta-v3-company-relevance@8812c8bc`, privado) es el que corre el paso. El umbral 0.5 se eligió sobre esos puntajes fuera de pliegue (recall de principal 94.7%, precisión 90.0%); los otros valores probados (0.3, 0.7, 0.9) cambian poco en resúmenes, pero en sub-news la proporción de ítems con empresa principal se mueve mucho a lo largo del rango (una proporción de salida de una corrida de prueba, que no se conserva aquí), lo que los 809 resúmenes no pueden resolver; las marcas sobre piezas (abajo) lo miden.
 
 ### 3.1 NER (`gamug/sec-bert-finer-ord-ner`)
 
-La única medida es la evaluación v1 de 2026-09: un juez LLM sobre 1,000 **artículos completos** muestreados (953 procesados), no sobre los resúmenes ni las piezas del paso 3.
+NER no tiene clases por tipo que importen aquí: solo cuentan los tramos `ORG`, y lo que el paso 3 conserva son las empresas del universo que el matcher saca de ellos. Una sola tabla: la evaluación juzgada v1 (la validación) y el held-out del dueño (100 textos, 321 organizaciones; precisión, recall y F1 por texto como conjuntos de empresas canónicas; las 14 etiquetas que no están en el texto se tratan en las primeras filas con la **superposición** del desarrollador, una propuesta que el dueño debe confirmar: 9 reemplazadas, 1 conservada, 4 descartadas; las etiquetas tal como están siguen a la tabla).
 
-| Medida | Valor |
-|---|---|
-| Micro-F1 de tramos | 0.7418 |
-| Recall / precisión | 0.84 / 0.66 (el modelo sobrepredice) |
-| Proporción de tramos predichos que el juez llama erróneos | 33.8% |
-| F1 por tipo | ORG 0.75, LOC 0.82, PER 0.66 |
+| Medida | Evaluación juzgada v1 (1,000 artículos completos, juez LLM) | Held-out del dueño (100 textos) |
+|---|---|---|
+| Todas las organizaciones: precisión | 0.66 (el modelo sobrepredice; 33.8% de los tramos predichos los llama erróneos el juez) | 72.6% |
+| Todas las organizaciones: recall | 0.84 | 90.4% |
+| Todas las organizaciones: F1 | micro-F1 de tramos 0.7418 (ORG 0.75, LOC 0.82, PER 0.66) | 0.805 |
+| **Empresas del universo** (lo que el paso 3 conserva): precisión | no se midió | **92.6%** (150/162) |
+| **Empresas del universo**: recall | no se midió | **95.5%** (150/157) |
+| **Empresas del universo**: F1 | no se midió | **0.940** |
+| Empresas del universo con `ner+text` (el matcher también sobre el texto): precisión / recall / F1 | no se midió | 90.1% / **98.7%** / 0.942 |
 
-Solo los tramos `ORG` importan para el paso 3. **No hay un gold OVR por clase sobre los textos que lee el paso 3**, y el juez no es el dueño. Los tramos se convierten en tickers con un matcher, que tiene
-vacíos conocidos (nombres cortos como `Disney` o `JPMorgan`, T-181). Los tramos crudos no se almacenan.
+Con las 14 etiquetas tal como están (sin superposición): empresas del universo 90.1% / 95.4% / 0.927 y todas las organizaciones 70.3% / 87.0% / 0.777; quitarlas empeora la precisión, porque una etiqueta mal escrita de una empresa real deja el acierto del modelo como "de más".
+
+**Qué dice y qué no.**
+- **De las 7 empresas del universo que faltan, 5 no las etiqueta el NER** (Meta Platforms, Hormel, MSFT, Oracle, Las Vegas Sands) y 2 las etiqueta pero el matcher no las asigna (`ON Semiconductor`, `Amazon`); `ner+text` recupera las 5. Las 12 empresas de más son nombres de empresa reales que el dueño no escribió (`Royal Caribbean`, `PayPal`, `Intel`, `Trane`...); no se leyó cada texto para ver si trata de ellas.
+- Los tramos de más sobre todas las organizaciones son medios, instituciones y productos (CNBC, Reserva Federal, Congress, iPhone) sin ticker, que el paso 3 descarta; no son un defecto del paso.
+- Las etiquetas son **todas las organizaciones nombradas**, no las principales (eso lo mide la sección 3.2). La lista de alias con que se comparan los nombres (Google y Alphabet, Facebook y Meta...) se eligió después de ver los errores, así que está ajustada a este conjunto (sin ella, sobre todas las organizaciones, 68.0% / 86.4%).
+- 100 textos, un revisor, sin intervalo; resúmenes del paso 2 antiguo (distilbart), no los de DeepSeek de la corrida del corpus. La superposición sobre las 14 etiquetas (9 reemplazadas, 1 conservada, 4 descartadas) es del desarrollador; los textos defectuosos (palabras pegadas como `NHTSAsaid`) son del crawl, no del modelo.
+- El juez v1 no es un gold ni el dueño, y puntúa artículos completos. Los tramos se convierten en tickers con un matcher con vacíos conocidos (nombres cortos como `Disney` o `JPMorgan`, T-181); los tramos crudos no se almacenan. Detalle: `docs/ner_training.md`; cifras: `docs/ner_results_2026_11_16/`; script: `scripts/ner_eval_2026_11_16.py`.
 
 ### 3.2 Relevancia: si una empresa es "principal" en un texto (`gamug/deberta-v3-company-relevance`)
 
-Dos clases: principal (relevante) y no principal. Puntajes fuera de pliegue de los **809 resúmenes marcados**, sin ponderar, umbral 0.5 (el valor del paso):
+Dos clases: principal y no principal. Una sola tabla: la validación cruzada (puntajes fuera de pliegue de los 809 resúmenes marcados, sin ponderar) y el held-out (las 119 filas marcadas por el dueño sobre piezas del corte `units5`, sin ponderar: las bandas se muestrearon por igual, no son tasas del corpus). Intervalos de 95% donde se calcularon.
 
-| | Valor |
-|---|---|
-| AUC fuera de pliegue | 0.90 |
-| Clase **principal**: recall ("filas relevantes conservadas") | 94.7% |
-| Clase **principal**: precisión | 90.0% |
-| Clase **no principal**: recall (1 menos "filas no relevantes llamadas principales", 31.7%) | 68.3% |
-| Clase no principal: precisión | no figura en el registro |
+| Medida | Validación cruzada (809 resúmenes) | Held-out (119 filas, 59 piezas) |
+|---|---|---|
+| AUC | 0.90 | **0.663** |
+| Principal a 0.5 (el paso): precisión | 90.0% | 90.9% [76.4, 96.9] (30/33) |
+| Principal a 0.5: recall | 94.7% | 30.0% [21.9, 39.6] (30/100) |
+| No principal a 0.5: precisión | no figura en el registro | 18.6% (16/86) |
+| No principal a 0.5: recall | 68.3% (1 menos 31.7% de filas no relevantes llamadas principales) | 84.2% (16/19) |
+| Principal a 0.3: precisión / recall | 89.7% / 96.2% | 90.0% [78.6, 95.7] (45/50) / 45.0% [35.6, 54.8] (45/100) |
+| Principal a 0.7: precisión / recall | 91.1% / 92.3% | 85.0% [64.0, 94.8] (17/20) / 17.0% [10.9, 25.5] (17/100) |
+| Principal a 0.9: precisión / recall | 91.7% / 87.3% | no se calculó |
 
-En los otros umbrales (0.30, 0.50, 0.70, 0.90): recall de principal 96.2 / 94.7 / 92.3 / 87.3%, precisión 89.7 / 90.0 / 91.1 / 91.7%, proporción de filas no principales llamadas principales 33.2 / 31.7 / 27.2 / 23.8%.
-Entre una cuarta parte y un tercio de las filas que el dueño marcó "no relevante" se llaman principales, sea cual sea el umbral.
-
-**Límites.**
-- El modelo se entrenó con resúmenes, no con piezas; su validación held-out sobre piezas son las marcas parciales del dueño de la sección 3.3 (119 filas de 59 piezas: precisión de principal 90.9%, recall 30.0% con 0.5) (T-165, T-170).
-
-### 3.3 Empresa principal en piezas: las marcas parciales del dueño (T-170)
-
-El conjunto de la verificación de empresa principal (`data/main_company/to_tag.csv`, local y fuera de git; estratos en `to_tag.strata.json`) tiene 290 filas sobre 153 sub-news del corte `units5`
-(`units5-d3e2cbfa830e`, empresas `companies-f349536cf701`, semilla 20261113), seis bandas de relevancia de 30 ítems (la primera versión tenía 353 filas sobre 180 ítems; el archivo de estratos aún lista 180). El dueño marcó `es_principal` (`yes` o `no`: si esta empresa es la principal de la pieza)
-en **119 filas de 59 ítems** (100 `yes`, 19 `no`; 171 filas siguen sin marcar). La decisión del modelo es su puntaje de relevancia con el umbral del paso (0.5), tomado de `to_tag.strata.json`. Calculado el 2026-11-15 sobre el archivo tal como estaba entonces, sin ponderar
-(las bandas se muestrearon por igual, no en proporción a la población, así que no son tasas del corpus).
-
-| Clase | n marcadas | Precisión | Recall |
-|---|---|---|---|
-| Principal (`yes`) a 0.5 | 100 | 90.9% [76.4, 96.9] (30/33) | 30.0% [21.9, 39.6] (30/100) |
-| No principal (`no`) a 0.5 | 19 | 18.6% (16/86) | 84.2% (16/19) |
-| Principal a 0.3 | 100 | 90.0% [78.6, 95.7] (45/50) | 45.0% [35.6, 54.8] (45/100) |
-| Principal a 0.7 | 100 | 85.0% [64.0, 94.8] (17/20) | 17.0% [10.9, 25.5] (17/100) |
-
-El puntaje separa los `yes` de los `no` del dueño con un AUC de **0.663** (sin ponderar), contra 0.896 fuera de pliegue sobre resúmenes: más de 5 puntos por debajo, el disparador de la regla de T-170 (las sub-news tienen su propio umbral, elegido sobre las sub-news marcadas). Las marcas son parciales y la regla del dueño es más amplia que la del modelo (abajo), así que es una razón para decidir, no la decisión.
-Las marcas, sus textos y el scorer están versionados: `gold/main_company_marks.csv`, `gold/texts/main_company_marks_texts.csv`, `scripts/score_main_company_marks_2026_11_16.py`; la cuenta completa es `docs/main_company_training.md`.
-
-Leído por ítem (59 piezas): 53 tienen una empresa que el dueño marcó como principal; el umbral del modelo encuentra al menos una de ellas en 30 (56.6%). El modelo declara una empresa principal en 32 piezas, y el dueño coincide en al menos una en 30 (93.8%).
-
-Proporción de `yes` por banda de relevancia del ítem (la banda 0 tiene los puntajes más bajos): banda 0, 19 de 21 filas; banda 1, 19 de 25; banda 2, 20 de 22; banda 3, 20 de 20; banda 4, 10 de 11; banda 5, 12 de 20.
-
-**Qué dicen las cifras.**
-- **Cuando el modelo declara principal a una empresa, casi siempre acierta** (precisión 0.91 a 0.5, 0.85 a 0.7). **Se le escapa la mayoría de lo que el dueño llama principal** (recall 0.30): 19 de las 21 filas de la banda más baja son `yes`.
-- **Tres piezas aportan 21 de las 119 filas**, y todas sus filas son `yes` (ítems 335155, 343149 y 260642: 10, 7 y 4 empresas). Las dos primeras son listas de tickers, y el modelo da a sus empresas puntajes de 0.01 a 0.16. Sin esas tres piezas quedan 98 filas (79 `yes`, 19 `no`):
-  precisión de principal 30 de 33 = 0.91, recall 30 de 79 = 0.38, precisión de no principal 16 de 65 = 0.25, recall 16 de 19 = 0.84. El recall sigue bajo, así que las listas no son toda la causa.
-- La regla del dueño puede ser más amplia que la del modelo: las piezas con varias empresas reciben varios `yes`, mientras que el modelo se entrenó para elegir aquella de la que trata principalmente el texto (los 809 resúmenes). Las marcas no dicen cuál lectura se quiere; eso es una decisión, no un error del marcado.
-- 59 piezas y un solo lector; 41% de las filas están marcadas y la muestra es estratificada, así que los intervalos son anchos y las cifras no son tasas del corpus.
-
-Lo que respalda: cuando el paso nombra una empresa principal en una pieza, suele ser una que el dueño acepta; no respalda que el paso encuentre las empresas principales del dueño (recall 0.30 a 0.45). Una tasa sobre el corpus no está respaldada.
+**Qué dice y qué no.**
+- **Cuando el modelo declara principal a una empresa, casi siempre acierta** (precisión 0.91 a 0.5), pero **se le escapa la mayoría de lo que el dueño llama principal** (recall 0.30; 19 de las 21 filas de la banda más baja son `yes`). El held-out tiene un AUC de **0.663** contra 0.90 fuera de pliegue, más de 5 puntos por debajo: el disparador de la regla de T-170 (las sub-news tienen su propio umbral, elegido sobre las sub-news marcadas); la decisión es del dueño y sigue abierta (`docs/main_company_training.md`).
+- Tres piezas aportan 21 de las 119 filas (todas `yes`; dos son listas de tickers con puntajes de 0.01 a 0.16); sin ellas, a 0.5: precisión 0.91, recall 0.38: las listas no son toda la causa.
+- Por pieza (59): 53 tienen una empresa que el dueño marcó como principal y el umbral encuentra al menos una de ellas en 30 (56.6%); el modelo declara una principal en 32 piezas y el dueño coincide en al menos una en 30 (93.8%).
+- La regla del dueño puede ser más amplia que la del modelo: las piezas con varias empresas reciben varios `yes`, y el modelo se entrenó para elegir aquella de la que trata principalmente el texto. Eso es una decisión, no un error del marcado.
+- 41% de las filas están marcadas (119 de 290), un solo lector y una muestra estratificada: los intervalos son anchos y las cifras no son tasas del corpus. La validación cruzada es optimista para sub-news: se entrenó sobre resúmenes.
+- No se midió la división entre "no se nombra ninguna empresa del universo" y "se nombra en una forma que el matcher no conoce". Los candidatos de texto de `ner+text` los revisó el desarrollador sobre unos pocos pares; ninguna de las dos cifras se conserva aquí.
+- Archivos: `gold/main_company_marks.csv`, `gold/texts/main_company_marks_texts.csv`, `scripts/score_main_company_marks_2026_11_16.py`; la cuenta completa es `docs/main_company_training.md`.
 
 ## 4. Summarization (paso 2, `docs/summary_step.md`, `docs/summarization_training.md`)
 
@@ -351,8 +348,7 @@ Pareado contra B: C0 +0.10 de fidelidad [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] 
 ## 5. Sentiment (paso 6, `docs/sentiment_step.md`, `docs/sentiment_training.md`)
 
 El modelo de pares (texto y empresa, `sentiment_pair`) da tres probabilidades de clase; se apilan con el puntaje de relevancia mediante una regresión logística
-(`config/sentiment_stack.json`). Las cifras son de la **validación cruzada anidada** sobre las **809 filas marcadas** (ponderada, D37; son las métricas de entrenamiento-validación), sobre toda la
-población marcada (incluye pares de otras empresas), mientras que el paso puntúa solo pares principales. El gold de 180 textos no se ha evaluado con el stack (T-148c4, T-193). **La única verificación held-out es la sección 5.1:** el paso tal como corrió sobre el corpus, evaluado sobre **190 piezas etiquetadas por el dueño**: exactitud 73.7% [67.0, 79.4] (bajo la barra de 80% de D32), precisión 83.0% / 69.4% / 56.7% y recall en la muestra 76.0% / 80.6% / 53.1% para positivo / negativo / neutral; neutral casi nunca se predice (recall ponderado 4.4%).
+(`config/sentiment_stack.json`). Se mide de dos maneras, en una sola tabla de abajo: la **validación cruzada anidada** sobre las **809 filas marcadas** (ponderada, D37; no es held-out; toda la población marcada, con pares de otras empresas, mientras que el paso puntúa solo pares principales) y un **held-out de 190 piezas etiquetadas por el dueño** (un lector) de la corrida real del corpus, revisión `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`). El gold de 180 textos no se ha evaluado con el stack (T-148c4, T-193).
 
 ### Descripción del dataset
 
@@ -365,7 +361,7 @@ La etiqueta es **lo que un texto dice sobre una empresa**, no el sentimiento de 
 | Conjunto de entrenamiento 1 (`sentiment_train.csv`) | 450 resúmenes (424 leídos como par) | 232 positivos, 113 negativos, 105 neutrales | `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, más la marca | tres lotes de 150, 150 por clase que predijo el modelo anterior |
 | Conjunto de entrenamiento 2 (`sentiment_train_2.csv`) | 405 resúmenes (385 leídos como par) | 178 positivos, 116 negativos, 111 neutrales | como arriba | mismo diseño, 135 por clase predicha |
 | Replay | 341 oraciones sorteadas de 925 elegibles (las que nombran la empresa de su artículo) | | | se leen como par con esa empresa, mezcladas en todo conjunto de entrenamiento |
-| **Verificación held-out** (`gold/sentiment_val190.csv`, sección 5.1) | 190 piezas de la corrida sobre el corpus, dos sorteos (90 + 100); nunca de entrenamiento | 96 positivas, 62 negativas, 32 neutrales | `key`, `article_id`, `item_id`, `ticker`, `batch`, `text_source`, `text_hash`, `predicted`, `predicted_score`, `relevance_score`, `pub_date`, las tres revisiones, `sentiment`, `notes`; los textos están en `gold/texts/sentiment_val190_texts.csv` | piezas (sub-news) del paso de resumen guardado, no resúmenes de artículos; 38 son resúmenes de distilbart, el resto textos cortos originales; la llamada del propio modelo se guarda aparte de la etiqueta del dueño |
+| **Held-out** (`gold/sentiment_val190.csv`) | 190 piezas de la corrida sobre el corpus, dos sorteos (90 + 100); nunca de entrenamiento | 96 positivas, 62 negativas, 32 neutrales | `key`, `article_id`, `item_id`, `ticker`, `batch`, `text_source`, `text_hash`, `predicted`, `predicted_score`, `relevance_score`, `pub_date`, las tres revisiones, `sentiment`, `notes`; los textos están en `gold/texts/sentiment_val190_texts.csv` | piezas (sub-news) del paso de resumen guardado (`summary-7a9bd2062bc4`), con una empresa principal del paso de empresas y un puntaje de sentiment; no resúmenes de artículos: 38 son resúmenes de distilbart, el resto textos cortos originales; sorteo 1 (90): 30 por clase predicha, sin textos de los conjuntos de entrenamiento ni del gold; sorteo 2 (100): al azar, filtro más estricto (relevancia 0.9 o más, empresa nombrada dos veces y al inicio); la llamada del propio modelo se guarda aparte de la etiqueta del dueño |
 
 Los sorteos equilibran las clases que predijo el modelo anterior, no las clases verdaderas, así que toda cifra se pondera por el tamaño del pool de la clase predicha sobre los textos sorteados de ella. Juntos, los dos conjuntos de entrenamiento dan 809 filas de pares. Ningún texto del gold ni de un conjunto held-out está en un conjunto de entrenamiento ni en el replay.
 Los textos de sector, mercado y economía (46 filas) se etiquetan por su alcance y se dejan fuera del modelo de pares.
@@ -385,272 +381,97 @@ El modelo de pares lee `[empresa] [SEP] [fragmento de texto]` y promedia las pro
 | **Más relevancia, stack (seleccionado)** | **0.814** | precisión neutral 0.787, recall 0.686; negativo 0.747 / 0.748 |
 | `ProsusAI/finbert` simple como punto de partida, con stack | 0.811 | lo mismo dentro del ruido; se queda el endpoint propio del proyecto |
 
-Seleccionado el 2026-11-10 (la verificación held-out de la sección 5.1 vino después y no participó en la selección): el modelo de pares iniciado desde el endpoint del proyecto `gamug/FinBERT-financial-news`, entrenado con las 809 filas más las 341 oraciones de replay, apilado con el modelo de relevancia afinado. La fijación no está decidida: espera al gold de 180 textos según la regla de D35.
+Seleccionado el 2026-11-10 (el held-out de 190 piezas vino después y no participó en la selección): el modelo de pares iniciado desde el endpoint del proyecto `gamug/FinBERT-financial-news`, entrenado con las 809 filas más las 341 oraciones de replay, apilado con el modelo de relevancia afinado. La fijación no está decidida: espera al gold de 180 textos según la regla de D35.
 
-| Clase | Modelo de pares solo P / R | Compuerta P / R | **Stack (el paso) P / R** |
-|---|---|---|---|
-| Positivo | 0.761 / 0.834 | 0.835 / 0.804 | **0.807 / 0.855** |
-| Negativo | 0.680 / 0.745 | 0.756 / 0.734 | **0.747 / 0.748** |
-| Neutral | 0.634 / 0.442 | 0.680 / 0.754 | **0.787 / 0.686** |
-| P / R macro | 0.692 / 0.674 | 0.757 / 0.764 | **0.780 / 0.763** |
-| ROC OVR macro | 0.845 | 0.845 (por construcción) | **0.898** |
-| Puntaje (D37) | 0.737 | 0.789 | **0.814** |
+**Métricas del stack (el paso), validación y held-out en una sola tabla.** Precisión (P) y recall (R) uno contra el resto; el held-out lleva intervalos de Wilson de 95% y el recall ponderado (cada clase predicha pesa el tamaño de su universo de 57,826 candidatas del primer sorteo, una aproximación porque los dos sorteos tienen universos distintos).
 
-Frente al modelo v1 fijado sobre el mismo corte (puntaje 0.648), el stack gana +0.077 [+0.057, +0.095] sobre el modelo de pares solo. La precisión y el recall del negativo están por encima de la barra de D32 (70%) en
-la validación cruzada. Un control con relevancia barajada suma a lo sumo +0.005, así que la ganancia del stack es información real, no ruido.
+| Medida | Validación cruzada anidada (809 filas, ponderada) | Held-out (190 piezas de la corrida real) |
+|---|---|---|
+| Positivo: P / R | 0.807 / 0.855 | P 83.0% [73.8, 89.4] (73/88); R 76.0% [66.6, 83.5] (73/96); R ponderado 89.4% |
+| Negativo: P / R | 0.747 / 0.748 | P 69.4% [58.0, 78.9] (50/72); R 80.6% [69.1, 88.6] (50/62); R ponderado 78.6% |
+| Neutral: P / R | 0.787 / 0.686 | P 56.7% [39.2, 72.6] (17/30); R 53.1% [36.4, 69.1] (17/32); R ponderado 4.4% |
+| P / R macro | 0.780 / 0.763 | no se calculó |
+| ROC OVR macro | 0.898 | no se calculó |
+| Puntaje (D37) / exactitud | puntaje **0.814** | exactitud **73.7%** [67.0, 79.4] (140 de 190); 78.4% ponderada al universo |
+
+Los candidatos intermedios (modelo de pares solo 0.737, con compuerta 0.789) y el modelo v1 fijado (0.648) están en la tabla de selección de arriba; el stack gana +0.077 [+0.057, +0.095] sobre el modelo de pares solo.
+
+**Frente a las barras de D32** (80% de acuerdo; precisión y recall de negativo de al menos 70%): en la validación cruzada el negativo está por encima (0.747 / 0.748). En el held-out la exactitud, 73.7%, está **bajo 80%**; la precisión de negativo, 69.4%, está **bajo 70%** por estimación puntual y el recall, 80.6%, la supera.
 
 **Límites.**
-- Los puntajes de validación cruzada también sirvieron para elegir entre cerca de una docena de variantes sobre las mismas 809 filas, y sus intervalos son por comparación, sin corregir por eso. **La verificación held-out de la sección 5.1 es la medida que hay que citar** (exactitud 73.7% sobre 190 piezas de la corrida real; recall de neutral en la muestra 53.1% frente a 0.686 en la validación cruzada; ponderado 4.4%); no miden lo mismo (resúmenes marcados, con pares de otras empresas, frente a pares principales de piezas).
-- **Neutral es la clase más débil por sí sola** (recall 0.44 sin el modelo de relevancia); el fallo no es "la empresa está ausente": el modelo oye una empresa y una polaridad pero no distingue si el texto trata de la empresa.
+- **La validación cruzada no es held-out**, así que es optimista; los modelos finales son más confiados que los modelos de pliegue sobre los que se ajustó el stack (no se midió). El held-out es menor, pero **no miden lo mismo** (resúmenes marcados, con pares de otras empresas, frente a pares principales de piezas de la corrida real), así que la brecha no es una medida del optimismo.
+- **Neutral casi nunca se predice** en la corrida: el modelo llama neutrales a 420 de los 57,826 textos del universo (0.7%), mientras el dueño etiquetó neutral el 16.8% de las 190 piezas; por eso el recall ponderado es 4.4%, una tasa construida con pocas etiquetas (una pista, no una medición). Registrado como T-212 (propuesto; el dueño decide la corrección). Neutral es también la clase más débil por sí sola (recall 0.44 sin el modelo de relevancia): el modelo oye una empresa y una polaridad pero no distingue si el texto trata de la empresa.
+- **Los dos sorteos del held-out difieren**: el primero (90, estratificado por la predicción) da exactitud 66.7% [56.4, 75.5] (74.4% ponderada) y el segundo (100, al azar con un filtro que hace de la empresa el tema) 80.0% [71.1, 86.7]; neutral tiene 32 etiquetas y 30 llamadas, con intervalos anchos. Las 190 son de la revisión de resumen con distilbart; los resúmenes de DeepSeek de la corrida del corpus no están cubiertos. Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano.
+- **No es la compuerta de D35** (el gold de 180 textos sobre pares principales, T-148c4, T-193): `config/pipeline_models.json` sigue nombrando el modelo v1; el held-out es evidencia para la decisión del dueño. Marcas, textos y scorer versionados: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`.
+- Un control con relevancia barajada suma a lo sumo +0.005, así que la ganancia del stack es información real, no ruido.
+- El paso lee resúmenes de a lo sumo unos 2,000 caracteres, en fragmentos de a lo sumo el espacio que la empresa deja en 512 tokens, y promedia las probabilidades de los fragmentos. Un texto de sector no recibe sentiment (D42).
 
-### 5.1 Verificación held-out sobre 190 piezas de la corrida real (2026-11-16)
+## 6. Category (paso 5, `docs/category_step.md`, `docs/category_training.md`)
 
-La primera verificación held-out del paso de sentiment sobre textos que ningún modelo ni ajuste vio: el paso tal como corrió sobre el corpus, el modelo de pares y el stack de la revisión
-`sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), evaluado sobre **190 piezas etiquetadas por el dueño** (un lector) en dos sorteos.
-Las marcas, sus textos y el scorer están versionados: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`
-(`scripts/build_val_gold_2026_11_16.py` construye los archivos de gold desde los archivos de trabajo locales).
-
-| Elemento | Primer sorteo (90) | Segundo sorteo (100) |
-|---|---|---|
-| Fuente | sub-news del paso de resumen guardado (`news_summary`, revisión `summary-7a9bd2062bc4`) con una empresa principal del paso de empresas (`companies-f349536cf701`, relevancia 0.7 o más) y un puntaje de sentiment; el texto es el que lee el paso de sentiment | igual, con un universo más estricto |
-| Sorteo | 30 por clase que predijo el modelo (10 resúmenes guardados y 20 textos cortos originales cada una), un texto por artículo | al azar simple, uno por artículo |
-| Universo | 57,826 candidatas (positivo 38,559, negativo 18,847, neutral 420) | cerca de 21,000 candidatas |
-| Filtros | 250 caracteres o más y dos oraciones; mayormente letras; sin listas de tickers ni líneas de divulgación; la empresa nombrada en el texto; inglés; ningún artículo de `gold/sentiment_gold.csv` ni de los conjuntos de entrenamiento | los mismos, más relevancia 0.9 o más, de 300 a 1,500 caracteres, la empresa nombrada dos veces y dentro de los primeros 100 caracteres, menos de dos llamadas de analistas, ningún artículo del primer sorteo (ni de una muestra anterior de 200 textos que se descartó y no se versionó) |
-| Etiquetas | positivo 39, negativo 27, neutral 24 | positivo 57, negativo 35, neutral 8 |
-| Columnas | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (la predicción está en un `key.csv` aparte, con una columna `batch`) | las mismas |
-
-Los textos miden de 250 a 1,626 caracteres (mediana cerca de 400). El título y el texto en español son una ayuda de lectura (`news_nlp.translate`) y no se copian a `gold/`. Una fila tiene la nota "company is not the main" y se conserva.
-Los scripts son `scripts/export_sentiment_val_2026_11_15.py` y `scripts/export_sentiment_val100_2026_11_15.py`; los archivos de trabajo siguen locales (`data/sentiment_val90/`, fuera de git).
-
-**Resultados por sorteo** (precisión exacta dentro de cada clase predicha, intervalo de Wilson 95%; el recall en la muestra es la proporción de la clase etiquetada hallada; el recall ponderado da a cada clase predicha el tamaño de su universo sobre las piezas sorteadas de ella):
-
-Primer sorteo, 90 (estratificado por la predicción): exactitud 66.7% [56.4, 75.5] (60 de 90), ponderada 74.4%.
-
-| Clase | Precisión | Recall (muestra) | Recall (ponderado) |
-|---|---|---|---|
-| Positivo | 80.0% [62.7, 90.5] (24/30) | 61.5% (24/39) | 88.8% |
-| Negativo | 63.3% [45.5, 78.1] (19/30) | 70.4% (19/27) | 69.7% |
-| Neutral | 56.7% [39.2, 72.6] (17/30) | 70.8% (17/24) | 4.0% |
-
-Segundo sorteo, 100 (al azar, sin necesidad de ponderar): exactitud 80.0% [71.1, 86.7] (80 de 100).
-
-| Clase | Precisión | Recall |
-|---|---|---|
-| Positivo | 84.5% [73.1, 91.6] (49/58) | 86.0% [74.7, 92.7] (49/57) |
-| Negativo | 73.8% [58.9, 84.7] (31/42) | 88.6% [74.0, 95.5] (31/35) |
-| Neutral | ninguna llamada (0/0) | 0% [0.0, 32.4] (0/8) |
-
-**Las 190 juntas** (una aproximación: los dos sorteos tienen universos distintos, y las cifras ponderadas los tratan como muestras del universo de 57,826 del primero):
-
-| Clase | Precisión | Recall (muestra) | Recall (ponderado) | F1 (muestra) | F1 (ponderado) |
-|---|---|---|---|---|---|
-| Positivo | 83.0% [73.8, 89.4] (73/88) | 76.0% [66.6, 83.5] (73/96) | 89.4% | 79.3% | 86.1% |
-| Negativo | 69.4% [58.0, 78.9] (50/72) | 80.6% [69.1, 88.6] (50/62) | 78.6% | 74.6% | 73.7% |
-| Neutral | 56.7% [39.2, 72.6] (17/30) | 53.1% [36.4, 69.1] (17/32) | 4.4% | 54.8% | 8.2% |
-
-Exactitud: 73.7% [67.0, 79.4] (140 de 190); ponderada al universo 78.4%.
-Confusión (filas el modelo, columnas la etiqueta del dueño; positivo / negativo / neutral): positivo 73 / 8 / 7; negativo 14 / 50 / 8; neutral 9 / 4 / 17.
-
-**Frente a las barras de D32** (80% de acuerdo; precisión y recall de negativo de al menos 70%): la exactitud junta, 73.7% [67.0, 79.4], está **bajo 80%** (78.4% ponderada al universo, también bajo); el segundo sorteo solo, 80.0% [71.1, 86.7], está en la barra por estimación puntual, con un intervalo que llega bien por debajo. La precisión de negativo, 69.4% [58.0, 78.9], está **bajo 70%** por estimación puntual; el recall de negativo, 80.6% [69.1, 88.6], la supera.
-
-**Relación con la decisión del pin.** Esta no es la compuerta de D35. La regla de D35 evalúa el gold de 180 textos sobre pares principales (T-148c4, T-193); esa evaluación no se ha hecho y `config/pipeline_models.json` sigue nombrando el modelo v1. Estas 190 piezas no se sortearon con el diseño de D35; miden el paso tal como corrió sobre el corpus. Son evidencia para la decisión del dueño; si reemplazan la evaluación del gold de 180 le toca decirlo al dueño.
-
-**Qué dice.**
-- **Positivo** es la clase más fuerte (precisión 83.0%, recall ponderado 89.4%).
-- **La precisión de negativo** está bajo la barra en la cifra junta y sobre ella en el segundo sorteo, más limpio (73.8%); el recall de negativo la supera en ambos.
-- **Neutral casi nunca se predice**: el modelo llama neutrales a 420 de los 57,826 textos del universo (0.7%), mientras que el dueño etiquetó neutral el 16.8% de las 190 (32); por eso el recall ponderado es 4.4%. Su precisión (56.7%) es moderada. La validación cruzada del modelo de pares dio un recall de neutral de 0.686; sobre piezas reales es mucho menor (no miden lo mismo: resúmenes marcados frente a pares principales de piezas). Registrado como T-212 (propuesto; el dueño decide la corrección).
-- El segundo sorteo es más fácil (exactitud 80.0% frente a 66.7%): su filtro hace que la empresa sea el tema del texto, y el primer sorteo incluye también textos donde se menciona de pasada, que el modelo lee como una dirección.
-
-**Límites.** El conjunto junto tiene 190 etiquetas (positivo 96, negativo 62, neutral 32) y 190 llamadas (88, 72, 30). **Positivo y negativo descansan en más de 60 etiquetas y más de 70 llamadas cada uno; neutral es la clase delgada**: 32 etiquetas y 30 llamadas, así que su precisión [39.2, 72.6] y su recall [36.4, 69.1] son anchos.
-Los recalls ponderados toman sus proporciones condicionales de las 190 piezas y los tamaños de clase del universo de 57,826 del primer sorteo (los dos sorteos tienen universos distintos: una aproximación). El recall ponderado de neutral, 4.4%, es el de las etiquetas neutral halladas entre las piezas llamadas positivas (7 de 88) y las llamadas negativas (8 de 72), escaladas por 38,559 y 18,847, más las llamadas neutrales (17 de 30, escaladas por 420): es una tasa construida con pocas etiquetas y es una pista, no una medición.
-El segundo sorteo es al azar y no necesita ponderación, pero tiene solo 8 etiquetas neutral. El universo son las candidatas tras los filtros, no todo el corpus; las piezas son de la revisión de resumen con distilbart `summary-7a9bd2062bc4` (38 de las 190 son resúmenes; los resúmenes de DeepSeek de la corrida sobre el corpus no están cubiertos). Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano y depende de la regla usada.
-
-## 6. Category (paso 5, `docs/category_step.md`, `docs/category_train.md`)
-
-Aquí se miden dos modelos. **El paso corre el modelo zero-shot sin modificar** (6.1). Un **candidato afinado** (la receta de entailment de `config/category_model.json`, 12 etiquetas, una etiqueta por fila, reajustado con 1,216 filas) **no está
-conectado** al paso; su evaluación es de 6.2 a 6.5. Ninguno alcanza la barra de 80% (D24). Cada corrida está en MLflow, experimento `news_nlp_train/category` (`uv run mlflow ui --backend-store-uri ./mlruns`), y los
-pesos del candidato son el modelo registrado `category-entailment-single-12` (versión 1, marcado "candidate, not wired").
+**Desde el 2026-11-15 (T-203, D43) el paso corre el fine-tune de entailment** (la receta de `config/category_model.json`, 12 etiquetas, una etiqueta por fila, reajustado con 1,216 filas; el fijado es `config/category_step.json`, `category-entailment-single-12`), **fijado aunque la barra de 80% (D24) no se cumple** (decisión del dueño). El modelo anterior del paso, el zero-shot sin modificar, se conserva como comparación. Cada corrida está en MLflow, experimento `news_nlp_train/category` (`uv run mlflow ui --backend-store-uri ./mlruns`); los pesos son el modelo registrado `category-entailment-single-12` (versión 1) y la copia privada del Hub `gamug/deberta-v3-news-category-12`.
 
 ### Descripción del dataset
 
-Cada fila es un par (texto, empresa) con una etiqueta de la taxonomía de `docs/category-taxonomy.md`: **14 etiquetas en 6 grupos** para el modelo del paso; el candidato lee 12 (`competitive_actions` y `peer_comparison` leídas como `other`).
+Cada fila es un par (texto, empresa) con una etiqueta de la taxonomía de `docs/category-taxonomy.md`: **14 etiquetas en 6 grupos** para el modelo anterior del paso (zero-shot); el fine-tune que corre el paso lee 12 (`competitive_actions` y `peer_comparison` leídas como `other`).
 
 | Conjunto | Tamaño | Características | Columnas |
 |---|---|---|---|
 | Filas de entrenamiento (hoja anterior) | 225 filas con etiqueta de empresa | cuerpos single y cuerpos multi estructurados divididos por empresa, del conjunto de entrenamiento de scope; cuerpos multi narrativos excluidos; las hipótesis del baseline se escribieron contra ellas | `article_id`, `company`, `label`, `pred` (archivos de resultados) |
-| **Filas de entrenamiento de una sola etiqueta (candidato)** | 1,216: una hoja de 1,000 filas reducida a una etiqueta por fila (999) más 217 de las 225 filas anteriores | 12 etiquetas; `earnings_performance` 547, `market_analyst_sentiment` 214, `product_innovation` 90, `mergers_acquisitions` 81, `legal_regulatory` 45, `leadership_governance` 40, `capital_shareholder_returns` 40, `reputational_harm` 39, `labor_human_capital` 36, `partnerships_business_dev` 32, `other` 32, `investor_activity` 20; 82% son segmentos cortos de empresa de resúmenes de mercado (mediana 272 caracteres); las etiquetas se revisaron después de ver los primeros resultados | por fila: texto, empresa, etiqueta, `fold` (5 pliegues agrupados por artículo) |
+| **Filas de entrenamiento de una sola etiqueta (fine-tune del paso)** | 1,216: una hoja de 1,000 filas reducida a una etiqueta por fila (999) más 217 de las 225 filas anteriores | 12 etiquetas; `earnings_performance` 547, `market_analyst_sentiment` 214, `product_innovation` 90, `mergers_acquisitions` 81, `legal_regulatory` 45, `leadership_governance` 40, `capital_shareholder_returns` 40, `reputational_harm` 39, `labor_human_capital` 36, `partnerships_business_dev` 32, `other` 32, `investor_activity` 20; 82% son segmentos cortos de empresa de resúmenes de mercado (mediana 272 caracteres); las etiquetas se revisaron después de ver los primeros resultados | por fila: texto, empresa, etiqueta, `fold` (5 pliegues agrupados por artículo) |
 | **Held-out** | 200 textos, de los cuales 135 filas single son evaluables (116 cuerpos single); 44 textos `multi` narrativos no se evalúan | artículos completos (mediana 2,085 caracteres, ninguno bajo 600), convención de etiquetado anterior (las calificaciones de analistas podían ser `investor_activity`); evaluado una sola vez | `article_id`, `company`, `kind`, `label`, `pred`, más los 14 puntajes de etiqueta en la corrida mixta |
 | Muestra de sub-news reales | 300 filas | un sorteo con semilla en dos lotes de 150 de los pares de sub-news de la primera corrida del corpus cuyo texto resumido mide menos de 1,000 caracteres (142,588 de 159,401 pares); un texto por cuerpo; ninguno de un cuerpo etiquetado; 107 de las 300 están marcadas como poco claras | texto, empresa, etiqueta, banderas |
 
 ### Selección del modelo
 
-El paso corre el zero-shot sin modificar `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` en su fijación: premisa `<empresa>: <primeros 2,000 caracteres>`, una hipótesis por etiqueta ("The news about <empresa> is about <definición>"), la mejor probabilidad de entailment da la etiqueta y su grupo da el grupo (6 grupos, opción B). **Ni él ni ningún candidato alcanza la barra de 80% (D24).**
+El paso corre el fine-tune de entailment fijado; el modelo anterior, el zero-shot sin modificar `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` en su fijación, lee la premisa `<empresa>: <primeros 2,000 caracteres>` con una hipótesis por etiqueta ("The news about <empresa> is about <definición>"), y la mejor probabilidad de entailment da la etiqueta y su grupo da el grupo (6 grupos, opción B). **Ni uno ni otro alcanza la barra de 80% (D24) en el held-out.**
 
 | Candidato | Resultado | Veredicto |
 |---|---|---|
-| **Zero-shot sin modificar (el paso)** | held-out 43.0% (etiqueta), 55.6% (grupo); 56.4% en las filas de entrenamiento | provisional, corre en producción |
+| Zero-shot sin modificar (el modelo anterior del paso) | held-out 43.0% (etiqueta, 14 etiquetas), 55.6% (grupo); 56.4% en las filas de entrenamiento | reemplazado por el fine-tune |
 | Afinado plano, validación cruzada de 5 pliegues sobre 225 filas | 64.0% fuera de pliegue | mejor que zero-shot fuera de pliegue |
 | Afinado mixto (etiquetas más grupos), 225 filas | 62.2% fuera de pliegue; held-out 52.6% (plano), 48.9% (dos pasos), grupo 62.2% | no publicado, no usado |
-| **Candidato de entailment**, reajustado con 1,216 filas, 12 etiquetas | 87.8% fuera de pliegue; **held-out 54.1%** [45.9, 62.3]; 71.3% en 300 sub-news reales | registrado como `category-entailment-single-12` v1, "candidate, not wired" |
+| **Fine-tune de entailment**, reajustado con 1,216 filas, 12 etiquetas | 87.8% fuera de pliegue; **held-out 54.1%** [45.9, 62.3]; 71.3% en 300 sub-news reales | **el modelo del paso (T-203)**, registrado como `category-entailment-single-12` v1 |
 | DeBERTa-v3-base simple reentrenado con las mismas filas y pliegues | 85.7% fuera de pliegue | 2 puntos por debajo de la receta de entailment |
 
-El held-out es la única medida que es held-out y falla; el candidato cae lejos de su 87.8% porque sus filas de entrenamiento son segmentos cortos de resúmenes de mercado y las filas del held-out son artículos completos. No es un reemplazo del modelo del paso antes de que se cumpla la barra en el held-out.
+El held-out es la única medida que es held-out y falla; el fine-tune cae lejos de su 87.8% porque sus filas de entrenamiento son segmentos cortos de resúmenes de mercado y las filas del held-out son artículos completos. Se fijó por decisión del dueño sabiendo que la barra no se cumple.
 
-### 6.1 El modelo que corre el paso (zero-shot sin modificar)
+**Métricas del fine-tune (el modelo del paso), las tres evaluaciones en una sola tabla.** Precisión y recall uno contra el resto por etiqueta, con el número de filas entre paréntesis. **Fuera de pliegue:** 1,216 filas de una etiqueta, 5 pliegues agrupados por artículo; las etiquetas se revisaron después de ver los primeros resultados y por el asistente, así que mide qué tan bien aprende la receta esas etiquetas (filas: segmentos cortos de resúmenes de mercado, mediana 272 caracteres). **Held-out:** 135 filas single de 200 textos, etiquetas del dueño de la convención anterior (artículos completos, mediana 2,085 caracteres), evaluado **una sola vez**. **Sub-news reales:** 300 filas de la primera corrida del corpus (texto resumido de menos de 1,000 caracteres, un texto por cuerpo), etiquetas del asistente a ciegas de ambos modelos (107 de las 300 marcadas poco claras).
 
-**Provisional.** El modelo es el `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` sin modificar (zero-shot), con la premisa `<empresa>: <texto, 2,000 caracteres>` y una hipótesis por etiqueta.
-**No** cumple la barra de 80% (D24); las etiquetas del dueño son la referencia.
-
-| | Filas de entrenamiento (225) | Filas single del held-out (135) |
-|---|---|---|
-| Acuerdo de etiqueta | 56.4% | **43.0%** |
-| Acuerdo de grupo (6 grupos) | 62.7% | 55.6% |
-
-La cifra del held-out es la honesta: las definiciones se escribieron contra las filas de entrenamiento. El held-out tiene 135 filas evaluables de 200 textos; los 44 textos `multi` narrativos no se evalúan.
-Precisión y recall por etiqueta, recalculados a partir de `baseline_heldout.csv` y `baseline_train.csv`:
-
-| Etiqueta | n held-out | P held-out | R held-out | n entrenamiento | P entrenamiento | R entrenamiento |
-|---|---|---|---|---|---|---|
-| earnings_performance | 27 | 0.71 | 0.74 | 64 | 0.71 | 0.95 |
-| product_innovation | 22 | 0.62 | 0.45 | 26 | 0.62 | 0.58 |
-| market_analyst_sentiment | 17 | 0.27 | 0.53 | 21 | 0.35 | 0.43 |
-| investor_activity | 16 | 0.50 | 0.19 | 8 | 0.43 | 0.38 |
-| legal_regulatory | 11 | 0.40 | 0.55 | 6 | 0.40 | 0.33 |
-| leadership_governance | 11 | 1.00 | 0.18 | 9 | 0.60 | 0.33 |
-| capital_shareholder_returns | 7 | n/a (nunca predicha) | 0.00 | 6 | 0.00 | 0.00 |
-| reputational_harm | 7 | 1.00 | 0.14 | 23 | 0.86 | 0.26 |
-| mergers_acquisitions | 5 | 0.31 | 0.80 | 15 | 0.44 | 0.73 |
-| partnerships_business_dev | 5 | 0.25 | 0.20 | 17 | 0.67 | 0.35 |
-| labor_human_capital | 3 | 0.50 | 0.67 | 19 | 0.69 | 0.58 |
-| other | 3 | 0.00 | 0.00 | 3 | 0.00 | 0.00 |
-| competitive_actions | 1 | 0.00 | 0.00 | 4 | 0.00 | 0.00 |
-| peer_comparison | 0 | n/a | n/a | 4 | 0.00 | 0.00 |
-
-Lee las etiquetas con menos de unas 10 filas held-out como anécdotas: una fila acertada o errónea mueve la cifra 10 puntos o más. Solo `earnings_performance` es confiable (recall cerca de 95% en entrenamiento, 74% en held-out).
-`market_analyst_sentiment` está sobrepredicha (33 predichas para 17 verdaderas), `mergers_acquisitions` también (13 para 5).
-
-**Variante afinada (no publicada, no usada por el paso).** El afinado de receta mixta alcanzó 62.2% fuera de pliegue en entrenamiento y 48.9% en el held-out (etiqueta, dos pasos), y 62.2% en el grupo del held-out;
-su ROC OVR en el held-out es **0.798** macro sobre las 13 etiquetas con filas held-out (0.783 sobre los grupos). Tampoco alcanza la barra. La precisión y el recall por clase de esa variante
-están en `docs/category_results_2026_11_13/` (`heldout_mixed_scores.csv`) y no se tabularon para este informe.
-
-**El grupo es el campo más confiable** (el propio consejo del documento): 55.6% en held-out, frente a 43.0% de la etiqueta.
-
-### 6.2 Candidato: validación cruzada (fuera de pliegue, 1,216 filas de una etiqueta, 5 pliegues agrupados por artículo)
-
-Filas: la hoja de 1,000 filas del dueño reducida a una etiqueta por fila (999) más las 225 filas anteriores releídas (217 conservadas); 12 etiquetas (`competitive_actions` y `peer_comparison` leídas como `other`). **Las etiquetas se revisaron después de ver los
-primeros resultados, y por el asistente**, así que esto mide qué tan bien aprende la receta esas etiquetas; no es una exactitud limpia. Las filas son segmentos cortos de empresa de resúmenes de mercado (mediana 272 caracteres), no artículos completos.
-
-Exactitud **87.8%**, F1 macro 0.748, puntaje de selección D37 **0.821** (media macro de precisión, recall y ROC OVR). Las mismas filas evaluadas con el modelo sin modificar: 75.5% / 0.525 / D37 0.680 (1,214 de las filas).
-DeBERTa-v3-base simple reentrenado con las mismas filas y pliegues: 85.7% / 0.705 / D37 0.792, es decir 2 puntos por debajo de la receta de entailment (sin probar significancia).
-
-| Etiqueta | Filas | Precisión | Recall | ROC AUC |
-|---|---|---|---|---|
-| earnings_performance | 547 | 0.97 | 0.97 | 1.00 |
-| mergers_acquisitions | 81 | 0.80 | 0.89 | 0.99 |
-| leadership_governance | 40 | 0.88 | 0.90 | 1.00 |
-| legal_regulatory | 45 | 0.72 | 0.73 | 0.98 |
-| product_innovation | 90 | 0.87 | 0.86 | 0.99 |
-| capital_shareholder_returns | 40 | 0.78 | 0.70 | 0.96 |
-| labor_human_capital | 36 | 0.84 | 0.86 | 1.00 |
-| market_analyst_sentiment | 214 | 0.89 | 0.88 | 0.98 |
-| partnerships_business_dev | 32 | 0.77 | 0.75 | 0.97 |
-| reputational_harm | 39 | 0.71 | 0.74 | 0.98 |
-| investor_activity | 20 | 0.50 | 0.50 | 0.93 |
-| other | 32 | 0.29 | 0.19 | 0.80 |
-
-Los intervalos de 95% (por artículo) son de alrededor de ±0.12 a ±0.15 para las clases con 20 a 45 filas (`docs/category_results_2026_11_15/ovr_single.md`).
-
-### 6.3 Candidato: el held-out de 200, evaluado una sola vez (135 filas single)
-
-El candidato se reajustó con las 1,216 filas y se evaluó **una sola vez** sobre las filas single del held-out (los 44 textos narrativos no se evalúan). Las etiquetas del held-out son las del dueño de la convención anterior (las calificaciones de analistas pueden ser
-`investor_activity`); no se revisaron. **Acuerdo de etiqueta 54.1% [45.9%, 62.3%]**, acuerdo de grupo 65.2% [57.4%, 72.7%], F1 macro 0.448, puntaje D37 0.615. El modelo sin modificar sobre las mismas filas: 43.7% (43.0% con 14 etiquetas).
-**La barra de 80% no se cumple.**
-
-| Etiqueta | Filas | Predichas | Precisión | Recall | ROC AUC |
-|---|---|---|---|---|---|
-| earnings_performance | 27 | 34 | 0.74 | 0.93 | 0.96 |
-| product_innovation | 22 | 25 | 0.60 | 0.68 | 0.89 |
-| market_analyst_sentiment | 17 | 19 | 0.42 | 0.47 | 0.79 |
-| investor_activity | 16 | 3 | 0.67 | 0.12 | 0.77 |
-| leadership_governance | 11 | 5 | 1.00 | 0.45 | 0.64 |
-| legal_regulatory | 11 | 14 | 0.43 | 0.55 | 0.92 |
-| capital_shareholder_returns | 7 | 4 | 0.50 | 0.29 | 0.73 |
-| reputational_harm | 7 | 4 | 0.50 | 0.29 | 0.93 |
-| mergers_acquisitions | 5 | 11 | 0.36 | 0.80 | 0.90 |
-| partnerships_business_dev | 5 | 1 | 1.00 | 0.20 | 0.73 |
-| other | 4 | 9 | 0.11 | 0.25 | 0.71 |
-| labor_human_capital | 3 | 6 | 0.33 | 0.67 | 0.98 |
-
-Ocho etiquetas tienen menos de 12 filas: léelas como anécdotas (los intervalos llegan a 0 y 1). Solo `earnings_performance` es ajustada. La mayor confusión es `investor_activity` predicha como `market_analyst_sentiment` (8 filas),
-la convención que cambió. **Por qué cae tan lejos de 87.8%:** 82% de las filas de entrenamiento son segmentos cortos de resúmenes de mercado (mediana 272 caracteres) y las filas del held-out son artículos completos (mediana 2,085, ninguno bajo 600 caracteres).
-
-### 6.4 Candidato: una muestra de sub-news reales (300 filas del almacén RESULTS real)
-
-Lo que lee el paso: pares de sub-news de la primera corrida del corpus (`category-65f33b55b26b`, corte `units5-d3e2cbfa830e`) cuyo **texto resumido mide menos de 1,000 caracteres** (`news_summary.summary_text`; 142,588 de 159,401 pares), un
-sorteo con semilla de 300 en dos lotes de 150, un texto por cuerpo, ninguno de un artículo o cuerpo de algún conjunto etiquetado. **Las etiquetas son del asistente** (a ciegas de ambos modelos, reglas de `docs/category-taxonomy.md`), no del dueño;
-107 de las 300 se marcaron poco claras. El asistente también etiquetó las filas de entrenamiento, así que el acuerdo probablemente es más alto que el que daría un etiquetador independiente.
-
-| | Acuerdo de etiqueta | F1 macro | Etiquetador seguro (193) | Etiquetador inseguro (107) |
-|---|---|---|---|---|
-| **Candidato** | **71.3%** [66.0%, 76.3%] | 0.637 | 83.9% | 48.6% |
-| Sin modificar (el paso) | 65.7% [60.3%, 71.0%] | 0.483 | 79.3% | 41.1% |
-
-Pareado: el candidato acierta donde el modelo sin modificar se equivoca en 38 filas, lo inverso en 21 (prueba de signos p = 0.036). Lotes: 69.3% y 73.3% (candidato), 62.7% y 68.7% (sin modificar).
-
-**Por clase, las 300 filas (candidato / modelo seleccionado)**, precisión y recall con intervalos de 95% (remuestreados por artículo):
-
-| clase | filas | precisión [95%] | recall [95%] | ROC AUC |
-|---|---|---|---|---|
-| market_analyst_sentiment | 99 | 0.81 [0.73, 0.88] | 0.80 [0.72, 0.87] | 0.95 |
-| earnings_performance | 56 | 0.82 [0.72, 0.91] | 0.89 [0.80, 0.96] | 0.98 |
-| mergers_acquisitions | 30 | 0.80 [0.65, 0.94] | 0.80 [0.64, 0.94] | 0.98 |
-| partnerships_business_dev | 26 | 0.65 [0.48, 0.81] | 0.77 [0.58, 0.93] | 0.95 |
-| product_innovation | 18 | 0.46 [0.29, 0.65] | 0.72 [0.50, 0.92] | 0.93 |
-| legal_regulatory | 13 | 0.77 [0.50, 1.00] | 0.77 [0.54, 1.00] | 0.99 |
-| investor_activity | 7 | 0.75 [0.40, 1.00] | 0.86 [0.50, 1.00] | 0.92 |
-| leadership_governance | 5 | 0.29 [0.00, 0.67] | 0.40 [0.00, 1.00] | 0.98 |
-| other | 39 | 0.30 [0.00, 0.64] | 0.08 [0.00, 0.18] | 0.68 |
-
-No están en esa tabla (menos de 5 filas): `labor_human_capital` (4 filas) precisión 1.00 [1.00, 1.00], recall 1.00 [1.00, 1.00], ROC 1.00; `reputational_harm` (2) precisión 0.33 [0.00, 0.83], recall 1.00 [1.00, 1.00], ROC 0.99;
-`capital_shareholder_returns` (1) precisión 0.25 [0.00, 1.00], recall 1.00 [1.00, 1.00], ROC 1.00.
-
-**Las mismas 300 filas, el modelo que corre el paso (zero-shot sin modificar, 14 etiquetas leídas como 12):**
-
-| clase | filas | precisión [95%] | recall [95%] | ROC AUC |
-|---|---|---|---|---|
-| market_analyst_sentiment | 99 | 0.67 [0.59, 0.74] | 0.90 [0.84, 0.95] | 0.87 |
-| earnings_performance | 56 | 0.79 [0.68, 0.89] | 0.88 [0.78, 0.95] | 0.97 |
-| mergers_acquisitions | 30 | 0.59 [0.44, 0.75] | 0.73 [0.58, 0.88] | 0.96 |
-| partnerships_business_dev | 26 | 0.78 [0.56, 0.95] | 0.54 [0.32, 0.75] | 0.91 |
-| product_innovation | 18 | 0.45 [0.17, 0.78] | 0.28 [0.08, 0.50] | 0.76 |
-| legal_regulatory | 13 | 1.00 [1.00, 1.00] | 0.38 [0.12, 0.67] | 0.97 |
-| investor_activity | 7 | 0.75 [0.00, 1.00] | 0.43 [0.00, 0.83] | 0.84 |
-| leadership_governance | 5 | 0.33 [0.00, 1.00] | 0.20 [0.00, 0.67] | 0.95 |
-| other | 39 | 0.28 [0.08, 0.50] | 0.13 [0.03, 0.24] | 0.46 |
-
-(También: `labor_human_capital` 4 filas 0.75 / 0.75 / 0.99; `reputational_harm` 2 filas 0.20 / 0.50 / 0.92; `capital_shareholder_returns` 1 fila, nunca predicha, recall 0.00, ROC 0.94.)
-
-Las etiquetas con menos de 10 filas (`investor_activity`, `leadership_governance` y las tres bajo la tabla) son anécdotas. **`other` es el fallo en ambos modelos**: el candidato acierta 3 de 39 y el modelo sin modificar 5 (ROC 0.68 y 0.46); el modelo sin modificar sobreasigna
-`market_analyst_sentiment` (133 predichas para 99 verdaderas), lo que el candidato corrige en buena parte.
-
-### 6.5 El candidato frente al modelo que corre el paso
-
-| Medida | Sin modificar (el paso) | Candidato | Barra (D24) |
+| Etiqueta | Fuera de pliegue P / R (filas) | Held-out P / R (filas) | Sub-news reales P / R (filas) |
 |---|---|---|---|
-| Held-out, 135 filas single, etiquetas anteriores del dueño | 43.7% | **54.1%** | 80%: no se cumple |
-| Sub-news reales, 300 filas, etiquetas del asistente | 65.7% | **71.3%** | no definida para este conjunto |
-| Fuera de pliegue, 1,216 filas, etiquetas revisadas | 75.5% | 87.8% | no es una medida held-out |
+| earnings_performance | 0.97 / 0.97 (547) | 0.74 / 0.93 (27) | 0.82 / 0.89 (56) |
+| market_analyst_sentiment | 0.89 / 0.88 (214) | 0.42 / 0.47 (17) | 0.81 / 0.80 (99) |
+| product_innovation | 0.87 / 0.86 (90) | 0.60 / 0.68 (22) | 0.46 / 0.72 (18) |
+| mergers_acquisitions | 0.80 / 0.89 (81) | 0.36 / 0.80 (5) | 0.80 / 0.80 (30) |
+| legal_regulatory | 0.72 / 0.73 (45) | 0.43 / 0.55 (11) | 0.77 / 0.77 (13) |
+| leadership_governance | 0.88 / 0.90 (40) | 1.00 / 0.45 (11) | 0.29 / 0.40 (5) |
+| capital_shareholder_returns | 0.78 / 0.70 (40) | 0.50 / 0.29 (7) | 0.25 / 1.00 (1) |
+| reputational_harm | 0.71 / 0.74 (39) | 0.50 / 0.29 (7) | 0.33 / 1.00 (2) |
+| labor_human_capital | 0.84 / 0.86 (36) | 0.33 / 0.67 (3) | 1.00 / 1.00 (4) |
+| partnerships_business_dev | 0.77 / 0.75 (32) | 1.00 / 0.20 (5) | 0.65 / 0.77 (26) |
+| investor_activity | 0.50 / 0.50 (20) | 0.67 / 0.12 (16) | 0.75 / 0.86 (7) |
+| other | 0.29 / 0.19 (32) | 0.11 / 0.25 (4) | 0.30 / 0.08 (39) |
+| **Acuerdo de etiqueta (exactitud)** | **87.8%** | **54.1%** [45.9, 62.3] | **71.3%** [66.0, 76.3] |
+| F1 macro | 0.748 | 0.448 | 0.637 |
+| Puntaje de selección (D37) | 0.821 | 0.615 | no se calculó |
+| Zero-shot sin modificar (el modelo anterior): acuerdo de etiqueta | 75.5% (1,214 filas) | 43.7% | 65.7% [60.3, 71.0] |
 
-Las tres medidas discrepan porque son textos distintos y etiquetadores distintos; el held-out es la única etiquetada por el dueño y held-out, y es la que falla. El candidato es mejor que el modelo del paso en las tres, y
-la ganancia es estadísticamente clara en las 300 filas reales. No debería reemplazar al modelo fijado antes de que se cumpla la barra en el held-out (T-201 a T-203).
+Frente a la barra de 80% (D24): **no se cumple en el held-out** (54.1%); acuerdo de grupo en el held-out 65.2% [57.4, 72.7].
+
+**Qué dice y qué no.**
+- **Las tres medidas discrepan porque son textos y etiquetadores distintos**; el held-out es la única etiquetada por el dueño y held-out, y es la que falla. Cae lejos de 87.8% por la diferencia de textos (segmentos cortos frente a artículos completos) y porque la convención de etiquetado cambió (la mayor confusión es `investor_activity` predicha como `market_analyst_sentiment`, 8 filas).
+- **El fine-tune es mejor que el modelo anterior en las tres**, y la ganancia es clara en las 300 filas reales (acierta donde el anterior se equivoca en 38 filas y al revés en 21; prueba de signos p = 0.036). El asistente también etiquetó las filas de entrenamiento, así que el acuerdo en las 300 filas probablemente es más alto que el de un etiquetador independiente (83.9% donde el etiquetador estaba seguro, 48.6% donde no).
+- **Solo `earnings_performance` es ajustada.** Las etiquetas con menos de unas 10 filas en un conjunto son anécdotas (una fila mueve la cifra 10 puntos o más; los intervalos de 95% de la validación cruzada son de ±0.12 a ±0.15 para las clases de 20 a 45 filas). **`other` es el fallo:** el fine-tune acierta 3 de 39 en las sub-news reales (ROC 0.68; el modelo anterior, 5 de 39, ROC 0.46).
+- Las tablas por etiqueta del modelo anterior (14 etiquetas), del afinado mixto y los intervalos están en `docs/category_results_2026_11_13/` y `docs/category_results_2026_11_15/` (`ovr_single.md`, `heldout_selected.md`, `real_sample.md`); las corridas, en MLflow.
 
 ## Lo que estas cifras no dicen
 
 - **Los pasos no se comparan con una misma vara.** Cada uno se mide sobre su propia muestra, con su propio revisor y su propia definición de "correcto"; la tabla de resumen muestra cuáles son held-out.
 - **Las cadenas de errores no están en estas cifras.** Un scope erróneo llega al cut, al paso de empresa, al paso de sector y al paso de category como entrada mala; por ejemplo, cerca de la mitad de las respuestas erróneas de sector de la primera revisión no eran textos de sector,
   y 15 de las 143 piezas muestreadas venían de textos que el paso de scope debió detener.
-- **Las tres medidas del candidato de category no son una misma vara** (6.5): fuera de pliegue sobre etiquetas que revisó el asistente, held-out sobre las etiquetas anteriores del dueño (artículos completos), y una muestra de datos reales etiquetada por el asistente (segmentos cortos). Solo el held-out es independiente, y falla la barra (54.1% frente a 80%).
-- **No se mide en absoluto:** el recall de sector por sector, el recall del cut, NER sobre los textos propios del paso 3, la empresa principal sobre piezas más allá de las marcas parciales de la sección 3.3, y el sentiment de los resúmenes de DeepSeek (las 190 piezas de la sección 5.1 son de la revisión con distilbart).
+- **Cuatro medidas son sobre textos de la corrida real del corpus**: el held-out del NER (100 textos del paso 2, 3.1), las marcas de empresa principal sobre piezas (3.2, parciales), la verificación de sentiment sobre 190 piezas (5) y la muestra de datos reales de category (6, etiquetas del asistente). El embudo (textos por paso, y cuántos llegan a un snapshot) sale del almacén RESULTS real y no está en este informe.
+- **Las tres medidas de category no son una misma vara** (6): fuera de pliegue sobre etiquetas que revisó el asistente, held-out sobre las etiquetas anteriores del dueño (artículos completos), y una muestra de datos reales etiquetada por el asistente (segmentos cortos). Solo el held-out es independiente, y falla la barra (54.1% frente a 80%).
+- **No se mide en absoluto:** el recall de sector por sector, el recall del cut, la empresa principal por pieza más allá de las 119 filas marcadas de la sección 3.2, el NER sobre los resúmenes de DeepSeek, la relevancia sobre piezas más allá de esas marcas, y el puntaje held-out del stack de sentiment más allá de las 190 piezas de la sección 5.
 
 ## De dónde sale cada cifra
 
@@ -658,10 +479,24 @@ la ganancia es estadísticamente clara en las 300 filas reales. No debería reem
 |---|---|
 | Scope | `docs/scope_training.md` (secciones 5, 6, 9); `data/scope_end_to_end_with81b.csv` y `gold/category_gold_v2_test.csv` (tabla por clase recalculada) |
 | Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (precisión por sector recalculada) |
-| Cut | `docs/scope_training.md` sección 8.3; `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
-| Empresa: NER | `docs/evaluation.md` (línea base de 2026-09, `ner`) |
-| Empresa: relevancia | `docs/companies_step.md` (tabla de umbrales); `docs/sentiment_training.md` ítem 6 (AUC 0.90); `docs/main_company_training.md` y `gold/main_company_marks.csv` (las marcas sobre piezas, versionadas) |
+| Cut | `docs/scope_training.md` secciones 8.1 y 8.3; `docs/extractor_training.md` (actualización del 2026-11-11, `units4` y `units5`); `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
+| Empresa: NER | `docs/ner_training.md` (el held-out de 100 textos); `docs/ner_results_2026_11_16/` (`ner_metrics.json`, `ner_errors.csv`); `scripts/ner_eval_2026_11_16.py`; `docs/evaluation.md` (línea base v1 de 2026-09, `ner`) |
+| Empresa: relevancia | `docs/companies_step.md` (tabla de umbrales); `docs/sentiment_training.md` ítem 6 (AUC 0.90); `docs/main_company_training.md` y `gold/main_company_marks.csv` (las marcas sobre piezas, el held-out, versionadas) |
 | Summarization | `docs/summarization_training.md` (brazos, niveles y el brazo D de DeepSeek); `docs/summarization_results_2026_11_15/` (cifras versionadas del brazo D); `docs/evaluation.md` (línea base v1); `docs/summary_step.md` (límites) |
-| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (tabla del stack, validación cruzada anidada; la verificación held-out sobre 190 piezas, sección 5.1: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`) |
-| Category (el modelo del paso, 6.1) | `docs/category_step.md`; `docs/category_results_2026_11_13/` (tablas por etiqueta recalculadas desde `baseline_heldout.csv` y `baseline_train.csv`) |
-| Category (candidato, 6.2 a 6.5) | PR #196: `docs/category_train.md`; `docs/category_results_2026_11_15/` (`ovr_single.md` fuera de pliegue; `heldout_selected.md` held-out, evaluado una sola vez por `scripts/category_heldout_2026_11_15.py`; `real_sample.md` y `scripts/category_real_sample_2026_11_15.py` para las 300 filas reales, etiquetas en `gold/category_real_sample.csv`); experimento MLflow `news_nlp_train/category` (`scripts/category_mlflow_log_2026_11_15.py`) y el modelo registrado `category-entailment-single-12`; puntajes D37 de las corridas de MLflow |
+| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (tabla del stack, validación cruzada anidada); el held-out de 190 piezas: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py` |
+| Category | `docs/category_step.md`; `docs/category_training.md`; `docs/category_results_2026_11_13/` (zero-shot anterior, tablas recalculadas desde `baseline_heldout.csv` y `baseline_train.csv`); `docs/category_results_2026_11_15/` (`ovr_single.md` fuera de pliegue; `heldout_selected.md` held-out, evaluado una sola vez por `scripts/category_heldout_2026_11_15.py`; `real_sample.md` y `scripts/category_real_sample_2026_11_15.py` para las 300 filas reales, etiquetas en `gold/category_real_sample.csv`); experimento MLflow `news_nlp_train/category` (`scripts/category_mlflow_log_2026_11_15.py`) y el modelo registrado `category-entailment-single-12`; puntajes D37 de las corridas de MLflow |
+
+## Todos los modelos juntos
+
+Una tabla con las métricas generales de cada modelo, para mostrar los resultados de un vistazo. Todas las cifras están medidas arriba, en la sección de cada paso, y se copian aquí tal cual; "validación" es validación cruzada o fuera de pliegue, y "held-out" son textos con los que el modelo no se entrenó ni se ajustó. Un guion es que esa medida no existe.
+
+| Paso | Modelo | Validación (entrenamiento) | Held-out | Barra y estado |
+|---|---|---|---|---|
+| Scope (paso 1) | dos clasificadores NLI afinados sobre `deberta-v3-base-zeroshot-v2.0` | — | acuerdo ponderado 83.6% [78.1, 88.9] (200 textos); precisión 90.8% en cuarentena (225); recall de `out_of_scope` 53% | 80%: se cumple por estimación puntual (extremo inferior 78.1) |
+| Sector (paso 4) | `bge-small-en-v1.5` con compuerta | — | 87.5% de los sectores asignados correctos (35 de 40); recall no medido | sin barra medida (D24 para subindustria no medida, T-167) |
+| Cut (paso 1.2) | `units5` con el clasificador de pares (`gamug/FinBERT-news-attribution`) | — | 84.6% [77.8, 89.6] de piezas fieles; 75.5% limpias (143 piezas) | 80% fieles: la estimación pasa, el extremo inferior no |
+| NER (paso 3) | `gamug/sec-bert-finer-ord-ner` | juez LLM v1 (1,000 artículos): F1 de tramos 0.7418, ORG 0.75 | empresas del universo: P 92.6%, R 95.5%, F1 0.940 (R 98.7% con `ner+text`); todas las organizaciones: P 72.6%, R 90.4% (100 textos; la superposición sobre 14 etiquetas: 9 reemplazadas, 1 conservada, 4 descartadas); tal como están, universo P 90.1%, R 95.4% | sin barra |
+| Relevancia (paso 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; principal P 90.0%, R 94.7% (809 resúmenes) | AUC 0.663; principal P 90.9%, R 30.0% (119 filas de 59 piezas) | sin barra; el umbral de sub-news lo decide el dueño (T-170) |
+| Summarization (paso 2) | DeepSeek (`deepseek-chat`) | — | sin held-out; juez LLM sobre 300 artículos: fidelidad 4.99, cobertura 4.54, alucinación 0.7% (el juez también es DeepSeek) | sin barra; la corrida del corpus no se mide |
+| Sentiment (paso 6) | modelo de pares + stack (`gamug/FinBERT-company-sentiment`) | puntaje 0.814; negativo P/R 0.747 / 0.748 (809 filas) | exactitud 73.7% [67.0, 79.4]; negativo P 69.4%, R 80.6% (190 piezas) | 80% de acuerdo y 70% en el negativo (D32): **no se cumple** (exactitud, precisión de negativo) |
+| Category (paso 5) | fine-tune de entailment (`category-entailment-single-12`) | exactitud 87.8%, F1 macro 0.748 (1,216 filas) | exactitud 54.1% [45.9, 62.3] (135 filas); 71.3% en 300 sub-news reales (etiquetas del asistente) | 80% (D24): **no se cumple**; fijado por decisión del dueño |

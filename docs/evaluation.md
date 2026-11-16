@@ -1298,6 +1298,10 @@ the readings that need it, with a line, while it was written by other code.
 and 30 bodies translated: 387 articles = 387 paid calls, 0 failures; 150,259 prompt and 134,950 completion
 tokens (retries and rejected replies included). Files: `data/faithfulness_confirmation/`.
 
+### Follow-up (2026-11-16): the NER on the owner's 100 texts (T-213)
+
+The NER stage that step 3 runs was scored against hand tags for the first time, not by the judge: `docs/ner_training.md` (the set, its integrity check, how names are standardised, the errors), figures in `docs/ner_results_2026_11_16/`, script `scripts/ner_eval_2026_11_16.py`. Universe companies: precision 90.1% and recall 95.4% on the owner's labels as they are, 92.6% / 95.5% with the developer's overlay on 14 labels that are not written in the text, recall 98.7% with `ner+text`. The judged v1 run above is unchanged and is a different measure (whole articles, an LLM judge).
+
 ## Judge of step 2, the summary (2026-11-15; T-190)
 
 The summaries of `--step summary` are measured by `scripts/summary_judge_2026_11_13.py` (claim by claim against the source, main event covered, by single and multi and by source length), described in `docs/summary_step.md` ("Measuring the summaries"). It is **not** an `eval_run` of this package: it has its own sample (`sample.meta.json`), verdicts and report, no MLflow, and the owner's marks (`tag-sheet`, `agree`) are its check. Its judge is the `.env` model and must not be the model that wrote the summaries.

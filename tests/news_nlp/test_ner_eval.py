@@ -4,6 +4,7 @@ three treatments of the labels that are not in the text, the scores and the caus
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -91,15 +92,21 @@ def test_integrity_passes_and_reports_the_labels_not_in_the_text(resolver: Compa
                 "Microsoft",
             ),  # a variant of a name the text writes: not flagged
             ("Typo", "IBM and Alphabet rose.", "Alphabe"),  # a truncated name is not a whole word
+            (
+                "Apple stock",
+                "Shares rose.",
+                "Apple",
+            ),  # written in the title only: the model reads the text
         ]
     )
     report = ne.integrity(data, key, resolver)
-    assert report["rows"] == 4 and report["organizations"] == 5
+    assert report["rows"] == 5 and report["organizations"] == 6
     assert report["labels_not_in_the_text"] == [
         {"row": 2, "label": "Casa Blanca"},
         {"row": 4, "label": "Alphabe"},
+        {"row": 5, "label": "Apple"},
     ]
-    assert report["rows_with_such_labels"] == 2
+    assert report["rows_with_such_labels"] == 3
 
 
 @pytest.mark.parametrize(
@@ -189,6 +196,45 @@ def test_miss_cause_separates_the_ner_from_the_matcher(resolver: CompanyResolver
     }
 
 
+def test_miss_cause_looks_at_every_occurrence_of_the_name(resolver: CompanyResolver) -> None:
+    """The first occurrence is untagged and the second is tagged (a cut span the matcher cannot map): the NER did tag the name."""
+    data, _ = _frame([("t", "Meta Platforms rose. Later Meta Platforms fell.", "Meta Platforms")])
+    canon = ne.make_canon(resolver)
+    spans = [[{"entity_type": "ORG", "text": "Meta Platfo", "start_char": 27, "end_char": 38}]]
+    causes = ne.miss_causes(data, [["Meta Platforms"]], spans, canon)
+    assert causes["matcher_unmapped"] == ["1:Meta Platforms"] and causes["ner_untagged"] == []
+    assert ne.miss_causes(data, [["Meta Platforms"]], [[]], canon)["ner_untagged"] == [
+        "1:Meta Platforms"
+    ]
+
+
+def test_the_repairs_are_counted_as_replaced_kept_and_dropped() -> None:
+    flagged = [(17, "Casa Blanca"), (37, "NHTSA"), (26, "Vodafone")]
+    assert ne.repairs_summary(flagged) == {
+        "labels_not_in_the_text": 3,
+        "replaced": 1,
+        "kept": 1,
+        "dropped": 1,
+    }
+
+
+def test_the_outputs_are_written_with_lf_and_the_columns_the_page_names(
+    tmp_path: Path, resolver: CompanyResolver
+) -> None:
+    data, _ = _frame([("t", "Apple rose, CNBC said.", "Apple")])
+    canon = ne.make_canon(resolver)
+    errors: list[tuple[set[str], set[str]]] = [(set(), {"N:cnbc"})]
+    ne.write_outputs(
+        tmp_path, {"views": {}, "model": "m@r"}, errors, [["Apple", "CNBC"]], data, canon
+    )
+    raw = (tmp_path / "ner_errors.csv").read_bytes()
+    assert b"\r" not in raw
+    lines = raw.decode().splitlines()
+    assert lines[0] == "review_order,missed,extra,extra_spans"
+    assert lines[1] == "1,,N:cnbc,N:cnbc=CNBC"
+    assert set(json.loads((tmp_path / "ner_metrics.json").read_text())) == {"views", "model"}
+
+
 def test_run_gives_the_views_and_stops_when_a_label_has_no_repair(
     resolver: CompanyResolver,
 ) -> None:
@@ -209,3 +255,103 @@ def test_run_gives_the_views_and_stops_when_a_label_has_no_repair(
     )
     with pytest.raises(ne.IntegrityError, match="does not list"):
         ne.run(data, key, resolver, spans)
+
+
+# ---- the pages quote the committed figures, so a rerun that moves them fails here ----
+
+RESULTS = ROOT / "docs" / "ner_results_2026_11_16" / "ner_metrics.json"
+
+
+def _pct(value: float) -> str:
+    return f"{value * 100:.1f}%"
+
+
+def _quoted(metrics: dict[str, object]) -> dict[str, list[str]]:
+    views = metrics["views"]
+    assert isinstance(views, dict)
+
+    def f(view: str, key: str) -> str:
+        return _pct(views[view][key])
+
+    repaired_u, plus = "repaired/universe_only", "repaired/universe_only_ner_plus_text"
+    as_is_u, repaired_a = "as_is/universe_only", "repaired/all_organisations"
+    return {
+        "docs/ner_training.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(plus, "precision"),
+            f(repaired_a, "precision"),
+            f(repaired_a, "recall"),
+            f(as_is_u, "precision"),
+            f(as_is_u, "recall"),
+            f("as_is/all_organisations", "precision"),
+            f("as_is/all_organisations", "recall"),
+            f("as_is/all_organisations_no_alias_list", "precision"),
+            f("as_is/all_organisations_no_alias_list", "recall"),
+        ],
+        "docs/companies_step.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(as_is_u, "precision"),
+            f(as_is_u, "recall"),
+        ],
+        "docs/modules/news-nlp.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(as_is_u, "precision"),
+        ],
+        "docs/evaluation.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(as_is_u, "precision"),
+            f(as_is_u, "recall"),
+        ],
+        "docs/gold_datasets.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(as_is_u, "precision"),
+            f(as_is_u, "recall"),
+        ],
+        "pipeline_metrics_report.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(repaired_a, "precision"),
+            f(repaired_a, "recall"),
+            f(as_is_u, "precision"),
+            f("as_is/all_organisations_no_alias_list", "precision"),
+        ],
+        "pipeline_metrics_report_es.md": [
+            f(repaired_u, "precision"),
+            f(repaired_u, "recall"),
+            f(plus, "recall"),
+            f(repaired_a, "precision"),
+            f(repaired_a, "recall"),
+            f(as_is_u, "precision"),
+            f("as_is/all_organisations_no_alias_list", "precision"),
+        ],
+    }
+
+
+def test_the_pages_quote_the_committed_ner_figures() -> None:
+    metrics = json.loads(RESULTS.read_text(encoding="utf-8"))
+    for doc, figures in _quoted(metrics).items():
+        text = (ROOT / doc).read_text(encoding="utf-8").replace("\r\n", "\n")
+        for figure in figures:
+            assert figure in text, f"{doc}: {figure}"
+
+
+def test_the_pages_say_what_was_done_with_the_labels_not_in_the_text() -> None:
+    repairs = json.loads(RESULTS.read_text(encoding="utf-8"))["repairs"]
+    assert (
+        repairs["labels_not_in_the_text"],
+        repairs["replaced"],
+        repairs["kept"],
+        repairs["dropped"],
+    ) == (14, 9, 1, 4)
+    text = (ROOT / "docs" / "ner_training.md").read_text(encoding="utf-8")
+    assert "9 replaced, 1 kept, 4 dropped" in text

@@ -13,21 +13,21 @@ spans only, no news text; `T:<ticker>` is a universe company, `N:<name>` a norma
 * **Two views, and they answer different questions.** *All organisations*: the model tags every organisation, so it also tags names the owner did not write (media, institutions, products). *Universe companies only*:
   the names that are one of the 507 companies of `gold/universe.csv`, which is what step 3 keeps (a span with no ticker is ignored, D39 (iii)). **The second is the one the pipeline uses.**
 * **The owner's labels are not fully clean** (section 2): **14 labels in 11 rows** are not written in the text as whole words. Every figure is given with those labels **as they are**, **removed**, and **repaired**
-  (a proposal of the developer, for the owner to confirm; the file was not edited). Removing them is the worse treatment: a malformed label that names a real company leaves the model's correct find as an "extra".
+  (an overlay proposed by the developer for the owner to confirm, the file was not edited: **9 replaced, 1 kept, 4 dropped**, section 2). Removing them is the worse treatment: a malformed label that names a real company leaves the model's correct find as an "extra".
 
 ## 1. The result
 
 **Universe companies only (what step 3 keeps)**
 
-| The 14 labels | precision | recall | F1 | tp / fp / fn |
+| The 14 labels not in the text | precision | recall | F1 | tp / fp / fn |
 |---|---|---|---|---|
 | as they are, or removed (the same: none of them is a universe company as written) | 90.1% | 95.4% | 0.927 | 146 / 16 / 7 |
-| **repaired** | **92.6%** | **95.5%** | **0.940** | 150 / 12 / 7 |
+| **repaired** (9 replaced, 1 kept, 4 dropped) | **92.6%** | **95.5%** | **0.940** | 150 / 12 / 7 |
 | repaired, with the matcher over the text as well (`ner+text`, the candidates step 3 runs) | 90.1% | **98.7%** | 0.942 | 155 / 17 / 2 |
 
 **All organisations**
 
-| The 14 labels | precision | recall | F1 | tp / fp / fn |
+| The 14 labels not in the text | precision | recall | F1 | tp / fp / fn |
 |---|---|---|---|---|
 | as they are | 70.3% | 87.0% | 0.777 | 274 / 116 / 41 |
 | removed | 70.3% | 91.0% | 0.793 | 274 / 116 / 27 |
@@ -48,9 +48,9 @@ The script runs these checks first and **stops** on a structural failure; the la
 |---|---|
 | `review_order` is 1 to 100, `key` unique and equal to `key.csv`, no empty `text` or `organizations`, the columns exist | passes |
 | Every row splits on commas with no empty item | passes (321 organisations, 3.2 a row; one name repeated inside one row) |
-| Every label is written in the title or text **as a whole word** (a label that names a universe company the text writes under another name, `United Airlines` for `UAL`, passes: `direct_mentions`, no model) | **fails for 14 labels in 11 rows** |
+| Every label is written in the `text` column **as a whole word** (the only column the model reads: a label written from the title alone is reported; a label that names a universe company the text writes under another name, `United Airlines` for `UAL`, passes: `direct_mentions`, no model) | **fails for 14 labels in 11 rows** |
 
-The 14 labels, and the repair proposed for each (`REPAIRS` in the script; every repaired name is checked to be in the text, and a new failing label with no repair stops the script):
+The 14 labels, and the repair proposed for each (`REPAIRS` in the script; every repaired name is checked to be in the text, and a new failing label with no repair stops the script). **The overlay replaces 9 of them, keeps 1 as it is (`NHTSA`: the label is right and the text is defective) and drops 4 (row 26): 9 replaced, 1 kept, 4 dropped** (`repairs` in `ner_metrics.json`):
 
 | Kind | Row: label -> repair |
 |---|---|
@@ -88,8 +88,8 @@ of precision come from names that are one company written two ways. Another list
 
 ## 5. What this does and does not show
 
-* **It shows** that, on this set, the NER and the matcher together find 95.5% of the universe companies the owner named, and 98.7% with `ner+text`, which is what step 3 runs. On these 100 texts the loss of companies in step 3 is then more likely in the
-  relevance threshold than in the candidates (`docs/companies_step.md`, `docs/main_company_training.md`); this set does not measure that.
+* **It shows** that, on this set, the NER and the matcher together find 95.5% of the universe companies the owner named, and 98.7% with `ner+text`, which is what step 3 runs. This set has no main-company labels, so it
+  says nothing about where step 3 loses a company once the candidates are found: that is measured on other texts (`docs/main_company_training.md`, `docs/companies_step.md`).
 * **It does not show** the error on the owner's real target, "the companies a text is about". The owner's labels are every organisation named, not the main ones; the main-company choice is measured elsewhere (119 marks on sub-news).
 * **100 texts is a spot check.** Do not compare it with a figure on a different set (FiNER-ORD, whose organisations are tagged by another rule) or read a one-point difference as a change in the model. The repairs are the developer's.
 * **The text is the one the model is given, not the summary of the new revision.** The set's texts are `summary-7a9bd2062bc4` summaries or originals (`key.csv`); the corpus run now uses `summary-llm-70cb6bb07292` (DeepSeek, whose prompt asks to name the
