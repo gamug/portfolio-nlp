@@ -30,7 +30,7 @@ lists a file's sections; read that range). Do not load whole files by default.
 - **Steps development closed (owner, 2026-11-14):** the development tasks of the steps built (scope, cut, summary, companies, sector, category) are in `CHANGELOG.md` ("Work item 18 — development of the steps closed"); what is open for them is testing (T-170, T-173, T-190 to T-194) and the run of step 3 on the single bodies (T-185). The scope bar of D20/D33 is 80% since that date. The model tasks were walked through the same day (T-175 done; T-161, T-147b, T-148b12 closed; T-148c1b and T-148c3e dropped; T-148c2c restored for the verdicts; the sentiment candidate selected in T-148c4); open: T-148c, T-148c2b, T-148c2c, T-148c3, T-148c4, T-168 sentiment, T-169, T-171, T-174, T-187. T-181 (short names) is not built.
 - **Long open-task histories:** `archive/TASKS-open-entries-2026-11-08.md`, one section per task ID.
 - **Legacy docs (2026-11-12):** `docs/legacy/` holds what is out of scope or deprecated (the v1 sentiment, zero-shot category and `sector_summary` stages, Work item 15, finished migrations); its `README.md` maps each old path to the new one.
-- **Evidence, figures, review history:** `docs/evaluation.md` (dated follow-ups), `docs/extractor_training.md`, `docs/gold_datasets.md`, and the PR bodies. A task entry points there; it does not repeat it.
+- **Evidence, figures, review history:** `docs/evaluation.md` (dated follow-ups), `docs/extractor_training.md`, `docs/gold_datasets.md`, `docs/main_company_training.md` (the relevance model, the threshold and the owner's marks on sub-news, T-170), and the PR bodies. A task entry points there; it does not repeat it.
 
 ## Rules for keeping the files small (constitution AI behavior #15)
 

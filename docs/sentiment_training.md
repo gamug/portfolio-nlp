@@ -1,6 +1,6 @@
 # Sentiment training: the experiments after the pair trainer (PR #154)
 
-**Status: written 2026-11-10.** What was tried to improve the sentiment "pair" model after PR #154's grid, in
+**Status: written 2026-11-10; the section "Held-out check on 190 pieces of the real run" was added 2026-11-16 (PR #201).** What was tried to improve the sentiment "pair" model after PR #154's grid, in
 the order it was tried, with the figures. **It opens with the history** (how the tags were made, the databases, the
 assumptions, the metrics, and the story in seven steps); the sections after it are the detail. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
 experiment named in each section. The scripts that produced the figures are `scripts/*_2026_11_10.py`
@@ -401,6 +401,68 @@ it as the candidate and score it once on the 180-text gold (T-148c4). One run of
 is the candidate or the command is repeated (the owner's choice; no selection among runs either way). The grid's `--final` run (450 rows, train slice
 only) stays the recorded run of the first D35 recipe.
 
+## Held-out check on 190 pieces of the real run (2026-11-16)
+
+The first held-out check of the sentiment step on texts that no model or setting saw: the step as it ran on the corpus, the pair model and stack of
+revision `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), scored on **190 pieces tagged by the owner** (one reader) in two draws.
+The marks, their texts and the scorer are tracked: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`
+(`scripts/build_val_gold_2026_11_16.py` builds the gold files from the local working files).
+
+| Item | First draw (90) | Second draw (100) |
+|---|---|---|
+| Source | sub-news of the stored summary step (`news_summary`, revision `summary-7a9bd2062bc4`) with a main company of the company step (`companies-f349536cf701`, relevance 0.7 or more) and a sentiment score; the text is what the sentiment step reads | the same, with a stricter pool |
+| Draw | 30 per class the model predicted (10 stored summaries and 20 original short texts each), one text per article | simple random, one per article |
+| Pool | 57,826 candidates (positive 38,559, negative 18,847, neutral 420) | about 21,000 candidates |
+| Filters | 250 characters or more and two sentences; mostly letters; no ticker lists or disclosure lines; the company named in the text; English; no article of `gold/sentiment_gold.csv` or the training sets | the same, plus relevance 0.9 or more, 300 to 1,500 characters, the company named twice and within the first 100 characters, fewer than two analyst calls, no article of the first draw (and none of an earlier 200-text sample that was discarded and not committed) |
+| Tags | positive 39, negative 27, neutral 24 | positive 57, negative 35, neutral 8 |
+| Columns | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (the prediction is in a separate `key.csv`, with a `batch` column) | the same |
+
+Texts are 250 to 1,626 characters (median about 400). The Spanish title and text are a reading aid (`news_nlp.translate`) and are not copied to `gold/`. One row is noted "company is not the main" and is kept.
+The scripts are `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py`; the working files stay local (`data/sentiment_val90/`, git-ignored).
+
+**Results by draw** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found; recall weighted gives each predicted class its pool size over the pieces drawn from it):
+
+First draw, 90 (stratified by the prediction): accuracy 66.7% [56.4, 75.5] (60 of 90), weighted 74.4%.
+
+| Class | Precision | Recall (sample) | Recall (weighted) |
+|---|---|---|---|
+| Positive | 80.0% [62.7, 90.5] (24/30) | 61.5% (24/39) | 88.8% |
+| Negative | 63.3% [45.5, 78.1] (19/30) | 70.4% (19/27) | 69.7% |
+| Neutral | 56.7% [39.2, 72.6] (17/30) | 70.8% (17/24) | 4.0% |
+
+Second draw, 100 (random, no weighting needed): accuracy 80.0% [71.1, 86.7] (80 of 100).
+
+| Class | Precision | Recall |
+|---|---|---|
+| Positive | 84.5% [73.1, 91.6] (49/58) | 86.0% [74.7, 92.7] (49/57) |
+| Negative | 73.8% [58.9, 84.7] (31/42) | 88.6% [74.0, 95.5] (31/35) |
+| Neutral | no call (0/0) | 0% [0.0, 32.4] (0/8) |
+
+**The 190 pooled** (an approximation: the two draws have different pools, and the weighted figures treat them as samples of the first draw's pool of 57,826):
+
+| Class | Precision | Recall (sample) | Recall (weighted) | F1 (sample) | F1 (weighted) |
+|---|---|---|---|---|---|
+| Positive | 83.0% [73.8, 89.4] (73/88) | 76.0% [66.6, 83.5] (73/96) | 89.4% | 79.3% | 86.1% |
+| Negative | 69.4% [58.0, 78.9] (50/72) | 80.6% [69.1, 88.6] (50/62) | 78.6% | 74.6% | 73.7% |
+| Neutral | 56.7% [39.2, 72.6] (17/30) | 53.1% [36.4, 69.1] (17/32) | 4.4% | 54.8% | 8.2% |
+
+Accuracy: 73.7% [67.0, 79.4] (140 of 190); weighted to the pool 78.4%.
+Confusion (rows the model, columns the owner's tag; positive / negative / neutral): positive 73 / 8 / 7; negative 14 / 50 / 8; neutral 9 / 4 / 17.
+
+**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): the pooled accuracy, 73.7% [67.0, 79.4], is **under 80%** (78.4% weighted to the pool, also under); the second draw alone, 80.0% [71.1, 86.7], is at the bar by point estimate, with an interval that reaches well below it. Negative precision, 69.4% [58.0, 78.9], is **under 70%** by point estimate; negative recall, 80.6% [69.1, 88.6], is over it.
+
+**Relation to the pin decision.** This is not the D35 gate. The rule of D35 scores the 180-text gold on main pairs (T-148c4, T-193); that scoring has not been made and `config/pipeline_models.json` still names the v1 model. These 190 pieces were not drawn by D35's design; they measure the step as it ran on the corpus. They are evidence for the owner's decision; whether they replace the 180-gold scoring is the owner's to say.
+
+**What it says.**
+- **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
+- **Negative** precision is under the bar in the pooled figure and over it in the cleaner second draw (73.8%); negative recall is over it in both.
+- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Tracked as T-212 (proposed; the owner decides the fix).
+- The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
+
+**Limits.** The pooled set has 190 tags (positive 96, negative 62, neutral 32) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 32 tags and 30 calls, so its precision [39.2, 72.6] and recall [36.4, 69.1] are wide.
+The weighted recalls take their conditional shares from the 190 pieces and the class sizes from the first draw's pool of 57,826 (the two draws have different pools: an approximation). The neutral weighted recall of 4.4% is the neutral tags found among the positive-called pieces (7 of 88) and the negative-called ones (8 of 72), scaled by 38,559 and 18,847, plus the neutral-called ones (17 of 30, scaled by 420): it is a rate built from a few tags and is a pointer, not a measurement.
+The second draw is random and needs no weighting, but it holds only 8 neutral tags. The pool is the candidates after the filters, not the whole corpus; the pieces are distilbart-summary revision `summary-7a9bd2062bc4` (38 of the 190 are summaries; the DeepSeek summaries of the corpus run are not covered). One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
+
 ## Limits of these figures (read before using them)
 
 - **Not strictly nested.** The base models are out-of-fold (a text is never scored by a model that saw it),
@@ -429,13 +491,17 @@ only) stays the recorded run of the first D35 recipe.
 - **Class imbalance** of the tags (about 410 positive / 229 negative / 216 neutral of the 855) was not addressed (no class
   weights, no resampling): T-148c3e. The metric already weights by pool size, and neutral's weakness is mostly the label
   mixture, not its count, so the expected gain is small.
-- All figures are cross-validated on tags the recipe was tuned on; **none is a held-out score**.
+- The figures of the sections before "Held-out check on 190 pieces of the real run" are cross-validated on tags the recipe was tuned on; **none of them is a held-out score**. The one held-out check is that section (2026-11-16).
 - Not done, with their TASKS entries: the strictly nested check of the stack (T-148c3c; the final relevance model
   is built); the stack in `sentiment_stage`, its cost per article, what is stored when the two
   models disagree, and the score on the 180-text gold (T-148c3d, T-148c4); class weights (T-148c3e). Nothing
   is pinned (both are published, private: "Published").
 
 ## Reproduce
+
+The held-out check on 190 pieces (section above) needs no MLflow and no model: `uv run scripts/score_sentiment_val190_2026_11_16.py` reads `gold/sentiment_val190.csv` and prints its tables
+(`tests/news_nlp/test_val_gold_2026_11_16.py` checks that the figures of this page are the scored ones). The gold files are built from the local working files with
+`scripts/build_val_gold_2026_11_16.py`; the draws are `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py` (they need the RESULTS database: `--results-db` or `DATABASE_URL`).
 
 Run from the repository root with the eval group. Most scripts take the repository root and the MLflow store
 as arguments (`<root> <mlruns>`); `sentiment_company_gate_split` takes only the store. Each docstring says
