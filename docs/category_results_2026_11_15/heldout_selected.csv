@@ -1,0 +1,136 @@
+article_id,company,kind,label_owner,gold,pred,score_earnings_performance,score_mergers_acquisitions,score_leadership_governance,score_legal_regulatory,score_product_innovation,score_capital_shareholder_returns,score_labor_human_capital,score_market_analyst_sentiment,score_partnerships_business_dev,score_reputational_harm,score_investor_activity,score_other
+87270,Allstate,single,earnings_performance,earnings_performance,earnings_performance,0.9998,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0002
+88755,Alphabet,single,product_innovation,product_innovation,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.9995,0.0001,0.0001,0.0001,0.0069
+88763,Alphabet,single,leadership_governance,leadership_governance,leadership_governance,0.0001,0.0001,0.9954,0.0001,0.0002,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.0373
+93127,Amazon,single,product_innovation,product_innovation,product_innovation,0.0003,0.0001,0.0001,0.0001,0.9997,0.0001,0.0001,0.0001,0.0002,0.0002,0.0001,0.5581
+95652,CNBC,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9994,0.0001,0.0001,0.0003,0.0005,0.0012,0.0001,0.0158
+95823,Amazon,single,investor_activity,investor_activity,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0007,0.0006
+115722,Apple,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9965,0.0001,0.0001,0.0011,0.0001,0.0003,0.0001,0.0327
+115832,Apple,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9993,0.0001,0.0001,0.0001,0.0002,0.0006,0.0001,0.0557
+117092,Apple,single,leadership_governance,leadership_governance,other,0.0001,0.0001,0.0002,0.0001,0.0001,0.0302,0.0005,0.0002,0.0001,0.0001,0.0005,0.0527
+117129,Apple,single,investor_activity,investor_activity,market_analyst_sentiment,0.0002,0.0001,0.0001,0.0001,0.0004,0.0001,0.0001,0.9995,0.0001,0.0001,0.0008,0.0002
+118909,Apple,single,leadership_governance,leadership_governance,leadership_governance,0.0002,0.0001,0.9769,0.0001,0.0003,0.0025,0.0001,0.003,0.0002,0.0003,0.0006,0.6471
+118980,Apple,single,product_innovation,product_innovation,reputational_harm,0.0001,0.0001,0.0001,0.0001,0.0021,0.0001,0.0001,0.0001,0.0001,0.9995,0.0001,0.01
+119978,Apple,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0178,0.9992,0.0001,0.0001,0.0002,0.0254,0.0101,0.0001,0.1455
+119978,Apple,single,legal_regulatory,legal_regulatory,product_innovation,0.0001,0.0001,0.0001,0.0178,0.9992,0.0001,0.0001,0.0002,0.0254,0.0101,0.0001,0.1455
+120089,Berkshire,single,investor_activity,investor_activity,other,0.0001,0.0039,0.0001,0.0001,0.0001,0.0025,0.0001,0.0053,0.0002,0.0002,0.0168,0.1025
+120347,Apple,single,market_analyst_sentiment,market_analyst_sentiment,earnings_performance,0.9995,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0049,0.0001,0.0001,0.0007,0.0187
+120843,Apple,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9993,0.0001,0.0001,0.0001,0.0138,0.0003,0.0001,0.039
+121556,Apple,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9993,0.0001,0.0001,0.0101,0.0018,0.0004,0.0006,0.0523
+128992,J.M. Smucker,single,investor_activity,investor_activity,market_analyst_sentiment,0.0001,0.0002,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0002,0.0002
+133851,Bank of America,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003
+155880,Bank of New York Mellon Corporation,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001
+156054,Boeing,single,reputational_harm,reputational_harm,legal_regulatory,0.0001,0.0001,0.0001,0.9992,0.0001,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0326
+156797,Boeing,single,product_innovation,product_innovation,legal_regulatory,0.0001,0.0001,0.0001,0.9834,0.0001,0.0001,0.0001,0.0001,0.0001,0.6448,0.0001,0.0444
+156797,Boeing,single,reputational_harm,reputational_harm,legal_regulatory,0.0001,0.0001,0.0001,0.9834,0.0001,0.0001,0.0001,0.0001,0.0001,0.6448,0.0001,0.0444
+158997,Boston Scientific,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.0001,0.0001,0.9982,0.0409,0.0001,0.0001,0.0001,0.0001,0.4997,0.0001,0.0089
+158997,Boston Scientific,single,product_innovation,product_innovation,legal_regulatory,0.0001,0.0001,0.0001,0.9982,0.0409,0.0001,0.0001,0.0001,0.0001,0.4997,0.0001,0.0089
+163722,Carnival Cruise Line,single,partnerships_business_dev,partnerships_business_dev,other,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0002,0.0006,0.0001,0.0106,0.0001,0.0224
+165918,Charles Schwab,single,capital_shareholder_returns,capital_shareholder_returns,other,0.0002,0.0001,0.0001,0.0002,0.0001,0.0657,0.0001,0.0254,0.0002,0.0014,0.0073,0.1229
+165918,Charles Schwab,single,investor_activity,investor_activity,other,0.0002,0.0001,0.0001,0.0002,0.0001,0.0657,0.0001,0.0254,0.0002,0.0014,0.0073,0.1229
+166584,Chevron,single,investor_activity,investor_activity,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0012
+166687,Chevron,single,mergers_acquisitions,mergers_acquisitions,mergers_acquisitions,0.0001,0.9982,0.0001,0.0001,0.0001,0.0002,0.0001,0.0133,0.0013,0.0003,0.0003,0.0853
+166765,Chevron,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0007,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.0001,0.0001
+167795,Church & Dwight,single,leadership_governance,leadership_governance,mergers_acquisitions,0.0001,0.9995,0.0001,0.0001,0.0001,0.0001,0.0001,0.0009,0.0001,0.0001,0.0006,0.0216
+167795,Church & Dwight,single,capital_shareholder_returns,capital_shareholder_returns,mergers_acquisitions,0.0001,0.9995,0.0001,0.0001,0.0001,0.0001,0.0001,0.0009,0.0001,0.0001,0.0006,0.0216
+168374,Cisco,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0004
+169825,Citigroup,single,leadership_governance,leadership_governance,leadership_governance,0.0001,0.64,0.7067,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0775
+169870,Citigroup,single,market_analyst_sentiment,market_analyst_sentiment,earnings_performance,0.9988,0.0001,0.0001,0.0001,0.0001,0.0015,0.0007,0.0583,0.0001,0.0001,0.0002,0.0817
+170507,CME,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.0001,0.0001,0.9986,0.2447,0.0001,0.0001,0.0001,0.0001,0.0008,0.0001,0.0179
+176157,Costco,single,capital_shareholder_returns,capital_shareholder_returns,product_innovation,0.0129,0.0001,0.0001,0.0001,0.9989,0.0002,0.0001,0.5695,0.0002,0.0001,0.0002,0.043
+178761,CrowdStrike,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0,0.0,0.0001,0.0001,0.0001,0.0,0.0001,0.0001,0.0001,0.0001,0.0002
+179633,CVS,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9989,0.0001,0.0001,0.0001,0.0054,0.0017,0.0001,0.0442
+182954,Delta Air,single,earnings_performance,earnings_performance,earnings_performance,0.9991,0.0027,0.0001,0.0002,0.0001,0.0337,0.0002,0.0001,0.0001,0.0001,0.0001,0.0007
+200622,Dollar Tree,single,investor_activity,investor_activity,market_analyst_sentiment,0.0722,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9992,0.0001,0.0001,0.0002,0.0002
+209045,Entergy,single,leadership_governance,leadership_governance,mergers_acquisitions,0.0005,0.9984,0.0001,0.0001,0.0001,0.0736,0.0001,0.0003,0.0001,0.0001,0.0001,0.013
+209321,Equifax,single,reputational_harm,reputational_harm,reputational_harm,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9992,0.0001,0.0352
+212252,Expedia,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.001,0.0001,0.0001,0.0001,0.0002
+246882,GE,single,market_analyst_sentiment,market_analyst_sentiment,capital_shareholder_returns,0.0003,0.0001,0.0001,0.0001,0.0001,0.9889,0.9813,0.1113,0.0001,0.0001,0.0001,0.0637
+247026,GE,single,leadership_governance,leadership_governance,leadership_governance,0.0001,0.0001,0.9991,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0952
+247387,GE,single,legal_regulatory,legal_regulatory,mergers_acquisitions,0.0001,0.998,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.003,0.0001,0.0001,0.0891
+247586,GE,single,labor_human_capital,labor_human_capital,labor_human_capital,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0269,0.0001,0.0001,0.0001,0.0001,0.0087
+247586,GE,single,leadership_governance,leadership_governance,labor_human_capital,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0269,0.0001,0.0001,0.0001,0.0001,0.0087
+247612,GE,single,market_analyst_sentiment,market_analyst_sentiment,earnings_performance,0.9994,0.0001,0.0001,0.0001,0.0001,0.0003,0.0001,0.0002,0.0001,0.0001,0.0002,0.0526
+247884,GE,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.9995,0.0001,0.0001,0.0016,0.0005
+251089,GoodBelly Probiotics,single,investor_activity,investor_activity,other,0.0001,0.0091,0.0001,0.0001,0.0017,0.006,0.0001,0.0004,0.0007,0.0001,0.0006,0.0365
+252250,GM,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0458
+252509,GM,single,earnings_performance,earnings_performance,earnings_performance,0.9996,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0009
+252539,GM,single,mergers_acquisitions,mergers_acquisitions,product_innovation,0.0001,0.0001,0.0001,0.0001,0.3446,0.0001,0.0001,0.0001,0.0754,0.0001,0.0001,0.0368
+252757,GM,single,partnerships_business_dev,partnerships_business_dev,partnerships_business_dev,0.0001,0.0001,0.0001,0.0001,0.0004,0.0001,0.0001,0.0002,0.9997,0.0001,0.0001,0.0084
+252938,GM,single,partnerships_business_dev,partnerships_business_dev,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9968,0.0001,0.0004,0.0001,0.0001,0.0025,0.0001,0.0287
+252938,GM,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9968,0.0001,0.0004,0.0001,0.0001,0.0025,0.0001,0.0287
+254098,GM,single,product_innovation,product_innovation,reputational_harm,0.0001,0.0001,0.0,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0028
+254098,GM,single,reputational_harm,reputational_harm,reputational_harm,0.0001,0.0001,0.0,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0028
+254770,GM,single,earnings_performance,earnings_performance,earnings_performance,0.9762,0.0001,0.0001,0.0001,0.0003,0.0001,0.0,0.0001,0.0001,0.0001,0.0,0.0002
+255017,GM,single,capital_shareholder_returns,capital_shareholder_returns,capital_shareholder_returns,0.0001,0.0001,0.0001,0.0001,0.0001,0.9622,0.0001,0.0169,0.0001,0.0001,0.0008,0.0073
+255239,GM,single,earnings_performance,earnings_performance,earnings_performance,0.9996,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0046
+255269,GM,single,partnerships_business_dev,partnerships_business_dev,labor_human_capital,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9991,0.0004,0.0001,0.0002,0.0001,0.0436
+263392,Johnson & Johnson,single,leadership_governance,leadership_governance,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0004,0.0001
+277600,HPE,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0006
+285334,IBM,single,market_analyst_sentiment,market_analyst_sentiment,investor_activity,0.0001,0.0001,0.0001,0.0001,0.0001,0.0012,0.0001,0.0005,0.0001,0.0003,0.9625,0.055
+291511,INTU,single,earnings_performance,earnings_performance,earnings_performance,0.9961,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.722,0.0001,0.0001,0.0018,0.0912
+295239,JPMorgan Chase,single,earnings_performance,earnings_performance,earnings_performance,0.9979,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.8504,0.0001,0.0001,0.0001,0.0146
+295573,Grab Holdings,single,investor_activity,investor_activity,earnings_performance,0.9991,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9918,0.0001,0.0001,0.0001,0.0001
+296135,Procter & Gamble,single,investor_activity,investor_activity,market_analyst_sentiment,0.0002,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0001,0.0001
+296265,Domino's Pizza,single,investor_activity,investor_activity,market_analyst_sentiment,0.9843,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9992,0.0001,0.0001,0.0001,0.0015
+296647,JPMorgan Chase,single,investor_activity,investor_activity,mergers_acquisitions,0.0001,0.9429,0.0001,0.0001,0.0001,0.0013,0.0001,0.0002,0.0001,0.0001,0.0481,0.009
+296915,Synaptics,single,investor_activity,investor_activity,market_analyst_sentiment,0.0034,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0008,0.0003
+297011,JPMorgan,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9875,0.0001,0.0001,0.0001,0.0037
+297451,JPMorgan Chase,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.0004,0.0001,0.9943,0.0001,0.0001,0.0001,0.0001,0.0001,0.1313,0.0001,0.0501
+297451,JPMorgan Chase,single,reputational_harm,reputational_harm,legal_regulatory,0.0001,0.0004,0.0001,0.9943,0.0001,0.0001,0.0001,0.0001,0.0001,0.1313,0.0001,0.0501
+297807,JPMorgar Chase,single,reputational_harm,reputational_harm,legal_regulatory,0.0001,0.0001,0.0001,0.9903,0.0001,0.0001,0.0001,0.0001,0.0002,0.3121,0.0001,0.0093
+302476,Kraft Heinz,single,investor_activity,investor_activity,investor_activity,0.0001,0.0001,0.0001,0.0001,0.0001,0.0011,0.0001,0.0015,0.0001,0.0001,0.9858,0.0083
+302920,Krogen,single,other,other,product_innovation,0.0002,0.0001,0.0001,0.0001,0.0409,0.0001,0.0001,0.0002,0.0002,0.0001,0.0001,0.0313
+311955,LITE,single,earnings_performance,earnings_performance,earnings_performance,0.9996,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0059
+318432,Microsoft,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.9539,0.0003,0.9608,0.0002,0.0001,0.0081,0.0001,0.0002,0.0001,0.0001,0.0363
+320005,Microsoft,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0514
+320105,Microsoft,single,earnings_performance,earnings_performance,market_analyst_sentiment,0.5605,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9952,0.0001,0.0001,0.8443,0.0374
+320174,Microsoft,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9939,0.0001,0.0001,0.9352,0.0021
+326586,MSCI,single,earnings_performance,earnings_performance,earnings_performance,0.999,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0237
+328518,Netflix,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0039,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9988,0.0001,0.0006,0.0034,0.047
+329291,Netflix,single,market_analyst_sentiment,market_analyst_sentiment,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9992,0.0001,0.0001,0.0003,0.65,0.0002,0.0001,0.1091
+341115,Nvidia,single,other,other,product_innovation,0.0001,0.0001,0.0001,0.0001,0.999,0.0001,0.0001,0.0001,0.0061,0.0003,0.0001,0.0709
+341432,Nvidia,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0002,0.0001,0.0001,0.0001,0.9931,0.0001,0.0001,0.9976,0.2744,0.0001,0.0003,0.0558
+343466,Nvidia,single,mergers_acquisitions,mergers_acquisitions,mergers_acquisitions,0.0001,0.9992,0.0001,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.0001,0.0425
+343527,Nvidia,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0406,0.0001,0.0001,0.998,0.0002,0.0002,0.0003,0.0004
+343678,Nvidia,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0003,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001
+344029,Occidental Petroleum,single,investor_activity,investor_activity,investor_activity,0.0001,0.9974,0.0001,0.0001,0.0,0.0001,0.0001,0.0003,0.0001,0.0001,0.9975,0.004
+411199,Oracle,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003,0.0001,0.0001,0.0001,0.0024
+411199,Oracle,single,capital_shareholder_returns,capital_shareholder_returns,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003,0.0001,0.0001,0.0001,0.0024
+411199,Oracle,single,market_analyst_sentiment,market_analyst_sentiment,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003,0.0001,0.0001,0.0001,0.0024
+411199,Oracle,single,product_innovation,product_innovation,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003,0.0001,0.0001,0.0001,0.0024
+414029,Pfizer,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9994,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0154
+414029,Pfizer,single,legal_regulatory,legal_regulatory,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9994,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0154
+414412,Pfizer,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9995,0.0001,0.0001,0.0048,0.0021,0.0003,0.0001,0.0178
+421518,Qualcomm,single,competitive_actions,other,legal_regulatory,0.0001,0.0001,0.0001,0.9992,0.0001,0.0008,0.0001,0.0001,0.0001,0.0013,0.0001,0.0141
+421518,Qualcomm,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.0001,0.0001,0.9992,0.0001,0.0008,0.0001,0.0001,0.0001,0.0013,0.0001,0.0141
+422181,Ralph Lauren,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.0001,0.0003
+425236,Salesforce,single,mergers_acquisitions,mergers_acquisitions,mergers_acquisitions,0.0001,0.9985,0.0001,0.0001,0.0001,0.0001,0.0001,0.0004,0.0001,0.0001,0.0001,0.0459
+425519,Salesforce,single,earnings_performance,earnings_performance,earnings_performance,0.9914,0.0414,0.0001,0.0001,0.0001,0.0001,0.0001,0.8502,0.0001,0.0001,0.0003,0.0373
+425621,Sandisk,single,earnings_performance,earnings_performance,earnings_performance,0.9996,0.0001,0.0001,0.0001,0.0002,0.0001,0.0001,0.0025,0.0001,0.0001,0.0001,0.0004
+425788,Schlumberger,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0003,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.7746,0.0012,0.0002,0.002,0.0495
+439142,Starbucks,single,labor_human_capital,labor_human_capital,legal_regulatory,0.0001,0.0001,0.0001,0.9968,0.0001,0.0001,0.9968,0.0001,0.0001,0.0224,0.0001,0.014
+439142,Starbucks,single,legal_regulatory,legal_regulatory,legal_regulatory,0.0001,0.0001,0.0001,0.9968,0.0001,0.0001,0.9968,0.0001,0.0001,0.0224,0.0001,0.014
+440126,Starbucks,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9989,0.0001,0.0001,0.0001,0.8987,0.0002,0.0001,0.0605
+465076,UBER,single,leadership_governance,leadership_governance,earnings_performance,0.9995,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0158
+465076,UBER,single,earnings_performance,earnings_performance,earnings_performance,0.9995,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0158
+465092,UBER,single,market_analyst_sentiment,market_analyst_sentiment,market_analyst_sentiment,0.0004,0.0001,0.0001,0.0001,0.0001,0.0026,0.0001,0.9987,0.0002,0.0001,0.0004,0.0155
+473776,UnitedHealth,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0003
+476205,Walmart,single,earnings_performance,earnings_performance,capital_shareholder_returns,0.0004,0.0001,0.0004,0.0001,0.0001,0.9517,0.0001,0.2135,0.0002,0.0001,0.0019,0.0247
+477443,Walmart,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0017
+478211,Walt Disney World,single,labor_human_capital,labor_human_capital,labor_human_capital,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9997,0.0001,0.0001,0.0001,0.0001,0.0002
+478427,Warner Bros Discovery,single,earnings_performance,earnings_performance,earnings_performance,0.9997,0.0001,0.0001,0.0001,0.0001,0.0004,0.0001,0.0001,0.0001,0.0001,0.0001,0.0002
+479469,MegaPath,single,leadership_governance,leadership_governance,leadership_governance,0.0001,0.0001,0.0141,0.0001,0.0006,0.0001,0.0007,0.0001,0.0024,0.0001,0.0001,0.009
+479626,Nike,single,investor_activity,investor_activity,market_analyst_sentiment,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.0001,0.9996,0.0001,0.0001,0.0001,0.0009
+480321,Wells Fargo,single,legal_regulatory,legal_regulatory,labor_human_capital,0.0001,0.0001,0.0001,0.03,0.0001,0.0001,0.7546,0.0001,0.0001,0.0033,0.0001,0.0018
+480321,Wells Fargo,single,reputational_harm,reputational_harm,labor_human_capital,0.0001,0.0001,0.0001,0.03,0.0001,0.0001,0.7546,0.0001,0.0001,0.0033,0.0001,0.0018
+483240,Western Digital,single,mergers_acquisitions,mergers_acquisitions,mergers_acquisitions,0.0001,0.9994,0.0001,0.0001,0.0001,0.0001,0.0001,0.0024,0.0001,0.0002,0.0004,0.0556
+483240,Western Digital,single,legal_regulatory,legal_regulatory,mergers_acquisitions,0.0001,0.9994,0.0001,0.0001,0.0001,0.0001,0.0001,0.0024,0.0001,0.0002,0.0004,0.0556
+484252,Wynn Resorts,single,capital_shareholder_returns,capital_shareholder_returns,capital_shareholder_returns,0.0001,0.0144,0.0001,0.0001,0.0001,0.9838,0.0001,0.0002,0.0001,0.0001,0.0006,0.0008
+1075197,Alibaba,single,product_innovation,product_innovation,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9995,0.0001,0.0001,0.0001,0.0001,0.0002,0.0001,0.0208
+1075389,Alphabet,single,market_analyst_sentiment,market_analyst_sentiment,product_innovation,0.0001,0.0001,0.0001,0.0001,0.9985,0.0001,0.0001,0.0014,0.0033,0.2404,0.0001,0.3279
+1075568,Alphabet,single,capital_shareholder_returns,capital_shareholder_returns,mergers_acquisitions,0.0002,0.4627,0.0001,0.0001,0.0008,0.0001,0.0001,0.0001,0.001,0.0001,0.0001,0.0373
+1106639,Reddit,single,partnerships_business_dev,partnerships_business_dev,product_innovation,0.0001,0.0001,0.0001,0.0001,0.0814,0.0015,0.0001,0.0001,0.0003,0.0002,0.0001,0.0203
+1108073,Starbucks,single,market_analyst_sentiment,market_analyst_sentiment,other,0.0002,0.0001,0.0001,0.0001,0.0001,0.0002,0.0002,0.0001,0.0001,0.0001,0.0001,0.0081
+1110132,Tesla,single,product_innovation,product_innovation,other,0.0001,0.0,0.0001,0.0001,0.001,0.0001,0.0001,0.0116,0.0001,0.0002,0.0001,0.0571
+1110132,Tesla,single,other,other,other,0.0001,0.0,0.0001,0.0001,0.001,0.0001,0.0001,0.0116,0.0001,0.0002,0.0001,0.0571

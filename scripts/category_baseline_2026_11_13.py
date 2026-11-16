@@ -20,8 +20,10 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import category_groups_mock_2026_11_13 as mock
 
-from news_category_stage import DEFINITIONS
-from news_category_stage import GROUPS as _STEP_GROUPS
+import category_multilabel as ml
+
+DEFINITIONS = ml.DEFINITIONS14
+_STEP_GROUPS = ml.GROUPS14
 from news_nlp.triage import Company, CompanyResolver
 
 MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"

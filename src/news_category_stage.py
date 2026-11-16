@@ -1,15 +1,15 @@
-"""Step 7, the category of each main company of a text (PLAN D39 (7), D40; T-168; **provisional**, T-174 not closed).
+"""Step 7, the category of each main company of a text (PLAN D39 (7), D40, D43; T-168, T-203).
 
 The text is the one step 2 left for the item (``news_summary``) and the companies are the main ones step 3 found (``news_company.is_main``). Each
-(text, main company) pair gets one of the 14 labels of the taxonomy of D15 (``docs/category-taxonomy.md``), and the group of that label (option B,
-owner 2026-11-13).
+(text, main company) pair gets one of the **12 labels** of ``config/category_step.json`` (the 14 of the taxonomy of D15, ``docs/category-taxonomy.md``, with
+``competitive_actions`` and ``peer_comparison`` read as ``other``, owner 2026-11-14), and the group of that label (option B, owner 2026-11-13).
 
-**The model is provisional**: the pinned zero-shot model of ``config/pipeline_models.json`` (``category``), untouched, read the way the baseline of
-``scripts/category_baseline_2026_11_13.py`` read it: premise ``<company>: <text>`` (the first ``PREMISE_CHARS`` characters), one hypothesis per
-label (``The news about <company> is about <definition>.``), the score is the probability of *entailment*, the label is the best score. On the
-gold it agrees with the owner's label in 56.4% of the 225 train rows and 43.0% of the 135 single held-out rows; the group agrees in 62.7% and
-55.6%; the bar of D24 is 80%, so the labels are a first version, not the accepted ones. A fine-tuned model replaces this one by changing the pin
-(its revision is then another revision of the step); nothing else of the step changes.
+**The model** is the entailment fine-tune ``category-entailment-single-12`` (``docs/category_training.md``): the zero-shot model of ``config/pipeline_models.json``
+fine-tuned on 1,216 rows with one tag each, a git-ignored folder named in ``config/category_step.json`` (the step never downloads a model and refuses a folder whose
+identity is not the pinned one). It is read as the zero-shot model was: premise ``<company>: <text>`` (the first ``PREMISE_CHARS`` characters), one hypothesis per
+label (``The news about <company> is about <definition>.``), the score is the probability of *entailment*, the label is the best score. **It was pinned as the default by the
+owner on 2026-11-15 although it does not meet the bar of D24 (80% on the held-out single rows): 54.1% there (the untouched model: 43.7%), 71.3% on 300 real sub-news (65.7%).**
+The labels are a first version, not the accepted ones.
 
 ``group_label`` is the group of the best label; ``group_score`` is the share of the entailment mass the group's labels hold (0 to 1);
 ``slug_scores`` is the JSON audit trail, one entailment probability per label (and ``_truncated_chunks`` = 1 when the model read the pair cut at its window; read the
@@ -27,9 +27,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from pydantic import BaseModel, ConfigDict
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from news_company_stage import company_name
+from news_nlp import attribution_model as am
 from news_nlp.steps import TRUNCATED_KEY, CategoryScore
 from news_summary_stage import normalized_code
 
@@ -44,17 +46,15 @@ DEFINITIONS: dict[str, str] = {
     "market_analyst_sentiment": "analyst ratings and price targets, stock price moves, an investor's bullish or bearish view",
     "partnerships_business_dev": "strategic alliances, joint ventures, distribution deals",
     "reputational_harm": "an event that damages or repairs the company's public standing: apologies, service failures, controversies, boycotts",
-    "competitive_actions": "the company's own move or statement against or about a competitor: share fights, pricing pressure",
     "investor_activity": "a fund or famous investor buys or sells the stock, an activist position, 13F filings, block trades",
-    "peer_comparison": "a comparison between companies: which is the better stock, who is ahead",
     "other": "an event that fits none of the other topics",
 }
 LABELS: tuple[str, ...] = tuple(DEFINITIONS)
 #: The groups of the labels (option B, owner 2026-11-13).
 GROUPS: dict[str, tuple[str, ...]] = {
     "results_capital": ("earnings_performance", "capital_shareholder_returns"),
-    "market_view": ("market_analyst_sentiment", "investor_activity", "peer_comparison"),
-    "deals_alliances": ("mergers_acquisitions", "partnerships_business_dev", "competitive_actions"),
+    "market_view": ("market_analyst_sentiment", "investor_activity"),
+    "deals_alliances": ("mergers_acquisitions", "partnerships_business_dev"),
     "product_people": ("product_innovation", "labor_human_capital"),
     "governance_legal_reputation": (
         "leadership_governance",
@@ -70,6 +70,7 @@ PREMISE_CHARS = 2000  # the size of the summaries step 2 leaves
 MAX_LENGTH = 512
 _ROOT = Path(__file__).resolve().parent.parent
 _PIPELINE_MODELS = _ROOT / "config" / "pipeline_models.json"
+PIN_PATH = _ROOT / "config" / "category_step.json"
 
 
 def pinned_category() -> dict[str, Any]:
@@ -78,19 +79,48 @@ def pinned_category() -> dict[str, Any]:
     return config
 
 
+class CategoryStepPin(BaseModel):
+    """``config/category_step.json``: validated as ``config/pipeline_models.json`` is (``extra="forbid"``), so a misspelled key or a missing one fails at load."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    what: str
+    name: str
+    model_dir: str
+    identity: str
+    files: dict[
+        str, str
+    ]  # the manifest: name of each file of the folder -> its sha256 (a mismatch names the file)
+    labels: list[str]
+    start_model: dict[str, str]
+    published: dict[str, str] | None
+    run: str
+    evidence: dict[str, float | int | bool | str]
+
+
+def pin(pin_path: Path | None = None) -> dict[str, Any]:
+    """The pin of the step: the name of the model, the folder it is in, its identity (a hash of the files), its manifest and the labels it was trained on."""
+    raw = json.loads((pin_path or PIN_PATH).read_text(encoding="utf-8"))
+    config: dict[str, Any] = CategoryStepPin.model_validate(raw).model_dump()
+    return config
+
+
+def model_dir(pin_path: Path | None = None) -> Path:
+    """The folder of the model: the pin's path, from the root of the repository unless absolute."""
+    folder = Path(pin(pin_path)["model_dir"])
+    return folder if folder.is_absolute() else _ROOT / folder
+
+
+def model_identity_of_the_pin(pin_path: Path | None = None) -> str:
+    """The model as ``name@identity`` from the pin (nothing is loaded and no file is read): what the revision of the step names."""
+    config = pin(pin_path)
+    return f"{config['name']}@{config['identity']}"
+
+
 def models_of_the_step() -> dict[str, str]:
-    """The model the step runs, as ``name@revision``, from the pin (nothing is loaded): ``--status`` prints it."""
-    pinned = pinned_category()
-    return {"category": f"{pinned['model']}@{pinned['revision']}"}
-
-
-#: A revision of the step that was written before the revision followed the scoring only (the first run of the development, 2026-11-13: the code of commit
-#: 82d6b36 over the revisions of step 2 and step 3 named in the key). Its rows are the ones this code would write: the same labels in 10,355 of 10,355 pairs
-#: of its repeats and 1,008 of its 64,428 stored pairs re-scored (72 of each label) (``scripts/category_verify_revision_2026_11_13.py``, figures in ``docs/category_results_2026_11_13/``), so the
-#: run continues it: the same command resumes, no row is moved. Key: the revision the scoring identity gives (``scoring_revision``); value: the revision
-#: already in the store. **Retired** in the change that first alters a score (a definition, the premise, the model, the code of ``_read_pair`` or ``score_of``):
-#: the test that pins it fails then, and the owner decides whether the legacy rows are still wanted.
-LEGACY_REVISIONS: dict[str, str] = {"category-21684b80ec36": "category-65f33b55b26b"}
+    """The model the step runs, from the pin (nothing is loaded): ``--status`` prints it."""
+    config = pin()
+    return {"category": f"{config['model_dir']} (identity {config['identity']})"}
 
 
 def _scoring_code() -> str:
@@ -131,18 +161,14 @@ def scoring_revision(model_identity: str, summary_revision: str, companies_revis
 
 
 def revision_of(model_identity: str, summary_revision: str, companies_revision: str) -> str:
-    """The revision a run writes: ``scoring_revision``, or the legacy revision already in the store for that same scoring (``LEGACY_REVISIONS``)."""
-    computed = scoring_revision(model_identity, summary_revision, companies_revision)
-    return LEGACY_REVISIONS.get(computed, computed)
+    """The revision a run writes: ``scoring_revision``. (``LEGACY_REVISIONS``, which carried the first run of the development over, is retired: this model changes every score.)"""
+    return scoring_revision(model_identity, summary_revision, companies_revision)
 
 
 def code_revision(summary_revision: str, companies_revision: str) -> str:
     """The revision this code would write for those inputs, from the pin and the source (no model is loaded): ``--status`` prints it, so the rows of
     a store can be checked against the code that was merged."""
-    pinned = pinned_category()
-    return revision_of(
-        f"{pinned['model']}@{pinned['revision']}", summary_revision, companies_revision
-    )
+    return revision_of(model_identity_of_the_pin(), summary_revision, companies_revision)
 
 
 def score_of(entailment: Sequence[float]) -> CategoryScore:
@@ -186,12 +212,13 @@ def _read_pair(
 
 
 class CategoryScorer:
-    """The pinned zero-shot model: ``score`` gives the entailment probability of every label for each (text, company name) pair."""
+    """The pinned model: ``score`` gives the entailment probability of every label for each (text, company name) pair."""
 
-    def __init__(self, device: torch.device | None = None) -> None:
-        pinned = pinned_category()
-        self.model_name: str = pinned["model"]
-        self.model_revision: str = pinned["revision"]
+    def __init__(self, folder: Path | None = None, device: torch.device | None = None) -> None:
+        config = pin()
+        self.folder = folder or model_dir()
+        self.model_name: str = config["name"]
+        self.model_revision: str = config["identity"]
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._tokenizer: Any = None
         self._model: Any = None
@@ -199,15 +226,39 @@ class CategoryScorer:
         #: For each pair of the last ``score`` call: whether a hypothesis filled the window of the model, so the pair was read cut there.
         self.last_truncated: list[bool] = []
 
+    def identity(self) -> str:
+        """The identity of the folder (a hash of its files): computed once per run, the weights are large."""
+        return am.directory_identity(self.folder)
+
+    def check_identity(self) -> None:
+        """Refuse a folder that is not the pinned one, and say which files differ (the manifest of the pin). Not part of what a score is: its wording is not a new revision."""
+        found = self.identity()
+        if found == self.model_revision:
+            return
+        manifest = pin().get("files", {})
+        differs = sorted(
+            name
+            for name in set(manifest) | {p.name for p in self.folder.iterdir() if p.is_file()}
+            if name != "metrics.json"
+            and (
+                not (self.folder / name).is_file()
+                or hashlib.sha256((self.folder / name).read_bytes()).hexdigest()
+                != manifest.get(name)
+            )
+        )
+        raise ValueError(
+            f"{self.folder} has identity {found}, not the pinned {self.model_revision} (config/category_step.json); "
+            f"files that differ from the manifest: {', '.join(differs) or 'none (the set of files differs)'}"
+        )
+
     def _load(self) -> None:
         if self._model is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name, revision=self.model_revision
-            )
+            self.check_identity()
+            self._tokenizer = AutoTokenizer.from_pretrained(str(self.folder))
             # float32: transformers 5 loads the checkpoint as fp16 by default
             self._model = (
                 AutoModelForSequenceClassification.from_pretrained(
-                    self.model_name, revision=self.model_revision, dtype=torch.float32
+                    str(self.folder), dtype=torch.float32
                 )
                 .to(self.device)
                 .eval()

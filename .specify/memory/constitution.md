@@ -111,6 +111,14 @@ component; every rule below assumes the stack actually pinned in
    the checkpoint listed above — no dynamic model selection. Swapping a
    model is a spec-level change — it needs an eval run (`news_nlp.eval`) comparing
    against the current baseline before it replaces the pinned checkpoint.
+   **Exception, category step (owner, 2026-11-15; amendment 2.13.0).** The category step (`--step category`, step 7 of the
+   stepped pipeline) runs `category-entailment-single-12`, the fine-tune pinned in `config/category_step.json` (folder identity
+   checked; `docs/category_step.md`), not the checkpoint listed above, which the v1 category stage keeps. The owner pinned it as
+   the default ("pin it as default now"), told that it scored 54.1% on the held-out single rows against the 80% bar of D24 (the
+   untouched model it replaces: 43.7%), **without** the `news_nlp.eval` comparison this rule asks for: the evidence is the
+   owner's gold, 300 real sub-news tagged by the assistant and cross-validation (`docs/category_training.md`). The exception covers
+   this stage only; the eval run owed is task T-209.
+   *2026-11-15, later:* T-209 was run with a blind judge written for step 7 (the v1 `news_nlp.eval` category stage does not measure step 7), on 300 real sub-news: it agrees with the fine-tune on 77.0% and with the untouched model on 71.0% (p = 0.033); `docs/category_training.md` E13. The exception stands: the bar of D24 is not met.
 2. **Inference is deterministic and CPU-capable.** `DEVICE` selects CUDA
    when available, else CPU — every stage must run correctly (not just fast)
    on CPU, since hermetic tests and some deployments have no GPU. Don't add
@@ -426,4 +434,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.12.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-08
+**Version**: 2.13.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-15

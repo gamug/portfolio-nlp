@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 import torch
 
+import category_multilabel as ml
 import category_stage
 import cut_stage
 import news_category_stage as stage
@@ -108,8 +109,15 @@ class StubFinder:
 
 
 def test_the_labels_are_the_taxonomy_of_d15_and_every_label_is_in_one_group() -> None:
-    assert set(stage.LABELS) == set(retag.D15_LABELS) - {"uncertain", "unrelated"}
-    assert len(stage.LABELS) == 14
+    folded = {
+        "competitive_actions",
+        "peer_comparison",
+    }  # read as ``other`` (owner, 2026-11-14): the model is trained on 12
+    assert set(stage.LABELS) == set(retag.D15_LABELS) - {"uncertain", "unrelated"} - folded
+    assert len(stage.LABELS) == 12
+    assert (
+        list(stage.LABELS) == stage.pin()["labels"]
+    )  # the labels the pinned model was trained on, in its order
     grouped = [label for labels in stage.GROUPS.values() for label in labels]
     assert sorted(grouped) == sorted(stage.LABELS)  # each label once
     assert set(stage.DEFINITIONS) == set(stage.LABELS)
@@ -126,7 +134,7 @@ def test_the_label_is_the_best_entailment_and_the_group_is_the_group_of_the_labe
 def test_the_group_score_is_the_share_of_the_mass_the_group_holds() -> None:
     result = stage.score_of(_scores("other", 0.9))
     assert result.group_label == "other"
-    assert result.group_score == pytest.approx(0.9 / (0.9 + 0.05 * 13))
+    assert result.group_score == pytest.approx(0.9 / (0.9 + 0.05 * 11))
 
 
 def test_the_finder_classifies_each_pair_and_names_the_model_it_ran() -> None:
@@ -156,7 +164,7 @@ def test_the_revision_follows_the_model_the_definitions_and_the_recipe(
 
 def test_the_status_names_the_model_without_loading_it() -> None:
     models = stage.models_of_the_step()
-    assert models["category"].startswith("MoritzLaurer/deberta-v3-base-zeroshot-v2.0@")
+    assert models["category"] == f"{stage.pin()['model_dir']} (identity {stage.pin()['identity']})"
 
 
 # --- storage and what is pending -----------------------------------------------------------------------------------------
@@ -396,7 +404,7 @@ def test_the_status_of_the_category_step_loads_no_model(
     out = json.loads(capsys.readouterr().out)
     assert out["step"] == "category" and out["by_state"] == {"done": 1}
     assert out["revisions"] == [REV]
-    assert out["models"]["category"].startswith("MoritzLaurer/")
+    assert out["models"]["category"] == stage.models_of_the_step()["category"]
 
 
 def test_items_whose_text_is_at_another_summary_revision_are_counted(
@@ -731,8 +739,15 @@ def test_the_training_scripts_read_the_definitions_of_the_step() -> None:
         spec.loader.exec_module(baseline)
     finally:
         sys.path.remove(str(DOCS / "scripts"))
-    assert baseline.DEFS == stage.DEFINITIONS and list(stage.LABELS) == baseline.LABELS
-    assert {g: tuple(v) for g, v in baseline.GROUPS.items()} == stage.GROUPS
+    # the baseline of 2026-11-13 read the 14 labels; the step reads the 12 of them that the fine-tune was trained on (``competitive_actions`` and ``peer_comparison`` read as ``other``)
+    assert baseline.DEFS == ml.DEFINITIONS14 and list(ml.LABELS14) == baseline.LABELS
+    assert {
+        k: v for k, v in ml.DEFINITIONS14.items() if k not in ml.FOLD_INTO_OTHER
+    } == stage.DEFINITIONS
+    assert {g: tuple(v) for g, v in baseline.GROUPS.items()} == ml.GROUPS14
+    assert {
+        g: tuple(x for x in v if x not in ml.FOLD_INTO_OTHER) for g, v in ml.GROUPS14.items()
+    } == stage.GROUPS
 
 
 def test_the_sql_of_the_revision_rule_runs_and_the_records_name_the_step(
@@ -780,8 +795,8 @@ def test_status_prints_the_revision_the_code_would_write_for_the_inputs_given(
     printed = json.loads(capsys.readouterr().out)
     assert printed["code_revision"] == stage.code_revision(SUM_REV, COMP_REV)
     scorer = StubScorer()  # the identity of the pin, so the finder names the revision of this code
-    pinned = stage.pinned_category()
-    scorer.model_name, scorer.model_revision = pinned["model"], pinned["revision"]
+    pinned = stage.pin()
+    scorer.model_name, scorer.model_revision = pinned["name"], pinned["identity"]
     assert printed["code_revision"] == stage.CategoryFinder(SUM_REV, COMP_REV, scorer).revision
     assert printed["revisions"] == []  # nothing ran: the revision of the code is not one that ran
     cli.main_category(
@@ -838,7 +853,7 @@ def test_the_scripts_that_score_the_held_out_set_refuse_to_do_it_again(
         module.main()
 
 
-# --- the revision follows its inputs, and finished work can be carried to a new revision ------------------------------------
+# --- the revision follows its inputs ------------------------------------
 
 
 def test_the_revision_follows_the_summary_and_the_companies_revision() -> None:
@@ -878,80 +893,6 @@ def test_a_step_run_again_upstream_is_new_work_not_done_work(
     assert kept == 3  # the old revision is untouched
 
 
-def _adopt_module() -> Any:
-    spec = importlib.util.spec_from_file_location(
-        "category_adopt_for_test", DOCS / "scripts" / "category_adopt_revision_2026_11_13.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_finished_work_is_carried_to_the_new_revision_without_deleting_the_old(
-    pair: db_module.NewsNlpDatabase,
-) -> None:
-    _seed(pair)
-    cli, adopt = _load_cli(), _adopt_module()
-    old = "category-old"
-
-    class OldFinder(StubFinder):
-        revision = old
-
-    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
-    before = [
-        tuple(r)
-        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
-    ]
-    report = adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=False)
-    assert report["adoptable"] == 2 and report["finished_at_old"] == 2
-    assert (
-        pair.execute(
-            "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
-        ).fetchone()[0]
-        == 0
-    )  # a report writes nothing
-    assert adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["adoptable"] == 2
-    assert (
-        adopt.adopt(pair, old, REV, SUM_REV, COMP_REV, execute=True)["already_at_new"] == 2
-    )  # a repeat adopts nothing more
-    kept = [
-        tuple(r)
-        for r in pair.execute("SELECT * FROM news_category WHERE model_revision = ?", (old,))
-    ]
-    assert kept == before  # the old revision is as it was
-    now = pair.execute(
-        "SELECT COUNT(*) FROM news_category WHERE model_revision = ?", (REV,)
-    ).fetchone()[0]
-    assert now == len(before) == 3
-    assert (
-        list(steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)) == []
-    )  # the next run has nothing left to do
-    with pytest.raises(ValueError, match="the same"):
-        adopt.adopt(pair, REV, REV, SUM_REV, COMP_REV, execute=True)
-
-
-def test_an_item_whose_companies_changed_or_whose_text_is_gone_is_not_carried(
-    pair: db_module.NewsNlpDatabase,
-) -> None:
-    _seed(pair)
-    cli, adopt = _load_cli(), _adopt_module()
-
-    class OldFinder(StubFinder):
-        revision = "category-old"
-
-    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
-    steps.record_companies(  # at the companies revision b1 now has a third main company: it must be done again
-        pair, "body", "b1", COMP_REV, [CompanyScore("META", 1, 0.9)], 0.5
-    )
-    report = adopt.adopt(pair, "category-old", REV, SUM_REV, COMP_REV, execute=True)
-    assert report["companies_differ"] == 1 and report["adoptable"] == 1
-    assert [i.item_id for i in steps.pending_category_items(pair, SUM_REV, COMP_REV, REV)] == ["b1"]
-    other = adopt.adopt(pair, "category-old", "category-x", "summary-none", COMP_REV, execute=False)
-    assert other["no_text"] == 2 and other["adoptable"] == 0  # no text at that summary revision
-
-
 # --- the revision follows the scoring only: a stopped run resumes after an edit that does not change a score -------------------
 
 
@@ -966,7 +907,7 @@ def test_an_edit_that_does_not_change_a_score_is_not_a_new_revision(
         stage.CategoryScorer, "warm_up", lambda self: None
     )  # not part of what a score is
     monkeypatch.setattr(stage.CategoryFinder, "classify", lambda self, pairs: [])
-    monkeypatch.setattr(stage, "pinned_category", lambda: {"model": "x", "revision": "y"})
+    monkeypatch.setattr(stage, "pin", lambda path=None: {"name": "x", "identity": "y"})
     assert stage.revision_of("m@1", SUM_REV, COMP_REV) == base
 
 
@@ -982,21 +923,75 @@ def test_an_edit_that_changes_a_score_is_a_new_revision(monkeypatch: pytest.Monk
     assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base  # the code that scores is part of it
 
 
-def test_the_first_run_of_the_real_store_is_continued_not_restarted() -> None:
-    """The revision already in the owner's store (the first run, 48,708 items done) is the one this code writes for its inputs: the same command
-    resumes it, no row is moved. Its rows were checked against a re-scoring of 1,008 of its 64,428 stored pairs, 72 of each label (0 labels differ, largest score difference 0.0: `docs/category_results_2026_11_13/legacy_revision_check.json`) before it was named here."""
-    pinned = stage.pinned_category()
-    identity = f"{pinned['model']}@{pinned['revision']}"
-    real = stage.revision_of(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
-    assert real == "category-65f33b55b26b"
-    assert (
-        stage.scoring_revision(identity, "summary-7a9bd2062bc4", "companies-f349536cf701")
-        in stage.LEGACY_REVISIONS
+def test_the_legacy_revisions_are_retired_and_the_old_zero_shot_run_is_not_this_one() -> None:
+    """``LEGACY_REVISIONS`` carried the first run of the development over (the zero-shot model, 14 labels). The pinned fine-tune changes every score, so the
+    mechanism is retired in this change (as its own comment said it would be): the revision this code writes for the inputs of that run is another one."""
+    assert not hasattr(stage, "LEGACY_REVISIONS")
+    assert stage.revision_of("m@1", SUM_REV, COMP_REV) == stage.scoring_revision(
+        "m@1", SUM_REV, COMP_REV
     )
-    other = stage.revision_of(identity, "summary-other", "companies-f349536cf701")
+    real = stage.revision_of(
+        stage.model_identity_of_the_pin(), "summary-7a9bd2062bc4", "companies-f349536cf701"
+    )
     assert (
-        other != real and other not in stage.LEGACY_REVISIONS.values()
-    )  # only those inputs are the legacy run
+        real != "category-65f33b55b26b"
+    )  # the revision of the zero-shot run stays beside, untouched
+
+
+def test_the_pin_names_the_model_the_folder_and_the_bar_that_was_not_met() -> None:
+    config = stage.pin()
+    assert config["name"] == "category-entailment-single-12"
+    assert config["labels"] == list(stage.LABELS) and len(config["labels"]) == 12
+    assert stage.model_identity_of_the_pin() == f"{config['name']}@{config['identity']}"
+    assert (
+        config["evidence"]["bar_met"] is False
+    )  # pinned by the owner's decision, not because it passed
+    assert stage.model_dir().name == "category_single_all"
+
+
+def test_the_pin_is_validated_like_the_pipeline_models_file(tmp_path: Path) -> None:
+    raw = json.loads(stage.PIN_PATH.read_text(encoding="utf-8"))
+    ok = tmp_path / "ok.json"
+    ok.write_text(json.dumps(raw), encoding="utf-8")
+    assert stage.pin(ok)["identity"] == raw["identity"]
+    typo = tmp_path / "typo.json"
+    typo.write_text(json.dumps({**raw, "idenity": "x"}), encoding="utf-8")  # a misspelled extra key
+    with pytest.raises(ValueError, match="idenity"):
+        stage.pin(typo)
+    short = tmp_path / "short.json"
+    short.write_text(json.dumps({k: v for k, v in raw.items() if k != "files"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="files"):
+        stage.pin(short)
+
+
+def test_the_manifest_names_the_files_of_the_pinned_folder() -> None:
+    manifest = stage.pin()["files"]
+    assert {"config.json", "model.safetensors", "tokenizer.json"} <= set(manifest)
+    assert all(len(v) == 64 and set(v) <= set("0123456789abcdef") for v in manifest.values())
+
+
+def test_a_refused_folder_says_which_files_differ(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "model.safetensors").write_bytes(b"not the pinned weights")
+    scorer = stage.CategoryScorer(folder=tmp_path, device=torch.device("cpu"))
+    with pytest.raises(ValueError, match=r"model\.safetensors"):
+        scorer.check_identity()
+
+
+def test_the_scorer_refuses_a_folder_whose_identity_is_not_the_pinned_one(tmp_path: Path) -> None:
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "model.safetensors").write_bytes(b"not the pinned weights")
+    scorer = stage.CategoryScorer(folder=tmp_path, device=torch.device("cpu"))
+    assert scorer.identity() != scorer.model_revision
+    with pytest.raises(ValueError, match="not the pinned"):
+        scorer.warm_up()
+
+
+def test_the_pinned_folder_is_the_pinned_model_when_it_is_on_disk() -> None:
+    folder = stage.model_dir()
+    if not folder.is_dir():
+        pytest.skip("the weights are a git-ignored folder: not on this machine")
+    assert stage.CategoryScorer(folder=folder).identity() == stage.pin()["identity"]
 
 
 # --- what is hashed is what decides a score: formatting and comments are not, a statement is; bookkeeping is not part of it ------
@@ -1069,24 +1064,6 @@ def test_the_status_counts_the_revision_this_code_writes_not_the_latest_by_time(
     assert printed["revisions"] == [mine, "category-older-and-later"]
 
 
-def test_the_verification_script_compares_labels_and_scores() -> None:
-    spec = importlib.util.spec_from_file_location(
-        "category_verify_for_test", DOCS / "scripts" / "category_verify_revision_2026_11_13.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    same = stage.score_of(_scores("legal_regulatory"))
-    differs, worst = module.compare(
-        {**same.slug_scores, "_truncated_chunks": 1}, "legal_regulatory", same
-    )
-    assert (differs, worst) == (False, 0.0)  # the reserved key is not a label
-    other = stage.score_of(_scores("other"))
-    differs, worst = module.compare(same.slug_scores, "legal_regulatory", other)
-    assert differs and worst > 0.5
-
-
 def test_a_change_of_the_loader_or_of_the_order_of_the_definitions_is_a_new_revision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1101,93 +1078,3 @@ def test_a_change_of_the_loader_or_of_the_order_of_the_definitions_is_a_new_revi
     monkeypatch.undo()
     monkeypatch.setattr(stage, "DEFINITIONS", dict(reversed(list(stage.DEFINITIONS.items()))))
     assert stage.revision_of("m@1", SUM_REV, COMP_REV) != base
-
-
-def test_an_item_whose_text_changed_or_whose_blank_text_is_not_blank_any_more_is_not_adopted(
-    pair: db_module.NewsNlpDatabase,
-) -> None:
-    _seed(pair)
-    cli, adopt = _load_cli(), _adopt_module()
-
-    class OldFinder(StubFinder):
-        revision = "category-old"
-
-    steps.record_summary(pair, "body", "blank", SUM_REV, "  ", "original", 0)
-    steps.record_companies(pair, "body", "blank", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
-    cli.run_category(pair, OldFinder(), NAMES, SUM_REV, COMP_REV, None)
-    assert (
-        adopt.adopt(pair, "category-old", "category-x", SUM_REV, COMP_REV, execute=False)[
-            "adoptable"
-        ]
-        == 3
-    )
-    # the summary step was run again: b1 has another text there, and the blank item has a text now
-    steps.record_summary(
-        pair, "body", "b1", "summary-new", "earnings_performance: another text", "original", 0
-    )
-    steps.record_summary(
-        pair, "body", "b2", "summary-new", "earnings_performance: results", "original", 0
-    )
-    steps.record_summary(
-        pair, "body", "blank", "summary-new", "legal_regulatory: now it has text", "original", 0
-    )
-    steps.record_summary(
-        pair, "sub_news", "7", "summary-new", "product_innovation: a launch", "original", 0
-    )
-    steps.record_companies(
-        pair,
-        "body",
-        "b1",
-        "companies-new",
-        [CompanyScore("AAPL", 1, 0.9), CompanyScore("MSFT", 1, 0.7)],
-        0.5,
-    )
-    steps.record_companies(
-        pair, "body", "blank", "companies-new", [CompanyScore("AAPL", 1, 0.9)], 0.5
-    )
-    steps.record_companies(
-        pair, "sub_news", "7", "companies-new", [CompanyScore("MSFT", 1, 0.8)], 0.5
-    )
-    report = adopt.adopt(
-        pair,
-        "category-old",
-        "category-x",
-        "summary-new",
-        "companies-new",
-        execute=False,
-        from_summary_revision=SUM_REV,
-    )
-    assert report["text_changed"] == 2  # b1 (another text) and the blank item (a text now)
-    assert report["adoptable"] == 1  # the sub-news: the same text and the same companies
-    assert report["no_text"] == 0
-
-
-def test_a_re_scored_pair_that_differs_in_the_label_the_group_or_a_score_is_found() -> None:
-    adopt = _adopt_module()
-    new = stage.score_of(_scores("legal_regulatory"))
-    stored = {
-        "label": new.label,
-        "group_label": new.group_label,
-        "group_score": new.group_score,
-        "slug_scores": json.dumps({**new.slug_scores, "_truncated_chunks": 1}),
-    }
-    assert adopt.differs(stored, new) is False  # the reserved key is not a score
-    assert adopt.differs({**stored, "label": "other"}, new)
-    assert adopt.differs({**stored, "group_label": "other"}, new)
-    assert adopt.differs({**stored, "group_score": new.group_score + 0.01}, new)
-    short = {k: v for k, v in new.slug_scores.items() if k != "other"}
-    assert adopt.differs({**stored, "slug_scores": json.dumps(short)}, new)  # not the same keys
-
-
-def test_the_adoption_script_says_so_when_the_old_revision_is_the_one_the_code_writes() -> None:
-    """Not a traceback: the first run of the store is also the revision the code writes, and a run of the step continues it."""
-    adopt = _adopt_module()
-    legacy = stage.revision_of(
-        f"{stage.pinned_category()['model']}@{stage.pinned_category()['revision']}",
-        "summary-7a9bd2062bc4",
-        "companies-f349536cf701",
-    )
-    assert legacy == "category-65f33b55b26b"
-    said = adopt.nothing_to_adopt("category-65f33b55b26b", legacy)
-    assert said and "nothing to adopt" in said and legacy in said
-    assert adopt.nothing_to_adopt("category-older", legacy) is None
