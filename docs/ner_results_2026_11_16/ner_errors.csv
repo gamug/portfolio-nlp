@@ -1,0 +1,68 @@
+review_order,"missed (in the owner's labels, not found)","extra (found, not in the owner's labels)"
+1,N:saudi aramco,
+3,N:mri,N:bausch health
+4,N:merrill lynch,
+5,T:META,
+8,,N:diner dash; N:disney sorcerer; N:wee universe
+10,N:chatgpt,N:chatbot
+13,,N:ag company; N:ubs
+14,N:alphabe,T:GOOGL
+15,,T:RCL
+16,,N:national amusements; T:PSKY
+18,,T:AFL
+19,,N:f1
+20,,N:eu; N:express; N:probe; N:reuters; N:tnt; N:tntexpress
+21,,N:bausch health; N:supreme court; N:talc
+22,,N:jabil circuit; N:nu skin
+23,,N:twitter
+24,T:ON,N:semiconductor
+26,,N:draftkings; N:fanduel; N:napoli shkolnik; N:state supreme court; N:vantiv; T:PYPL
+27,,N:federal reserve
+29,,N:amazon channels
+30,N:publicis,
+31,,N:barron; N:marathon oil; N:oil refining
+32,,N:congress; N:house judiciary subcommittee
+33,,N:bytedance
+34,,N:eu
+36,,N:bank
+37,N:nhtsa,N:chevrolet; N:gm; N:national highway trafficsafety administration; N:nhtsasaid; N:pontiac; N:usrecall
+38,,N:android; N:epic game
+41,,N:federal reserve; N:morgan stanleydown
+43,,N:cia; N:i2; N:tel
+44,,T:HPE
+45,T:HRL,N:buy
+46,T:MSFT,N:cnbc; N:yahoo
+48,,N:dow; N:trust in agency; T:UNH
+51,,N:foot locker; T:CAT
+52,N:tiktok; N:whatsapp,
+57,T:ORCL,N:bernstein; N:club; N:deutsche bank; N:gcp; N:whatsapp; T:GOOGL
+58,N:gap; N:vale,T:NOW
+59,,T:LEN
+60,T:LVS,
+61,N:suny plattsburgh,N:suny
+62,,N:ig
+66,N:brian duperreault,
+68,,N:f1 racing; N:mercedes; N:volkswagen
+70,,N:exxon; N:exxon mobil
+72,,N:cnbc; N:musk
+76,N:champine,N:lowe
+77,,N:continental; N:ual
+78,N:emirates,
+79,,N:fcf
+80,,N:refinitiv
+81,N:solaris energy,N:solaris energy infrastructure
+82,,N:chase
+83,N:mad money,N:amex
+85,N:hbo; T:AMZN,N:amazon prime video; N:discovery; N:dragon; N:hbo max; N:house of; N:warner bros
+88,,N:dnb
+89,,N:yum
+90,N:whole foods,
+91,,N:iphone
+92,,N:alipay; N:cnbc; T:SBUX
+93,,N:nep; T:NEE
+94,N:taiwan semiconductor manufacturing,T:INTC
+96,N:xiaom,N:xiaomi
+97,,N:league; N:tnt sports
+98,N:barron s,N:barron; N:mphasis; T:HPE
+99,N:bespoke investment,N:bespoke; N:dow jones; N:group; N:secretary of health and human services
+100,,N:americas; T:TT

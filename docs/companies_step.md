@@ -76,6 +76,10 @@ What this says, and what it does not:
 
 The raw NER spans do not go to `article_entities` (D39 (iii) put them there with `sub_news_id` and `ticker`). `article_entities` is keyed by article and read by the v1 NER stage as "this article is done"; a single body has no `sub_news_id`, and the offsets of a summary are not those of the article. The step stores the result that later steps read (`news_company`: ticker, score, `is_main`, `mention_count`); the spans can be recomputed, the NER model being deterministic. If the owner wants them stored, it is a table of its own (a proposal, not built).
 
+## The NER on a hand-tagged hold-out (2026-11-16)
+
+On the owner's 100 texts with 321 organisations tagged by hand (`docs/ner_training.md`), the NER finds **95.4%** of the universe companies they name and **90.1%** of the universe tickers it finds are in the owner's tags (7 missed, 16 extra of 153 and 162; F1 0.927, names standardised). On every organisation, universe or not, precision is 70.3% and recall 90.1%: the extra spans are media, institutions and products that map to no ticker and are dropped here. So in step 3 the candidate companies are not limited by the NER; the matcher's gaps (T-181), the cut of a few spans (`alphabe`, `xiaom`) and the threshold are. A small set, no interval, the old summaries; 11 of the owner's labels are not in the text and are left out of these figures.
+
 ## Limits
 
 - The relevance model was trained on summaries (T-170): its scores on sub-news are only partly validated. On the owner's 119 marks on sub-news (`docs/main_company_training.md`) the main company it names is accepted 90.9% of the time (30 of 33), but it finds only 30.0% of the companies the owner marks main (30 of 100), and its AUC there is 0.663 against 0.896 on summaries; the marks are partial and the threshold on sub-news is still open (T-170).

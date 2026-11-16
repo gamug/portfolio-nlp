@@ -1,0 +1,39 @@
+{
+ "model": "gamug/sec-bert-finer-ord-ner@ba7b9e43e4aa023ec5691f955b276dc58158354c",
+ "texts": 100,
+ "gold_organizations": 321,
+ "views": {
+  "all_labels": {
+   "tp": 274,
+   "fp": 116,
+   "fn": 41,
+   "precision": 0.7026,
+   "recall": 0.8698,
+   "f1": 0.7773
+  },
+  "flagged_labels_removed": {
+   "tp": 274,
+   "fp": 116,
+   "fn": 30,
+   "precision": 0.7026,
+   "recall": 0.9013,
+   "f1": 0.7896
+  },
+  "flagged_labels_and_media_removed": {
+   "tp": 260,
+   "fp": 110,
+   "fn": 29,
+   "precision": 0.7027,
+   "recall": 0.8997,
+   "f1": 0.7891
+  },
+  "universe_only_flagged_removed": {
+   "tp": 146,
+   "fp": 16,
+   "fn": 7,
+   "precision": 0.9012,
+   "recall": 0.9542,
+   "f1": 0.927
+  }
+ }
+}
