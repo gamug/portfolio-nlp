@@ -456,7 +456,7 @@ Confusion (rows the model, columns the owner's tag; positive / negative / neutra
 **What it says.**
 - **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
 - **Negative** precision is under the bar in the pooled figure and over it in the cleaner second draw (73.8%); negative recall is over it in both.
-- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Nothing in TASKS owns this finding yet (T-210).
+- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Tracked as T-212 (proposed; the owner decides the fix).
 - The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
 
 **Limits.** The pooled set has 190 tags (positive 96, negative 62, neutral 32) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 32 tags and 30 calls, so its precision [39.2, 72.6] and recall [36.4, 69.1] are wide.
@@ -491,7 +491,7 @@ The second draw is random and needs no weighting, but it holds only 8 neutral ta
 - **Class imbalance** of the tags (about 410 positive / 229 negative / 216 neutral of the 855) was not addressed (no class
   weights, no resampling): T-148c3e. The metric already weights by pool size, and neutral's weakness is mostly the label
   mixture, not its count, so the expected gain is small.
-- All figures above are cross-validated on tags the recipe was tuned on; **none is a held-out score**. The one held-out check is the 190-piece one of the section before this (2026-11-16).
+- The figures of the sections before "Held-out check on 190 pieces of the real run" are cross-validated on tags the recipe was tuned on; **none of them is a held-out score**. The one held-out check is that section (2026-11-16).
 - Not done, with their TASKS entries: the strictly nested check of the stack (T-148c3c; the final relevance model
   is built); the stack in `sentiment_stage`, its cost per article, what is stored when the two
   models disagree, and the score on the 180-text gold (T-148c3d, T-148c4); class weights (T-148c3e). Nothing

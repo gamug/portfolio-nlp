@@ -14,6 +14,7 @@ inventing a figure.
 
 **Which metrics are kept.** For every model trained in the project (the scope classifiers, the cut's pair classifier, the relevance model, the sentiment pair model and stack, the category candidate) this report keeps two kinds of metrics only: **training-validation** (cross-validation, out-of-fold and validation-split scores) and **held-out** (scores on texts the model was neither trained nor tuned on).
 What was removed in this version is every other measure: the share of a run's items that a step labelled (a dry-run output share) and the counts of a corpus run, which say what a model produces, not whether it is right. The dataset descriptions, the model-selection narratives and the limitations are kept. Models not trained here (summarization, the category step's zero-shot model, the rules) keep the figures they had.
+The removed shares and counts are still in the step documents (`docs/companies_step.md`, `docs/main_company_training.md`, `docs/summary_step.md`), which are not pipeline-wide reports and keep them. Dataset descriptions keep the label-quality figures of their sets (for example the label check of the cut's training labels): they describe the data, not a model.
 
 ## Summary
 
@@ -242,7 +243,7 @@ There is no NER gold on the texts step 3 reads. What exists:
 ### Model selection
 
 **NER.** `gamug/sec-bert-finer-ord-ner` (SEC-BERT-BASE fine-tuned on FiNER-ORD, pinned at `ba7b9e43`) is the model of the pipeline; it only finds organisation spans, which a matcher turns into universe tickers. The documents read for this report record **no comparison with another NER model**, only the judged run of section 3.1. The option `--candidates ner+text`
-(NER plus the matcher run over the text, without lower-case matches and without matches inside disclosure lines) was chosen over `ner` alone by the owner on 2026-11-13, on the share of items it labels (a dry-run output share, not a metric of correctness: its figures are not kept here).
+(NER plus the matcher run over the text, without lower-case matches and without matches inside disclosure lines) was chosen over `ner` alone by the owner on 2026-11-13, on the share of items it labels (a dry-run output share, not a metric of correctness: its figures are not kept here; see `docs/companies_step.md`, "Dry run").
 
 **Relevance (which company is main).** The base is the zero-shot reading of the category model (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, "this text is mainly about <company>"), the best of nine zero-shot variants by AUC (0.743; the sentiment model's own ranking was 0.795). Fine-tuned on the 809 marks, its out-of-fold AUC is 0.90, and the published
 model (`gamug/deberta-v3-company-relevance@8812c8bc`, private) is the one the step runs. The threshold 0.5 was chosen on those out-of-fold scores (main recall 94.7%, precision 90.0%); the other values tried (0.3, 0.7, 0.9) change little on summaries, but on sub-news the share of items with a main company moves widely across the range (a dry-run output share, not kept here), which the 809 summaries cannot settle.
@@ -277,7 +278,7 @@ At the other thresholds (0.30, 0.50, 0.70, 0.90): main recall 96.2 / 94.7 / 92.3
 Between a quarter and a third of the rows the owner marked "not relevant" are called main, whatever the threshold.
 
 **Limits.**
-- **Not held out** (cross-validation), and the model was trained on summaries. **Its scores on sub-news (pieces) are validated only by the partial marks of section 3.3** (T-165, T-170). The dry-run shares of items with a main company that the step document gives are not kept here (they say what the model outputs, not whether it is right); they move widely with the threshold, so nothing says which value is right.
+- **Not held out** (cross-validation), and the model was trained on summaries. **Its scores on sub-news (pieces) are validated only by the partial marks of section 3.3** (T-165, T-170). The dry-run shares of items with a main company that the step document gives (`docs/companies_step.md`, "Dry run") are not kept here (they say what the model outputs, not whether it is right); they move widely with the threshold, so nothing says which value is right.
 - The split between "no universe company named" and "named in a form the matcher does not know" was not measured.
 - The text candidates added by the matcher (`ner+text`) were checked by the developer, not the owner, on a few pairs; the agreement of the main company with the crawl's ticker is a floor on correctness, not a measure. Neither figure is kept here.
 
@@ -326,7 +327,7 @@ The corpus the step runs on: 93,034 single bodies (59,432 over 2,000 characters)
 ### Model selection
 
 **Model.** DeepSeek (`deepseek-chat`, which the API answers as `deepseek-flash`), chosen by the owner on 2026-11-15 on arm D of the experiment below (paired against the earlier step: faithfulness +0.39, coverage +1.29, hallucination -14.3 points); each row of the run keeps the model name the API gave. The earlier model, `sshleifer/distilbart-cnn-12-6` (pinned at `a4f8f3ea`, inherited from the v1 stage and not trained here), stays behind `--summariser local`; it was never compared with another summariser before DeepSeek, only with ways of using it.
-**Size limit.** A text under 2,000 characters is stored as it is. The limit was chosen from the counts of texts that would go to the model: 1,500 characters 75,368 single bodies (81.0%) and 9,249 sub-news (5.7%), 17.6 h; **2,000 characters 59,432 (63.9%) and 5,048 (3.1%), 13.9 h**; 3,000 characters 31,992 (34.4%) and 1,731 (1.1%), 7.5 h; 4,000 characters 17,621 (18.9%) and 708 (0.4%), 4.1 h.
+**Size limit.** A text under 2,000 characters is stored as it is. The limit was chosen from the counts of texts that would go to the model: 1,500 characters 75,368 single bodies (81.0%) and 9,249 sub-news (5.7%), 17.6 h; **2,000 characters 59,432 (63.9%) and 5,048 (3.1%), 13.9 h**; 3,000 characters 31,992 (34.4%) and 1,731 (1.1%), 7.5 h; 4,000 characters 17,621 (18.9%) and 708 (0.4%), 4.1 h. The hours are the local distilbart figures (GPU). With DeepSeek the cost of the limit is calls and money: `docs/summary_step.md` and `docs/summarization_training.md` (T-206) count 79,283 items sent under the same size rule (about 310.8 million characters) and expect about $16 to $32 at the rates of 2026-11-15, to be confirmed.
 **Method of the distilbart arms (2026-11-13).** Six arms were compared (table of this section); the current chunk-and-reduce (arm B) was kept because the alternatives did not beat it on every measure: joining chunk summaries with no gate (C1) is worse (+10.7 points of hallucination), the gate recovers it (C2), the first chunk alone (C0) and verbatim tails (C3) are more faithful but shorter on coverage or longer. Nothing was changed in production by that experiment; the DeepSeek arm (D) came after it.
 
 **The experiment of 2026-11-13** (300 articles, 100 per tier of `num_chunks`, 288 English and 12 Spanish; the same sample as run 44). Higher is better, except hallucination. Arm **B is the earlier step** (distilbart); **D is DeepSeek, the step since T-206** (run 2026-11-15 on the same 300 articles and judge).
@@ -464,7 +465,7 @@ Confusion (rows the model, columns the owner's tag; positive / negative / neutra
 **What it says.**
 - **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
 - **Negative** precision is under the bar in the pooled figure and over it in the cleaner second draw (73.8%); negative recall is over it in both.
-- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Nothing in TASKS owns this finding yet (T-210).
+- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Tracked as T-212 (proposed; the owner decides the fix).
 - The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
 
 **Limits.** The pooled set has 190 tags (positive 96, negative 62, neutral 32) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 32 tags and 30 calls, so its precision [39.2, 72.6] and recall [36.4, 69.1] are wide.
@@ -657,7 +658,7 @@ the gain is statistically clear on the 300 real rows. It should not replace the 
   and 15 of the 143 sampled pieces came from texts the scope step should have stopped.
 - **Three measures are on the real corpus run**: the category real-data sample (6.4, the assistant's tags), the main-company marks on pieces (3.3, partial) and the sentiment check on 190 pieces (5.1, the owner's tags). The funnel (texts per step, and how many reach a snapshot) comes from the real RESULTS store and is not in this report.
 - **The category candidate's three measures are not one yardstick** (6.5): out of fold on tags the assistant reviewed, held out on the owner's earlier tags (full articles), and a real-data sample tagged by the assistant (short segments). Only the held-out is independent, and it fails the bar (54.1% against 80%).
-- **Not measured at all:** sector recall per sector, the cut's recall, the main company per piece beyond the 119 marked rows of section 3.3, NER on step 3's own texts, relevance on pieces, and the held-out score of the sentiment stack beyond the 190 pieces of section 5.1.
+- **Not measured at all:** sector recall per sector, the cut's recall, the main company per piece beyond the 119 marked rows of section 3.3, NER on step 3's own texts, relevance on pieces beyond the partial marks of section 3.3, and the held-out score of the sentiment stack beyond the 190 pieces of section 5.1.
 
 ## Where each figure comes from
 

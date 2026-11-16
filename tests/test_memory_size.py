@@ -102,3 +102,10 @@ def test_index_lists_every_archive_file() -> None:
     index = (MEMORY / "INDEX.md").read_text(encoding="utf-8")
     for path in sorted((MEMORY / "archive").glob("*.md")):
         assert path.name in index, f"{path.name} is not described in INDEX.md"
+
+
+def test_no_task_id_is_used_twice_in_tasks() -> None:
+    """Two entries with one ID (a merge of two branches that each took the next number) make a reference ambiguous."""
+    ids = re.findall(r"^\s*- \[[ xX]\] \*\*(T-[0-9a-z]+)\*\*", _text("TASKS.md"), re.MULTILINE)
+    twice = sorted({i for i in ids if ids.count(i) > 1})
+    assert twice == [], f"task IDs used by more than one entry in TASKS.md: {twice}"

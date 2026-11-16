@@ -89,7 +89,11 @@ def sentiment_rows(data: Path) -> tuple[list[dict[str, str]], list[dict[str, str
         tag = r["sentiment"].strip()
         if tag not in CLASSES:
             raise SystemExit(f"{r['key']}: tag {tag!r} is not one of {CLASSES}")
-        k = keys[r["key"]]
+        k = keys.get(r["key"])
+        if k is None:
+            raise SystemExit(
+                f"{r['key']}: no row in key.csv (the prediction and the draw of this piece)"
+            )
         h = retag.text_hash(r["text"])
         marks.append(
             {
@@ -135,7 +139,11 @@ def main_company_rows(data: Path) -> tuple[list[dict[str, str]], list[dict[str, 
             continue
         if mark not in ("yes", "no"):
             raise SystemExit(f"{r['item_id']}#{r['ticker']}: mark {mark!r} is not yes or no")
-        item = strata[r["item_id"]]
+        item = strata.get(r["item_id"])
+        if item is None or r["ticker"] not in item["scores"]:
+            raise SystemExit(
+                f"{r['item_id']}#{r['ticker']}: no relevance score in to_tag.strata.json"
+            )
         key = f"{r['item_id']}#{r['ticker']}"
         h = retag.text_hash(r["texto"])
         marks.append(
