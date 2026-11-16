@@ -4,13 +4,16 @@ Date: 2026-11-16 (the figures of sections 5.1 and 3.3 are of 2026-11-16 and 2026
 
 Every figure below is taken from the repository's documents and tracked result files, or recomputed from tracked files (the category
 and sector tables were recomputed for this report from `docs/category_results_2026_11_13/*.csv` and `gold/sector_validation.csv`; the category
-candidate's figures are the files of PR #196, `docs/category_results_2026_11_15/`, and its MLflow runs, section 6). **The only figures measured on the real corpus are the
-category real-data sample of section 6.4**, read-only from the RESULTS store (`news_category`, `news_summary`, `sub_news`); all others are from tracked or
+candidate's figures are the files of PR #196, `docs/category_results_2026_11_15/`, and its MLflow runs, section 6). **The figures measured on the real corpus run are
+the category real-data sample (6.4), the main-company marks on pieces (3.3) and the sentiment check on 190 pieces (5.1)**; the category sample was read from the RESULTS store (read-only: `news_category`, `news_summary`, `sub_news`); all others are from tracked or
 result files.
 
 **One-vs-rest (OVR)** means: for each class, precision = of what the step called that class, the share that is right; recall = of the true members of
 that class, the share the step found. Where a step has no classes of that kind, or the owner never measured them, the table says so instead of
 inventing a figure.
+
+**Which metrics are kept.** For every model trained in the project (the scope classifiers, the cut's pair classifier, the relevance model, the sentiment pair model and stack, the category candidate) this report keeps two kinds of metrics only: **training-validation** (cross-validation, out-of-fold and validation-split scores) and **held-out** (scores on texts the model was neither trained nor tuned on).
+What was removed in this version is every other measure: the share of a run's items that a step labelled (a dry-run output share) and the counts of a corpus run, which say what a model produces, not whether it is right. The dataset descriptions, the model-selection narratives and the limitations are kept. Models not trained here (summarization, the category step's zero-shot model, the rules) keep the figures they had.
 
 ## Summary
 
@@ -215,21 +218,11 @@ The intervals that resample whole texts are wider (for `faithful` on all pieces:
 
 **Against the 80% bar for `faithful`**: the point estimate passes (84.6%), the lower end of the interval (77.8%) does not.
 
-**Main company per piece** (step 3 run on the pieces of the cut; detail in sections 3.2 and 3.3). Computed with what has landed, not a finished measurement:
-
-| Measure | Value | Basis |
-|---|---|---|
-| Share of pieces with a main company, model at 0.5 | **73.0%** (146 of 200) | random sample of 200 sub-news of the cut, `ner+text` |
-| Same share across thresholds 0.3 to 0.9 | 65.5% to 84.0% | same sample; nothing says which threshold is right |
-| Pieces with a main company, owner's marks | **53 of 59 marked pieces (90%)** | partial marks (T-170); the pieces are not a random draw, and the owner marks every company of a ticker list as main |
-| Of those 53, pieces where the model also finds a main company | 30 of 53 (57%) | at 0.5 |
-| Main company by row, at 0.5 | precision 30 of 33 = 0.91, recall 30 of 100 = 0.30 | 119 marked rows |
-
-The 73.0% is what the model produces, not what is right: the owner's marks cover 59 pieces, and the model finds a main company in 57% of those where the owner has one (recall 0.30 by row). Read the share as a rate of output, not a precision.
+**Main company per piece** is a measure of step 3 (the relevance model), not of the cut: its training-validation and held-out figures are in sections 3.2 and 3.3.
 
 **What is not measured.**
 - **Recall** of the cut (did the cut find every story of the text): not measured.
-- **How the cut fares on every crawled article.** It runs only on texts the scope step called `multi`; 32,555 `multi` texts, 30,305 cut, 2,250 skipped (6.9%, no company text), 0 failed; 161,574 pieces.
+- **How the cut fares on every crawled article.** It runs only on texts the scope step called `multi`; no held-out figure exists for its output on the whole corpus (the counts of the corpus run are not kept here).
 
 ## 3. NER and the company pick (step 3, `docs/companies_step.md`)
 
@@ -244,15 +237,15 @@ There is no NER gold on the texts step 3 reads. What exists:
 | NER training data (FiNER-ORD, used by the model's publisher) | not kept in this repository | entity spans of type `PER`, `LOC`, `ORG` | public financial-news NER data; the repo records the model, not the data |
 | Judged evaluation (v1, `docs/evaluation.md`) | 1,000 sampled whole articles, 953 parsed | spans judged `wrong` or `missed` by an LLM judge | not a hand-made gold; whole articles, not the summaries or pieces step 3 reads |
 | Relevance training and evaluation (the 809 marked summaries) | 809 (text, company) pairs from 855 tagged summaries (two draws, 450 and 405) | `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, plus the mark | each row is a text (a summary of an article, a few sentences) and a company; relevant = the mark has a direction (positive or negative), not relevant = neutral (202 of the 809 are neutral); draws balance the classes the old sentiment model predicted, so figures use weights |
-| Main-company marks on sub-news (`data/main_company/to_tag.csv`, local) | 290 rows over 153 sub-news of the `units5` cut (the first version had 353 over 180) | `item_id`, `texto`, `texto_es`, `ticker`, `empresa`, `es_principal` (is it the main company, `yes`/`no`), `falta_la_principal` (is the main company missing), `notas` | six relevance bands; 119 rows of 59 items are marked (100 `yes`, 19 `no`); a dry run on the same cut found a main company in 73.0% of 200 random sub-news |
+| Main-company marks on sub-news (`data/main_company/to_tag.csv`, local) | 290 rows over 153 sub-news of the `units5` cut (the first version had 353 over 180) | `item_id`, `texto`, `texto_es`, `ticker`, `empresa`, `es_principal` (is it the main company, `yes`/`no`), `falta_la_principal` (is the main company missing), `notas` | six relevance bands; 119 rows of 59 items are marked (100 `yes`, 19 `no`) |
 
 ### Model selection
 
 **NER.** `gamug/sec-bert-finer-ord-ner` (SEC-BERT-BASE fine-tuned on FiNER-ORD, pinned at `ba7b9e43`) is the model of the pipeline; it only finds organisation spans, which a matcher turns into universe tickers. The documents read for this report record **no comparison with another NER model**, only the judged run of section 3.1. The option `--candidates ner+text`
-(NER plus the matcher run over the text, without lower-case matches and without matches inside disclosure lines) was chosen over `ner` alone: a candidate company in 93.5% of sampled sub-news against 89.0%, and a main company in 73.0% against 70.5%.
+(NER plus the matcher run over the text, without lower-case matches and without matches inside disclosure lines) was chosen over `ner` alone by the owner on 2026-11-13, on the share of items it labels (a dry-run output share, not a metric of correctness: its figures are not kept here).
 
 **Relevance (which company is main).** The base is the zero-shot reading of the category model (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`, "this text is mainly about <company>"), the best of nine zero-shot variants by AUC (0.743; the sentiment model's own ranking was 0.795). Fine-tuned on the 809 marks, its out-of-fold AUC is 0.90, and the published
-model (`gamug/deberta-v3-company-relevance@8812c8bc`, private) is the one the step runs. The threshold 0.5 was chosen on those out-of-fold scores (main recall 94.7%, precision 90.0%); the other values tried (0.3, 0.7, 0.9) change little on summaries, but on sub-news the share with a main company moves from 65.5% to 84.0% across the range, which the 809 summaries cannot settle.
+model (`gamug/deberta-v3-company-relevance@8812c8bc`, private) is the one the step runs. The threshold 0.5 was chosen on those out-of-fold scores (main recall 94.7%, precision 90.0%); the other values tried (0.3, 0.7, 0.9) change little on summaries, but on sub-news the share of items with a main company moves widely across the range (a dry-run output share, not kept here), which the 809 summaries cannot settle.
 
 ### 3.1 NER (`gamug/sec-bert-finer-ord-ner`)
 
@@ -284,12 +277,9 @@ At the other thresholds (0.30, 0.50, 0.70, 0.90): main recall 96.2 / 94.7 / 92.3
 Between a quarter and a third of the rows the owner marked "not relevant" are called main, whatever the threshold.
 
 **Limits.**
-- **Not held out** (cross-validation), and the model was trained on summaries. **Its scores on sub-news (pieces) are not validated** (T-165, T-170): the share of items with a main company
-  moves from 65.5% to 84.0% across thresholds, and nothing says which value is right.
-- On a random sample of 200 of each (threshold 0.5, `ner+text`): a main company was found in 61.5% of single texts and 73.0% of sub-news. In single texts that is 38.5% with no main company.
-  The split between "no universe company named" and "named in a form the matcher does not know" was not measured.
-- The text candidates added by the matcher (`ner+text`) were checked by the developer, not the owner: of 11 main pairs read, 10 were right.
-- Agreement of the main company with the crawl's ticker is 83%, which is a floor on correctness, not a measure.
+- **Not held out** (cross-validation), and the model was trained on summaries. **Its scores on sub-news (pieces) are validated only by the partial marks of section 3.3** (T-165, T-170). The dry-run shares of items with a main company that the step document gives are not kept here (they say what the model outputs, not whether it is right); they move widely with the threshold, so nothing says which value is right.
+- The split between "no universe company named" and "named in a form the matcher does not know" was not measured.
+- The text candidates added by the matcher (`ner+text`) were checked by the developer, not the owner, on a few pairs; the agreement of the main company with the crawl's ticker is a floor on correctness, not a measure. Neither figure is kept here.
 
 ### 3.3 Main company on pieces: the owner's partial marks (T-170)
 
@@ -665,7 +655,7 @@ the gain is statistically clear on the 300 real rows. It should not replace the 
 - **The steps are not compared on one yardstick.** Each is measured on its own sample, with its own reviewer and its own definition of "right"; the summary table shows which are held out.
 - **Error chains are not in these figures.** A wrong scope reaches the cut, the company step, the sector step and the category step as bad input; for example, about half of the wrong sector answers of the first review were not sector texts,
   and 15 of the 143 sampled pieces came from texts the scope step should have stopped.
-- **Only the category real-data sample (6.4) is measured on the real corpus run**, and its tags are the assistant's, not the owner's. The funnel (texts per step, and how many reach a snapshot) comes from the real RESULTS store and is not in this report.
+- **Three measures are on the real corpus run**: the category real-data sample (6.4, the assistant's tags), the main-company marks on pieces (3.3, partial) and the sentiment check on 190 pieces (5.1, the owner's tags). The funnel (texts per step, and how many reach a snapshot) comes from the real RESULTS store and is not in this report.
 - **The category candidate's three measures are not one yardstick** (6.5): out of fold on tags the assistant reviewed, held out on the owner's earlier tags (full articles), and a real-data sample tagged by the assistant (short segments). Only the held-out is independent, and it fails the bar (54.1% against 80%).
 - **Not measured at all:** sector recall per sector, the cut's recall, the main company per piece beyond the 119 marked rows of section 3.3, NER on step 3's own texts, relevance on pieces, and the held-out score of the sentiment stack beyond the 190 pieces of section 5.1.
 
@@ -677,7 +667,7 @@ the gain is statistically clear on the 300 real rows. It should not replace the 
 | Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (per-sector precision recomputed) |
 | Cut | `docs/scope_training.md` section 8.3; `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
 | Company: NER | `docs/evaluation.md` (baseline of 2026-09, `ner`) |
-| Company: relevance | `docs/companies_step.md` (threshold table, dry run); `docs/sentiment_training.md` item 6 (AUC 0.90); `docs/main_company_training.md` and `gold/main_company_marks.csv` (the marks on pieces, tracked) |
+| Company: relevance | `docs/companies_step.md` (threshold table); `docs/sentiment_training.md` item 6 (AUC 0.90); `docs/main_company_training.md` and `gold/main_company_marks.csv` (the marks on pieces, tracked) |
 | Summarization | `docs/summarization_training.md` (arms, tiers and the DeepSeek arm D); `docs/summarization_results_2026_11_15/` (committed figures of arm D); `docs/evaluation.md` (v1 baseline); `docs/summary_step.md` (limits) |
 | Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (stack table, nested cross-validation; the held-out check on 190 pieces, section 5.1: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`) |
 | Category (the step's model, 6.1) | `docs/category_step.md`; `docs/category_results_2026_11_13/` (per-label tables recomputed from `baseline_heldout.csv` and `baseline_train.csv`) |
