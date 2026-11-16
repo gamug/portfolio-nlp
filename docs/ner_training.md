@@ -2,7 +2,8 @@
 
 This is the record of how the pinned NER model (`gamug/sec-bert-finer-ord-ner@ba7b9e43`, `config/pipeline_models.json` `ner`) scores on texts the owner tagged by hand. The model is
 not trained here: it is the one step 3 (`docs/companies_step.md`) and the v1 NER stage already run. **Nothing was changed or pinned by this measure.** The script is
-`scripts/ner_eval_2026_11_16.py`; the figures are in `docs/ner_results_2026_11_16/` (`ner_metrics.json`, and `ner_errors.csv`: organisation names only, no news text).
+`scripts/ner_eval_2026_11_16.py` (its tests: `tests/news_nlp/test_ner_eval.py`); the figures are in `docs/ner_results_2026_11_16/` (`ner_metrics.json`, and `ner_errors.csv`: organisation names and
+spans only, no news text; `T:<ticker>` is a universe company, `N:<name>` a normalised name that is in no universe).
 
 **Read this first.**
 
@@ -11,38 +12,55 @@ not trained here: it is the one step 3 (`docs/companies_step.md`) and the v1 NER
   There is no interval in this page because the counts are too small to carry one honestly; read every figure as "about".
 * **Two views, and they answer different questions.** *All organisations*: the model tags every organisation, so it also tags names the owner did not write (media, institutions, products). *Universe companies only*:
   the names that are one of the 507 companies of `gold/universe.csv`, which is what step 3 keeps (a span with no ticker is ignored, D39 (iii)). **The second is the one the pipeline uses.**
-* **The owner's labels are not fully clean** (section 2): 11 labels in 8 rows are not in the English text. Every figure is given with and without them; the file was not edited.
+* **The owner's labels are not fully clean** (section 2): **14 labels in 11 rows** are not written in the text as whole words. Every figure is given with those labels **as they are**, **removed**, and **repaired**
+  (a proposal of the developer, for the owner to confirm; the file was not edited). Removing them is the worse treatment: a malformed label that names a real company leaves the model's correct find as an "extra".
 
 ## 1. The result
 
-| View | precision | recall | F1 | tp / fp / fn |
-|---|---|---|---|---|
-| All organisations, the owner's labels as they are | 70.3% | 87.0% | 0.777 | 274 / 116 / 41 |
-| All organisations, the 11 labels that are not in the text removed | 70.3% | 90.1% | 0.790 | 274 / 116 / 30 |
-| The same, media names (CNBC, Reuters, WSJ, Barron's, Bloomberg, Mad Money) left out of both sides | 70.3% | 90.0% | 0.789 | 260 / 110 / 29 |
-| **Universe companies only** (the labels removed) | **90.1%** | **95.4%** | **0.927** | 146 / 16 / 7 |
+**Universe companies only (what step 3 keeps)**
 
-* **For step 3 the NER finds almost every universe company a text names (95.4%) and rarely invents one (precision 90.1%).** The 7 misses and 16 extra tickers are listed in section 4.
-* **The low precision on all organisations is not a defect of step 3**: the extra spans are names that map to no ticker (CNBC, the Federal Reserve, the EU, Supreme Court, products such as `iPhone`) and are dropped by the matcher.
-  Media names are not the cause: leaving them out moves nothing (70.3% either way).
-* A match here is **exact after standardising**, so a name that is part of the other (`Solaris Energy` against `Solaris Energy Infrastructure`) counts as a miss and as an extra; these near-misses are few (at least six pairs in `ner_errors.csv`),
-  and a looser match would raise the figures a little. It was not measured.
+| The 14 labels | precision | recall | F1 | tp / fp / fn |
+|---|---|---|---|---|
+| as they are, or removed (the same: none of them is a universe company as written) | 90.1% | 95.4% | 0.927 | 146 / 16 / 7 |
+| **repaired** | **92.6%** | **95.5%** | **0.940** | 150 / 12 / 7 |
+| repaired, with the matcher over the text as well (`ner+text`, the candidates step 3 runs) | 90.1% | **98.7%** | 0.942 | 155 / 17 / 2 |
+
+**All organisations**
+
+| The 14 labels | precision | recall | F1 | tp / fp / fn |
+|---|---|---|---|---|
+| as they are | 70.3% | 87.0% | 0.777 | 274 / 116 / 41 |
+| removed | 70.3% | 91.0% | 0.793 | 274 / 116 / 27 |
+| repaired | 72.6% | 90.4% | 0.805 | 283 / 107 / 30 |
+| repaired, media names (CNBC, Reuters, WSJ, Barron's, Bloomberg, Mad Money) left out of both sides | 72.7% | 90.3% | 0.805 | 269 / 101 / 29 |
+| as they are, **no alias list** (section 3) | 68.0% | 86.4% | 0.761 | 274 / 129 / 43 |
+
+* **For step 3 the NER plus the matcher finds 95.5% of the universe companies the owner named, and 92.6% of the ones it finds are in the owner's tags.** With the matcher over the text (`ner+text`) recall is 98.7%: 5 of the 7 misses are found.
+* **The low precision on all organisations is not a defect of step 3**: the extra spans are names that map to no ticker (CNBC, the Federal Reserve, the EU, Supreme Court, products such as `iPhone`) and are dropped by the matcher. Leaving the media names out moves nothing.
+* A match is **exact after standardising**, so a name that is part of the other (`Solaris Energy` against `Solaris Energy Infrastructure`) counts as a miss and as an extra: **6 such pairs** (repaired, all organisations; `near_miss_pairs_repaired_all`). A looser match would raise the figures a little.
 
 ## 2. The set and its integrity check
 
-`data/ner_val100/to_tag.csv` (git-ignored: it holds news text; the repository's rule is to migrate the tags to `gold/` when a set is finished, which is **not done**: `docs/gold_datasets.md`, set 18).
-The owner writes the organisations of each text in the `organizations` column, **comma-separated, the names as they appear in the text** (mostly), not standardised.
+`data/ner_val100/to_tag.csv` (git-ignored: it holds news text). The owner writes the organisations of each text in the `organizations` column, **comma-separated, the names as they appear in the text** (mostly), not standardised.
+The script runs these checks first and **stops** on a structural failure; the labels not in the text are reported, not fatal (`ner_metrics.json`, `integrity`):
 
 | Check | Result |
 |---|---|
-| 100 rows, `review_order` 1 to 100, `key` unique and equal to `key.csv`, no duplicate article | passes |
-| No empty `text` or `organizations`; every row splits on commas with no empty item | passes (321 organisations, 3.2 a row; one name repeated inside one row) |
-| Every label is in the English title or text | **fails for 12 labels in 9 rows** (below) |
+| `review_order` is 1 to 100, `key` unique and equal to `key.csv`, no empty `text` or `organizations`, the columns exist | passes |
+| Every row splits on commas with no empty item | passes (321 organisations, 3.2 a row; one name repeated inside one row) |
+| Every label is written in the title or text **as a whole word** (a label that names a universe company the text writes under another name, `United Airlines` for `UAL`, passes: `direct_mentions`, no model) | **fails for 14 labels in 11 rows** |
 
-The 12 labels: the Spanish names `Casa Blanca` (row 17), `Unión Europea` (20) and `Reserva Federal` (27); names run together or mistyped, `Japón Aflac` (18), `Dow UnitedHealth` (48, a comma missing),
-`Douyin de ByteDance` (33), `Alipay.Starbucks` (92); `United Airlines` (77, the text says `United`: a variant of the name, **kept** because standardising resolves it); and in row 26 `Dish Network`, `Verizon Communications`,
-`Vodafone` and `Allergan`, which are in neither the English nor the Spanish text (they look like the labels of another article). **The 11 that are not variants are the ones the "removed" rows drop.**
-The owner decides whether to correct them in the file; the figures should be run again then (the script does it in one command).
+The 14 labels, and the repair proposed for each (`REPAIRS` in the script; every repaired name is checked to be in the text, and a new failing label with no repair stops the script):
+
+| Kind | Row: label -> repair |
+|---|---|
+| Spanish name | 17: `Casa Blanca` -> White House; 20: `Unión Europea` -> European Union; 27: `Reserva Federal` -> Fed (the text writes "Fed") |
+| A truncated name (typo) | 14: `Alphabe` -> Alphabet; 96: `Xiaom` -> Xiaomi |
+| Names run together or mistyped | 18: `Japón Aflac` -> Aflac; 33: `Douyin de ByteDance` -> ByteDance, Douyin; 48: `Dow UnitedHealth` -> UnitedHealth (a comma missing); 92: `Alipay.Starbucks` -> Alipay, Starbucks |
+| The label is right, **the text is defective** | 37: `NHTSA` (the text writes `NHTSAsaid`); kept as it is |
+| In neither the English nor the Spanish text (they look like the labels of another article) | 26: `Dish Network`, `Verizon Communications`, `Vodafone`, `Allergan`: no repair, dropped |
+
+The owner decides whether to correct the file; the figures are run again with one command.
 
 ## 3. How the names were standardised
 
@@ -54,22 +72,30 @@ Both sides, the owner's labels and the model's spans, are turned into one canoni
 3. Otherwise the universe matcher (`CompanyResolver.ticker_of_name`, the one step 3 uses) gives the ticker; a ticker written in capitals (`MSFT`, `JNJ`) resolves the same way.
 4. A name with no ticker stays a normalised string (`cnbc`, `saudi aramco`); `EU` and `European Union`, `Fed` and `Federal Reserve` are one.
 
-**Without the alias list the first run scored 68.0% precision and 86.4% recall**: about two points came from names that are one company written two ways, not from the model. The list is in the script and is a choice: another list gives other figures.
+**The alias list was chosen after the first run showed these names as errors, so it is fitted to this set**, not independent of it. Without it (the "no alias list" row) precision is 68.0% and recall 86.4%: about two and a half points
+of precision come from names that are one company written two ways. Another list gives other figures.
 
-## 4. What the errors are (`ner_errors.csv`, labels removed)
+## 4. What the errors are (`ner_errors.csv`, labels repaired)
 
-* **Missed universe companies (7):** `Meta` (row 5), `ON` (24, a word ticker the matcher does not count), `Hormel` (45), `Microsoft` (46), `Oracle` (57), `Las Vegas Sands` (60), `Amazon` (85). Short names and one word that is also an everyday word.
-* **Extra universe tickers (16):** `Google` (14, 57), `Royal Caribbean` (15), `Paramount Skydance` (16), `Aflac` (18), `PayPal` (26), `HPE` (44, 98), `UnitedHealth` (48), `Caterpillar` (51), `ServiceNow` (58), `Lennar` (59),
-  `Starbucks` (92), `NextEra` (93), `Intel` (94), `Trane` (100). Several look like real mentions the owner did not label (the model tags every organisation named); some look like false matches (`NOW`, `TT`, `NEE`, which may come from `NEP`). I did not read each text for this.
-* **Spans cut wrong, which the matcher then cannot use:** `alphabe` (14), `xiaom` (96), `nhtsasaid` and `usrecall` (37), `morgan stanleydown` (41), `national highway trafficsafety administration` (37). The model joins a word and the next, or stops inside a word.
-  This is the same family as the subword-fragmentation bug of 2026-09-12 (`docs/modules/news-nlp.md`); it is rare (about 6 spans in 100 texts) and costs a few misses, but it is **not fixed** and is the thing to look at first if the recall must rise.
+* **Missed universe companies (7).** By the script's own check (`miss_causes`: does any organisation span overlap the name in the text?): **5 are not tagged by the NER at all**, `Meta Platforms` (row 5), `Hormel` (45), `MSFT` (46), `Oracle` (57), `Las Vegas Sands` (60);
+  **2 are tagged but the matcher does not map the span**, `ON Semiconductor` (24, `ON` is a word ticker the matcher does not count) and `Amazon` (85). The matcher over the text (`ner+text`) recovers the 5 that the NER did not tag.
+* **Extra universe tickers (12):** the span is in each case that company's own name, which the owner did not label: `Royal Caribbean` (15), `Paramount` (16), `PayPal` (26), `Hewlett` (44) and `Hewlett Packard Enterprise` (98; the first is
+  a short name that could be HP Inc. as well), `Caterpillar` (51), `Alphabet` and `Google` (57), `ServiceNow` (58), `Lennar` (59), `NextEra Energy` (93), `Intel` (94), `Trane` (100). **I did not read each text to see whether it is about that company**; the labels are the organisations the owner wrote, not a complete list.
+* **No sign of a badly cut span.** Spans such as `nhtsasaid`, `usrecall` and `morgan stanleydown` (rows 37, 41) are in the extras and misses, but the source text writes the words stuck together (`NHTSAsaid`, `recallingabout`, `Stanleydown`): the model tags what the text gives.
+  A text defect of this kind is the crawl's, not the model's; how often it occurs in the corpus is not measured here.
 * **Names the owner did not label but the model tags (not errors for step 3):** media (`CNBC` 3 times, `Reuters`, `Barron's`), institutions (`Federal Reserve`, `EU`, `Congress`, `CIA`, `Supreme Court`), products and brands (`Android`, `iPhone`, `HBO Max`, `Diner Dash`).
-* **Names the owner labelled that no ticker covers and the model missed:** `Saudi Aramco`, `TikTok`, `WhatsApp`, `Publicis`, `Emirates`, `Whole Foods`, `HBO`, `NHTSA`. They are outside the universe, so step 3 would not have kept them anyway.
+* **Names the owner labelled that no ticker covers and the model missed:** `Saudi Aramco`, `TikTok`, `WhatsApp`, `Publicis`, `Emirates`, `Whole Foods`, `HBO`. They are outside the universe, so step 3 would not have kept them anyway.
 
 ## 5. What this does and does not show
 
-* **It shows** that, on this set, the NER is not what limits step 3: 95.4% of the universe companies the owner named are found. Where step 3 loses a company the cause is more likely the matcher (names such as `Meta`, `Microsoft`, `Oracle` missed above are
-  matcher-side gaps, T-181) or the relevance threshold (`docs/companies_step.md`, `docs/main_company_training.md`).
-* **It does not show** the NER's error on the owner's real target, which is "the companies a text is about". The owner's labels are every organisation named, not the main ones, and that is the NER's task; the main-company choice is measured elsewhere (119 marks on sub-news).
-* **100 texts is a spot check.** Do not compare it with a figure on a different set (FiNER-ORD, whose organisations are tagged by another rule) or read a one-point difference as a change in the model.
-* **The text is the one the model is given, not the summary of the new revision.** The set's texts are `summary-7a9bd2062bc4` summaries or originals (`key.csv`); the corpus run now uses `summary-llm-70cb6bb07292` (DeepSeek), whose shorter, name-first texts were not scored here.
+* **It shows** that, on this set, the NER and the matcher together find 95.5% of the universe companies the owner named, and 98.7% with `ner+text`, which is what step 3 runs. On these 100 texts the loss of companies in step 3 is then more likely in the
+  relevance threshold than in the candidates (`docs/companies_step.md`, `docs/main_company_training.md`); this set does not measure that.
+* **It does not show** the error on the owner's real target, "the companies a text is about". The owner's labels are every organisation named, not the main ones; the main-company choice is measured elsewhere (119 marks on sub-news).
+* **100 texts is a spot check.** Do not compare it with a figure on a different set (FiNER-ORD, whose organisations are tagged by another rule) or read a one-point difference as a change in the model. The repairs are the developer's.
+* **The text is the one the model is given, not the summary of the new revision.** The set's texts are `summary-7a9bd2062bc4` summaries or originals (`key.csv`); the corpus run now uses `summary-llm-70cb6bb07292` (DeepSeek, whose prompt asks to name the
+  actors, `config/summary_prompt.md`), which was not scored here.
+
+## 6. Reproduce, and what is open
+
+`uv run scripts/ner_eval_2026_11_16.py` (the pinned model runs on the GPU in a minute; it needs `data/ner_val100/to_tag.csv` and `key.csv`, which are **not in git**, and `gold/universe.csv`). **The tags are not migrated to `gold/`** (`docs/gold_datasets.md`, set 18):
+the set holds news text and the repository is public, so copying the texts to `gold/texts/` is the owner's decision (T-213). Open for the owner (T-213): confirm or correct the 14 labels, the migration, and whether the real run's DeepSeek summaries should be scored the same way.

@@ -340,6 +340,26 @@ def test_batches_that_all_fail_in_a_row_stop_the_run(
         )
 
 
+def test_with_the_default_batch_the_run_stops_after_three_whole_batches_of_100(
+    pair: db_module.NewsNlpDatabase,
+) -> None:
+    """``CATEGORY_BATCH`` is 100 texts stored per transaction: the stop rule (3 batches in a row that fail completely) is 300 texts, and the 301st
+    is not tried."""
+    cli = _load_cli()
+    assert cli.CATEGORY_BATCH == 100 and cli.MAX_FAILED_BATCHES == 3
+    for n in range(301):
+        steps.record_summary(pair, "body", f"x{n}", SUM_REV, "legal_regulatory text", "original", 0)
+        steps.record_companies(pair, "body", f"x{n}", COMP_REV, [CompanyScore("AAPL", 1, 0.9)], 0.5)
+    with pytest.raises(cli.RunAborted, match="3 batches in a row"):
+        cli.run_category(
+            pair, StubFinder(StubScorer(broken=["text"])), NAMES, SUM_REV, COMP_REV, None
+        )
+    failed = pair.execute(
+        "SELECT COUNT(*) FROM pipeline_step_state WHERE step = 'category' AND status = 'failed'"
+    ).fetchone()[0]
+    assert failed == 300
+
+
 # --- the command line ----------------------------------------------------------------------------------------------------
 
 

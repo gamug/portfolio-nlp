@@ -78,7 +78,7 @@ The raw NER spans do not go to `article_entities` (D39 (iii) put them there with
 
 ## The NER on a hand-tagged hold-out (2026-11-16)
 
-On the owner's 100 texts with 321 organisations tagged by hand (`docs/ner_training.md`), the NER finds **95.4%** of the universe companies they name and **90.1%** of the universe tickers it finds are in the owner's tags (7 missed, 16 extra of 153 and 162; F1 0.927, names standardised). On every organisation, universe or not, precision is 70.3% and recall 90.1%: the extra spans are media, institutions and products that map to no ticker and are dropped here. So in step 3 the candidate companies are not limited by the NER; the matcher's gaps (T-181), the cut of a few spans (`alphabe`, `xiaom`) and the threshold are. A small set, no interval, the old summaries; 11 of the owner's labels are not in the text and are left out of these figures.
+On the owner's 100 texts with 321 organisations tagged by hand (`docs/ner_training.md`), the NER and the matcher find **95.5%** of the universe companies the texts name, and **98.7%** with `--candidates ner+text`; 92.6% of the universe tickers found are in the owner's tags (14 of the owner's labels repaired, a proposal; 7 missed, 12 extra: F1 0.940, or 0.942 with `ner+text`). Of the 7 misses, 5 are not tagged by the NER and 2 are tagged but not mapped by the matcher. On every organisation, universe or not, precision is 72.6% and recall 90.4%: the extra spans are media, institutions and products that map to no ticker and are dropped here. A small set, no interval, the old summaries, labels that are every organisation and not the main ones; 14 labels were not written in the text and are repaired in these figures.
 
 ## Limits
 

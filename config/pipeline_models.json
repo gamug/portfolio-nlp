@@ -11,7 +11,7 @@
   "category": {
     "model": "MoritzLaurer/deberta-v3-base-zeroshot-v2.0",
     "revision": "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8",
-    "batch_size": 100
+    "batch_size": 8
   },
   "c_summary": {
     "model": "sshleifer/distilbart-cnn-12-6",
