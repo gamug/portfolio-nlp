@@ -1,6 +1,6 @@
 # Precisión y recall (uno contra el resto) de los pasos del pipeline
 
-Fecha: 2026-11-15. Pasos cubiertos, en el orden del pipeline: scope (con el paso de sector), cut, NER y la elección de la empresa, summarization, sentiment, category.
+Fecha: 2026-11-16 (las cifras de las secciones 5.1 y 3.3 son del 2026-11-16 y del 2026-11-15; las demás, de las fechas que cada sección indica). El número del encabezado es el número de paso propio del pipeline; las secciones siguen el orden en que corren los pasos. "El dueño" es el término del proyecto para quien marca y decide. Pasos cubiertos, en el orden del pipeline: scope (con el paso de sector), cut, NER y la elección de la empresa, summarization, sentiment, category.
 
 Todas las cifras de abajo salen de los documentos del repositorio y de archivos de resultados versionados, o se recalcularon a partir de archivos versionados (las tablas de category
 y de sector se recalcularon para este informe a partir de `docs/category_results_2026_11_13/*.csv` y `gold/sector_validation.csv`; las cifras del candidato de
@@ -20,8 +20,8 @@ inventar una cifra.
 | Sector | el sector GICS de 2 dígitos asignado a un texto `sector` | **Solo precisión** (por sector, de 2 a 5 textos cada uno); el recall no se midió | 87.5% de los sectores asignados correctos (35 de 40) | Sí (un sorteo hecho después de construir el paso), un solo revisor |
 | Cut | las piezas ("sub-news") que el cut hace de un texto con varias empresas | **Sin clases.** Tres preguntas de sí/no por pieza (parecidas a una precisión) | 84.6% de las piezas fieles; 75.5% limpias | Sí (28 textos, 143 piezas) |
 | Empresa: NER | los tramos de organización que encuentra NER | No por clase sobre los textos actuales; una corrida anterior juzgada (v1, artículos completos) | recall 0.84, precisión 0.66 (corrida anterior) | Juzgado por un LLM, no por un gold |
-| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases, fuera de pliegue (out-of-fold) | precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5 | **No** (validación cruzada sobre 809 resúmenes marcados) |
-| Summarization | el resumen de un texto de más de unos 2,000 caracteres | **Sin clases.** Puntajes de un juez LLM (1 a 5) | paso actual: fidelidad 4.60, alucinación 15.0% (300 artículos) | Juez (DeepSeek), no un gold; no sobre la corrida real |
+| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases, fuera de pliegue (out-of-fold) | precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5 (validación cruzada sobre resúmenes); **sobre 119 filas marcadas de 59 piezas, los textos que lee el paso: precisión 90.9%, recall 30.0%** | **No** para el 94.7% (validación cruzada sobre 809 resúmenes marcados); marcas parciales sobre piezas (sección 3.3), no held-out para el umbral |
+| Summarization | el resumen de un texto de más de unos 2,000 caracteres | **Sin clases.** Puntajes de un juez LLM (1 a 5) | **DeepSeek, el summarizer del paso desde T-206:** fidelidad 4.99, cobertura 4.54, alucinación 0.7% (300 artículos); el paso anterior con distilbart: 4.60, 3.24, 15.0% | El juez también es DeepSeek (calificó sus propios resúmenes); no un gold; la corrida sobre el corpus no se mide |
 | Sentiment | positivo, negativo, neutral para un par (texto, empresa) | **Sí**, tres clases | puntaje 0.814; P/R negativo 0.747 / 0.748 (validación cruzada); sobre 190 piezas reales: exactitud 73.7%, precisión de negativo 69.4% | **No** para el 0.814 (validación cruzada anidada, 809 filas); **sí** para las 190 piezas (sección 5.1) |
 | Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el candidato lee 12 | **Sí**, por etiqueta (precisión, recall y ROC) | modelo del paso: 43.0% en el held-out. **Candidato (sin conectar): 54.1% en el held-out, 71.3% en 300 sub-news reales (etiquetas del asistente), 87.8% fuera de pliegue (etiquetas revisadas)** | Sí (135 filas single, evaluadas una sola vez); la barra de 80% **no se cumple** |
 
@@ -300,12 +300,15 @@ en **119 filas de 59 ítems** (100 `yes`, 19 `no`; 171 filas siguen sin marcar).
 
 | Clase | n marcadas | Precisión | Recall |
 |---|---|---|---|
-| Principal (`yes`) a 0.5 | 100 | 30 de 33 = 0.91 | 30 de 100 = 0.30 |
-| No principal (`no`) a 0.5 | 19 | 16 de 86 = 0.19 | 16 de 19 = 0.84 |
-| Principal a 0.3 | 100 | 45 de 50 = 0.90 | 45 de 100 = 0.45 |
-| Principal a 0.7 | 100 | 17 de 20 = 0.85 | 17 de 100 = 0.17 |
+| Principal (`yes`) a 0.5 | 100 | 90.9% [76.4, 96.9] (30/33) | 30.0% [21.9, 39.6] (30/100) |
+| No principal (`no`) a 0.5 | 19 | 18.6% (16/86) | 84.2% (16/19) |
+| Principal a 0.3 | 100 | 90.0% [78.6, 95.7] (45/50) | 45.0% [35.6, 54.8] (45/100) |
+| Principal a 0.7 | 100 | 85.0% [64.0, 94.8] (17/20) | 17.0% [10.9, 25.5] (17/100) |
 
-Leído por ítem (59 piezas): 53 tienen una empresa que el dueño marcó como principal; el umbral del modelo encuentra al menos una de ellas en 30 (57%). El modelo declara una empresa principal en 32 piezas, y el dueño coincide en al menos una en 30 (94%).
+El puntaje separa los `yes` de los `no` del dueño con un AUC de **0.663** (sin ponderar), contra 0.896 fuera de pliegue sobre resúmenes: más de 5 puntos por debajo, el disparador de la regla de T-170 (las sub-news tienen su propio umbral, elegido sobre las sub-news marcadas). Las marcas son parciales y la regla del dueño es más amplia que la del modelo (abajo), así que es una razón para decidir, no la decisión.
+Las marcas, sus textos y el scorer están versionados: `gold/main_company_marks.csv`, `gold/texts/main_company_marks_texts.csv`, `scripts/score_main_company_marks_2026_11_16.py`; la cuenta completa es `docs/main_company_training.md`.
+
+Leído por ítem (59 piezas): 53 tienen una empresa que el dueño marcó como principal; el umbral del modelo encuentra al menos una de ellas en 30 (56.6%). El modelo declara una empresa principal en 32 piezas, y el dueño coincide en al menos una en 30 (93.8%).
 
 Proporción de `yes` por banda de relevancia del ítem (la banda 0 tiene los puntajes más bajos): banda 0, 19 de 21 filas; banda 1, 19 de 25; banda 2, 20 de 22; banda 3, 20 de 20; banda 4, 10 de 11; banda 5, 12 de 20.
 
@@ -321,9 +324,8 @@ Lo que respalda: cuando el paso nombra una empresa principal en una pieza, suele
 
 ## 4. Summarization (paso 2, `docs/summary_step.md`, `docs/summarization_training.md`)
 
-`sshleifer/distilbart-cnn-12-6` (no se entrena aquí). Un texto de menos de unos 2,000 caracteres se almacena tal cual; uno más largo se resume (chunk-and-reduce: fragmentos de a lo sumo 1,000 tokens de BART, cada uno resumido, los resúmenes unidos
-resumidos de nuevo, hasta 6 pasadas). Summarization **no tiene clases**, así que no hay precisión ni recall: la única medida es un juez LLM (DeepSeek, temperatura 0) que puntúa fidelidad, cobertura y concisión de 1 a 5
-y lista alucinaciones. **La salida propia del paso sobre el corpus real no se mide** (el documento del paso dice que su fidelidad no se mide).
+Desde T-206 (dueño, 2026-11-15) el paso resume con **DeepSeek**, a través de una API, un texto de más de unos 2,000 caracteres (una llamada por texto, prompt `config/summary_prompt.md`, temperatura 0); `--summariser local` conserva `sshleifer/distilbart-cnn-12-6` (chunk-and-reduce, el brazo B de abajo) y la cadena v1 sigue con distilbart. Un texto de hasta unos 2,000 caracteres se almacena tal cual. Summarization **no tiene clases**, así que no hay precisión ni recall: la única medida es un juez LLM (DeepSeek, temperatura 0) que puntúa fidelidad, cobertura y concisión de 1 a 5
+y lista alucinaciones. **La corrida sobre el corpus no se mide**: las cifras son de 300 artículos, y el juez de la corrida no debe ser DeepSeek (`docs/summary_step.md`).
 
 ### Descripción del dataset
 
@@ -333,28 +335,31 @@ El corpus sobre el que corre el paso: 93,034 cuerpos single (59,432 de más de 2
 
 ### Selección del modelo
 
-**Modelo.** `sshleifer/distilbart-cnn-12-6` (fijado en `a4f8f3ea`) se hereda de la etapa v1 y no se entrena aquí; los documentos leídos no registran comparación con otro summarizer, solo con formas de usarlo.
+**Modelo.** DeepSeek (`deepseek-chat`, que la API responde como `deepseek-flash`), elegido por el dueño el 2026-11-15 con el brazo D del experimento de abajo (pareado contra el paso anterior: fidelidad +0.39, cobertura +1.29, alucinación -14.3 puntos); cada fila de la corrida guarda el nombre de modelo que dio la API. El modelo anterior, `sshleifer/distilbart-cnn-12-6` (fijado en `a4f8f3ea`, heredado de la etapa v1 y no entrenado aquí), queda tras `--summariser local`; antes de DeepSeek nunca se comparó con otro summarizer, solo con formas de usarlo.
 **Límite de tamaño.** Un texto de menos de 2,000 caracteres se almacena tal cual. El límite se eligió a partir del conteo de textos que irían al modelo: 1,500 caracteres 75,368 cuerpos single (81.0%) y 9,249 sub-news (5.7%), 17.6 h; **2,000 caracteres 59,432 (63.9%) y 5,048 (3.1%), 13.9 h**; 3,000 caracteres 31,992 (34.4%) y 1,731 (1.1%), 7.5 h; 4,000 caracteres 17,621 (18.9%) y 708 (0.4%), 4.1 h.
-**Método.** Se compararon seis brazos (tabla de esta sección); se mantuvo el chunk-and-reduce actual (brazo B) porque las alternativas no lo superaron en todas las medidas: unir los resúmenes de fragmentos sin compuerta (C1) es peor (+10.7 puntos de alucinación), la compuerta lo recupera (C2), el primer fragmento solo (C0) y las colas literales (C3) son más fieles pero menos cubrientes o más largas. No se cambió nada en producción.
+**Método de los brazos con distilbart (2026-11-13).** Se compararon seis brazos (tabla de esta sección); se mantuvo el chunk-and-reduce actual (brazo B) porque las alternativas no lo superaron en todas las medidas: unir los resúmenes de fragmentos sin compuerta (C1) es peor (+10.7 puntos de alucinación), la compuerta lo recupera (C2), el primer fragmento solo (C0) y las colas literales (C3) son más fieles pero menos cubrientes o más largas. Ese experimento no cambió nada en producción; el brazo DeepSeek (D) vino después.
 
-**El experimento de 2026-11-13** (300 artículos, 100 por nivel de `num_chunks`, 288 en inglés y 12 en español; la misma muestra que la corrida 44). Más alto es mejor, salvo alucinación. El brazo **B es el paso actual**; nada más está en producción.
+**El experimento de 2026-11-13** (300 artículos, 100 por nivel de `num_chunks`, 288 en inglés y 12 en español; la misma muestra que la corrida 44). Más alto es mejor, salvo alucinación. El brazo **B es el paso anterior** (distilbart); **D es DeepSeek, el paso desde T-206** (corrido el 2026-11-15 sobre los mismos 300 artículos y el mismo juez).
 
 | Brazo | Qué es | Fidelidad | Cobertura | Concisión | Alucinación | Tokens |
 |---|---|---|---|---|---|---|
 | A | resumen v1 almacenado, rejuzgado | 4.54 | 3.23 | 4.07 | 19.7% | 71 |
-| **B** | **el paso actual (resume de nuevo)** | **4.60** | **3.24** | **4.08** | **15.0%** | **69** |
+| B | el paso anterior (distilbart, resume de nuevo; `--summariser local`) | 4.60 | 3.24 | 4.08 | 15.0% | 69 |
 | C0 | solo el fragmento 1 | 4.70 | 3.31 | 4.33 | 13.0% | 69 |
 | C1 | resúmenes de fragmentos unidos, sin compuerta NLI | 4.39 | 3.47 | 3.23 | 25.7% | 122 |
 | C2 | C1 con la compuerta NLI | 4.64 | 3.31 | 3.44 | 14.7% | 100 |
 | C3 | fragmento 1 filtrado más las primeras oraciones literales de los fragmentos siguientes | 4.81 | 3.13 | 3.32 | 6.7% | 137 |
+| **D** | **DeepSeek, el paso desde T-206** | **4.99** | **4.54** | **4.98** | **0.7%** | **86 (tokens de salida por llamada)** |
 
-Por nivel para el paso actual (B), fidelidad / cobertura / alucinación: 1 fragmento 4.67 / 3.81 / 14%; 2 fragmentos 4.64 / 3.11 / 11%; 3+ fragmentos 4.49 / 2.81 / 20%. La fidelidad baja y la alucinación sube con el número de fragmentos.
+Por nivel para el paso anterior (B), fidelidad / cobertura / alucinación: 1 fragmento 4.67 / 3.81 / 14%; 2 fragmentos 4.64 / 3.11 / 11%; 3+ fragmentos 4.49 / 2.81 / 20%. La fidelidad baja y la alucinación sube con el número de fragmentos.
 Pareado contra B: C0 +0.10 de fidelidad [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] de fidelidad y -8.3 puntos de alucinación [-12.0, -4.7], con -0.11 de cobertura; C1 es peor (-0.21 de fidelidad, +10.7 puntos).
+
+**DeepSeek (brazo D)** contra B, pareado por artículo (intervalos bootstrap de 95%): fidelidad 4.99 contra 4.60 (+0.39 [+0.29, +0.49]), cobertura 4.54 contra 3.24 (+1.29 [+1.21, +1.39]), concisión 4.98 contra 4.08 (+0.90 [+0.80, +1.00]), alucinación 0.7% contra 15.0% (-14.3 puntos [-18.7, -10.3]). Por nivel (1 / 2 / 3+ fragmentos), D: fidelidad 4.97 / 4.99 / 5.00, cobertura 4.87 / 4.50 / 4.24, alucinación 1% / 1% / 0%. Con temperatura 0 dos corridas dan palabras distintas (30 artículos dos veces: 0 idénticos, solapamiento medio de palabras 0.66) pero los puntajes se mantuvieron (fidelidad 5.00 y 5.00, cobertura 4.70 y 4.63). Una recalificación a ciegas de 24 pares por el asistente (Claude, no una persona; el brazo oculto) coincidió: fidelidad 4.92 contra 4.42, cobertura 4.75 contra 3.08, alucinación 4% contra 21%. Las cifras están en `docs/summarization_results_2026_11_15/`.
 
 **Línea base anterior** (etapa v1, 1,000 artículos muestreados, `docs/evaluation.md`): fidelidad media 4.87, alucinación en 5.4% de los resúmenes, cobertura 3.02: precisos pero poco completos. Es otra corrida de juez y otra muestra, así que no es comparable con la tabla de arriba.
 
 **Límites.** Una muestra, un juez, una corrida por brazo. La cobertura del juez es un puntaje global: **nada verifica si las empresas de las que trata el texto, o su evento principal, están en el resumen** (sin verificación por empresa). El umbral NLI (0.5) no se afinó.
-Un resumen es salida de modelo, no un hecho, y el paso almacena el número de fragmentos, no si la última pasada descartó una cola. El experimento es trabajo exploratorio, no está en producción.
+**DeepSeek fue summarizer y juez** en la evidencia del brazo D, así que sus puntajes son su propia lectura de su propio texto (la recalificación a ciegas de 24 pares es pequeña, y los brazos se adivinan por el estilo); la corrida sobre el corpus debe juzgarla otro modelo. El texto del artículo sale de la máquina hacia la API (aceptado por el dueño). Un resumen es salida de modelo, no un hecho, y el texto de DeepSeek no es repetible con temperatura 0. Los brazos con distilbart son trabajo exploratorio; el paso con DeepSeek está construido (#200) y su corrida sobre el corpus aún no se mide.
 
 ## 5. Sentiment (paso 6, `docs/sentiment_step.md`, `docs/sentiment_training.md`)
 
@@ -417,20 +422,40 @@ la validación cruzada.
 
 La primera verificación held-out del paso de sentiment sobre textos que ningún modelo ni ajuste vio: el paso tal como corrió sobre el corpus, el modelo de pares y el stack de la revisión
 `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), evaluado sobre **190 piezas etiquetadas por el dueño** (un lector) en dos sorteos.
+Las marcas, sus textos y el scorer están versionados: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`
+(`scripts/build_val_gold_2026_11_16.py` construye los archivos de gold desde los archivos de trabajo locales).
 
 | Elemento | Primer sorteo (90) | Segundo sorteo (100) |
 |---|---|---|
 | Fuente | sub-news del paso de resumen guardado (`news_summary`, revisión `summary-7a9bd2062bc4`) con una empresa principal del paso de empresas (`companies-f349536cf701`, relevancia 0.7 o más) y un puntaje de sentiment; el texto es el que lee el paso de sentiment | igual, con un universo más estricto |
 | Sorteo | 30 por clase que predijo el modelo (10 resúmenes guardados y 20 textos cortos originales cada una), un texto por artículo | al azar simple, uno por artículo |
 | Universo | 57,826 candidatas (positivo 38,559, negativo 18,847, neutral 420) | cerca de 21,000 candidatas |
-| Filtros | 250 caracteres o más y dos oraciones; mayormente letras; sin listas de tickers ni líneas de divulgación; la empresa nombrada en el texto; inglés; ningún artículo de `gold/sentiment_gold.csv` ni de los conjuntos de entrenamiento | los mismos, más relevancia 0.9 o más, de 300 a 1,500 caracteres, la empresa nombrada dos veces y dentro de los primeros 100 caracteres, menos de dos llamadas de analistas, ningún artículo del primer sorteo |
+| Filtros | 250 caracteres o más y dos oraciones; mayormente letras; sin listas de tickers ni líneas de divulgación; la empresa nombrada en el texto; inglés; ningún artículo de `gold/sentiment_gold.csv` ni de los conjuntos de entrenamiento | los mismos, más relevancia 0.9 o más, de 300 a 1,500 caracteres, la empresa nombrada dos veces y dentro de los primeros 100 caracteres, menos de dos llamadas de analistas, ningún artículo del primer sorteo (ni de una muestra anterior de 200 textos que se descartó y no se versionó) |
 | Etiquetas | positivo 39, negativo 27, neutral 24 | positivo 57, negativo 35, neutral 8 |
 | Columnas | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (la predicción está en un `key.csv` aparte, con una columna `batch`) | las mismas |
 
-Los textos miden de 250 a 1,626 caracteres (mediana cerca de 400). El título y el texto en español son una ayuda de lectura (`news_nlp.translate`); nunca entran a un modelo. Archivos: `data/sentiment_val90/` (`to_tag.csv` con las 190 filas,
-`key.csv`; locales, fuera de git); scripts `scripts/export_sentiment_val_2026_11_15.py` y `scripts/export_sentiment_val100_2026_11_15.py`. Una fila tiene la nota "company is not the main" y se conserva.
+Los textos miden de 250 a 1,626 caracteres (mediana cerca de 400). El título y el texto en español son una ayuda de lectura (`news_nlp.translate`) y no se copian a `gold/`. Una fila tiene la nota "company is not the main" y se conserva.
+Los scripts son `scripts/export_sentiment_val_2026_11_15.py` y `scripts/export_sentiment_val100_2026_11_15.py`; los archivos de trabajo siguen locales (`data/sentiment_val90/`, fuera de git).
 
-**Resultados, las 190 juntas** (precisión exacta dentro de cada clase predicha, intervalo de Wilson 95%; el recall en la muestra es la proporción de la clase etiquetada hallada entre las 190; el recall ponderado corrige que el primer sorteo está estratificado por la predicción, con los tamaños del universo de arriba; F1 de ambos):
+**Resultados por sorteo** (precisión exacta dentro de cada clase predicha, intervalo de Wilson 95%; el recall en la muestra es la proporción de la clase etiquetada hallada; el recall ponderado da a cada clase predicha el tamaño de su universo sobre las piezas sorteadas de ella):
+
+Primer sorteo, 90 (estratificado por la predicción): exactitud 66.7% [56.4, 75.5] (60 de 90), ponderada 74.4%.
+
+| Clase | Precisión | Recall (muestra) | Recall (ponderado) |
+|---|---|---|---|
+| Positivo | 80.0% [62.7, 90.5] (24/30) | 61.5% (24/39) | 88.8% |
+| Negativo | 63.3% [45.5, 78.1] (19/30) | 70.4% (19/27) | 69.7% |
+| Neutral | 56.7% [39.2, 72.6] (17/30) | 70.8% (17/24) | 4.0% |
+
+Segundo sorteo, 100 (al azar, sin necesidad de ponderar): exactitud 80.0% [71.1, 86.7] (80 de 100).
+
+| Clase | Precisión | Recall |
+|---|---|---|
+| Positivo | 84.5% [73.1, 91.6] (49/58) | 86.0% [74.7, 92.7] (49/57) |
+| Negativo | 73.8% [58.9, 84.7] (31/42) | 88.6% [74.0, 95.5] (31/35) |
+| Neutral | ninguna llamada (0/0) | 0% [0.0, 32.4] (0/8) |
+
+**Las 190 juntas** (una aproximación: los dos sorteos tienen universos distintos, y las cifras ponderadas los tratan como muestras del universo de 57,826 del primero):
 
 | Clase | Precisión | Recall (muestra) | Recall (ponderado) | F1 (muestra) | F1 (ponderado) |
 |---|---|---|---|---|---|
@@ -441,18 +466,17 @@ Los textos miden de 250 a 1,626 caracteres (mediana cerca de 400). El título y 
 Exactitud: 73.7% [67.0, 79.4] (140 de 190); ponderada al universo 78.4%.
 Confusión (filas el modelo, columnas la etiqueta del dueño; positivo / negativo / neutral): positivo 73 / 8 / 7; negativo 14 / 50 / 8; neutral 9 / 4 / 17.
 
-Por sorteo: **primeras 90** (estratificado): exactitud 66.7% [56.4, 75.5], ponderada 74.4%; precisión 80.0% / 63.3% / 56.7%; recall ponderado 88.8% / 69.7% / 4.0% (positivo / negativo / neutral).
-**Las 100** (al azar, sin necesidad de ponderar): exactitud 80.0% [71.1, 86.7]; precisión de positivo 84.5% [73.1, 91.6] (49/58), recall 86.0% [74.7, 92.7] (49/57); precisión de negativo 73.8% [58.9, 84.7] (31/42), recall 88.6% [74.0, 95.5] (31/35);
-el modelo no llamó neutral a ningún texto y no halló ninguna de las 8 etiquetas neutral (recall 0%, [0.0, 32.4]).
+**Frente a las barras de D32** (80% de acuerdo; precisión y recall de negativo de al menos 70%): la exactitud junta, 73.7% [67.0, 79.4], está **bajo 80%** (78.4% ponderada al universo, también bajo); el segundo sorteo solo, 80.0% [71.1, 86.7], está en la barra por estimación puntual, con un intervalo que llega bien por debajo. La precisión de negativo, 69.4% [58.0, 78.9], está **bajo 70%** por estimación puntual; el recall de negativo, 80.6% [69.1, 88.6], la supera.
+
+**Relación con la decisión del pin.** Esta no es la compuerta de D35. La regla de D35 evalúa el gold de 180 textos sobre pares principales (T-148c4, T-193); esa evaluación no se ha hecho y `config/pipeline_models.json` sigue nombrando el modelo v1. Estas 190 piezas no se sortearon con el diseño de D35; miden el paso tal como corrió sobre el corpus. Son evidencia para la decisión del dueño; si reemplazan la evaluación del gold de 180 le toca decirlo al dueño.
 
 **Qué dice.**
 - **Positivo** es la clase más fuerte (precisión 83.0%, recall ponderado 89.4%).
-- **Negativo**: recall 80.6% en la muestra y precisión 69.4% [58.0, 78.9], en la barra de D32 (70%) dentro del intervalo; en el primer sorteo solo fue 63.3%, en el segundo, más limpio, 73.8%.
-- **Neutral casi nunca se predice**: el modelo llama neutrales a 420 de los 57,826 textos del universo (0.7%), mientras que el dueño etiquetó neutral el 16.8% de las 190 (32); por eso el recall ponderado es 4.4%. Su precisión (56.7%) es moderada. La validación cruzada del modelo de pares dio un recall de neutral de 0.686; sobre piezas reales es mucho menor (no miden lo mismo: resúmenes marcados frente a pares principales de piezas).
+- **La precisión de negativo** está bajo la barra en la cifra junta y sobre ella en el segundo sorteo, más limpio (73.8%); el recall de negativo la supera en ambos.
+- **Neutral casi nunca se predice**: el modelo llama neutrales a 420 de los 57,826 textos del universo (0.7%), mientras que el dueño etiquetó neutral el 16.8% de las 190 (32); por eso el recall ponderado es 4.4%. Su precisión (56.7%) es moderada. La validación cruzada del modelo de pares dio un recall de neutral de 0.686; sobre piezas reales es mucho menor (no miden lo mismo: resúmenes marcados frente a pares principales de piezas). Nada en TASKS es dueño de este hallazgo todavía (T-210).
 - El segundo sorteo es más fácil (exactitud 80.0% frente a 66.7%): su filtro hace que la empresa sea el tema del texto, y el primer sorteo incluye también textos donde se menciona de pasada, que el modelo lee como una dirección.
 
-**Límites.** 30 textos por clase predicha en el primer sorteo, así que los recalls ponderados (y toda cifra de neutral) son ruidosos; 190 textos en total. Los dos sorteos tienen universos distintos, y las cifras ponderadas juntas los tratan como muestras de uno solo: una aproximación.
-El universo son las candidatas tras los filtros, no todo el corpus. Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano y depende de la regla usada.
+**Límites.** 30 textos por clase predicha en el primer sorteo, así que los recalls ponderados (y toda cifra de neutral) son ruidosos; 190 textos en total. El universo son las candidatas tras los filtros, no todo el corpus. Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano y depende de la regla usada.
 
 ## 6. Category (paso 5, `docs/category_step.md`, `docs/category_train.md`)
 
@@ -650,8 +674,8 @@ la ganancia es estadísticamente clara en las 300 filas reales. No debería reem
 | Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (precisión por sector recalculada) |
 | Cut | `docs/scope_training.md` sección 8.3; `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
 | Empresa: NER | `docs/evaluation.md` (línea base de 2026-09, `ner`) |
-| Empresa: relevancia | `docs/companies_step.md` (tabla de umbrales, corrida de prueba); `docs/sentiment_training.md` ítem 6 (AUC 0.90) |
-| Summarization | `docs/summarization_training.md` (brazos y niveles); `docs/evaluation.md` (línea base v1); `docs/summary_step.md` (límites) |
-| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (tabla del stack, validación cruzada anidada) |
+| Empresa: relevancia | `docs/companies_step.md` (tabla de umbrales, corrida de prueba); `docs/sentiment_training.md` ítem 6 (AUC 0.90); `docs/main_company_training.md` y `gold/main_company_marks.csv` (las marcas sobre piezas, versionadas) |
+| Summarization | `docs/summarization_training.md` (brazos, niveles y el brazo D de DeepSeek); `docs/summarization_results_2026_11_15/` (cifras versionadas del brazo D); `docs/evaluation.md` (línea base v1); `docs/summary_step.md` (límites) |
+| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (tabla del stack, validación cruzada anidada; la verificación held-out sobre 190 piezas, sección 5.1: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`) |
 | Category (el modelo del paso, 6.1) | `docs/category_step.md`; `docs/category_results_2026_11_13/` (tablas por etiqueta recalculadas desde `baseline_heldout.csv` y `baseline_train.csv`) |
 | Category (candidato, 6.2 a 6.5) | PR #196: `docs/category_train.md`; `docs/category_results_2026_11_15/` (`ovr_single.md` fuera de pliegue; `heldout_selected.md` held-out, evaluado una sola vez por `scripts/category_heldout_2026_11_15.py`; `real_sample.md` y `scripts/category_real_sample_2026_11_15.py` para las 300 filas reales, etiquetas en `gold/category_real_sample.csv`); experimento MLflow `news_nlp_train/category` (`scripts/category_mlflow_log_2026_11_15.py`) y el modelo registrado `category-entailment-single-12`; puntajes D37 de las corridas de MLflow |

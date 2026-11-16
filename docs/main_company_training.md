@@ -1,9 +1,9 @@
 # Main company: the relevance model and its measures (T-165, T-170)
 
-**Status: written 2026-11-16.** What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
+**Status: written 2026-11-16 (PR #201).** What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
 trained and chosen, and every measure of it that exists, with the owner's partial marks on sub-news (T-170) as the only check on the texts the step
 really reads. The step's own command, the revision and the dry run are in `docs/companies_step.md`; the labels the model learned from were made for the
-sentiment step (`docs/sentiment_training.md`, "A relevance model"). Percentages are of rows unless said otherwise.
+sentiment step (`docs/sentiment_training.md`, "A relevance model"). Percentages are of rows unless said otherwise (the same marks are quoted in percent in `pipeline_metrics_report.md`, section 3.3).
 
 ## What the step does
 
@@ -51,14 +51,17 @@ outputs, not what is right; nothing in the dry run says which threshold is corre
 
 ## The owner's marks on sub-news (T-170)
 
-**Dataset.** `data/main_company/to_tag.csv` (local, git-ignored; relevance scores and bands in `to_tag.strata.json`): 290 rows over 153 sub-news of the
+**Dataset.** The marked rows and their texts are tracked: `gold/main_company_marks.csv` (key `item_id#ticker`, band, relevance score, `text_hash`, the mark) and `gold/texts/main_company_marks_texts.csv`,
+built by `scripts/build_val_gold_2026_11_16.py` from the owner's working file `data/main_company/to_tag.csv` (local, git-ignored; relevance scores and bands in `to_tag.strata.json`),
+which the owner is still marking: 290 rows over 153 sub-news of the
 cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), six relevance bands of the model's score (0 to 0.1, 0.1 to 0.3,
 0.3 to 0.5, 0.5 to 0.7, 0.7 to 0.9, 0.9 to 1), drawn evenly, so every figure below is unweighted and none is a corpus rate. Columns: `item_id`, `texto`,
 `texto_es`, `ticker`, `empresa`, `es_principal` (is this company the main one of the piece: `yes` or `no`), `falta_la_principal` (is the main company missing from the list),
 `notas`. **Marked: 119 rows of 59 pieces (100 `yes`, 19 `no`); 171 rows are not marked.** The model's call is its relevance score at the threshold.
-(An earlier version of the file had 353 rows over 180 pieces; the strata file still lists the 180.)
+(An earlier version of the file had 353 rows over 180 pieces; the strata file still lists the 180.) **The figures are of the version scored on 2026-11-16**: `to_tag.csv` sha256 `f3bd3030254cdad060ca19fbf9537bebdb6e749bbd3cf965fc2793f4c2533089`,
+`to_tag.strata.json` `6e7f8d81d9feb6529528e4df0585bbd1ed88df32776715ea82e282ac2a9a3032`, `gold/main_company_marks.csv` `413a4bae73be2a297ab58e84b2f5adfa5a2145c0509d7c51ab12dfb8601667ad`; the scorer prints the hash of the file it reads. New marks are a new build and a new row in this table, not an edit of it.
 
-**Results** (`scripts/score_main_company_marks_2026_11_16.py`; Wilson 95% intervals):
+**Results** (`scripts/score_main_company_marks_2026_11_16.py`, which reads the tracked file; Wilson 95% intervals):
 
 | Class | Rows | Precision | Recall |
 |---|---|---|---|
@@ -72,6 +75,7 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
 - **By band** (share of `yes` rows; band 0 has the lowest scores): band 0, 19 of 21; band 1, 19 of 25; band 2, 20 of 22; band 3, 20 of 20; band 4, 10 of 11; band 5, 12 of 20.
 - **Without three pieces** (335155 and 343149 are lists of tickers, 260642 a list of picks: 21 rows, every one `yes`, model scores of 0.01 to 0.16 on the
   first two): 98 rows (79 `yes`), main precision 90.9% (30/33), recall 38.0% (30/79), not-main precision 24.6% (16/65), recall 84.2% (16/19).
+- **AUC of the score for `yes` against `no`: 0.663** (unweighted), against 0.896 out of fold on summaries. That is more than 5 points under, the trigger of the rule written in T-170 (sub-news get their own threshold, chosen on the marked sub-news).
 - `falta_la_principal` is filled on the 119 marked rows (114 `no`, 5 `yes`) and agrees with `es_principal` except on one row; it is not scored here.
 
 **What it says.**
@@ -83,6 +87,10 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
   text is mainly about (the 809 summaries). The marks do not say which reading is wanted; that is a decision for the owner, not an error of the marking.
 - On these marks the 0.3 threshold gains 15 points of recall at the same precision (90.0%), where on summaries the threshold hardly mattered; the marks are
   too few to move the threshold, which is a new revision (T-170).
+
+## Decision this evidence is for
+
+The rule of T-170 says that when the model's AUC on sub-news is more than 5 points under its 0.90 on summaries, sub-news get their own threshold chosen on the marked sub-news. The AUC on the marks is 0.663, so the rule applies; **the owner decides** (a new revision of step 3, `docs/companies_step.md`) the threshold, or whether the model should be retrained on pieces, once the marking is finished: 119 marked rows are too few to choose a threshold (the interval of the recall at 0.5 is [21.9, 39.6]), and the owner's wider rule (every company of a list is main) would have to be settled first, because it moves every figure here. The sentiment step reads `news_company.is_main`, so this choice moves its input too.
 
 ## Limits
 
@@ -96,8 +104,11 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
 ## Reproduce
 
 ```bash
-uv run scripts/score_main_company_marks_2026_11_16.py            # the table above, from data/main_company
+uv run scripts/build_val_gold_2026_11_16.py --data data            # gold/main_company_marks.csv and its texts, from the local working file (refuses to overwrite)
+uv run scripts/score_main_company_marks_2026_11_16.py                # the tables above, from gold/main_company_marks.csv
 uv run scripts/score_main_company_marks_2026_11_16.py --exclude 335155,343149,260642
 ```
+
+`tests/news_nlp/test_val_gold_2026_11_16.py` checks that the figures of this page are the scored ones.
 
 The out-of-fold figures and the threshold table: `scripts/relevance_threshold_candidates_2026_11_13.py` and `docs/sentiment_training.md`, "A relevance model".

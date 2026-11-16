@@ -6,7 +6,8 @@
 Same pool as ``export_sentiment_val_2026_11_15.py`` (read-only on the results database; ``NLP_DB_IMMUTABLE=1`` reads the main file only), with
 stricter filters so that the company is the subject of the text: relevance 0.9 or more, 300 to 1,500 characters, the company named at least twice and within the
 first 100 characters, and no list of analyst calls (two or more upgrades, downgrades, reiterations or initiations, or "biggest calls").
-Not in the 90-text set or in the stashed 200-text sample. A simple random draw (not stratified by the prediction). The prediction is in ``key.csv``.
+Not in the first draw (``--first-draw``; ``--exclude`` adds other key files). The draw of PR #201 also left out the articles of an earlier 200-text sample
+that was discarded and never committed, so the pool of "about 21,000" and the exact 100 are in ``gold/sentiment_val190.csv``, not rebuilt by running this again. A simple random draw (not stratified by the prediction). The prediction is in ``key.csv``.
 """
 
 from __future__ import annotations
@@ -40,20 +41,38 @@ def _clear(r: dict[str, str]) -> bool:
     return mentions >= 2 and any(n.lower() in lowered[:100] for n in names if len(n) >= 3)
 
 
-def _articles(path: Path) -> set[str]:
+def _articles(path: Path, batches: tuple[str, ...] | None = None) -> set[str]:
+    """The article ids of a key file (``batches``: only the rows of those ``batch`` values; a file without the column is all one batch)."""
     if not path.exists():
-        return set()
+        sys.exit(f"{path}: no such key file")
     with path.open(encoding="utf-8-sig", newline="") as fh:
-        return {row["article_id"] for row in csv.DictReader(fh)}
+        return {
+            row["article_id"]
+            for row in csv.DictReader(fh)
+            if batches is None or row.get("batch", "90") in batches
+        }
 
 
 def main() -> None:
     base.db.env.load_env_file()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--results-db", default=base.DEFAULT_RESULTS)
+    parser.add_argument("--results-db", default=None, help="default: $DATABASE_URL")
     parser.add_argument("--out", type=Path, default=Path("data/sentiment_val100"))
     parser.add_argument("--seed", type=int, default=20261117)
     parser.add_argument("--gold", type=Path, default=Path("gold"))
+    parser.add_argument(
+        "--first-draw",
+        type=Path,
+        default=Path("data/sentiment_val90/key.csv"),
+        help="key file of the first draw (its rows of batch 90 are excluded)",
+    )
+    parser.add_argument(
+        "--exclude",
+        type=Path,
+        action="append",
+        default=[],
+        help="another key file whose articles are left out (repeatable)",
+    )
     parser.add_argument("--no-translate", action="store_true")
     args = parser.parse_args()
     taken = _articles(Path("data/sentiment_val90/key.csv")) | _articles(

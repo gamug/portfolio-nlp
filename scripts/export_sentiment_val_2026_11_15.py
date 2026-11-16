@@ -5,7 +5,9 @@
 
 What it draws: the sub-news the summary step stored (``news_summary``, ``item_kind = sub_news``) for which the company step named a
 main company (``news_company.is_main = 1``) and the sentiment step scored that pair. The text to tag is the text the sentiment step
-reads (the summary, or the original text when it was short). The results database is opened read-only; nothing is written to it.
+reads (the summary, or the original text when it was short). The results database (``--results-db``, else ``$DATABASE_URL``) is opened read-only; nothing is
+written to it. If another run holds it open in WAL mode and a read-only connection fails with a disk I/O error, ``NLP_DB_IMMUTABLE=1`` reads the main file
+only and **ignores the WAL**: valid only for tables that no run is writing (these three were closed when the draws were made).
 
 Texts that mean little are dropped: under 250 characters, fewer than two sentences, mostly not letters, lists of tickers, disclosure
 lines, a main company that the text does not name, a relevance score under 0.7, a non-English article, and every article that is already in
@@ -33,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import news_nlp as db
 
-DEFAULT_RESULTS = "/workspaces/thesis/data/nlp.db"
 COMPANY_REV = "companies-f349536cf701"
 SENTIMENT_REV = "sentiment-5999fe131d8f"
 SUMMARY_REV = "summary-7a9bd2062bc4"
@@ -166,6 +167,16 @@ def candidates(results_db: str, gold: Path) -> list[dict[str, str]]:
     return rows
 
 
+def results_db(argument: str | None) -> str:
+    """The RESULTS database to read: ``--results-db``, else ``$DATABASE_URL`` (``CLAUDE.md``, "Database"); never a guessed path."""
+    path = argument or os.environ.get("DATABASE_URL")
+    if not path:
+        sys.exit(
+            "set --results-db or DATABASE_URL: the RESULTS database holding news_summary, news_company and news_sentiment"
+        )
+    return path
+
+
 def draw(rows: list[dict[str, str]], seed: int) -> list[dict[str, str]]:
     rng = random.Random(seed)
     rng.shuffle(rows)
@@ -195,14 +206,14 @@ def draw(rows: list[dict[str, str]], seed: int) -> list[dict[str, str]]:
 def main() -> None:
     db.env.load_env_file()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--results-db", default=DEFAULT_RESULTS)
+    parser.add_argument("--results-db", default=None, help="default: $DATABASE_URL")
     parser.add_argument("--out", type=Path, default=Path("data/sentiment_val90"))
     parser.add_argument("--seed", type=int, default=20261115)
     parser.add_argument("--gold", type=Path, default=Path("gold"))
     parser.add_argument("--no-translate", action="store_true")
     args = parser.parse_args()
 
-    pool = candidates(args.results_db, args.gold)
+    pool = candidates(results_db(args.results_db), args.gold)
     print(f"candidates after the filters: {len(pool)}")
     for label in ("positive", "negative", "neutral"):
         sub = [r for r in pool if r["predicted"] == label]

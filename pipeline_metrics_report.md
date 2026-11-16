@@ -1,6 +1,6 @@
 # Precision and recall (one-vs-rest) of the pipeline steps
 
-Date: 2026-11-15. Steps covered, in pipeline order: scope (with the sector step), cut, NER and the company pick, summarization, sentiment, category.
+Date: 2026-11-16 (the figures of sections 5.1 and 3.3 are of 2026-11-16 and 2026-11-15; the rest, of the dates each section gives). The number in a heading is the pipeline's own step number; the sections follow the order the steps run. "The owner" is the project's term for the person who marks and decides. Steps covered, in pipeline order: scope (with the sector step), cut, NER and the company pick, summarization, sentiment, category.
 
 Every figure below is taken from the repository's documents and tracked result files, or recomputed from tracked files (the category
 and sector tables were recomputed for this report from `docs/category_results_2026_11_13/*.csv` and `gold/sector_validation.csv`; the category
@@ -20,8 +20,8 @@ inventing a figure.
 | Sector | the 2-digit GICS sector assigned to a `sector` text | **Precision only** (per sector, 2 to 5 texts each); recall not measured | 87.5% of the assigned sectors right (35 of 40) | Yes (a draw made after the step was built), one reviewer |
 | Cut | the pieces ("sub-news") the cut makes from a multi-company text | **No classes.** Three yes/no questions per piece (precision-like) | 84.6% of pieces faithful; 75.5% clean | Yes (28 texts, 143 pieces) |
 | Company: NER | the organisation spans NER finds | Not per class on the current texts; one older judged run (v1, whole articles) | recall 0.84, precision 0.66 (older run) | Judged by an LLM, not a gold |
-| Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes, out-of-fold | main-company precision 90.0%, recall 94.7% at threshold 0.5 | **No** (cross-validation on 809 marked summaries) |
-| Summarization | the summary of a text over about 2,000 characters | **No classes.** LLM-judge scores (1 to 5) | current step: faithfulness 4.60, hallucination 15.0% (300 articles) | Judge (DeepSeek), not a gold; not on the real run |
+| Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes, out-of-fold | main-company precision 90.0%, recall 94.7% at threshold 0.5 (cross-validation on summaries); **on 119 marked rows of 59 pieces, the texts the step reads: precision 90.9%, recall 30.0%** | **No** for the 94.7% (cross-validation on 809 marked summaries); partial marks on pieces (section 3.3), not held out for the threshold |
+| Summarization | the summary of a text over about 2,000 characters | **No classes.** LLM-judge scores (1 to 5) | **DeepSeek, the step's summariser since T-206:** faithfulness 4.99, coverage 4.54, hallucination 0.7% (300 articles); the earlier distilbart step: 4.60, 3.24, 15.0% | The judge is DeepSeek too (it graded its own summaries); not a gold; the corpus run is not measured |
 | Sentiment | positive, negative, neutral for a (text, company) pair | **Yes**, three classes | score 0.814; negative P/R 0.747 / 0.748 (cross-validation); on 190 real pieces: accuracy 73.7%, negative precision 69.4% | **No** for the 0.814 (nested cross-validation, 809 rows); **yes** for the 190 pieces (section 5.1) |
 | Category | 14 labels (6 groups) for a (text, company) pair; the candidate reads 12 | **Yes**, per label (precision, recall and ROC) | the step's model: 43.0% held-out. **Candidate (not wired): 54.1% held-out, 71.3% on 300 real sub-news (assistant's tags), 87.8% out of fold (reviewed tags)** | Yes (135 single rows, scored once); the bar of 80% is **not met** |
 
@@ -300,12 +300,15 @@ on **119 rows of 59 items** (100 `yes`, 19 `no`; 171 rows are still unmarked). T
 
 | Class | n marked | Precision | Recall |
 |---|---|---|---|
-| Main (`yes`) at 0.5 | 100 | 30 of 33 = 0.91 | 30 of 100 = 0.30 |
-| Not main (`no`) at 0.5 | 19 | 16 of 86 = 0.19 | 16 of 19 = 0.84 |
-| Main at 0.3 | 100 | 45 of 50 = 0.90 | 45 of 100 = 0.45 |
-| Main at 0.7 | 100 | 17 of 20 = 0.85 | 17 of 100 = 0.17 |
+| Main (`yes`) at 0.5 | 100 | 90.9% [76.4, 96.9] (30/33) | 30.0% [21.9, 39.6] (30/100) |
+| Not main (`no`) at 0.5 | 19 | 18.6% (16/86) | 84.2% (16/19) |
+| Main at 0.3 | 100 | 90.0% [78.6, 95.7] (45/50) | 45.0% [35.6, 54.8] (45/100) |
+| Main at 0.7 | 100 | 85.0% [64.0, 94.8] (17/20) | 17.0% [10.9, 25.5] (17/100) |
 
-Read per item (59 pieces): 53 have a company the owner marked main; the model's threshold finds at least one of them in 30 (57%). The model calls a main company on 32 pieces, and the owner agrees on at least one in 30 (94%).
+The score separates the owner's `yes` from `no` with an AUC of **0.663** (unweighted), against 0.896 out of fold on summaries: more than 5 points under, the trigger of the T-170 rule (sub-news get their own threshold, chosen on the marked sub-news). The marks are partial and the owner's rule is wider than the model's (below), so this is a reason to decide, not the decision.
+The marks, their texts and the scorer are tracked: `gold/main_company_marks.csv`, `gold/texts/main_company_marks_texts.csv`, `scripts/score_main_company_marks_2026_11_16.py`; the full account is `docs/main_company_training.md`.
+
+Read per item (59 pieces): 53 have a company the owner marked main; the model's threshold finds at least one of them in 30 (56.6%). The model calls a main company on 32 pieces, and the owner agrees on at least one in 30 (93.8%).
 
 Share of `yes` by relevance band of the item (band 0 is the lowest scores): band 0, 19 of 21 rows; band 1, 19 of 25; band 2, 20 of 22; band 3, 20 of 20; band 4, 10 of 11; band 5, 12 of 20.
 
@@ -321,9 +324,8 @@ What it supports: when the step names a main company on a piece it is usually on
 
 ## 4. Summarization (step 2, `docs/summary_step.md`, `docs/summarization_training.md`)
 
-`sshleifer/distilbart-cnn-12-6` (not trained here). A text under about 2,000 characters is stored as it is; a longer one is summarised (chunk-and-reduce: chunks of at most 1,000 BART tokens, each summarised, the joined summaries
-summarised again, up to 6 passes). Summarization has **no classes**, so there is no precision and recall: the only measure is an LLM judge (DeepSeek, temperature 0) that scores faithfulness, coverage and conciseness from 1 to 5
-and lists hallucinations. **The step's own output on the real corpus is not measured** (the step doc says its faithfulness is not measured).
+Since T-206 (owner, 2026-11-15) the step summarises a text over about 2,000 characters with **DeepSeek** through an API (one call per text, prompt `config/summary_prompt.md`, temperature 0); `--summariser local` keeps `sshleifer/distilbart-cnn-12-6` (chunk-and-reduce, the arm B below) and the v1 chain stays on distilbart. A text at or under about 2,000 characters is stored as it is. Summarization has **no classes**, so there is no precision and recall: the only measure is an LLM judge (DeepSeek, temperature 0) that scores faithfulness, coverage and conciseness from 1 to 5
+and lists hallucinations. **The corpus run is not measured**: the figures are of 300 articles, and the judge of the run must not be DeepSeek (`docs/summary_step.md`).
 
 ### Dataset description
 
@@ -333,28 +335,31 @@ The corpus the step runs on: 93,034 single bodies (59,432 over 2,000 characters)
 
 ### Model selection
 
-**Model.** `sshleifer/distilbart-cnn-12-6` (pinned at `a4f8f3ea`) is inherited from the v1 stage and is not trained here; the documents read record no comparison with another summariser, only with ways of using it.
+**Model.** DeepSeek (`deepseek-chat`, which the API answers as `deepseek-flash`), chosen by the owner on 2026-11-15 on arm D of the experiment below (paired against the earlier step: faithfulness +0.39, coverage +1.29, hallucination -14.3 points); each row of the run keeps the model name the API gave. The earlier model, `sshleifer/distilbart-cnn-12-6` (pinned at `a4f8f3ea`, inherited from the v1 stage and not trained here), stays behind `--summariser local`; it was never compared with another summariser before DeepSeek, only with ways of using it.
 **Size limit.** A text under 2,000 characters is stored as it is. The limit was chosen from the counts of texts that would go to the model: 1,500 characters 75,368 single bodies (81.0%) and 9,249 sub-news (5.7%), 17.6 h; **2,000 characters 59,432 (63.9%) and 5,048 (3.1%), 13.9 h**; 3,000 characters 31,992 (34.4%) and 1,731 (1.1%), 7.5 h; 4,000 characters 17,621 (18.9%) and 708 (0.4%), 4.1 h.
-**Method.** Six arms were compared (table of this section); the current chunk-and-reduce (arm B) was kept because the alternatives did not beat it on every measure: joining chunk summaries with no gate (C1) is worse (+10.7 points of hallucination), the gate recovers it (C2), the first chunk alone (C0) and verbatim tails (C3) are more faithful but shorter on coverage or longer. Nothing was changed in production.
+**Method of the distilbart arms (2026-11-13).** Six arms were compared (table of this section); the current chunk-and-reduce (arm B) was kept because the alternatives did not beat it on every measure: joining chunk summaries with no gate (C1) is worse (+10.7 points of hallucination), the gate recovers it (C2), the first chunk alone (C0) and verbatim tails (C3) are more faithful but shorter on coverage or longer. Nothing was changed in production by that experiment; the DeepSeek arm (D) came after it.
 
-**The experiment of 2026-11-13** (300 articles, 100 per tier of `num_chunks`, 288 English and 12 Spanish; the same sample as run 44). Higher is better, except hallucination. Arm **B is the current step**; nothing else is in production.
+**The experiment of 2026-11-13** (300 articles, 100 per tier of `num_chunks`, 288 English and 12 Spanish; the same sample as run 44). Higher is better, except hallucination. Arm **B is the earlier step** (distilbart); **D is DeepSeek, the step since T-206** (run 2026-11-15 on the same 300 articles and judge).
 
 | Arm | What it is | Faithfulness | Coverage | Conciseness | Hallucination | Tokens |
 |---|---|---|---|---|---|---|
 | A | stored v1 summary, re-judged | 4.54 | 3.23 | 4.07 | 19.7% | 71 |
-| **B** | **the current step (re-summarising)** | **4.60** | **3.24** | **4.08** | **15.0%** | **69** |
+| B | the earlier step (distilbart, re-summarising; `--summariser local`) | 4.60 | 3.24 | 4.08 | 15.0% | 69 |
 | C0 | chunk 1 only | 4.70 | 3.31 | 4.33 | 13.0% | 69 |
 | C1 | chunk summaries joined, no NLI gate | 4.39 | 3.47 | 3.23 | 25.7% | 122 |
 | C2 | C1 with the NLI gate | 4.64 | 3.31 | 3.44 | 14.7% | 100 |
 | C3 | gated chunk 1 plus verbatim first sentences of later chunks | 4.81 | 3.13 | 3.32 | 6.7% | 137 |
+| **D** | **DeepSeek, the step since T-206** | **4.99** | **4.54** | **4.98** | **0.7%** | **86 (output tokens per call)** |
 
-By tier for the current step (B), faithfulness / coverage / hallucination: 1 chunk 4.67 / 3.81 / 14%; 2 chunks 4.64 / 3.11 / 11%; 3+ chunks 4.49 / 2.81 / 20%. Faithfulness falls and hallucination rises with the number of chunks.
+By tier for the earlier step (B), faithfulness / coverage / hallucination: 1 chunk 4.67 / 3.81 / 14%; 2 chunks 4.64 / 3.11 / 11%; 3+ chunks 4.49 / 2.81 / 20%. Faithfulness falls and hallucination rises with the number of chunks.
 Paired against B: C0 +0.10 faithfulness [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] faithfulness and -8.3 points of hallucination [-12.0, -4.7], at -0.11 coverage; C1 is worse (-0.21 faithfulness, +10.7 points).
+
+**DeepSeek (arm D)** against B, paired by article (95% bootstrap intervals): faithfulness 4.99 against 4.60 (+0.39 [+0.29, +0.49]), coverage 4.54 against 3.24 (+1.29 [+1.21, +1.39]), conciseness 4.98 against 4.08 (+0.90 [+0.80, +1.00]), hallucination 0.7% against 15.0% (-14.3 points [-18.7, -10.3]). By tier (1 / 2 / 3+ chunks), D faithfulness 4.97 / 4.99 / 5.00, coverage 4.87 / 4.50 / 4.24, hallucination 1% / 1% / 0%. At temperature 0 two runs give different words (30 articles twice: 0 identical, mean word overlap 0.66) but the scores held (faithfulness 5.00 and 5.00, coverage 4.70 and 4.63). A blind re-scoring of 24 pairs by the assistant (Claude, not a person; the arm hidden) agreed: faithfulness 4.92 against 4.42, coverage 4.75 against 3.08, hallucination 4% against 21%. The figures are committed in `docs/summarization_results_2026_11_15/`.
 
 **Earlier baseline** (v1 stage, 1,000 sampled articles, `docs/evaluation.md`): mean faithfulness 4.87, hallucination in 5.4% of summaries, coverage 3.02: accurate but not very complete. It is a different judge run and sample, so it is not comparable with the table above.
 
 **Limits.** One sample, one judge, one run per arm. The judge's coverage is one overall score: **nothing checks whether the companies the text is about, or its main event, are in the summary** (no per-company check). The NLI threshold (0.5) was not tuned.
-A summary is model output, not fact, and the step stores the number of chunks, not whether the last pass dropped a tail. The experiment is scratch work, not in production.
+**DeepSeek was summariser and judge** in the evidence for arm D, so its scores are its own reading of its own text (the blind re-scoring of 24 pairs is small, and the arms can be guessed by style); the corpus run is to be judged by another model. The article text leaves the machine for the API (accepted by the owner). A summary is model output, not fact, and the DeepSeek text is not repeatable at temperature 0. The distilbart arms are scratch work; the DeepSeek step is built (#200) and its corpus run is not yet measured.
 
 ## 5. Sentiment (step 6, `docs/sentiment_step.md`, `docs/sentiment_training.md`)
 
@@ -417,20 +422,40 @@ the cross-validation.
 
 The first held-out check of the sentiment step on texts that no model or setting saw: the step as it ran on the corpus, the pair model and stack of
 revision `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), scored on **190 pieces tagged by the owner** (one reader) in two draws.
+The marks, their texts and the scorer are tracked: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`
+(`scripts/build_val_gold_2026_11_16.py` builds the gold files from the local working files).
 
 | Item | First draw (90) | Second draw (100) |
 |---|---|---|
 | Source | sub-news of the stored summary step (`news_summary`, revision `summary-7a9bd2062bc4`) with a main company of the company step (`companies-f349536cf701`, relevance 0.7 or more) and a sentiment score; the text is what the sentiment step reads | the same, with a stricter pool |
 | Draw | 30 per class the model predicted (10 stored summaries and 20 original short texts each), one text per article | simple random, one per article |
 | Pool | 57,826 candidates (positive 38,559, negative 18,847, neutral 420) | about 21,000 candidates |
-| Filters | 250 characters or more and two sentences; mostly letters; no ticker lists or disclosure lines; the company named in the text; English; no article of `gold/sentiment_gold.csv` or the training sets | the same, plus relevance 0.9 or more, 300 to 1,500 characters, the company named twice and within the first 100 characters, fewer than two analyst calls, no article of the first draw |
+| Filters | 250 characters or more and two sentences; mostly letters; no ticker lists or disclosure lines; the company named in the text; English; no article of `gold/sentiment_gold.csv` or the training sets | the same, plus relevance 0.9 or more, 300 to 1,500 characters, the company named twice and within the first 100 characters, fewer than two analyst calls, no article of the first draw (and none of an earlier 200-text sample that was discarded and not committed) |
 | Tags | positive 39, negative 27, neutral 24 | positive 57, negative 35, neutral 8 |
 | Columns | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (the prediction is in a separate `key.csv`, with a `batch` column) | the same |
 
-Texts are 250 to 1,626 characters (median about 400). The Spanish title and text are a reading aid (`news_nlp.translate`); they never enter a model. Files: `data/sentiment_val90/` (`to_tag.csv` with the 190 rows,
-`key.csv`; local, git-ignored); scripts `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py`. One row is noted "company is not the main" and is kept.
+Texts are 250 to 1,626 characters (median about 400). The Spanish title and text are a reading aid (`news_nlp.translate`) and are not copied to `gold/`. One row is noted "company is not the main" and is kept.
+The scripts are `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py`; the working files stay local (`data/sentiment_val90/`, git-ignored).
 
-**Results, the 190 pooled** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found among the 190; recall weighted corrects for the first draw being stratified by the prediction, with the pool sizes above; F1 from the two):
+**Results by draw** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found; recall weighted gives each predicted class its pool size over the pieces drawn from it):
+
+First draw, 90 (stratified by the prediction): accuracy 66.7% [56.4, 75.5] (60 of 90), weighted 74.4%.
+
+| Class | Precision | Recall (sample) | Recall (weighted) |
+|---|---|---|---|
+| Positive | 80.0% [62.7, 90.5] (24/30) | 61.5% (24/39) | 88.8% |
+| Negative | 63.3% [45.5, 78.1] (19/30) | 70.4% (19/27) | 69.7% |
+| Neutral | 56.7% [39.2, 72.6] (17/30) | 70.8% (17/24) | 4.0% |
+
+Second draw, 100 (random, no weighting needed): accuracy 80.0% [71.1, 86.7] (80 of 100).
+
+| Class | Precision | Recall |
+|---|---|---|
+| Positive | 84.5% [73.1, 91.6] (49/58) | 86.0% [74.7, 92.7] (49/57) |
+| Negative | 73.8% [58.9, 84.7] (31/42) | 88.6% [74.0, 95.5] (31/35) |
+| Neutral | no call (0/0) | 0% [0.0, 32.4] (0/8) |
+
+**The 190 pooled** (an approximation: the two draws have different pools, and the weighted figures treat them as samples of the first draw's pool of 57,826):
 
 | Class | Precision | Recall (sample) | Recall (weighted) | F1 (sample) | F1 (weighted) |
 |---|---|---|---|---|---|
@@ -441,18 +466,17 @@ Texts are 250 to 1,626 characters (median about 400). The Spanish title and text
 Accuracy: 73.7% [67.0, 79.4] (140 of 190); weighted to the pool 78.4%.
 Confusion (rows the model, columns the owner's tag; positive / negative / neutral): positive 73 / 8 / 7; negative 14 / 50 / 8; neutral 9 / 4 / 17.
 
-By draw: **first 90** (stratified): accuracy 66.7% [56.4, 75.5], weighted 74.4%; precision 80.0% / 63.3% / 56.7%; weighted recall 88.8% / 69.7% / 4.0% (positive / negative / neutral).
-**The 100** (random, no weighting needed): accuracy 80.0% [71.1, 86.7]; positive precision 84.5% [73.1, 91.6] (49/58), recall 86.0% [74.7, 92.7] (49/57); negative precision 73.8% [58.9, 84.7] (31/42), recall 88.6% [74.0, 95.5] (31/35);
-the model called no text neutral and missed all 8 neutral tags (recall 0%, [0.0, 32.4]).
+**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): the pooled accuracy, 73.7% [67.0, 79.4], is **under 80%** (78.4% weighted to the pool, also under); the second draw alone, 80.0% [71.1, 86.7], is at the bar by point estimate, with an interval that reaches well below it. Negative precision, 69.4% [58.0, 78.9], is **under 70%** by point estimate; negative recall, 80.6% [69.1, 88.6], is over it.
+
+**Relation to the pin decision.** This is not the D35 gate. The rule of D35 scores the 180-text gold on main pairs (T-148c4, T-193); that scoring has not been made and `config/pipeline_models.json` still names the v1 model. These 190 pieces were not drawn by D35's design; they measure the step as it ran on the corpus. They are evidence for the owner's decision; whether they replace the 180-gold scoring is the owner's to say.
 
 **What it says.**
 - **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
-- **Negative** recall is 80.6% in the sample and precision 69.4% [58.0, 78.9], at the D32 bar (70%) within the interval; in the first draw alone it was 63.3%, in the cleaner second draw 73.8%.
-- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces).
+- **Negative** precision is under the bar in the pooled figure and over it in the cleaner second draw (73.8%); negative recall is over it in both.
+- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Nothing in TASKS owns this finding yet (T-210).
 - The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
 
-**Limits.** 30 texts per predicted class in the first draw, so the weighted recalls (and every neutral figure) are noisy; 190 texts in all. The two draws have different pools, and the pooled weighted figures treat them as samples of one pool: an approximation.
-The pool is the candidates after the filters, not the whole corpus. One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
+**Limits.** 30 texts per predicted class in the first draw, so the weighted recalls (and every neutral figure) are noisy; 190 texts in all. The pool is the candidates after the filters, not the whole corpus. One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
 
 ## 6. Category (step 5, `docs/category_step.md`, `docs/category_train.md`)
 
@@ -650,8 +674,8 @@ the gain is statistically clear on the 300 real rows. It should not replace the 
 | Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (per-sector precision recomputed) |
 | Cut | `docs/scope_training.md` section 8.3; `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
 | Company: NER | `docs/evaluation.md` (baseline of 2026-09, `ner`) |
-| Company: relevance | `docs/companies_step.md` (threshold table, dry run); `docs/sentiment_training.md` item 6 (AUC 0.90) |
-| Summarization | `docs/summarization_training.md` (arms and tiers); `docs/evaluation.md` (v1 baseline); `docs/summary_step.md` (limits) |
-| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (stack table, nested cross-validation) |
+| Company: relevance | `docs/companies_step.md` (threshold table, dry run); `docs/sentiment_training.md` item 6 (AUC 0.90); `docs/main_company_training.md` and `gold/main_company_marks.csv` (the marks on pieces, tracked) |
+| Summarization | `docs/summarization_training.md` (arms, tiers and the DeepSeek arm D); `docs/summarization_results_2026_11_15/` (committed figures of arm D); `docs/evaluation.md` (v1 baseline); `docs/summary_step.md` (limits) |
+| Sentiment | `docs/sentiment_step.md` ("What the figures are"); `docs/sentiment_training.md` (stack table, nested cross-validation; the held-out check on 190 pieces, section 5.1: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`) |
 | Category (the step's model, 6.1) | `docs/category_step.md`; `docs/category_results_2026_11_13/` (per-label tables recomputed from `baseline_heldout.csv` and `baseline_train.csv`) |
 | Category (candidate, 6.2 to 6.5) | PR #196: `docs/category_train.md`; `docs/category_results_2026_11_15/` (`ovr_single.md` out of fold; `heldout_selected.md` held-out, scored once by `scripts/category_heldout_2026_11_15.py`; `real_sample.md` and `scripts/category_real_sample_2026_11_15.py` for the 300 real rows, tags in `gold/category_real_sample.csv`); MLflow experiment `news_nlp_train/category` (`scripts/category_mlflow_log_2026_11_15.py`) and the registered model `category-entailment-single-12`; D37 scores from the MLflow runs |

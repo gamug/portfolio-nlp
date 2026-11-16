@@ -78,7 +78,7 @@ The raw NER spans do not go to `article_entities` (D39 (iii) put them there with
 
 ## Limits
 
-- The relevance model was trained on summaries (T-170): its scores on sub-news are not validated.
+- The relevance model was trained on summaries (T-170): its scores on sub-news are only partly validated. On the owner's 119 marks on sub-news (`docs/main_company_training.md`) the main company it names is accepted 90.9% of the time (30 of 33), but it finds only 30.0% of the companies the owner marks main (30 of 100), and its AUC there is 0.663 against 0.896 on summaries; the marks are partial and the threshold on sub-news is still open (T-170).
 - The matcher's gaps (short names such as `Disney` or `JPMorgan`, T-181) lose those spans; `ner+text` recovers what the matcher knows, not what it does not.
 - **The step needs `HF_TOKEN`.** The relevance repository is private and is read from `config/published_models.json`, not from `config/pipeline_models.json` where the other models are pinned (Pipeline models 1); it is pinned by T-148c4. `--status` imports the stage module (a few seconds) and loads no model; it prints the two models and their revisions.
 - **CPU and GPU.** The scorer uses bf16 autocast on CUDA only, as the model was trained and scored; the CPU runs float32. On 220 real pairs the two devices differ by at most 0.021 (mean 0.0014) and no pair changes side of 0.5. The revision does not carry the device.

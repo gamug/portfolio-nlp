@@ -1,93 +1,146 @@
-# ruff: noqa: PLR2004  (one-off export and scoring script: thresholds are the owner's decisions, the draw is not cryptographic)
 """Score the owner's partial main-company marks (T-170) against the relevance model of step 3.
 
-    uv run scripts/score_main_company_marks_2026_11_16.py [--dir data/main_company]
+    uv run scripts/score_main_company_marks_2026_11_16.py [--marks gold/main_company_marks.csv] [--exclude 335155,343149,260642]
 
-Reads ``to_tag.csv`` (the owner's ``es_principal`` marks, ``yes`` or ``no``) and ``to_tag.strata.json`` (the relevance score of every (item, ticker),
-and the relevance band of each item). A pair is called main when its score is at the threshold or over it. Nothing is written; the figures are
-printed unweighted (the six bands were drawn evenly, so they are not corpus rates). Used for ``docs/main_company_training.md``.
+Reads the tracked marks (``gold/main_company_marks.csv``, built by ``build_val_gold_2026_11_16.py``: the owner's ``es_principal`` ``yes`` or ``no``, the
+relevance score of the pair and the relevance band of its item). A pair is called main when its score is at the threshold or over it. Nothing is
+written; the figures are printed unweighted (the six bands were drawn evenly, so they are not corpus rates) with the SHA-256 of the file scored.
+Used for ``docs/main_company_training.md``.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
+import hashlib
 import math
 from collections import defaultdict
 from pathlib import Path
+from typing import NamedTuple
+
+THRESHOLDS = (0.3, 0.5, 0.7)
+DEFAULT_EXCLUDE = ("335155", "343149", "260642")  # lists of tickers and picks, every row `yes`
 
 
-def wilson(x: int, n: int, z: float = 1.96) -> str:
+class Mark(NamedTuple):
+    item: str
+    ticker: str
+    main: bool
+    score: float
+    band: int
+
+
+def wilson(x: int, n: int, z: float = 1.96) -> tuple[float, float]:
     if n == 0:
-        return "[-]"
+        return (0.0, 1.0)
     p = x / n
     d = 1 + z * z / n
     c = (p + z * z / 2 / n) / d
     h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return f"[{100 * (c - h):.1f}, {100 * (c + h):.1f}]"
+    return (c - h, c + h)
 
 
-def load(folder: Path) -> list[tuple[str, str, bool, float, int]]:
-    strata = json.loads((folder / "to_tag.strata.json").read_text(encoding="utf-8"))["items"]
-    rows = []
-    with (folder / "to_tag.csv").open(encoding="utf-8-sig", newline="") as fh:
-        for r in csv.DictReader(fh):
-            mark = (r["es_principal"] or "").strip().lower()
-            if mark not in ("yes", "no", "si"):
-                continue
-            item = strata[r["item_id"]]
-            rows.append(
-                (r["item_id"], r["ticker"], mark != "no", item["scores"][r["ticker"]], item["band"])
+def load(path: Path) -> list[Mark]:
+    with path.open(encoding="utf-8", newline="") as fh:
+        return [
+            Mark(
+                r["item_id"],
+                r["ticker"],
+                r["es_principal"] == "yes",
+                float(r["relevance_score"]),
+                int(r["band"]),
             )
-    return rows
+            for r in csv.DictReader(fh)
+        ]
+
+
+def at_threshold(rows: list[Mark], threshold: float) -> dict[str, int]:
+    """Counts of the one-vs-rest table at a threshold: called main, true main, and the same for not main."""
+    yes = sum(r.main for r in rows)
+    return {
+        "rows": len(rows),
+        "yes": yes,
+        "no": len(rows) - yes,
+        "called_main": sum(1 for r in rows if r.score >= threshold),
+        "tp_main": sum(1 for r in rows if r.main and r.score >= threshold),
+        "called_not": sum(1 for r in rows if r.score < threshold),
+        "tp_not": sum(1 for r in rows if not r.main and r.score < threshold),
+    }
+
+
+def by_item(rows: list[Mark], threshold: float = 0.5) -> dict[str, int]:
+    items: dict[str, list[Mark]] = defaultdict(list)
+    for r in rows:
+        items[r.item].append(r)
+    with_main = [k for k, v in items.items() if any(r.main for r in v)]
+    called = [k for k, v in items.items() if any(r.score >= threshold for r in v)]
+    return {
+        "items": len(items),
+        "with_main": len(with_main),
+        "found": sum(
+            1 for k in with_main if any(r.main and r.score >= threshold for r in items[k])
+        ),
+        "called": len(called),
+        "agreed": sum(1 for k in called if any(r.main and r.score >= threshold for r in items[k])),
+    }
+
+
+def by_band(rows: list[Mark]) -> dict[int, tuple[int, int]]:
+    return {
+        b: (sum(1 for r in rows if r.band == b and r.main), sum(1 for r in rows if r.band == b))
+        for b in range(6)
+    }
+
+
+def auc(rows: list[Mark]) -> float:
+    """ROC AUC of the relevance score for the owner's `yes` against `no` (ties count half); unweighted."""
+    yes = [r.score for r in rows if r.main]
+    no = [r.score for r in rows if not r.main]
+    wins = sum(1.0 if y > n else 0.5 if y == n else 0.0 for y in yes for n in no)
+    return wins / (len(yes) * len(no))
+
+
+def pct(x: int, n: int) -> str:
+    return f"{100 * x / n:.1f}%" if n else "n/a"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--dir", type=Path, default=Path("data/main_company"))
+    parser.add_argument("--marks", type=Path, default=Path("gold/main_company_marks.csv"))
     parser.add_argument(
-        "--exclude", default="335155,343149,260642", help="items to leave out in the last line"
+        "--exclude", default=",".join(DEFAULT_EXCLUDE), help="items to leave out in the last line"
     )
     args = parser.parse_args()
-    rows = load(args.dir)
-    yes = sum(r[2] for r in rows)
+    rows = load(args.marks)
+    print(f"{args.marks}: sha256 {hashlib.sha256(args.marks.read_bytes()).hexdigest()}")
     print(
-        f"marked rows {len(rows)} of {len({r[0] for r in rows})} items: {yes} yes, {len(rows) - yes} no"
+        f"marked rows {len(rows)} of {len({r.item for r in rows})} items: {sum(r.main for r in rows)} yes, {sum(not r.main for r in rows)} no"
     )
-    for t in (0.3, 0.5, 0.7):
-        tp = sum(1 for r in rows if r[2] and r[3] >= t)
-        called = sum(1 for r in rows if r[3] >= t)
-        tn = sum(1 for r in rows if not r[2] and r[3] < t)
-        not_called = sum(1 for r in rows if r[3] < t)
+    for t in THRESHOLDS:
+        c = at_threshold(rows, t)
+        lo, hi = wilson(c["tp_main"], c["called_main"])
+        rlo, rhi = wilson(c["tp_main"], c["yes"])
         print(
-            f"threshold {t}: main P {tp}/{called} = {100 * tp / called:.1f}% {wilson(tp, called)}, R {tp}/{yes} = {100 * tp / yes:.1f}% {wilson(tp, yes)}; "
-            f"not main P {tn}/{not_called} = {100 * tn / not_called:.1f}%, R {tn}/{len(rows) - yes} = {100 * tn / (len(rows) - yes):.1f}%"
+            f"threshold {t}: main P {c['tp_main']}/{c['called_main']} = {pct(c['tp_main'], c['called_main'])} [{100 * lo:.1f}, {100 * hi:.1f}], "
+            f"R {c['tp_main']}/{c['yes']} = {pct(c['tp_main'], c['yes'])} [{100 * rlo:.1f}, {100 * rhi:.1f}]; "
+            f"not main P {c['tp_not']}/{c['called_not']} = {pct(c['tp_not'], c['called_not'])}, R {c['tp_not']}/{c['no']} = {pct(c['tp_not'], c['no'])}"
         )
-    items = defaultdict(list)
-    for r in rows:
-        items[r[0]].append(r)
-    with_main = [k for k, v in items.items() if any(r[2] for r in v)]
-    found = sum(1 for k in with_main if any(r[2] and r[3] >= 0.5 for r in items[k]))
-    called = [k for k, v in items.items() if any(r[3] >= 0.5 for r in v)]
-    agreed = sum(1 for k in called if any(r[2] and r[3] >= 0.5 for r in items[k]))
     print(
-        f"items {len(items)}: with a main company {len(with_main)}, found by the model {found}; model calls main on {len(called)}, agreed {agreed}"
+        f"AUC of the score for yes against no: {auc(rows):.3f} (the relevance model's out-of-fold AUC on summaries: 0.896)"
     )
+    i = by_item(rows)
     print(
-        "yes by band:",
-        {
-            b: f"{sum(1 for r in rows if r[4] == b and r[2])}/{sum(1 for r in rows if r[4] == b)}"
-            for b in range(6)
-        },
+        f"items {i['items']}: with a main company {i['with_main']}, found by the model {i['found']} ({pct(i['found'], i['with_main'])}); "
+        f"model calls main on {i['called']}, agreed {i['agreed']} ({pct(i['agreed'], i['called'])})"
     )
-    big = set(args.exclude.split(","))
-    rest = [r for r in rows if r[0] not in big]
-    y2 = sum(r[2] for r in rest)
-    tp = sum(1 for r in rest if r[2] and r[3] >= 0.5)
-    called2 = sum(1 for r in rest if r[3] >= 0.5)
+    print("yes by band:", {b: f"{y}/{n}" for b, (y, n) in by_band(rows).items()})
+    skip = set(args.exclude.split(","))
+    rest = [r for r in rows if r.item not in skip]
+    c = at_threshold(rest, 0.5)
     print(
-        f"without the items {sorted(big)} (lists of tickers and picks, every row `yes`): {len(rest)} rows, main P {tp}/{called2}, R {tp}/{y2}"
+        f"without the items {sorted(skip)}: {c['rows']} rows ({c['yes']} yes), main P {c['tp_main']}/{c['called_main']} = {pct(c['tp_main'], c['called_main'])}, "
+        f"R {c['tp_main']}/{c['yes']} = {pct(c['tp_main'], c['yes'])}; not main P {c['tp_not']}/{c['called_not']} = {pct(c['tp_not'], c['called_not'])}, "
+        f"R {c['tp_not']}/{c['no']} = {pct(c['tp_not'], c['no'])}"
     )
 
 
