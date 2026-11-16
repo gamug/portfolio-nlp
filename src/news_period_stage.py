@@ -1,5 +1,5 @@
 """Step 9, the period summary (T-196, D42, FR-024): every 21 days from 2022-01-03, at 15:00 in ``BATCH_TIMEZONE``, the counts of the snapshots of the window
-per company and per category (total and the sentiment split), and the same counts summed per sector. No model, no LLM, no network.
+per company and per category (total and the sentiment split; four weak categories count as `other`, see ``FOLDED_INTO_OTHER``), and the same counts summed per sector. No model, no LLM, no network.
 
 Design and every decision: ``docs/snapshot_steps.md``. A written period is never rewritten; ``period_item`` says which period counted which snapshot, so a
 snapshot that reached the table after its window was written is counted in the next period as late. State is derived from the tables: a period is
@@ -34,7 +34,8 @@ SHOWN = 3  # earlier missing periods named in a refusal
 UNCLASSIFIED = ""
 SENTIMENTS = ("neutral", "positive", "negative")
 # Categories the model tags with too few samples or too low a performance to be trusted (owner, 2026-11-16): the period counts them as `other`,
-# for companies and for sectors alike. The step-7 rows and the snapshots keep the model's own label; only the count folds them.
+# for companies and for sectors alike. The labels are literals so this step stays free of torch (the model module imports it); a test ties them to
+# ``news_category_stage.LABELS``. The step-7 rows and the snapshots keep the model's own label; only the count folds them.
 OTHER = "other"
 FOLDED_INTO_OTHER = frozenset(
     {
