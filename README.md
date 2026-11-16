@@ -22,7 +22,7 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | 6 sentiment | per text and main company | `gamug/FinBERT-company-sentiment` + relevance stack (private, not pinned) | `news_sentiment` | pending |
   | 7 category | per text and main company, the D15 taxonomy (`docs/category-taxonomy.md`) | the entailment fine-tune `category-entailment-single-12`, 12 labels, **pinned although the 80% bar is not met** (54.1% held-out; `docs/category_step.md`, `docs/category_training.md`) | `news_category` | built, provisional |
   | 8 snapshot | one row per (text, main company), or per `sector` text: publication date, title, text, category, sentiment; always idempotent (`--reset` rebuilds) | none (a join) | `news_snapshot` | built (T-195; `docs/snapshot_steps.md`); not run on the corpus |
-  | 9 period summary | every 21 days from 2022-01-03 at 15:00 `BATCH_TIMEZONE`: counts per company and category (total, neutral, positive, negative), and per sector summed from the companies (no LLM) | none (counts) | `period_run`, `period_summary`, `period_item`, `sector`, `company_sector` | built (T-196; `docs/snapshot_steps.md`); not run on the corpus |
+  | 9 period summary | every 21 days from 2022-01-03 at 15:00 `BATCH_TIMEZONE`: counts per company and category (total, neutral, positive, negative; four weak categories counted as `other`), and per sector summed from the companies (no LLM) | none (counts) | `period_run`, `period_summary`, `period_item`, `sector`, `company_sector` | built (T-196; `docs/snapshot_steps.md`); not run on the corpus |
 
 - **The v1 chain, until the backfill (T-150).** Five stages over (URL, ticker) pairs, run by
   `cli/news_nlp_cli.py` and the FastAPI service: sentiment (`gamug/FinBERT-financial-news`), NER
