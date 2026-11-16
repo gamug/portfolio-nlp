@@ -365,7 +365,7 @@ Paired against B: C0 +0.10 faithfulness [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] 
 
 The pair model (text and company, `sentiment_pair`) gives three class probabilities; they are stacked with the relevance score by a logistic regression
 (`config/sentiment_stack.json`). Figures are of the **nested cross-validation** over the **809 marked rows** (weighted, D37), **not held out**, on the whole marked
-population (pairs of other companies included), whereas the step scores main pairs only. The 180-text gold has not been scored with the stack (T-148c4, T-193).
+population (pairs of other companies included), whereas the step scores main pairs only. The 180-text gold has not been scored with the stack (T-148c4, T-193). **The one held-out check is section 5.1:** the step as it ran on the corpus, scored on **190 pieces tagged by the owner**: accuracy 73.7% [67.0, 79.4] (under the 80% bar of D32), precision 83.0% / 69.4% / 56.7% and recall in the sample 76.0% / 80.6% / 53.1% for positive / negative / neutral; neutral is almost never predicted (weighted recall 4.4%).
 
 ### Dataset description
 
@@ -378,6 +378,7 @@ The label is **what a text says about one company**, not the sentiment of its se
 | Training set 1 (`sentiment_train.csv`) | 450 summaries (424 read as a pair) | 232 positive, 113 negative, 105 neutral | `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, plus the mark | three batches of 150, 150 per class the old model predicted |
 | Training set 2 (`sentiment_train_2.csv`) | 405 summaries (385 read as a pair) | 178 positive, 116 negative, 111 neutral | as above | same design, 135 per predicted class |
 | Replay | 341 sentences drawn of 925 eligible (those that name their article's company) | | | read as a pair with that company, mixed into every training set |
+| **Held-out check** (`gold/sentiment_val190.csv`, section 5.1) | 190 pieces of the corpus run, two draws (90 + 100); never training data | 96 positive, 62 negative, 32 neutral | `key`, `article_id`, `item_id`, `ticker`, `batch`, `text_source`, `text_hash`, `predicted`, `predicted_score`, `relevance_score`, `pub_date`, the three revisions, `sentiment`, `notes`; the texts are in `gold/texts/sentiment_val190_texts.csv` | pieces (sub-news) of the stored summary step, not summaries of articles; 38 are distilbart summaries, the rest original short texts; the model's own call is kept apart from the owner's tag |
 
 The draws balance the classes the old model predicted, not the true classes, so every figure is weighted by the pool size of the predicted class over the texts drawn from it. Together the two training sets give 809 pair rows. No text of the gold or of a held-out set is in any training set or in the replay.
 Sector, market and economy texts (46 rows) are tagged for their scope and left out of the pair model.
@@ -397,7 +398,7 @@ The pair model reads `[company] [SEP] [text chunk]` and averages the chunk proba
 | **Plus relevance, stack (selected)** | **0.814** | neutral precision 0.787, recall 0.686; negative 0.747 / 0.748 |
 | Plain `ProsusAI/finbert` as the start, stacked | 0.811 | the same within noise; the project's own endpoint stays |
 
-Selected on 2026-11-10: the pair model started from the project's endpoint `gamug/FinBERT-financial-news`, trained on all 809 rows plus the 341 replay sentences, stacked with the fine-tuned relevance model. The pin is not decided: it waits on the 180-text gold by the rule of D35.
+Selected on 2026-11-10 (the held-out check of section 5.1 came after, and took no part in the selection): the pair model started from the project's endpoint `gamug/FinBERT-financial-news`, trained on all 809 rows plus the 341 replay sentences, stacked with the fine-tuned relevance model. The pin is not decided: it waits on the 180-text gold by the rule of D35.
 
 | Class | Pair model alone P / R | Gate P / R | **Stack (the step) P / R** |
 |---|---|---|---|
@@ -412,7 +413,7 @@ Against the pinned v1 model on the same slice (score 0.648), the stack gains +0.
 the cross-validation.
 
 **Limits.**
-- Not held out, so optimistic; the final models are more confident than the fold models the stack was fitted on (not measured).
+- Not held out, so optimistic; the final models are more confident than the fold models the stack was fitted on (not measured). **The held-out check of section 5.1 is lower** (accuracy 73.7% on 190 pieces of the real run; neutral recall in the sample 53.1% against 0.686 in the cross-validation; weighted 4.4%): the two do not measure the same thing (marked summaries, other-company pairs included, against main pairs of pieces), so the gap is not a measure of the optimism.
 - A shuffled-relevance control adds at most +0.005, so the gain of the stack is real information, not noise.
 - **Neutral is the weakest class on its own** (recall 0.44 without the relevance model); the miss is not "the company is absent": the model hears a company and a polarity but does not tell whether the text is about the company.
 - The step reads summaries of at most about 2,000 characters, as chunks of at most the room the company leaves in 512 tokens, and averages the chunk probabilities.
@@ -476,7 +477,9 @@ Confusion (rows the model, columns the owner's tag; positive / negative / neutra
 - **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Nothing in TASKS owns this finding yet (T-210).
 - The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
 
-**Limits.** 30 texts per predicted class in the first draw, so the weighted recalls (and every neutral figure) are noisy; 190 texts in all. The pool is the candidates after the filters, not the whole corpus. One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
+**Limits.** The pooled set has 190 tags (positive 96, negative 62, neutral 32) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 32 tags and 30 calls, so its precision [39.2, 72.6] and recall [36.4, 69.1] are wide.
+The weighted recalls take their conditional shares from the 190 pieces and the class sizes from the first draw's pool of 57,826 (the two draws have different pools: an approximation). The neutral weighted recall of 4.4% is the neutral tags found among the positive-called pieces (7 of 88) and the negative-called ones (8 of 72), scaled by 38,559 and 18,847, plus the neutral-called ones (17 of 30, scaled by 420): it is a rate built from a few tags and is a pointer, not a measurement.
+The second draw is random and needs no weighting, but it holds only 8 neutral tags. The pool is the candidates after the filters, not the whole corpus; the pieces are distilbart-summary revision `summary-7a9bd2062bc4` (38 of the 190 are summaries; the DeepSeek summaries of the corpus run are not covered). One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
 
 ## 6. Category (step 5, `docs/category_step.md`, `docs/category_train.md`)
 

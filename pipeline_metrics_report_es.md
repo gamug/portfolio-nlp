@@ -365,7 +365,7 @@ Pareado contra B: C0 +0.10 de fidelidad [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] 
 
 El modelo de pares (texto y empresa, `sentiment_pair`) da tres probabilidades de clase; se apilan con el puntaje de relevancia mediante una regresión logística
 (`config/sentiment_stack.json`). Las cifras son de la **validación cruzada anidada** sobre las **809 filas marcadas** (ponderada, D37), **sin held-out**, sobre toda la
-población marcada (incluye pares de otras empresas), mientras que el paso puntúa solo pares principales. El gold de 180 textos no se ha evaluado con el stack (T-148c4, T-193).
+población marcada (incluye pares de otras empresas), mientras que el paso puntúa solo pares principales. El gold de 180 textos no se ha evaluado con el stack (T-148c4, T-193). **La única verificación held-out es la sección 5.1:** el paso tal como corrió sobre el corpus, evaluado sobre **190 piezas etiquetadas por el dueño**: exactitud 73.7% [67.0, 79.4] (bajo la barra de 80% de D32), precisión 83.0% / 69.4% / 56.7% y recall en la muestra 76.0% / 80.6% / 53.1% para positivo / negativo / neutral; neutral casi nunca se predice (recall ponderado 4.4%).
 
 ### Descripción del dataset
 
@@ -378,6 +378,7 @@ La etiqueta es **lo que un texto dice sobre una empresa**, no el sentimiento de 
 | Conjunto de entrenamiento 1 (`sentiment_train.csv`) | 450 resúmenes (424 leídos como par) | 232 positivos, 113 negativos, 105 neutrales | `key`, `article_id`, `ticker`, `company`, `body_hash`, `rule_scope`, `revision`, `predicted`, `pool_class_size`, `block`, `batch`, `slice`, `text_hash`, `pub_date`, más la marca | tres lotes de 150, 150 por clase que predijo el modelo anterior |
 | Conjunto de entrenamiento 2 (`sentiment_train_2.csv`) | 405 resúmenes (385 leídos como par) | 178 positivos, 116 negativos, 111 neutrales | como arriba | mismo diseño, 135 por clase predicha |
 | Replay | 341 oraciones sorteadas de 925 elegibles (las que nombran la empresa de su artículo) | | | se leen como par con esa empresa, mezcladas en todo conjunto de entrenamiento |
+| **Verificación held-out** (`gold/sentiment_val190.csv`, sección 5.1) | 190 piezas de la corrida sobre el corpus, dos sorteos (90 + 100); nunca de entrenamiento | 96 positivas, 62 negativas, 32 neutrales | `key`, `article_id`, `item_id`, `ticker`, `batch`, `text_source`, `text_hash`, `predicted`, `predicted_score`, `relevance_score`, `pub_date`, las tres revisiones, `sentiment`, `notes`; los textos están en `gold/texts/sentiment_val190_texts.csv` | piezas (sub-news) del paso de resumen guardado, no resúmenes de artículos; 38 son resúmenes de distilbart, el resto textos cortos originales; la llamada del propio modelo se guarda aparte de la etiqueta del dueño |
 
 Los sorteos equilibran las clases que predijo el modelo anterior, no las clases verdaderas, así que toda cifra se pondera por el tamaño del pool de la clase predicha sobre los textos sorteados de ella. Juntos, los dos conjuntos de entrenamiento dan 809 filas de pares. Ningún texto del gold ni de un conjunto held-out está en un conjunto de entrenamiento ni en el replay.
 Los textos de sector, mercado y economía (46 filas) se etiquetan por su alcance y se dejan fuera del modelo de pares.
@@ -397,7 +398,7 @@ El modelo de pares lee `[empresa] [SEP] [fragmento de texto]` y promedia las pro
 | **Más relevancia, stack (seleccionado)** | **0.814** | precisión neutral 0.787, recall 0.686; negativo 0.747 / 0.748 |
 | `ProsusAI/finbert` simple como punto de partida, con stack | 0.811 | lo mismo dentro del ruido; se queda el endpoint propio del proyecto |
 
-Seleccionado el 2026-11-10: el modelo de pares iniciado desde el endpoint del proyecto `gamug/FinBERT-financial-news`, entrenado con las 809 filas más las 341 oraciones de replay, apilado con el modelo de relevancia afinado. La fijación no está decidida: espera al gold de 180 textos según la regla de D35.
+Seleccionado el 2026-11-10 (la verificación held-out de la sección 5.1 vino después y no participó en la selección): el modelo de pares iniciado desde el endpoint del proyecto `gamug/FinBERT-financial-news`, entrenado con las 809 filas más las 341 oraciones de replay, apilado con el modelo de relevancia afinado. La fijación no está decidida: espera al gold de 180 textos según la regla de D35.
 
 | Clase | Modelo de pares solo P / R | Compuerta P / R | **Stack (el paso) P / R** |
 |---|---|---|---|
@@ -412,7 +413,7 @@ Frente al modelo v1 fijado sobre el mismo corte (puntaje 0.648), el stack gana +
 la validación cruzada.
 
 **Límites.**
-- No es held-out, así que es optimista; los modelos finales son más confiados que los modelos de pliegue sobre los que se ajustó el stack (no se midió).
+- No es held-out, así que es optimista; los modelos finales son más confiados que los modelos de pliegue sobre los que se ajustó el stack (no se midió). **La verificación held-out de la sección 5.1 es menor** (exactitud 73.7% sobre 190 piezas de la corrida real; recall de neutral en la muestra 53.1% frente a 0.686 en la validación cruzada; ponderado 4.4%): no miden lo mismo (resúmenes marcados, con pares de otras empresas, frente a pares principales de piezas), así que la brecha no es una medida del optimismo.
 - Un control con relevancia barajada suma a lo sumo +0.005, así que la ganancia del stack es información real, no ruido.
 - **Neutral es la clase más débil por sí sola** (recall 0.44 sin el modelo de relevancia); el fallo no es "la empresa está ausente": el modelo oye una empresa y una polaridad pero no distingue si el texto trata de la empresa.
 - El paso lee resúmenes de a lo sumo unos 2,000 caracteres, en fragmentos de a lo sumo el espacio que la empresa deja en 512 tokens, y promedia las probabilidades de los fragmentos.
@@ -476,7 +477,9 @@ Confusión (filas el modelo, columnas la etiqueta del dueño; positivo / negativ
 - **Neutral casi nunca se predice**: el modelo llama neutrales a 420 de los 57,826 textos del universo (0.7%), mientras que el dueño etiquetó neutral el 16.8% de las 190 (32); por eso el recall ponderado es 4.4%. Su precisión (56.7%) es moderada. La validación cruzada del modelo de pares dio un recall de neutral de 0.686; sobre piezas reales es mucho menor (no miden lo mismo: resúmenes marcados frente a pares principales de piezas). Nada en TASKS es dueño de este hallazgo todavía (T-210).
 - El segundo sorteo es más fácil (exactitud 80.0% frente a 66.7%): su filtro hace que la empresa sea el tema del texto, y el primer sorteo incluye también textos donde se menciona de pasada, que el modelo lee como una dirección.
 
-**Límites.** 30 textos por clase predicha en el primer sorteo, así que los recalls ponderados (y toda cifra de neutral) son ruidosos; 190 textos en total. El universo son las candidatas tras los filtros, no todo el corpus. Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano y depende de la regla usada.
+**Límites.** El conjunto junto tiene 190 etiquetas (positivo 96, negativo 62, neutral 32) y 190 llamadas (88, 72, 30). **Positivo y negativo descansan en más de 60 etiquetas y más de 70 llamadas cada uno; neutral es la clase delgada**: 32 etiquetas y 30 llamadas, así que su precisión [39.2, 72.6] y su recall [36.4, 69.1] son anchos.
+Los recalls ponderados toman sus proporciones condicionales de las 190 piezas y los tamaños de clase del universo de 57,826 del primer sorteo (los dos sorteos tienen universos distintos: una aproximación). El recall ponderado de neutral, 4.4%, es el de las etiquetas neutral halladas entre las piezas llamadas positivas (7 de 88) y las llamadas negativas (8 de 72), escaladas por 38,559 y 18,847, más las llamadas neutrales (17 de 30, escaladas por 420): es una tasa construida con pocas etiquetas y es una pista, no una medición.
+El segundo sorteo es al azar y no necesita ponderación, pero tiene solo 8 etiquetas neutral. El universo son las candidatas tras los filtros, no todo el corpus; las piezas son de la revisión de resumen con distilbart `summary-7a9bd2062bc4` (38 de las 190 son resúmenes; los resúmenes de DeepSeek de la corrida sobre el corpus no están cubiertos). Un lector, sin segunda lectura; la línea entre neutral y una dirección no se fijó de antemano y depende de la regla usada.
 
 ## 6. Category (paso 5, `docs/category_step.md`, `docs/category_train.md`)
 
