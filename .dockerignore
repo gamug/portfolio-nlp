@@ -1,0 +1,12 @@
+# Allow-list: the context holds only what a target copies (the app target: src, apps, cli, config,
+# pyproject.toml, uv.lock; the dev target copies nothing). A new local folder, a `.env`, a database
+# or a model can therefore never reach an image.
+*
+!pyproject.toml
+!uv.lock
+!src
+!apps
+!cli
+!config
+**/__pycache__
+**/*.pyc

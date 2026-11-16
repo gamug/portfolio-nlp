@@ -15,6 +15,9 @@ component; every rule below assumes the stack actually pinned in
 1. **Runtime**: Python `>=3.12,<3.13`, dependency-managed with `uv` (lockfile
    `uv.lock`). Do not add a second package manager (pip/poetry/conda) — all
    installs go through `uv sync` / `uv add`.
+   A Python or uv bump changes `.python-version`, `pyproject.toml`, and the
+   `PYTHON_IMAGE` / `UV_VERSION` of the `Dockerfile` together (the Docker
+   workflow builds both targets).
 2. **ML/NLP core**: PyTorch (`torch>=2.4,<2.7`, pinned to the `cu124` wheel
    index so `uv sync` reproduces the same GPU build) + Hugging Face
    `transformers`/`datasets`/`accelerate`/`evaluate`/`seqeval`/`huggingface_hub`.
