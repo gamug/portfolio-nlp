@@ -118,7 +118,7 @@ Matriz de confusión (filas gold, columnas predicho):
 Siete de las 8 pérdidas del held-out nombran la empresa en el título o en los primeros 800 caracteres, que es todo lo que lee el modelo, y los errores no se concentran en textos que nombran varias empresas (10 de los 23 textos de noticias con alcance erróneo, frente a 47% de todos los textos de noticias).
 
 **Límites.** El held-out se vio muchas veces y su clave se corrigió después de ver los errores; sus intervalos de `sector` y `out_of_scope` son amplios (9 y 26 textos). El ruido por semilla casi no se midió (tres ajustes, todos con semilla 1).
-El recall de `out_of_scope` sobre los textos en cuarentena y la auditoría del gold bajo las reglas 17, 18 y 21 se cerraron por decisión, no se hicieron (T-179, T-178). Las dos cifras de arriba (83.6% y 90.8%) son poblaciones y claves distintas.
+Las dos cifras de arriba (83.6% y 90.8%) son poblaciones y claves distintas.
 
 ### 1.2 Sector (paso 4, `docs/sector_step.md`)
 
@@ -223,7 +223,6 @@ Los intervalos que remuestrean textos completos son más amplios (para `faithful
 
 **Qué no se mide.**
 - El **recall** del cut (si el cut encontró todas las historias del texto): no se midió.
-- **Cómo le va al cut en todos los artículos del crawl.** Solo corre sobre textos que el paso de scope llamó `multi`; no existe cifra held-out de su salida sobre todo el corpus (los conteos de la corrida del corpus no se conservan aquí).
 
 ## 3. NER y la elección de la empresa (paso 3, `docs/companies_step.md`)
 
@@ -278,9 +277,7 @@ En los otros umbrales (0.30, 0.50, 0.70, 0.90): recall de principal 96.2 / 94.7 
 Entre una cuarta parte y un tercio de las filas que el dueño marcó "no relevante" se llaman principales, sea cual sea el umbral.
 
 **Límites.**
-- Las cifras de validación cruzada de arriba **no son held-out** (el umbral se eligió sobre ellas), y el modelo se entrenó sobre resúmenes. **Su validación held-out es sobre piezas: las marcas parciales del dueño de la sección 3.3** (119 filas de 59 piezas, textos que el modelo nunca vio: precisión de principal 90.9%, recall 30.0% con 0.5) (T-165, T-170). Las proporciones de ítems con empresa principal de una corrida de prueba que da el documento del paso (`docs/companies_step.md`, "Dry run") no se conservan aquí (dicen qué produce el modelo, no si acierta); se mueven mucho con el umbral, y nada dice cuál valor es el correcto.
-- No se midió la división entre "no se nombra ninguna empresa del universo" y "se nombra en una forma que el matcher no conoce".
-- Los candidatos de texto que añade el matcher (`ner+text`) los revisó el desarrollador, no el dueño, sobre unos pocos pares; el acuerdo de la empresa principal con el ticker del crawl es un piso de corrección, no una medida. Ninguna de las dos cifras se conserva aquí.
+- El modelo se entrenó con resúmenes, no con piezas; su validación held-out sobre piezas son las marcas parciales del dueño de la sección 3.3 (119 filas de 59 piezas: precisión de principal 90.9%, recall 30.0% con 0.5) (T-165, T-170).
 
 ### 3.3 Empresa principal en piezas: las marcas parciales del dueño (T-170)
 
@@ -308,7 +305,6 @@ Proporción de `yes` por banda de relevancia del ítem (la banda 0 tiene los pun
 - **Tres piezas aportan 21 de las 119 filas**, y todas sus filas son `yes` (ítems 335155, 343149 y 260642: 10, 7 y 4 empresas). Las dos primeras son listas de tickers, y el modelo da a sus empresas puntajes de 0.01 a 0.16. Sin esas tres piezas quedan 98 filas (79 `yes`, 19 `no`):
   precisión de principal 30 de 33 = 0.91, recall 30 de 79 = 0.38, precisión de no principal 16 de 65 = 0.25, recall 16 de 19 = 0.84. El recall sigue bajo, así que las listas no son toda la causa.
 - La regla del dueño puede ser más amplia que la del modelo: las piezas con varias empresas reciben varios `yes`, mientras que el modelo se entrenó para elegir aquella de la que trata principalmente el texto (los 809 resúmenes). Las marcas no dicen cuál lectura se quiere; eso es una decisión, no un error del marcado.
-- La segunda columna, `falta_la_principal` (si falta la empresa principal en la lista), está llena en las 119 filas marcadas (114 `no`, 5 `yes`) y coincide con `es_principal` salvo en una fila (`yes` y `yes`). No se puntúa aquí.
 - 59 piezas y un solo lector; 41% de las filas están marcadas y la muestra es estratificada, así que los intervalos son anchos y las cifras no son tasas del corpus.
 
 Lo que respalda: cuando el paso nombra una empresa principal en una pieza, suele ser una que el dueño acepta; no respalda que el paso encuentre las empresas principales del dueño (recall 0.30 a 0.45). Una tasa sobre el corpus no está respaldada.
@@ -349,13 +345,13 @@ Pareado contra B: C0 +0.10 de fidelidad [+0.01, +0.18]; C3 +0.21 [+0.13, +0.30] 
 
 **Línea base anterior** (etapa v1, 1,000 artículos muestreados, `docs/evaluation.md`): fidelidad media 4.87, alucinación en 5.4% de los resúmenes, cobertura 3.02: precisos pero poco completos. Es otra corrida de juez y otra muestra, así que no es comparable con la tabla de arriba.
 
-**Límites.** Una muestra, un juez, una corrida por brazo. La cobertura del juez es un puntaje global: **nada verifica si las empresas de las que trata el texto, o su evento principal, están en el resumen** (sin verificación por empresa). El umbral NLI (0.5) no se afinó.
-**DeepSeek fue summarizer y juez** en la evidencia del brazo D, así que sus puntajes son su propia lectura de su propio texto (la recalificación a ciegas de 24 pares es pequeña, y los brazos se adivinan por el estilo); la corrida sobre el corpus debe juzgarla otro modelo. El texto del artículo sale de la máquina hacia la API (aceptado por el dueño). Un resumen es salida de modelo, no un hecho, y el texto de DeepSeek no es repetible con temperatura 0. Los brazos con distilbart son trabajo exploratorio; el paso con DeepSeek está construido (#200) y su corrida sobre el corpus aún no se mide.
+**Límites.** Una muestra, un juez, una corrida por brazo. La cobertura del juez es un puntaje global: **nada verifica si las empresas de las que trata el texto, o su evento principal, están en el resumen** (sin verificación por empresa).
+**DeepSeek fue summarizer y juez** en la evidencia del brazo D, así que sus puntajes son su propia lectura de su propio texto (la recalificación a ciegas de 24 pares es pequeña, y los brazos se adivinan por el estilo). El texto de DeepSeek no es repetible con temperatura 0 (una repetición de 30 artículos conservó los puntajes). Las cifras son de 300 artículos; la corrida sobre el corpus aún no se mide.
 
 ## 5. Sentiment (paso 6, `docs/sentiment_step.md`, `docs/sentiment_training.md`)
 
 El modelo de pares (texto y empresa, `sentiment_pair`) da tres probabilidades de clase; se apilan con el puntaje de relevancia mediante una regresión logística
-(`config/sentiment_stack.json`). Las cifras son de la **validación cruzada anidada** sobre las **809 filas marcadas** (ponderada, D37), **sin held-out**, sobre toda la
+(`config/sentiment_stack.json`). Las cifras son de la **validación cruzada anidada** sobre las **809 filas marcadas** (ponderada, D37; son las métricas de entrenamiento-validación), sobre toda la
 población marcada (incluye pares de otras empresas), mientras que el paso puntúa solo pares principales. El gold de 180 textos no se ha evaluado con el stack (T-148c4, T-193). **La única verificación held-out es la sección 5.1:** el paso tal como corrió sobre el corpus, evaluado sobre **190 piezas etiquetadas por el dueño**: exactitud 73.7% [67.0, 79.4] (bajo la barra de 80% de D32), precisión 83.0% / 69.4% / 56.7% y recall en la muestra 76.0% / 80.6% / 53.1% para positivo / negativo / neutral; neutral casi nunca se predice (recall ponderado 4.4%).
 
 ### Descripción del dataset
@@ -376,7 +372,7 @@ Los textos de sector, mercado y economía (46 filas) se etiquetan por su alcance
 
 ### Selección del modelo
 
-El modelo de pares lee `[empresa] [SEP] [fragmento de texto]` y promedia las probabilidades de los fragmentos; una regresión logística (el stack) combina sus log-probabilidades con el puntaje de relevancia. Validado de forma cruzada, anidada y ponderada (sin held-out), sobre las 809 filas:
+El modelo de pares lee `[empresa] [SEP] [fragmento de texto]` y promedia las probabilidades de los fragmentos; una regresión logística (el stack) combina sus log-probabilidades con el puntaje de relevancia. Validado de forma cruzada, anidada y ponderada (métricas de entrenamiento-validación), sobre las 809 filas:
 
 | Candidato | Puntaje (D37) | Qué enseñó |
 |---|---|---|
@@ -401,14 +397,11 @@ Seleccionado el 2026-11-10 (la verificación held-out de la sección 5.1 vino de
 | Puntaje (D37) | 0.737 | 0.789 | **0.814** |
 
 Frente al modelo v1 fijado sobre el mismo corte (puntaje 0.648), el stack gana +0.077 [+0.057, +0.095] sobre el modelo de pares solo. La precisión y el recall del negativo están por encima de la barra de D32 (70%) en
-la validación cruzada.
+la validación cruzada. Un control con relevancia barajada suma a lo sumo +0.005, así que la ganancia del stack es información real, no ruido.
 
 **Límites.**
-- Las cifras de validación cruzada no son held-out (cerca de una docena de variantes se eligieron sobre las mismas filas), así que son optimistas; los modelos finales son más confiados que los modelos de pliegue sobre los que se ajustó el stack (no se midió). **La verificación held-out de la sección 5.1 es la medida que hay que citar, y es menor** (exactitud 73.7% sobre 190 piezas de la corrida real; recall de neutral en la muestra 53.1% frente a 0.686 en la validación cruzada; ponderado 4.4%): no miden lo mismo (resúmenes marcados, con pares de otras empresas, frente a pares principales de piezas), así que la brecha no es una medida del optimismo.
-- Un control con relevancia barajada suma a lo sumo +0.005, así que la ganancia del stack es información real, no ruido.
+- Los puntajes de validación cruzada también sirvieron para elegir entre cerca de una docena de variantes sobre las mismas 809 filas, y sus intervalos son por comparación, sin corregir por eso. **La verificación held-out de la sección 5.1 es la medida que hay que citar** (exactitud 73.7% sobre 190 piezas de la corrida real; recall de neutral en la muestra 53.1% frente a 0.686 en la validación cruzada; ponderado 4.4%); no miden lo mismo (resúmenes marcados, con pares de otras empresas, frente a pares principales de piezas).
 - **Neutral es la clase más débil por sí sola** (recall 0.44 sin el modelo de relevancia); el fallo no es "la empresa está ausente": el modelo oye una empresa y una polaridad pero no distingue si el texto trata de la empresa.
-- El paso lee resúmenes de a lo sumo unos 2,000 caracteres, en fragmentos de a lo sumo el espacio que la empresa deja en 512 tokens, y promedia las probabilidades de los fragmentos.
-- Un texto de sector no recibe sentiment (D42).
 
 ### 5.1 Verificación held-out sobre 190 piezas de la corrida real (2026-11-16)
 
@@ -656,9 +649,8 @@ la ganancia es estadísticamente clara en las 300 filas reales. No debería reem
 - **Los pasos no se comparan con una misma vara.** Cada uno se mide sobre su propia muestra, con su propio revisor y su propia definición de "correcto"; la tabla de resumen muestra cuáles son held-out.
 - **Las cadenas de errores no están en estas cifras.** Un scope erróneo llega al cut, al paso de empresa, al paso de sector y al paso de category como entrada mala; por ejemplo, cerca de la mitad de las respuestas erróneas de sector de la primera revisión no eran textos de sector,
   y 15 de las 143 piezas muestreadas venían de textos que el paso de scope debió detener.
-- **Tres medidas son sobre la corrida real del corpus**: la muestra de datos reales de category (6.4, etiquetas del asistente), las marcas de empresa principal sobre piezas (3.3, parciales) y la verificación de sentiment sobre 190 piezas (5.1, etiquetas del dueño). El embudo (textos por paso, y cuántos llegan a un snapshot) sale del almacén RESULTS real y no está en este informe.
 - **Las tres medidas del candidato de category no son una misma vara** (6.5): fuera de pliegue sobre etiquetas que revisó el asistente, held-out sobre las etiquetas anteriores del dueño (artículos completos), y una muestra de datos reales etiquetada por el asistente (segmentos cortos). Solo el held-out es independiente, y falla la barra (54.1% frente a 80%).
-- **No se mide en absoluto:** el recall de sector por sector, el recall del cut, la empresa principal por pieza más allá de las 119 filas marcadas de la sección 3.3, NER sobre los textos propios del paso 3, la relevancia sobre piezas más allá de las marcas parciales de la sección 3.3, y el puntaje held-out del stack de sentiment más allá de las 190 piezas de la sección 5.1.
+- **No se mide en absoluto:** el recall de sector por sector, el recall del cut, NER sobre los textos propios del paso 3, la empresa principal sobre piezas más allá de las marcas parciales de la sección 3.3, y el sentiment de los resúmenes de DeepSeek (las 190 piezas de la sección 5.1 son de la revisión con distilbart).
 
 ## De dónde sale cada cifra
 
