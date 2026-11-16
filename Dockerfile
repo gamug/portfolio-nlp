@@ -48,7 +48,10 @@ COPY --from=uv /uv /uvx /usr/local/bin/
 # git: portfolio-common is a git dependency (tag-pinned in pyproject.toml).
 # gh: the PR workflow of the SDD process uses it. curl: scripts/init.sh (the Claude installer).
 # All three come from the Debian repo.
-RUN apt-get update \
+# The devcontainers image ships a Yarn apt source whose signing key has expired (CI, 2026-11-16: NO_PUBKEY
+# 62D54FD4003F6525), which fails `apt-get update`; nothing here uses yarn.
+RUN rm -f /etc/apt/sources.list.d/yarn.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends git gh ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
