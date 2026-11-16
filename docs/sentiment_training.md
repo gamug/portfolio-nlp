@@ -401,6 +401,47 @@ it as the candidate and score it once on the 180-text gold (T-148c4). One run of
 is the candidate or the command is repeated (the owner's choice; no selection among runs either way). The grid's `--final` run (450 rows, train slice
 only) stays the recorded run of the first D35 recipe.
 
+## Held-out check on 190 pieces of the real run (2026-11-16)
+
+The first held-out check of the sentiment step on texts that no model or setting saw: the step as it ran on the corpus, the pair model and stack of
+revision `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), scored on **190 pieces tagged by the owner** (one reader) in two draws.
+
+| Item | First draw (90) | Second draw (100) |
+|---|---|---|
+| Source | sub-news of the stored summary step (`news_summary`, revision `summary-7a9bd2062bc4`) with a main company of the company step (`companies-f349536cf701`, relevance 0.7 or more) and a sentiment score; the text is what the sentiment step reads | the same, with a stricter pool |
+| Draw | 30 per class the model predicted (10 stored summaries and 20 original short texts each), one text per article | simple random, one per article |
+| Pool | 57,826 candidates (positive 38,559, negative 18,847, neutral 420) | about 21,000 candidates |
+| Filters | 250 characters or more and two sentences; mostly letters; no ticker lists or disclosure lines; the company named in the text; English; no article of `gold/sentiment_gold.csv` or the training sets | the same, plus relevance 0.9 or more, 300 to 1,500 characters, the company named twice and within the first 100 characters, fewer than two analyst calls, no article of the first draw |
+| Tags | positive 39, negative 27, neutral 24 | positive 57, negative 35, neutral 8 |
+| Columns | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (the prediction is in a separate `key.csv`, with a `batch` column) | the same |
+
+Texts are 250 to 1,626 characters (median about 400). The Spanish title and text are a reading aid (`news_nlp.translate`); they never enter a model. Files: `data/sentiment_val90/` (`to_tag.csv` with the 190 rows,
+`key.csv`; local, git-ignored); scripts `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py`. One row is noted "company is not the main" and is kept.
+
+**Results, the 190 pooled** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found among the 190; recall weighted corrects for the first draw being stratified by the prediction, with the pool sizes above; F1 from the two):
+
+| Class | Precision | Recall (sample) | Recall (weighted) | F1 (sample) | F1 (weighted) |
+|---|---|---|---|---|---|
+| Positive | 83.0% [73.8, 89.4] (73/88) | 76.0% [66.6, 83.5] (73/96) | 89.4% | 79.3% | 86.1% |
+| Negative | 69.4% [58.0, 78.9] (50/72) | 80.6% [69.1, 88.6] (50/62) | 78.6% | 74.6% | 73.7% |
+| Neutral | 56.7% [39.2, 72.6] (17/30) | 53.1% [36.4, 69.1] (17/32) | 4.4% | 54.8% | 8.2% |
+
+Accuracy: 73.7% [67.0, 79.4] (140 of 190); weighted to the pool 78.4%.
+Confusion (rows the model, columns the owner's tag; positive / negative / neutral): positive 73 / 8 / 7; negative 14 / 50 / 8; neutral 9 / 4 / 17.
+
+By draw: **first 90** (stratified): accuracy 66.7% [56.4, 75.5], weighted 74.4%; precision 80.0% / 63.3% / 56.7%; weighted recall 88.8% / 69.7% / 4.0% (positive / negative / neutral).
+**The 100** (random, no weighting needed): accuracy 80.0% [71.1, 86.7]; positive precision 84.5% [73.1, 91.6] (49/58), recall 86.0% [74.7, 92.7] (49/57); negative precision 73.8% [58.9, 84.7] (31/42), recall 88.6% [74.0, 95.5] (31/35);
+the model called no text neutral and missed all 8 neutral tags (recall 0%, [0.0, 32.4]).
+
+**What it says.**
+- **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
+- **Negative** recall is 80.6% in the sample and precision 69.4% [58.0, 78.9], at the D32 bar (70%) within the interval; in the first draw alone it was 63.3%, in the cleaner second draw 73.8%.
+- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces).
+- The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
+
+**Limits.** 30 texts per predicted class in the first draw, so the weighted recalls (and every neutral figure) are noisy; 190 texts in all. The two draws have different pools, and the pooled weighted figures treat them as samples of one pool: an approximation.
+The pool is the candidates after the filters, not the whole corpus. One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
+
 ## Limits of these figures (read before using them)
 
 - **Not strictly nested.** The base models are out-of-fold (a text is never scored by a model that saw it),
@@ -429,7 +470,7 @@ only) stays the recorded run of the first D35 recipe.
 - **Class imbalance** of the tags (about 410 positive / 229 negative / 216 neutral of the 855) was not addressed (no class
   weights, no resampling): T-148c3e. The metric already weights by pool size, and neutral's weakness is mostly the label
   mixture, not its count, so the expected gain is small.
-- All figures are cross-validated on tags the recipe was tuned on; **none is a held-out score**.
+- All figures above are cross-validated on tags the recipe was tuned on; **none is a held-out score**. The one held-out check is the 190-piece one of the section before this (2026-11-16).
 - Not done, with their TASKS entries: the strictly nested check of the stack (T-148c3c; the final relevance model
   is built); the stack in `sentiment_stage`, its cost per article, what is stored when the two
   models disagree, and the score on the 180-text gold (T-148c3d, T-148c4); class weights (T-148c3e). Nothing
