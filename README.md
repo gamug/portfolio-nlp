@@ -61,6 +61,23 @@ Opening the repo in the provided **Dev Container** (`.devcontainer/`) also bind-
   `export THESIS_HOST_DIR=/Users/you/thesis` or, on Windows, `setx THESIS_HOST_DIR D:\thesis`. This
   variable name is shared across the sibling `portfolio-*` repos that mount the same directory.
 
+### Docker
+
+One `Dockerfile`, two targets (the header of the file has the commands):
+
+- **`dev`** is what the Dev Container builds (`.devcontainer/devcontainer.json`, `build.target`): Python 3.12,
+  uv, git and gh. The repo is mounted, not copied; `scripts/init.sh` syncs the dependencies and installs the
+  three pre-commit hook types.
+- **`app`** is the FastAPI service (port 8003, healthcheck on `/health`) and the batch CLIs
+  (`news_nlp_cli.py`, `news_nlp_steps.py`) with the locked dependencies baked in. It never contains `.env`:
+  pass it with `--env-file .env` (plain `KEY=value`, no quotes, no `export`), mount the thesis directory at
+  `/workspaces/thesis` so `DATABASE_URL` / `SOURCE_DATABASE_URL` resolve, and mount a volume at `/models/hf`
+  (`HF_HOME`) to keep the downloaded models. `--gpus=all` is optional: without it torch runs on CPU, so check
+  with `python -c "import torch; print(torch.cuda.is_available())"`.
+- Python and uv versions live in four places that must agree: `.python-version`, `requires-python`, the
+  Dockerfile's `PYTHON_IMAGE` (pinned by digest; the build checks the minor version) and `UV_VERSION`.
+  The `Docker` workflow builds both targets when one of those files changes.
+
 ## Run
 
 ```bash

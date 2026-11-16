@@ -1,20 +1,12 @@
-# Keep the build context small and free of secrets: the dev target copies nothing,
-# the app target copies only src, apps, cli, config, pyproject.toml and uv.lock.
-.git
-.env
-.venv
-.venv-*
-.mypy_cache
-.pytest_cache
-.ruff_cache
-__pycache__
-*.pyc
-data
-models
-mlruns
-experiments/results
-docs
-tests
-gold
-D:*
-*.db
+# Allow-list: the context holds only what a target copies (the app target: src, apps, cli, config,
+# pyproject.toml, uv.lock; the dev target copies nothing). A new local folder, a `.env`, a database
+# or a model can therefore never reach an image.
+*
+!pyproject.toml
+!uv.lock
+!src
+!apps
+!cli
+!config
+**/__pycache__
+**/*.pyc

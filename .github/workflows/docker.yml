@@ -1,0 +1,59 @@
+name: Docker
+
+# Builds both targets of the Dockerfile (nothing is pushed) when what they are made of changes,
+# so the image does not rot silently on the next lock-file or Dockerfile edit.
+on:
+  push:
+    branches: [master]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - .devcontainer/**
+      - pyproject.toml
+      - uv.lock
+      - scripts/init.sh
+      - .github/workflows/docker.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - .devcontainer/**
+      - pyproject.toml
+      - uv.lock
+      - scripts/init.sh
+      - .github/workflows/docker.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the dev target (the devcontainer)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: portfolio-nlp:dev
+          cache-from: type=gha,scope=dev
+          cache-to: type=gha,scope=dev,mode=max
+
+      - name: Smoke test the dev image
+        run: docker run --rm portfolio-nlp:dev sh -c "python --version && uv --version && gh --version | head -1 && git --version"
+
+      - name: Build the app target (the service)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: app
+          load: true
+          tags: portfolio-nlp:app
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+
+      - name: Smoke test the app image
+        # CPU: the cu124 wheel imports without a GPU. portfolio_common is the git dependency.
+        run: docker run --rm portfolio-nlp:app python -c "import torch, fastapi, portfolio_common, news_nlp; print(torch.__version__)"

@@ -1,7 +1,8 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
+// (this file started from the Python template; the image is now the repo Dockerfile)
 {
-    "name": "Python with UV",
+    "name": "portfolio-nlp",
     // Built from the repo Dockerfile (target `dev`): Python 3.12, uv, git and gh. The same file
     // builds the service image (target `app`). More info: https://containers.dev/guide/dockerfile
     "build": {
