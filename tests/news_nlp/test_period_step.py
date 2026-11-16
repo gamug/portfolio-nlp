@@ -20,6 +20,7 @@ import pytest
 import news_nlp as db_module
 import news_period_stage as period
 import news_snapshot_stage as snap
+from news_category_stage import LABELS
 from news_nlp import steps, triage
 from sector_stage import SECTOR_CODES, SECTOR_DESCRIPTIONS
 from tests.news_nlp.conftest import ARTICLES_SCHEMA, seed_article, stamp_source
@@ -215,6 +216,56 @@ def test_a_company_line_counts_categories_and_the_sentiment_split_one_count_per_
         "labor": {"total": 3, "neutral": 1, "positive": 0, "negative": 2},
         "legal_regulatory": {"total": 1, "neutral": 0, "positive": 1, "negative": 0},
     }
+
+
+def test_the_four_weak_categories_count_as_other_for_companies_and_sectors(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    rows = [
+        ("a", "AAPL", "product_innovation", "positive"),
+        ("b", "AAPL", "leadership_governance", "negative"),
+        ("c", "MSFT", "capital_shareholder_returns", "neutral"),
+        ("d", "MSFT", "reputational_harm", "negative"),
+        ("e", "MSFT", "other", "neutral"),
+        ("f", "AAPL", "legal_regulatory", "neutral"),
+    ]
+    for item, ticker, category, sentiment in rows:
+        _add(conn, item, ticker, "2022-01-05T10:00:00Z", category, sentiment)
+    _run(conn)
+    companies = _summary(conn, END1, "company")
+    assert companies["AAPL"] == {
+        "other": {"total": 2, "neutral": 0, "positive": 1, "negative": 1},
+        "legal_regulatory": {"total": 1, "neutral": 1, "positive": 0, "negative": 0},
+    }
+    assert companies["MSFT"] == {"other": {"total": 3, "neutral": 2, "positive": 0, "negative": 1}}
+    sectors = _summary(conn, END1, "sector")
+    assert sectors["45"]["other"] == {"total": 5, "neutral": 2, "positive": 1, "negative": 2}
+    for lines in (*companies.values(), *sectors.values()):
+        assert not set(lines) & period.FOLDED_INTO_OTHER
+
+
+def test_the_folded_labels_are_labels_of_the_category_step() -> None:
+    assert set(LABELS) >= period.FOLDED_INTO_OTHER
+    assert period.OTHER in LABELS and period.OTHER not in period.FOLDED_INTO_OTHER
+
+
+def test_the_text_of_a_period_shows_the_folded_labels_as_other(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    _add(conn, "a", "AAPL", "2022-01-05T10:00:00Z", "product_innovation", "positive")
+    _add(conn, "b", "AAPL", "2022-01-06T10:00:00Z", "reputational_harm", "negative")
+    _add(conn, "c", "AAPL", "2022-01-07T10:00:00Z", "legal_regulatory", "neutral")
+    text = period.render(conn, END1, _run(conn)["period_revision"])
+    assert "  other: 2 total-0 neutral-1 positive-1 negative" in text.splitlines()
+    assert "product_innovation" not in text and "reputational_harm" not in text
+
+
+def test_the_folded_categories_are_part_of_the_period_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = period.revision("snap", {"AAPL": "45"})
+    monkeypatch.setattr(period, "FOLDED_INTO_OTHER", frozenset({"reputational_harm"}))
+    assert period.revision("snap", {"AAPL": "45"}) != before
 
 
 def test_a_sector_line_is_the_sum_of_its_companies_and_a_company_with_no_sector_is_unclassified(

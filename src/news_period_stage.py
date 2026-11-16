@@ -1,5 +1,5 @@
 """Step 9, the period summary (T-196, D42, FR-024): every 21 days from 2022-01-03, at 15:00 in ``BATCH_TIMEZONE``, the counts of the snapshots of the window
-per company and per category (total and the sentiment split), and the same counts summed per sector. No model, no LLM, no network.
+per company and per category (total and the sentiment split; four weak categories count as `other`, see ``FOLDED_INTO_OTHER``), and the same counts summed per sector. No model, no LLM, no network.
 
 Design and every decision: ``docs/snapshot_steps.md``. A written period is never rewritten; ``period_item`` says which period counted which snapshot, so a
 snapshot that reached the table after its window was written is counted in the next period as late. State is derived from the tables: a period is
@@ -33,6 +33,18 @@ PREFIX = "period-"
 SHOWN = 3  # earlier missing periods named in a refusal
 UNCLASSIFIED = ""
 SENTIMENTS = ("neutral", "positive", "negative")
+# Categories the model tags with too few samples or too low a performance to be trusted (owner, 2026-11-16): the period counts them as `other`,
+# for companies and for sectors alike. The labels are literals so this step stays free of torch (the model module imports it); a test ties them to
+# ``news_category_stage.LABELS``. The step-7 rows and the snapshots keep the model's own label; only the count folds them.
+OTHER = "other"
+FOLDED_INTO_OTHER = frozenset(
+    {
+        "product_innovation",
+        "leadership_governance",
+        "capital_shareholder_returns",
+        "reputational_harm",
+    }
+)
 
 
 class PeriodRefused(RuntimeError):
@@ -160,7 +172,12 @@ def revision(snapshot_revision: str, mapping: dict[str, str]) -> str:
     """The period revision: the snapshot revision, the counting code and the **sector of every company of the universe** (not of the companies that have
     a snapshot: a new company gaining its first snapshot must not restart the periods). A change of the universe's sectors is a new revision."""
     key = json.dumps(
-        {"snapshot": snapshot_revision, "mapping": sorted(mapping.items()), "code": _code()}
+        {
+            "snapshot": snapshot_revision,
+            "mapping": sorted(mapping.items()),
+            "code": _code(),
+            "folded": sorted(FOLDED_INTO_OTHER),
+        }
     )
     return PREFIX + hashlib.sha256(key.encode()).hexdigest()[:12]
 
@@ -197,10 +214,11 @@ def _load_rows(conn: NewsNlpDatabase, snapshot_revision: str) -> list[Row]:
 
 
 def _counts_of(rows: list[Row]) -> dict[str, dict[str, int]]:
-    """Per category: ``total`` and the sentiment split of the rows (one count per snapshot)."""
+    """Per category: ``total`` and the sentiment split of the rows (one count per snapshot). The categories of ``FOLDED_INTO_OTHER`` count as ``other``."""
     out: dict[str, dict[str, int]] = {}
     for row in rows:
-        cell = out.setdefault(row.category, dict.fromkeys(("total", *SENTIMENTS), 0))
+        label = OTHER if row.category in FOLDED_INTO_OTHER else row.category
+        cell = out.setdefault(label, dict.fromkeys(("total", *SENTIMENTS), 0))
         cell["total"] += 1
         if row.sentiment in SENTIMENTS:
             cell[row.sentiment] += 1
@@ -398,7 +416,7 @@ def run(
 
 
 def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
-    """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category."""
+    """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category (the weak categories of ``FOLDED_INTO_OTHER`` are under ``other``)."""
     run_row = conn.execute(
         "SELECT period_start, snapshot_revision FROM period_run WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
