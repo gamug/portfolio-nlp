@@ -3,7 +3,7 @@
 One of the **12 labels** (the 14 of D15, `docs/category-taxonomy.md`, with `competitive_actions` and `peer_comparison` read as `other`, owner 2026-11-14) and its group, for each **main company** of each text.
 Since 2026-11-15 (T-203, D43) the step runs **the entailment fine-tune `category-entailment-single-12`** (`config/category_step.json`, a git-ignored folder; training, datasets and every measure:
 `docs/category_training.md`), **pinned as the default by the owner although it does not meet the bar of D24** (80% on the held-out single rows): it agrees with the owner on 54.1% of them
-(the untouched zero-shot model: 43.7%) and with the assistant's tags on 71.3% of 300 real sub-news under 1,000 characters (65.7%). The labels are a first version, not the accepted ones. The rows the
+(the untouched zero-shot model: 43.7%) and with the joint tags (owner and assistant) on 71.3% of 300 real sub-news under 1,000 characters (65.7%). The labels are a first version, not the accepted ones. The rows the
 untouched model wrote (revisions `category-65f33b55b26b` and `category-981dacf6f68d`, 14 labels) stay beside this revision, unchanged.
 
 ```
@@ -134,12 +134,12 @@ The bar of D24 is **80%** agreement with the owner's labels on the held-out sing
 | | the model of this step (fine-tune) | the model before (untouched zero-shot) |
 |---|---|---|
 | held-out, 135 single rows, the owner's earlier tags, scored once | **54.1%** [45.9, 62.3] | 43.7% (43.0% with 14 labels) |
-| 300 real sub-news under 1,000 characters, the assistant's tags | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
+| 300 real sub-news under 1,000 characters, the joint tags (owner and assistant) | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
 | out of fold, 1,216 rows, tags reviewed after the first results | 87.8% | 75.5% |
 
 | the same 300, a blind LLM judge (`deepseek-chat`; T-209) | 77.0% [72.0, 81.7] | 71.0% [66.0, 76.0] |
 
-The judge agrees on the direction (paired 41 against 23, **nominal** p = 0.033; on the 220 texts outside its first run of 80, 78.2% against 70.9%, p = 0.029). It is LLM output like the assistant's tags, not a second independent reader, and it is not repeatable (2 of 80 labels changed between runs). The pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115; T-210).
+The judge agrees on the direction (paired 41 against 23, **nominal** p = 0.033; on the 220 texts outside its first run of 80, 78.2% against 70.9%, p = 0.029). It is LLM output like the joint tags (owner and assistant), not a second independent reader, and it is not repeatable (2 of 80 labels changed between runs). The pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115; T-210).
 
 Only the held-out is tagged by the owner and held out, and it is the one that fails. It reads best on short company segments (the texts of the cut) and worst on full articles. `earnings_performance`, `market_analyst_sentiment` and
 `mergers_acquisitions` are reliable; **`other` is not** (it gets 3 of 39 right on the real sample), and `investor_activity` and `leadership_governance` have too few rows to measure. The group agrees more than the label does (65.2% held-out).
@@ -157,7 +157,7 @@ tokens also has `_truncated_chunks` = 1 (read the column with `steps.class_score
 A blank text is not classified: the item is `skipped` in `pipeline_step_state` with the reason `blank text`, and is not retried at this
 revision. A ticker that is not in the universe is read as its own name (counted as `name_missing` in the run output). The `batch_size`
 of `config/pipeline_models.json` (`category`) belongs to the v1 stage and is not read here (nor is its model): the model scores one pair at a time,
-12 hypotheses each, and the step stores four items per transaction.
+12 hypotheses each, and the step stores 100 items per transaction (`CATEGORY_BATCH`, 2026-11-16; it was 4). The batch size does not change a score, so it is not part of the revision; it changes the unit of a failure (a batch that fails is redone item by item, and three batches in a row that fail completely stop the run: 300 items). The `batch_size` of the v1 stage was **not** raised with it: measured on the 6 GB GPU of the project (the real model, premise of 522 tokens), 8 articles a pass peak at 1.4 GB and take 1.3 s, and 100 peak at 13.8 GB (past the GPU memory) and take 259 s.
 
 ## Metrics
 

@@ -1,6 +1,6 @@
 # Gold datasets (Work item 18)
 
-**Status: written 2026-11-06, last updated 2026-11-13 (sets 10 and 11).** One page for every set the owner tags or checks, what it is for, where
+**Status: written 2026-11-06, last updated 2026-11-16 (set 18: the NER organisations).** One page for every set the owner tags or checks, what it is for, where
 each file lives and in which order the sets unlock the work. If a name, a size or a date here
 disagrees with `PLAN.md` (D20–D34) or `TASKS.md`, this page is the one to fix.
 
@@ -51,7 +51,7 @@ overwrites a file, with rows or without.
 
 ## The sets
 
-| # | Set | Size | `data/` working file | `gold/` file | State (sets 1 to 9 on 2026-11-07; 10 and 11 on 2026-11-13) |
+| # | Set | Size | `data/` working file | `gold/` file | State (sets 1 to 9 on 2026-11-07; 10 and 11 on 2026-11-13; 12 to 18 as each row says, the last on 2026-11-16) |
 |---|---|---|---|---|---|
 | 1 | **Scope train** (the 240 of the prompt gate + 44 sector bodies) | 284 bodies | `gate240_to_tag.csv`, `sector_extra_to_tag.csv` | `category_gold_v2.csv` | tagged and migrated |
 | 2 | **Scope test** (held-out) | 200 bodies | `heldout_to_tag.csv` | `category_gold_v2_test.csv` | drawn; **tagged by the owner and migrated 2026-11-07** (200 of 200 valid; re-reviewed 2026-11-11, 14 scope changes: **116 single, 44 multi, 14 market_economy, 10 unrelated, 9 investing_general, 7 sector**; the counts of 2026-11-07 were 118 / 47 / 11 / 8 / 7 / 9); the `gold/` file carries the tags with the draw's weights |
@@ -71,6 +71,7 @@ overwrites a file, with rows or without.
 
 | 16 | **Sentiment, held-out check on the real run** (PR #201; the owner's tags of 190 pieces of the corpus run: a measure of the sentiment step, never training data) | 190 pieces in two draws: 90 (30 per predicted class) + 100 (simple random) | `data/sentiment_val90/to_tag.csv` and `key.csv` (the Spanish columns are a tagging aid, not copied) | `sentiment_val190.csv` (`batch` 90 / 100, `predicted`, `predicted_score`, `relevance_score`, the revisions of the run, `sentiment`), texts in `texts/sentiment_val190_texts.csv`; built by `scripts/build_val_gold_2026_11_16.py`, scored by `scripts/score_sentiment_val190_2026_11_16.py` | tagged 2026-11-15 and 2026-11-16: 96 positive, 62 negative, 32 neutral; accuracy 73.7% [67.0, 79.4] (`docs/sentiment_training.md`) |
 | 17 | **Main-company marks on sub-news** (T-170; the owner's yes / no on which company of a piece is the main one: a measure of step 3, never training data) | 119 marked rows of 59 pieces of the `units5` cut (171 rows of the file still unmarked) | `data/main_company/to_tag.csv`, `to_tag.strata.json` | `main_company_marks.csv` (`es_principal`, `band`, `relevance_score`), texts in `texts/main_company_marks_texts.csv`; built by `scripts/build_val_gold_2026_11_16.py`, scored by `scripts/score_main_company_marks_2026_11_16.py` | partly marked 2026-11-15: 100 `yes`, 19 `no`; main precision 90.9%, recall 30.0% at 0.5 (`docs/main_company_training.md`) |
+| 18 | **NER organisations** (a measure of the pinned NER model, never training data) | 100 texts, 321 organisations the owner wrote comma-separated, as they appear in the text | `data/ner_val100/to_tag.csv`, `key.csv` | **not migrated to `gold/`** (public repository, the texts are news: the owner decides, T-213); scored by `scripts/ner_eval_2026_11_16.py` | tagged 2026-11-16; 14 labels not written in the text (the overlay replaces 9, keeps 1, drops 4: a proposal, the file untouched); universe companies: as they are precision 90.1%, recall 95.4%; with the overlay 92.6% / 95.5% (98.7% recall with `ner+text`) (`docs/ner_training.md`) |
 
 The `texts/` files hold the third-party article text of the rows (about 420 KB for each set); if the repository is ever made public, check the terms of those sources first. The state column is the state on the day it was written; the files themselves are the record. Counts of
 tagged rows are not kept here.

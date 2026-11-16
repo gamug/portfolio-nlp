@@ -1,0 +1,163 @@
+{
+ "texts": 100,
+ "integrity": {
+  "rows": 100,
+  "organizations": 321,
+  "repeated_in_a_row": 1,
+  "labels_not_in_the_text": [
+   {
+    "row": 14,
+    "label": "Alphabe"
+   },
+   {
+    "row": 17,
+    "label": "Casa Blanca"
+   },
+   {
+    "row": 18,
+    "label": "Japón Aflac"
+   },
+   {
+    "row": 20,
+    "label": "Unión Europea"
+   },
+   {
+    "row": 26,
+    "label": "Dish Network"
+   },
+   {
+    "row": 26,
+    "label": "Verizon Communications"
+   },
+   {
+    "row": 26,
+    "label": "Vodafone"
+   },
+   {
+    "row": 26,
+    "label": "Allergan"
+   },
+   {
+    "row": 27,
+    "label": "Reserva Federal"
+   },
+   {
+    "row": 33,
+    "label": "Douyin de ByteDance"
+   },
+   {
+    "row": 37,
+    "label": "NHTSA"
+   },
+   {
+    "row": 48,
+    "label": "Dow UnitedHealth"
+   },
+   {
+    "row": 92,
+    "label": "Alipay.Starbucks"
+   },
+   {
+    "row": 96,
+    "label": "Xiaom"
+   }
+  ],
+  "rows_with_such_labels": 11
+ },
+ "repairs": {
+  "labels_not_in_the_text": 14,
+  "replaced": 9,
+  "kept": 1,
+  "dropped": 4
+ },
+ "views": {
+  "as_is/all_organisations": {
+   "tp": 274,
+   "fp": 116,
+   "fn": 41,
+   "precision": 0.7026,
+   "recall": 0.8698,
+   "f1": 0.7773
+  },
+  "as_is/universe_only": {
+   "tp": 146,
+   "fp": 16,
+   "fn": 7,
+   "precision": 0.9012,
+   "recall": 0.9542,
+   "f1": 0.927
+  },
+  "removed/all_organisations": {
+   "tp": 274,
+   "fp": 116,
+   "fn": 27,
+   "precision": 0.7026,
+   "recall": 0.9103,
+   "f1": 0.7931
+  },
+  "removed/universe_only": {
+   "tp": 146,
+   "fp": 16,
+   "fn": 7,
+   "precision": 0.9012,
+   "recall": 0.9542,
+   "f1": 0.927
+  },
+  "repaired/all_organisations": {
+   "tp": 283,
+   "fp": 107,
+   "fn": 30,
+   "precision": 0.7256,
+   "recall": 0.9042,
+   "f1": 0.8051
+  },
+  "repaired/universe_only": {
+   "tp": 150,
+   "fp": 12,
+   "fn": 7,
+   "precision": 0.9259,
+   "recall": 0.9554,
+   "f1": 0.9404
+  },
+  "repaired/all_organisations_media_left_out": {
+   "tp": 269,
+   "fp": 101,
+   "fn": 29,
+   "precision": 0.727,
+   "recall": 0.9027,
+   "f1": 0.8054
+  },
+  "repaired/universe_only_ner_plus_text": {
+   "tp": 155,
+   "fp": 17,
+   "fn": 2,
+   "precision": 0.9012,
+   "recall": 0.9873,
+   "f1": 0.9422
+  },
+  "as_is/all_organisations_no_alias_list": {
+   "tp": 274,
+   "fp": 129,
+   "fn": 43,
+   "precision": 0.6799,
+   "recall": 0.8644,
+   "f1": 0.7611
+  }
+ },
+ "near_miss_pairs_repaired_all": 6,
+ "miss_causes_repaired_universe": {
+  "ner_untagged": [
+   "5:Meta Platforms",
+   "45:Hormel",
+   "46:MSFT",
+   "57:ORCL",
+   "60:Las Vegas Sands"
+  ],
+  "matcher_unmapped": [
+   "24:ON Semiconductor",
+   "85:Amazon"
+  ],
+  "not_located": []
+ },
+ "model": "gamug/sec-bert-finer-ord-ner@ba7b9e43e4aa023ec5691f955b276dc58158354c"
+}

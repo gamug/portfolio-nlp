@@ -91,9 +91,9 @@ STEPS = (
     steps.STEP_PERIOD,
 )
 BATCH = 16
-# texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 14 hypotheses each);
+# texts stored per transaction, redone one by one when a batch fails (the model scores one pair at a time: 12 hypotheses each; the GPU work is the same at any size);
 # `batch_size` of config/pipeline_models.json `category` belongs to the v1 stage and is not read here
-CATEGORY_BATCH = 4
+CATEGORY_BATCH = 100
 SENTIMENT_BATCH = 8  # texts stored per transaction; the pair model reads one chunk at a time
 COMPANY_BATCH = 16  # texts read together by NER and the relevance model
 SUMMARY_BATCH = 8  # texts summarised together; the model's own batch (4) is applied inside

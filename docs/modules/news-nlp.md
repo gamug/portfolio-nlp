@@ -78,6 +78,8 @@ so the actual batch width is that batch's *total chunk count*, not `NER_BATCH_SI
 itself — see the constant's comment for why (variable per-article chunk counts, unlike
 category's fixed 9-pairs-per-article width).
 
+**Hold-out (2026-11-16, `docs/ner_training.md`).** On 100 texts the owner tagged (321 organisations; 14 labels not written in the text), the pinned model with the matcher finds the universe companies named with precision 90.1% and recall 95.4% on the owner's labels as they are, and 92.6% / 95.5% (F1 0.940) with the developer's overlay on those 14 labels (9 replaced, 1 kept, 4 dropped); with the matcher over the text (`ner+text`) recall is 98.7%. On every organisation precision is 72.6% and recall 90.4% (70.3% / 87.0% as they are). Not a pin: the model is unchanged.
+
 **Why this model.** `nlpaueb/sec-bert-base` over a generic NER checkpoint (spaCy,
 `bert-base-NER`): it's domain-pretrained on 260,773 SEC 10-K filings (1993-2021) with its
 own ~30,000-subword financial vocabulary, not the generic BERT vocabulary (Loukas,
