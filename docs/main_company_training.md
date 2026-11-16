@@ -36,7 +36,7 @@ Out-of-fold, unweighted, on the 809 marked summaries:
 
 On summaries the threshold hardly matters (the scores sit near 0 or 1), and no value separates the mentions well: between a quarter and a third of
 the rows the owner marked neutral are called main. These are cross-validation figures on tags the recipe was tuned on: **not held out**, and the
-model never saw a sub-news.
+model never saw a sub-news. **Its held-out validation is the owner's marks on sub-news, below.**
 
 ## What the model does on the texts the step reads
 
