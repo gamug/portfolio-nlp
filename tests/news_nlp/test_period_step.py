@@ -217,6 +217,40 @@ def test_a_company_line_counts_categories_and_the_sentiment_split_one_count_per_
     }
 
 
+def test_the_four_weak_categories_count_as_other_for_companies_and_sectors(
+    conn: db_module.NewsNlpDatabase,
+) -> None:
+    rows = [
+        ("a", "AAPL", "product_innovation", "positive"),
+        ("b", "AAPL", "leadership_governance", "negative"),
+        ("c", "MSFT", "capital_shareholder_returns", "neutral"),
+        ("d", "MSFT", "reputational_harm", "negative"),
+        ("e", "MSFT", "other", "neutral"),
+        ("f", "AAPL", "legal_regulatory", "neutral"),
+    ]
+    for item, ticker, category, sentiment in rows:
+        _add(conn, item, ticker, "2022-01-05T10:00:00Z", category, sentiment)
+    _run(conn)
+    companies = _summary(conn, END1, "company")
+    assert companies["AAPL"] == {
+        "other": {"total": 2, "neutral": 0, "positive": 1, "negative": 1},
+        "legal_regulatory": {"total": 1, "neutral": 1, "positive": 0, "negative": 0},
+    }
+    assert companies["MSFT"] == {"other": {"total": 3, "neutral": 2, "positive": 0, "negative": 1}}
+    sectors = _summary(conn, END1, "sector")
+    assert sectors["45"]["other"] == {"total": 5, "neutral": 2, "positive": 1, "negative": 2}
+    for lines in (*companies.values(), *sectors.values()):
+        assert not set(lines) & period.FOLDED_INTO_OTHER
+
+
+def test_the_folded_categories_are_part_of_the_period_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = period.revision("snap", {"AAPL": "45"})
+    monkeypatch.setattr(period, "FOLDED_INTO_OTHER", frozenset({"reputational_harm"}))
+    assert period.revision("snap", {"AAPL": "45"}) != before
+
+
 def test_a_sector_line_is_the_sum_of_its_companies_and_a_company_with_no_sector_is_unclassified(
     conn: db_module.NewsNlpDatabase,
 ) -> None:

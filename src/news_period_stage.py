@@ -33,6 +33,17 @@ PREFIX = "period-"
 SHOWN = 3  # earlier missing periods named in a refusal
 UNCLASSIFIED = ""
 SENTIMENTS = ("neutral", "positive", "negative")
+# Categories the model tags with too few samples or too low a performance to be trusted (owner, 2026-11-16): the period counts them as `other`,
+# for companies and for sectors alike. The step-7 rows and the snapshots keep the model's own label; only the count folds them.
+OTHER = "other"
+FOLDED_INTO_OTHER = frozenset(
+    {
+        "product_innovation",
+        "leadership_governance",
+        "capital_shareholder_returns",
+        "reputational_harm",
+    }
+)
 
 
 class PeriodRefused(RuntimeError):
@@ -160,7 +171,12 @@ def revision(snapshot_revision: str, mapping: dict[str, str]) -> str:
     """The period revision: the snapshot revision, the counting code and the **sector of every company of the universe** (not of the companies that have
     a snapshot: a new company gaining its first snapshot must not restart the periods). A change of the universe's sectors is a new revision."""
     key = json.dumps(
-        {"snapshot": snapshot_revision, "mapping": sorted(mapping.items()), "code": _code()}
+        {
+            "snapshot": snapshot_revision,
+            "mapping": sorted(mapping.items()),
+            "code": _code(),
+            "folded": sorted(FOLDED_INTO_OTHER),
+        }
     )
     return PREFIX + hashlib.sha256(key.encode()).hexdigest()[:12]
 
@@ -197,10 +213,11 @@ def _load_rows(conn: NewsNlpDatabase, snapshot_revision: str) -> list[Row]:
 
 
 def _counts_of(rows: list[Row]) -> dict[str, dict[str, int]]:
-    """Per category: ``total`` and the sentiment split of the rows (one count per snapshot)."""
+    """Per category: ``total`` and the sentiment split of the rows (one count per snapshot). The categories of ``FOLDED_INTO_OTHER`` count as ``other``."""
     out: dict[str, dict[str, int]] = {}
     for row in rows:
-        cell = out.setdefault(row.category, dict.fromkeys(("total", *SENTIMENTS), 0))
+        label = OTHER if row.category in FOLDED_INTO_OTHER else row.category
+        cell = out.setdefault(label, dict.fromkeys(("total", *SENTIMENTS), 0))
         cell["total"] += 1
         if row.sentiment in SENTIMENTS:
             cell[row.sentiment] += 1
