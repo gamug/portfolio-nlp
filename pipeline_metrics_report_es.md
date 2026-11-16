@@ -26,7 +26,7 @@ Las proporciones y los conteos quitados siguen en los documentos de los pasos (`
 | Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases | validación cruzada (809 resúmenes): precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5; **held-out (119 filas marcadas de 59 piezas, los textos que lee el paso): precisión 90.9%, recall 30.0%** | **Sí** (marcas parciales sobre piezas, un revisor); la validación cruzada no lo es |
 | Summarization | el resumen de un texto de más de unos 2,000 caracteres | **Sin clases.** Puntajes de un juez LLM (1 a 5) | **DeepSeek, el summarizer del paso desde T-206:** fidelidad 4.99, cobertura 4.54, alucinación 0.7% (300 artículos); el paso anterior con distilbart: 4.60, 3.24, 15.0% | El juez también es DeepSeek (calificó sus propios resúmenes); no un gold; la corrida sobre el corpus no se mide |
 | Sentiment | positivo, negativo, neutral para un par (texto, empresa) | **Sí**, tres clases | validación cruzada anidada (809 filas): puntaje 0.814, negativo P/R 0.747 / 0.748; **held-out (190 piezas reales): exactitud 73.7%, negativo 69.4% / 80.6%** | **Sí** (190 piezas, un lector); la validación cruzada no lo es |
-| Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el modelo fijado en el paso lee 12 | **Sí**, por etiqueta (precisión y recall) | fuera de pliegue 87.8%; **held-out 54.1%**; 71.3% en 300 sub-news reales (etiquetas del asistente) | Sí (135 filas single, evaluadas una sola vez); la barra de 80% **no se cumple** |
+| Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el modelo fijado en el paso lee 12; **planeado: 8 (7 medidas más `other`, no medida)** | **Sí**, por etiqueta (precisión y recall) | distribución planeada: fuera de pliegue 91.5%; **held-out 57.1%**; 82.1% en 300 sub-news reales (etiquetas del asistente), sobre las 7 etiquetas medidas (modelo de 12 etiquetas reasignado, no reentrenado) | Sí (135 filas single, evaluadas una sola vez); la barra de 80% **no se cumple** |
 
 **Lee primero la última columna.** Solo el scope, el cut, el NER, la relevancia sobre piezas, el sentiment sobre 190 piezas, category y la prueba limpia de sector son medidas sobre textos con los que el modelo o las reglas no eligieron
 sus ajustes; las cifras de validación cruzada de relevancia y de sentiment son fuera de pliegue y no son held-out. Ninguno de los pasos ha sido evaluado por un segundo
@@ -408,6 +408,8 @@ Los candidatos intermedios (modelo de pares solo 0.737, con compuerta 0.789) y e
 
 ## 6. Category (paso 5, `docs/category_step.md`, `docs/category_training.md`)
 
+> **Cambio planeado (no construido; el fijado, el paso y todas las cifras de abajo siguen siendo del modelo de 12 etiquetas).** El owner planea sacar `product_innovation`, `leadership_governance`, `capital_shareholder_returns` y `reputational_harm` del modelo para mejorar sus métricas, y reunirlas en `other`. El modelo quedaría con **8 etiquetas: 7 medidas** (`earnings_performance`, `market_analyst_sentiment`, `mergers_acquisitions`, `legal_regulatory`, `labor_human_capital`, `partnerships_business_dev`, `investor_activity`) **y `other`, que queda como una etiqueta no medida**: significa "el modelo no tiene nada que decir de este texto", así que no se reporta precisión ni recall para ella. Las cifras de abajo no se recalcularon para esta definición y deben volver a medirse cuando se construya (archivos de etiquetas nuevos, un ajuste nuevo, un fijado nuevo).
+
 **Desde el 2026-11-15 (T-203, D43) el paso corre el fine-tune de entailment** (la receta de `config/category_model.json`, 12 etiquetas, una etiqueta por fila, reajustado con 1,216 filas; el fijado es `config/category_step.json`, `category-entailment-single-12`), **fijado aunque la barra de 80% (D24) no se cumple** (decisión del dueño). El modelo anterior del paso, el zero-shot sin modificar, se conserva como comparación. Cada corrida está en MLflow, experimento `news_nlp_train/category` (`uv run mlflow ui --backend-store-uri ./mlruns`); los pesos son el modelo registrado `category-entailment-single-12` (versión 1) y la copia privada del Hub `gamug/deberta-v3-news-category-12`.
 
 ### Descripción del dataset
@@ -441,22 +443,22 @@ El held-out es la única medida que es held-out y falla; el fine-tune cae lejos 
 |---|---|---|---|
 | earnings_performance | 0.97 / 0.97 (547) | 0.74 / 0.93 (27) | 0.82 / 0.89 (56) |
 | market_analyst_sentiment | 0.89 / 0.88 (214) | 0.42 / 0.47 (17) | 0.81 / 0.80 (99) |
-| product_innovation | 0.87 / 0.86 (90) | 0.60 / 0.68 (22) | 0.46 / 0.72 (18) |
 | mergers_acquisitions | 0.80 / 0.89 (81) | 0.36 / 0.80 (5) | 0.80 / 0.80 (30) |
 | legal_regulatory | 0.72 / 0.73 (45) | 0.43 / 0.55 (11) | 0.77 / 0.77 (13) |
-| leadership_governance | 0.88 / 0.90 (40) | 1.00 / 0.45 (11) | 0.29 / 0.40 (5) |
-| capital_shareholder_returns | 0.78 / 0.70 (40) | 0.50 / 0.29 (7) | 0.25 / 1.00 (1) |
-| reputational_harm | 0.71 / 0.74 (39) | 0.50 / 0.29 (7) | 0.33 / 1.00 (2) |
 | labor_human_capital | 0.84 / 0.86 (36) | 0.33 / 0.67 (3) | 1.00 / 1.00 (4) |
 | partnerships_business_dev | 0.77 / 0.75 (32) | 1.00 / 0.20 (5) | 0.65 / 0.77 (26) |
 | investor_activity | 0.50 / 0.50 (20) | 0.67 / 0.12 (16) | 0.75 / 0.86 (7) |
-| other | 0.29 / 0.19 (32) | 0.11 / 0.25 (4) | 0.30 / 0.08 (39) |
-| **Acuerdo de etiqueta (exactitud)** | **87.8%** | **54.1%** [45.9, 62.3] | **71.3%** [66.0, 76.3] |
-| F1 macro | 0.748 | 0.448 | 0.637 |
-| Puntaje de selección (D37) | 0.821 | 0.615 | no se calculó |
-| Zero-shot sin modificar (el modelo anterior): acuerdo de etiqueta | 75.5% (1,214 filas) | 43.7% | 65.7% [60.3, 71.0] |
+| other (comodín, no medida) | — | — | — |
+| **Acuerdo de etiqueta (exactitud), distribución planeada** | **91.5%** [89.6, 93.1] (892 de 975) | **57.1%** [46.5, 67.2] (48 de 84) | **82.1%** [76.7, 86.5] (193 de 235) |
+| F1 macro (7 etiquetas medidas) | 0.791 | 0.462 | 0.818 |
+| Puntaje de selección (D37) | no se recalculó | no se recalculó | no se calculó |
+| Zero-shot sin modificar (el modelo anterior): acuerdo de etiqueta | no se recalculó | no se recalculó | 78.7% [73.1, 83.5] (185 de 235) |
+
+**Quitadas de la tabla para la definición planeada:** `product_innovation`, `leadership_governance`, `capital_shareholder_returns` y `reputational_harm` (sus filas contarían como `other`), y `other` se muestra como no medida. **Cómo se obtuvieron las filas de abajo:** las predicciones del modelo de 12 etiquetas y las etiquetas se reasignan (las cuatro etiquetas se leen como `other`); **no es un modelo de 8 etiquetas reentrenado**, que debe medirse cuando se construya. **La exactitud y el F1 macro se calculan sobre las filas cuya etiqueta es una de las 7 medidas** (975, 84 y 235 filas; una de ellas predicha como `other` cuenta como error; las filas etiquetadas `other` no se puntúan). La precisión y el recall por etiqueta de arriba no cambian con la reasignación (las predicciones y filas de las 7 etiquetas son las mismas). Los intervalos son de Wilson (los de 12 etiquetas eran bootstrap por artículo); el puntaje de selección (D37) no se recalculó. Las cifras de 12 etiquetas (87.8%, 54.1%, 71.3%; F1 macro 0.748, 0.448, 0.637) están en `docs/category_training.md` y `docs/category_results_2026_11_15/`.
 
 Frente a la barra de 80% (D24): **no se cumple en el held-out** (54.1%); acuerdo de grupo en el held-out 65.2% [57.4, 72.7].
+
+**Nota sobre el held-out (lectura del owner):** esta muestra estaba muy sucia y **no es representativa de los textos que se van a categorizar**, que son los resúmenes del paso de resumen del pipeline. Las cifras del held-out (54.1% tal como está, 57.1% con la distribución planeada) deben leerse como una prueba sobre un conjunto difícil y ruidoso, no como la exactitud esperada en producción.
 
 **Qué dice y qué no.**
 - **Las tres medidas discrepan porque son textos y etiquetadores distintos**; el held-out es la única etiquetada por el dueño y held-out, y es la que falla. Cae lejos de 87.8% por la diferencia de textos (segmentos cortos frente a artículos completos) y porque la convención de etiquetado cambió (la mayor confusión es `investor_activity` predicha como `market_analyst_sentiment`, 8 filas).
@@ -499,4 +501,4 @@ Una tabla con las métricas generales de cada modelo, para mostrar los resultado
 | Relevancia (paso 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; principal P 90.0%, R 94.7% (809 resúmenes) | AUC 0.663; principal P 90.9%, R 30.0% (119 filas de 59 piezas) | sin barra; el umbral de sub-news lo decide el dueño (T-170) |
 | Summarization (paso 2) | DeepSeek (`deepseek-chat`) | — | sin held-out; juez LLM sobre 300 artículos: fidelidad 4.99, cobertura 4.54, alucinación 0.7% (el juez también es DeepSeek) | sin barra; la corrida del corpus no se mide |
 | Sentiment (paso 6) | modelo de pares + stack (`gamug/FinBERT-company-sentiment`) | puntaje 0.814; negativo P/R 0.747 / 0.748 (809 filas) | exactitud 73.7% [67.0, 79.4]; negativo P 69.4%, R 80.6% (190 piezas) | 80% de acuerdo y 70% en el negativo (D32): **no se cumple** (exactitud, precisión de negativo) |
-| Category (paso 5) | fine-tune de entailment (`category-entailment-single-12`) | exactitud 87.8%, F1 macro 0.748 (1,216 filas) | exactitud 54.1% [45.9, 62.3] (135 filas); 71.3% en 300 sub-news reales (etiquetas del asistente) | 80% (D24): **no se cumple**; fijado por decisión del dueño |
+| Category (paso 5) | fine-tune de entailment (`category-entailment-single-12`) | exactitud 91.5%, F1 macro 0.791 (975 filas de las 7 etiquetas medidas) | exactitud 57.1% [46.5, 67.2] (84 filas); 82.1% en 235 sub-news reales (etiquetas del asistente) | 80% (D24): **no se cumple**; fijado por decisión del dueño; las cifras son del modelo de 12 etiquetas reasignado a la distribución planeada, no reentrenado (sección 6; 12 etiquetas: 87.8%, 54.1%, 71.3%) |

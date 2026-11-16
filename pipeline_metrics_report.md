@@ -26,7 +26,7 @@ The removed shares and counts are still in the step documents (`docs/companies_s
 | Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes | cross-validation (809 summaries): main-company precision 90.0%, recall 94.7% at threshold 0.5; **held-out (119 marked rows of 59 pieces, the texts the step reads): precision 90.9%, recall 30.0%** | **Yes** (partial marks on pieces, one reviewer); the cross-validation is not |
 | Summarization | the summary of a text over about 2,000 characters | **No classes.** LLM-judge scores (1 to 5) | **DeepSeek, the step's summariser since T-206:** faithfulness 4.99, coverage 4.54, hallucination 0.7% (300 articles); the earlier distilbart step: 4.60, 3.24, 15.0% | The judge is DeepSeek too (it graded its own summaries); not a gold; the corpus run is not measured |
 | Sentiment | positive, negative, neutral for a (text, company) pair | **Yes**, three classes | nested cross-validation (809 rows): score 0.814, negative P/R 0.747 / 0.748; **held-out (190 real pieces): accuracy 73.7%, negative 69.4% / 80.6%** | **Yes** (190 pieces, one reader); the cross-validation is not |
-| Category | 14 labels (6 groups) for a (text, company) pair; the model pinned in the step reads 12 | **Yes**, per label (precision and recall) | out of fold 87.8%; **held-out 54.1%**; 71.3% on 300 real sub-news (assistant's tags) | Yes (135 single rows, scored once); the bar of 80% is **not met** |
+| Category | 14 labels (6 groups) for a (text, company) pair; the model pinned in the step reads 12; **planned: 8 (7 measured plus `other`, not measured)** | **Yes**, per label (precision and recall) | planned distribution: out of fold 91.5%; **held-out 57.1%**; 82.1% on 300 real sub-news (assistant's tags), over the 7 measured labels (12-label model remapped, not retrained) | Yes (135 single rows, scored once); the bar of 80% is **not met** |
 
 **Read the last column first.** Only the scope, the cut, the NER, the relevance on pieces, the sentiment on 190 pieces, the category and the sector clean test are measures on texts the model or the rules did not choose
 their settings on; the cross-validation figures of relevance and sentiment are out-of-fold and not held out. None of the steps has been scored by a second
@@ -408,6 +408,8 @@ The intermediate candidates (pair model alone 0.737, with the gate 0.789) and th
 
 ## 6. Category (step 5, `docs/category_step.md`, `docs/category_training.md`)
 
+> **Planned change (not built; the pin, the step and every figure below are still the 12-label model).** The owner plans to take `product_innovation`, `leadership_governance`, `capital_shareholder_returns` and `reputational_harm` out of the model to improve its metrics, and to put them together in `other`. The model would then have **8 labels: 7 measured ones** (`earnings_performance`, `market_analyst_sentiment`, `mergers_acquisitions`, `legal_regulatory`, `labor_human_capital`, `partnerships_business_dev`, `investor_activity`) **and `other`, which stays as a tag that is not measured**: it means "the model has nothing to say about this text", so no precision or recall is reported for it. The figures below are not recomputed for this definition and must be re-measured once it is built (new tag files, a new fit, a new pin).
+
 **Since 2026-11-15 (T-203, D43) the step runs the entailment fine-tune** (the recipe of `config/category_model.json`, 12 labels, one tag per row, refit on 1,216 rows; the pin is `config/category_step.json`, `category-entailment-single-12`), **pinned although the 80% bar (D24) is not met** (owner's decision). The step's earlier model, the untouched zero-shot, is kept as the comparison. Every run is in MLflow, experiment `news_nlp_train/category` (`uv run mlflow ui --backend-store-uri ./mlruns`); the weights are the registered model `category-entailment-single-12` (version 1) and the private Hub copy `gamug/deberta-v3-news-category-12`.
 
 ### Dataset description
@@ -441,22 +443,22 @@ The held-out is the only measure that is held out and it fails; the fine-tune fa
 |---|---|---|---|
 | earnings_performance | 0.97 / 0.97 (547) | 0.74 / 0.93 (27) | 0.82 / 0.89 (56) |
 | market_analyst_sentiment | 0.89 / 0.88 (214) | 0.42 / 0.47 (17) | 0.81 / 0.80 (99) |
-| product_innovation | 0.87 / 0.86 (90) | 0.60 / 0.68 (22) | 0.46 / 0.72 (18) |
 | mergers_acquisitions | 0.80 / 0.89 (81) | 0.36 / 0.80 (5) | 0.80 / 0.80 (30) |
 | legal_regulatory | 0.72 / 0.73 (45) | 0.43 / 0.55 (11) | 0.77 / 0.77 (13) |
-| leadership_governance | 0.88 / 0.90 (40) | 1.00 / 0.45 (11) | 0.29 / 0.40 (5) |
-| capital_shareholder_returns | 0.78 / 0.70 (40) | 0.50 / 0.29 (7) | 0.25 / 1.00 (1) |
-| reputational_harm | 0.71 / 0.74 (39) | 0.50 / 0.29 (7) | 0.33 / 1.00 (2) |
 | labor_human_capital | 0.84 / 0.86 (36) | 0.33 / 0.67 (3) | 1.00 / 1.00 (4) |
 | partnerships_business_dev | 0.77 / 0.75 (32) | 1.00 / 0.20 (5) | 0.65 / 0.77 (26) |
 | investor_activity | 0.50 / 0.50 (20) | 0.67 / 0.12 (16) | 0.75 / 0.86 (7) |
-| other | 0.29 / 0.19 (32) | 0.11 / 0.25 (4) | 0.30 / 0.08 (39) |
-| **Label agreement (accuracy)** | **87.8%** | **54.1%** [45.9, 62.3] | **71.3%** [66.0, 76.3] |
-| Macro F1 | 0.748 | 0.448 | 0.637 |
-| Selection score (D37) | 0.821 | 0.615 | not computed |
-| Untouched zero-shot (the earlier model): label agreement | 75.5% (1,214 rows) | 43.7% | 65.7% [60.3, 71.0] |
+| other (catch-all, not measured) | — | — | — |
+| **Label agreement (accuracy), planned distribution** | **91.5%** [89.6, 93.1] (892 of 975) | **57.1%** [46.5, 67.2] (48 of 84) | **82.1%** [76.7, 86.5] (193 of 235) |
+| Macro F1 (7 measured labels) | 0.791 | 0.462 | 0.818 |
+| Selection score (D37) | not recomputed | not recomputed | not computed |
+| Untouched zero-shot (the earlier model): label agreement | not recomputed | not recomputed | 78.7% [73.1, 83.5] (185 of 235) |
+
+**Removed from the table for the planned definition:** `product_innovation`, `leadership_governance`, `capital_shareholder_returns` and `reputational_harm` (their rows would count as `other`), and `other` is shown as not measured. **How the rows below were obtained:** the 12-label model's predictions and the tags are remapped (the four labels read as `other`); this is **not a retrained 8-label model**, which has to be measured once it is built. **Accuracy and macro F1 are computed over the rows whose tag is one of the 7 measured labels** (975, 84 and 235 rows; a row of those predicted as `other` counts as wrong; the rows tagged `other` are not scored). The per-label precision and recall above do not change with the remap (the 7 labels' predictions and rows are the same). Intervals are Wilson (the 12-label ones were bootstrap by article); the selection score (D37) is not recomputed. The 12-label figures (87.8%, 54.1%, 71.3%; macro F1 0.748, 0.448, 0.637) are in `docs/category_training.md` and `docs/category_results_2026_11_15/`.
 
 Against the 80% bar (D24): **not met on the held-out** (54.1%); group agreement on the held-out 65.2% [57.4, 72.7].
+
+**Note on the held-out (owner's reading):** this sample was very dirty and is **not representative of the texts that will be categorized**, which are the summaries of the pipeline's summarization step. Read the held-out figures (54.1% as it is, 57.1% on the planned distribution) as a check on a hard, noisy set, not as the expected accuracy in production.
 
 **What it says and does not say.**
 - **The three measures disagree because they are different texts and different taggers**; the held-out is the only one tagged by the owner and held out, and it is the one that fails. It falls far from 87.8% because of the difference in texts (short segments against full articles) and because the tagging convention changed (the largest confusion is `investor_activity` predicted as `market_analyst_sentiment`, 8 rows).
@@ -499,4 +501,4 @@ One table with the general metrics of every model, to show the results at a glan
 | Relevance (step 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; main P 90.0%, R 94.7% (809 summaries) | AUC 0.663; main P 90.9%, R 30.0% (119 rows of 59 pieces) | no bar; the sub-news threshold is the owner's decision (T-170) |
 | Summarization (step 2) | DeepSeek (`deepseek-chat`) | — | no held-out; LLM judge on 300 articles: faithfulness 4.99, coverage 4.54, hallucination 0.7% (the judge is DeepSeek too) | no bar; the corpus run is not measured |
 | Sentiment (step 6) | pair model + stack (`gamug/FinBERT-company-sentiment`) | score 0.814; negative P/R 0.747 / 0.748 (809 rows) | accuracy 73.7% [67.0, 79.4]; negative P 69.4%, R 80.6% (190 pieces) | 80% agreement and 70% on the negative (D32): **not met** (accuracy, negative precision) |
-| Category (step 5) | entailment fine-tune (`category-entailment-single-12`) | accuracy 87.8%, macro F1 0.748 (1,216 rows) | accuracy 54.1% [45.9, 62.3] (135 rows); 71.3% on 300 real sub-news (assistant's tags) | 80% (D24): **not met**; pinned by the owner's decision |
+| Category (step 5) | entailment fine-tune (`category-entailment-single-12`) | accuracy 91.5%, macro F1 0.791 (975 rows of the 7 measured labels) | accuracy 57.1% [46.5, 67.2] (84 rows); 82.1% on 235 real sub-news (assistant's tags) | 80% (D24): **not met**; pinned by the owner's decision; figures are the 12-label model remapped to the planned distribution, not retrained (section 6; 12-label: 87.8%, 54.1%, 71.3%) |

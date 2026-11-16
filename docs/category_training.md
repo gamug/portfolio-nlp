@@ -8,8 +8,10 @@ documentation: the step that runs a category is `docs/category_step.md`; the tax
 
 **Read this first.**
 
+* **Planned change, not built: the model will read 8 labels, not 12.** The owner plans to take `product_innovation`, `leadership_governance`, `capital_shareholder_returns` and `reputational_harm` out of the model to improve its metrics and to put them together in `other`. **`other` stays as a tag that is not measured**: it means the model has nothing to say about the text, so no precision or recall is reported for it; the measured labels become 7 (`earnings_performance`, `market_analyst_sentiment`, `mergers_acquisitions`, `legal_regulatory`, `labor_human_capital`, `partnerships_business_dev`, `investor_activity`). **Everything below, the pin and the step are still the 12-label model, and no figure here is recomputed for the new definition**: it needs the tag files remapped (the 209 training rows of the four labels become `other`), a new fit and cross-validation, a new pin and a new score of the held-out and of the real sub-news (section 9). The folded labels' own figures stay in this record as the measure of the 12-label model.
 * **Pinned as the default, the bar not met.** Since 2026-11-15 `--step category` runs this model (T-203). The owner decided it knowing the held-out figure: asked whether it was pinned, and told it was not and that the held-out was 54.1% against 80%, they answered "pin it as default now". The held-out 200 was scored **once** with the refit (E10):
   **label agreement 54.1%** [45.9, 62.3] against the bar of D24 (80%): **not met**; the untouched model it replaces scores 43.7% on the same rows.
+  **Owner's reading of the held-out: the sample was very dirty and is not representative of the texts that will be categorized** (the summaries of the pipeline's summarization step). Take 54.1% as a check on a hard, noisy set, not as the expected accuracy in production.
 * **The 87.8% below is not a held-out figure.** It is out-of-fold on the training rows, on tags that were reviewed after the first results were seen (section 8), and the rows are short segments while the held-out is full articles. On 300 real sub-news (the text the step reads) the model agrees with the assistant's tags 71.3% of the time, against 65.7% for the untouched model (E11).
 * **The protocol written for the held-out was not followed, and this is the record of it.** `TASKS.md` (T-201, T-202) asked for one refit with seed 100 by `category_single_cv_2026_11_15.py refit`, the tag set recorded before the score, the owner's second reader first, and `category_score_2026_11_15.py`. The held-out was scored with weights refit with **seed 0** by `scripts/category_heldout_2026_11_15.py`, with the held-out tags as they are and nothing recorded beforehand; those weights are the ones the step runs (the pin says `refit_seed` 0). It is the only scoring of this model on the held-out.
 * **The weights are not in git** (712 MB) but are published, private, as `gamug/deberta-v3-news-category-12` (T-202): the step refuses a folder whose identity is not the pinned one. How to restore them: `docs/category_step.md` ("Restore the weights").
@@ -33,7 +35,7 @@ ones (1,216 rows, 12 labels). "Untouched" is the model the step runs today; the 
   `competitive_actions` and `peer_comparison` into `other` (they were almost never found and their texts read as `other`), and on
   2026-11-15 chose **one tag per row**. The labels: `earnings_performance`, `mergers_acquisitions`, `leadership_governance`,
   `legal_regulatory`, `product_innovation`, `capital_shareholder_returns`, `labor_human_capital`, `market_analyst_sentiment`,
-  `partnerships_business_dev`, `reputational_harm`, `investor_activity`, `other`.
+  `partnerships_business_dev`, `reputational_harm`, `investor_activity`, `other`. **Planned (not built): 8 labels**, with `product_innovation`, `leadership_governance`, `capital_shareholder_returns` and `reputational_harm` folded into `other`, which is then a catch-all and **not a measured class** (see "Read this first").
 * **A row is a company's segment of a text.** A body that talks about several companies gives one row per company; the tag is what the
   text says about that company.
 * **The reading is entailment.** The model gets a premise `<company>: <text, first 2,000 characters>` and, for each label, a
@@ -104,7 +106,7 @@ engineers, `labor_human_capital`; the Treasury selling Citigroup warrants, `inve
 
 `earnings_performance` 547, `market_analyst_sentiment` 214, `product_innovation` 90, `mergers_acquisitions` 81, `legal_regulatory` 45,
 `leadership_governance` 40, `capital_shareholder_returns` 40, `reputational_harm` 39, `labor_human_capital` 36, `partnerships_business_dev` 32,
-`other` 32, `investor_activity` 20. **Eight classes have 45 rows or fewer; their intervals are wide (section 6).**
+`other` 32, `investor_activity` 20. **Eight classes have 45 rows or fewer; their intervals are wide (section 6).** Under the planned definition the four folded labels (90 + 40 + 40 + 39 = 209 rows) join `other` (32), which would hold 241 of the 1,216 rows (20%) and would not be scored; the measured classes would be 7, with 975 rows.
 
 ## 4. How a run is measured
 
