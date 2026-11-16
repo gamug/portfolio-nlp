@@ -1,0 +1,95 @@
+{
+  "folded": [
+    "product_innovation",
+    "leadership_governance",
+    "capital_shareholder_returns",
+    "reputational_harm"
+  ],
+  "measured": [
+    "earnings_performance",
+    "market_analyst_sentiment",
+    "mergers_acquisitions",
+    "legal_regulatory",
+    "labor_human_capital",
+    "partnerships_business_dev",
+    "investor_activity"
+  ],
+  "out_of_fold": {
+    "selected": {
+      "rows": 1216,
+      "accuracy_12": 87.8,
+      "rows_measured": 975,
+      "correct": 892,
+      "accuracy": 91.5,
+      "ci": [
+        89.6,
+        93.1
+      ],
+      "macro_f1": 0.791
+    },
+    "untouched": {
+      "rows": 1214,
+      "accuracy_12": 75.5,
+      "rows_measured": 973,
+      "correct": 833,
+      "accuracy": 85.6,
+      "ci": [
+        83.3,
+        87.7
+      ],
+      "macro_f1": 0.634
+    }
+  },
+  "held_out": {
+    "selected": {
+      "rows": 135,
+      "accuracy_12": 54.1,
+      "rows_measured": 84,
+      "correct": 48,
+      "accuracy": 57.1,
+      "ci": [
+        46.5,
+        67.2
+      ],
+      "macro_f1": 0.462
+    },
+    "untouched": {
+      "rows": 135,
+      "accuracy_12": 43.7,
+      "rows_measured": 84,
+      "correct": 45,
+      "accuracy": 53.6,
+      "ci": [
+        43.0,
+        63.8
+      ],
+      "macro_f1": 0.437
+    }
+  },
+  "real_sub_news": {
+    "selected": {
+      "rows": 300,
+      "accuracy_12": 71.3,
+      "rows_measured": 235,
+      "correct": 193,
+      "accuracy": 82.1,
+      "ci": [
+        76.7,
+        86.5
+      ],
+      "macro_f1": 0.818
+    },
+    "untouched": {
+      "rows": 300,
+      "accuracy_12": 65.7,
+      "rows_measured": 235,
+      "correct": 185,
+      "accuracy": 78.7,
+      "ci": [
+        73.1,
+        83.5
+      ],
+      "macro_f1": 0.677
+    }
+  }
+}
