@@ -1,0 +1,20 @@
+# Keep the build context small and free of secrets: the dev target copies nothing,
+# the app target copies only src, apps, cli, config, pyproject.toml and uv.lock.
+.git
+.env
+.venv
+.venv-*
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+data
+models
+mlruns
+experiments/results
+docs
+tests
+gold
+D:*
+*.db
