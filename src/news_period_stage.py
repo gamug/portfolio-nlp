@@ -416,7 +416,7 @@ def run(
 
 
 def render(conn: NewsNlpDatabase, period_end: str, period_rev: str) -> str:
-    """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category."""
+    """The text of a written period: a block per company with news (by total, descending), then a block per sector, one line per category (the weak categories of ``FOLDED_INTO_OTHER`` are under ``other``)."""
     run_row = conn.execute(
         "SELECT period_start, snapshot_revision FROM period_run WHERE period_end = ? AND model_revision = ?",
         (period_end, period_rev),
