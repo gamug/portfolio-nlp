@@ -50,11 +50,17 @@ No table was added for jobs: T-220 prunes the schema.
 ## The stage models (the FTI services)
 
 For `scope`, `sector`, `companies`, `category` and `sentiment`, the object the step itself runs (`ScopeClassifier`, `SectorClassifier`, `CompanyFinder`,
-`CategoryFinder`, `SentimentFinder`) is built the way the step builds it and asked about 1 to 32 ad-hoc items, each text at most 50,000 characters, a body at most 4,000,000 bytes (422 and 413); **no row is written**. Items: scope `{title, body}`,
+`CategoryFinder`, `SentimentFinder`) is built the way the step builds it and asked about 1 to 32 ad-hoc items, each text at most 50,000 characters, a body at most 4,000,000 bytes (422 and 413; the limit **counts the bytes received**, so a chunked upload with no `Content-Length` is stopped too, `src/news_nlp/service/body_limit.py`); **no row is written**. Items: scope `{title, body}`,
 sector `{title, text}`, companies `{text}`, category `{text, company}`, sentiment `{text, company, relevance}`. What the CLI does not guess, the service does not guess:
 **scope serves the pinned model only** (the CLI's `is_pinned` check; not pinned is 503), **companies needs `options: {"threshold": ..., "candidates": ...}`** (the owner's value, part of the revision;
 422 without them) and a **sentiment item needs its `relevance`**. One stage stays loaded (a 6 GB card): asking for another frees
 the first. A call while a job runs is 409 and the other way round; a stage that cannot be served here (no GPU, no model folder, no universe in the SOURCE store) is 503.
+
+**A stage takes only the options it declares** (`companies`: `threshold` and `candidates`; the others none): another option is 422 naming it, because an option nobody reads would only make
+the model rebuild, a GPU reload on each call, on a service with no authentication. Equal declared options build the model once.
+
+**A page cannot start a run.** A cross-site POST can use `text/plain` (or no content type) without a preflight; FastAPI refuses it (422) because it wants a JSON content type, and a test keeps that
+(a library upgrade that changed it would let any web page start a paid run on a developer's `127.0.0.1:8003`).
 
 **Not exposed, and why:** a `features` route (the v2 stages have no `Feature` class; only the NER of step 3 uses `fti.Feature`, so the features are internal to each finder), **training** (hours, writes weights, can publish: it stays in
 the scripts), `cut` and `summary` (the cut needs the trained attribution folder and works body by body; the summary is a paid API call: both are steps, not stage models).

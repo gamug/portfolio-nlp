@@ -127,6 +127,7 @@ class _Sector:
 
 class _Companies:
     description = "options: {threshold, candidates} (both required, as the CLI); items: {text}"
+    options = ("threshold", "candidates")  # the only stage that takes any
 
     def __init__(
         self,
@@ -247,6 +248,13 @@ class StageModels:
     ) -> list[Any]:
         if stage not in self.builders:
             raise KeyError(stage)
+        declared = tuple(getattr(self.builders[stage], "options", ()))
+        unknown = sorted(set(options or {}) - set(declared))
+        if unknown:  # an option no adapter reads would only make the model rebuild (a GPU reload) on each call
+            takes = ", ".join(declared) or "none"
+            raise ValueError(
+                f"the {stage} stage takes no option {', '.join(unknown)} (it takes: {takes})"
+            )
         if not items or len(items) > MAX_ITEMS:
             raise ValueError(f"between 1 and {MAX_ITEMS} items per call")
         for item in items:

@@ -13,18 +13,18 @@ from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import news_nlp as db
 from news_nlp.service import steps_runner as runner
+from news_nlp.service.body_limit import BodyLimitMiddleware
 from news_nlp.service.jobs import Busy, GpuGate, JobManager
 from news_nlp.service.stage_models import StageModels, StageUnavailable
 
@@ -216,16 +216,7 @@ def create_app(
     jobs = manager or JobManager(gate)
     stage_models = models or StageModels(gate, connection)
 
-    @app.middleware("http")
-    async def limit_the_body(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        declared = request.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-            return JSONResponse(
-                {"detail": f"the body is over {MAX_BODY_BYTES:,} bytes"}, status_code=413
-            )
-        return await call_next(request)
+    app.add_middleware(BodyLimitMiddleware, max_bytes=MAX_BODY_BYTES)
 
     @app.get("/health")
     def health() -> dict[str, str]:

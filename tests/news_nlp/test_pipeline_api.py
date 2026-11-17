@@ -34,6 +34,7 @@ from news_nlp.service.stage_models import (
     _Sentiment,
     jsonable,
 )
+from news_summary_llm import UNCAPPED_RUN_ITEMS
 
 REVISIONS = {"summary_revision": "summary-a", "companies_revision": "companies-b"}
 
@@ -483,8 +484,10 @@ def test_the_summary_through_the_api_needs_an_explicit_cap_on_the_paid_calls() -
 
 
 def test_the_summary_caps_are_bounded_not_only_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(runner.MAX_CALLS_ENV, raising=False)
+    monkeypatch.delenv(runner.CONCURRENCY_ENV, raising=False)
     ceiling = runner.calls_ceiling()
-    assert ceiling == 5000  # the CLI's own allowance, until a deployment sets another
+    assert ceiling == UNCAPPED_RUN_ITEMS  # the CLI's own allowance, until a deployment sets another
     assert (
         runner.parse_step("summary", {"items": "single", "max_calls": ceiling}).max_calls == ceiling
     )
@@ -506,7 +509,9 @@ def test_the_summary_caps_are_bounded_not_only_explicit(monkeypatch: pytest.Monk
     with pytest.raises(runner.StepRefused, match="over the ceiling of 2"):
         runner.parse_step("summary", {"items": "single", "max_calls": 10, "concurrency": 3})
     monkeypatch.setenv(runner.MAX_CALLS_ENV, "not a number")
-    assert runner.calls_ceiling() == 5000  # an unreadable value is the default, not a crash
+    assert (
+        runner.calls_ceiling() == UNCAPPED_RUN_ITEMS
+    )  # an unreadable value is the default, not a crash
 
 
 def test_a_thread_that_does_not_start_leaves_the_gpu_free(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -652,6 +657,8 @@ def test_the_stage_options_that_build_a_model_rebuild_it_when_they_change() -> N
     built: list[Mapping[str, Any]] = []
 
     class Counting(FakeStage):
+        options = ("threshold",)
+
         def __init__(
             self, conn: Callable[[], Any], options: Mapping[str, Any] | None = None
         ) -> None:
@@ -744,3 +751,82 @@ def test_the_routes_refuse_a_long_text_and_a_body_over_the_limit(
         headers={"content-type": "application/json"},
     )
     assert huge.status_code == 413 and "bytes" in huge.json()["detail"]
+
+
+def test_the_body_limit_counts_a_chunked_upload_that_declares_no_length(
+    client_and_ran: tuple[TestClient, list[str], GpuGate],
+) -> None:
+    """The ``Content-Length`` check was bypassed by chunking: 6 MB was buffered and parsed before the text cap refused it."""
+    client, _ran, _gate = client_and_ran
+
+    def chunks(megabytes: int) -> Iterator[bytes]:
+        yield b'{"items": [{"text": "'
+        for _ in range(megabytes):
+            yield b"x" * 1_000_000
+        yield b'"}]}'
+
+    over = client.post(
+        "/fti/fake/predict", content=chunks(5), headers={"content-type": "application/json"}
+    )
+    assert over.status_code == 413 and "bytes" in over.json()["detail"]
+    under = client.post(
+        "/fti/fake/predict", content=chunks(1), headers={"content-type": "application/json"}
+    )
+    assert under.status_code == 422  # passes the limit, refused later by the 50,000-character cap
+    assert "at most 50,000" in under.json()["detail"]
+
+
+def test_a_cross_site_simple_request_cannot_start_a_run(
+    client_and_ran: tuple[TestClient, list[str], GpuGate],
+) -> None:
+    """A page can send a POST with ``text/plain`` (or none) without a preflight. It is refused today because FastAPI wants a JSON content type;
+    that is a property of the installed library, so a test keeps it: an upgrade that changes it would let any web page start a paid run."""
+    client, ran, _gate = client_and_ran
+    body = '{"options": {"max_calls": 10}}'
+    for headers in ({"content-type": "text/plain"}, {}):
+        for route in ("/steps/summary/run", "/steps/scope/run", "/pipeline/run"):
+            response = client.post(route, content=body, headers=headers)
+            assert response.status_code == 422, (route, headers, response.text)
+    assert ran == [] and client.get("/jobs").json() == []
+
+
+def test_an_option_a_stage_does_not_take_is_refused_and_does_not_rebuild_the_model() -> None:
+    built: list[Mapping[str, Any]] = []
+
+    class Counting(FakeStage):
+        options = ("threshold",)
+
+        def __init__(
+            self, conn: Callable[[], Any], options: Mapping[str, Any] | None = None
+        ) -> None:
+            super().__init__(conn, options)
+            built.append(dict(options or {}))
+
+    class TakesNone(FakeStage):
+        def __init__(
+            self, conn: Callable[[], Any], options: Mapping[str, Any] | None = None
+        ) -> None:
+            super().__init__(conn, options)
+            built.append({"none": True})
+
+    models = _models(builders={"counting": Counting, "none": TakesNone})
+    for junk in range(3):  # a caller cannot make the GPU reload by varying an option nobody reads
+        with pytest.raises(ValueError, match=r"takes no option junk"):
+            models.predict("none", [{"text": "x"}], {"junk": junk})
+    with pytest.raises(ValueError, match=r"takes no option other.*it takes: threshold"):
+        models.predict("counting", [{"text": "x"}], {"threshold": 0.5, "other": 1})
+    assert built == []  # nothing was built, no GPU was touched
+    models.predict("counting", [{"text": "x"}], {"threshold": 0.5})
+    models.predict("counting", [{"text": "x"}], {"threshold": 0.5})
+    assert built == [{"threshold": 0.5}]  # equal declared options: built once
+
+
+def test_the_route_says_422_for_an_option_the_stage_does_not_take(
+    client_and_ran: tuple[TestClient, list[str], GpuGate],
+) -> None:
+    client, _ran, gate = client_and_ran
+    response = client.post(
+        "/fti/fake/predict", json={"items": [{"text": "x"}], "options": {"junk": 1}}
+    )
+    assert response.status_code == 422 and "takes no option junk" in response.json()["detail"]
+    assert gate.holder is None
