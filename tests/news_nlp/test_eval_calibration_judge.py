@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import time
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -406,27 +406,44 @@ def test_a_parse_failed_verdict_is_judged_again_on_resume_and_replaced(
 
 
 def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
-    conn: db_module.NewsNlpDatabase,
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The interrupt is raised in the worker thread; the main thread must see it and cancel the queue before the single worker takes the next
+    article. That race decided this test on a slow runner (it failed on three unrelated PRs with ``6 <= 3``, ``5 <= 3``), so the order is forced:
+    every call after the interrupt waits until the pool has been told to cancel its queue, which makes the count exact, not a matter of speed."""
     sample, items = _sample_cells(["c|2"], 10)
     run = _start_sample(conn, sample)
     log: list[str] = []
     made = {"n": 0}
+    queue_cancelled = threading.Event()
+
+    class CancellingPool(cj.ThreadPoolExecutor):
+        def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+            super().shutdown(
+                wait=False, cancel_futures=cancel_futures
+            )  # the queued articles are cancelled now
+            queue_cancelled.set()  # only then may a call that already started go on
+            super().shutdown(wait=wait)
 
     class Agent:
         def __call__(self, prompt: str) -> str:
             log.append(prompt)
-            time.sleep(0.05)  # keep the queue unfinished when the interrupt arrives
             return '{"truth_slug": "other"}'
 
     def factory(_prompt: str) -> JudgeAgent:
         made["n"] += 1
         if made["n"] == 2:
             raise KeyboardInterrupt
+        if made["n"] > 2:
+            assert queue_cancelled.wait(timeout=30), "the main thread never cancelled the queue"
         return Agent()
 
+    monkeypatch.setattr(cj, "ThreadPoolExecutor", CancellingPool)
     with pytest.raises(KeyboardInterrupt):
         cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=100, max_workers=1)
+    assert (
+        made["n"] <= 3
+    )  # the article that raised, and at most the one already started: never the other 8
     assert len(log) <= 3  # not the 20: the queued articles were cancelled, never sent
 
 
