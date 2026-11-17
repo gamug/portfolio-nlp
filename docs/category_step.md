@@ -137,7 +137,9 @@ The bar of D24 is **80%** agreement with the owner's labels on the held-out sing
 | 300 real sub-news under 1,000 characters, the joint tags (owner and assistant) | **71.3%** [66.0, 76.3] | 65.7% [60.3, 71.0] |
 | out of fold, 1,216 rows, tags reviewed after the first results | 87.8% | 75.5% |
 
-| the same 300, a blind LLM judge (`deepseek-chat`; T-209) | 77.0% [72.0, 81.7] | 71.0% [66.0, 76.0] |
+| the same 300, a blind LLM judge (`deepseek-chat`; T-209), strict (first label) | 77.0% [72.0, 81.7] | 71.0% [66.0, 76.0] |
+| **the same judge, official (owner, 2026-11-17): first or second label** | **88.0%** [83.8, 91.2] | 81.0% [76.2, 85.0] |
+| the same, with the four weak labels read as `other` (planned definition; `other` scored / not scored) | 92.0% / 94.4% | 85.7% / 90.9% |
 
 The judge agrees on the direction (paired 41 against 23, **nominal** p = 0.033; on the 220 texts outside its first run of 80, 78.2% against 70.9%, p = 0.029). It is LLM output like the joint tags (owner and assistant), not a second independent reader, and it is not repeatable (2 of 80 labels changed between runs). The pinned model is worse than the untouched one on `market_analyst_sentiment` (89 against 104 of the judge's 115; T-210).
 
