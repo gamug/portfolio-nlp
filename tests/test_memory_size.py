@@ -109,3 +109,17 @@ def test_no_task_id_is_used_twice_in_tasks() -> None:
     ids = re.findall(r"^\s*- \[[ xX]\] \*\*(T-[0-9a-z]+)\*\*", _text("TASKS.md"), re.MULTILINE)
     twice = sorted({i for i in ids if ids.count(i) > 1})
     assert twice == [], f"task IDs used by more than one entry in TASKS.md: {twice}"
+
+
+#: IDs that are in both files on purpose: a task closed in part, the rest still open (their CHANGELOG entry says so).
+PARTLY_CLOSED = frozenset({"T-148c2c", "T-185"})
+
+
+def test_no_task_id_is_both_open_and_closed() -> None:
+    """The same defect one file over: a PR that closes its task into CHANGELOG.md while another entry of TASKS.md has that ID
+    leaves one number for two tasks and no test failing (T-219 in #206 and #207)."""
+    shape = r"^\s*- \[[ xX]\] \*\*(T-[0-9a-z]+)\*\*"
+    open_ids = set(re.findall(shape, _text("TASKS.md"), re.MULTILINE))
+    closed_ids = set(re.findall(shape, _text("CHANGELOG.md"), re.MULTILINE))
+    both = sorted((open_ids & closed_ids) - PARTLY_CLOSED)
+    assert both == [], f"task IDs in both TASKS.md and CHANGELOG.md: {both}"
