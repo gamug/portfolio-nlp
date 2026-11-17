@@ -148,9 +148,14 @@ class JobManager:
                     del self._jobs[old]
             self._order = [i for i in self._order if i in self._jobs]
         if self._spawn:
-            threading.Thread(
-                target=self._run, args=(job,), name=f"job-{job.id}", daemon=True
-            ).start()
+            try:
+                threading.Thread(
+                    target=self._run, args=(job,), name=f"job-{job.id}", daemon=True
+                ).start()
+            except RuntimeError:  # the thread did not start: the GPU must not stay held
+                job.status, job.finished_at = FAILED, now()
+                self.gate.release()
+                raise
         else:
             self._run(job)
         return job
@@ -163,11 +168,20 @@ class JobManager:
         with self._lock:
             return [self._jobs[i] for i in reversed(self._order) if i in self._jobs]
 
-    def cancel(self, job_id: str) -> Job | None:
+    def cancel(self, job_id: str) -> tuple[Job | None, str | None]:
+        """Ask a job to stop before its next step. Returns the job and, when no stop is possible, the reason (nothing is marked)."""
         job = self.get(job_id)
-        if job is not None and job.status in ACTIVE:
-            job.cancel_requested = True
-        return job
+        if job is None:
+            return None, None
+        if job.status not in ACTIVE:
+            return job, f"the job already ended ({job.status})"
+        if not any(s.status == QUEUED for s in job.steps):
+            return job, (
+                "a running step cannot be stopped in the middle and no step is left to skip: "
+                "restart the service to stop it (every step resumes where it stopped)"
+            )
+        job.cancel_requested = True
+        return job, None
 
     # -- the worker ----------------------------------------------------------------------------------------------------
 

@@ -4,20 +4,35 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
+import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 import apps.pipeline_api as api
 import news_nlp as db_module
+from news_category_stage import LABELS
 from news_nlp.service import jobs as jobs_module
 from news_nlp.service import steps_runner as runner
 from news_nlp.service.jobs import Busy, GpuGate, JobManager
-from news_nlp.service.stage_models import BUILDERS, STAGES, StageModels, StageUnavailable, jsonable
+from news_nlp.service.stage_models import (
+    BUILDERS,
+    STAGES,
+    StageModels,
+    StageUnavailable,
+    _Category,
+    _Companies,
+    _Scope,
+    _Sector,
+    _Sentiment,
+    jsonable,
+)
 
 REVISIONS = {"summary_revision": "summary-a", "companies_revision": "companies-b"}
 
@@ -170,7 +185,9 @@ def test_a_job_runs_its_steps_in_order_and_keeps_the_outputs_and_the_progress() 
 
 def test_a_failed_step_stops_the_pipeline_and_the_rest_are_skipped() -> None:
     manager, ran = _manager({"cut": runner.StepOutcome(ok=False, message="refused: x")})
-    job = manager.submit("pipeline", manager.plan([("scope", {}), ("cut", {}), ("summary", {})]))
+    job = manager.submit(
+        "pipeline", manager.plan([("scope", {}), ("cut", {}), ("summary", {"max_calls": 10})])
+    )
     assert ran == ["scope", "cut"]
     assert [s.status for s in job.steps] == ["succeeded", "failed", "skipped"]
     assert job.status == jobs_module.FAILED and job.steps[1].error == "refused: x"
@@ -219,7 +236,7 @@ class Score(NamedTuple):
 class FakeStage:
     description = "items: {text}"
 
-    def __init__(self, _conn: Callable[[], Any]) -> None:
+    def __init__(self, _conn: Callable[[], Any], _options: Mapping[str, Any] | None = None) -> None:
         self.calls = 0
 
     def predict(self, items: Sequence[Mapping[str, Any]]) -> list[Any]:
@@ -340,14 +357,15 @@ def test_the_whole_pipeline_runs_its_steps_in_order_and_refuses_another_order(
     assert ok.status_code == 202 and ran == ["scope", "cut"] and ok.json()["kind"] == "pipeline"
 
 
-def test_an_unknown_job_is_404_and_a_finished_job_is_not_cancelled(
+def test_an_unknown_job_is_404_and_a_finished_job_cannot_be_cancelled_409(
     client_and_ran: tuple[TestClient, list[str], GpuGate],
 ) -> None:
     client, _ran, _gate = client_and_ran
     assert client.get("/jobs/none").status_code == 404
     assert client.post("/jobs/none/cancel").status_code == 404
     job = client.post("/steps/scope/run", json={}).json()
-    assert client.post(f"/jobs/{job['id']}/cancel").json()["cancel_requested"] is False
+    ended = client.post(f"/jobs/{job['id']}/cancel")
+    assert ended.status_code == 409 and "already ended" in ended.json()["detail"]
 
 
 def test_the_stage_models_are_listed_and_asked_through_the_routes(
@@ -364,7 +382,7 @@ def test_the_stage_models_are_listed_and_asked_through_the_routes(
 
 
 def test_a_stage_that_cannot_be_served_is_503() -> None:
-    def unavailable(_conn: Callable[[], Any]) -> Any:
+    def unavailable(_conn: Callable[[], Any], _options: Mapping[str, Any]) -> Any:
         raise StageUnavailable("no universe")
 
     models = _models(builders={"sector": unavailable})
@@ -392,3 +410,279 @@ def test_the_status_of_a_step_is_read_from_the_tables_without_a_model(
     body = client.get("/steps/scope/status").json()
     assert body["revision"] is None and body["revisions"] == []
     assert client.get("/steps/nope/status").status_code == 404
+
+
+# --- review of #209: what the API must refuse, and what it must not claim ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"fetc": True},
+        {"allow-unp": True},
+        {"model-d": "x"},
+        {"results-d": "x.db"},
+        {"source-d": "y.db"},
+        {"rese": True},
+        {"fetch": True},
+    ],
+)
+def test_an_abbreviation_of_a_refused_option_is_refused_too(options: dict[str, Any]) -> None:
+    """The CLI's parser takes any unique prefix of an option; ``rese`` was ``--reset``, which deletes the snapshot rows."""
+    inputs = {
+        "summary_revision": "s",
+        "companies_revision": "c",
+        "cut_revision": "u",
+        "category_revision": "k",
+        "sentiment_revision": "t",
+    }
+    with pytest.raises(runner.StepRefused):
+        runner.parse_step("snapshot", {**inputs, **options})
+
+
+def test_an_option_that_reaches_a_refused_one_is_refused_by_what_it_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second lock: the parse result is read, not only the keys."""
+    original = runner.build_argv
+    monkeypatch.setattr(
+        runner,
+        "build_argv",
+        lambda step, options: [
+            *original(step, {}),
+            "--fetc",
+        ],  # the abbreviation gets past the key check
+    )
+    # parse_step turns abbreviations off after build_parser, so force them on again to prove the result check
+    real_parse = argparse.ArgumentParser.parse_args
+
+    def abbrev_on(self: argparse.ArgumentParser, *a: Any, **k: Any) -> Any:
+        self.allow_abbrev = True
+        return real_parse(self, *a, **k)
+
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", abbrev_on)
+    with pytest.raises(runner.StepRefused, match="fetch is not available"):
+        runner.parse_step("scope", {})
+
+
+def test_the_summary_through_the_api_needs_an_explicit_cap_on_the_paid_calls() -> None:
+    with pytest.raises(runner.StepRefused, match="needs max_calls"):
+        runner.parse_step("summary", {"items": "single"})
+    assert runner.parse_step("summary", {"items": "single", "max_calls": 100}).max_calls == 100
+    assert (
+        runner.parse_step("summary", {"items": "single", "summariser": "local"}).summariser
+        == "local"
+    )
+
+
+def test_a_thread_that_does_not_start_leaves_the_gpu_free(monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = GpuGate()
+    manager = JobManager(gate=gate, executor=lambda *_a: runner.StepOutcome(ok=True), spawn=True)
+    steps = manager.plan([("scope", {})])
+
+    def no_thread(self: Any) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", no_thread)
+    with pytest.raises(RuntimeError, match="can't start"):
+        manager.submit("step", steps)
+    assert gate.holder is None
+
+
+def test_cancel_stops_a_pipeline_that_has_a_step_left_and_says_no_for_the_last_step() -> None:
+    answers: dict[str, tuple[Any, str | None]] = {}
+
+    def cancel_while_running(step: str, manager: JobManager) -> None:
+        job_id = manager.listing()[0].id
+        answers[step] = manager.cancel(job_id)
+
+    manager, ran = _manager(on_run=cancel_while_running)
+    job = manager.submit("pipeline", manager.plan([("scope", {}), ("cut", {})]))
+    assert answers["scope"][1] is None  # the cut is still to run: the stop is accepted
+    assert ran == ["scope"] and job.status == jobs_module.CANCELLED
+    lone, _ = _manager(on_run=cancel_while_running)
+    single = lone.submit("step", lone.plan([("scope", {})]))
+    reason = answers["scope"][1]  # overwritten by the single-step run: nothing to skip
+    assert reason is not None and "cannot be stopped in the middle" in reason
+    assert single.status == jobs_module.SUCCEEDED and single.cancel_requested is False
+
+
+def test_cancel_of_a_running_single_step_is_409_through_the_route() -> None:
+    holder: list[JobManager] = []
+    outcome: dict[str, Any] = {}
+
+    def executor(_args: argparse.Namespace, _progress: Any) -> runner.StepOutcome:
+        job_id = holder[0].listing()[0].id
+        outcome["response"] = TestClient(api.create_app(holder[0], _models(holder[0].gate))).post(
+            f"/jobs/{job_id}/cancel"
+        )
+        return runner.StepOutcome(ok=True)
+
+    manager = JobManager(executor=executor, spawn=False)
+    holder.append(manager)
+    manager.submit("step", manager.plan([("scope", {})]))
+    assert outcome["response"].status_code == 409
+    assert "restart the service" in outcome["response"].json()["detail"]
+
+
+# --- the real stage builders, with their heavy parts stubbed ------------------------------------------------------------
+
+
+@pytest.fixture
+def universe(results_db_path: Path, source_db_path: Path) -> Callable[[], Any]:
+    return lambda: db_module.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+
+
+def test_the_scope_stage_model_refuses_a_folder_that_is_not_the_pinned_model(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "training_record.json").write_text('{"fragment_chars": 800}', encoding="utf-8")
+    with pytest.raises(StageUnavailable, match="not the pinned model"):
+        _Scope(lambda: None, {}, model_dir=tmp_path)
+    with pytest.raises(StageUnavailable, match="missing"):
+        _Scope(lambda: None, {}, model_dir=tmp_path / "nowhere")
+
+
+def test_the_category_stage_model_builds_and_answers_with_a_stub_scorer() -> None:
+    class Scorer:
+        model_name, model_revision = "stub", "r0"
+
+        def score(self, pairs: Sequence[tuple[str, str]]) -> list[list[float]]:
+            return [[1.0 if i == 0 else 0.0 for i in range(len(LABELS))] for _ in pairs]
+
+    model = _Category(lambda: None, {}, scorer=Scorer())
+    [result] = [jsonable(r) for r in model.predict([{"text": "t", "company": "Apple"}])]
+    assert result["label"] == LABELS[0] and set(result) >= {"label", "score", "group_label"}
+    with pytest.raises(ValueError, match="text, company"):
+        model.predict([{"text": "t"}])
+
+
+def test_the_sentiment_stage_model_needs_the_relevance_and_answers_with_a_stub_scorer() -> None:
+    class Scorer:
+        def identity(self) -> str:
+            return "stub"
+
+        def probabilities(self, pairs: Sequence[tuple[str, str]]) -> list[Any]:
+            return [([0.1, 0.8, 0.1], 1) for _ in pairs]
+
+    model = _Sentiment(lambda: None, {}, scorer=Scorer())
+    [result] = [
+        jsonable(r) for r in model.predict([{"text": "t", "company": "Apple", "relevance": 0.9}])
+    ]
+    assert result["label"] in {"positive", "negative", "neutral"}
+    with pytest.raises(ValueError, match="relevance"):
+        model.predict([{"text": "t", "company": "Apple"}])
+
+
+def test_the_companies_stage_model_needs_the_threshold_and_the_candidates_like_the_cli(
+    universe: Callable[[], Any],
+) -> None:
+    class Spans:
+        model_name, model_revision = "stub", "r0"
+
+        def spans(self, texts: Sequence[str]) -> list[list[dict[str, Any]]]:
+            return [[] for _ in texts]
+
+    class Relevance:
+        repo, revision = "stub", "r0"
+
+        def score(self, pairs: Sequence[tuple[str, str]]) -> list[float]:
+            return [0.9 for _ in pairs]
+
+    with pytest.raises(ValueError, match="threshold, candidates"):
+        _Companies(universe, {}, spans=Spans(), scorer=Relevance())
+    with pytest.raises(ValueError, match="candidates"):
+        _Companies(universe, {"threshold": 0.5}, spans=Spans(), scorer=Relevance())
+    model = _Companies(
+        universe, {"threshold": 0.5, "candidates": "ner"}, spans=Spans(), scorer=Relevance()
+    )
+    assert model.predict([{"text": "Nothing about a company"}]) == [[]]
+
+
+def test_the_sector_stage_model_builds_from_the_universe_and_answers_with_a_stub_embedder(
+    universe: Callable[[], Any],
+) -> None:
+    def embed(texts: list[str]) -> Any:
+        rng = np.random.default_rng(0)
+        vectors = rng.normal(size=(len(texts), 8))
+        return vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+
+    model = _Sector(universe, {}, embed=embed)
+    [result] = [
+        jsonable(r) for r in model.predict([{"title": "Oil prices", "text": "Crude rose."}])
+    ]
+    assert set(result) >= {"status", "sector"}
+
+
+def test_the_stage_options_that_build_a_model_rebuild_it_when_they_change() -> None:
+    built: list[Mapping[str, Any]] = []
+
+    class Counting(FakeStage):
+        def __init__(
+            self, conn: Callable[[], Any], options: Mapping[str, Any] | None = None
+        ) -> None:
+            super().__init__(conn, options)
+            built.append(dict(options or {}))
+
+    models = _models(builders={"fake": Counting})
+    models.predict("fake", [{"text": "x"}], {"threshold": 0.5})
+    models.predict("fake", [{"text": "x"}], {"threshold": 0.5})
+    models.predict("fake", [{"text": "x"}], {"threshold": 0.6})
+    assert built == [{"threshold": 0.5}, {"threshold": 0.6}]
+
+
+# --- the status route reads while a job writes ------------------------------------------------------------------------
+
+
+@pytest.fixture
+def real_store(
+    results_db_path: Path, source_db_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
+    monkeypatch.setenv("SOURCE_DATABASE_URL", str(source_db_path))
+    conn = db_module.connect_pipeline(results_db=results_db_path, source_db=source_db_path)
+    db_module.init_schema(conn)
+    conn.commit()
+    conn.close()
+    return results_db_path
+
+
+@pytest.mark.parametrize("step", list(runner.PIPELINE_ORDER))
+def test_the_status_of_every_step_reads_an_empty_store_with_the_default_connection(
+    real_store: Path, step: str
+) -> None:
+    client = TestClient(api.create_app(_manager()[0], _models()))
+    response = client.get(f"/steps/{step}/status")
+    assert response.status_code == 200, response.text
+
+
+def test_the_status_reads_while_another_connection_holds_a_write_transaction(
+    real_store: Path,
+) -> None:
+    """A job writes for hours: the status must neither wait for it nor write (no init_schema, query_only)."""
+    writer = sqlite3.connect(real_store, isolation_level=None)
+    writer.execute("BEGIN IMMEDIATE")
+    try:
+        client = TestClient(api.create_app(_manager()[0], _models()))
+        assert client.get("/steps/scope/status").status_code == 200
+    finally:
+        writer.execute("ROLLBACK")
+        writer.close()
+
+
+def test_the_default_connection_cannot_write(real_store: Path) -> None:
+    conn = api.default_connection()
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            conn.execute("DELETE FROM body_scope")
+    finally:
+        conn.close()
+
+
+def test_a_store_that_cannot_be_read_is_503_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    def locked() -> Any:
+        raise sqlite3.OperationalError("database is locked")
+
+    client = TestClient(api.create_app(_manager()[0], _models(), connection=locked))
+    response = client.get("/steps/scope/status")
+    assert response.status_code == 503 and "locked" in response.json()["detail"]

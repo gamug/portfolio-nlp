@@ -11,6 +11,7 @@ what it does not do: ``docs/pipeline_api.md``. It does not replace the v1 API (`
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -48,11 +49,20 @@ class PipelineRequest(BaseModel):
 
 class PredictRequest(BaseModel):
     items: list[dict[str, Any]] = Field(min_length=1)
+    options: dict[str, Any] = Field(
+        default_factory=dict,
+        description="what builds the model, not an item (companies: threshold and candidates, both required)",
+    )
+
+
+BUSY_TIMEOUT_MS = 3000
 
 
 def default_connection() -> Any:
+    """The stores of the environment, to read only: no ``init_schema`` (DDL and migrations contend with a job that writes) and ``query_only``."""
     conn = db.connect_pipeline(results_db=None, source_db=None)
-    db.init_schema(conn)
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA query_only = ON")
     return conn
 
 
@@ -100,11 +110,17 @@ def _steps_router(jobs: JobManager, connection: Callable[[], Any]) -> APIRouter:
     ) -> dict[str, Any]:
         if step not in runner.PIPELINE_ORDER:
             raise HTTPException(404, f"unknown step {step!r}")
-        conn = connection()
         try:
-            return step_status(conn, step, revision, snapshot_revision)
-        finally:
-            conn.close()
+            conn = connection()
+            try:
+                return step_status(conn, step, revision, snapshot_revision)
+            finally:
+                conn.close()
+        except (
+            sqlite3.OperationalError,
+            RuntimeError,
+        ) as exc:  # a locked store, no tables yet, no SOURCE configured
+            raise HTTPException(503, f"the status could not be read: {exc}") from exc
 
     @router.post("/steps/{step}/run", status_code=202)
     def run_step(step: str, request: StepRequest) -> dict[str, Any]:
@@ -152,9 +168,11 @@ def _jobs_router(jobs: JobManager) -> APIRouter:
 
     @router.post("/jobs/{job_id}/cancel")
     def cancel_job(job_id: str) -> dict[str, Any]:
-        job = jobs.cancel(job_id)
+        job, reason = jobs.cancel(job_id)
         if job is None:
             raise HTTPException(404, f"no job {job_id!r}")
+        if reason is not None:
+            raise HTTPException(409, reason)
         return job.public()
 
     return router
@@ -170,7 +188,10 @@ def _fti_router(stage_models: StageModels, gate: GpuGate) -> APIRouter:
     @router.post("/fti/{stage}/predict")
     def fti_predict(stage: str, request: PredictRequest) -> dict[str, Any]:
         try:
-            return {"stage": stage, "results": stage_models.predict(stage, request.items)}
+            return {
+                "stage": stage,
+                "results": stage_models.predict(stage, request.items, request.options),
+            }
         except KeyError as exc:
             raise HTTPException(404, f"unknown stage {stage!r}") from exc
         except ValueError as exc:

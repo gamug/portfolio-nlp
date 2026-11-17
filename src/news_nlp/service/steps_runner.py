@@ -84,10 +84,24 @@ def build_argv(step: str, options: Mapping[str, Any]) -> list[str]:
     return argv
 
 
+def _reached(args: argparse.Namespace) -> list[str]:
+    """The options of ``NOT_THROUGH_THE_API`` the parse set, whatever the key that reached them was."""
+    flags = [n for n in ("fetch", "allow_unpinned", "reset") if getattr(args, n, False)]
+    values = [
+        n for n in ("model_dir", "source_db", "results_db") if getattr(args, n, None) is not None
+    ]
+    return [*flags, *values]
+
+
 def parse_step(step: str, options: Mapping[str, Any]) -> argparse.Namespace:
-    """Parse and check one step's options with the CLI's own parser; a refusal is a ``StepRefused`` with the CLI's message."""
+    """Parse and check one step's options with the CLI's own parser; a refusal is a ``StepRefused`` with the CLI's message.
+
+    Only exact option names parse (``allow_abbrev`` off: the CLI's parser takes any unique prefix, so ``rese`` was ``--reset``), and the result
+    is checked as well as the keys: an option that acts on files, the stores or the rows is refused by what it set.
+    """
     module = cli()
     parser = module.build_parser()
+    parser.allow_abbrev = False
     argv = build_argv(step, options)
     stderr = io.StringIO()
     try:
@@ -97,6 +111,16 @@ def parse_step(step: str, options: Mapping[str, Any]) -> argparse.Namespace:
     except SystemExit as exc:  # argparse's error() exits with 2
         message = stderr.getvalue().strip().splitlines()
         raise StepRefused(message[-1] if message else f"refused ({exc.code})") from exc
+    reached = _reached(args)
+    if reached:
+        raise StepRefused(
+            f"option {', '.join(reached)} is not available through the API (run the command line for it)"
+        )
+    if args.step == "summary" and args.summariser != "local" and args.max_calls is None:
+        raise StepRefused(
+            "the summary through the API needs max_calls: it calls a paid API and the service has no authentication (the CLI allows up to "
+            "5,000 texts without a cap; here the cap is always explicit)"
+        )
     return args
 
 
