@@ -16,8 +16,9 @@ service has **no authentication** (owner's choice): the stores come from the env
 Two locks keep them out: only **exact option names** parse (the CLI's parser takes any unique prefix, so `rese` was `--reset`; abbreviations are off here), and the
 **result of the parse** is read too, so an option that set one of them is refused whatever key reached it.
 
-**The summary needs an explicit `max_calls`** (422 otherwise) unless `summariser` is `local`: it calls a paid API and, without authentication, the CLI's own allowance (up to 5,000 texts
-without a cap) is too much for a request.
+**The summary needs an explicit and bounded `max_calls`** (422 otherwise) unless `summariser` is `local`: it calls a paid API and, without authentication, the CLI's own allowance (up to 5,000 texts
+without a cap) is too much for a request. The ceiling is that same 5,000 (`UNCAPPED_RUN_ITEMS`) unless `PIPELINE_API_MAX_CALLS` sets another; `concurrency` (parallel API requests) is capped at 16 unless
+`PIPELINE_API_MAX_CONCURRENCY` says otherwise. Over a ceiling is 422 and the message names it.
 
 ## Routes
 
@@ -32,6 +33,12 @@ without a cap) is too much for a request.
 | `POST /jobs/{id}/cancel` | stops a **pipeline** job before its next step; **409** with the reason when it cannot (a single-step job, the last step of a pipeline, a job that ended) |
 | `GET /fti/stages`, `POST /fti/{stage}/predict` body `{"items": [...]}` | the stage models (below) |
 
+## Not serialised with the command line
+
+The GPU gate and the one-job rule live **in this process**. The scheduled daily run (the CLI, started by the owner's scheduler at 15:00) and a job of this service can write the same store at the
+same time: SQLite locks, and two runs of one step over the same pending items do the work twice. **Do not run both on the same store**: stop the scheduler or the service first. Before a window that
+changes the store (the depuration of T-220), check that no job is running (`GET /jobs`) or stop the service.
+
 ## Jobs
 
 One worker, jobs in memory (owner's choice). There is one GPU and a step runs for hours (the corpus run takes 8 to 10 hours), so a request while a job (or a
@@ -43,7 +50,7 @@ No table was added for jobs: T-220 prunes the schema.
 ## The stage models (the FTI services)
 
 For `scope`, `sector`, `companies`, `category` and `sentiment`, the object the step itself runs (`ScopeClassifier`, `SectorClassifier`, `CompanyFinder`,
-`CategoryFinder`, `SentimentFinder`) is built the way the step builds it and asked about 1 to 32 ad-hoc items; **no row is written**. Items: scope `{title, body}`,
+`CategoryFinder`, `SentimentFinder`) is built the way the step builds it and asked about 1 to 32 ad-hoc items, each text at most 50,000 characters, a body at most 4,000,000 bytes (422 and 413); **no row is written**. Items: scope `{title, body}`,
 sector `{title, text}`, companies `{text}`, category `{text, company}`, sentiment `{text, company, relevance}`. What the CLI does not guess, the service does not guess:
 **scope serves the pinned model only** (the CLI's `is_pinned` check; not pinned is 503), **companies needs `options: {"threshold": ..., "candidates": ...}`** (the owner's value, part of the revision;
 422 without them) and a **sentiment item needs its `relevance`**. One stage stays loaded (a 6 GB card): asking for another frees

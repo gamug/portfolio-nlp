@@ -6,20 +6,21 @@ Run:
 
 Every run is a job (one at a time, the GPU is single), in memory; a step runs through the CLI's own parser and functions (``news_nlp.service``), so
 the rows are the CLI's. Revisions are explicit, never "latest". No authentication (owner, 2026-11-17): keep the port on a private network. Design and
-what it does not do: ``docs/pipeline_api.md``. It does not replace the v1 API (``apps/news_nlp_api.py``) yet: T-220 removes that one.
+what it does not do: ``docs/pipeline_api.md``. It is the service the Docker image runs; the v1 API (``apps/news_nlp_api.py``) is kept, untouched, until T-220 removes it.
 """
 
 from __future__ import annotations
 
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import news_nlp as db
@@ -56,6 +57,7 @@ class PredictRequest(BaseModel):
 
 
 BUSY_TIMEOUT_MS = 3000
+MAX_BODY_BYTES = 4_000_000  # 32 texts of 50,000 characters, with room for the JSON around them
 
 
 def default_connection() -> Any:
@@ -213,6 +215,17 @@ def create_app(
     gate = manager.gate if manager is not None else GpuGate()
     jobs = manager or JobManager(gate)
     stage_models = models or StageModels(gate, connection)
+
+    @app.middleware("http")
+    async def limit_the_body(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            return JSONResponse(
+                {"detail": f"the body is over {MAX_BODY_BYTES:,} bytes"}, status_code=413
+            )
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:

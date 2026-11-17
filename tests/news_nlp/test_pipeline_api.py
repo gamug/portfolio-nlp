@@ -23,6 +23,7 @@ from news_nlp.service import steps_runner as runner
 from news_nlp.service.jobs import Busy, GpuGate, JobManager
 from news_nlp.service.stage_models import (
     BUILDERS,
+    MAX_TEXT_CHARS,
     STAGES,
     StageModels,
     StageUnavailable,
@@ -415,54 +416,60 @@ def test_the_status_of_a_step_is_read_from_the_tables_without_a_model(
 # --- review of #209: what the API must refuse, and what it must not claim ----------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "options",
-    [
-        {"fetc": True},
-        {"allow-unp": True},
-        {"model-d": "x"},
-        {"results-d": "x.db"},
-        {"source-d": "y.db"},
-        {"rese": True},
-        {"fetch": True},
-    ],
-)
-def test_an_abbreviation_of_a_refused_option_is_refused_too(options: dict[str, Any]) -> None:
-    """The CLI's parser takes any unique prefix of an option; ``rese`` was ``--reset``, which deletes the snapshot rows."""
-    inputs = {
-        "summary_revision": "s",
-        "companies_revision": "c",
-        "cut_revision": "u",
-        "category_revision": "k",
-        "sentiment_revision": "t",
-    }
-    with pytest.raises(runner.StepRefused):
-        runner.parse_step("snapshot", {**inputs, **options})
+#: each abbreviation of a refused option, on the step where that option is legal for the CLI (so the CLI's own "does not apply to this step"
+#: cannot be what refuses it), and the name of the option the parse sets
+ABBREVIATIONS = [
+    ("scope", {"fetc": True}, "fetch"),
+    ("scope", {"allow-unp": True}, "allow_unpinned"),
+    ("scope", {"model-d": "x"}, "model_dir"),
+    ("scope", {"results-d": "x.db"}, "results_db"),
+    ("scope", {"source-d": "y.db"}, "source_db"),
+    (
+        "snapshot",
+        {
+            "rese": True,
+            "summary_revision": "s",
+            "companies_revision": "c",
+            "cut_revision": "u",
+            "category_revision": "k",
+            "sentiment_revision": "t",
+        },
+        "reset",
+    ),
+]
 
 
-def test_an_option_that_reaches_a_refused_one_is_refused_by_what_it_set(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(("step", "options", "_name"), ABBREVIATIONS)
+def test_an_abbreviation_of_a_refused_option_is_refused(
+    step: str, options: dict[str, Any], _name: str
 ) -> None:
-    """The second lock: the parse result is read, not only the keys."""
-    original = runner.build_argv
-    monkeypatch.setattr(
-        runner,
-        "build_argv",
-        lambda step, options: [
-            *original(step, {}),
-            "--fetc",
-        ],  # the abbreviation gets past the key check
-    )
-    # parse_step turns abbreviations off after build_parser, so force them on again to prove the result check
+    """The CLI's parser takes any unique prefix of an option; ``rese`` was ``--reset``, which deletes the snapshot rows."""
+    with pytest.raises(runner.StepRefused):
+        runner.parse_step(step, options)
+
+
+@pytest.mark.parametrize(("step", "options", "_name"), ABBREVIATIONS)
+def test_the_exact_names_lock_refuses_each_abbreviation_on_its_own(
+    step: str, options: dict[str, Any], _name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runner, "_reached", lambda _args: [])  # the second lock is off
+    with pytest.raises(runner.StepRefused, match="unrecognized arguments"):
+        runner.parse_step(step, options)
+
+
+@pytest.mark.parametrize(("step", "options", "name"), ABBREVIATIONS)
+def test_the_result_lock_refuses_each_one_on_its_own_when_abbreviations_get_through(
+    step: str, options: dict[str, Any], name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     real_parse = argparse.ArgumentParser.parse_args
 
-    def abbrev_on(self: argparse.ArgumentParser, *a: Any, **k: Any) -> Any:
-        self.allow_abbrev = True
+    def abbreviations_on(self: argparse.ArgumentParser, *a: Any, **k: Any) -> Any:
+        self.allow_abbrev = True  # the first lock is off
         return real_parse(self, *a, **k)
 
-    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", abbrev_on)
-    with pytest.raises(runner.StepRefused, match="fetch is not available"):
-        runner.parse_step("scope", {})
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", abbreviations_on)
+    with pytest.raises(runner.StepRefused, match=f"{name} is not available through the API"):
+        runner.parse_step(step, options)
 
 
 def test_the_summary_through_the_api_needs_an_explicit_cap_on_the_paid_calls() -> None:
@@ -473,6 +480,33 @@ def test_the_summary_through_the_api_needs_an_explicit_cap_on_the_paid_calls() -
         runner.parse_step("summary", {"items": "single", "summariser": "local"}).summariser
         == "local"
     )
+
+
+def test_the_summary_caps_are_bounded_not_only_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    ceiling = runner.calls_ceiling()
+    assert ceiling == 5000  # the CLI's own allowance, until a deployment sets another
+    assert (
+        runner.parse_step("summary", {"items": "single", "max_calls": ceiling}).max_calls == ceiling
+    )
+    with pytest.raises(runner.StepRefused, match=f"over the ceiling of {ceiling} calls"):
+        runner.parse_step("summary", {"items": "single", "max_calls": ceiling + 1})
+    with pytest.raises(runner.StepRefused, match="over the ceiling of 16"):
+        runner.parse_step("summary", {"items": "single", "max_calls": 10, "concurrency": 17})
+    assert runner.parse_step("summary", {"items": "single", "max_calls": 10, "concurrency": 16})
+    with pytest.raises(
+        runner.StepRefused, match="only apply to the API summariser"
+    ):  # the CLI's own rule
+        runner.parse_step(
+            "summary", {"items": "single", "summariser": "local", "concurrency": 100000}
+        )
+    monkeypatch.setenv(runner.MAX_CALLS_ENV, "100")
+    monkeypatch.setenv(runner.CONCURRENCY_ENV, "2")
+    with pytest.raises(runner.StepRefused, match="over the ceiling of 100 calls"):
+        runner.parse_step("summary", {"items": "single", "max_calls": 101})
+    with pytest.raises(runner.StepRefused, match="over the ceiling of 2"):
+        runner.parse_step("summary", {"items": "single", "max_calls": 10, "concurrency": 3})
+    monkeypatch.setenv(runner.MAX_CALLS_ENV, "not a number")
+    assert runner.calls_ceiling() == 5000  # an unreadable value is the default, not a crash
 
 
 def test_a_thread_that_does_not_start_leaves_the_gpu_free(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -686,3 +720,27 @@ def test_a_store_that_cannot_be_read_is_503_not_a_crash(monkeypatch: pytest.Monk
     client = TestClient(api.create_app(_manager()[0], _models(), connection=locked))
     response = client.get("/steps/scope/status")
     assert response.status_code == 503 and "locked" in response.json()["detail"]
+
+
+# --- the size of what a request may carry ------------------------------------------------------------------------------
+
+
+def test_a_text_over_the_cap_is_refused_and_one_at_the_cap_is_answered() -> None:
+    models = _models()
+    assert models.predict("fake", [{"text": "x" * MAX_TEXT_CHARS}])
+    with pytest.raises(ValueError, match=f"at most {MAX_TEXT_CHARS:,}"):
+        models.predict("fake", [{"text": "x" * (MAX_TEXT_CHARS + 1)}])
+
+
+def test_the_routes_refuse_a_long_text_and_a_body_over_the_limit(
+    client_and_ran: tuple[TestClient, list[str], GpuGate],
+) -> None:
+    client, _ran, _gate = client_and_ran
+    long_text = client.post("/fti/fake/predict", json={"items": [{"text": "x" * 50_001}]})
+    assert long_text.status_code == 422 and "at most 50,000" in long_text.json()["detail"]
+    huge = client.post(
+        "/fti/fake/predict",
+        content=b"x" * (api.MAX_BODY_BYTES + 1),
+        headers={"content-type": "application/json"},
+    )
+    assert huge.status_code == 413 and "bytes" in huge.json()["detail"]

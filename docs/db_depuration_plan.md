@@ -145,7 +145,7 @@ removes them).
    (`sentiment-59863d15fc42`, `category-a23569dba86f`, `snapshot-c3a753affa5d`, `period-3b07b83ecec3`) and the delivery note's
    `period-ae014b56b055` appear in no tracked file, and the documents cite other ones (see below).
 2. **A maintenance window, then a fresh backup.** The daily 15:00 run writes to the live file, so a backup made earlier never equals
-   it. The owner stops the scheduled run and confirms no run is in progress (an exclusive transaction on the live file succeeds after
+   it. The owner stops the scheduled run **and the pipeline API (`docs/pipeline_api.md`: `GET /jobs` shows no running job, or the service is stopped)** and confirms no run is in progress (an exclusive transaction on the live file succeeds after
    `PRAGMA wal_checkpoint(TRUNCATE)`), a **fresh** `nlp_backup.db` is made with the SQLite backup API, `PRAGMA integrity_check` returns
    `ok`, the row count of every table equals the live file's (it can now, nothing writes), and its SHA-256 and the counts are recorded
    in the PR. Everything else is rehearsed on a *second copy*. The scheduler is restarted only after the checks of PR C pass.
@@ -185,10 +185,10 @@ modules stay byte-identical (the guard proves it). The Docker retarget was done 
   lean `articles` table (`schema.py` does not create it: the crawler side owns it and `db._ensure_article_row` fills it; the steps CLI
   refuses a file without it, `cli/news_nlp_steps.py:591-595`). `eval_judgement` is still created at `schema.py:168`: it goes with the
   v1 DDL if it is confirmed unused.
-* **The sequence of the apply (one maintenance window of Phase 0, the owner at the keyboard):** (a) the scheduled run stopped, a fresh
+* **The sequence of the apply (one maintenance window of Phase 0, the owner at the keyboard):** (a) the scheduled run and the pipeline API stopped, a fresh
   backup verified (Phase 0 step 2), the dry runs of `--apply` and `--apply-prune` read and accepted; (b) `--apply` (the drop), its
   checks and the golden SQL; (c) a **second fresh backup**, verified, so that each step can be restored on its own; (d) `--apply-prune`,
-  its checks and the golden SQL; (e) the scheduled run restarted. **A failed check stops the sequence** and the last verified backup is
+  its checks and the golden SQL; (e) the scheduled run and the API restarted. **A failed check stops the sequence** and the last verified backup is
   restored (rehearsed in Phase 0 step 3); nothing is retried on the live file.
 * `scripts/depurate_db_<date>.py`, dry run by default:
   * `--apply` refuses without `--backup nlp_backup.db` verified (integrity and counts); one transaction; `DROP TABLE` of the v1

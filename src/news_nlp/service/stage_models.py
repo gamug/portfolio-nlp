@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from news_nlp.service.jobs import Busy, GpuGate
 
 MAX_ITEMS = 32
+MAX_TEXT_CHARS = 50_000  # one text of an item: the models read a few hundred words, a request is not a way to hold memory
 STAGES = ("scope", "sector", "companies", "category", "sentiment")
 ConnFactory = Callable[[], Any]
 
@@ -248,6 +249,12 @@ class StageModels:
             raise KeyError(stage)
         if not items or len(items) > MAX_ITEMS:
             raise ValueError(f"between 1 and {MAX_ITEMS} items per call")
+        for item in items:
+            for field, value in item.items():
+                if isinstance(value, str) and len(value) > MAX_TEXT_CHARS:
+                    raise ValueError(
+                        f"the text {field!r} has {len(value):,} characters: at most {MAX_TEXT_CHARS:,} each"
+                    )
         if not self.gate.acquire(f"stage model {stage}"):
             raise Busy(f"the GPU is in use by {self.gate.holder}")
         try:

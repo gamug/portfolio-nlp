@@ -15,11 +15,14 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from news_summary_llm import UNCAPPED_RUN_ITEMS
 
 ROOT = Path(__file__).resolve().parents[3]
 CLI_PATH = ROOT / "cli" / "news_nlp_steps.py"
@@ -35,6 +38,10 @@ PIPELINE_ORDER = (
     "snapshot",
     "period",
 )
+#: Ceilings the service puts on a paid or parallel run (no authentication). The CLI's own allowance is ``news_summary_llm.UNCAPPED_RUN_ITEMS``
+#: texts without a cap; an environment variable raises or lowers each ceiling for a deployment.
+MAX_CALLS_ENV, CONCURRENCY_ENV = "PIPELINE_API_MAX_CALLS", "PIPELINE_API_MAX_CONCURRENCY"
+DEFAULT_CONCURRENCY_CEILING = 16
 NOT_THROUGH_THE_API = frozenset(
     {"fetch", "model_dir", "allow_unpinned", "source_db", "results_db", "reset"}
 )
@@ -93,6 +100,23 @@ def _reached(args: argparse.Namespace) -> list[str]:
     return [*flags, *values]
 
 
+def _ceiling(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        return default
+    return value if value >= 1 else default
+
+
+def calls_ceiling() -> int:
+    return _ceiling(MAX_CALLS_ENV, UNCAPPED_RUN_ITEMS)
+
+
+def concurrency_ceiling() -> int:
+    return _ceiling(CONCURRENCY_ENV, DEFAULT_CONCURRENCY_CEILING)
+
+
 def parse_step(step: str, options: Mapping[str, Any]) -> argparse.Namespace:
     """Parse and check one step's options with the CLI's own parser; a refusal is a ``StepRefused`` with the CLI's message.
 
@@ -116,12 +140,28 @@ def parse_step(step: str, options: Mapping[str, Any]) -> argparse.Namespace:
         raise StepRefused(
             f"option {', '.join(reached)} is not available through the API (run the command line for it)"
         )
-    if args.step == "summary" and args.summariser != "local" and args.max_calls is None:
-        raise StepRefused(
-            "the summary through the API needs max_calls: it calls a paid API and the service has no authentication (the CLI allows up to "
-            "5,000 texts without a cap; here the cap is always explicit)"
-        )
+    if args.step == "summary":
+        _check_summary_caps(args)
     return args
+
+
+def _check_summary_caps(args: argparse.Namespace) -> None:
+    """The summary calls a paid API and the service has no authentication: the cap is explicit **and** bounded, and so is the parallelism."""
+    if args.summariser != "local":
+        ceiling = calls_ceiling()
+        if args.max_calls is None:
+            raise StepRefused(
+                f"the summary through the API needs max_calls (at most {ceiling}): it calls a paid API and the service has no authentication"
+            )
+        if args.max_calls > ceiling:
+            raise StepRefused(
+                f"max_calls {args.max_calls} is over the ceiling of {ceiling} calls per request ({MAX_CALLS_ENV} sets it)"
+            )
+    top = concurrency_ceiling()
+    if args.concurrency > top:
+        raise StepRefused(
+            f"concurrency {args.concurrency} is over the ceiling of {top} ({CONCURRENCY_ENV} sets it)"
+        )
 
 
 @dataclass
