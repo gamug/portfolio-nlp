@@ -157,7 +157,11 @@ removes them).
 5. **The verified backup replaces the `<table>_removed` copies of T-131.** Those would add tables to a database that must hold only
    kept ones. The owner accepts this or says otherwise.
 6. **The sector-step revision is named** (gate 1 of "Left open"): **the prune does not run until it is.**
-7. **Order:** after #199 (`7e3b6b3`) and #204 (`a435e20`), both on master: the guard below pins the revisions as they are on master.
+7. **The upstream team is told first.** If a kept revision differs from the one in the delivery note (`period-3b07b83ecec3` against
+   `period-ae014b56b055` today, or the snapshot), a **new delivery note with the new names goes to the upstream team before the
+   prune**, and the owner confirms they have moved to it (the note says that a changed revision means a new note). The script never
+   prunes a revision named in the delivery note while this is open.
+8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
 **PR A: the guard, then the eval rewire.**
 
@@ -181,6 +185,11 @@ modules stay byte-identical (the guard proves it). The Docker retarget was done 
   lean `articles` table (`schema.py` does not create it: the crawler side owns it and `db._ensure_article_row` fills it; the steps CLI
   refuses a file without it, `cli/news_nlp_steps.py:591-595`). `eval_judgement` is still created at `schema.py:168`: it goes with the
   v1 DDL if it is confirmed unused.
+* **The sequence of the apply (one maintenance window of Phase 0, the owner at the keyboard):** (a) the scheduled run stopped, a fresh
+  backup verified (Phase 0 step 2), the dry runs of `--apply` and `--apply-prune` read and accepted; (b) `--apply` (the drop), its
+  checks and the golden SQL; (c) a **second fresh backup**, verified, so that each step can be restored on its own; (d) `--apply-prune`,
+  its checks and the golden SQL; (e) the scheduled run restarted. **A failed check stops the sequence** and the last verified backup is
+  restored (rehearsed in Phase 0 step 3); nothing is retried on the live file.
 * `scripts/depurate_db_<date>.py`, dry run by default:
   * `--apply` refuses without `--backup nlp_backup.db` verified (integrity and counts); one transaction; `DROP TABLE` of the v1
     tables (and `eval_judgement` if confirmed unused); then `PRAGMA foreign_key_check`, `PRAGMA integrity_check`, the row counts of
@@ -189,21 +198,22 @@ modules stay byte-identical (the guard proves it). The Docker retarget was done 
     pruned on its own column against the revisions of its own step** (a flat list would be wrong: the column is not the same in every
     table, and a table whose step has no kept revision would lose every row):
 
-    | Table | Revision column | Kept family |
-    |---|---|---|
-    | `body_scope` | `classifier_revision` | `scope-nli-8ff21e50796b` |
-    | `body_sector` | `classifier_revision` | **none yet: the sector-step revision is missing from the owner's list** |
-    | `sub_news` | `extractor_revision` | `units5-d3e2cbfa830e` |
-    | `news_summary`, `news_summary_call` | `model_revision` | `summary-llm-70cb6bb07292` |
-    | `news_company` | `model_revision` | `companies-f349536cf701` |
-    | `news_sentiment` | `model_revision` | `sentiment-59863d15fc42` |
-    | `news_category` | `model_revision` | `category-a23569dba86f` |
-    | `news_snapshot` | `model_revision` | `snapshot-c3a753affa5d` |
-    | `period_run`, `period_summary`, `period_item` | `model_revision` | one `period-...` (gate 2 of "Left open") |
-    | `pipeline_step_state` | `model_revision`, with its `step` | the kept revision of that step (a row of a step with no kept revision is not deleted: the script stops and asks) |
+    | Table | Revision column | Date column (for the Phase 0 listing) | Kept family |
+    |---|---|---|---|
+    | `body_scope` | `classifier_revision` | `processed_at` | `scope-nli-8ff21e50796b` |
+    | `body_sector` | `classifier_revision` | `processed_at` | **none yet: the sector-step revision is missing from the owner's list** |
+    | `sub_news` | `extractor_revision` | `processed_at` | `units5-d3e2cbfa830e` |
+    | `news_summary`, `news_summary_call` | `model_revision` | `processed_at` (`news_summary`), `called_at` (`news_summary_call`) | `summary-llm-70cb6bb07292` |
+    | `news_company` | `model_revision` | `processed_at` | `companies-f349536cf701` |
+    | `news_sentiment` | `model_revision` | `processed_at` | `sentiment-59863d15fc42` |
+    | `news_category` | `model_revision` | `processed_at` | `category-a23569dba86f` |
+    | `news_snapshot` | `model_revision` | `processed_at` | `snapshot-c3a753affa5d` |
+    | `period_run`, `period_summary`, `period_item` | `model_revision` | `period_run.created_at` | one `period-...` (gate 2 of "Left open") |
+    | `pipeline_step_state` | `model_revision`, with its `step` | `started_at` / `finished_at` | the kept revision of **that step** (the family is per `step`) |
 
     Not pruned: `sector`, `company_sector`, `eval_*`, the lean `articles`. **The script refuses to run for a table whose family is empty
-    in the keep list** (today `body_sector`), and it refuses when a kept row refers to a pruned one: a kept `news_*` row whose
+    in the keep list** (today `body_sector`; for `pipeline_step_state` it lists every `step` with no kept revision and stops: no row is
+    deleted until the owner answers), and it refuses when a kept row refers to a pruned one: a kept `news_*` row whose
     `sub_news` id exists only in a pruned cut revision; a kept period whose snapshot revision is not kept; a revision named in the
     `inputs` of a kept snapshot row that is not kept. The dry run prints, per table and revision, the rows to delete. Deletes follow the
     dependency order (`period_item`, `period_summary`, `period_run`, then the rest), one transaction per table, then the same checks,
@@ -246,8 +256,11 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
    script never prunes a revision named in the delivery note unless the owner removes it from the note's list explicitly.
 3. **The sentiment revision** (above): `sentiment-5999fe131d8f` documented, `sentiment-59863d15fc42` in the list.
 4. **`eval_judgement`:** confirm unused (read the code in PR A/B).
-5. **The eval key mapping** (PR A) and **T-219's design** (authentication, jobs, the FTI services): settled at the start of each.
-6. **Open tasks that overlap:** T-131, T-150 (part), T-189, T-212 (see "The rules that bind the work"); T-218 (testing the Docker
+5. **A flaky test in the group PR A adapts.** `tests/news_nlp/test_eval_calibration_judge.py::test_an_interrupt_cancels_the_queue_instead_of_paying_for_it`
+   (`assert len(log) <= 3`) depends on timing (`time.sleep(0.05)` against a runner's speed): it failed on one CI run of this docs-only
+   PR (`assert 6 <= 3`) and passed on the others. PR A makes it deterministic (a threading event instead of a sleep).
+6. **The eval key mapping** (PR A) and **T-219's design** (authentication, jobs, the FTI services): settled at the start of each.
+7. **Open tasks that overlap:** T-131, T-150 (part), T-189, T-212 (see "The rules that bind the work"); T-218 (testing the Docker
    image) is affected by the retarget in T-219.
 
 (Closed here, not open: `config/pipeline_models.json` stays, read by step 7.)
