@@ -109,3 +109,38 @@ def test_no_task_id_is_used_twice_in_tasks() -> None:
     ids = re.findall(r"^\s*- \[[ xX]\] \*\*(T-[0-9a-z]+)\*\*", _text("TASKS.md"), re.MULTILINE)
     twice = sorted({i for i in ids if ids.count(i) > 1})
     assert twice == [], f"task IDs used by more than one entry in TASKS.md: {twice}"
+
+
+#: IDs that are in both files on purpose: a task checked off in CHANGELOG.md as a whole whose remaining part was restored to
+#: TASKS.md (its CHANGELOG line says so).
+PARTLY_CLOSED = frozenset({"T-148c2c"})
+_ID_SHAPE = r"^\s*- \[{box}\] \*\*(T-[0-9a-z]+)\*\*"
+
+
+def _ids_in_both(tasks_text: str, changelog_text: str) -> list[str]:
+    """The IDs of an entry of TASKS.md (open) that is also a **checked** entry of CHANGELOG.md (closed). An unchecked line of
+    CHANGELOG.md is a moved work-item section, not a closed task."""
+    open_ids = set(re.findall(_ID_SHAPE.format(box="[ xX]"), tasks_text, re.MULTILINE))
+    closed_ids = set(re.findall(_ID_SHAPE.format(box="[xX]"), changelog_text, re.MULTILINE))
+    return sorted((open_ids & closed_ids) - PARTLY_CLOSED)
+
+
+def test_no_task_id_is_both_open_and_closed() -> None:
+    """The same defect one file over: a PR that closes its task into CHANGELOG.md while another entry of TASKS.md has that ID
+    leaves one number for two tasks and no test failing (T-219 in #206 and #207)."""
+    both = _ids_in_both(_text("TASKS.md"), _text("CHANGELOG.md"))
+    assert both == [], f"task IDs in both TASKS.md and CHANGELOG.md: {both}"
+
+
+def test_the_id_check_flags_a_task_open_in_one_file_and_checked_in_the_other() -> None:
+    tasks = "- [ ] **T-219** *(owner; category)* the measure\n- [ ] **T-220** next\n"
+    changelog = "- [x] **T-219** *(done)* the API\n- [x] **T-148c2c** *(closed as a whole)* x\n"
+    assert _ids_in_both(tasks, changelog) == ["T-219"]  # T-220 is in one file only
+
+
+def test_the_id_check_lets_the_partly_closed_task_and_an_unchecked_line_through() -> None:
+    tasks = "- [ ] **T-148c2c** *(restored)* the rest\n- [ ] **T-185** run step 3\n"
+    changelog = (
+        "- [x] **T-148c2c** *(closed as a whole)* x\n  - [ ] **T-185** a moved work-item section\n"
+    )
+    assert _ids_in_both(tasks, changelog) == []
