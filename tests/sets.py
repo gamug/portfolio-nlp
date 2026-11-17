@@ -26,6 +26,7 @@ HEAVY = frozenset(
         "test_experiments_backfill.py",
         "test_fti_base.py",
         "test_ner_pipeline.py",
+        "test_pipeline_api.py",
         "test_pipeline_endpoints.py",
         "test_pipeline_model_config.py",
         "test_pipeline_progress.py",
@@ -166,10 +167,11 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_train_sentiment.py",
         }
     ),
-    # the FastAPI service
+    # the FastAPI services (the v1 API until T-220 removes it, and the pipeline service, T-219)
     "api": frozenset(
         {
             "test_correction_endpoints.py",
+            "test_pipeline_api.py",
             "test_pipeline_endpoints.py",
             "test_query_endpoints.py",
         }

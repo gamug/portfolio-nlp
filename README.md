@@ -68,7 +68,7 @@ One `Dockerfile`, two targets (the header of the file has the commands):
 - **`dev`** is what the Dev Container builds (`.devcontainer/devcontainer.json`, `build.target`): Python 3.12,
   uv, git and gh. The repo is mounted, not copied; `scripts/init.sh` syncs the dependencies and installs the
   three pre-commit hook types.
-- **`app`** is the FastAPI service (port 8003, healthcheck on `/health`) and the batch CLIs
+- **`app`** is the pipeline API (`apps/pipeline_api.py`, port 8003, healthcheck on `/health`; no authentication: keep the port private) and the batch CLIs
   (`news_nlp_cli.py`, `news_nlp_steps.py`) with the locked dependencies baked in. It never contains `.env`:
   pass it with `--env-file .env` (plain `KEY=value`, no quotes, no `export`), mount the thesis directory at
   `/workspaces/thesis` so `DATABASE_URL` / `SOURCE_DATABASE_URL` resolve, and mount a volume at `/models/hf`
@@ -88,8 +88,11 @@ uv run cli/news_nlp_steps.py --step summary --items single                # sing
 uv run cli/news_nlp_steps.py --step summary --cut-revision <cut revision> # sub-news of a named cut
 uv run cli/news_nlp_steps.py --step cut --status
 
-# the v1 chain
-uv run apps/news_nlp_api.py            # FastAPI -> http://127.0.0.1:8003/docs
+# the same steps, the whole pipeline and the stage models as a service (T-219, `docs/pipeline_api.md`)
+uv run apps/pipeline_api.py            # FastAPI -> http://127.0.0.1:8003/docs
+
+# the v1 chain (removed by T-220)
+uv run apps/news_nlp_api.py            # v1 API -> http://127.0.0.1:8003/docs (the same port: run one at a time)
 uv run cli/news_nlp_cli.py --limit 50  # 50 pending articles
 ```
 

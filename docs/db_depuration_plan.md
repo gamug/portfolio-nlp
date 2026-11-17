@@ -1,6 +1,6 @@
 # Plan: depurate the NLP database (T-220), after a new FastAPI (T-219)
 
-**Status (2026-11-17): a plan, nothing is built.** This document and the two tasks in `.specify/memory/TASKS.md` are the whole of the
+**Status (2026-11-17): a plan, nothing of T-220 is built.** T-219 (the new FastAPI) is done: `docs/pipeline_api.md`. This document and the two tasks in `.specify/memory/TASKS.md` are the whole of the
 planning PR: no code, no test, no schema change, no access to any database. The owner decided the points under "Decided"; the
 points under "Left open" are gates the work answers before anything is deleted.
 
