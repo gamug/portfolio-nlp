@@ -43,3 +43,16 @@ Largest disagreements (judge -> pinned model):
 ## Two runs, one sample
 - The 80 texts of the first run are inside these 300; on them the judge's label **changed on 2 of 80** between the two runs (temperature 0 does not make this judge repeatable).
 - The 220 texts the first run did not see: fine-tune 78.2%, untouched 70.9%; paired 32 against 16, exact sign test p = 0.029. The p of all 300 is a second look at a sample that began with the first run: read it as nominal.
+
+## Official reading, and the four weak labels as `other` (owner, 2026-11-17)
+
+**Official reading:** the model agrees with the judge when its label is the judge's first **or second** label (the "with the judge's second label too" column above). Pinned model **88.0% [83.8, 91.2]** (264 of 300), untouched zero-shot 81.0% [76.2, 85.0]. Strict (first label only): 77.0% and 71.0% (Wilson intervals here; the table above uses another interval method).
+**Through the planned definition** (`product_innovation`, `leadership_governance`, `capital_shareholder_returns`, `reputational_harm` read as `other` on both sides; nothing retrained; `scripts/category_planned_8_2026_11_16.py`, `planned_8_labels.json`, key `judge_step7`):
+
+| pinned model | 12 labels | 8 labels (`other` scored) | 7 measured labels (rows the judge puts in `other` left out) |
+|---|---|---|---|
+| official (first or second) | 88.0% | 92.0% [88.4, 94.6] | 94.4% [90.9, 96.7] (252 rows) |
+| strict (first only) | 77.0% | 80.0% [75.1, 84.1] | 81.7% [76.5, 86.0] |
+
+Limits as above: an LLM judge, not repeatable, a lenient reading chosen by the owner, and the 8- and 7-label columns are the 12-label model read through the fold, not a retrained model.
+

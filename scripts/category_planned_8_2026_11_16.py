@@ -6,7 +6,9 @@
 Not a retrained model: the predictions of the 12-label models and the tags are read through the fold. The accuracy and the macro F1 (the 7
 measured labels) are over the rows whose tag is one of the 7 measured labels; a row of those predicted as `other` is wrong, the rows tagged
 `other` are not scored. The macro F1 is over all rows, one versus rest on the 7 measured labels, like the per-label
-precision and recall of the reports (a measured label predicted on a row tagged `other` is a false positive). Intervals are Wilson. Reads only committed files, no GPU.
+precision and recall of the reports (a measured label predicted on a row tagged `other` is a false positive). `accuracy_8` scores **every**
+row with `other` as an eighth label (both sides folded): it is higher because the four weak labels no longer count as errors among themselves.
+`judge_step7` reads the blind judge on the 300 real sub-news through the fold, lenient (official) and strict. Intervals are Wilson. Reads only committed files, no GPU.
 """
 
 from __future__ import annotations
@@ -75,6 +77,8 @@ def measure(gold: list[str], pred: list[str]) -> dict[str, object]:
     keep = [i for i, g in enumerate(g8) if g in MEASURED]
     k = sum(g8[i] == p8[i] for i in keep)
     lo, hi = wilson(k, len(keep))
+    k8 = sum(a == b for a, b in zip(g8, p8, strict=True))
+    lo8, hi8 = wilson(k8, len(g8))
     return {
         "rows": len(gold),
         "accuracy_12": round(100 * acc12, 1),
@@ -83,6 +87,9 @@ def measure(gold: list[str], pred: list[str]) -> dict[str, object]:
         "accuracy": round(100 * k / len(keep), 1),
         "ci": [lo, hi],
         "macro_f1": round(macro_f1(g8, p8, MEASURED), 3),
+        "correct_8": k8,
+        "accuracy_8": round(100 * k8 / len(g8), 1),
+        "ci_8": [lo8, hi8],
     }
 
 
@@ -131,6 +138,46 @@ def real_sample() -> dict[str, object]:
     }
 
 
+def judge_step7() -> dict[str, object]:
+    """The blind LLM judge on the 300 real sub-news (T-209), read through the fold. The OFFICIAL reading (owner, 2026-11-17) is the
+    lenient one: the model agrees when its label is the judge's first label **or its second**. Strict (first label only) is kept beside it.
+    Four views per model: 12 labels, the 8 labels (the four folded into `other`, `other` scored as a label), the 7 measured labels
+    (rows the judge puts in `other` after the fold are not scored)."""
+    rows = pd.read_csv(R15 / "judge_step7_n300.csv", dtype=str, keep_default_na=False).to_dict(
+        "records"
+    )
+    rows = [r for r in rows if r["parse_failed"] != "True"]
+    out: dict[str, object] = {"rows": len(rows)}
+
+    def view(model: str, kind: str, strict: bool, keep: list[dict[str, str]]) -> dict[str, object]:
+        def ok(r: dict[str, str]) -> bool:
+            conv = (lambda x: x) if kind == "12" else fold
+            first = conv(r[model]) == conv(r["judge"])
+            second = bool(r["second"]) and conv(r[model]) == conv(r["second"])
+            return first or (second and not strict)
+
+        k = sum(ok(r) for r in keep)
+        lo, hi = wilson(k, len(keep))
+        return {
+            "rows": len(keep),
+            "correct": k,
+            "accuracy": round(100 * k / len(keep), 1),
+            "ci": [lo, hi],
+        }
+
+    for model in ("selected", "untouched", "tag"):
+        res: dict[str, object] = {}
+        for kind, keep in (
+            ("12", rows),
+            ("8", rows),
+            ("7", [r for r in rows if fold(r["judge"]) != "other"]),
+        ):
+            res[f"lenient_{kind}"] = view(model, kind, False, keep)
+            res[f"strict_{kind}"] = view(model, kind, True, keep)
+        out[model] = res
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=R15 / "planned_8_labels.json")
@@ -141,6 +188,7 @@ def main() -> None:
         "out_of_fold": out_of_fold(),
         "held_out": held_out(),
         "real_sub_news": real_sample(),
+        "judge_step7": judge_step7(),
     }
     a.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(result, indent=2))

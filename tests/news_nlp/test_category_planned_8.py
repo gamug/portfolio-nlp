@@ -105,3 +105,35 @@ def test_the_training_page_quotes_the_figures_of_the_three_samples() -> None:
         lo, hi = m["ci"]
         assert f"{m['accuracy']}%" in text
         assert f"[{lo}, {hi}]" in text
+
+
+def test_the_judge_reading_is_lenient_by_default_and_the_fold_raises_it() -> None:
+    """Official reading (owner, 2026-11-17): the judge's first or second label; the fold can only add agreements."""
+    j = cp.judge_step7()
+    sel = j["selected"]
+    assert j["rows"] == 300
+    assert (sel["lenient_12"]["correct"], sel["strict_12"]["correct"]) == (264, 231)
+    assert sel["lenient_12"]["accuracy"] == 88.0
+    for model in ("selected", "untouched"):
+        m = j[model]
+        assert m["lenient_12"]["correct"] >= m["strict_12"]["correct"]
+        assert m["lenient_8"]["correct"] >= m["lenient_12"]["correct"]
+        assert m["strict_8"]["correct"] >= m["strict_12"]["correct"]
+
+
+def test_the_pin_and_the_reports_quote_the_official_judge_figures() -> None:
+    result = json.loads(RESULT.read_text(encoding="utf-8"))
+    sel = result["judge_step7"]["selected"]
+    pin = json.loads((ROOT / "config" / "category_step.json").read_text(encoding="utf-8"))[
+        "evidence"
+    ]
+    assert pin["judge_official_selected_agreement"] == sel["lenient_12"]["accuracy"] / 100
+    assert pin["judge_official_8_labels_selected_agreement"] == sel["lenient_8"]["accuracy"] / 100
+    assert pin["judge_official_7_labels_selected_agreement"] == sel["lenient_7"]["accuracy"] / 100
+    assert pin["bar_met"] is False
+    for page in ("pipeline_metrics_report.md", "pipeline_metrics_report_es.md"):
+        text = (ROOT / page).read_text(encoding="utf-8").replace("\r\n", "\n")
+        for key in ("lenient_12", "lenient_8", "lenient_7", "strict_8"):
+            assert f"{sel[key]['accuracy']}%" in text, f"{page}: {key}"
+        for model in ("out_of_fold", "held_out", "real_sub_news"):
+            assert f"{result[model]['selected']['accuracy_8']}%" in text, f"{page}: {model}"
