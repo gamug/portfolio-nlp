@@ -54,5 +54,5 @@ Largest disagreements (judge -> pinned model):
 | official (first or second) | 88.0% | 92.0% [88.4, 94.6] | 94.4% [90.9, 96.7] (252 rows) |
 | strict (first only) | 77.0% | 80.0% [75.1, 84.1] | 81.7% [76.5, 86.0] |
 
-Limits as above: an LLM judge, not repeatable, a lenient reading chosen by the owner, and the 8- and 7-label columns are the 12-label model read through the fold, not a retrained model.
+The 8- and 7-label columns are the 12-label model read through the fold; the 8-label model is measured when it is built (T-214).
 

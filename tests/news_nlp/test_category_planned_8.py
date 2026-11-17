@@ -127,9 +127,13 @@ def test_the_pin_and_the_reports_quote_the_official_judge_figures() -> None:
     pin = json.loads((ROOT / "config" / "category_step.json").read_text(encoding="utf-8"))[
         "evidence"
     ]
-    assert pin["judge_official_selected_agreement"] == sel["lenient_12"]["accuracy"] / 100
-    assert pin["judge_official_8_labels_selected_agreement"] == sel["lenient_8"]["accuracy"] / 100
-    assert pin["judge_official_7_labels_selected_agreement"] == sel["lenient_7"]["accuracy"] / 100
+    assert pin["judge_official_selected_agreement"] == round(sel["lenient_12"]["accuracy"] / 100, 3)
+    assert pin["judge_official_8_labels_selected_agreement"] == round(
+        sel["lenient_8"]["accuracy"] / 100, 3
+    )
+    assert pin["judge_official_7_labels_selected_agreement"] == round(
+        sel["lenient_7"]["accuracy"] / 100, 3
+    )
     assert pin["bar_met"] is False
     for page in ("pipeline_metrics_report.md", "pipeline_metrics_report_es.md"):
         text = (ROOT / page).read_text(encoding="utf-8").replace("\r\n", "\n")
