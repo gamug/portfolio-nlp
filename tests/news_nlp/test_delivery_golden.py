@@ -147,18 +147,19 @@ def test_the_command_prints_each_query_and_the_digest_and_writes_nothing(
     assert not list(tmp_path.glob("results.db-*"))  # no -wal / -shm / -journal
 
 
-@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+@pytest.mark.parametrize("suffix", ["-wal", "-journal"])
 def test_immutable_is_refused_when_a_writer_file_sits_beside_the_database(
     conn: sqlite3.Connection, tmp_path: Path, suffix: str
 ) -> None:
     conn.close()
     path = tmp_path / "results.db"
-    Path(f"{path}{suffix}").write_bytes(b"")
+    Path(f"{path}{suffix}").write_bytes(b"x")
     with pytest.raises(SystemExit):  # argparse's error exits with 2
         golden.main(["--db", str(path), "--snapshot", SNAP, "--period", PERIOD, "--immutable"])
-    assert golden.open_read_only(path).execute("SELECT 1").fetchone() == (
-        1,
-    )  # without --immutable it is still readable
+    if (
+        suffix == "-wal"
+    ):  # a non-empty wal is readable without --immutable; a hot journal is not (SQLite wants to roll it back), and the tool says so
+        assert golden.open_read_only(path).execute("SELECT 1").fetchone() == (1,)
 
 
 @pytest.mark.parametrize("variable", ["DATABASE_URL", "SOURCE_DATABASE_URL"])
@@ -193,3 +194,14 @@ def test_the_command_also_prints_the_digest_expected_after_the_period_is_pruned(
     raw.commit()
     raw.close()
     assert _digest(golden.open_read_only(path)) == expected
+
+
+def test_an_empty_wal_and_a_shm_are_what_any_reader_leaves_and_do_not_refuse(
+    conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    conn.close()
+    path = tmp_path / "results.db"
+    Path(f"{path}-wal").write_bytes(b"")
+    Path(f"{path}-shm").write_bytes(b"\0" * 32)
+    assert golden.holder_file(path) is None
+    assert golden.open_read_only(path, immutable=True).execute("SELECT 1").fetchone() == (1,)

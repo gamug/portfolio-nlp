@@ -313,6 +313,58 @@ The backup holds `units5-d3e2cbfa830e` (161,574 sub-news, written 2026-11-12 14:
 
 Consequence for the guard: its cut pin (`be358e64f554`) protects **today's** cut code, not the delivered revision. The owner decides whether that matters: the delivery note names the snapshot and the period only, and the cut revision is an input recorded in each row (`inputs`).
 
+## PR C1: the purge script, and its rehearsal on a copy of the backup (2026-11-18)
+
+`PYTHONPATH=src uv run python -m depurate_db --db <file> [--backup <file> --plan <digest> --apply]`. The schema (`schema.py`) is not touched here; PR C2 removes the v1 DDL after the purge.
+
+**Gates of `--apply`:** a backup that is a readable copy of the same database (same tables, the same **count and rowid fingerprint** in each, `quick_check` ok; with `--require-identical-backup` also the same SHA-256, the strong gate, valid while the database has not been written since the copy); `--plan` equal to the digest a dry run printed (so the apply deletes what was read); no `-journal` and no non-empty `-wal` beside the file (an empty `-wal` and a `-shm` are what any reader leaves, a dry run included: the first rehearsal run was refused by them, which is now a test); the refusal checks (no kept row on a pruned cut, no kept period on a pruned snapshot, every kept revision present, no table the script does not know). Then one transaction per table, and after it `foreign_key_check`, `quick_check`, the kept row counts and the golden digest must equal the "before", then `VACUUM`.
+
+**The rehearsal** (copies of `nlp_backup.db` in a scratch folder; the live file was not opened):
+
+| | |
+|---|---|
+| dry run | plan digest `63e141924e02e7fe`, no refusal |
+| dropped | 17,865,110 rows: `article_entities` 16,436,161; `article_sentiment` 459,112; `article_category` 459,112; `article_summary` 458,692; `sector_summary` 3,630; `eval_judgement` 48,403 |
+| deleted (old revisions) | 2,151,279 rows (`news_summary` 433,266; `pipeline_step_state` 721,098; `sub_news` 172,503; the old periods, snapshot, category and sentiment revisions) |
+| checks after | `foreign_key_check` 0, `quick_check` ok, kept counts equal, **golden digest `2832f270e9a52457` before and after** |
+| size | 5,271,089,152 → 1,628,180,480 bytes |
+| time | the table steps took about 85 s on local disk. The **live purge on its copy took 11 minutes** (19:14:34 to 19:25:35): it also counted every table of the 5 GB backup on the Windows drive and ran the golden queries before and after (about 15 s each for the two snapshot queries). The copy of the 5 GB file itself took about 2 minutes |
+| a second dry run | nothing to delete; the `inputs` report is unchanged |
+| restore | the backup copy gives the original digest (`2832f270e9a52457` for the kept period) |
+
+**Reported, not refused:** the kept snapshot rows whose `inputs` name a pruned revision: `inputs.summary = summary-7a9bd2062bc4` 159,401; `inputs.category = category-65f33b55b26b` 159,401; `inputs.sentiment = sentiment-5999fe131d8f` 159,401 (the summary one was not in the earlier plan; the rows keep their text, category and sentiment).
+
+**`eval_judgement`** (48,403 legacy rows, superseded 2026-09-18) is read by no code of `src/`, `apps/` or `cli/`; only a one-shot script of 2026-09-13 (`label_sentiment_sentences_2026_09_13.py`) read it. By the rule stated while the question was open ("keep it if anything reads it") it should have been kept; **the owner confirmed the drop on 2026-11-18** (asked in those words in the review of #215) **and asked for an export**: `/workspaces/thesis/data/eval_judgement_2026-11-18.csv`, 48,403 rows, 93,555,678 bytes, SHA-256 `e35d22d863a18f65afae34c6d15a334f2477d2cf016b591683e7e7be939f668e`, read from the untouched backup (read-only, immutable). The backup holds the table too.
+
+**The live file** (`/workspaces/thesis/data/nlp.db`, which the `.env` names as `D:\thesis\data\nlp.db`) has the same size, the same modification time to the nanosecond and **the same SHA-256 as `nlp_backup.db`** (`4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, checked 2026-11-18): the backup is a byte-identical copy and nothing wrote to the live file after it. Because SQLite on the Windows drive (DrvFs) is slow and not safe for a long write, the purge is run on a **local copy** and the result replaces the live file only after it is verified; the original backup is not touched.
+
+## The purge was run on the live database (2026-11-18)
+
+Run by the assistant at the owner's request ("run it yourself"), after a rehearsal, with the owner's confirmation that nothing was writing to the file.
+
+1. **Backup:** `nlp_backup.db` is byte-identical to the live `nlp.db` (SHA-256 `4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, same size, same modification time to the nanosecond); it was not touched and stays the rollback.
+2. **Purge on a local copy** of the live file (DrvFs is slow and unsafe for a long write): dry run plan `63e141924e02e7fe` (the same as the rehearsal), no refusal; `--apply` with `--backup nlp_backup.db`: 17,865,110 rows dropped, 2,151,279 old-revision rows deleted, `foreign_key_check` 0, `quick_check` ok, kept counts equal, golden digest `2832f270e9a52457` before and after.
+3. **Swap:** the purged file (SHA-256 `bcd7dfe3f82792c746d910fc7b69a1ac30c47c9d5b1ed81cfae5933f368af239`, 1,628,180,480 bytes) was copied next to the live file, its SHA-256 checked on the drive, the live file checked unchanged, then renamed over `nlp.db`.
+4. **Checked on the live file after the swap:** `quick_check` ok; the tables are exactly the kept ones (`articles`, `body_scope`, `body_sector`, `company_sector`, `eval_*` x4, `news_category`, `news_company`, `news_sentiment`, `news_snapshot`, `news_summary`, `news_summary_call`, `period_item`, `period_run`, `period_summary`, `pipeline_step_state`, `sector`, `sub_news`); the golden digest of the kept period is **`2832f270e9a52457`** (unchanged), and that of the delivery note's `period-ae014b56b055` is **`9a71c0f4d9001a85`**, the digest this document predicted for a pruned period.
+
+**Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
+
+## Runbook: purge a database safely (what was done on 2026-11-18, now in the tool)
+
+The shape that protects a production file: **purge a local copy, verify, then swap**. Never `--apply` in place on the Windows drive (the tool refuses unless `--in-place`).
+
+1. **Stop every writer and close every tool that has the file open** (the scheduled run, the pipeline API, a DB browser, an IDE extension, a shell with a SQLite connection) and let the last connection close. The swap detects a **writer** (it takes an exclusive lock on the live file and rolls it back before the rename) but **cannot detect a reader**. A `-journal` or a **non-empty `-wal`** beside the file means a writer is attached or crashed: with a non-empty `-wal`, open the file once with the SQLite tool and let it close (that checkpoints the `-wal` into the main file) before copying; copying only `nlp.db` would lose what is in the `-wal`. An empty `-wal` and a `-shm` are left by any reader and mean nothing.
+2. **Backup:** copy the file (or use the SQLite backup API) to a name that is never overwritten; record its SHA-256. With the file not written since, `sha256(live) == sha256(backup)` is the proof.
+3. **Copy the live file to a local folder** and run the dry run on the copy: `PYTHONPATH=src uv run python -m depurate_db --db <copy>`. Read it; note the plan digest and the "free space" line. **Every revision shows the date of its newest row, and a revision to be DELETED that is newer than the keep decision (2026-11-18) gets a WARNING line**: the keep list is a hard-coded decision, so a revision made later (a new summary run, a retrained model) would otherwise be pruned by someone who did not read the plan.
+4. **Apply on the copy:** `... --db <copy> --backup <backup> --plan <digest> --require-identical-backup --apply --report <report.json>`. It deletes only the revisions the dry run listed, table by table under an exclusive lock (the two refusal checks that protect `sub_news` and `news_snapshot` run again inside their locks), then checks `foreign_key_check`, `quick_check`, the kept counts and the golden digest, then `VACUUM`. A failure leaves the live file untouched and the report says what was done on the copy; a successful report carries the `sha256` and size of the purged file.
+5. **Swap:** `... --db <purged copy> --swap-into <live> --backup <backup> --from-report <report.json of the apply>` (or `--expect-sha <the report's sha256>`; one of them is required). It checks that both files have no holder; that the purged file has the expected SHA-256, passes `quick_check`, has nothing left for a purge to do and has **the same kept rows as the live file** (so it was made from it); that the live file is byte-identical to the backup; that nobody holds a write lock on it; that the copy next to the live file has the same SHA-256; and that the live file did not change, gain a holder or get locked while copying. that both files are in the **same journal mode** (a difference is refused unless `--allow-journal-mode-change`; the modes are logged and in the report). Then one atomic rename. It logs the sizes and SHA-256 it compared. The writer probe opens the live file read-write; the empty `-wal` and the `-shm` that it creates are removed again (only those, only if they were not there before). A stale copy (a step ran on the live file after the copy was taken) is reported as that, with the first table whose kept rows differ.
+6. **Check the live file:** the golden digest (`python -m delivery_golden --immutable`) and a dry run (nothing left to do).
+7. **Rollback:** copy the backup over the live file (with the writers stopped).
+
+**What the 2026-11-18 live run actually used.** The backup gate of that run was the **row-count** comparison; the backup was proven identical to the live file by SHA-256 **by hand** (`4d65d587…` for both). The `--require-identical-backup`, the fingerprint, the in-lock guards and the swap checks above came with the review of #215 and were not part of that run; the result on the live file was verified afterwards (SHA-256, `quick_check`, the tables, the golden digests).
+
+**The 20:02 sidecars.** After the swap an empty `nlp.db-wal` and a `nlp.db-shm` appeared beside the live file (20:02); the file's bytes did not change (SHA-256 still `bcd7dfe3…`). The owner said they came from **a process inside this development environment, now ended**, and told the assistant to proceed. The two empty files were removed (no connection was open) and the SHA-256 was checked again.
+
 ## A2 was dropped (owner, 2026-11-18)
 
 Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a
