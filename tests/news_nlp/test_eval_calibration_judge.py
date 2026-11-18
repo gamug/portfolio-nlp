@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import time
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -406,28 +406,54 @@ def test_a_parse_failed_verdict_is_judged_again_on_resume_and_replaced(
 
 
 def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
-    conn: db_module.NewsNlpDatabase,
+    conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An interrupt must call ``shutdown(cancel_futures=True)``, so the articles not yet started are cancelled and never sent.
+
+    The interrupt is raised in the worker thread and the main thread receives it from ``future.result()``. In production the worker is not held
+    back, so how many in-flight articles finish in that gap is a matter of speed (``execute``'s guarantee is "only the calls in flight finish").
+    This test pins the cancel, not that count: it failed on three unrelated slow CI runs with ``6 <= 3`` and ``5 <= 3`` when it pinned the count.
+    Every call after the interrupt waits until the pool has been told to cancel, so a queued article that gets through can only mean the queue
+    was not cancelled (at most 3 factory calls and 2 logged prompts)."""
     sample, items = _sample_cells(["c|2"], 10)
     run = _start_sample(conn, sample)
     log: list[str] = []
     made = {"n": 0}
+    queue_cancelled = threading.Event()
+    gave_up = threading.Event()
+
+    class CancellingPool(cj.ThreadPoolExecutor):
+        def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+            # the queued articles are cancelled now, as the caller asked
+            super().shutdown(wait=False, cancel_futures=cancel_futures)
+            # only then may a call that already started go on
+            queue_cancelled.set()
+            super().shutdown(wait=wait)
 
     class Agent:
         def __call__(self, prompt: str) -> str:
             log.append(prompt)
-            time.sleep(0.05)  # keep the queue unfinished when the interrupt arrives
             return '{"truth_slug": "other"}'
 
     def factory(_prompt: str) -> JudgeAgent:
         made["n"] += 1
         if made["n"] == 2:
             raise KeyboardInterrupt
+        # the wait ends the moment the pool cancels (a scheduling matter of milliseconds), so a long timeout costs nothing when the code is right;
+        # it is long so a starved runner cannot flip it. After one timeout (a regression) no call waits again: the failure takes ~20 s, not 20 x N.
+        if made["n"] > 2 and not gave_up.is_set() and not queue_cancelled.wait(timeout=20):
+            gave_up.set()
         return Agent()
 
+    monkeypatch.setattr(cj, "ThreadPoolExecutor", CancellingPool)
     with pytest.raises(KeyboardInterrupt):
         cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=100, max_workers=1)
-    assert len(log) <= 3  # not the 20: the queued articles were cancelled, never sent
+    # the pool was told to cancel its queue; a missing shutdown would only fail inside the worker thread, where nothing reports it
+    assert queue_cancelled.is_set()
+    # the article that raised (call 2) and at most the one the worker had already taken (call 3): never the other 8
+    assert made["n"] <= 3
+    # article 1, and at most article 3 after the cancel: a queued article that got through would make it 3
+    assert len(log) <= 2
 
 
 def test_items_go_out_round_robin_so_a_stop_leaves_every_group_covered() -> None:
