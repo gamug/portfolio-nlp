@@ -408,9 +408,13 @@ def test_a_parse_failed_verdict_is_judged_again_on_resume_and_replaced(
 def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
     conn: db_module.NewsNlpDatabase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The interrupt is raised in the worker thread; the main thread must see it and cancel the queue before the single worker takes the next
-    article. That race decided this test on a slow runner (it failed on three unrelated PRs with ``6 <= 3``, ``5 <= 3``), so the order is forced:
-    every call after the interrupt waits until the pool has been told to cancel its queue, which bounds the count by construction (at most 3 factory calls and 2 logged prompts), not by speed."""
+    """An interrupt must call ``shutdown(cancel_futures=True)``, so the articles not yet started are cancelled and never sent.
+
+    The interrupt is raised in the worker thread and the main thread receives it from ``future.result()``. In production the worker is not held
+    back, so how many in-flight articles finish in that gap is a matter of speed (``execute``'s guarantee is "only the calls in flight finish").
+    This test pins the cancel, not that count: it failed on three unrelated slow CI runs with ``6 <= 3`` and ``5 <= 3`` when it pinned the count.
+    Every call after the interrupt waits until the pool has been told to cancel, so a queued article that gets through can only mean the queue
+    was not cancelled (at most 3 factory calls and 2 logged prompts)."""
     sample, items = _sample_cells(["c|2"], 10)
     run = _start_sample(conn, sample)
     log: list[str] = []
@@ -435,8 +439,9 @@ def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
         made["n"] += 1
         if made["n"] == 2:
             raise KeyboardInterrupt
-        # a regression that never cancels must fail in seconds, not hold the worker for every queued article
-        if made["n"] > 2 and not gave_up.is_set() and not queue_cancelled.wait(timeout=5):
+        # the wait ends the moment the pool cancels (a scheduling matter of milliseconds), so a long timeout costs nothing when the code is right;
+        # it is long so a starved runner cannot flip it. After one timeout (a regression) no call waits again: the failure takes ~20 s, not 20 x N.
+        if made["n"] > 2 and not gave_up.is_set() and not queue_cancelled.wait(timeout=20):
             gave_up.set()
         return Agent()
 
