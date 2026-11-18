@@ -14,6 +14,8 @@ import pytest
 from conftest import LEAN_ARTICLES_SCHEMA, stamp_source
 
 import news_nlp as db
+from news_nlp import db as news_db
+from news_nlp import steps
 
 _SENTIMENT = ("neutral", 0.5, 0.3, 0.3, 0.4, "fake-model")
 _ENTITY = {
@@ -62,6 +64,50 @@ def test_connect_pipeline_requires_source(
 
 
 # --- lean-article upsert into RESULTS keeps it foreign-key consistent -------
+
+
+def test_cut_writes_the_lean_article_row_without_body_text(
+    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
+) -> None:
+    body = steps.Body(body_hash="h2", article_id=2, title="t", text="x")
+    steps.record_cut(two_tier_conn, body, "units-test", ["A sub-news."])
+
+    check = sqlite3.connect(results_db_path)
+    row = check.execute("SELECT ticker, gics_sector FROM articles WHERE id = 2").fetchone()
+    cols = {r[1] for r in check.execute("PRAGMA table_info(articles)")}
+    check.close()
+    assert row == ("AAPL", "Information Technology")  # metadata copied from SOURCE
+    assert "body_text" not in cols  # ... but not the heavy text column
+
+
+def test_lean_article_row_is_not_duplicated_and_the_foreign_keys_hold(
+    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
+) -> None:
+    for i in (1, 2, 3):
+        body = steps.Body(body_hash=f"h{i}", article_id=i, title="t", text="x")
+        steps.record_cut(two_tier_conn, body, "units-test", ["One.", "Two."])
+        steps.record_cut(two_tier_conn, body, "units-other", ["Three."])  # same article again
+    news_db._ensure_article_row(two_tier_conn, 1)  # a direct repeat is a no-op
+    two_tier_conn.commit()
+
+    check = sqlite3.connect(results_db_path)
+    ids = [r[0] for r in check.execute("SELECT id FROM articles ORDER BY id")]
+    problems = check.execute("PRAGMA foreign_key_check").fetchall()
+    check.close()
+    assert ids == [1, 2, 3]
+    assert problems == []
+
+
+def test_a_body_with_no_text_writes_no_article_row(
+    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
+) -> None:
+    body = steps.Body(body_hash="h1", article_id=1, title="t", text="x")
+    steps.record_cut(two_tier_conn, body, "units-test", [])
+    two_tier_conn.commit()
+    check = sqlite3.connect(results_db_path)
+    count = check.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
+    check.close()
+    assert count == 0
 
 
 # --- the SOURCE database is never written ----------------------------------

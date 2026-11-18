@@ -36,3 +36,18 @@ The tables were dropped from the working database on 2026-11-18 (`depurate_db`, 
 | `eval_judgement` | `id` (PK) | `run_id` (FK), `article_id` (not FK-constrained — snapshot semantics), `bucket`, `verdict_json`, `correct`, `severity`, `rationale` | `news_nlp.eval` |
 ```
 
+## Section 7 "Self-healing schema drift" (verbatim, removed by T-220 PR C2)
+
+- **Self-healing schema drift**: `sector_summary.format_version`,
+  `eval_run.strata_json`'s additive migration, and `article_category`'s
+  `group_label`/`group_score` additive migration all follow the same
+  pattern — `Database.ensure_columns` (no-op if already current), with
+  `sector_summary` additionally treating any row below the current
+  `SECTOR_SUMMARY_FORMAT_VERSION` as stale and regenerating it via
+  `INSERT OR REPLACE` on next run (no separate backfill script; contrast
+  `article_category`'s additive-only migration, which does **not**
+  auto-reprocess legacy rows — see §13).
+
+## FR-006 row (verbatim, replaced by T-220 PR C2)
+
+| **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |

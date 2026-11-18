@@ -407,3 +407,25 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
    image) is affected by the retarget in T-219.
 
 (Closed here, not open: `config/pipeline_models.json` stays, read by step 7.)
+
+## PR C2 check on the purged database (2026-11-18)
+
+Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f82792c7…`, the copy checked) and of `nlp_backup.db`
+(the file before the purge), with the C2 code (`init_schema` without the v1 tables).
+
+* **`--status` of the nine steps** (scope, cut, sector, summary, companies, category, sentiment, snapshot, period; the kept revisions
+  named) exits 0 on both. **Compared:** the output on the purged copy equals the backup's **minus the pruned revisions**: the diff has
+  no changed line and no line only in the purged copy; every added line is a pruned revision (`units-5f831c298bcb`,
+  `units4-d3e2cbfa830e`, `summary-7a9bd2062bc4`, `category-65f33b55b26b`, `category-981dacf6f68d`, `sentiment-5999fe131d8f`,
+  `snapshot-1b8ee113b05f`, `period-ae014b56b055`, `period-dd098e1c5b9f`) with its counts. The snapshot status was run without
+  `--sector-revision` (the CLI refuses it outside `--items sector`).
+* **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
+  company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 tables
+  (the 19 of `init_schema` plus the lean `articles`, which the pipeline connection creates), `foreign_key_check` empty,
+  `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
+* **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
+  was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is
+  covered by three tests in `tests/news_nlp/test_db.py`.
+* The snapshot status reports **159,401 rows "built from another" summary, category and sentiment revision**: the accepted
+  case of "Left open" (their `inputs` name pruned revisions).
+

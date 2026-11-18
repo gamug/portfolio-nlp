@@ -91,7 +91,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-003** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 category stage, two-level zero-shot (`article_category`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-004** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 `c_summary` stage (`article_summary`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-005** | **Removed (owner, T-220 PR B, 2026-11-18):** the `sector_summary` stage. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
-| **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |
+| **FR-006** | Every step is idempotent and resumable: it processes only the items that have no row (and no `pipeline_step_state` entry) at its own revision. | Running a step twice on unchanged input produces no duplicate or changed rows (`test_*_step.py`). The v1 `format_version` self-heal went with `sector_summary` (T-220). |
 | **FR-007** | The pipeline reads article text from a read-only-ATTACHed SOURCE store and writes results (plus a lean `articles` row per touched article) to a separate RESULTS store; SOURCE is never written. | `db.require_source_text` raises before any model loads if SOURCE is unset or has no usable `body_text` (constitution: Security & Data #2); an attached SOURCE is checked read-only before any query (`db.check_schema`: `PRAGMA user_version` at least 3 and the columns read, never cached, `test_schema_guard.py  # FR-007`; `POST /pipeline/run` answers 503 on a failure); a write attempt against schema `source` is not exercised by any code path (`grep` for `source\.` write statements returns none outside read paths). |
 | **FR-008** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 FastAPI service (`apps/news_nlp_api.py`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-009** | **Removed (owner, T-220 PR B, 2026-11-18):** manual corrections of the v1 tables (`news_nlp.corrections`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
@@ -252,15 +252,7 @@ their state; a rerun redoes nothing; no command runs every step.
   merged only within a single source word, so a numeral or partial token
   can no longer be emitted as a standalone entity.
 - **Category** (the steps): the entailment model of step 7 over 12 labels (FR-022); the two-level zero-shot of v1 is in `docs/legacy/category-taxonomy-v1.md`.
-- **Self-healing schema drift**: `sector_summary.format_version`,
-  `eval_run.strata_json`'s additive migration, and `article_category`'s
-  `group_label`/`group_score` additive migration all follow the same
-  pattern — `Database.ensure_columns` (no-op if already current), with
-  `sector_summary` additionally treating any row below the current
-  `SECTOR_SUMMARY_FORMAT_VERSION` as stale and regenerating it via
-  `INSERT OR REPLACE` on next run (no separate backfill script; contrast
-  `article_category`'s additive-only migration, which does **not**
-  auto-reprocess legacy rows — see §13).
+- **Schema drift** (after T-220): `init_schema` creates the 19 kept tables and runs one additive migration, `eval_run.strata_json` (`Database.ensure_columns`, a no-op if current). The v1 migrations (`sector_summary.format_version`, `article_category` `group_label`/`group_score`) are gone with their tables; text in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.
 
 ## 8. Error Handling & Resilience
 
