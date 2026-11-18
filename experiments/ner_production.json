@@ -1,8 +1,0 @@
-{
-  "name": "ner_production",
-  "stage": "ner",
-  "eval": {
-    "sample_size": 8000,
-    "seed": 1
-  }
-}

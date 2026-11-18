@@ -9,11 +9,27 @@ anything into memory or touch the GPU. Safe to re-run: huggingface_hub
 skips files that are already cached.
 """
 
+import json
+from pathlib import Path
+
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig
 
-from pipeline import CATEGORY_MODEL, MODEL_REVISIONS, NER_MODEL, SENTIMENT_MODEL, SUMMARY_MODEL
 from sector_stage import pinned_config
+
+# The pins of the four stage models (``config/pipeline_models.json``, which step 7 also reads). The v1 module that used to load them is gone (T-220).
+_PINS = json.loads(
+    (Path(__file__).resolve().parent.parent / "config" / "pipeline_models.json").read_text(
+        encoding="utf-8"
+    )
+)
+SENTIMENT_MODEL: str = _PINS["sentiment"]["model"]
+NER_MODEL: str = _PINS["ner"]["model"]
+CATEGORY_MODEL: str = _PINS["category"]["model"]
+SUMMARY_MODEL: str = _PINS["c_summary"]["model"]
+MODEL_REVISIONS: dict[str, str] = {
+    _PINS[k]["model"]: _PINS[k]["revision"] for k in ("sentiment", "ner", "category", "c_summary")
+}
 
 MODELS = (SENTIMENT_MODEL, NER_MODEL, CATEGORY_MODEL, SUMMARY_MODEL)
 

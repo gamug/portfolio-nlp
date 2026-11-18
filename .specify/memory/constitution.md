@@ -28,7 +28,7 @@ component; every rule below assumes the stack actually pinned in
    `sshleifer/distilbart-cnn-12-6`) are published as `transformers`
    checkpoints — swapping frameworks would mean re-hosting every model.
 3. **Web/service layer**: FastAPI (`==0.141.1`) + `uvicorn[standard]` for
-   `apps/news_nlp_api.py`; `httpx[http2]` for outbound calls; `pydantic>=2.0`
+   `apps/pipeline_api.py`; `httpx[http2]` for outbound calls; `pydantic>=2.0`
    for request/response models. Pin exact versions for FastAPI/uvicorn/ruff
    (reproducible CI); range-pin libraries that are additive/stable
    (`pydantic`, `numpy`, `tqdm`).
@@ -70,7 +70,7 @@ component; every rule below assumes the stack actually pinned in
    `tests/news_nlp/conftest.py`'s hermetic fixtures (a minimal `articles`
    table, two-tier SOURCE/RESULTS fixtures, every model load monkeypatched).
    `pytest.ini`'s `pythonpath = src .` is what makes both `import news_nlp`
-   and `import apps.news_nlp_api` work in tests — don't add `sys.path` hacks
+   and `import apps.pipeline_api` work in tests — don't add `sys.path` hacks
    inside test files to route around it.
 4. **Docs live under `docs/`**, one topic per file (`db-topology.md`,
    `category-taxonomy.md`, `modules/news-nlp.md`, migration notes named by
@@ -144,7 +144,7 @@ component; every rule below assumes the stack actually pinned in
    (`docs/evaluation.md`), not a handful of manually inspected examples.
 
 *Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`SUMMARY_LLM_*`
-of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
+of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain's code was removed by T-220, but `summary_stage`, `ner_stage` and `chunking` stay byte-identical, because the v2 revisions hash them). Against 1: the
 model is chosen by name in `.env` and recorded per row (`news_summary_call`), and the revision follows the prompt and the model name. Against 2: the call is remote and
 its text is not repeatable at temperature 0 (measured: 30 articles twice, none identical), so the revision promises its rows, not its words; there is no CUDA path to
 break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser (checked by name from `news_summary_call`). The article text leaves the machine (accepted), and an article can carry instructions to the model (the summary is what the next steps read: a known limit, AI #4).
@@ -321,9 +321,6 @@ uv sync --group notebook                    # + pandas/openpyxl/ipykernel for sc
 uv run python -m setup                      # pre-download the four HF models
 
 uv run apps/pipeline_api.py                 # the pipeline API (T-219) -> :8003/docs
-uv run apps/news_nlp_api.py                 # the v1 FastAPI service -> :8003/docs (T-220 removes it)
-uv run cli/news_nlp_cli.py --limit 50       # batch pipeline; needs SOURCE_DATABASE_URL
-uv run cli/news_nlp_eval.py --stage all --sample-size 80   # needs LLM_API_KEY/LLM_MODEL/LLM_URL
 uv run mlflow ui                            # browse eval runs
 
 uv run pytest                               # full hermetic suite (no network/GPU)
@@ -438,4 +435,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.13.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-15
+**Version**: 2.13.1 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-18

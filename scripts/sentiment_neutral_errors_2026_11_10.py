@@ -27,7 +27,7 @@ spec = importlib.util.spec_from_file_location(
 pair = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pair)
 from news_nlp import env
-from sentiment_stage import _text_mentions_subject as named
+from sentiment_subject import _text_mentions_subject as named
 
 env.load_env_file()
 conn = pair.connect_source()

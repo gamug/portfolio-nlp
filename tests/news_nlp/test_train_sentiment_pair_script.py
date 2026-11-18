@@ -269,7 +269,7 @@ def test_a_final_run_that_fails_leaves_no_model_without_a_row_and_can_be_made_ag
 
 
 def test_the_stage_rule_the_replay_uses_is_still_there_under_its_name() -> None:
-    from sentiment_stage import _text_mentions_subject  # noqa: PLC0415
+    from sentiment_subject import _text_mentions_subject  # noqa: PLC0415
 
     assert CMD._text_mentions_subject is _text_mentions_subject
 

@@ -444,9 +444,9 @@ def sha(s: str) -> str:
 
 def cmd_judge() -> None:
     from news_nlp.eval.config import EvalSettings
+    from news_nlp.eval.item import EvalItem
     from news_nlp.eval.judges import judge_c_summary, load_prompt
     from news_nlp.eval.model import build_judge_agent, build_model
-    from news_nlp.eval.sampling import EvalItem
 
     settings = EvalSettings.load()
     model = build_model(settings)

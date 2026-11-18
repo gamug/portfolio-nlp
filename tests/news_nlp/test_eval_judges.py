@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from news_nlp.eval import judges
-from news_nlp.eval.sampling import EvalItem
+from news_nlp.eval.item import EvalItem
 from news_nlp.eval.verdicts import (
     CategoryVerdict,
     NerVerdict,

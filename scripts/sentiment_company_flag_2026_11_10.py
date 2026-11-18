@@ -34,7 +34,7 @@ import mlflow
 
 import sentiment_pair_train as spt
 from news_nlp import env
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 EXPERIMENT = "sentiment_pair_company_yes_no"
 SETTING = (2, 3e-5)  # the grid's choice (D35 tie rule)

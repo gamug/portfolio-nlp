@@ -1,40 +1,9 @@
-"""LLM-as-judge accuracy evaluation for the news-NLP pipeline stages.
-
-The pipeline stores sentiment / NER / category / c_summary predictions with no
-accuracy measurement of any kind. This package samples a slice of those stored
-predictions, has an LLM judge (a ``strands-agents`` agent pointed at an
-OpenAI-compatible endpoint) score each one against the source article text, and
-writes aggregate metrics + per-row verdicts to **MLflow** and to the
-``eval_run`` / ``eval_inference`` / ``eval_verdict`` tables in the RESULTS
-store (plus ``eval_confusion`` for sentiment/category).
-
-The judge is itself a model, so "agreement" is a proxy for correctness, not
-correctness -- see ``docs/evaluation.md``. Each run samples ``sample_size`` rows
-per stage as a disjoint, priority-ordered stack of strata -- a deterministic
-low-confidence bucket, stage-specific soft-probability-targeted strata, and a
-representative random remainder -- so both headline and worst-case accuracy
-are reported; see ``docs/evaluation.md``'s "Sampling" section.
-
-``run_eval`` (and only it) pulls in ``mlflow`` + ``strands`` -- the ``eval``
-dependency group -- so it is imported lazily here: ``news_nlp.eval.metrics`` /
-``.sampling`` / ``.store`` can be imported and unit-tested without those.
-"""
+"""LLM-as-judge evaluation: the store of the ``eval_run`` / ``eval_inference`` / ``eval_verdict`` / ``eval_confusion`` tables, the MLflow tracking, the judge
+model and the blind step-7 category judge (``step_category``). The sampling, the runner and the metrics of the v1 stages read the v1 tables and were
+removed with them (T-220); their stored runs stay in the tables and in MLflow. See ``docs/evaluation.md``."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 from news_nlp.eval.config import EvalSettings
 
-__all__ = ["EvalSettings", "run_eval"]
-
-if TYPE_CHECKING:
-    from news_nlp.eval.runner import run_eval
-
-
-def __getattr__(name: str) -> Any:
-    if name == "run_eval":
-        from news_nlp.eval.runner import run_eval  # noqa: PLC0415 -- lazy: pulls in mlflow/strands
-
-        return run_eval
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+__all__ = ["EvalSettings"]

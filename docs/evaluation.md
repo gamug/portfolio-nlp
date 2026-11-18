@@ -1,5 +1,8 @@
 # Model accuracy evaluation (`news_nlp.eval`)
 
+> **Removed (T-220, PR B, 2026-11-18).** The sampling, runner, metrics, calibration, candidate scorer and experiment runner described here read the v1 tables and are deleted (`cli/news_nlp_eval.py`, `cli/run_experiment.py`, `experiments/`, `.github/workflows/eval.yml` with them). **Kept:** the store (`eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion`), the MLflow tracking, the judge model and the blind step-7 category judge (`eval/step_category.py`). Past runs stay in the tables and in MLflow. The text below is the record of the removed design.
+
+
 The v1 chain stores `article_sentiment` / `article_entities` / `article_category`
 / `article_summary` and everything downstream (`portfolio-financial-analysis`'s
 SEMANTIC score, the knowledge-graph projection) treats them as ground truth.
