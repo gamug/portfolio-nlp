@@ -111,6 +111,8 @@ The stepped pipeline (`cli/news_nlp_steps.py`) opens the same connection, `news_
    row — the common "pointed a text stage at the results store" mistake, which
    used to surface as a silent *"0 pending"*.
 
+> **History (T-220):** the next two paragraphs and the live-writer bullet below describe the v1 chain (`run_pipeline`, the `write_*` calls, the `sector_summary` stage, `test_sector_summary.py`), removed from the code and the database. What still holds today: the stepped pipeline's step 2 calls `db._ensure_article_row` (tests in `tests/news_nlp/test_db.py`) and reads `body_text` from SOURCE.
+
 The three `body_text` readers (`fetch_pending_articles`,
 `fetch_pending_category_articles`, `fetch_pending_company_summaries`) qualify
 `articles` with `db._articles_rel(conn)` (Allowlist-checked against `"main"` /
@@ -237,7 +239,7 @@ Created by `init_schema()` since #162; the schema was approved by the owner on 2
   work around this with `immutable=1`. This check is not a backup-safety
   guarantee either way — it cannot catch a checkpoint-torn copy; see
   `portfolio-common`'s `test_attach_does_not_catch_a_checkpoint_torn_copy`.
-- **A live-writer SOURCE is a moving target, not a snapshot.** The read-only
+- **A live-writer SOURCE is a moving target, not a snapshot.** *(History: the example below is the v1 chain's; the stepped pipeline reads its pending items once per step in the same way.)* The read-only
   attach does not freeze SOURCE: each statement sees whatever the writer has
   committed so far. This is observed SQLite connection behaviour, not a
   contract this repo promises, so wrapping a run in one read transaction would

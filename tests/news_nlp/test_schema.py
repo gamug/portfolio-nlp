@@ -1,5 +1,5 @@
-"""news_nlp.schema: the five result tables, `init_schema` idempotency, the
-`sector_summary` self-heal migration, and the `fetch_pending_*` row shapes.
+"""news_nlp.schema: the 19 tables `init_schema` creates, its idempotency, that it brings no v1
+table back (T-220), and the `eval_run` additive migration.
 """
 
 from __future__ import annotations

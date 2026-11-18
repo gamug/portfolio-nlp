@@ -413,12 +413,16 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f82792c7…`, the copy checked) and of `nlp_backup.db`
 (the file before the purge), with the C2 code (`init_schema` without the v1 tables).
 
-* **`--status` of the nine steps** (scope, cut, sector, summary, companies, category, sentiment, snapshot, period; the kept revisions
-  named) exits 0 on both. **Compared:** the output on the purged copy equals the backup's **minus the pruned revisions**: the diff has
-  no changed line and no line only in the purged copy; every added line is a pruned revision (`units-5f831c298bcb`,
-  `units4-d3e2cbfa830e`, `summary-7a9bd2062bc4`, `category-65f33b55b26b`, `category-981dacf6f68d`, `sentiment-5999fe131d8f`,
-  `snapshot-1b8ee113b05f`, `period-ae014b56b055`, `period-dd098e1c5b9f`) with its counts. The snapshot status was run without
-  `--sector-revision` (the CLI refuses it outside `--items sector`).
+* **`--status` of the nine steps** (the kept revisions named, `--source-db` the crawl DB read-only) exits 0 on both:
+  `--step scope`; `--step cut`; `--step sector`; `--step summary --cut-revision units5-d3e2cbfa830e`; `--step companies --cut-revision units5-d3e2cbfa830e --summary-revision summary-llm-70cb6bb07292`;
+  `--step category` and `--step sentiment` (each `--summary-revision summary-llm-70cb6bb07292 --companies-revision companies-f349536cf701`);
+  `--step snapshot` (those three plus `--category-revision category-a23569dba86f --sentiment-revision sentiment-59863d15fc42`);
+  `--step period --snapshot-revision snapshot-c3a753affa5d`. **Compared by parsing the JSON of each output:** the entries and values that name a
+  pruned revision (`units-5f831c298bcb`, `units4-d3e2cbfa830e`, `summary-7a9bd2062bc4`, `category-65f33b55b26b`, `category-981dacf6f68d`,
+  `sentiment-5999fe131d8f`, `snapshot-1b8ee113b05f`, `period-ae014b56b055`, `period-dd098e1c5b9f`) are dropped from both, and **the rest is
+  equal in all nine**. Without that filter the diff has no line only in the purged copy (the backup's extra lines are those entries
+  with their counts and dates). **Not compared:** the sector part of the snapshot status (run without `--sector-revision`; the CLI
+  refuses it outside `--items sector`), and the rows themselves (the golden digest covers the delivered ones).
 * **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
   company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 tables
   (the 19 of `init_schema` plus the lean `articles`, which the pipeline connection creates), `foreign_key_check` empty,
