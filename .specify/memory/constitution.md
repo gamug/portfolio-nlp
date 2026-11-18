@@ -223,8 +223,8 @@ No other stage may use this exception.
     older numbers were already published — a metric missing for one
     candidate but present for another is worth recomputing, not leaving as
     a blank cell. `train_sentiment.py`'s `make_compute_metrics()` is the
-    reference implementation for sentiment; `src/sentiment_pair_report.py`
-    and `news_nlp/eval/step_category.py` follow this shape for theirs.
+    only implementation of this metric set today (the offline one); no other
+    file computes it.
 
     This applies to **both** evaluation methodologies this project uses, not
     just the offline one — each has its own "complete set," not a shared
@@ -232,17 +232,18 @@ No other stage may use this exception.
     - **Offline, held-out-labels eval** (`train_sentiment.py` and any
       future training script): per class, precision/recall/F1/
       `accuracy_ovr`; overall, accuracy and macro F1.
-    - **Downstream, LLM-judge eval against real traffic** (the blind
-      step-7 judge, `news_nlp/eval/step_category.py`, and any judge rebuilt
-      on the `news_*` tables): per class, precision/recall/F1/`accuracy_ovr`
-      weighted by the sampling strata (Horvitz-Thompson), never the naive
-      pooled count as the headline; overall, the agreement rate (or the
-      stage's own accuracy-equivalent), the macro F1 against the judge, and
-      the mean severity where the stage's judge produces one. A run
-      recorded before a metric existed can be recomputed from its own
-      stored verdicts (`eval_verdict`) with no new judge calls — the same
-      "recompute, don't leave a blank cell" rule as above, and cheaper here
-      than for the offline case.
+    - **Downstream, LLM-judge eval against real traffic**: per class,
+      precision/recall/F1/`accuracy_ovr` weighted by the sampling strata
+      (Horvitz-Thompson), never the naive pooled count as the headline;
+      overall, the agreement rate (or the stage's own accuracy-equivalent),
+      the macro F1 against the judge, and the mean severity where the
+      stage's judge produces one. **No code computes this today** (the
+      module that did was removed by T-220 PR B; the blind step-7 judge,
+      `news_nlp/eval/step_category.py`, records verdicts and no metric set);
+      T-222 rebuilds it. A run recorded before a metric existed can be
+      recomputed from its own stored verdicts (`eval_verdict`) with no new
+      judge calls — the same "recompute, don't leave a blank cell" rule as
+      above.
 13. **Reporting a tested model's results anywhere — a PR/commit description,
     a chat summary, a docs follow-up — shows the complete metric set #12
     requires, for every model/candidate actually run, not a hand-picked

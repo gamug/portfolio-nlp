@@ -277,3 +277,9 @@ the same metrics are already logged per class by `news_nlp.eval` for sentiment a
 (`test_two_tier.py::test_source_readonly  # FR-007`)
 ```
 
+## SPEC FR-011, the row as it stood on master
+
+```
+| **FR-011** | Every ML-based stage (sentiment, NER, category, `c_summary`) is built on a shared Feature/Train/Inference (FTI) class hierarchy (`src/fti.py`); a stage with no real training (category, `c_summary`) has a documented no-op `Train`. | One abstract base per FTI component, a concrete subclass of all three in each of the four stages; `run_pipeline`'s behavior is unchanged and the hermetic tests pass. Full text: `archive/SPEC-condensed-for-the-pipeline-api-2026-11-17.md`. |
+```
+
