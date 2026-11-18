@@ -320,7 +320,8 @@ uv sync --group eval                        # + strands-agents/mlflow for news_n
 uv sync --group notebook                    # + pandas/openpyxl/ipykernel for scripts/*.ipynb
 uv run python -m setup                      # pre-download the four HF models
 
-uv run apps/news_nlp_api.py                 # FastAPI service -> :8003/docs
+uv run apps/pipeline_api.py                 # the pipeline API (T-219) -> :8003/docs
+uv run apps/news_nlp_api.py                 # the v1 FastAPI service -> :8003/docs (T-220 removes it)
 uv run cli/news_nlp_cli.py --limit 50       # batch pipeline; needs SOURCE_DATABASE_URL
 uv run cli/news_nlp_eval.py --stage all --sample-size 80   # needs LLM_API_KEY/LLM_MODEL/LLM_URL
 uv run mlflow ui                            # browse eval runs

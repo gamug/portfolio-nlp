@@ -101,9 +101,10 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONPATH=/app/src:/app \
     HF_HOME=/models/hf
 
-# The service binds 0.0.0.0 here (the script's own main() binds 127.0.0.1). The start period
-# covers the import of torch and transformers.
+# The service is the pipeline API (apps/pipeline_api.py, T-219: each step, the whole pipeline, the stage
+# models; no authentication, so keep the port on a private network). It binds 0.0.0.0 here (the script's own
+# main() binds 127.0.0.1). The start period covers the import of torch and transformers.
 EXPOSE 8003
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=4)"
-CMD ["uvicorn", "apps.news_nlp_api:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD ["uvicorn", "apps.pipeline_api:app", "--host", "0.0.0.0", "--port", "8003"]
