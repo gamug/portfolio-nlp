@@ -246,13 +246,13 @@ def test_apply_refuses_the_database_as_its_own_backup(
     assert "the database itself" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+@pytest.mark.parametrize("suffix", ["-wal", "-journal"])
 def test_apply_refuses_when_something_holds_the_database(
     db: Path, tmp_path: Path, suffix: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     backup = backup_of(db, tmp_path / "backup.db")
     plan = str(_plan(db)["digest"])
-    Path(f"{db}{suffix}").write_bytes(b"")
+    Path(f"{db}{suffix}").write_bytes(b"x")
     assert _run(db, "--apply", "--backup", str(backup), "--plan", plan) == 2
     assert suffix in capsys.readouterr().err
 
@@ -368,3 +368,14 @@ def test_the_golden_digest_of_the_kept_period_is_what_the_note_reads(db: Path) -
     assert all(
         rows for rows in results.values()
     )  # the fixture has a row for each of the seven queries
+
+
+def test_the_empty_wal_and_shm_left_by_a_dry_run_do_not_stop_the_apply(
+    db: Path, tmp_path: Path
+) -> None:
+    """The rehearsal on a copy of the backup found it: a dry run opens the file and leaves an empty -wal and a -shm, and the apply must not mistake them for a writer."""
+    backup = backup_of(db, tmp_path / "backup.db")
+    plan = str(_plan(db)["digest"])
+    Path(f"{db}-wal").write_bytes(b"")
+    Path(f"{db}-shm").write_bytes(b"\0" * 32)
+    assert _run(db, "--apply", "--backup", str(backup), "--plan", plan) == 0

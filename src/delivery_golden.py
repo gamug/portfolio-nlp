@@ -104,14 +104,26 @@ def digest(results: dict[str, list[tuple[Any, ...]]]) -> str:
     ]
 
 
+def holder_file(path: Path) -> str | None:
+    """The file beside *path* that says someone holds it (or was cut off while writing), or ``None``: a ``-journal`` (an unfinished rollback-mode transaction) or a **non-empty**
+    ``-wal`` (written pages not yet in the main file). An empty ``-wal`` and a ``-shm`` are left by any reader, this tool's own dry run included, and mean nothing."""
+    journal = Path(f"{path}-journal")
+    wal = Path(f"{path}-wal")
+    if journal.exists():
+        return str(journal)
+    if wal.exists() and wal.stat().st_size > 0:
+        return str(wal)
+    return None
+
+
 def _refuse_if_live(path: Path) -> None:
-    """``immutable=1`` on a database that someone writes can return a half-written state with no error, so it is refused when the file looks live: a ``-wal``, ``-shm`` or
-    ``-journal`` file beside it (a writer is, or was, attached), or the path is the one ``DATABASE_URL`` / ``SOURCE_DATABASE_URL`` names (the store the pipeline writes or reads)."""
-    for suffix in ("-wal", "-shm", "-journal"):
-        if Path(f"{path}{suffix}").exists():
-            raise ValueError(
-                f"{path} has a {suffix} file beside it: it looks live, --immutable is refused (copy it with the SQLite backup API first)"
-            )
+    """``immutable=1`` on a database that someone writes can return a half-written state with no error, so it is refused when the file looks live: a ``-journal`` or a non-empty
+    ``-wal`` beside it (``holder_file``), or the path is the one ``DATABASE_URL`` / ``SOURCE_DATABASE_URL`` names (the store the pipeline writes or reads)."""
+    held = holder_file(path)
+    if held:
+        raise ValueError(
+            f"{held} sits beside {path}: it looks live, --immutable is refused (copy it with the SQLite backup API first)"
+        )
     from news_nlp import env  # noqa: PLC0415 -- only the guard needs it
 
     configured = {

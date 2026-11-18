@@ -313,6 +313,31 @@ The backup holds `units5-d3e2cbfa830e` (161,574 sub-news, written 2026-11-12 14:
 
 Consequence for the guard: its cut pin (`be358e64f554`) protects **today's** cut code, not the delivered revision. The owner decides whether that matters: the delivery note names the snapshot and the period only, and the cut revision is an input recorded in each row (`inputs`).
 
+## PR C1: the purge script, and its rehearsal on a copy of the backup (2026-11-18)
+
+`PYTHONPATH=src uv run python -m depurate_db --db <file> [--backup <file> --plan <digest> --apply]`. The schema (`schema.py`) is not touched here; PR C2 removes the v1 DDL after the purge.
+
+**Gates of `--apply`:** a backup that is a readable copy of the same database (same tables, same row counts, `quick_check` ok); `--plan` equal to the digest a dry run printed (so the apply deletes what was read); no `-journal` and no non-empty `-wal` beside the file (an empty `-wal` and a `-shm` are what any reader leaves, a dry run included: the first rehearsal run was refused by them, which is now a test); an exclusive lock; and the refusal checks (no kept row on a pruned cut, no kept period on a pruned snapshot, every kept revision present, no table the script does not know). Then one transaction per table, and after it `foreign_key_check`, `quick_check`, the kept row counts and the golden digest must equal the "before", then `VACUUM`.
+
+**The rehearsal** (copies of `nlp_backup.db` in a scratch folder; the live file was not opened):
+
+| | |
+|---|---|
+| dry run | plan digest `63e141924e02e7fe`, no refusal |
+| dropped | 17,865,110 rows: `article_entities` 16,436,161; `article_sentiment` 459,112; `article_category` 459,112; `article_summary` 458,692; `sector_summary` 3,630; `eval_judgement` 48,403 |
+| deleted (old revisions) | 2,151,279 rows (`news_summary` 433,266; `pipeline_step_state` 721,098; `sub_news` 172,503; the old periods, snapshot, category and sentiment revisions) |
+| checks after | `foreign_key_check` 0, `quick_check` ok, kept counts equal, **golden digest `2832f270e9a52457` before and after** |
+| size | 5,271,089,152 → 1,628,180,480 bytes |
+| time | about 85 s of work plus the copy (the two snapshot queries of the golden check take about 15 s each, twice) |
+| a second dry run | nothing to delete; the `inputs` report is unchanged |
+| restore | the backup copy gives the original digest (`2832f270e9a52457` for the kept period) |
+
+**Reported, not refused:** the kept snapshot rows whose `inputs` name a pruned revision: `inputs.summary = summary-7a9bd2062bc4` 159,401; `inputs.category = category-65f33b55b26b` 159,401; `inputs.sentiment = sentiment-5999fe131d8f` 159,401 (the summary one was not in the earlier plan; the rows keep their text, category and sentiment).
+
+**`eval_judgement`** is read by no code of `src/`, `apps/` or `cli/`; only a one-shot script of 2026-09-13 (`label_sentiment_sentences_2026_09_13.py`) read it. It is in the drop list; the backup keeps its 48,403 rows.
+
+**The live file** (`/workspaces/thesis/data/nlp.db`, which the `.env` names as `D:\thesis\data\nlp.db`) has the same size, the same modification time to the nanosecond and **the same SHA-256 as `nlp_backup.db`** (`4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, checked 2026-11-18): the backup is a byte-identical copy and nothing wrote to the live file after it. Because SQLite on the Windows drive (DrvFs) is slow and not safe for a long write, the purge is run on a **local copy** and the result replaces the live file only after it is verified; the original backup is not touched.
+
 ## A2 was dropped (owner, 2026-11-18)
 
 Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a

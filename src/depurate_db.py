@@ -282,11 +282,11 @@ def _golden(conn: sqlite3.Connection) -> str:
 
 def _hold(db: Path) -> sqlite3.Connection:
     """Open the database for writing and prove nobody else holds it (no writer file beside it, an exclusive lock taken then released)."""
-    for suffix in ("-wal", "-shm", "-journal"):
-        if Path(f"{db}{suffix}").exists():
-            raise Refused(
-                f"{db}{suffix} exists: someone holds the database; stop the writers first"
-            )
+    held = delivery_golden.holder_file(db)
+    if held:
+        raise Refused(
+            f"{held} exists: someone holds the database or was writing; stop the writers and let the last connection close first"
+        )
     conn = sqlite3.connect(db, isolation_level=None, timeout=3)
     conn.execute("PRAGMA foreign_keys = OFF")
     try:
@@ -429,11 +429,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.db.is_file():
         parser.error(f"{args.db} does not exist")
+    held = delivery_golden.holder_file(args.db)
+    if held and args.apply:
+        print(
+            f"REFUSED: {held} exists: someone holds the database or was writing; stop the writers and let the last connection close first",
+            file=sys.stderr,
+        )
+        return 2
     conn = delivery_golden.open_read_only(args.db)
     try:
         plan = make_plan(conn)
         problems = refusals(conn, plan)
         dangling = dangling_provenance(conn)
+    except sqlite3.Error as exc:
+        print(
+            f"REFUSED: the database cannot be read ({exc})"
+            + (f"; {held} sits beside it" if held else ""),
+            file=sys.stderr,
+        )
+        return 2
     finally:
         conn.close()
     print(format_plan(plan, problems, dangling))
