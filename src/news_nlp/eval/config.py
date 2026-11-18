@@ -53,13 +53,13 @@ class EvalSettings(BaseModel):
     # production model's already-stored predictions -- see
     # news_nlp.eval.candidate.candidate_scored_connection. Meaningless for
     # more than one stage at once (a candidate swap is inherently
-    # stage-specific); news_nlp.eval.runner.run_eval enforces that.
+    # stage-specific); the removed ``run_eval`` enforced that (T-220 PR B).
     candidate_model: str | None = None
     candidate_revision: str | None = None
     # How many SOURCE articles to pre-score with the candidate model before
     # sampling from them -- defaults to sample_size when unset. Larger than
     # sample_size on purpose (mirrors scripts/resample_sentiment_v4_2026_09_15.py's
-    # own --sample-size 2500 pre-score vs. cli/news_nlp_eval.py's separate
+    # own --sample-size 2500 pre-score vs. the removed eval CLI's separate
     # --sample-size 2000 judge run): a bigger pre-scored pool gives the
     # low_conf/target_<x> stratification a real population to draw its
     # worst-case/near-miss rows from, rather than just the rows actually judged.

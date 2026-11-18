@@ -26,7 +26,7 @@ import mlflow
 import sentiment_pair_report as rep
 import sentiment_pair_train as spt
 from news_nlp import env
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 pair.OUT = Path("data/sentiment_pair_more_data")
 pair.MODELS = Path("models/sentiment_pair_more_data")

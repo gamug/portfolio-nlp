@@ -3,7 +3,7 @@
 # One image definition for both uses of this repo:
 #   - target `dev`: what .devcontainer/devcontainer.json builds (VS Code Dev Containers).
 #   - target `app`: the FastAPI service (port 8003) and the batch CLIs that read only src/, apps/,
-#     cli/ and config/ (news_nlp_cli.py, news_nlp_steps.py), with the locked dependencies baked in.
+#     cli/ and config/ (news_nlp_steps.py), with the locked dependencies baked in.
 #     Training, evaluation and the one-shot scripts (they read docs/, gold/, models/) are dev-only.
 #
 #   docker build --target dev -t portfolio-nlp:dev .

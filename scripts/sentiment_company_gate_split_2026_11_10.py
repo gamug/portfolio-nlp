@@ -15,7 +15,7 @@ from pathlib import Path
 import mlflow
 
 import sentiment_pair_report as rep
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 MARKS = Path("gold/sentiment_train.csv")
 IDS = Path("data/sentiment_train_ids.csv")
@@ -119,7 +119,7 @@ for key, stats in results.items():
         )
         mlflow.log_params(
             {
-                "rule": "company/ticker named in the summary (sentiment_stage._text_mentions_subject)",
+                "rule": "company/ticker named in the summary (sentiment_subject._text_mentions_subject)",
                 "gate": "not named -> neutral" if variant == "gated" else "none",
             }
         )

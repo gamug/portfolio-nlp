@@ -635,9 +635,8 @@ def category_stats(
 
 
 #: ``eval_run.stage`` values that are not accuracy evaluations and so stay out of
-#: ``GET /eval/latest``: the calibration truth-label judge (``news_nlp.eval.calibration_judge``,
-#: T-141), whose "metrics" are call counters. Duplicated here (not imported) so the API path
-#: never imports the ``eval`` dependency group; a test pins it to the judge's own constant.
+#: ``GET /eval/latest``: the calibration truth-label judge (T-141, removed by T-220 PR B), whose "metrics" are call
+#: counters; its stored rows keep this stage name.
 NON_ACCURACY_EVAL_STAGES: tuple[str, ...] = ("category_truth",)
 
 

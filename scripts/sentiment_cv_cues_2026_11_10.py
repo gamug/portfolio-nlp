@@ -29,7 +29,7 @@ import size_triage_2026_10_28 as size_triage
 import sentiment_pair_report as rep
 import sentiment_pair_train as spt
 from news_nlp import env, triage
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 pair.OUT = Path("data/sentiment_pair_cues_cv")
 pair.MODELS = Path("models/sentiment_pair_cues_cv")

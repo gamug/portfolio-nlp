@@ -12,7 +12,7 @@ pytest.importorskip("mlflow")
 
 import mlflow
 
-from news_nlp.eval.tracking import log_to_mlflow, previous_headline
+from news_nlp.eval.tracking import experiment_name, log_to_mlflow, previous_headline
 
 
 def _uri(tmp_path: Path) -> str:
@@ -153,3 +153,12 @@ def test_previous_headline_is_experiment_scoped(tmp_path: Path) -> None:
     # Picks up the first candidate-x run (0.40), not the intervening "base"
     # run (0.90) that sits between them in start_time order.
     assert previous_headline("sentiment", "recall_negative", uri, experiment="candidate-x") == 0.40
+
+
+@pytest.mark.parametrize(
+    "stage", ["sentiment", "category", "ner", "c_summary", "sector_summary", "category_truth"]
+)
+def test_the_mlflow_experiment_name_never_changes(stage: str) -> None:
+    """Every past run is stored under ``news_nlp_eval/<stage>`` (the eval CLI that wrote them was removed, T-220 PR B): a new name would detach the
+    whole history from the new runs, so MLflow would look empty."""
+    assert experiment_name(stage) == f"news_nlp_eval/{stage}"

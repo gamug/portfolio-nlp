@@ -1,5 +1,8 @@
 # news_nlp — the NLP layer of portfolio-nlp
 
+> **Removed (T-220, PR B, 2026-11-18).** The v1 chain this page describes (the pipeline, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, the corrections, the queries behind the API, `sector_summary`) is deleted from the code; recover it from git history. The tables are dropped by a separate owner-run script (`docs/db_depuration_plan.md`). The text below is kept as the record of that chain.
+
+
 **Extracted from** `portfolio-data-mining` (which had consolidated it from the standalone `news-nlp` project).
 
 It reads article text crawled by `portfolio-data-mining` (the SOURCE store, read-only) and writes its results to the RESULTS store (`data/nlp.db`, or `$DATABASE_URL`; root `.env.example`). There is no scraper here — `articles` is treated as pre-populated input.

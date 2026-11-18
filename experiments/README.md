@@ -1,5 +1,7 @@
 # experiments/
 
+> **Record only (T-220 PR B, 2026-11-18).** `src/experiment.py` and `cli/run_experiment.py` that ran these files were removed; the specs stay as the account of the real historical experiments and of the published models. To run one, check out commit `81294eb`.
+
 `ExperimentSpec` JSON files (`src/experiment.py`, PLAN.md Work item 11,
 SPEC.md FR-017) — each one fully describes a real, already-run model
 experiment for one of the four ML stages. Run any of them end to end:

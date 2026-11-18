@@ -1,5 +1,8 @@
 # Model accuracy evaluation (`news_nlp.eval`)
 
+> **Removed (T-220, PR B, 2026-11-18).** The sampling, runner, metrics, calibration, candidate scorer and experiment runner described here read the v1 tables and are deleted (`cli/news_nlp_eval.py`, `cli/run_experiment.py`, `experiments/`, `.github/workflows/eval.yml` with them). **Kept:** the store (`eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion`), the MLflow tracking, the judge model and the blind step-7 category judge (`eval/step_category.py`). Past runs stay in the tables and in MLflow. The text below is the record of the removed design.
+
+
 The v1 chain stores `article_sentiment` / `article_entities` / `article_category`
 / `article_summary` and everything downstream (`portfolio-financial-analysis`'s
 SEMANTIC score, the knowledge-graph projection) treats them as ground truth.
@@ -1033,12 +1036,9 @@ production's own number, and never another candidate's.
 ## CI
 
 `ci.yml` installs `--group eval` and runs the hermetic `tests/news_nlp/
-test_eval_*.py` (the LLM and MLflow are mocked / a tmp file store). The **real**
-eval is `.github/workflows/eval.yml` — `workflow_dispatch` + a weekly schedule,
-with `LLM_*` repo secrets and `--check-regression`. It needs the actual crawl /
-results databases, which live on the working machine, so it is written as a
-self-hosted-runner template; the reliable path is `uv run cli/news_nlp_eval.py`
-on a local cron with `MLFLOW_TRACKING_URI` pointed at a persistent store.
+test_eval_*.py` (the eval store, the MLflow tracking and the judges; the LLM and MLflow are mocked / a tmp file store). **No workflow runs the real judge any more:** the
+weekly `.github/workflows/eval.yml` and the CLI it called (`cli/news_nlp_eval.py`) were removed by T-220 PR B (commit `81294eb` has both). The step-7 judge is run by hand
+(`scripts/category_judge_2026_11_15.py`).
 The scheduled gate (`--check-regression`, PLAN Work item 2) is out of the MVP (owner, 2026-11-10).
 
 ## Prompts
@@ -1105,8 +1105,8 @@ auto-resolves downstream instead) all fail validation before any train/eval
 work starts, with a message naming exactly what's wrong.
 
 ```bash
-uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.json
-uv run cli/run_experiment.py --config experiments/ner_production.json --source-db urls.db
+# removed (T-220 PR B); at commit 81294eb: uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.json
+# removed (T-220 PR B); at commit 81294eb: uv run cli/run_experiment.py --config experiments/ner_production.json --source-db urls.db
 ```
 
 is the one command: trains (if `pretrain.enabled`) via a lazily-imported

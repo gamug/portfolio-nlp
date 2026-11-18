@@ -20,12 +20,11 @@ import pytest
 import torch
 
 import category_multilabel as ml
-import category_stage
 import cut_stage
 import news_category_stage as stage
 import news_company_stage
 import news_nlp as db_module
-import pipeline
+import setup as models_setup
 from news_nlp import retag, steps
 from news_nlp.steps import CategoryScore, CompanyScore
 from news_nlp.triage import Company
@@ -688,13 +687,12 @@ def test_the_run_branch_of_the_command_checks_both_revisions_warns_and_prints_th
         cli.main_category(Args(), pair)
 
 
-def test_the_category_checkpoint_is_the_same_in_the_config_the_v1_stage_and_the_pipeline() -> None:
-    """Three places name it: ``config/pipeline_models.json`` (read by the step), ``pipeline.MODEL_REVISIONS`` (read by ``python -m setup``)
-    and the v1 stage's own defaults; a repin that misses one is a different model per command."""
+def test_the_category_checkpoint_is_the_same_in_the_config_and_in_setup() -> None:
+    """Two places name it: ``config/pipeline_models.json`` (read by the step) and what ``python -m setup`` downloads (it reads the same file); a repin that
+    misses one is a different model per command."""
     pinned = stage.pinned_category()
-    assert pinned["model"] == pipeline.CATEGORY_MODEL == category_stage.CategoryInference.MODEL_NAME
-    assert pinned["revision"] == pipeline.MODEL_REVISIONS[pipeline.CATEGORY_MODEL]
-    assert pinned["revision"] == category_stage.CategoryInference.MODEL_REVISIONS[pinned["model"]]
+    assert pinned["model"] == models_setup.CATEGORY_MODEL
+    assert pinned["revision"] == models_setup.MODEL_REVISIONS[models_setup.CATEGORY_MODEL]
 
 
 def test_the_run_says_how_much_it_will_do_and_loads_the_model_before_the_bar(

@@ -27,7 +27,7 @@ _STEP_GROUPS = ml.GROUPS14
 from news_nlp.triage import Company, CompanyResolver
 
 MODEL = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
-REVISION = "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"  # category_stage.MODEL_REVISIONS
+REVISION = "8e7e5af5983a0ddb1a5b45a38b129ab69e2258e8"  # the pin of config/pipeline_models.json (was category_stage.MODEL_REVISIONS)
 PREMISE_CHARS = 2000  # the size of the summaries step 7 reads (owner 2026-11-12)
 
 DEFS = dict(

@@ -14,29 +14,12 @@ from __future__ import annotations
 #: measured 2026-11-06 (every other file runs in under 5 s).
 HEAVY = frozenset(
     {
-        "test_category_pipeline.py",
-        "test_correction_endpoints.py",
-        "test_eval_calibration_judge.py",
-        "test_eval_candidate.py",
-        "test_eval_regression.py",
-        "test_eval_runner.py",
         "test_eval_tracking.py",
-        "test_experiment.py",
-        "test_experiment_run.py",
-        "test_experiments_backfill.py",
         "test_fti_base.py",
-        "test_ner_pipeline.py",
         "test_pipeline_api.py",
-        "test_pipeline_endpoints.py",
-        "test_pipeline_model_config.py",
-        "test_pipeline_progress.py",
-        "test_pipeline_run.py",
-        "test_query_endpoints.py",
         "test_schema_guard.py",
         "test_sentiment_pair_train.py",
-        "test_sentiment_pipeline.py",
         "test_setup.py",
-        "test_summary_pipeline.py",
         "test_summary_llm.py",
         "test_category_selection.py",
         "test_category_review_audit.py",
@@ -51,7 +34,6 @@ HEAVY = frozenset(
         "test_summary_step.py",
         "test_train_ner.py",
         "test_train_sentiment.py",
-        "test_two_tier.py",
     }
 )
 
@@ -93,11 +75,14 @@ TOPICS: dict[str, frozenset[str]] = {
             "test_matcher_before_after.py",
             "test_retag.py",
             "test_scope_publish.py",
+            "test_shared_algorithms.py",
             "test_steps.py",
             "test_sector_step.py",
             "test_sentiment_step.py",
             "test_snapshot_step.py",
             "test_period_step.py",
+            "test_revision_guard.py",
+            "test_delivery_golden.py",
             "test_sector_validation.py",
             "test_summary_step.py",
             "test_summary_llm.py",
@@ -118,51 +103,28 @@ TOPICS: dict[str, frozenset[str]] = {
     # the DB layer and the two-tier store
     "db": frozenset(
         {
-            "test_corrections.py",
             "test_db.py",
             "test_dependencies.py",
             "test_env.py",
-            "test_queries.py",
             "test_schema.py",
             "test_schema_guard.py",
-            "test_sector_summary.py",
             "test_taxonomy.py",
-            "test_two_tier.py",
         }
     ),
     # LLM-as-judge evaluation and the JSON-driven experiments
     "eval": frozenset(
         {
-            "test_eval_calibration.py",
-            "test_eval_calibration_analysis.py",
-            "test_eval_calibration_judge.py",
-            "test_eval_candidate.py",
             "test_eval_judges.py",
-            "test_eval_metrics.py",
-            "test_eval_partition.py",
-            "test_eval_regression.py",
-            "test_eval_runner.py",
-            "test_eval_sampling.py",
             "test_eval_step_category.py",
             "test_eval_store.py",
             "test_eval_tracking.py",
-            "test_experiment.py",
-            "test_experiment_run.py",
-            "test_experiments_backfill.py",
         }
     ),
     # the four ML stages, the pipeline and training
     "stages": frozenset(
         {
-            "test_category_pipeline.py",
             "test_fti_base.py",
-            "test_ner_pipeline.py",
-            "test_pipeline_model_config.py",
-            "test_pipeline_progress.py",
-            "test_pipeline_run.py",
-            "test_sentiment_pipeline.py",
             "test_setup.py",
-            "test_summary_pipeline.py",
             "test_train_ner.py",
             "test_train_sentiment.py",
         }
@@ -170,10 +132,7 @@ TOPICS: dict[str, frozenset[str]] = {
     # the FastAPI services (the v1 API until T-220 removes it, and the pipeline service, T-219)
     "api": frozenset(
         {
-            "test_correction_endpoints.py",
             "test_pipeline_api.py",
-            "test_pipeline_endpoints.py",
-            "test_query_endpoints.py",
         }
     ),
 }

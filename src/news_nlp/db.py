@@ -7,8 +7,8 @@
 * SOURCE store -- selected by ``$SOURCE_DATABASE_URL`` (:func:`env.source_db_path`),
   opened read-only and ATTACHed as schema ``source``. Holds ``articles``
   including ``body_text``, written by the upstream crawler. Required by the
-  text-reading pipeline stages; never written. Not needed for serving or the
-  ``sector_summary`` stage.
+  text-reading pipeline stages; never written. Not needed for serving or
+  query code.
 
 ``connect()`` opens a plain single-file connection (serving, tests, single-file
 runs). ``connect_pipeline()`` opens the RESULTS store and, unless SOURCE resolves
@@ -50,7 +50,7 @@ _NO_SOURCE_MSG = (
     "SOURCE_DATABASE_URL is not set. The text-reading pipeline stages "
     "(sentiment, NER, category, c_summary) require a read-only source database "
     "that has articles.body_text (e.g. urls.db). Set SOURCE_DATABASE_URL. "
-    "Serving/query endpoints and the sector_summary stage do not need it. "
+    "Serving and query code do not need it. "
     "See docs/db-topology.md."
 )
 _NO_SOURCE_TEXT_MSG = (

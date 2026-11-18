@@ -24,13 +24,7 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | 8 snapshot | one row per (text, main company), or per `sector` text: publication date, title, text, category, sentiment; always idempotent (`--reset` rebuilds) | none (a join) | `news_snapshot` | built (T-195; `docs/snapshot_steps.md`); not run on the corpus |
   | 9 period summary | every 21 days from 2022-01-03 at 15:00 `BATCH_TIMEZONE`: counts per company and category (total, neutral, positive, negative; four weak categories counted as `other`), and per sector summed from the companies (no LLM) | none (counts) | `period_run`, `period_summary`, `period_item`, `sector`, `company_sector` | built (T-196; `docs/snapshot_steps.md`); not run on the corpus |
 
-- **The v1 chain, until the backfill (T-150).** Five stages over (URL, ticker) pairs, run by
-  `cli/news_nlp_cli.py` and the FastAPI service: sentiment (`gamug/FinBERT-financial-news`), NER
-  (`gamug/sec-bert-finer-ord-ner`), category (zero-shot `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`), and, with
-  `--summarize`, `c_summary` (distilbart) and the deterministic `sector_summary`. It writes `article_sentiment`,
-  `article_entities`, `article_category`, `article_summary` and `sector_summary`, which downstream repos still read.
-  **Its sentiment, zero-shot category and `sector_summary` stages are deprecated** (owner, 2026-11-12;
-  `docs/legacy/`).
+- **The v1 chain is removed from the code (T-220, PR B).** Its pipeline, API, CLI, evaluation stages and tests are gone; its tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`) are dropped from the database by a separate, owner-run script after a verified backup (`docs/db_depuration_plan.md`). Recover the code from git history if it is ever needed.
 
 The models of the stepped pipeline are measured on gold sets the owner tagged (`docs/gold_datasets.md`); LLMs only
 label and evaluate, they never run inside the pipeline.
@@ -69,7 +63,7 @@ One `Dockerfile`, two targets (the header of the file has the commands):
   uv, git and gh. The repo is mounted, not copied; `scripts/init.sh` syncs the dependencies and installs the
   three pre-commit hook types.
 - **`app`** is the pipeline API (`apps/pipeline_api.py`, port 8003, healthcheck on `/health`; no authentication: keep the port private) and the batch CLIs
-  (`news_nlp_cli.py`, `news_nlp_steps.py`) with the locked dependencies baked in. It never contains `.env`:
+  (`news_nlp_steps.py`) with the locked dependencies baked in. It never contains `.env`:
   pass it with `--env-file .env` (plain `KEY=value`, no quotes, no `export`), mount the thesis directory at
   `/workspaces/thesis` so `DATABASE_URL` / `SOURCE_DATABASE_URL` resolve, and mount a volume at `/models/hf`
   (`HF_HOME`) to keep the downloaded models. `--gpus=all` is optional: without it torch runs on CPU, so check
@@ -90,10 +84,6 @@ uv run cli/news_nlp_steps.py --step cut --status
 
 # the same steps, the whole pipeline and the stage models as a service (T-219, `docs/pipeline_api.md`)
 uv run apps/pipeline_api.py            # FastAPI -> http://127.0.0.1:8003/docs
-
-# the v1 chain (removed by T-220)
-uv run apps/news_nlp_api.py            # v1 API -> http://127.0.0.1:8003/docs (the same port: run one at a time)
-uv run cli/news_nlp_cli.py --limit 50  # 50 pending articles
 ```
 
 Every command that reads article text needs `SOURCE_DATABASE_URL` set to a database with `articles.body_text`
