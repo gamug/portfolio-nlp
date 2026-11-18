@@ -31,6 +31,14 @@ names it). It is the safety net of every destructive step below.
 * **`snapshow_delivery.md` stays untracked** (the owner's local file). The golden check below uses a copy of its queries inside the tests.
 * **Old revisions are pruned**, keeping exactly: `scope-nli-8ff21e50796b`, `units5-d3e2cbfa830e`, `summary-llm-70cb6bb07292`,
   `companies-f349536cf701`, `sentiment-59863d15fc42`, `category-a23569dba86f`, `snapshot-c3a753affa5d`, `period-3b07b83ecec3`.
+* **Gates answered (owner, interactive session, 2026-11-18, after the Phase 0 listing below).** (1) `sector-417a93feb789` joins the keep list
+  (the only sector revision). (2) Of the periods **only `period-3b07b83ecec3` stays**; `period-ae014b56b055` (the delivery note's) and
+  `period-dd098e1c5b9f` are pruned, **after a new delivery note naming `period-3b07b83ecec3` goes to the upstream team** (the plan's rule
+  "the upstream team is told first"). (3) **Only `sentiment-59863d15fc42` and `category-a23569dba86f` stay**: `sentiment-5999fe131d8f` and
+  `category-65f33b55b26b` are pruned. Consequence, accepted: the 159,401 rows of `snapshot-c3a753affa5d` built on them keep their own text,
+  category and sentiment, but their `inputs` names revisions that no longer exist (the dry run lists them and does not refuse). A rerun of
+  the snapshot on the kept revisions was offered and **not** chosen; it stays available if the owner asks. The final keep list is nine
+  revisions: the eight above plus `sector-417a93feb789`.
 * The last bullet of the request, "chore code-tests", is read as: tests that only exercise deprecated code or tables are deleted;
   mixed tests are adapted to the kept tables; `tests/sets.py` is kept in step.
 
