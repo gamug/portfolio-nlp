@@ -172,13 +172,6 @@ fail the invocation (used as a manual/scheduled gate, not part of `ci.yml`).
 the v1 `cli/news_nlp_cli.py` is not touched until the backfill (T-150)
 ```
 
-## constitution, CI rule 2 (eval.yml)
-
-```
-2. **`eval.yml` is a separate, non-blocking workflow** for the real
-   LLM-as-judge run — it is not part of the merge gate for ordinary PRs.
-```
-
 ## SPEC section 8, the v1 pipeline error-handling sentence
 
 ```
@@ -252,5 +245,35 @@ section for the tradeoffs of wiring it into `ci.yml`.
 4. Run `uv run apps/news_nlp_api.py` (long-lived service, `:8003`) and/or
    invoke `uv run cli/news_nlp_cli.py` on whatever cadence the batch run
    needs (no scheduler is wired in today — see §13).
+```
+
+## SPEC FR-011, acceptance (`run_pipeline`)
+
+```
+`run_pipeline`'s behavior is unchanged and the hermetic tests pass.
+```
+
+## SPEC FR-015, acceptance (`--stage <s> --run-name`)
+
+```
+The same `--stage <s> --run-name <experiment>` run twice on an unchanged sample makes zero new judge calls the second time (the judge client is never invoked for a key already stored); a new `article_id`, a different `experiment`, or an unchanged `experiment` whose prediction changed judges fresh, and a recorded verdict always matches its own run's prediction.
+```
+
+## SPEC NR-005, acceptance (`import pipeline`)
+
+```
+`import pipeline` / `import apps.news_nlp_api` succeeds in an environment with only the base `[project]` dependencies installed (no `eval` group) — `news_nlp.eval.run_eval` is imported lazily.
+```
+
+## SPEC FR-019, the news_nlp.eval sentence
+
+```
+the same metrics are already logged per class by `news_nlp.eval` for sentiment and category.
+```
+
+## SPEC section 1, the traceability example
+
+```
+(`test_two_tier.py::test_source_readonly  # FR-007`)
 ```
 

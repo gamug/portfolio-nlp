@@ -112,8 +112,8 @@ component; every rule below assumes the stack actually pinned in
    category/`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`,
    summarization/`sshleifer/distilbart-cnn-12-6`, opt-in) each use exactly
    the checkpoint listed above — no dynamic model selection. Swapping a
-   model is a spec-level change — it needs an eval run (`news_nlp.eval`) comparing
-   against the current baseline before it replaces the pinned checkpoint.
+   model is a spec-level change — it needs a measure (a gold-set measure or an LLM-as-judge run) comparing
+   it against the current baseline before it replaces the pinned checkpoint.
    **Exception, category step (owner, 2026-11-15; amendment 2.13.0).** The category step (`--step category`, step 7 of the
    stepped pipeline) runs `category-entailment-single-12`, the fine-tune pinned in `config/category_step.json` (folder identity
    checked; `docs/category_step.md`), not the checkpoint listed above, which the v1 category stage keeps. The owner pinned it as
@@ -136,17 +136,13 @@ component; every rule below assumes the stack actually pinned in
    entity, category, and summary outputs are model predictions over
    third-party news text — nothing in the pipeline or API should present
    them as verified fact, financial advice, or ground truth. Model output is
-   expected to need human override; the correction module of the v1 chain
-   was removed (T-220), so there is no correction path for the step tables
-   yet (T-223).
+   expected to need human override; corrections are decided and made by
+   the owner.
 5. **Accuracy claims are backed by a measure against a reference, not spot-checks.** A
    change asserted to "improve" a stage must cite either the owner's gold-set
    measure (`docs/gold_datasets.md`) or an LLM-as-judge run tracked in MLflow
    against the recorded baseline, not a handful of manually inspected examples.
-   Since T-220 the judge covers step 7 (category) only, blind
-   (`news_nlp/eval/step_category.py`); sentiment, summary and companies have
-   no judge until it is rebuilt on the `news_*` tables (T-222), so their claims
-   cite the gold sets.
+   A stage with no judge is evaluated against the gold sets.
 
 *Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`SUMMARY_LLM_*`
 of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain's code was removed by T-220, but `summary_stage`, `ner_stage` and `chunking` stay byte-identical, because the v2 revisions hash them). Against 1: the
@@ -213,9 +209,8 @@ No other stage may use this exception.
     (sentiment's `positive`/`negative`/`neutral`, category's slugs, NER's
     entity types): precision, recall, F1, and one-vs-rest accuracy
     (`accuracy_ovr_<class>` — "is this class or not," collapsing every other
-    class into a single negative; same formula/naming as
-    `news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`, kept
-    consistent across every stage rather than invented fresh per stage).
+    class into a single negative; the same formula and
+    naming for every stage rather than invented fresh per stage).
     Report `accuracy_ovr` alongside precision/recall, never as a
     replacement for them — it skews high for a rare/imbalanced class
     (dominated by true negatives) and reads as good news on its own. Overall
@@ -228,9 +223,8 @@ No other stage may use this exception.
     older numbers were already published — a metric missing for one
     candidate but present for another is worth recomputing, not leaving as
     a blank cell. `train_sentiment.py`'s `make_compute_metrics()` is the
-    reference implementation for sentiment; `news_nlp.eval.metrics`'s
-    `aggregate_category`/`aggregate_ner` already follow this shape for
-    their stages.
+    reference implementation for sentiment; `src/sentiment_pair_report.py`
+    and `news_nlp/eval/step_category.py` follow this shape for theirs.
 
     This applies to **both** evaluation methodologies this project uses, not
     just the offline one — each has its own "complete set," not a shared
@@ -238,18 +232,17 @@ No other stage may use this exception.
     - **Offline, held-out-labels eval** (`train_sentiment.py` and any
       future training script): per class, precision/recall/F1/
       `accuracy_ovr`; overall, accuracy and macro F1.
-    - **Downstream, LLM-judge eval against real traffic**
-      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
-      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
-      reweighted — the `_naive_pooled` variants exist for diagnostics, not
-      as the headline); overall, `agreement_rate` (or the stage's own
-      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
-      the stage's judge produces one. A run recorded before a metric
-      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
-      can be recomputed from its own stored `eval_judgement` rows through
-      the current `aggregate_*` function — no new judge calls needed — the
-      same "recompute, don't leave a blank cell" rule as above, and cheaper
-      here than for the offline case.
+    - **Downstream, LLM-judge eval against real traffic** (the blind
+      step-7 judge, `news_nlp/eval/step_category.py`, and any judge rebuilt
+      on the `news_*` tables): per class, precision/recall/F1/`accuracy_ovr`
+      weighted by the sampling strata (Horvitz-Thompson), never the naive
+      pooled count as the headline; overall, the agreement rate (or the
+      stage's own accuracy-equivalent), the macro F1 against the judge, and
+      the mean severity where the stage's judge produces one. A run
+      recorded before a metric existed can be recomputed from its own
+      stored verdicts (`eval_verdict`) with no new judge calls — the same
+      "recompute, don't leave a blank cell" rule as above, and cheaper here
+      than for the offline case.
 13. **Reporting a tested model's results anywhere — a PR/commit description,
     a chat summary, a docs follow-up — shows the complete metric set #12
     requires, for every model/candidate actually run, not a hand-picked

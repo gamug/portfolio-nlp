@@ -57,3 +57,44 @@ Version 2.13.0 text, before the v1 chain's code was removed. Replaced, not annot
 2. **`eval.yml` is a separate, non-blocking workflow** for the real
    LLM-as-judge run — it is not part of the merge gate for ordinary PRs.
 ```
+
+## constitution, AI behavior #1 (the eval run required for a model swap)
+
+```
+it needs an eval run (`news_nlp.eval`) comparing
+   against the current baseline before it replaces the pinned checkpoint.
+```
+
+## constitution, AI behavior #12, the accuracy_ovr naming reference
+
+```
+same formula/naming as
+    `news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`, kept
+    consistent across every stage rather than invented fresh per stage).
+```
+
+## constitution, AI behavior #12, the reference implementations
+
+```
+`train_sentiment.py`'s `make_compute_metrics()` is the
+    reference implementation for sentiment; `news_nlp.eval.metrics`'s
+    `aggregate_category`/`aggregate_ner` already follow this shape for
+    their stages.
+```
+
+## constitution, AI behavior #12, the downstream LLM-judge bullet
+
+```
+    - **Downstream, LLM-judge eval against real traffic**
+      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
+      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
+      reweighted — the `_naive_pooled` variants exist for diagnostics, not
+      as the headline); overall, `agreement_rate` (or the stage's own
+      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
+      the stage's judge produces one. A run recorded before a metric
+      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
+      can be recomputed from its own stored `eval_judgement` rows through
+      the current `aggregate_*` function — no new judge calls needed — the
+      same "recompute, don't leave a blank cell" rule as above, and cheaper
+      here than for the offline case.
+```
