@@ -227,6 +227,42 @@ after; the restore of the pre-apply backup onto a scratch file gives the same `-
 the listed tables (above); `--step <step> --status` on the backup copy shows the same
 counts; ruff, mypy and the full suite with `--group eval` pass; the live database is touched only by the owner, after a dry run.
 
+## Phase 0 listing of `nlp_backup.db` (read 2026-11-18, read-only and immutable; backup file of 2026-11-16 18:08, `integrity_check` = `ok`)
+
+The file is a copy of `nlp.db` (same size, same timestamp). **Revisions per table** (row counts):
+
+| Table | Revisions (rows) |
+|---|---|
+| `body_scope` | `scope-nli-8ff21e50796b` (309,972) |
+| `body_sector` | `sector-417a93feb789` (32,887): **the only one** |
+| `sub_news` | `units5-d3e2cbfa830e` (161,574), `units-5f831c298bcb` (165,192), `units4-d3e2cbfa830e` (7,311) |
+| `news_summary` | `summary-llm-70cb6bb07292` (254,607), `summary-7a9bd2062bc4` (433,266) |
+| `news_company` | `companies-f349536cf701` (363,939) |
+| `news_category` | `category-a23569dba86f` (226,139), `category-65f33b55b26b` (159,401), `category-981dacf6f68d` (10,355) |
+| `news_sentiment` | `sentiment-59863d15fc42` (226,139), `sentiment-5999fe131d8f` (159,401) |
+| `news_snapshot` | `snapshot-c3a753affa5d` (226,139), `snapshot-1b8ee113b05f` (159,401) |
+| `period_run` | `period-3b07b83ecec3` (85), `period-ae014b56b055` (85), `period-dd098e1c5b9f` (85) |
+
+v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_category` 459,112, `article_summary` 458,692,
+`sector_summary` 3,630, `eval_judgement` 48,403 (drop candidates). `company_sector` is empty; `sector` has 11 rows.
+
+**What the listing settles**
+
+1. **The sector gate.** One sector revision exists, `sector-417a93feb789`: name it in the keep list. The kept snapshot rows have an empty
+   `inputs.sector`, so no kept row reads another one.
+2. **The period gate.** `period-ae014b56b055` (written 2026-11-14 17:07) and `period-3b07b83ecec3` (2026-11-16 18:08, after the fold of
+   #204) are **both built on the delivered `snapshot-c3a753affa5d`**, with the same 85 periods ending 2026-11-02. They differ by the
+   fold: the delivery note describes the pre-fold counts. Pruning `ae014` changes what the upstream team's queries return (zero rows)
+   until a new delivery note names `period-3b07b83ecec3`. `period-dd098e1c5b9f` is built on `snapshot-1b8ee113b05f` (not delivered).
+3. **The sentiment gate, and a new one.** `sentiment-59863d15fc42` covers 226,139 pairs (the keep list); `sentiment-5999fe131d8f` (the
+   documented one) covers 159,401. **The delivered snapshot holds both:** 66,738 rows built on `sentiment-59863d15fc42` and
+   `category-a23569dba86f`, and **159,401 rows built on `sentiment-5999fe131d8f` and `category-65f33b55b26b`** (the rows keep their own
+   copy of the text, category and sentiment; `inputs` records the revisions). Pruning those two revisions, as the keep list says, leaves
+   159,401 delivered rows whose `inputs` name revisions that no longer exist: the dry run's refusal rule (a kept row that refers to a
+   pruned one) stops there. The owner decides: keep `sentiment-5999fe131d8f` and `category-65f33b55b26b`, or rerun the snapshot step on
+   the kept revisions (a new delivery), or accept the dangling provenance in `inputs`.
+4. `snapshot-1b8ee113b05f` has 159,401 rows and is not delivered: a prune candidate, once nothing kept refers to it.
+
 ## Documents and tasks that cite a revision
 
 The prune removes the rows of every revision outside the keep list, and these documents cite such revisions (searched on master on
@@ -248,7 +284,7 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 
 ## Left open (gates; none blocks this planning PR, all block the prune)
 
-1. **The sector-step revision.** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
+1. **The sector-step revision (settled by the listing: `sector-417a93feb789`, the only one; the owner confirms).** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
    (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
    `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
 2. **The period revision.** The delivery note names `period-ae014b56b055`; the keep list says `period-3b07b83ecec3`. #204 changed
