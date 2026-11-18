@@ -19,7 +19,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, ValidationError
 
-from news_nlp.eval.sampling import EvalItem
+from news_nlp.eval.item import EvalItem
 from news_nlp.eval.verdicts import (
     CategoryVerdict,
     NerVerdict,

@@ -3,7 +3,7 @@
 reads its out-of-fold predictions, the mean of the 2 repeats). Prints, as raw counts (not weighted):
   - the neutral texts of the owner, how many the model recalled and where the misses went;
   - neutral recall by where the company is named, in four groups that do not overlap (summary; not the summary but the
-    title; neither but the body; none of the three), by the strict matcher `sentiment_stage._text_mentions_subject`, and
+    title; neither but the body; none of the three), by the strict matcher `sentiment_subject._text_mentions_subject`, and
     the neutral share of each group;
   - the precision side (what the owner says of the texts predicted neutral) and how many neutral rows carry a note;
   - 30 of the missed neutral texts, with their text (**news text: do not commit this output**).
@@ -27,7 +27,7 @@ spec = importlib.util.spec_from_file_location(
 pair = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pair)
 from news_nlp import env
-from sentiment_stage import _text_mentions_subject as named
+from sentiment_subject import _text_mentions_subject as named
 
 env.load_env_file()
 conn = pair.connect_source()

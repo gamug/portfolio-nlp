@@ -18,7 +18,7 @@ chosen).
 
 Requires HF_TOKEN in the environment/.env (write scope). Run once, after
 src/train_sentiment.py --weighted and after the downstream v4 eval
-(scripts/resample_sentiment_v4_2026_09_15.py + cli/news_nlp_eval.py).
+(scripts/resample_sentiment_v4_2026_09_15.py + cli/news_nlp_eval.py, both removed by T-220 PR B: they are at commit 81294eb).
 
 Usage:
     uv run python scripts/publish_finbert_financial_news_v4_2026_09_15.py

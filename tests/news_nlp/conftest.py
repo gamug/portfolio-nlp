@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 import news_nlp as db_module
 from news_nlp.taxonomy import CATEGORY_CONFIDENCE_THRESHOLD
@@ -100,26 +99,6 @@ def conn(test_db_path: Path) -> Iterator[db_module.NewsNlpDatabase]:
     c = db_module.connect(test_db_path)
     yield c
     c.close()
-
-
-@pytest.fixture
-def client(test_db_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    monkeypatch.setenv("DATABASE_URL", str(test_db_path))
-    # Deliberately deferred: importing apps.news_nlp_api pulls in pipeline,
-    # which imports torch/transformers -- fine for the tests that use this fixture,
-    # but every other test in the suite would otherwise pay that import cost too.
-    from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415
-
-    # `pipeline` calls load_dotenv() at import, which can set SOURCE_DATABASE_URL from a
-    # developer's .env (the real urls.db). No test reads the real store: unset it after
-    # the import; a test that needs a SOURCE sets its own.
-    monkeypatch.delenv("SOURCE_DATABASE_URL", raising=False)
-    pipeline_status.reset()
-    yield TestClient(app)
-    pipeline_status.reset()
-
-
-# --- two-tier DB contract (SOURCE + RESULTS) --------------------------------
 
 
 @pytest.fixture
@@ -340,19 +319,6 @@ def write_stage_predictions(
             conn, article_id, f"Summary of article {article_id}.", num_chunks, "test-distilbart"
         )
     conn.commit()
-
-
-@pytest.fixture
-def two_tier_client(
-    source_db_path: Path, results_db_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[TestClient]:
-    monkeypatch.setenv("DATABASE_URL", str(results_db_path))
-    monkeypatch.setenv("SOURCE_DATABASE_URL", str(source_db_path))
-    from apps.news_nlp_api import app, pipeline_status  # noqa: PLC0415
-
-    pipeline_status.reset()
-    yield TestClient(app)
-    pipeline_status.reset()
 
 
 REAL_LOAD_ENV_FILE = db_module.env.load_env_file

@@ -61,7 +61,7 @@ import news_nlp as db
 import sentiment_pair_report as rep
 import sentiment_pair_train as spt
 from news_nlp import retag, triage
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 MARKS = Path("gold/sentiment_train.csv")
 IDS = Path("data/sentiment_train_ids.csv")

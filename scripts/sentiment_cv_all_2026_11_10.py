@@ -31,7 +31,7 @@ import mlflow
 import sentiment_pair_report as rep
 import sentiment_pair_train as spt
 from news_nlp import env
-from sentiment_stage import _text_mentions_subject
+from sentiment_subject import _text_mentions_subject
 
 SUFFIX = f"_replay{os.environ['REPLAY_N']}" if os.environ.get("REPLAY_N") else ""
 if os.environ.get("BASE_MODEL"):  # another starting point, e.g. ProsusAI/finbert@<revision>

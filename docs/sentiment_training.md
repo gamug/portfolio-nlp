@@ -1,5 +1,7 @@
 # Sentiment training: the experiments after the pair trainer (PR #154)
 
+> **Note (T-220 PR B, 2026-11-18).** The v1 code named below (`pipeline.py`, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp.corrections`, the v1 eval stages) was removed; the v1 tables are dropped later by an owner-run script (`docs/db_depuration_plan.md`). Recover the code from git history, commit `81294eb`.
+
 **Status: written 2026-11-10; the section "Held-out check on 190 pieces of the real run" was added 2026-11-16 (PR #201).** What was tried to improve the sentiment "pair" model after PR #154's grid, in
 the order it was tried, with the figures. **It opens with the history** (how the tags were made, the databases, the
 assumptions, the metrics, and the story in seven steps); the sections after it are the detail. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
