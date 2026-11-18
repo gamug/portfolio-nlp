@@ -116,6 +116,13 @@ def holder_file(path: Path) -> str | None:
     return None
 
 
+def configured_store_paths() -> set[Path]:
+    """The resolved paths ``DATABASE_URL`` and ``SOURCE_DATABASE_URL`` name (the stores the pipeline writes and reads)."""
+    from news_nlp import env  # noqa: PLC0415 -- only the guards need it
+
+    return {p.resolve() for p in (env.results_db_path(), env.source_db_path()) if p is not None}
+
+
 def _refuse_if_live(path: Path) -> None:
     """``immutable=1`` on a database that someone writes can return a half-written state with no error, so it is refused when the file looks live: a ``-journal`` or a non-empty
     ``-wal`` beside it (``holder_file``), or the path is the one ``DATABASE_URL`` / ``SOURCE_DATABASE_URL`` names (the store the pipeline writes or reads)."""
@@ -124,12 +131,7 @@ def _refuse_if_live(path: Path) -> None:
         raise ValueError(
             f"{held} sits beside {path}: it looks live, --immutable is refused (copy it with the SQLite backup API first)"
         )
-    from news_nlp import env  # noqa: PLC0415 -- only the guard needs it
-
-    configured = {
-        p.resolve() for p in (env.results_db_path(), env.source_db_path()) if p is not None
-    }
-    if path.resolve() in configured:
+    if path.resolve() in configured_store_paths():
         raise ValueError(
             f"{path} is the store named by DATABASE_URL or SOURCE_DATABASE_URL: --immutable is refused on a live store; run it on a copy"
         )

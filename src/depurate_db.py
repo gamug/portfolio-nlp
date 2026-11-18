@@ -21,8 +21,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -99,7 +102,11 @@ INPUT_KEYS = ("summary", "companies", "cut", "category", "sentiment", "sector")
 
 
 class Refused(Exception):
-    """A gate or a refusal check failed: nothing was changed."""
+    """A gate or a refusal check failed. ``report`` says what had been done before it (empty when nothing was changed)."""
+
+    def __init__(self, message: str, report: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.report: dict[str, Any] = report or {}
 
 
 def _marks(values: Sequence[str]) -> str:
@@ -248,12 +255,34 @@ def kept_counts(conn: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
-def verify_backup(db: Path, backup: Path, *, full: bool = False) -> None:
-    """The backup is a readable copy of the same database: same tables, same row counts, ``quick_check`` (or ``integrity_check``) ok. Raises ``Refused``."""
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 24), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def fingerprint(conn: sqlite3.Connection, table: str) -> tuple[int, int, int, int]:
+    """A cheap content proxy of a table: the row count and the minimum, maximum and sum of ``rowid``. Equal counts with other rows (another database of the same shape,
+    an older copy) differ here; it is not a proof of identical content (``--require-identical-backup`` is)."""
+    row = conn.execute(
+        f'SELECT COUNT(*), COALESCE(MIN(rowid), 0), COALESCE(MAX(rowid), 0), COALESCE(SUM(rowid), 0) FROM "{table}"'  # noqa: S608 -- names from sqlite_master
+    ).fetchone()
+    return (int(row[0]), int(row[1]), int(row[2]), int(row[3]))
+
+
+def verify_backup(db: Path, backup: Path, *, full: bool = False, identical: bool = False) -> None:
+    """The backup is a readable copy of the same database: same tables, the same count and rowid fingerprint in each, ``quick_check`` (or ``integrity_check``) ok; with
+    ``identical`` also the same SHA-256 (the strong gate: valid while the database has not been written since the copy). Raises ``Refused``."""
     if backup.resolve() == db.resolve():
         raise Refused("--backup is the database itself")
     if not backup.is_file():
         raise Refused(f"--backup {backup} does not exist")
+    if identical and sha256_file(db) != sha256_file(backup):
+        raise Refused(
+            "--require-identical-backup: the backup and the database have different SHA-256"
+        )
     b = delivery_golden.open_read_only(backup)
     d = delivery_golden.open_read_only(db)
     try:
@@ -266,14 +295,63 @@ def verify_backup(db: Path, backup: Path, *, full: bool = False) -> None:
         if tb != td:
             raise Refused(f"the backup has other tables than the database: {sorted(tb ^ td)}")
         for table in sorted(td):
-            nb, nd = count(b, table), count(d, table)
-            if nb != nd:
+            fb, fd = fingerprint(b, table), fingerprint(d, table)
+            if fb != fd:
                 raise Refused(
-                    f"the backup is not a copy of the database: {table} has {nb} rows, the database {nd}"
+                    f"the backup is not a copy of the database: {table} reads {fb} (rows, min, max, sum of rowid), the database {fd}"
                 )
     finally:
         b.close()
         d.close()
+
+
+_MOUNT_FIELDS = 3  # /proc/mounts: device, mount point, file system type, ...
+
+
+def _on_windows_drive(path: Path) -> bool:
+    """True when *path* is on a Windows drive mounted into Linux (``9p`` / ``drvfs``): SQLite is slow there and its locks are not trustworthy for a long write."""
+    try:
+        mounts = Path("/proc/mounts").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    target, best, fstype = str(path.resolve()), "", ""
+    for line in mounts:
+        parts = line.split()
+        if len(parts) >= _MOUNT_FIELDS:
+            point = parts[1].replace("\\040", " ")
+            if (target == point or target.startswith(point.rstrip("/") + "/")) and len(point) > len(
+                best
+            ):
+                best, fstype = point, parts[2]
+    return fstype in {"9p", "drvfs", "drvfs2"}
+
+
+def refuse_unsafe_place(db: Path, *, in_place: bool) -> None:
+    """``--apply`` on the live store or on a Windows drive is refused unless ``--in-place``: the safe shape is a purge of a local copy and ``--swap-into``."""
+    if in_place:
+        return
+    if db.resolve() in delivery_golden.configured_store_paths():
+        raise Refused(
+            f"{db} is the store DATABASE_URL / SOURCE_DATABASE_URL names: purge a local copy and swap it in (--swap-into), or pass --in-place"
+        )
+    if _on_windows_drive(db):
+        raise Refused(
+            f"{db} is on a Windows drive (slow, and its locks are not trustworthy for a long write): purge a local copy and swap it in (--swap-into), or pass --in-place"
+        )
+
+
+def check_free_space(db: Path) -> list[str]:
+    """Why ``VACUUM`` would run out of room (empty list: enough): it needs about the size of the file free on the volume of the database and in the temp folder."""
+    need = int(db.stat().st_size * 1.2)
+    problems = []
+    for label, folder in (
+        ("the volume of the database", db.parent),
+        ("the temp folder", Path(tempfile.gettempdir())),
+    ):
+        free = shutil.disk_usage(folder).free
+        if free < need:
+            problems.append(f"{label} has {free:,} bytes free, VACUUM needs about {need:,}")
+    return problems
 
 
 def _golden(conn: sqlite3.Connection) -> str:
@@ -297,75 +375,235 @@ def _hold(db: Path) -> sqlite3.Connection:
     return conn
 
 
-def _prune_and_drop(conn: sqlite3.Connection, report: dict[str, Any], log: Any) -> None:
-    for table, column in PRUNE:
-        if table not in tables_of(conn):
-            continue
-        started = time.monotonic()
-        conn.execute("BEGIN IMMEDIATE")
-        cur = conn.execute(f'DELETE FROM "{table}" WHERE "{column}" NOT IN ({_marks(KEEP)})', KEEP)  # noqa: S608 -- constants
+def _planned(plan: dict[str, Any]) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
+    """What the dry run listed as DELETE (per table: revision -> rows) and as DROP (table -> rows). The apply touches nothing else."""
+    prune: dict[str, dict[str, int]] = {}
+    for p in plan["prune"]:
+        if not p["keep"]:
+            prune.setdefault(p["table"], {})[p["revision"]] = p["rows"]
+    return prune, {d["table"]: d["rows"] for d in plan["drop"]}
+
+
+def _expect_revision_rows(table: str, revision: str, now: int, planned: int) -> None:
+    if now != planned:
+        raise Refused(
+            f"{table}: {revision} has {now} rows now, the plan read {planned}: a writer changed it; run the dry run again"
+        )
+
+
+def _expect_plan(plan: dict[str, Any], plan_digest: str, problems: list[str]) -> None:
+    if plan["digest"] != plan_digest:
+        raise Refused(
+            f"the database no longer matches the plan: it is {plan['digest']}, --plan says {plan_digest}"
+        )
+    if problems:
+        raise Refused("; ".join(problems))
+
+
+def _exclusive(conn: sqlite3.Connection, table: str) -> None:
+    try:
+        conn.execute("BEGIN EXCLUSIVE")
+    except sqlite3.OperationalError as exc:
+        raise Refused(f"{table}: the database is locked by another process: {exc}") from exc
+
+
+def _prune_table(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    planned: dict[str, int],
+    report: dict[str, Any],
+    log: Any,
+) -> None:
+    """One transaction holding the exclusive lock from the check to the commit: delete **only the revisions the plan lists**, and only if each still has the rows the plan read."""
+    started = time.monotonic()
+    _exclusive(conn, table)
+    try:
+        now = revision_counts(conn, table, column)
+        for revision, rows in planned.items():
+            _expect_revision_rows(table, revision, now.get(revision, 0), rows)
+        delete = f'DELETE FROM "{table}" WHERE "{column}" IN ({_marks(list(planned))})'  # noqa: S608 -- names from the constants
+        cur = conn.execute(delete, tuple(planned))
         conn.execute("COMMIT")
-        report["deleted"][table] = cur.rowcount
-        report["seconds"][table] = round(time.monotonic() - started, 1)
-        log(f"pruned {table}: {cur.rowcount} rows ({report['seconds'][table]} s)")
-    for table in DROP:
-        if table in tables_of(conn):
-            started = time.monotonic()
-            rows = count(conn, table)
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute(f'DROP TABLE "{table}"')
-            conn.execute("COMMIT")
-            report["dropped"][table] = rows
-            log(f"dropped {table}: {rows} rows ({round(time.monotonic() - started, 1)} s)")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    left = sorted(r for r in now if r not in KEEP and r not in planned)
+    if left:
+        report["left_alone"][table] = left
+    report["deleted"][table] = cur.rowcount
+    report["seconds"][table] = round(time.monotonic() - started, 1)
+    log(
+        f"pruned {table}: {cur.rowcount} rows ({report['seconds'][table]} s)"
+        + (f"; left alone (not in the plan): {left}" if left else "")
+    )
 
 
-def apply(db: Path, plan_digest: str, *, vacuum: bool = True, log: Any = print) -> dict[str, Any]:
-    """Run the purge on ``db`` (the gates of ``main`` are checked by the caller; this re-checks the plan and the lock). Returns the report."""
+def _drop_table(
+    conn: sqlite3.Connection, table: str, planned_rows: int, report: dict[str, Any], log: Any
+) -> None:
+    started = time.monotonic()
+    _exclusive(conn, table)
+    try:
+        rows = count(conn, table)
+        _expect_revision_rows(table, "(the whole table)", rows, planned_rows)
+        conn.execute(f'DROP TABLE "{table}"')
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    report["dropped"][table] = rows
+    log(f"dropped {table}: {rows} rows ({round(time.monotonic() - started, 1)} s)")
+
+
+def _purge(
+    conn: sqlite3.Connection, plan: dict[str, Any], report: dict[str, Any], log: Any, hook: Any
+) -> None:
+    prune, drop = _planned(plan)
+    steps: list[tuple[str, Any]] = [
+        (t, lambda t=t, c=c: _prune_table(conn, t, c, prune[t], report, log))
+        for t, c in PRUNE
+        if t in prune
+    ]
+    steps += [
+        (t, lambda t=t: _drop_table(conn, t, drop[t], report, log)) for t in DROP if t in drop
+    ]
+    for table, step in steps:
+        if hook:
+            hook(table)
+        try:
+            step()
+        except Refused:
+            raise
+        except Exception as exc:
+            raise Refused(
+                f"{table}: {type(exc).__name__}: {exc} (the tables before it were already changed: restore the backup)",
+                report,
+            ) from exc
+
+
+def _expect_ok(report: dict[str, Any]) -> None:
+    if not report["ok"]:
+        raise Refused("the checks after the purge failed (restore the backup)")
+
+
+def _vacuum(conn: sqlite3.Connection, report: dict[str, Any], log: Any) -> None:
+    started = time.monotonic()
+    conn.execute("VACUUM")
+    report["seconds"]["vacuum"] = round(time.monotonic() - started, 1)
+    log(f"vacuum ({report['seconds']['vacuum']} s)")
+
+
+def _after_checks(
+    conn: sqlite3.Connection, report: dict[str, Any], before_counts: dict[str, int]
+) -> None:
+    fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+    quick = conn.execute("PRAGMA quick_check").fetchall()
+    report.update(
+        foreign_key_violations=len(fk),
+        quick_check=[r[0] for r in quick],
+        golden_after=_golden(conn),
+        counts_equal=before_counts == kept_counts(conn),
+    )
+    report["ok"] = (
+        not fk
+        and quick == [("ok",)]
+        and report["counts_equal"]
+        and report["golden_before"] == report["golden_after"]
+    )
+    _expect_ok(report)
+
+
+def apply(
+    db: Path, plan_digest: str, *, vacuum: bool = True, log: Any = print, hook: Any = None
+) -> dict[str, Any]:
+    """Run the purge on ``db``. The gates of ``main`` are checked by the caller; this re-checks the plan once at the start (under an exclusive lock that it then **releases**: it is a
+    start-of-run check, not a lock held during the purge) and then holds the exclusive lock **table by table**, from the check of that table to its commit. ``hook(table)`` is called
+    before each table (the tests use it to play a writer). On a refusal or a failure, ``Refused.report`` says what had already been done."""
     conn = _hold(db)
+    report: dict[str, Any] = {
+        "ok": False,
+        "plan": plan_digest,
+        "deleted": {},
+        "dropped": {},
+        "left_alone": {},
+        "seconds": {},
+    }
     try:
         plan = make_plan(conn)
-        if plan["digest"] != plan_digest:
-            raise Refused(
-                f"the database no longer matches the plan: it is {plan['digest']}, --plan says {plan_digest}"
-            )
-        problems = refusals(conn, plan)
-        if problems:
-            raise Refused("; ".join(problems))
+        _expect_plan(plan, plan_digest, refusals(conn, plan))
         conn.execute("ROLLBACK")
         before_counts = kept_counts(conn)
         log("golden digest before ...")
-        report: dict[str, Any] = {
-            "plan": plan["digest"],
-            "golden_before": _golden(conn),
-            "deleted": {},
-            "dropped": {},
-            "seconds": {},
-        }
-        _prune_and_drop(conn, report, log)
-        fk = conn.execute("PRAGMA foreign_key_check").fetchall()
-        quick = conn.execute("PRAGMA quick_check").fetchall()
-        report.update(
-            foreign_key_violations=len(fk),
-            quick_check=[r[0] for r in quick],
-            golden_after=_golden(conn),
-            counts_equal=before_counts == kept_counts(conn),
-        )
-        report["ok"] = (
-            not fk
-            and quick == [("ok",)]
-            and report["counts_equal"]
-            and report["golden_before"] == report["golden_after"]
-        )
-        if not report["ok"]:
-            raise Refused(f"the checks after the purge failed (restore the backup): {report}")
+        report["golden_before"] = _golden(conn)
+        _purge(conn, plan, report, log, hook)
+        _after_checks(conn, report, before_counts)
         if vacuum:
-            started = time.monotonic()
-            conn.execute("VACUUM")
-            report["seconds"]["vacuum"] = round(time.monotonic() - started, 1)
-            log(f"vacuum ({report['seconds']['vacuum']} s)")
+            _vacuum(conn, report, log)
+    except Refused as exc:
+        exc.report = report
+        raise
+    except Exception as exc:
+        raise Refused(
+            f"the purge failed: {type(exc).__name__}: {exc} (restore the backup)", report
+        ) from exc
+    else:
         return report
     finally:
         conn.close()
+
+
+def swap(
+    purged: Path,
+    live: Path,
+    *,
+    expect_sha: str | None = None,
+    backup: Path | None = None,
+    log: Any = print,
+    hook: Any = None,
+) -> dict[str, Any]:
+    """Replace the live file with a verified purged copy: the shape that protects a production file (the purge ran on a local copy, never in place).
+
+    Checks, in order: neither file has a holder (a ``-journal`` or a non-empty ``-wal``); the purged file has the expected SHA-256; with ``backup`` the live file **is** the backup byte
+    for byte (so the purged copy was made from what is being replaced); the copy next to the live file has the same SHA-256; and the live file did not change (size, mtime) nor gain a
+    holder while the copy was made. Then one atomic rename. On any refusal the live file is untouched and the copy is removed."""
+    for label, path in (("purged", purged), ("live", live)):
+        if not path.is_file():
+            raise Refused(f"the {label} file {path} does not exist")
+        held = delivery_golden.holder_file(path)
+        if held:
+            raise Refused(
+                f"{held} exists: someone holds the {label} file; stop the writers and let the last connection close first (a non-empty -wal: open it once with the SQLite tool to checkpoint it)"
+            )
+    purged_sha = sha256_file(purged)
+    if expect_sha and purged_sha != expect_sha:
+        raise Refused(f"the purged file has SHA-256 {purged_sha}, --expect-sha says {expect_sha}")
+    if backup is not None and sha256_file(live) != sha256_file(backup):
+        raise Refused(
+            "the live file is not byte-identical to --backup: it changed since the backup was made; start again from a fresh backup"
+        )
+    before = (live.stat().st_size, live.stat().st_mtime_ns)
+    new = live.with_name(live.name + ".new")
+    shutil.copyfile(purged, new)
+    try:
+        if sha256_file(new) != purged_sha:
+            raise Refused("the copy next to the live file differs from the purged file")
+        if hook:
+            hook()
+        if (live.stat().st_size, live.stat().st_mtime_ns) != before or delivery_golden.holder_file(
+            live
+        ):
+            raise Refused(
+                "the live file changed (or gained a holder) while the copy was made: nothing was replaced"
+            )
+        os.replace(new, live)
+    finally:
+        if new.exists():
+            new.unlink()
+    log(f"replaced {live} with the purged copy (SHA-256 {purged_sha})")
+    return {"ok": True, "sha256": purged_sha, "live": str(live)}
 
 
 def format_plan(
@@ -401,13 +639,24 @@ def _run_gated(
         raise Refused(
             f"--plan {args.plan} is not the digest of this database today ({plan['digest']}): run the dry run again and read it"
         )
-    verify_backup(args.db, args.backup, full=args.full_backup_check)
+    refuse_unsafe_place(args.db, in_place=args.in_place)
+    room = check_free_space(args.db)
+    if room and not args.no_vacuum:
+        raise Refused("; ".join(room))
+    verify_backup(
+        args.db, args.backup, full=args.full_backup_check, identical=args.require_identical_backup
+    )
     return apply(args.db, args.plan, vacuum=not args.no_vacuum)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="depurate_db", description=__doc__.split("\n\n")[0])
-    parser.add_argument("--db", type=Path, required=True)
+    parser.add_argument(
+        "--db",
+        type=Path,
+        required=True,
+        help="the database to purge (a local copy), or with --swap-into the purged copy",
+    )
     parser.add_argument(
         "--backup",
         type=Path,
@@ -420,15 +669,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="change the database (default: a dry run that reads only)",
     )
     parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="allow --apply on the store DATABASE_URL names or on a Windows drive (not recommended: purge a copy, then --swap-into)",
+    )
+    parser.add_argument(
+        "--require-identical-backup",
+        action="store_true",
+        help="the backup must have the same SHA-256 as --db (the strong gate)",
+    )
+    parser.add_argument(
         "--full-backup-check",
         action="store_true",
         help="integrity_check of the backup instead of quick_check (slow on a 5 GB file)",
     )
     parser.add_argument("--no-vacuum", action="store_true")
-    parser.add_argument("--report", type=Path, help="write the report of an --apply here as JSON")
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="write the report of an --apply (also a failed one) here as JSON",
+    )
+    parser.add_argument(
+        "--swap-into",
+        type=Path,
+        help="replace this live file with --db (a verified purged copy); with --backup the live file must equal it byte for byte",
+    )
+    parser.add_argument(
+        "--expect-sha", help="with --swap-into: the SHA-256 the purged copy must have"
+    )
+    return parser
+
+
+def _write_report(path: Path | None, report: dict[str, Any], error: str | None = None) -> None:
+    if path:
+        path.write_text(
+            json.dumps({**report, **({"error": error} if error else {})}, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _main_swap(args: argparse.Namespace) -> int:
+    try:
+        report = swap(args.db, args.swap_into, expect_sha=args.expect_sha, backup=args.backup)
+    except Refused as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _parser()
     args = parser.parse_args(argv)
     if not args.db.is_file():
         parser.error(f"{args.db} does not exist")
+    if args.swap_into:
+        return _main_swap(args)
     held = delivery_golden.holder_file(args.db)
     if held and args.apply:
         print(
@@ -451,6 +747,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         conn.close()
     print(format_plan(plan, problems, dangling))
+    room = check_free_space(args.db)
+    print("free space for VACUUM: " + ("enough" if not room else "; ".join(room)))
     if not args.apply:
         print("dry run: nothing changed")
         return 1 if problems else 0
@@ -460,10 +758,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = _run_gated(args, plan, problems)
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
+        _write_report(args.report, exc.report, str(exc))
         return 2
     print(json.dumps(report, indent=2))
-    if args.report:
-        args.report.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _write_report(args.report, report)
     return 0
 
 
