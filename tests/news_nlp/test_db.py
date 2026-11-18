@@ -61,73 +61,7 @@ def test_connect_pipeline_requires_source(
 # --- cross-database "pending" joins read SOURCE.articles ---------------------
 
 
-def test_pending_articles_join_reads_source_and_excludes_done(
-    two_tier_conn: db.NewsNlpDatabase,
-) -> None:
-    # source_db_path seeds ids 1, 2, 3; mark id 1 done in RESULTS.
-    db.write_sentiment(two_tier_conn, 1, *_SENTIMENT)
-    two_tier_conn.commit()
-
-    pending = [r["id"] for r in db.fetch_pending_articles(two_tier_conn, "article_sentiment")]
-    assert pending == [2, 3]
-
-
-def test_pending_category_join_carries_source_body_text(
-    two_tier_conn: db.NewsNlpDatabase,
-) -> None:
-    rows = db.fetch_pending_category_articles(two_tier_conn)
-    assert {r["id"] for r in rows} == {1, 2, 3}
-    assert all("Body text for article" in r["body_text"] for r in rows)
-
-
-def test_pending_company_summary_join_carries_source_body_text(
-    two_tier_conn: db.NewsNlpDatabase,
-) -> None:
-    db.write_sentiment(two_tier_conn, 1, "positive", 0.9, 0.9, 0.05, 0.05, "fake-model")
-    db.write_entities(two_tier_conn, 1, [_ENTITY], "fake-model")
-    two_tier_conn.commit()
-
-    rows = db.fetch_pending_company_summaries(two_tier_conn)
-    assert [r["article_id"] for r in rows] == [1]
-    assert "Body text for article 1" in rows[0]["body_text"]
-
-
 # --- lean-article upsert into RESULTS keeps it foreign-key consistent -------
-
-
-def test_result_write_upserts_lean_article_row(
-    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
-) -> None:
-    db.write_sentiment(two_tier_conn, 2, *_SENTIMENT)
-    two_tier_conn.commit()
-
-    check = sqlite3.connect(results_db_path)
-    row = check.execute("SELECT ticker, gics_sector FROM articles WHERE id = 2").fetchone()
-    cols = {r[1] for r in check.execute("PRAGMA table_info(articles)")}
-    check.close()
-
-    assert row == ("AAPL", "Information Technology")  # metadata copied from source
-    assert "body_text" not in cols  # ... but not the heavy text column
-
-
-def test_results_store_foreign_keys_consistent_after_writes(
-    two_tier_conn: db.NewsNlpDatabase, results_db_path: Path
-) -> None:
-    for i in (1, 2, 3):
-        db.write_sentiment(two_tier_conn, i, *_SENTIMENT)
-        db.write_entities(two_tier_conn, i, [_ENTITY], "fake-model")
-        db.write_company_summary(two_tier_conn, i, "a summary", 1, "fake-model")
-    two_tier_conn.commit()
-
-    check = sqlite3.connect(results_db_path)
-    problems = check.execute("PRAGMA foreign_key_check").fetchall()
-    article_ids = {r[0] for r in check.execute("SELECT id FROM articles")}
-    sentiment_ids = {r[0] for r in check.execute("SELECT article_id FROM article_sentiment")}
-    check.close()
-
-    assert problems == []
-    assert article_ids == {1, 2, 3}
-    assert sentiment_ids <= article_ids
 
 
 # --- the SOURCE database is never written ----------------------------------
@@ -137,17 +71,16 @@ def test_source_database_is_never_written(
     two_tier_conn: db.NewsNlpDatabase, source_db_path: Path
 ) -> None:
     before = hashlib.sha256(source_db_path.read_bytes()).hexdigest()
-
     for i in (1, 2, 3):
-        db.write_sentiment(two_tier_conn, i, *_SENTIMENT)
-        db.write_entities(two_tier_conn, i, [_ENTITY], "fake-model")
-    db.write_company_summary(two_tier_conn, 1, "a summary", 1, "fake-model")
+        two_tier_conn.execute(
+            "INSERT INTO pipeline_step_state (item_kind, item_id, step, model_revision, status) VALUES ('body', ?, 'scope', 'r', 'done')",
+            (str(i),),
+        )
     two_tier_conn.commit()
-
     assert hashlib.sha256(source_db_path.read_bytes()).hexdigest() == before
     src = sqlite3.connect(source_db_path)
     with pytest.raises(sqlite3.OperationalError):
-        src.execute("SELECT 1 FROM article_sentiment")
+        src.execute("SELECT 1 FROM pipeline_step_state")
     src.close()
 
 
@@ -216,7 +149,9 @@ def test_attach_source_allows_a_live_writers_wal(
             # The original bug was reads being blocked, not just ATTACH
             # raising -- prove a real cross-database read against `source`
             # actually works while the writer still holds it open.
-            rows = db.fetch_pending_category_articles(conn)
+            rows = conn.execute(
+                "SELECT id, body_text FROM source.articles WHERE id < 999 ORDER BY id"
+            ).fetchall()
             assert {r["id"] for r in rows} == {1, 2, 3}
             assert all("Body text for article" in r["body_text"] for r in rows)
         finally:

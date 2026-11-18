@@ -97,6 +97,11 @@ def test_the_kept_tables_exist_in_the_schema(conn: sqlite3.Connection) -> None:
 def test_dropping_the_v1_tables_does_not_move_what_the_upstream_reads(
     conn: sqlite3.Connection,
 ) -> None:
+    # the v1 tables are not in the schema any more (T-220, PR C2): create what a not-yet-purged database still has, then drop it
+    conn.executescript(
+        "CREATE TABLE article_sentiment (article_id INTEGER); CREATE TABLE article_category (article_id INTEGER); CREATE TABLE article_entities (article_id INTEGER); "
+        "CREATE TABLE article_summary (article_id INTEGER); CREATE TABLE sector_summary (id INTEGER);"
+    )
     before = _digest(conn)
     conn.executescript(
         "DROP TABLE article_sentiment; DROP TABLE article_category; DROP TABLE article_entities; DROP TABLE article_summary; DROP TABLE sector_summary;"

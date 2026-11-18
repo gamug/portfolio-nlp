@@ -193,13 +193,10 @@ row-by-row on first result write for that article).
 
 `require_source_text` verifies `articles.body_text` before a run (the run aborts if the column is absent or every row is blank, FR-007). The steps read what they need from SOURCE as their own docs say (`docs/*_step.md`); the table of what the v1 `sector_summary` read (`ticker`, `company`, `gics_*`, `pub_date`, `fetched_at`) was removed with the stage.
 
-**Rows for `article_sentiment`, `article_entities` (and its target columns), `article_category`, `article_summary`, `sector_summary` and `eval_judgement` describe tables that T-220 PR C drops; they stay here until it runs.**
+**The v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`) and the legacy `eval_judgement` were dropped on 2026-11-18 and are not created any more (T-220); their rows are in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.**
 
 | Table | Key | Notable columns | Written by |
 |---|---|---|---|
-| `article_sentiment` | `article_id` (PK) | `label`, `score`, `positive`/`negative`/`neutral`, `model_name`, `processed_at` | Stage 1 |
-| `article_entities` | `id` (PK, autoincrement) | `article_id` (FK, indexed), `entity_type` (`PER`/`LOC`/`ORG`), `text`, `start_char`/`end_char`, `score` | Stage 2 |
-| `article_entities` target columns (D39 (iii), approved 2026-11-10) | same key | adds nullable `sub_news_id` and `ticker`; **unused since 2026-11-13** (owner: step 3 does not store the raw NER spans, `news_company.mention_count` keeps the count); `score` stays the NER confidence | none |
 | `body_scope` (created by `init_schema()`, #162; approved 2026-11-10, D40) | `body_hash` (unique body, T-132), `classifier_revision` | `scope` (`single`/`multi`/`sector`/`out_of_scope`), per-class `score`s, `text_used` (`title` or `title+N`), `processed_at` | Step 1 |
 | `body_sector` (owner 2026-11-13) | `body_hash`, `classifier_revision` | `status`, `sector`, `candidate`, `margin`, `vote_sector`, `scores`, `votes`, `processed_at` | Sector |
 | `sub_news` (target, approved 2026-11-10) | `id` (PK) | `body_hash` (the unique body), `article_id` (FK: the lowest article id of the body's group, T-132), `segment_index`, `text`, `extractor_revision`; unique (`body_hash`, `segment_index`, `extractor_revision`); `id` is the `item_id` of a sub-news; a new revision writes new rows, the old ones are not read and their dependent steps are re-queued | Step 1 |
@@ -210,11 +207,7 @@ row-by-row on first result write for that article).
 | `news_category` (approved 2026-11-10; `--step category`, provisional) | (`item_kind`, `item_id`, `ticker`, `model_revision`), `ticker` as in `news_sentiment` | `label`, `score`, `group_label`/`group_score`, the per-slug scores (audit trail; plus the reserved key `_truncated_chunks`, FR-022), `model_name`, `processed_at` | Category |
 | `news_snapshot`, `period_summary`, `period_run`, `period_item`, `sector`, `company_sector` (built, T-195, T-196; FR-024) | keys and columns: `docs/snapshot_steps.md` | the same | Snapshot, Period |
 | `pipeline_step_state` (target, approved 2026-11-10, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (`item_id` = the **body hash**, T-132: a body under five tickers runs once), `sub_news` (`item_id` = `sub_news.id`) or `text_company` (`item_id` = `<item_kind>:<item_id>:<ticker>`: sentiment and category run per pair, so a text with two main companies has two rows); `item_id` is text | `cli/news_nlp_steps.py` |
-| `article_category` | `article_id` (PK) | `label` (9 slugs or `other`), `score`, `group_label`/`group_score` (level-1 hierarchy), 9 raw per-slug NLI scores (audit trail) | Stage 3 |
-| `article_summary` | `article_id` (PK) | `summary_text`, `num_chunks`, `model_name`, `processed_at` | Stage 4 (opt-in) |
-| `sector_summary` | `id` (PK); `UNIQUE(gics_sector, gics_sub_industry, week_start)` | `summary_text`, `facts_json` (structured, non-narrative), `intro_text` (deterministic template as of 2026-09-14, `model_name` reads `"deterministic-template"`), `format_version` (self-heal marker), `num_articles`/`num_companies` | Stage 5 (opt-in) |
 | `eval_run` | `id` (PK) | `stage`, `sample_size`, `judge_model`/`judge_url`, `code_version`, `mlflow_run_id`, `metrics_json`, `strata_json`, `status` | `news_nlp.eval` |
-| `eval_judgement` | `id` (PK) | `run_id` (FK), `article_id` (not FK-constrained — snapshot semantics), `bucket`, `verdict_json`, `correct`, `severity`, `rationale` | `news_nlp.eval` |
 
 **Category taxonomy** (`news_nlp.taxonomy`): 3 top-level groups →
 `corporate_actions`, and others documented in `docs/legacy/category-taxonomy-v1.md` →

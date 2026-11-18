@@ -54,7 +54,6 @@ from news_nlp.queries import (
 )
 from news_nlp.schema import (
     SCHEMA,
-    SECTOR_SUMMARY_FORMAT_VERSION,
     init_schema,
 )
 from news_nlp.taxonomy import (
@@ -71,7 +70,6 @@ __all__ = [
     "OTHER_LABEL",
     "RESULTS_DB_ENV_VAR",
     "SCHEMA",
-    "SECTOR_SUMMARY_FORMAT_VERSION",
     "SOURCE_DB_ENV_VAR",
     "SOURCE_REQUIRED_COLUMNS",
     "NewsNlpDatabase",

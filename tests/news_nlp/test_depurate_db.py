@@ -30,6 +30,17 @@ def build(path: Path) -> Path:
     c = sqlite3.connect(path)
     c.executescript(LEAN_ARTICLES_SCHEMA)
     c.executescript(schema_module.SCHEMA)
+    # the v1 tables are not in the schema any more: the purge's fixture builds the ones it must drop
+    c.executescript(
+        """
+        CREATE TABLE article_sentiment (article_id INTEGER PRIMARY KEY, label TEXT, score REAL, positive REAL, negative REAL, neutral REAL, model_name TEXT, processed_at TEXT);
+        CREATE TABLE article_summary (article_id INTEGER PRIMARY KEY, summary_text TEXT, num_chunks INTEGER, model_name TEXT, processed_at TEXT);
+        CREATE TABLE article_entities (id INTEGER PRIMARY KEY, article_id INTEGER);
+        CREATE TABLE article_category (article_id INTEGER PRIMARY KEY, label TEXT);
+        CREATE TABLE sector_summary (id INTEGER PRIMARY KEY, gics_sector TEXT);
+        CREATE TABLE eval_judgement (id INTEGER PRIMARY KEY, run_id INTEGER);
+        """
+    )
     _insert(c, "INSERT INTO articles (id, title) VALUES (?, ?)", (1, "a"), (2, "b"), (3, "c"))
     now = "2026-11-01T00:00:00Z"
     k = dict(

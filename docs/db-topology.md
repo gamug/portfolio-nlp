@@ -1,5 +1,7 @@
 # Database topology: the two-tier contract
 
+> **Update (T-220 PR C, 2026-11-18).** The v1 result tables were dropped from the working database and `init_schema` no longer creates them; a RESULTS store holds only the stepped pipeline's tables and the `eval_*` tables. Where this page names `article_*` or `sector_summary`, it describes the removed layout. The DDL is in `docs/legacy/schema_v1_tables_ddl_2026-11-18.sql`.
+
 > **Note (T-220 PR B, 2026-11-18).** The v1 code named below (`pipeline.py`, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp.corrections`, the v1 eval stages) was removed; the v1 tables are dropped later by an owner-run script (`docs/db_depuration_plan.md`). Recover the code from git history, commit `81294eb`.
 
 The DB layer lives in **`src/news_nlp/`**, a local package owned by this repo
@@ -33,7 +35,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`), the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a

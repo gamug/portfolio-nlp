@@ -37,10 +37,9 @@ class _RunKwargsWithStage(_RunKwargs):
 def test_eval_tables_exist_after_init_schema(conn: db_module.NewsNlpDatabase) -> None:
     cols = set(conn.table_columns("eval_run"))
     assert {"stage", "metrics_json", "strata_json", "mlflow_run_id", "status", "experiment"} <= cols
-    # eval_judgement is legacy (superseded by eval_inference/eval_verdict,
-    # TASKS.md T-090) but its DDL/historical rows stay untouched.
-    assert {"run_id", "bucket", "verdict_json", "correct"} <= set(
-        conn.table_columns("eval_judgement")
+    # eval_judgement (legacy, superseded 2026-09-18) is not created any more (T-220, PR C2)
+    assert (
+        conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'eval_judgement'").fetchone() is None
     )
     assert {"run_id", "article_id", "task", "experiment", "bucket", "prediction_json"} <= set(
         conn.table_columns("eval_inference")

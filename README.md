@@ -24,7 +24,7 @@ crawls (the SOURCE store, read-only) and writes its results to its own RESULTS s
   | 8 snapshot | one row per (text, main company), or per `sector` text: publication date, title, text, category, sentiment; always idempotent (`--reset` rebuilds) | none (a join) | `news_snapshot` | built (T-195; `docs/snapshot_steps.md`); not run on the corpus |
   | 9 period summary | every 21 days from 2022-01-03 at 15:00 `BATCH_TIMEZONE`: counts per company and category (total, neutral, positive, negative; four weak categories counted as `other`), and per sector summed from the companies (no LLM) | none (counts) | `period_run`, `period_summary`, `period_item`, `sector`, `company_sector` | built (T-196; `docs/snapshot_steps.md`); not run on the corpus |
 
-- **The v1 chain is removed from the code (T-220, PR B).** Its pipeline, API, CLI, evaluation stages and tests are gone; its tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`) are dropped from the database by a separate, owner-run script after a verified backup (`docs/db_depuration_plan.md`). Recover the code from git history if it is ever needed.
+- **The v1 chain is removed from the code (T-220, PR B).** Its pipeline, API, CLI, evaluation stages and tests are gone; its tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`, and the legacy `eval_judgement`) were dropped from the working database on 2026-11-18 by `depurate_db` (`docs/db_depuration_plan.md`), after a verified backup, and `init_schema` no longer creates them. Recover the code from git history if it is ever needed.
 
 The models of the stepped pipeline are measured on gold sets the owner tagged (`docs/gold_datasets.md`); LLMs only
 label and evaluate, they never run inside the pipeline.
@@ -102,7 +102,7 @@ uv run pre-commit run --all-files
 
 Two-tier (see `docs/db-topology.md`):
 
-- **`DATABASE_URL`** — the RESULTS store: the v1 result tables, the stepped pipeline's tables (`body_scope`,
+- **`DATABASE_URL`** — the RESULTS store: the stepped pipeline's tables (`body_scope`,
   `sub_news`, `news_summary`, `pipeline_step_state`, and the ones its pending steps will write) and a
   `body_text`-free `articles` subset. A filesystem path; unset defaults to `data/nlp.db` under the repo root.
   Working file: `D:\thesis\data\nlp.db`.
