@@ -18,6 +18,8 @@ _MIN_RUNS_TO_COMPARE = 2  # the fresh run plus one prior
 
 
 def experiment_name(stage: str) -> str:
+    # DO NOT RENAME: this string is the MLflow experiment name every past run is stored under (the eval CLI that wrote them is
+    # gone, T-220 PR B). A new name would detach the history from the new runs; tests/news_nlp/test_eval_tracking.py pins it.
     return f"news_nlp_eval/{stage}"
 
 

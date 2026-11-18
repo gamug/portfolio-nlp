@@ -6,7 +6,7 @@ Run:
 
 Every run is a job (one at a time, the GPU is single), in memory; a step runs through the CLI's own parser and functions (``news_nlp.service``), so
 the rows are the CLI's. Revisions are explicit, never "latest". No authentication (owner, 2026-11-17): keep the port on a private network. Design and
-what it does not do: ``docs/pipeline_api.md``. It is the service the Docker image runs; the v1 API (``apps/news_nlp_api.py``) is kept, untouched, until T-220 removes it.
+what it does not do: ``docs/pipeline_api.md``. It is the service the Docker image runs; the v1 API was removed by T-220 PR B (recover it from git history, commit 81294eb).
 """
 
 from __future__ import annotations

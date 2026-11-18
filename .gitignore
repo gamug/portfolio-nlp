@@ -158,7 +158,7 @@ data/
 .venv
 env/
 
-# news_nlp.eval: local MLflow file store (uv run cli/news_nlp_eval.py)
+# news_nlp.eval: local MLflow file store (the eval scripts, `mlflow ui`)
 mlruns/
 venv/
 ENV/

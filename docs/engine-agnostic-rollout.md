@@ -1,5 +1,7 @@
 # Engine-agnostic rollout — cross-repo implementation plan
 
+> **Note (T-220 PR B, 2026-11-18).** The v1 code named below (`pipeline.py`, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp.corrections`, the v1 eval stages) was removed; the v1 tables are dropped later by an owner-run script (`docs/db_depuration_plan.md`). Recover the code from git history, commit `81294eb`.
+
 ## Goal (same scope for every repo)
 
 The database engine is known in **exactly one place — `portfolio-common`**.

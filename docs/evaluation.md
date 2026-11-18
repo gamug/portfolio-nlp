@@ -1108,8 +1108,8 @@ auto-resolves downstream instead) all fail validation before any train/eval
 work starts, with a message naming exactly what's wrong.
 
 ```bash
-uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.json
-uv run cli/run_experiment.py --config experiments/ner_production.json --source-db urls.db
+# removed (T-220 PR B); at commit 81294eb: uv run cli/run_experiment.py --config experiments/sentiment_v4_class_weighted.json
+# removed (T-220 PR B); at commit 81294eb: uv run cli/run_experiment.py --config experiments/ner_production.json --source-db urls.db
 ```
 
 is the one command: trains (if `pretrain.enabled`) via a lazily-imported

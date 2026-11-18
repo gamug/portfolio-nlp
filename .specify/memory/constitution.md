@@ -21,7 +21,7 @@ component; every rule below assumes the stack actually pinned in
 2. **ML/NLP core**: PyTorch (`torch>=2.4,<2.7`, pinned to the `cu124` wheel
    index so `uv sync` reproduces the same GPU build) + Hugging Face
    `transformers`/`datasets`/`accelerate`/`evaluate`/`seqeval`/`huggingface_hub`.
-   Chosen for GPU/CPU portability (`pipeline.py`'s `DEVICE` falls back to CPU
+   Chosen for GPU/CPU portability (each step falls back to CPU
    automatically) and because all four models it runs
    (`ProsusAI/finbert`, `gamug/sec-bert-finer-ord-ner`,
    `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`,
@@ -54,10 +54,11 @@ component; every rule below assumes the stack actually pinned in
 ## Project structure
 
 1. **`src/` is flat, plus one local package.** Pipeline stages and utilities
-   are single files directly under `src/` (`pipeline.py`, `chunking.py`,
-   `setup.py`, `train_ner.py`); `news_nlp/` is the one local package (the
-   vendored DB layer: connection, schema, queries, corrections, taxonomy,
-   `sector_summary`, plus `news_nlp/eval/` for LLM-as-judge evaluation). A
+   are single files directly under `src/` (`chunking.py`, `setup.py`,
+   `train_ner.py`, the `news_*_stage.py` of the steps); `news_nlp/` is the one local package (the
+   vendored DB layer: connection, schema, queries (kept for the v1 classes the
+   revisions hash), taxonomy, plus `news_nlp/eval/`: the eval store, the MLflow
+   tracking and the blind step-7 judge). A
    new package needs the same justification `news_nlp/` has — a genuinely
    self-contained subsystem with its own submodules — not just "this file is
    getting long."
@@ -89,9 +90,9 @@ component; every rule below assumes the stack actually pinned in
    `HF_TOKEN` (Hub downloads rate limit; write scope for
    `scripts/publish_*.py`); `.env.example` is the committed template —
    keep it in sync with every env var a new feature reads. `.env` is
-   loaded by the entrypoint, never by a library module: `pipeline.py`
-   calls `load_dotenv()` at import (so everything that imports it is
-   covered), `news_nlp.eval.config.EvalSettings.load` loads it for the
+   loaded by the entrypoint, never by a library module: `cli/news_nlp_steps.py`
+   and `apps/pipeline_api.py` call `news_nlp.env.load_env_file()` (so everything
+   that runs through them is covered), `news_nlp.eval.config.EvalSettings.load` loads it for the
    evaluation CLIs (it takes an `env_file` argument), and a script that
    does neither calls `news_nlp.env.load_env_file()` first thing in
    `main` (the shell wins over the file). Don't add another loader;
@@ -99,9 +100,8 @@ component; every rule below assumes the stack actually pinned in
    that reaches the databases without one.
 7. **Naming**: modules and functions describe the pipeline stage or DB
    concern they implement — match the stage/table pairing (sentiment ->
-   `article_sentiment`, NER -> `article_entities`, category ->
-   `article_category`, summarization -> `article_summary`/
-   `sector_summary`) rather than inventing a new term for the same concept.
+   `news_sentiment`, companies -> `news_company`, category ->
+   `news_category`, summarization -> `news_summary`) rather than inventing a new term for the same concept.
 
 ## AI behavior
 
@@ -135,13 +135,18 @@ component; every rule below assumes the stack actually pinned in
 4. **Outputs are decision-support, not authoritative claims.** Sentiment,
    entity, category, and summary outputs are model predictions over
    third-party news text — nothing in the pipeline or API should present
-   them as verified fact, financial advice, or ground truth. Corrections
-   (`news_nlp.corrections`) exist precisely because model output is
-   expected to need human override.
-5. **Accuracy claims are backed by `news_nlp.eval`, not spot-checks.** A
-   change asserted to "improve" a stage must cite an LLM-as-judge eval run
-   (tracked in MLflow) against the recorded baseline
-   (`docs/evaluation.md`), not a handful of manually inspected examples.
+   them as verified fact, financial advice, or ground truth. Model output is
+   expected to need human override; the correction module of the v1 chain
+   was removed (T-220), so there is no correction path for the step tables
+   yet (T-223).
+5. **Accuracy claims are backed by a measure against a reference, not spot-checks.** A
+   change asserted to "improve" a stage must cite either the owner's gold-set
+   measure (`docs/gold_datasets.md`) or an LLM-as-judge run tracked in MLflow
+   against the recorded baseline, not a handful of manually inspected examples.
+   Since T-220 the judge covers step 7 (category) only, blind
+   (`news_nlp/eval/step_category.py`); sentiment, summary and companies have
+   no judge until it is rebuilt on the `news_*` tables (T-222), so their claims
+   cite the gold sets.
 
 *Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`SUMMARY_LLM_*`
 of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain's code was removed by T-220, but `summary_stage`, `ner_stage` and `chunking` stay byte-identical, because the v2 revisions hash them). Against 1: the
@@ -435,4 +440,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.13.1 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-18
+**Version**: 3.0.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-18

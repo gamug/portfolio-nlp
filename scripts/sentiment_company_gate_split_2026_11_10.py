@@ -119,7 +119,7 @@ for key, stats in results.items():
         )
         mlflow.log_params(
             {
-                "rule": "company/ticker named in the summary (sentiment_stage._text_mentions_subject)",
+                "rule": "company/ticker named in the summary (sentiment_subject._text_mentions_subject)",
                 "gate": "not named -> neutral" if variant == "gated" else "none",
             }
         )

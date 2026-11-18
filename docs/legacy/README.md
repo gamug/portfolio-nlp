@@ -19,3 +19,17 @@ sections cut from a current doc are copied verbatim and say where they came from
 
 - **`docs/category-taxonomy.md` in any text dated before 2026-11-12 means the v1 10-slug page**, now `docs/legacy/category-taxonomy-v1.md`; that path holds the D15 taxonomy since.
 - **A section of `docs/evaluation.md` on sentiment, category, `sector_summary` or Work item 15** ("the 2026-09-13 follow-up", "Why precision, not recall, for category", "The `other` bucket", ...) cited by an older text is in `evaluation-v1-stages.md`; a line in `docs/evaluation.md` marks the place each one had.
+
+## Removed by T-220 PR B (2026-11-18): where the code is
+
+The v1 chain's code was deleted, not moved. **All of it is in commit `81294eb` (master before PR #212)**: `git show 81294eb:<path>` or `git checkout 81294eb -- <path>`.
+
+| Removed | Path at `81294eb` |
+|---|---|
+| v1 pipeline, its config, the v1 stages | `src/pipeline.py`, `src/pipeline_config.py`, `src/category_stage.py`, `src/sentiment_stage.py` |
+| v1 API and CLIs | `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `cli/news_nlp_eval.py`, `cli/run_experiment.py` |
+| corrections, `sector_summary` | `src/news_nlp/corrections.py`, `src/news_nlp/sector_summary/` |
+| eval sampling, runner, metrics, calibration, candidate, regression | `src/news_nlp/eval/{sampling,runner,metrics,regression,calibration,calibration_sample,calibration_judge,calibration_analysis,partition,candidate}.py` |
+| the experiment runner (the specs in `experiments/` stay) | `src/experiment.py` |
+| 10 one-shot scripts | `scripts/calibrate_category_2026_10_23.py`, `evaluate_sentiment_candidates_2026_09_15.py`, `export_gold_review_2026_10_26.py`, `measure_corrected_corpus_2026_10_22.py`, `resample_ner_2026_09_12.py`, `resample_sentiment_2026_09_12.py`, `resample_sentiment_v3_2026_09_15.py`, `resample_sentiment_v4_2026_09_15.py` (the reproduction path of the published v4 model), `resample_sentiment_v5_2026_09_15.py`, `simulate_category_rules_2026_10_23.py` |
+| tests | 26 files of `tests/news_nlp/` (the v1 pipeline, API, corrections, queries, eval sampling/runner/metrics/calibration/candidate, experiments) and four of `test_schema_guard.py` |

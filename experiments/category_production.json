@@ -1,0 +1,8 @@
+{
+  "name": "category_production",
+  "stage": "category",
+  "eval": {
+    "sample_size": 2800,
+    "seed": 1
+  }
+}

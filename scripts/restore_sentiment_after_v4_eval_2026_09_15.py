@@ -2,7 +2,7 @@
 """One-shot: restore production `article_sentiment` after the v4 downstream
 eval experiment (scripts/resample_sentiment_v4_2026_09_15.py).
 
-Run this only after `uv run cli/news_nlp_eval.py --stage sentiment
+Run this only after `uv run cli/news_nlp_eval.py --stage sentiment (that CLI was removed by T-220 PR B: run it from commit 81294eb)
 --sample-size 2000 --seed 1` has completed against the v4-scored table and
 its results are captured (MLflow + the `eval_run`/`eval_judgement` rows,
 which live independently of `article_sentiment` and are unaffected by this

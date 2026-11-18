@@ -1,0 +1,11 @@
+{
+  "name": "sentiment_chunklevel_base_finbert",
+  "stage": "sentiment",
+  "eval": {
+    "sample_size": 2000,
+    "seed": 1,
+    "candidate_model": "ProsusAI/finbert",
+    "candidate_revision": "4556d13015211d73dccd3fdd39d39232506f3e43",
+    "candidate_prescore_size": 2500
+  }
+}

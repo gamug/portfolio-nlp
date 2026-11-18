@@ -1,0 +1,8 @@
+{
+  "name": "c_summary_production",
+  "stage": "c_summary",
+  "eval": {
+    "sample_size": 1000,
+    "seed": 1
+  }
+}
