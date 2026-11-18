@@ -1036,12 +1036,9 @@ production's own number, and never another candidate's.
 ## CI
 
 `ci.yml` installs `--group eval` and runs the hermetic `tests/news_nlp/
-test_eval_*.py` (the LLM and MLflow are mocked / a tmp file store). The **real**
-eval is `.github/workflows/eval.yml` — `workflow_dispatch` + a weekly schedule,
-with `LLM_*` repo secrets and `--check-regression`. It needs the actual crawl /
-results databases, which live on the working machine, so it is written as a
-self-hosted-runner template; the reliable path is `uv run cli/news_nlp_eval.py`
-on a local cron with `MLFLOW_TRACKING_URI` pointed at a persistent store.
+test_eval_*.py` (the eval store, the MLflow tracking and the judges; the LLM and MLflow are mocked / a tmp file store). **No workflow runs the real judge any more:** the
+weekly `.github/workflows/eval.yml` and the CLI it called (`cli/news_nlp_eval.py`) were removed by T-220 PR B (commit `81294eb` has both). The step-7 judge is run by hand
+(`scripts/category_judge_2026_11_15.py`).
 The scheduled gate (`--check-regression`, PLAN Work item 2) is out of the MVP (owner, 2026-11-10).
 
 ## Prompts
