@@ -264,6 +264,23 @@ v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_
    pruned one) stops there. **Decided (owner, 2026-11-18): both are pruned and the dangling provenance in `inputs` is accepted; no snapshot rerun (see Decided).**
 4. `snapshot-1b8ee113b05f` has 159,401 rows and is not delivered: a prune candidate, once nothing kept refers to it.
 
+## Golden baseline on `nlp_backup.db` (run 2026-11-18, read-only and immutable)
+
+`PYTHONPATH=src python -m delivery_golden --db /workspaces/thesis/data/nlp_backup.db --immutable --snapshot snapshot-c3a753affa5d --period <revision>`. This is the "before" of PR C: after a drop or a prune on the copy, the same command must print the same digest.
+
+| Query of the note | `period-ae014b56b055` (the note) | `period-3b07b83ecec3` (kept) |
+|---|---|---|
+| `snapshot_date_sources` | 2 rows (20.6 s) | 2 rows (14.1 s) |
+| `company_news_in_a_range` | 74 rows (12.9 s) | 74 rows (13.4 s) |
+| `periods` | 85 | 85 |
+| `counts_per_company_category_period` | 27,725 | 34,253 |
+| `net_sentiment_per_company_period` | 15,099 | 17,777 |
+| `counts_per_sector` | 5,259 | 5,649 |
+| `news_a_period_counted` | 481 | 707 |
+| **digest** | **`bd104b26acea6f3f`** | **`2832f270e9a52457`** |
+
+The two snapshot queries take 13 to 20 seconds: `news_snapshot` has no index on `model_revision`, so they scan the table. Not a problem for a check, but PR C's prune (a `DELETE ... WHERE model_revision` per table) should expect full scans and run in one window. After the prune, the digest of `period-ae014b56b055` is expected to change (no rows), and that of `period-3b07b83ecec3` must stay `2832f270e9a52457`.
+
 ## A2 was dropped (owner, 2026-11-18)
 
 Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a
