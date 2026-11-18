@@ -400,6 +400,19 @@ def _expect_plan(plan: dict[str, Any], plan_digest: str, problems: list[str]) ->
         raise Refused("; ".join(problems))
 
 
+#: The refusal checks that protect a table, run again **inside its lock**: a writer that adds a kept row pointing at what this table is about to lose, after the start-of-run check, is caught.
+_TABLE_GUARDS = {"sub_news": _pruned_cut_references, "news_snapshot": _period_snapshot_references}
+
+
+def _expect_no_new_references(conn: sqlite3.Connection, table: str) -> None:
+    guard = _TABLE_GUARDS.get(table)
+    problems = guard(conn, tables_of(conn)) if guard else []
+    if problems:
+        raise Refused(
+            f"{table}: {'; '.join(problems)} (a writer added them after the start-of-run check)"
+        )
+
+
 def _exclusive(conn: sqlite3.Connection, table: str) -> None:
     try:
         conn.execute("BEGIN EXCLUSIVE")
@@ -422,6 +435,7 @@ def _prune_table(
         now = revision_counts(conn, table, column)
         for revision, rows in planned.items():
             _expect_revision_rows(table, revision, now.get(revision, 0), rows)
+        _expect_no_new_references(conn, table)
         delete = f'DELETE FROM "{table}" WHERE "{column}" IN ({_marks(list(planned))})'  # noqa: S608 -- names from the constants
         cur = conn.execute(delete, tuple(planned))
         conn.execute("COMMIT")
@@ -555,20 +569,61 @@ def apply(
         conn.close()
 
 
-def swap(
-    purged: Path,
-    live: Path,
-    *,
-    expect_sha: str | None = None,
-    backup: Path | None = None,
-    log: Any = print,
-    hook: Any = None,
-) -> dict[str, Any]:
-    """Replace the live file with a verified purged copy: the shape that protects a production file (the purge ran on a local copy, never in place).
+def _probe_writer(live: Path) -> None:
+    """Refuse when another connection holds a write lock on *live*: take ``BEGIN EXCLUSIVE`` and roll it back. It detects a writer; it **cannot** detect a reader (a DB browser), so the
+    runbook says to close every tool that has the file open."""
+    probe = sqlite3.connect(live, isolation_level=None, timeout=1)
+    try:
+        probe.execute("BEGIN EXCLUSIVE")
+        probe.execute("ROLLBACK")
+    except sqlite3.OperationalError as exc:
+        raise Refused(
+            f"the live file is locked by another process ({exc}): stop every writer and close every tool that has it open"
+        ) from exc
+    finally:
+        probe.close()
 
-    Checks, in order: neither file has a holder (a ``-journal`` or a non-empty ``-wal``); the purged file has the expected SHA-256; with ``backup`` the live file **is** the backup byte
-    for byte (so the purged copy was made from what is being replaced); the copy next to the live file has the same SHA-256; and the live file did not change (size, mtime) nor gain a
-    holder while the copy was made. Then one atomic rename. On any refusal the live file is untouched and the copy is removed."""
+
+def _expect_purged(purged: Path, live: Path) -> None:
+    """The file being swapped in is a good purged copy of **this** live file: readable, ``quick_check`` ok, nothing left for a purge to do, and the same kept rows (kept revisions and
+    the untouched tables) as the file it replaces."""
+    try:
+        p, lv = delivery_golden.open_read_only(purged), delivery_golden.open_read_only(live)
+    except sqlite3.Error as exc:
+        raise Refused(f"cannot open the files to compare them: {exc}") from exc
+    try:
+        _compare_purged(p, lv)
+    except sqlite3.Error as exc:
+        raise Refused(
+            f"cannot read the purged or the live file ({exc}): a process may hold the live file, or the purged file is not a database"
+        ) from exc
+    finally:
+        p.close()
+        lv.close()
+
+
+def _compare_purged(p: sqlite3.Connection, lv: sqlite3.Connection) -> None:
+    quick = p.execute("PRAGMA quick_check").fetchall()
+    if quick != [("ok",)]:
+        raise Refused(f"the purged file fails its quick_check: {quick[:3]}")
+    plan = make_plan(p)
+    left = [d["table"] for d in plan["drop"]] + [
+        f"{x['table']}.{x['revision']}" for x in plan["prune"] if not x["keep"]
+    ]
+    if left or refusals(p, plan):
+        raise Refused(
+            f"the purged file is not a purged database: a purge would still drop or delete {left[:5]}"
+        )
+    if kept_counts(p) != kept_counts(lv):
+        raise Refused(
+            "the purged file does not have the same kept rows as the live file: it was not made from it"
+        )
+
+
+def _swap_preconditions(
+    purged: Path, live: Path, expect_sha: str, backup: Path | None, log: Any
+) -> str:
+    """Everything the swap checks before it copies a byte; returns the purged file's SHA-256."""
     for label, path in (("purged", purged), ("live", live)):
         if not path.is_file():
             raise Refused(f"the {label} file {path} does not exist")
@@ -578,12 +633,39 @@ def swap(
                 f"{held} exists: someone holds the {label} file; stop the writers and let the last connection close first (a non-empty -wal: open it once with the SQLite tool to checkpoint it)"
             )
     purged_sha = sha256_file(purged)
-    if expect_sha and purged_sha != expect_sha:
-        raise Refused(f"the purged file has SHA-256 {purged_sha}, --expect-sha says {expect_sha}")
-    if backup is not None and sha256_file(live) != sha256_file(backup):
-        raise Refused(
-            "the live file is not byte-identical to --backup: it changed since the backup was made; start again from a fresh backup"
+    log(f"purged {purged}: {purged.stat().st_size:,} bytes, SHA-256 {purged_sha}")
+    if purged_sha != expect_sha:
+        raise Refused(f"the purged file has SHA-256 {purged_sha}, the expected one is {expect_sha}")
+    _expect_purged(purged, live)
+    if backup is not None:
+        live_sha, backup_sha = sha256_file(live), sha256_file(backup)
+        log(
+            f"live {live}: {live.stat().st_size:,} bytes, SHA-256 {live_sha}; backup SHA-256 {backup_sha}"
         )
+        if live_sha != backup_sha:
+            raise Refused(
+                "the live file is not byte-identical to --backup: it changed since the backup was made; start again from a fresh backup"
+            )
+    _probe_writer(live)
+    return purged_sha
+
+
+def swap(
+    purged: Path,
+    live: Path,
+    *,
+    expect_sha: str,
+    backup: Path | None = None,
+    log: Any = print,
+    hook: Any = None,
+) -> dict[str, Any]:
+    """Replace the live file with a verified purged copy: the shape that protects a production file (the purge ran on a local copy, never in place).
+
+    Checks (``_swap_preconditions``): neither file has a holder (a ``-journal`` or a non-empty ``-wal``); the purged file has ``expect_sha`` (the ``sha256`` of the apply's report); it is a
+    good purged copy of this live file; with ``backup`` the live file **is** the backup byte for byte; nobody holds a write lock on the live file. Then the copy next to the live file must
+    have the same SHA-256, and the live file must not change (size, mtime), gain a holder or get locked while it is made; then one atomic rename. On any refusal the live file is
+    untouched and the copy is removed. What it compared is logged."""
+    purged_sha = _swap_preconditions(purged, live, expect_sha, backup, log)
     before = (live.stat().st_size, live.stat().st_mtime_ns)
     new = live.with_name(live.name + ".new")
     shutil.copyfile(purged, new)
@@ -598,6 +680,7 @@ def swap(
             raise Refused(
                 "the live file changed (or gained a holder) while the copy was made: nothing was replaced"
             )
+        _probe_writer(live)
         os.replace(new, live)
     finally:
         if new.exists():
@@ -646,7 +729,11 @@ def _run_gated(
     verify_backup(
         args.db, args.backup, full=args.full_backup_check, identical=args.require_identical_backup
     )
-    return apply(args.db, args.plan, vacuum=not args.no_vacuum)
+    report = apply(args.db, args.plan, vacuum=not args.no_vacuum)
+    report.update(
+        sha256=sha256_file(args.db), size=args.db.stat().st_size
+    )  # what --swap-into expects
+    return report
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -695,7 +782,13 @@ def _parser() -> argparse.ArgumentParser:
         help="replace this live file with --db (a verified purged copy); with --backup the live file must equal it byte for byte",
     )
     parser.add_argument(
-        "--expect-sha", help="with --swap-into: the SHA-256 the purged copy must have"
+        "--expect-sha",
+        help="with --swap-into: the SHA-256 the purged copy must have (the `sha256` of the apply's report)",
+    )
+    parser.add_argument(
+        "--from-report",
+        type=Path,
+        help="with --swap-into: the --report of the apply that made the purged copy (its `sha256` is the expected one; it must say ok)",
     )
     return parser
 
@@ -708,9 +801,24 @@ def _write_report(path: Path | None, report: dict[str, Any], error: str | None =
         )
 
 
+def _expected_sha(args: argparse.Namespace) -> str:
+    if args.from_report:
+        written = json.loads(args.from_report.read_text(encoding="utf-8"))
+        if not written.get("ok") or not written.get("sha256"):
+            raise Refused(
+                f"{args.from_report} is not the report of a successful apply (ok and sha256 are needed)"
+            )
+        return str(written["sha256"])
+    if not args.expect_sha:
+        raise Refused(
+            "--swap-into needs --expect-sha <sha256> or --from-report <report of the apply>"
+        )
+    return str(args.expect_sha)
+
+
 def _main_swap(args: argparse.Namespace) -> int:
     try:
-        report = swap(args.db, args.swap_into, expect_sha=args.expect_sha, backup=args.backup)
+        report = swap(args.db, args.swap_into, expect_sha=_expected_sha(args), backup=args.backup)
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2

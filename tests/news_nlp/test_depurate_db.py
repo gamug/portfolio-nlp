@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sqlite3
+import typing
 from pathlib import Path
 
 import pytest
@@ -386,6 +387,14 @@ def test_the_empty_wal_and_shm_left_by_a_dry_run_do_not_stop_the_apply(
 # --- review of #215: the race, the unsafe place, the backup gate, the room, the failure paths, the swap -----------------------------------
 
 
+class _Usage(typing.NamedTuple):
+    """What ``shutil.disk_usage`` returns, built without its private name."""
+
+    total: int
+    used: int
+    free: int
+
+
 def _quiet(*_args: object) -> None:
     return None
 
@@ -519,9 +528,8 @@ def test_apply_is_refused_on_a_windows_drive_or_on_the_configured_store_unless_i
     plan = str(_plan(db)["digest"])
     monkeypatch.setattr(dd, "_on_windows_drive", lambda _path: True)
     assert _run(db, "--apply", "--backup", str(backup), "--plan", plan, "--no-vacuum") == 2
-    assert "Windows drive" in capsys.readouterr().err and "--swap-into" in str(
-        dd.refuse_unsafe_place.__doc__
-    )
+    message = capsys.readouterr().err
+    assert "Windows drive" in message and "--swap-into" in message
     monkeypatch.setattr(dd, "_on_windows_drive", lambda _path: False)
     monkeypatch.setattr(dd.delivery_golden, "configured_store_paths", lambda: {db.resolve()})
     assert _run(db, "--apply", "--backup", str(backup), "--plan", plan, "--no-vacuum") == 2
@@ -582,7 +590,11 @@ def test_not_enough_room_for_vacuum_is_reported_and_refused(
 ) -> None:
     backup = backup_of(db, tmp_path / "backup.db")
     plan = str(_plan(db)["digest"])
-    monkeypatch.setattr(dd.shutil, "disk_usage", lambda _path: shutil._ntuple_diskusage(100, 99, 1))
+    monkeypatch.setattr(
+        dd.shutil,
+        "disk_usage",
+        lambda _path: _Usage(100, 99, 1),
+    )
     assert _run(db) == 0
     assert (
         "free space for VACUUM: the volume of the database has 1 bytes free"
@@ -606,12 +618,13 @@ def _files(tmp_path: Path, db: Path) -> tuple[Path, Path, Path]:
     return purged, live, backup
 
 
-def test_swap_replaces_the_live_file_with_the_verified_purged_copy(
+def test_swap_replaces_the_live_file_with_the_verified_purged_copy_and_logs_what_it_compared(
     db: Path, tmp_path: Path
 ) -> None:
     purged, live, backup = _files(tmp_path, db)
     sha = dd.sha256_file(purged)
-    report = dd.swap(purged, live, expect_sha=sha, backup=backup, log=_quiet)
+    lines: list[str] = []
+    report = dd.swap(purged, live, expect_sha=sha, backup=backup, log=lines.append)
     assert report["ok"] is True and dd.sha256_file(live) == sha
     assert not live.with_name("live.db.new").exists()
     assert set(dd.DROP).isdisjoint(
@@ -620,25 +633,72 @@ def test_swap_replaces_the_live_file_with_the_verified_purged_copy(
     assert set(dd.DROP) <= dd.tables_of(
         sqlite3.connect(backup)
     )  # and the backup still has everything
+    assert any("SHA-256" in line and "bytes" in line for line in lines) and any(
+        line.startswith("replaced") for line in lines
+    )
 
 
 def test_swap_refuses_a_wrong_sha_a_live_file_that_is_not_the_backup_and_a_holder(
     db: Path, tmp_path: Path
 ) -> None:
     purged, live, backup = _files(tmp_path, db)
-    live_sha = dd.sha256_file(live)
-    with pytest.raises(dd.Refused, match="--expect-sha says"):
+    live_sha, sha = dd.sha256_file(live), dd.sha256_file(purged)
+    with pytest.raises(dd.Refused, match="the expected one is"):
         dd.swap(purged, live, expect_sha="0" * 64, log=_quiet)
     c = sqlite3.connect(backup)
     c.execute("DELETE FROM article_sentiment")
     c.commit()
     c.close()
     with pytest.raises(dd.Refused, match="not byte-identical to --backup"):
-        dd.swap(purged, live, backup=backup, log=_quiet)
+        dd.swap(purged, live, expect_sha=sha, backup=backup, log=_quiet)
     Path(f"{live}-journal").write_bytes(b"x")
     with pytest.raises(dd.Refused, match="someone holds the live file"):
-        dd.swap(purged, live, log=_quiet)
+        dd.swap(purged, live, expect_sha=sha, log=_quiet)
     assert dd.sha256_file(live) == live_sha  # the live file was never touched
+
+
+def test_swap_refuses_a_copy_that_was_not_purged(db: Path, tmp_path: Path) -> None:
+    _purged, live, _backup = _files(tmp_path, db)
+    unpurged = tmp_path / "unpurged.db"
+    shutil.copyfile(db, unpurged)
+    with pytest.raises(dd.Refused, match="is not a purged database"):
+        dd.swap(unpurged, live, expect_sha=dd.sha256_file(unpurged), log=_quiet)
+
+
+def test_swap_refuses_a_purge_made_from_another_database(db: Path, tmp_path: Path) -> None:
+    purged, live, _backup = _files(tmp_path, db)
+    other = sqlite3.connect(live)  # the live file has a kept row the purged copy does not have
+    other.execute(
+        "INSERT INTO news_company (item_kind, item_id, ticker, model_revision, relevance_score, processed_at) VALUES ('sub_news', '1', 'MSFT', ?, 0.5, 't')",
+        (dd.KEEP[3],),
+    )
+    other.commit()
+    other.close()
+    with pytest.raises(dd.Refused, match="not have the same kept rows as the live file"):
+        dd.swap(purged, live, expect_sha=dd.sha256_file(purged), log=_quiet)
+
+
+def test_swap_refuses_a_file_that_is_not_a_database(db: Path, tmp_path: Path) -> None:
+    _purged, live, _backup = _files(tmp_path, db)
+    garbage = tmp_path / "garbage.db"
+    garbage.write_bytes(b"this is not a sqlite database" * 100)
+    with pytest.raises(dd.Refused, match="cannot read the purged or the live file"):
+        dd.swap(garbage, live, expect_sha=dd.sha256_file(garbage), log=_quiet)
+
+
+def test_swap_refuses_when_another_process_holds_a_write_lock_on_the_live_file(
+    db: Path, tmp_path: Path
+) -> None:
+    purged, live, _backup = _files(tmp_path, db)
+    holder = sqlite3.connect(live, isolation_level=None)
+    holder.execute("BEGIN EXCLUSIVE")
+    try:
+        with pytest.raises(dd.Refused, match=r"locked|cannot read"):
+            dd.swap(purged, live, expect_sha=dd.sha256_file(purged), log=_quiet)
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert not live.with_name("live.db.new").exists()
 
 
 def test_swap_refuses_when_the_live_file_changes_while_the_copy_is_made_and_removes_the_copy(
@@ -647,12 +707,62 @@ def test_swap_refuses_when_the_live_file_changes_while_the_copy_is_made_and_remo
     purged, live, _backup = _files(tmp_path, db)
     live_sha = dd.sha256_file(live)
     with pytest.raises(dd.Refused, match=r"changed .* while the copy was made"):
-        dd.swap(purged, live, log=_quiet, hook=lambda: os.utime(live, ns=(1, 1)))
+        dd.swap(
+            purged,
+            live,
+            expect_sha=dd.sha256_file(purged),
+            log=_quiet,
+            hook=lambda: os.utime(live, ns=(1, 1)),
+        )
     assert dd.sha256_file(live) == live_sha and not live.with_name("live.db.new").exists()
 
 
-def test_the_swap_command(db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_apply_report_carries_the_sha256_the_swap_expects(
+    db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    copy = tmp_path / "copy.db"
+    shutil.copyfile(db, copy)
+    backup = tmp_path / "copy_backup.db"
+    shutil.copyfile(db, backup)
+    report = tmp_path / "report.json"
+    assert (
+        _run(
+            copy,
+            "--apply",
+            "--backup",
+            str(backup),
+            "--plan",
+            str(_plan(copy)["digest"]),
+            "--report",
+            str(report),
+            "--no-vacuum",
+            "--require-identical-backup",
+        )
+        == 0
+    )
+    written = json.loads(report.read_text())
+    assert written["sha256"] == dd.sha256_file(copy) and written["size"] == copy.stat().st_size
+    live = tmp_path / "live.db"
+    shutil.copyfile(db, live)
+    capsys.readouterr()
+    assert (
+        _run(copy, "--swap-into", str(live), "--backup", str(backup), "--from-report", str(report))
+        == 0
+    )
+    assert dd.sha256_file(live) == written["sha256"]
+
+
+def test_the_swap_command_needs_an_expected_sha_and_refuses_a_failed_report(
+    db: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     purged, live, backup = _files(tmp_path, db)
+    assert _run(purged, "--swap-into", str(live), "--backup", str(backup)) == 2
+    assert "needs --expect-sha" in capsys.readouterr().err
+    failed = tmp_path / "failed.json"
+    failed.write_text(json.dumps({"ok": False, "sha256": dd.sha256_file(purged)}))
+    assert _run(purged, "--swap-into", str(live), "--from-report", str(failed)) == 2
+    assert "not the report of a successful apply" in capsys.readouterr().err
+    assert _run(purged, "--swap-into", str(live), "--expect-sha", "bad") == 2
     assert (
         _run(
             purged,
@@ -665,6 +775,73 @@ def test_the_swap_command(db: Path, tmp_path: Path, capsys: pytest.CaptureFixtur
         )
         == 0
     )
-    assert '"ok": true' in capsys.readouterr().out
-    assert _run(purged, "--swap-into", str(live), "--expect-sha", "bad") == 2
-    assert "REFUSED" in capsys.readouterr().err
+
+
+def test_the_command_never_passes_the_test_hook_to_apply(
+    db: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake(*args: object, **kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(dd, "apply", fake)
+    backup = backup_of(db, tmp_path / "backup.db")
+    monkeypatch.setattr(dd, "sha256_file", lambda _path: "x")
+    assert (
+        _run(
+            db,
+            "--apply",
+            "--backup",
+            str(backup),
+            "--plan",
+            str(_plan(db)["digest"]),
+            "--no-vacuum",
+        )
+        == 0
+    )
+    assert "hook" not in seen
+
+
+def test_a_kept_row_added_to_a_pruned_cut_during_the_apply_refuses_sub_news(db: Path) -> None:
+    """The start-of-run refusal checks ran once; the one that protects ``sub_news`` runs again inside its lock."""
+
+    def writer(table: str) -> None:
+        if table == "sub_news":
+            other = sqlite3.connect(db)
+            other.execute(
+                "INSERT INTO news_company (item_kind, item_id, ticker, model_revision, relevance_score, processed_at) VALUES ('sub_news', '2', 'MSFT', ?, 0.5, 't')",
+                (dd.KEEP[3],),
+            )
+            other.commit()
+            other.close()
+
+    with pytest.raises(
+        dd.Refused,
+        match=r"sub_news: 1 kept row\(s\) of news_company belong to a sub-news of a cut that would be pruned \(a writer added them",
+    ) as info:
+        dd.apply(db, str(_plan(db)["digest"]), vacuum=False, log=_quiet, hook=writer)
+    assert "sub_news" not in info.value.report["deleted"]
+    assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM sub_news").fetchone()[0] == 2
+
+
+def test_a_kept_period_moved_onto_a_pruned_snapshot_during_the_apply_refuses_news_snapshot(
+    db: Path,
+) -> None:
+    def writer(table: str) -> None:
+        if table == "news_snapshot":
+            other = sqlite3.connect(db)
+            other.execute(
+                "UPDATE period_run SET snapshot_revision = ? WHERE model_revision = ?",
+                ("snapshot" + OLD, KEEP_PERIOD),
+            )
+            other.commit()
+            other.close()
+
+    with pytest.raises(
+        dd.Refused,
+        match=r"news_snapshot: 1 kept period\(s\) are built on a snapshot revision that would be pruned",
+    ):
+        dd.apply(db, str(_plan(db)["digest"]), vacuum=False, log=_quiet, hook=writer)
+    assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM news_snapshot").fetchone()[0] == 2
