@@ -338,6 +338,17 @@ Consequence for the guard: its cut pin (`be358e64f554`) protects **today's** cut
 
 **The live file** (`/workspaces/thesis/data/nlp.db`, which the `.env` names as `D:\thesis\data\nlp.db`) has the same size, the same modification time to the nanosecond and **the same SHA-256 as `nlp_backup.db`** (`4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, checked 2026-11-18): the backup is a byte-identical copy and nothing wrote to the live file after it. Because SQLite on the Windows drive (DrvFs) is slow and not safe for a long write, the purge is run on a **local copy** and the result replaces the live file only after it is verified; the original backup is not touched.
 
+## The purge was run on the live database (2026-11-18)
+
+Run by the assistant at the owner's request ("run it yourself"), after a rehearsal, with the owner's confirmation that nothing was writing to the file.
+
+1. **Backup:** `nlp_backup.db` is byte-identical to the live `nlp.db` (SHA-256 `4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, same size, same modification time to the nanosecond); it was not touched and stays the rollback.
+2. **Purge on a local copy** of the live file (DrvFs is slow and unsafe for a long write): dry run plan `63e141924e02e7fe` (the same as the rehearsal), no refusal; `--apply` with `--backup nlp_backup.db`: 17,865,110 rows dropped, 2,151,279 old-revision rows deleted, `foreign_key_check` 0, `quick_check` ok, kept counts equal, golden digest `2832f270e9a52457` before and after.
+3. **Swap:** the purged file (SHA-256 `bcd7dfe3f82792c746d910fc7b69a1ac30c47c9d5b1ed81cfae5933f368af239`, 1,628,180,480 bytes) was copied next to the live file, its SHA-256 checked on the drive, the live file checked unchanged, then renamed over `nlp.db`.
+4. **Checked on the live file after the swap:** `quick_check` ok; the tables are exactly the kept ones (`articles`, `body_scope`, `body_sector`, `company_sector`, `eval_*` x4, `news_category`, `news_company`, `news_sentiment`, `news_snapshot`, `news_summary`, `news_summary_call`, `period_item`, `period_run`, `period_summary`, `pipeline_step_state`, `sector`, `sub_news`); the golden digest of the kept period is **`2832f270e9a52457`** (unchanged), and that of the delivery note's `period-ae014b56b055` is **`9a71c0f4d9001a85`**, the digest this document predicted for a pruned period.
+
+**Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
+
 ## A2 was dropped (owner, 2026-11-18)
 
 Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a
