@@ -163,7 +163,7 @@ removes them).
    prunes a revision named in the delivery note while this is open.
 8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
-**PR A: the guard, then the eval rewire.**
+**PR A: the guard, then the eval rewire.** *(Split, 2026-11-18: **A1**, the guard and the golden check, is built (`tests/news_nlp/test_revision_guard.py`, `src/delivery_golden.py`, `tests/news_nlp/test_delivery_golden.py`); **A2** is the eval rewire. The guard found that the cut revision hashes the **bytes** of five modules (`attribution_model`, `chunking`, `company_texts`, `triage`, `attribution_units`): a comment moves it, so PR B must not touch those files at all. The snapshot revision computed from the code is `snapshot-c3a753affa5d`, the delivered one; the period revision also hashes the sector mapping, so it is not reproducible without the database (see the open point on `period-ae014b56b055`).)*
 
 * A **revision guard test** first: it pins the revision of every step (the code hashes) and the inputs of the delivered snapshot and
   period revisions. Any later edit that changes a revision fails CI. This is the protection of "do not break what is built".
