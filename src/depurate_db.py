@@ -11,6 +11,8 @@ only when **every gate** holds:
 Then, per table, one transaction: ``DELETE`` the rows of the revisions not in ``KEEP``; ``DROP TABLE`` the v1 tables; then ``foreign_key_check``, ``quick_check``, the counts of the
 kept rows (must equal the "before") and the golden digest of the delivery note's queries (``delivery_golden``, must equal the "before"); then ``VACUUM``.
 
+**``KEEP`` is a decision of 2026-11-17/18, hard-coded.** A revision made after it is listed as DELETE with a warning (the dry run shows the newest row of every revision): read the plan, do not assume.
+
 What stays untouched: ``articles`` (lean), ``sector``, ``company_sector``, ``eval_run``, ``eval_inference``, ``eval_verdict``, ``eval_confusion``. The rows of a kept snapshot whose ``inputs``
 name a pruned revision are **reported, not refused** (the owner accepted it, 2026-11-18): they keep their text, category and sentiment.
 
@@ -125,6 +127,36 @@ def count(conn: sqlite3.Connection, table: str) -> int:
     return int(conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])  # noqa: S608 -- the names come from this module's constants or sqlite_master
 
 
+#: The day of the keep decision (owner, 2026-11-17 and 2026-11-18). ``KEEP`` is that decision, hard-coded: a revision whose rows are **newer** than this was made after it, and the dry run
+#: warns about it if it is listed as DELETE. Compared as text with the ISO timestamps of the tables.
+KEEP_DECIDED = "2026-11-18T23:59:59Z"
+
+#: The column of each pruned table that says when a row was written (``COALESCE`` of two for the step state), used only to show the age of a revision. ``period_item`` and
+#: ``period_summary`` have none: their age is that of the ``period_run`` of the same revision.
+TIMESTAMP: dict[str, str] = {
+    "period_run": "created_at",
+    "news_snapshot": "processed_at",
+    "news_category": "processed_at",
+    "news_sentiment": "processed_at",
+    "news_company": "processed_at",
+    "news_summary_call": "called_at",
+    "news_summary": "processed_at",
+    "sub_news": "processed_at",
+    "body_sector": "processed_at",
+    "body_scope": "processed_at",
+    "pipeline_step_state": "COALESCE(finished_at, started_at)",
+}
+
+
+def revision_newest(conn: sqlite3.Connection, table: str, column: str) -> dict[str, str]:
+    """The newest timestamp of the rows of each revision of *table* (``{}`` for the tables that have none)."""
+    stamp = TIMESTAMP.get(table)
+    if not stamp:
+        return {}
+    rows = conn.execute(f'SELECT "{column}", MAX({stamp}) FROM "{table}" GROUP BY 1').fetchall()  # noqa: S608 -- constants
+    return {str(r[0]): str(r[1]) for r in rows if r[1] is not None}
+
+
 def revision_counts(conn: sqlite3.Connection, table: str, column: str) -> dict[str, int]:
     rows = conn.execute(f'SELECT "{column}", COUNT(*) FROM "{table}" GROUP BY 1').fetchall()  # noqa: S608 -- constants
     return {str(r[0]): int(r[1]) for r in rows}
@@ -146,6 +178,7 @@ def make_plan(conn: sqlite3.Connection) -> dict[str, Any]:
     for table, column in PRUNE:
         if table not in present:
             continue
+        newest = revision_newest(conn, table, column)
         for revision, rows in sorted(revision_counts(conn, table, column).items()):
             plan["prune"].append(
                 {
@@ -154,6 +187,7 @@ def make_plan(conn: sqlite3.Connection) -> dict[str, Any]:
                     "revision": revision,
                     "rows": rows,
                     "keep": revision in KEEP,
+                    "newest": newest.get(revision),
                 }
             )
     key = json.dumps(
@@ -569,9 +603,26 @@ def apply(
         conn.close()
 
 
-def _probe_writer(live: Path) -> None:
+def _sidecars(path: Path) -> dict[str, bool]:
+    return {suffix: Path(f"{path}{suffix}").exists() for suffix in ("-wal", "-shm")}
+
+
+def _remove_probe_sidecars(live: Path, existed: dict[str, bool], log: Any) -> None:
+    """The probe opens the live file read-write; in WAL mode that leaves an empty ``-wal`` and a ``-shm`` beside it (on a Windows drive they are not always removed when the probe
+    closes). Remove **only** the ones the probe created (absent before; an empty ``-wal``; the ``-shm``). A leftover that was there before, or a ``-wal`` with data, is not touched.
+    The probe proved no *writer* holds the file; it cannot prove no *reader* does, which is why the runbook says to close every tool."""
+    for suffix, was_there in existed.items():
+        path = Path(f"{live}{suffix}")
+        if was_there or not path.exists() or (suffix == "-wal" and path.stat().st_size > 0):
+            continue
+        path.unlink()
+        log(f"removed {path.name}: the probe had created it")
+
+
+def _probe_writer(live: Path, log: Any = print) -> None:
     """Refuse when another connection holds a write lock on *live*: take ``BEGIN EXCLUSIVE`` and roll it back. It detects a writer; it **cannot** detect a reader (a DB browser), so the
-    runbook says to close every tool that has the file open."""
+    runbook says to close every tool that has the file open. The sidecars it creates are removed (``_remove_probe_sidecars``)."""
+    existed = _sidecars(live)
     probe = sqlite3.connect(live, isolation_level=None, timeout=1)
     try:
         probe.execute("BEGIN EXCLUSIVE")
@@ -582,6 +633,16 @@ def _probe_writer(live: Path) -> None:
         ) from exc
     finally:
         probe.close()
+        _remove_probe_sidecars(live, existed, log)
+
+
+def journal_mode(path: Path) -> str:
+    """The journal mode recorded in the file (``wal`` or ``delete``...), read without changing it."""
+    conn = delivery_golden.open_read_only(path)
+    try:
+        return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    finally:
+        conn.close()
 
 
 def _expect_purged(purged: Path, live: Path) -> None:
@@ -602,6 +663,15 @@ def _expect_purged(purged: Path, live: Path) -> None:
         lv.close()
 
 
+def _kept_rows_differ(p: sqlite3.Connection, lv: sqlite3.Connection) -> str:
+    a, b = kept_counts(p), kept_counts(lv)
+    first = next((k for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)), "?")
+    return (
+        f"the kept rows differ ({first}: purged {a.get(first)}, live {b.get(first)}): either the live file changed since the copy was made (a step ran on it: start again "
+        "from a fresh copy and a fresh backup), or this file was made from another database"
+    )
+
+
 def _compare_purged(p: sqlite3.Connection, lv: sqlite3.Connection) -> None:
     quick = p.execute("PRAGMA quick_check").fetchall()
     if quick != [("ok",)]:
@@ -615,9 +685,7 @@ def _compare_purged(p: sqlite3.Connection, lv: sqlite3.Connection) -> None:
             f"the purged file is not a purged database: a purge would still drop or delete {left[:5]}"
         )
     if kept_counts(p) != kept_counts(lv):
-        raise Refused(
-            "the purged file does not have the same kept rows as the live file: it was not made from it"
-        )
+        raise Refused(_kept_rows_differ(p, lv))
 
 
 def _swap_preconditions(
@@ -646,8 +714,19 @@ def _swap_preconditions(
             raise Refused(
                 "the live file is not byte-identical to --backup: it changed since the backup was made; start again from a fresh backup"
             )
-    _probe_writer(live)
+    _probe_writer(live, log)
     return purged_sha
+
+
+def _check_journal_modes(purged: Path, live: Path, allow: bool, log: Any) -> dict[str, str]:
+    """Log the journal mode of both files and refuse a change (the owner's tools behave differently in WAL and in rollback mode) unless ``allow``."""
+    modes = {"purged": journal_mode(purged), "live": journal_mode(live)}
+    log(f"journal mode: purged {modes['purged']}, live {modes['live']}")
+    if modes["purged"] != modes["live"] and not allow:
+        raise Refused(
+            f"the purged file is in {modes['purged']} mode and the live file in {modes['live']} mode: pass --allow-journal-mode-change if that is intended"
+        )
+    return modes
 
 
 def swap(
@@ -658,14 +737,16 @@ def swap(
     backup: Path | None = None,
     log: Any = print,
     hook: Any = None,
+    allow_journal_mode_change: bool = False,
 ) -> dict[str, Any]:
     """Replace the live file with a verified purged copy: the shape that protects a production file (the purge ran on a local copy, never in place).
 
     Checks (``_swap_preconditions``): neither file has a holder (a ``-journal`` or a non-empty ``-wal``); the purged file has ``expect_sha`` (the ``sha256`` of the apply's report); it is a
-    good purged copy of this live file; with ``backup`` the live file **is** the backup byte for byte; nobody holds a write lock on the live file. Then the copy next to the live file must
-    have the same SHA-256, and the live file must not change (size, mtime), gain a holder or get locked while it is made; then one atomic rename. On any refusal the live file is
-    untouched and the copy is removed. What it compared is logged."""
+    good purged copy of this live file; with ``backup`` the live file **is** the backup byte for byte; nobody holds a write lock on the live file; both files have the same journal mode
+    (unless ``allow_journal_mode_change``). Then the copy next to the live file must have the same SHA-256, and the live file must not change (size, mtime), gain a holder or get locked
+    while it is made; then one atomic rename. On any refusal the live file is untouched and the copy is removed. What it compared is logged."""
     purged_sha = _swap_preconditions(purged, live, expect_sha, backup, log)
+    modes = _check_journal_modes(purged, live, allow_journal_mode_change, log)
     before = (live.stat().st_size, live.stat().st_mtime_ns)
     new = live.with_name(live.name + ".new")
     shutil.copyfile(purged, new)
@@ -680,13 +761,20 @@ def swap(
             raise Refused(
                 "the live file changed (or gained a holder) while the copy was made: nothing was replaced"
             )
-        _probe_writer(live)
+        _probe_writer(live, log)
         os.replace(new, live)
     finally:
         if new.exists():
             new.unlink()
     log(f"replaced {live} with the purged copy (SHA-256 {purged_sha})")
-    return {"ok": True, "sha256": purged_sha, "live": str(live)}
+    return {"ok": True, "sha256": purged_sha, "live": str(live), "journal_mode": modes}
+
+
+def newer_than_the_decision(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """The revisions the plan would DELETE although their newest row is later than ``KEEP_DECIDED``: made after the keep list was decided."""
+    return [
+        p for p in plan["prune"] if not p["keep"] and p.get("newest") and p["newest"] > KEEP_DECIDED
+    ]
 
 
 def format_plan(
@@ -696,11 +784,23 @@ def format_plan(
     lines += [f"  {d['table']}: {d['rows']:,} rows" for d in plan["drop"]] or [
         "  nothing: already dropped"
     ]
-    lines.append("PRUNE (rows of revisions not in the keep list; `keep` rows stay):")
+    lines.append(
+        "PRUNE (rows of revisions not in the keep list; `keep` rows stay; the date is the newest row of the revision):"
+    )
     for p in plan["prune"]:
+        age = f"  (newest {p['newest']})" if p.get("newest") else ""
         lines.append(
-            f"  {'keep ' if p['keep'] else 'DELETE'} {p['table']}.{p['column']} = {p['revision']}: {p['rows']:,}"
+            f"  {'keep ' if p['keep'] else 'DELETE'} {p['table']}.{p['column']} = {p['revision']}: {p['rows']:,}{age}"
         )
+    fresh = newer_than_the_decision(plan)
+    if fresh:
+        lines.append(
+            f"WARNING: the keep list was decided on {KEEP_DECIDED[:10]}; these revisions to be DELETED are newer than that. Is it meant to prune them?"
+        )
+        lines += [
+            f"  {p['table']}.{p['column']} = {p['revision']}: newest row {p['newest']}"
+            for p in fresh
+        ]
     if dangling:
         lines.append(
             "KEPT snapshot rows whose `inputs` name a revision that would be pruned (reported, not refused):"
@@ -786,6 +886,11 @@ def _parser() -> argparse.ArgumentParser:
         help="with --swap-into: the SHA-256 the purged copy must have (the `sha256` of the apply's report)",
     )
     parser.add_argument(
+        "--allow-journal-mode-change",
+        action="store_true",
+        help="with --swap-into: allow the purged file and the live file to be in different journal modes",
+    )
+    parser.add_argument(
         "--from-report",
         type=Path,
         help="with --swap-into: the --report of the apply that made the purged copy (its `sha256` is the expected one; it must say ok)",
@@ -818,7 +923,13 @@ def _expected_sha(args: argparse.Namespace) -> str:
 
 def _main_swap(args: argparse.Namespace) -> int:
     try:
-        report = swap(args.db, args.swap_into, expect_sha=_expected_sha(args), backup=args.backup)
+        report = swap(
+            args.db,
+            args.swap_into,
+            expect_sha=_expected_sha(args),
+            backup=args.backup,
+            allow_journal_mode_change=args.allow_journal_mode_change,
+        )
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2

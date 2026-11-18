@@ -674,7 +674,10 @@ def test_swap_refuses_a_purge_made_from_another_database(db: Path, tmp_path: Pat
     )
     other.commit()
     other.close()
-    with pytest.raises(dd.Refused, match="not have the same kept rows as the live file"):
+    with pytest.raises(
+        dd.Refused,
+        match=r"the kept rows differ \(news_company:companies-f349536cf701: purged 1, live 2\)",
+    ):
         dd.swap(purged, live, expect_sha=dd.sha256_file(purged), log=_quiet)
 
 
@@ -693,7 +696,9 @@ def test_swap_refuses_when_another_process_holds_a_write_lock_on_the_live_file(
     holder = sqlite3.connect(live, isolation_level=None)
     holder.execute("BEGIN EXCLUSIVE")
     try:
-        with pytest.raises(dd.Refused, match=r"locked|cannot read"):
+        with pytest.raises(
+            dd.Refused, match=r"cannot read the purged or the live file \(database is locked\)"
+        ):
             dd.swap(purged, live, expect_sha=dd.sha256_file(purged), log=_quiet)
     finally:
         holder.execute("ROLLBACK")
@@ -845,3 +850,108 @@ def test_a_kept_period_moved_onto_a_pruned_snapshot_during_the_apply_refuses_new
     ):
         dd.apply(db, str(_plan(db)["digest"]), vacuum=False, log=_quiet, hook=writer)
     assert sqlite3.connect(db).execute("SELECT COUNT(*) FROM news_snapshot").fetchone()[0] == 2
+
+
+def test_the_writer_probe_refuses_a_write_lock_in_wal_mode(db: Path, tmp_path: Path) -> None:
+    """In WAL mode a reader is not blocked by a writer, so the comparison passes and it is the **probe** that refuses (the live database is a WAL database)."""
+    purged, live, _backup = _files(tmp_path, db)
+    sqlite3.connect(live).execute("PRAGMA journal_mode=WAL").fetchone()
+    holder = sqlite3.connect(live, isolation_level=None)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(dd.Refused, match=r"the live file is locked by another process"):
+            dd.swap(
+                purged,
+                live,
+                expect_sha=dd.sha256_file(purged),
+                log=_quiet,
+                allow_journal_mode_change=True,
+            )
+    finally:
+        holder.execute("ROLLBACK")
+        holder.close()
+    assert not live.with_name("live.db.new").exists()
+
+
+def test_a_stale_copy_is_reported_as_a_changed_live_file_with_the_first_table_that_differs(
+    db: Path, tmp_path: Path
+) -> None:
+    purged, live, _backup = _files(tmp_path, db)
+    other = sqlite3.connect(live)  # a step ran on the live file after the copy was taken
+    other.execute(
+        "INSERT INTO news_company (item_kind, item_id, ticker, model_revision, relevance_score, processed_at) VALUES ('sub_news', '1', 'MSFT', ?, 0.5, 't')",
+        (dd.KEEP[3],),
+    )
+    other.commit()
+    other.close()
+    with pytest.raises(dd.Refused) as info:
+        dd.swap(purged, live, expect_sha=dd.sha256_file(purged), log=_quiet)
+    message = str(info.value)
+    assert "news_company:companies-f349536cf701: purged 1, live 2" in message
+    assert (
+        "the live file changed since the copy was made" in message
+        and "start again from a fresh copy and a fresh backup" in message
+    )
+
+
+def test_the_dry_run_shows_the_age_of_each_revision_and_warns_about_one_made_after_the_decision(
+    db: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(db)
+    quiet = capsys.readouterr().out
+    assert "(newest 2026-11-01T00:00:00Z)" in quiet and "WARNING" not in quiet
+    c = sqlite3.connect(db)
+    c.execute(
+        "INSERT INTO news_summary (item_kind, item_id, model_revision, summary_text, text_source, processed_at) VALUES ('body', 'hz', 'summary-next-year', 's', 'summary', '2027-01-01T00:00:00Z')"
+    )
+    c.commit()
+    c.close()
+    _run(db)
+    out = capsys.readouterr().out
+    assert "WARNING: the keep list was decided on 2026-11-18" in out
+    assert "news_summary.model_revision = summary-next-year: newest row 2027-01-01T00:00:00Z" in out
+    assert (
+        "summary-0000000000aa: newest" not in out.split("WARNING")[1]
+    )  # only the newer one is named
+
+
+def test_the_probe_removes_only_the_sidecars_it_created(tmp_path: Path) -> None:
+    live = tmp_path / "live.db"
+    live.write_bytes(b"x")
+    lines: list[str] = []
+    Path(f"{live}-wal").write_bytes(b"")
+    Path(f"{live}-shm").write_bytes(b"\0" * 32)
+    dd._remove_probe_sidecars(
+        live, {"-wal": False, "-shm": False}, lines.append
+    )  # created by the probe: both go
+    assert not Path(f"{live}-wal").exists() and not Path(f"{live}-shm").exists() and len(lines) == 2
+    Path(f"{live}-wal").write_bytes(b"")
+    Path(f"{live}-shm").write_bytes(b"\0" * 32)
+    dd._remove_probe_sidecars(
+        live, {"-wal": True, "-shm": True}, lines.append
+    )  # there before: left alone
+    assert Path(f"{live}-wal").exists() and Path(f"{live}-shm").exists()
+    Path(f"{live}-wal").write_bytes(b"data")
+    dd._remove_probe_sidecars(
+        live, {"-wal": False, "-shm": True}, lines.append
+    )  # a -wal with data is never removed
+    assert Path(f"{live}-wal").read_bytes() == b"data"
+
+
+def test_the_swap_logs_both_journal_modes_and_refuses_a_difference_unless_allowed(
+    db: Path, tmp_path: Path
+) -> None:
+    purged, live, _backup = _files(tmp_path, db)
+    sqlite3.connect(purged).execute(
+        "PRAGMA journal_mode=WAL"
+    ).fetchone()  # the purged copy is WAL, the live file is not
+    sha = dd.sha256_file(purged)
+    lines: list[str] = []
+    with pytest.raises(
+        dd.Refused, match="purged file is in wal mode and the live file in delete mode"
+    ):
+        dd.swap(purged, live, expect_sha=sha, log=lines.append)
+    assert any(line.startswith("journal mode: purged wal, live delete") for line in lines)
+    report = dd.swap(purged, live, expect_sha=sha, log=_quiet, allow_journal_mode_change=True)
+    assert report["journal_mode"] == {"purged": "wal", "live": "delete"}
+    assert dd.sha256_file(live) == sha
