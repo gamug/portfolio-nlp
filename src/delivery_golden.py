@@ -8,9 +8,13 @@ Read only: it opens nothing and writes nothing. A query that fails (a table the 
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import sqlite3
+import time
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 #: name -> SQL, with ``{snapshot}`` and ``{period}`` for the two revisions the note names. The text of each is the note's own.
@@ -89,3 +93,41 @@ def digest(results: dict[str, list[tuple[Any, ...]]]) -> str:
     return hashlib.sha256(json.dumps(results, sort_keys=True, default=str).encode()).hexdigest()[
         :16
     ]
+
+
+def open_read_only(path: Path, *, immutable: bool = False) -> sqlite3.Connection:
+    """A read-only connection. ``immutable`` tells SQLite the file cannot change (a backup copy): it takes no lock and needs no ``-wal`` / ``-shm`` file. **Never use it on a
+    database that is being written.**"""
+    uri = f"file:{path.resolve()}?mode=ro" + ("&immutable=1" if immutable else "")
+    return sqlite3.connect(uri, uri=True)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``python -m delivery_golden --db <file> --snapshot <rev> --period <rev>``: the row count and the time of each query of the note, and the digest. Writes nothing. The depuration
+    compares the digest before and after each destructive step (T-220)."""
+    parser = argparse.ArgumentParser(prog="delivery_golden", description=main.__doc__)
+    parser.add_argument("--db", type=Path, required=True)
+    parser.add_argument("--snapshot", required=True, help="e.g. snapshot-c3a753affa5d")
+    parser.add_argument("--period", required=True, help="e.g. period-3b07b83ecec3")
+    parser.add_argument(
+        "--immutable",
+        action="store_true",
+        help="a backup copy that no one writes (no lock, no -wal/-shm)",
+    )
+    args = parser.parse_args(argv)
+    conn = open_read_only(args.db, immutable=args.immutable)
+    try:
+        results: dict[str, list[tuple[Any, ...]]] = {}
+        for name, sql in QUERIES.items():
+            started = time.monotonic()
+            rows = conn.execute(sql.format(snapshot=args.snapshot, period=args.period)).fetchall()
+            results[name] = sorted((tuple(r) for r in rows), key=repr)
+            print(f"{name}: {len(rows)} rows, {time.monotonic() - started:.1f}s", flush=True)
+    finally:
+        conn.close()
+    print(f"digest: {digest(results)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

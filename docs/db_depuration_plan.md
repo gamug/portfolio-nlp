@@ -24,7 +24,7 @@ names it). It is the safety net of every destructive step below.
   that `portfolio_common.news_export.fetch_processed_articles` reads them; that package is not installed here, so this repository
   cannot check it. The owner's answer replaces that statement. The delivery note for the portfolio-financial-analysis team
   (`snapshow_delivery.md`, repository root) names only `news_snapshot`, `period_run`, `period_summary`, `period_item` and `sector`.
-* **Eval is rewired to the `news_*` tables** (not kept on `article_*`).
+* **The old eval stages are deleted, not rewired** (owner, 2026-11-18; on 2026-11-17 the decision was to rewire them to `news_*`, which turned out to be a redesign: see "A2 was dropped"). The eval store, the MLflow tracking and the blind step-7 judge stay.
 * **A new FastAPI comes first** (T-219): it serves each step, the whole pipeline and the FTI services. The v1 API
   (`apps/news_nlp_api.py`) reads only v1 tables and the Docker image serves it (`Dockerfile:106-109`), so the v1 tables cannot go
   while it exists. The depuration (T-220) starts after T-219 is merged.
@@ -77,9 +77,9 @@ The stepped pipeline never reads `article_*`, `sector_summary` or `corrections` 
 `eval/sampling.py:54-60,267-358,411` samples from `article_*` and `sector_summary`; `eval/candidate.py:36-40` imports the FTI classes
 of `category_stage`, `ner_stage`, `sentiment_stage`, `summary_stage`; `eval/calibration_sample.py:134-135` joins `article_category`;
 `eval/__init__`, `runner`, `cli/news_nlp_eval.py`, `src/experiment.py` and `.github/workflows/eval.yml` follow.
-`eval/step_category.py` is already shaped for step 7. This is why the eval rewire (PR A) comes before the removal of the v1 code.
+`eval/step_category.py` is already shaped for step 7. This is why the old eval stages are deleted with the v1 code in PR B (the rewire was dropped) before the removal of the v1 code.
 
-### v1 code with no kept importer once eval is rewired
+### v1 code with no kept importer once the old eval stages are deleted
 
 `src/pipeline.py` (importers: the API, `cli/news_nlp_cli.py`, `src/setup.py:15`, tests), `pipeline_config.py`,
 `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp/queries.py`, `corrections.py`, `news_nlp/sector_summary/*`,
@@ -171,17 +171,11 @@ removes them).
    prunes a revision named in the delivery note while this is open.
 8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
-**PR A: the guard, then the eval rewire.** *(Split, 2026-11-18: **A1**, the guard and the golden check, is built (`tests/news_nlp/test_revision_guard.py`, `src/delivery_golden.py`, `tests/news_nlp/test_delivery_golden.py`); **A2** is the eval rewire. The guard found that the cut revision hashes the **bytes** of five modules (`attribution_model`, `chunking`, `company_texts`, `triage`, `attribution_units`): a comment moves it, so PR B must not touch those files at all. The snapshot revision computed from the code is `snapshot-c3a753affa5d`, the delivered one; the period revision also hashes the sector mapping, so it is not reproducible without the database (see the open point on `period-ae014b56b055`).)*
-
-* A **revision guard test** first: it pins the revision of every step (the code hashes) and the inputs of the delivered snapshot and
-  period revisions. Any later edit that changes a revision fails CI. This is the protection of "do not break what is built".
-* A **golden check**: the SQL of `snapshow_delivery.md` (a copy in the tests) runs on a fixture, and the same SQL runs on the backup
-  copy before and after each destructive step and must return identical rows.
-* Then eval is rewired to `news_*`: sampling from `news_sentiment`, `news_category`, `news_company`, `news_summary`; scoring with
-  the v2 Inference classes; the `sector_summary` stage and the v1 zero-shot category stage leave `STAGES`;
-  `.github/workflows/eval.yml`, `cli/news_nlp_eval.py` and `docs/evaluation.md` follow. **Design point to settle first:** the key of
-  `eval_inference` is (article, task, experiment) and the v2 key is (item_kind, item_id, ticker). A sub-news maps to its article
-  through `sub_news`; the mapping must keep the stored eval history readable (additive columns only, SPEC.md:330-336).
+**PR A (A1, #211): the guard and the golden check.** A **revision guard test** pins the code each step hashes, the config files the revisions also hash, and the
+delivered snapshot revision; any later edit that changes a revision fails CI. A **golden check** holds the SQL of `snapshow_delivery.md` as code
+(`src/delivery_golden.py`): it runs on a fixture in the tests and, with `python -m delivery_golden`, on the backup copy before and after each destructive
+step, where it must return the same digest. **A2, the eval rewire, was dropped by the owner on 2026-11-18**: the old eval stages are deleted in PR B, not
+rewired; T-222 rebuilds an eval on `news_*` if wanted. The design that was dropped is in `docs/legacy/db_depuration_plan_a2_rewire_2026-11-18.md`.
 
 **PR B: remove the v1 code and its tests.** Delete the files listed above, rewire `src/setup.py` (it imports constants from
 `pipeline`), clean `news_nlp/__init__.py`, delete the only-v1 tests, adapt the mixed ones, update `tests/sets.py`. The hashed shared
@@ -267,47 +261,15 @@ v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_
    `category-a23569dba86f`, and **159,401 rows built on `sentiment-5999fe131d8f` and `category-65f33b55b26b`** (the rows keep their own
    copy of the text, category and sentiment; `inputs` records the revisions). Pruning those two revisions, as the keep list says, leaves
    159,401 delivered rows whose `inputs` name revisions that no longer exist: the dry run's refusal rule (a kept row that refers to a
-   pruned one) stops there. The owner decides: keep `sentiment-5999fe131d8f` and `category-65f33b55b26b`, or rerun the snapshot step on
-   the kept revisions (a new delivery), or accept the dangling provenance in `inputs`.
+   pruned one) stops there. **Decided (owner, 2026-11-18): both are pruned and the dangling provenance in `inputs` is accepted; no snapshot rerun (see Decided).**
 4. `snapshot-1b8ee113b05f` has 159,401 rows and is not delivered: a prune candidate, once nothing kept refers to it.
 
-## A2, the eval rewire: what reading the code and the backup showed (2026-11-18)
+## A2 was dropped (owner, 2026-11-18)
 
-The rewire is a redesign of the sampling, the judges and the metrics, not a swap of table names. Facts, then the defaults taken for the owner's
-"go" (the owner can change any of them before A2a is built).
-
-**Facts**
-
-* `eval/sampling.py` is v1 throughout: the low-confidence and target strata read `article_sentiment.score`, the nine slug columns of `article_category`
-  (`CATEGORY_SLUGS`, the 10-label v1 taxonomy), the entities of `article_entities`; `_text` reads `articles.body_text` by article id.
-* The v2 rows are keyed by `(item_kind, item_id, ticker, model_revision)`. In the kept revisions every item has exactly one main company, so one row per
-  item: `news_sentiment` and `news_category` 226,139 each (66,738 `body`, 159,401 `sub_news`), `news_company` 363,939 rows of which 226,139 main.
-* **A `body` item is its body hash, not an article id** (only 34,960 of the 66,738 body ids are also an `articles.id`). A `sub_news` item is an
-  integer id, and 159,401 of them come from **28,799 articles** (5.5 pairs per article). `news_snapshot_stage.articles_of` already maps an item to its
-  lowest article id by hashing the corpus once; the eval must use it (for the sampled items only) rather than a second mapping.
-* `judges.judge_category` and `CategoryVerdict` know the 10 v1 slugs; `news_category.label` has 12. The blind step-7 judge exists
-  (`eval/step_category.py`, `config`-free prompt `category_step.md`, `STEP_LABELS`).
-* `metrics.py` (category: `CATEGORY_SLUGS`, per-slug target accuracy), `calibration.py`, `calibration_sample.py`, `calibration_judge.py` and `partition.py`
-  (about 2,300 lines and their tests) belong to the **v1 category model** (thresholds of the hierarchical zero-shot classifier; `calibration_sample.py:134` joins
-  `article_category`). They do not measure the entailment model of step 7.
-* `candidate.py` and `src/experiment.py` import the v1 FTI classes of the four v1 stages (A2b).
-
-**Defaults (A2a), to be confirmed or changed**
-
-1. **Stages:** `sentiment`, `category`, `c_summary`; `ner` and `sector_summary` leave `STAGES` (the history in `eval_run` stays; their prompts, verdicts and
-   aggregators go in PR B with the v1 code, not before).
-2. **Unit and key:** the unit is the item's main pair (the item's own row of `news_sentiment` / `news_category`; one per item). `eval_inference.article_id`
-   keeps its meaning (an `articles.id`) and is the item's lowest article id through `articles_of`; when two sampled items share an article, the
-   draw keeps one per article (lowest item id), so `UNIQUE (article_id, task, experiment, run_id)` holds and **no schema change is needed**. The item's
-   own key (`item_kind`, `item_id`, `ticker`) and the revision go into the stored `prediction_json`, so a verdict can be traced to the row.
-3. **Revision:** one revision per table is evaluated, `--revision` to name it; by default the one with the latest `processed_at`. Never a mix.
-4. **Category** is judged blind with `step_category` (12 labels); `CategoryVerdict` and `judge_category` leave the `category` stage. **Sentiment** is judged
-   on the main pair: the text the step read and the company, the prompt naming the company. **c_summary** reads `news_summary` (the text of the item) with
-   the judge it has today.
-5. **Calibration** (`calibration*.py`, `partition.py`) is **not rewired**: it is the v1 category model's. It is removed with the v1 code in PR B (the owner
-   confirms), which is why `article_category` cannot be dropped before PR B.
-6. **A2a** = sampling, the judges' wiring, the runner and the store, with their tests; **A2b** = `candidate.py`, `src/experiment.py`, `cli/news_nlp_eval.py`,
-   `.github/workflows/eval.yml`, `docs/evaluation.md`.
+Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a
+hash, not an article id; 159,401 sub-news pairs come from 28,799 articles), not a change of table names. The owner chose to **delete** the old eval stages instead. PR B (#212)
+does it; what stays (the eval store, the MLflow tracking, the blind step-7 judge) and why is in its description and in T-220. **T-222** records the rebuild of an eval on `news_*`.
+The full analysis and the defaults proposed for the rewire are in `docs/legacy/db_depuration_plan_a2_rewire_2026-11-18.md`.
 
 ## Documents and tasks that cite a revision
 
@@ -333,10 +295,8 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 1. **The sector-step revision (settled by the listing: `sector-417a93feb789`, the only one; the owner confirms).** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
    (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
    `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
-2. **The period revision.** The delivery note names `period-ae014b56b055`; the keep list says `period-3b07b83ecec3`. #204 changed
-   the period revision, so the second may be the one written after it, but that is not verified: the Phase 0 listing settles it. The
-   script never prunes a revision named in the delivery note unless the owner removes it from the note's list explicitly.
-3. **The sentiment revision** (above): `sentiment-5999fe131d8f` documented, `sentiment-59863d15fc42` in the list.
+2. **The period revision: answered (2026-11-18).** Only `period-3b07b83ecec3` stays; a new delivery note naming it goes to the upstream team before `period-ae014b56b055` is pruned.
+3. **The sentiment revision: answered (2026-11-18).** Only `sentiment-59863d15fc42` (and `category-a23569dba86f`) stay; the older two are pruned (see the Phase 0 listing).
 4. **`eval_judgement`:** confirm unused (read the code in PR A/B).
 5. **A flaky test in the group PR A adapts.** `tests/news_nlp/test_eval_calibration_judge.py::test_an_interrupt_cancels_the_queue_instead_of_paying_for_it`
    (`assert len(log) <= 3`) depends on timing (`time.sleep(0.05)` against a runner's speed): it failed on one CI run of this docs-only

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -31,10 +33,14 @@ import sector_stage as sector
 from news_nlp import attribution_model as am
 from news_nlp import retag
 
+ON_312 = sys.version_info[:2] == (3, 12)
+# Off CI a different Python skips with a reason; **on CI it does not skip** (a skip would look like a pass): `test_ci_runs_the_guard_on_python_3_12` fails there instead.
 pytestmark = pytest.mark.skipif(
-    sys.version_info[:2] != (3, 12), reason="the pins are hashes of code parsed by Python 3.12"
+    not ON_312 and not os.environ.get("CI"),
+    reason="the pins are hashes of code parsed by Python 3.12 (`ast.unparse`); run `uv run pytest` with the project's Python",
 )
 
+LINE_ENDINGS = " (the cut hashes the BYTES of five modules: check line endings first, `.gitattributes` keeps them LF; a CRLF checkout gives another revision)"
 WHY = "this changes the revision of the step: finished items become pending and the delivered rows are no longer the current ones (T-220 guard)"
 
 #: What the delivery note names as the snapshot revision. The snapshot revision *is* the hash of its code, so it is checkable with no database.
@@ -64,7 +70,7 @@ def test_the_snapshot_revision_is_the_delivered_one() -> None:
 def test_the_code_a_step_hashes_is_the_pinned_one(
     name: str, pin: str, actual: Callable[[], str]
 ) -> None:
-    assert actual() == pin, f"{name}: {WHY}"
+    assert actual() == pin, f"{name}: {WHY}" + (LINE_ENDINGS if name.startswith("cut") else "")
 
 
 def test_the_period_fold_is_the_pinned_one() -> None:
@@ -93,3 +99,50 @@ def test_the_cut_reads_the_bytes_of_five_modules() -> None:
         "news_nlp.company_texts",
         "news_nlp.triage",
     ]
+
+
+# The full revisions, with the pins they also contain: the code hashes above do not see an edit of a pin file.
+def test_the_full_category_and_sentiment_revisions_are_the_pinned_ones() -> None:
+    """``code_revision`` is what ``--status`` prints: the code **and** the pin (``config/category_step.json``, ``config/sentiment_step.json``, ``config/sentiment_stack.json``)
+    for fixed dummy inputs. An edit of a pin moves it while ``_scoring_code`` does not."""
+    assert category.code_revision("S", "C") == "category-ece30360e9ce", WHY
+    assert sentiment.code_revision("S", "C", "N") == "sentiment-41a13b80709e", WHY
+
+
+#: SHA-256 (first 16 hex) of the bytes of each file of ``config/``. The revisions read the pins, the prompt and the model names from them, so a byte changed here is a new
+#: revision of a step. A new file in ``config/`` fails the test on purpose: decide whether a revision reads it, then add it.
+CONFIG_PINS = {
+    "attribution_model.json": "384a80b5bb0fd688",
+    "category_model.json": "f4c0b17c6415da17",
+    "category_step.json": "c784d55575cf79d6",
+    "pipeline_models.json": "e3cc80334dfa8dcb",
+    "published_models.json": "ef80a6289d108929",
+    "scope_model.json": "3a595038cf475dae",
+    "sector_step.json": "0852b547d363f13c",
+    "sentiment_stack.json": "f647b025cb1887ce",
+    "sentiment_step.json": "c81efc93b91e5d25",
+    "summary_prompt.md": "ce66b1385bb6c1d6",
+}
+
+
+def test_the_config_files_the_revisions_read_are_the_pinned_bytes() -> None:
+    config = Path(__file__).resolve().parents[2] / "config"
+    found = {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+        for p in config.iterdir()
+        if p.is_file()
+    }
+    assert set(found) == set(CONFIG_PINS), (
+        f"config/ changed its file list: {sorted(set(found) ^ set(CONFIG_PINS))}"
+    )
+    moved = sorted(name for name in CONFIG_PINS if found[name] != CONFIG_PINS[name])
+    assert not moved, (
+        f"{moved}: {WHY}; if the bytes differ only by line endings, `.gitattributes` keeps config/ LF"
+    )
+
+
+def test_ci_runs_the_guard_on_python_3_12() -> None:
+    if os.environ.get("CI"):
+        assert ON_312, (
+            "the guard pins hashes of code parsed by Python 3.12; CI must run it on 3.12, not skip it"
+        )

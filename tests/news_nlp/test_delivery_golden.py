@@ -16,7 +16,7 @@ import delivery_golden as golden
 from news_nlp import schema as schema_module
 
 SNAP = "snapshot-c3a753affa5d"
-PERIOD = "period-ae014b56b055"  # the delivery note's (the keep list says period-3b07b83ecec3: an open gate of T-220)
+PERIOD = "period-ae014b56b055"  # the delivery note's. The owner decided (2026-11-18) that only period-3b07b83ecec3 stays, so after the prune and a new note the check runs with that one and `ae014` returns no rows (expected, not a failure)
 OLD_SNAP = "snapshot-0000000000aa"
 OLD_PERIOD = "period-0000000000bb"
 END = "2026-08-31T19:00:00Z"
@@ -129,3 +129,19 @@ def test_losing_a_row_the_note_reads_changes_the_digest(
     before = _digest(conn)
     conn.execute(delete)
     assert _digest(conn) != before
+
+
+def test_the_command_prints_each_query_and_the_digest_and_writes_nothing(
+    conn: sqlite3.Connection, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn.close()
+    path = tmp_path / "results.db"
+    before = path.stat().st_mtime_ns
+    assert (
+        golden.main(["--db", str(path), "--snapshot", SNAP, "--period", PERIOD, "--immutable"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert all(f"{name}: " in out for name in golden.QUERIES)
+    assert "digest: " in out
+    assert path.stat().st_mtime_ns == before  # read-only: the file was not touched
+    assert not list(tmp_path.glob("results.db-*"))  # no -wal / -shm / -journal
