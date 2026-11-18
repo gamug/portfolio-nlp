@@ -410,19 +410,20 @@ def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
 ) -> None:
     """The interrupt is raised in the worker thread; the main thread must see it and cancel the queue before the single worker takes the next
     article. That race decided this test on a slow runner (it failed on three unrelated PRs with ``6 <= 3``, ``5 <= 3``), so the order is forced:
-    every call after the interrupt waits until the pool has been told to cancel its queue, which makes the count exact, not a matter of speed."""
+    every call after the interrupt waits until the pool has been told to cancel its queue, which bounds the count by construction (at most 3 factory calls and 2 logged prompts), not by speed."""
     sample, items = _sample_cells(["c|2"], 10)
     run = _start_sample(conn, sample)
     log: list[str] = []
     made = {"n": 0}
     queue_cancelled = threading.Event()
+    gave_up = threading.Event()
 
     class CancellingPool(cj.ThreadPoolExecutor):
         def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
-            super().shutdown(
-                wait=False, cancel_futures=cancel_futures
-            )  # the queued articles are cancelled now
-            queue_cancelled.set()  # only then may a call that already started go on
+            # the queued articles are cancelled now, as the caller asked
+            super().shutdown(wait=False, cancel_futures=cancel_futures)
+            # only then may a call that already started go on
+            queue_cancelled.set()
             super().shutdown(wait=wait)
 
     class Agent:
@@ -434,17 +435,20 @@ def test_an_interrupt_cancels_the_queue_instead_of_paying_for_it(
         made["n"] += 1
         if made["n"] == 2:
             raise KeyboardInterrupt
-        if made["n"] > 2:
-            assert queue_cancelled.wait(timeout=30), "the main thread never cancelled the queue"
+        # a regression that never cancels must fail in seconds, not hold the worker for every queued article
+        if made["n"] > 2 and not gave_up.is_set() and not queue_cancelled.wait(timeout=5):
+            gave_up.set()
         return Agent()
 
     monkeypatch.setattr(cj, "ThreadPoolExecutor", CancellingPool)
     with pytest.raises(KeyboardInterrupt):
         cj.judge_and_record(conn, run, items, agent_factory=factory, max_calls=100, max_workers=1)
-    assert (
-        made["n"] <= 3
-    )  # the article that raised, and at most the one already started: never the other 8
-    assert len(log) <= 3  # not the 20: the queued articles were cancelled, never sent
+    # the pool was told to cancel its queue; a missing shutdown would only fail inside the worker thread, where nothing reports it
+    assert queue_cancelled.is_set()
+    # the article that raised (call 2) and at most the one the worker had already taken (call 3): never the other 8
+    assert made["n"] <= 3
+    # article 1, and at most article 3 after the cancel: a queued article that got through would make it 3
+    assert len(log) <= 2
 
 
 def test_items_go_out_round_robin_so_a_stop_leaves_every_group_covered() -> None:
