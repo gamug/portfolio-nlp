@@ -21,14 +21,14 @@ component; every rule below assumes the stack actually pinned in
 2. **ML/NLP core**: PyTorch (`torch>=2.4,<2.7`, pinned to the `cu124` wheel
    index so `uv sync` reproduces the same GPU build) + Hugging Face
    `transformers`/`datasets`/`accelerate`/`evaluate`/`seqeval`/`huggingface_hub`.
-   Chosen for GPU/CPU portability (`pipeline.py`'s `DEVICE` falls back to CPU
+   Chosen for GPU/CPU portability (each step falls back to CPU
    automatically) and because all four models it runs
    (`ProsusAI/finbert`, `gamug/sec-bert-finer-ord-ner`,
    `MoritzLaurer/deberta-v3-base-zeroshot-v2.0`,
    `sshleifer/distilbart-cnn-12-6`) are published as `transformers`
    checkpoints — swapping frameworks would mean re-hosting every model.
 3. **Web/service layer**: FastAPI (`==0.141.1`) + `uvicorn[standard]` for
-   `apps/news_nlp_api.py`; `httpx[http2]` for outbound calls; `pydantic>=2.0`
+   `apps/pipeline_api.py`; `httpx[http2]` for outbound calls; `pydantic>=2.0`
    for request/response models. Pin exact versions for FastAPI/uvicorn/ruff
    (reproducible CI); range-pin libraries that are additive/stable
    (`pydantic`, `numpy`, `tqdm`).
@@ -54,10 +54,11 @@ component; every rule below assumes the stack actually pinned in
 ## Project structure
 
 1. **`src/` is flat, plus one local package.** Pipeline stages and utilities
-   are single files directly under `src/` (`pipeline.py`, `chunking.py`,
-   `setup.py`, `train_ner.py`); `news_nlp/` is the one local package (the
-   vendored DB layer: connection, schema, queries, corrections, taxonomy,
-   `sector_summary`, plus `news_nlp/eval/` for LLM-as-judge evaluation). A
+   are single files directly under `src/` (`chunking.py`, `setup.py`,
+   `train_ner.py`, the `news_*_stage.py` of the steps); `news_nlp/` is the one local package (the
+   vendored DB layer: connection, schema, queries (kept for the v1 classes the
+   revisions hash), taxonomy, plus `news_nlp/eval/`: the eval store, the MLflow
+   tracking and the blind step-7 judge). A
    new package needs the same justification `news_nlp/` has — a genuinely
    self-contained subsystem with its own submodules — not just "this file is
    getting long."
@@ -70,7 +71,7 @@ component; every rule below assumes the stack actually pinned in
    `tests/news_nlp/conftest.py`'s hermetic fixtures (a minimal `articles`
    table, two-tier SOURCE/RESULTS fixtures, every model load monkeypatched).
    `pytest.ini`'s `pythonpath = src .` is what makes both `import news_nlp`
-   and `import apps.news_nlp_api` work in tests — don't add `sys.path` hacks
+   and `import apps.pipeline_api` work in tests — don't add `sys.path` hacks
    inside test files to route around it.
 4. **Docs live under `docs/`**, one topic per file (`db-topology.md`,
    `category-taxonomy.md`, `modules/news-nlp.md`, migration notes named by
@@ -89,9 +90,9 @@ component; every rule below assumes the stack actually pinned in
    `HF_TOKEN` (Hub downloads rate limit; write scope for
    `scripts/publish_*.py`); `.env.example` is the committed template —
    keep it in sync with every env var a new feature reads. `.env` is
-   loaded by the entrypoint, never by a library module: `pipeline.py`
-   calls `load_dotenv()` at import (so everything that imports it is
-   covered), `news_nlp.eval.config.EvalSettings.load` loads it for the
+   loaded by the entrypoint, never by a library module: `cli/news_nlp_steps.py`
+   and `apps/pipeline_api.py` call `news_nlp.env.load_env_file()` (so everything
+   that runs through them is covered), `news_nlp.eval.config.EvalSettings.load` loads it for the
    evaluation CLIs (it takes an `env_file` argument), and a script that
    does neither calls `news_nlp.env.load_env_file()` first thing in
    `main` (the shell wins over the file). Don't add another loader;
@@ -99,9 +100,8 @@ component; every rule below assumes the stack actually pinned in
    that reaches the databases without one.
 7. **Naming**: modules and functions describe the pipeline stage or DB
    concern they implement — match the stage/table pairing (sentiment ->
-   `article_sentiment`, NER -> `article_entities`, category ->
-   `article_category`, summarization -> `article_summary`/
-   `sector_summary`) rather than inventing a new term for the same concept.
+   `news_sentiment`, companies -> `news_company`, category ->
+   `news_category`, summarization -> `news_summary`) rather than inventing a new term for the same concept.
 
 ## AI behavior
 
@@ -112,8 +112,8 @@ component; every rule below assumes the stack actually pinned in
    category/`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`,
    summarization/`sshleifer/distilbart-cnn-12-6`, opt-in) each use exactly
    the checkpoint listed above — no dynamic model selection. Swapping a
-   model is a spec-level change — it needs an eval run (`news_nlp.eval`) comparing
-   against the current baseline before it replaces the pinned checkpoint.
+   model is a spec-level change — it needs a measure (a gold-set measure or an LLM-as-judge run) comparing
+   it against the current baseline before it replaces the pinned checkpoint.
    **Exception, category step (owner, 2026-11-15; amendment 2.13.0).** The category step (`--step category`, step 7 of the
    stepped pipeline) runs `category-entailment-single-12`, the fine-tune pinned in `config/category_step.json` (folder identity
    checked; `docs/category_step.md`), not the checkpoint listed above, which the v1 category stage keeps. The owner pinned it as
@@ -135,16 +135,17 @@ component; every rule below assumes the stack actually pinned in
 4. **Outputs are decision-support, not authoritative claims.** Sentiment,
    entity, category, and summary outputs are model predictions over
    third-party news text — nothing in the pipeline or API should present
-   them as verified fact, financial advice, or ground truth. Corrections
-   (`news_nlp.corrections`) exist precisely because model output is
-   expected to need human override.
-5. **Accuracy claims are backed by `news_nlp.eval`, not spot-checks.** A
-   change asserted to "improve" a stage must cite an LLM-as-judge eval run
-   (tracked in MLflow) against the recorded baseline
-   (`docs/evaluation.md`), not a handful of manually inspected examples.
+   them as verified fact, financial advice, or ground truth. Model output is
+   expected to need human override; corrections are decided and made by
+   the owner.
+5. **Accuracy claims are backed by a measure against a reference, not spot-checks.** A
+   change asserted to "improve" a stage must cite either the owner's gold-set
+   measure (`docs/gold_datasets.md`) or an LLM-as-judge run tracked in MLflow
+   against the recorded baseline, not a handful of manually inspected examples.
+   A stage with no judge is evaluated against the gold sets.
 
 *Exception (owner, 2026-11-15, T-206): the summary step (step 2) of the stepped pipeline.* Its summariser is DeepSeek through an OpenAI-compatible API (`SUMMARY_LLM_*`
-of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain is unchanged). Against 1: the
+of `.env`, falling back to `LLM_*`), not the pinned checkpoint, and it is the default of `--step summary` (`--summariser local` keeps the pinned one; the v1 chain's code was removed by T-220, but `summary_stage`, `ner_stage` and `chunking` stay byte-identical, because the v2 revisions hash them). Against 1: the
 model is chosen by name in `.env` and recorded per row (`news_summary_call`), and the revision follows the prompt and the model name. Against 2: the call is remote and
 its text is not repeatable at temperature 0 (measured: 30 articles twice, none identical), so the revision promises its rows, not its words; there is no CUDA path to
 break. Against 5: the evaluation runs **after** the corpus run (`docs/summary_step.md`), graded by a model that is not the summariser (checked by name from `news_summary_call`). The article text leaves the machine (accepted), and an article can carry instructions to the model (the summary is what the next steps read: a known limit, AI #4).
@@ -208,9 +209,8 @@ No other stage may use this exception.
     (sentiment's `positive`/`negative`/`neutral`, category's slugs, NER's
     entity types): precision, recall, F1, and one-vs-rest accuracy
     (`accuracy_ovr_<class>` — "is this class or not," collapsing every other
-    class into a single negative; same formula/naming as
-    `news_nlp.eval.metrics.aggregate_category`'s `accuracy_ovr_<slug>`, kept
-    consistent across every stage rather than invented fresh per stage).
+    class into a single negative; the same formula and
+    naming for every stage rather than invented fresh per stage).
     Report `accuracy_ovr` alongside precision/recall, never as a
     replacement for them — it skews high for a rare/imbalanced class
     (dominated by true negatives) and reads as good news on its own. Overall
@@ -223,9 +223,8 @@ No other stage may use this exception.
     older numbers were already published — a metric missing for one
     candidate but present for another is worth recomputing, not leaving as
     a blank cell. `train_sentiment.py`'s `make_compute_metrics()` is the
-    reference implementation for sentiment; `news_nlp.eval.metrics`'s
-    `aggregate_category`/`aggregate_ner` already follow this shape for
-    their stages.
+    only implementation of this metric set today (the offline one); no other
+    file computes it.
 
     This applies to **both** evaluation methodologies this project uses, not
     just the offline one — each has its own "complete set," not a shared
@@ -233,18 +232,18 @@ No other stage may use this exception.
     - **Offline, held-out-labels eval** (`train_sentiment.py` and any
       future training script): per class, precision/recall/F1/
       `accuracy_ovr`; overall, accuracy and macro F1.
-    - **Downstream, LLM-judge eval against real traffic**
-      (`news_nlp.eval.metrics.aggregate_sentiment`/`aggregate_category`/
-      `aggregate_ner`): per class, precision/recall/F1/`accuracy_ovr` (HT-
-      reweighted — the `_naive_pooled` variants exist for diagnostics, not
-      as the headline); overall, `agreement_rate` (or the stage's own
-      accuracy-equivalent), `macro_f1_vs_judge`, and `mean_severity` where
-      the stage's judge produces one. A run recorded before a metric
-      existed (an `eval_run` row from before `accuracy_ovr` was added, say)
-      can be recomputed from its own stored `eval_judgement` rows through
-      the current `aggregate_*` function — no new judge calls needed — the
-      same "recompute, don't leave a blank cell" rule as above, and cheaper
-      here than for the offline case.
+    - **Downstream, LLM-judge eval against real traffic**: per class,
+      precision/recall/F1/`accuracy_ovr` weighted by the sampling strata
+      (Horvitz-Thompson), never the naive pooled count as the headline;
+      overall, the agreement rate (or the stage's own accuracy-equivalent),
+      the macro F1 against the judge, and the mean severity where the
+      stage's judge produces one. **No code computes this today** (the
+      module that did was removed by T-220 PR B; the blind step-7 judge,
+      `news_nlp/eval/step_category.py`, records verdicts and no metric set);
+      T-222 rebuilds it. A run recorded before a metric existed can be
+      recomputed from its own stored verdicts (`eval_verdict`) with no new
+      judge calls — the same "recompute, don't leave a blank cell" rule as
+      above.
 13. **Reporting a tested model's results anywhere — a PR/commit description,
     a chat summary, a docs follow-up — shows the complete metric set #12
     requires, for every model/candidate actually run, not a hand-picked
@@ -321,9 +320,6 @@ uv sync --group notebook                    # + pandas/openpyxl/ipykernel for sc
 uv run python -m setup                      # pre-download the four HF models
 
 uv run apps/pipeline_api.py                 # the pipeline API (T-219) -> :8003/docs
-uv run apps/news_nlp_api.py                 # the v1 FastAPI service -> :8003/docs (T-220 removes it)
-uv run cli/news_nlp_cli.py --limit 50       # batch pipeline; needs SOURCE_DATABASE_URL
-uv run cli/news_nlp_eval.py --stage all --sample-size 80   # needs LLM_API_KEY/LLM_MODEL/LLM_URL
 uv run mlflow ui                            # browse eval runs
 
 uv run pytest                               # full hermetic suite (no network/GPU)
@@ -340,8 +336,7 @@ uv run pre-commit run --all-files           # all of the above hooks, plus hygie
    `uv sync --group dev --group eval` → ruff check → ruff format --check →
    mypy → `pytest -q`. Run the same four checks locally before opening a
    PR; don't rely on CI to catch a lint/type/test failure first.
-2. **`eval.yml` is a separate, non-blocking workflow** for the real
-   LLM-as-judge run — it is not part of the merge gate for ordinary PRs.
+2. **No workflow runs the real LLM-as-judge** (`eval.yml` was removed by T-220 PR B); the step-7 judge is run by hand and is not part of the merge gate.
 3. **Don't hardcode a different Python/uv invocation** (bare `python`,
    `pip install`, `pytest` without `uv run`) in scripts, docs, or CI — every
    command goes through `uv run` so it resolves the locked environment.
@@ -438,4 +433,4 @@ Compliance is expected to be checked the same way lint/type/test gates
 are — a reviewer (human or agent) rejecting a PR that violates a principle
 above should cite the section by name.
 
-**Version**: 2.13.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-15
+**Version**: 3.0.0 | **Ratified**: 2026-09-11 | **Last Amended**: 2026-11-18

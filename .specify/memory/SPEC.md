@@ -20,7 +20,7 @@ below rather than re-argued here.
 Requirement IDs (`FR-0xx` functional, `NR-0xx` non-functional) are stable —
 don't renumber an existing one, even if it's later superseded; mark it
 superseded in place instead. Reference them in commits/PRs/tests
-(`test_two_tier.py::test_source_readonly  # FR-007`) so a reviewer can trace
+(`test_db.py::test_distinct_paths_attach_source_read_only  # FR-007`) so a reviewer can trace
 implementation back to requirement and requirement back to test.
 
 ---
@@ -86,25 +86,26 @@ or time into portfolio-level signals (`financial-analysis` and
 
 | ID | Requirement | Acceptance criteria |
 |---|---|---|
-| **FR-001** | The v1 sentiment stage (`gamug/FinBERT-financial-news`, chunk-level, entity-scoped; one `article_sentiment` row per article): the full text is in `archive/PIPELINE-superseded-2026-11-10.md`. **Superseded for the new pipeline (D39, FR-020)** except for `sector` summaries (D39 (iv)): a step of `news_nlp_steps.py`, revision in `pipeline_step_state`, rows `sentiment_checked = false` until T-170 adds sector texts. | After a pipeline run, every article with SOURCE text has an `article_sentiment` row with `label ∈ {positive, negative, neutral}`, `score`/`positive`/`negative`/`neutral` ∈ `[0, 1]`, and `model_name`/`processed_at` populated. |
-| **FR-002** | The NER stage runs `gamug/sec-bert-finer-ord-ner`, merges BIO-tagged sub-token predictions **word-boundary aware**, and writes one `article_entities` row per detected span with a char offset and confidence. | No emitted span starts or ends mid-word (regression test for the fixed "3"-as-`ORG` subword-fragmentation bug, `82c5e6a`); every row has `entity_type ∈ {PER, LOC, ORG}`, valid `start_char < end_char` into the source text, and a `score`. |
-| **FR-003** | The category stage classifies each article via two-level hierarchical zero-shot NLI (`MoritzLaurer/deberta-v3-base-zeroshot-v2.0`) against the fixed taxonomy in `news_nlp.taxonomy` (3 groups → 9 leaf labels + `other`), on the title + lead chunk only, and writes one `article_category` row. | `label` is one of the 9 taxonomy slugs or `other`; `group_label`/`group_score` are populated even when `label = other`; all 9 raw NLI distribution columns are populated (audit trail for threshold retuning); `label = other` iff the winning slug's score is below `CATEGORY_CONFIDENCE_THRESHOLD`. |
-| **FR-004** | The v1 `c_summary` stage (opt-in `--summarize`, `sshleifer/distilbart-cnn-12-6`, gated on a sentiment row and an entity > 0.8; writes `article_summary`): the full text is in `archive/PIPELINE-superseded-2026-11-10.md`. **Superseded for the new pipeline (D39, D40, FR-020):** a summary per item over the size, no entity gate. | A normal (non-`--summarize`) pipeline run leaves `article_summary` untouched; an article failing the gate never gets a row even under `--summarize`; `num_chunks ≥ 1`. |
-| **FR-005** | The `sector_summary` stage (opt-in) composes one row per `(gics_sector, gics_sub_industry, week_start)` for each **closed** calendar week, deterministically concatenating member companies' `c_summary` text attributed by ticker. The stats-only intro sentence (`build_sector_intro_seed`) is itself fully deterministic as of 2026-09-14 (previously run through a model as a "paraphrase" step — dropped after that step was found to hallucinate on 42-50% of rows; see `docs/evaluation.md`'s 2026-09-14 follow-up) — the entire `sector_summary` stage is now non-generative, no model or GPU involved. | `build_sector_intro_seed`'s output never contains a ticker, company name, or summary text (unit-testable — cross-company blending is structurally impossible, not just avoided); `UNIQUE(gics_sector, gics_sub_industry, week_start)` holds; `facts_json` carries the structured (non-narrative) aggregate; `run_sector_summary_stage` never calls `AutoTokenizer`/`AutoModelForSeq2SeqLM.from_pretrained` (test-asserted). |
+| **FR-001** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 sentiment stage (`article_sentiment`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-002** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 NER stage (`article_entities`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-003** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 category stage, two-level zero-shot (`article_category`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-004** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 `c_summary` stage (`article_summary`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-005** | **Removed (owner, T-220 PR B, 2026-11-18):** the `sector_summary` stage. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |
 | **FR-007** | The pipeline reads article text from a read-only-ATTACHed SOURCE store and writes results (plus a lean `articles` row per touched article) to a separate RESULTS store; SOURCE is never written. | `db.require_source_text` raises before any model loads if SOURCE is unset or has no usable `body_text` (constitution: Security & Data #2); an attached SOURCE is checked read-only before any query (`db.check_schema`: `PRAGMA user_version` at least 3 and the columns read, never cached, `test_schema_guard.py  # FR-007`; `POST /pipeline/run` answers 503 on a failure); a write attempt against schema `source` is not exercised by any code path (`grep` for `source\.` write statements returns none outside read paths). |
-| **FR-008** | A FastAPI service (`apps/news_nlp_api.py`, `:8003`) exposes pipeline trigger/status, article/category/entity/sentiment read + stats endpoints, `sector_summary` retrieval, the latest eval summary, and human-correction `PATCH`/`DELETE` endpoints for sentiment/entities/category — all working off the RESULTS store alone. | `GET /articles/{id}`, `/stats/*`, `/sectors/summary`, `/eval/latest` all return `200` with only `$DATABASE_URL` configured (no `$SOURCE_DATABASE_URL`) once a pipeline run has already populated RESULTS. |
-| **FR-009** | A human can correct a stage's output (`news_nlp.corrections`: `update_*`/`delete_*` for sentiment, entity, category) and that correction survives a subsequent pipeline run on the same article. | After `update_category` changes a label and a pipeline rerun completes, the row's `label` is unchanged (the article is no longer "pending" for that stage — `fetch_pending_category_articles` selects on row absence, not staleness); `delete_category` makes the article eligible for reprocessing again. |
-| **FR-010** | `news_nlp.eval` samples processed articles per stage, gets an LLM-as-judge verdict per sampled row, and records both an `eval_run` summary (aggregate metrics, MLflow run ID) and per-row `eval_judgement` rows. | `uv run cli/news_nlp_eval.py --stage <s> --sample-size N` completes without GPU or a labelled corpus, produces exactly one new `eval_run` row with `status = ok` and `metrics_json` populated, `N` (or fewer, if population is smaller) `eval_judgement` rows, and one MLflow run under `news_nlp_eval/<stage>`. |
-| **FR-011** | Every ML-based stage (sentiment, NER, category, `c_summary`) is built on a shared Feature/Train/Inference (FTI) class hierarchy (`src/fti.py`); a stage with no real training (category, `c_summary`) has a documented no-op `Train`. | One abstract base per FTI component, a concrete subclass of all three in each of the four stages; `run_pipeline`'s behavior is unchanged and the hermetic tests pass. Full text: `archive/SPEC-condensed-for-the-pipeline-api-2026-11-17.md`. |
-| **FR-012** | `sector_summary` (heuristic, deterministic, no model — FR-005) is fully decoupled from the FTI hierarchy in its own dedicated module, including the orchestration entrypoint itself (not just the composition/query helpers already under `news_nlp/sector_summary/` as of 2026-09-14), since it has no Feature/Train/Inference shape to share with the four ML stages. | `run_sector_summary_stage` (or its renamed equivalent) lives under `news_nlp/sector_summary/`, not `pipeline.py`; nothing in that module imports from the FR-011 FTI base classes; `pipeline.run_pipeline` calls into it the same way it calls the four FTI-based stages, so the external orchestration contract (FR-006) is unchanged. |
-| **FR-013** | A redesigned `news_nlp.eval` module reuses the FR-011 Inference classes for its own model-scoring step (sampling a real article, running the production (or a candidate) model over it) instead of duplicating model-loading/prediction logic independently, as the current `news_nlp/eval/` package's relationship to `pipeline.py` does today. | The eval module's inference step for a given stage calls the same `Inference` subclass `pipeline.py` uses for that stage (same class, parameterizable model/revision — not a re-implementation with its own `from_pretrained`/forward-pass code); a code-search for a second, independent `AutoModelFor*.from_pretrained` call site duplicating an FTI `Inference` class's own model-loading returns none inside `news_nlp/eval/`. |
+| **FR-008** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 FastAPI service (`apps/news_nlp_api.py`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-009** | **Removed (owner, T-220 PR B, 2026-11-18):** manual corrections of the v1 tables (`news_nlp.corrections`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-010** | **Removed (owner, T-220 PR B, 2026-11-18):** `news_nlp.eval` sampling, judging and metrics of the v1 stages. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-011** | **Superseded (owner, T-220 PR B, 2026-11-18).** The Feature/Train/Inference base classes stay in `src/fti.py`. They are used by the v1 NER and summary classes (`ner_stage.py`, `summary_stage.py`: kept because the step revisions hash them) and by the training scripts (`train_ner.py`, `train_sentiment.py`, `sentiment_pair_train.py`). The v2 steps (`news_*_stage.py`) are plain functions and do not use them. The earlier requirement (every ML stage on the hierarchy, a concrete subclass of all three in each of the four stages) is no longer true: the v1 sentiment and category stage modules were removed. | `tests/news_nlp/test_fti_base.py` passes. Full text of the earlier requirement: `archive/SPEC-PLAN-prose-removed-by-the-v1-removal-2026-11-18.md` (the row) and `archive/SPEC-condensed-for-the-pipeline-api-2026-11-17.md`. |
+| **FR-012** | **Removed (owner, T-220 PR B, 2026-11-18):** `sector_summary` decoupled from the FTI hierarchy. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-013** | **Removed (owner, T-220 PR B, 2026-11-18):** eval scoring of a candidate through the FTI Inference classes. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-014** | The evaluation schema separates a sampled row's **model inference** (the prediction being evaluated) from its **LLM-judge verdict** into two distinct tables, both carrying `article_id` (traceable back to the SOURCE `urls.db` article — FR-007), a `task` column (`sentiment` \| `category` \| `ner` \| `c_summary`, plus `category_truth`, the opt-in calibration judge of T-141, which is outside `--stage all` and `GET /eval/latest`), and an `experiment` column (a free-form label — `base`, `v2`, `v3`, `v4`, …) identifying which model/candidate produced the inference, so multiple experiments' judged data can coexist in the same store instead of requiring a separate scratch database per candidate. | Two tables exist where `eval_judgement` used to hold both concerns in one row; every row in both carries a non-null `article_id`, `task`, and `experiment`; a query for two different `experiment` values against the same `article_id`/`task` returns two independent rows, not a collision (unique constraint keyed on `(article_id, task, experiment, run_id)` or equivalent, not just `article_id`). |
-| **FR-015** | Before spending a judge LLM call on a sampled `(article_id, task, experiment)`, the eval module reuses the stored verdict only when the key **and** the candidate prediction are the same, so spend is not repeated, but a retrain into the same checkpoint path is never taken for the same judged thing (tightened 2026-09-19, T-109, §13 item 18). (Full text: `archive/SPEC-condensed-for-the-sentiment-step-2026-11-14.md`.) | The same `--stage <s> --run-name <experiment>` run twice on an unchanged sample makes zero new judge calls the second time (the judge client is never invoked for a key already stored); a new `article_id`, a different `experiment`, or an unchanged `experiment` whose prediction changed judges fresh, and a recorded verdict always matches its own run's prediction. |
+| **FR-015** | Before spending a judge LLM call on a sampled `(article_id, task, experiment)`, the eval module reuses the stored verdict only when the key **and** the candidate prediction are the same, so spend is not repeated, but a retrain into the same checkpoint path is never taken for the same judged thing (tightened 2026-09-19, T-109, §13 item 18). (Full text: `archive/SPEC-condensed-for-the-sentiment-step-2026-11-14.md`.) | `store.find_verdict_json` returns a stored verdict only when the key `(article_id, task, experiment)` **and** the candidate prediction match (`tests/news_nlp/test_eval_store.py::test_find_verdict_json_returns_the_matching_key_only` and `::test_find_verdict_json_ignores_a_stale_verdict_whose_prediction_changed`). The runner and the CLI that called it were removed by T-220 PR B, so no end-to-end repeat of a run exists until T-222 rebuilds one. |
 | **FR-016** | For sentiment and category only, the eval module persists each experiment's full confusion matrix (one row per `(experiment, task, true_label, predicted_label)` cell) in its own table and stores one-vs-rest precision, recall, F1 and per-class ROC/AUC beside `accuracy_ovr`; NER and `c_summary` keep their metric sets unchanged. (Full text: `archive/SPEC-condensed-for-the-sentiment-step-2026-11-14.md`.) | The confusion-matrix table is keyed by `experiment` and queryable apart from `metrics_json`; a completed sentiment or category `eval_run` stores `roc_auc_<class>` beside the other per-class metrics; the metric key sets of `aggregate_ner` and `aggregate_c_summary` are byte-identical to before (a regression test on the exact key set). |
-| **FR-017** | A single JSON file (`ExperimentSpec`, schema-validated) fully specifies one model experiment for any of the four ML stages and one command runs it end to end (train if requested, evaluate with `run_eval` unchanged, optionally publish); the config cannot describe an ambiguous or unreproducible run; `pretrain` is rejected for `c_summary` and for category (the category model of T-174 is trained by the owner's scripts, outside `ExperimentSpec`, PLAN D41). | `uv run cli/run_experiment.py --config <path>.json` reproduces a backfilled historical experiment; an invalid spec fails validation before any work, naming what is wrong; a spec exists for every real historical experiment with a runnable equivalent (two gaps named in `experiments/README.md`). Full text: `archive/archive/SPEC-TASKS-condensed-for-the-category-step-2026-11-13.md` § FR-017. |
-| **FR-018** | The production pipeline's model selection (name, commit SHA, batch size per ML stage) is schema-validated (`pipeline_config.PipelineModelsConfig`, `extra="forbid"`) and lives in one git-tracked file, `config/pipeline_models.json`, loaded by `pipeline.py` at import; not a literal, not overridable by a CLI flag or env var (constitution AI #1 unchanged: changing a model is an edit to this file in a reviewed PR). `sentiment` has no `batch_size`. | The constants of `pipeline.py` are monkeypatchable attributes equal to the JSON (regression-tested); an unknown key, a missing stage or a non-positive `batch_size` fails validation; a malformed file fails on `import pipeline`. The other pins are in their own `config/*.json`; the category step reads the `category` pin of this file. Full text: `archive/SPEC-condensed-for-the-period-fold-2026-11-16.md`. |
-| **FR-019** | For model selection and evaluation the metrics recorded, and used to choose between settings or models, are **Precision, Recall and ROC OVR** (the AUC of each class against the rest), per class (owner, 2026-11-09, `PLAN.md` D37). Accuracy is a description, not a selection metric. Built for the sentiment fine-tune's validation slice (`src/sentiment_pair_report.py`: per-class figures weighted by the draw's strata, the selection score as the macro mean of the nine, the paired gain with the gold's interval and verdict); the same metrics are already logged per class by `news_nlp.eval` for sentiment and category. |
+| **FR-017** | **Removed (owner, T-220 PR B, 2026-11-18):** the `ExperimentSpec` runner (`cli/run_experiment.py`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
+| **FR-018** | The production pipeline's model selection (name, commit SHA, batch size per ML stage) lives in one git-tracked file, `config/pipeline_models.json` (read by step 7 and by `python -m setup`; `pipeline_config.py` and `pipeline.py` were removed by T-220 PR B); not a literal, not overridable by a CLI flag or env var (constitution AI #1 unchanged: changing a model is an edit to this file in a reviewed PR). `sentiment` has no `batch_size`. | The file is read by step 7 and by `python -m setup` (the validation and the monkeypatchable constants of `pipeline.py` went with it, T-220 PR B). The other pins are in their own `config/*.json`; the category step reads the `category` pin of this file. Full text: `archive/SPEC-condensed-for-the-period-fold-2026-11-16.md`. |
+| **FR-014** to **FR-016** | *(T-220 PR B, 2026-11-18)* The eval **store** (the `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` tables and their keys), the MLflow tracking and the judge model stay. The **sampling and the stages** that wrote the v1 tasks (`sentiment`, `category`, `ner`, `c_summary`, `sector_summary`) were removed with the v1 tables; only the blind step-7 category judge runs (T-222 rebuilds the rest). Their rows stay readable. | n/a |
+| **FR-019** | For model selection and evaluation the metrics recorded, and used to choose between settings or models, are **Precision, Recall and ROC OVR** (the AUC of each class against the rest), per class (owner, 2026-11-09, `PLAN.md` D37). Accuracy is a description, not a selection metric. Built for the sentiment fine-tune's validation slice (`src/sentiment_pair_report.py`: per-class figures weighted by the draw's strata, the selection score as the macro mean of the nine, the paired gain with the gold's interval and verdict); the same metrics were logged per class by `news_nlp.eval` for sentiment and category (removed by T-220 PR B; the runs stay in `eval_*` and MLflow). |
 
 | **FR-020** | **The pipeline (owner, 2026-11-10, PLAN D39 and D40), built in separate steps, Build 1 first.** **Build 1:** (1) scope of each unique body (`single`, `multi`, `sector`, `out_of_scope`; the last stops) and the sub-news of a `multi` one; (2) summary over 2,000 characters, shorter ones used as they are (`docs/summary_step.md`), DeepSeek (D44); (3) NER and relevance: tickers over a threshold are main (`news_company`, `is_main`), the rest mentions, none over it the review list; (4) the sector of a `sector` body (`body_sector`; `docs/sector_step.md`). **Build 2:** sentiment (FR-023), then category (FR-022). **Build 3:** snapshots and the period summary (FR-024). Each step has its own table. | Each step reads the stored result of the previous one and writes its own table; each step gives one row per item for fixed inputs; a single body or sub-news over the size has a `news_summary` row (`summary` or `original`); the main ticker is stored with its relevance score (`is_main`); a `sector` body has one `body_sector` row per revision; the D24 bar is open (T-167); the scope classifier meets the T-147 bar before step 1 is accepted. |
 | **FR-021** | **Conditions of the pipeline (D39).** The advance of a run is tracked; every step is idempotent; steps are run one command each, with a limit, never 1 to 7 in one pass. | A status command (`cli/news_nlp_steps.py --status`, a query on `pipeline_step_state`) reports pending, done, failed, skipped and review per step and item (`review` is neither done nor failed, T-172); a new model revision adds a row and the latest is read; running a step twice on unchanged input adds and changes no row; no command runs all steps (tested); a step stopped halfway resumes without redoing finished items; a failed item is retried by the next run and keeps its reason (`Type: message`); a run stops when failures repeat (steps 1 and 2, the sector and the companies: 3 batches in a row, the cut: 10 bodies in a row); step 2 reads the sub-news of a cut named with `--cut-revision`, and `--sector-revision` for the sector bodies, never the latest, and refuses an option it does not read; the cut marks a body with no company text `skipped` ("no company text"), which is not retried at that revision; `--status` of a step with several revisions shows the latest and lists the others (tests in `test_steps.py`, `test_cut.py`, `test_summary_step.py`, `test_sector_step.py`); the cut reads a body as `units5` unless `--reading units4` or `--reading units` is given (T-177), prints its reading and revision before it starts, and the reading is the start of its revision (a test asserts the default, the start line and the distinct revisions). |
@@ -121,7 +122,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **NR-002** | Every stage produces *correct* output on CPU, not just on GPU (`DEVICE` falls back to CPU when CUDA is unavailable). | `uv run pytest` (hermetic, monkeypatched models, no GPU) is green on a CPU-only CI runner — the actual gate today; a slower non-hermetic full-model CPU smoke run is out of scope for CI. |
 | **NR-003** | The test suite requires no network access and no GPU. | `.github/workflows/ci.yml`'s `pytest -q` job passes on `ubuntu-latest` with no GPU and no outbound calls beyond `uv sync`. |
 | **NR-004** | Chunking must handle articles far past a model's token limit (observed up to ~13K words) without silent truncation. | A synthetic long-body fixture (well past 512 tokens) processes through sentiment/NER/category with `chunking.py` producing sentence-boundary-packed chunks and no unrecorded truncation. |
-| **NR-005** | Heavy/optional dependencies (`strands-agents`, `mlflow`) never load unless the caller actually invokes evaluation. | `import pipeline` / `import apps.news_nlp_api` succeeds in an environment with only the base `[project]` dependencies installed (no `eval` group) — `news_nlp.eval.run_eval` is imported lazily. |
+| **NR-005** | Heavy/optional dependencies (`strands-agents`, `mlflow`) never load unless the caller actually invokes evaluation. | `import apps.pipeline_api` succeeds in an environment with only the base `[project]` dependencies installed (no `eval` group): `strands` and `mlflow` are imported only by `news_nlp/eval/` (`tracking.py`, `model.py`), which no step or API module imports. **No test checks this today** (CI installs the `eval` group), so it is not verified; a check belongs with T-222. |
 | **NR-006** | A DB-engine change (away from SQLite) must not require touching this repo's stage/query logic — only a `portfolio-common` version bump. | `grep -rn "import sqlite3" src apps cli` returns nothing; every engine-specific SQL fragment goes through `conn.dialect` / `portfolio_common.db` helpers. |
 | **NR-007** | `tests/` is covered by the same static-type gate as `src`/`apps`/`cli` — a test asserting against the wrong connection type is caught by `mypy`, not left to a hermetic test happening to still pass at runtime despite the wrong declared type. | `uv run mypy --config-file=.code_quality/mypy.ini` (the project's own documented command, no path argument) reports zero errors with `tests` added to `.code_quality/mypy.ini`'s `files` setting; `scripts/` stays deliberately out of scope (one-shot historical scripts, `CLAUDE.md`'s own `scripts/` convention). |
 
@@ -145,7 +146,7 @@ Architecture decisions this repo has already made and should not be
 re-litigated without a constitution amendment:
 
 - **The DB layer is vendored, not a dependency.** `src/news_nlp/` owns
-  schema/queries/corrections/taxonomy directly; `portfolio_common` supplies
+  schema/queries/taxonomy directly; `portfolio_common` supplies
   only the engine-agnostic `Database`/`Dialect`/`Allowlist` primitives
   underneath it. (History: this code moved out to `portfolio_common.news_nlp`
   and back once already — see `docs/legacy/portfolio-common-v1-migration-plan.md`.)
@@ -153,20 +154,10 @@ re-litigated without a constitution amendment:
   full corpus, has `body_text`) and RESULTS (`nlp.db`, a lean serving store)
   stay physically separate by design (constitution: Architecture #3) — not a
   migration debt to collapse.
-- **Stage stack is a fixed pipeline, not a DAG/orchestrator.** Five stages
-  run in a fixed order (`run_pipeline`, `src/pipeline.py`) inside one
-  process; no task queue, no distributed execution. Justified by corpus
+- **Stage stack is a fixed pipeline, not a DAG/orchestrator.** The steps run one command each, in a fixed order (`cli/news_nlp_steps.py`, FR-020, FR-025); no task queue, no distributed execution. Justified by corpus
   scale and the "one model resident at a time" VRAM constraint (NR-001).
 
-**Pending architecture decision (§13 item 15, FR-011–FR-013, not yet
-built)**: the four ML stages currently ship as independent sets of
-module-level functions in `pipeline.py`, never designed against a stated
-pattern. `PLAN.md` Work item 10 formalizes a shared Feature/Train/Inference
-(FTI) class hierarchy across all four — an internal restructuring, not a
-change to the fixed-pipeline/single-process decision above, which stays as
-stated. `sector_summary` is explicitly excluded from this hierarchy (it has
-no Feature/Train/Inference shape — FR-012) and moves fully into its own
-module instead.
+**The FTI hierarchy (FR-011, built).** `src/fti.py` holds the Feature/Train/Inference base classes. The v1 stage modules and `pipeline.py` that used them were removed by T-220 PR B, except the classes inside `ner_stage.py` and `summary_stage.py` that the step revisions hash. The `sector_summary` module of FR-012 was removed with the stage.
 
 ## 4. System Architecture
 
@@ -188,36 +179,21 @@ flowchart TB
     RUN[("run state<br/>pending · done · failed")] -.- S1
 ```
 
-**The code of today (v1)**, until the backfill (T-150): `run_pipeline` runs sentiment, NER and category over every article in one
-process; its diagram and reading are in `archive/PIPELINE-superseded-2026-11-10.md` (section 4).
+**The v1 chain** (`run_pipeline`: sentiment, NER, category in one process) was removed by T-220 PR B; its diagram and reading are in `archive/PIPELINE-superseded-2026-11-10.md` (section 4).
 
 ## 5. Data Model
 
-Canonical DDL: `src/news_nlp/schema.py` (`build_schema`). All five result
-tables key off `article_id INTEGER REFERENCES articles(id)`; `articles`
+Canonical DDL: `src/news_nlp/schema.py` (`build_schema`). The five v1 result
+tables key off `article_id INTEGER REFERENCES articles(id)` (dropped by T-220 PR C; the stepped pipeline's tables are listed below); `articles`
 itself is **not** created by this repo (SOURCE owns the full row with
 `body_text`; RESULTS holds a lean, `body_text`-free subset populated
 row-by-row on first result write for that article).
 
 ### SOURCE `articles` schema contract
 
-What each stage actually reads from SOURCE, and what `require_source_text`
-does (and does not) verify before a run — pulled from
-`src/news_nlp/sector_summary/queries.py` and `news_nlp.db`, not assumed:
+`require_source_text` verifies `articles.body_text` before a run (the run aborts if the column is absent or every row is blank, FR-007). The steps read what they need from SOURCE as their own docs say (`docs/*_step.md`); the table of what the v1 `sector_summary` read (`ticker`, `company`, `gics_*`, `pub_date`, `fetched_at`) was removed with the stage.
 
-| Column | Read by | Checked by `require_source_text`? | Behavior if missing/NULL |
-|---|---|---|---|
-| `id` | every stage (join/FK target) | implicitly (primary key) | — |
-| `body_text` | stages 1–4 (sentiment/NER/category/`c_summary`) | ✅ yes — the run aborts if the column is absent or every row is empty/blank (FR-007) | pipeline never starts |
-| `ticker`, `company` | stage 5 (`sector_summary`, per-company attribution) | ❌ no | attribution text for that company is whatever the column holds, including `NULL` |
-| `gics_sector`, `gics_sub_industry` | stage 5 (buckets articles into `(sector, sub_industry, week)` groups) | ❌ no | a row with either `NULL` is **silently excluded** from every `sector_summary` bucket (`WHERE a.gics_sector IS NOT NULL AND a.gics_sub_industry IS NOT NULL`) — no error, no log line |
-| `pub_date` | stage 5 (week-bucketing key) | ❌ no | falls back to `fetched_at` when `NULL` (`COALESCE(a.pub_date, a.fetched_at)`) — not a hard requirement |
-| `fetched_at` | stage 5 (fallback only) | ❌ no | only consulted when `pub_date` is `NULL` |
-
-**Only `body_text` is a validated contract.** Everything `sector_summary`
-depends on is assumed, not checked — a SOURCE missing `gics_sector`/
-`gics_sub_industry` doesn't fail the run, it just quietly produces a smaller
-(or empty) `sector_summary` for that period (§13, open question 3).
+**Rows for `article_sentiment`, `article_entities` (and its target columns), `article_category`, `article_summary`, `sector_summary` and `eval_judgement` describe tables that T-220 PR C drops; they stay here until it runs.**
 
 | Table | Key | Notable columns | Written by |
 |---|---|---|---|
@@ -269,64 +245,20 @@ knows the two-table `eval_run`/`eval_judgement` shape above is the
 
 ## 6. Core Workflows
 
-**Batch pipeline run, target (D39, FR-020/FR-021):** one command per step (`cli/news_nlp_steps.py`: `--step`, `--limit`, `--status`; the v1 CLI is not changed); a step opens RESULTS and
+**Batch pipeline run, target (D39, FR-020/FR-021):** one command per step (`cli/news_nlp_steps.py`: `--step`, `--limit`, `--status`; the v1 CLI was removed by T-220 PR B); a step opens RESULTS and
 attaches SOURCE read-only, takes the items with no row of its own for the pinned model revisions, writes them and records
-their state; a rerun redoes nothing; no command runs every step. **Code of today (v1)** (`cli/news_nlp_cli.py` ->
-`pipeline.run_pipeline`: sentiment, NER, category, then optional summaries, in one process): the steps are in
-`archive/PIPELINE-superseded-2026-11-10.md` (section 6) until the backfill (T-150).
+their state; a rerun redoes nothing; no command runs every step.
 
-**Serving/query** (FastAPI, no SOURCE needed): a request opens a RESULTS-only
-connection (`db.connect`, no `ATTACH`), reads/writes the result tables
-directly. `POST /pipeline/run` kicks off an async pipeline run and
-`GET /pipeline/status` polls an in-process progress tracker (not persisted
-across process restarts).
-
-**Human correction**: a caller `PATCH`es a sentiment/entity/category
-endpoint → `news_nlp.corrections.update_*` (Allowlist-checked field names,
-`processed_at` refreshed) or `DELETE`s it → the article becomes "pending"
-again for that stage's next pipeline run (FR-009).
-
-**Accuracy evaluation** (`cli/news_nlp_eval.py`, separate from the batch
-pipeline, needs `$LLM_API_KEY`/`$LLM_MODEL`/`$LLM_URL`): sample
-already-processed rows per stage (stratified — a low-confidence bucket plus
-a representative random bucket, see `docs/evaluation.md`), send each to the
-judge LLM, record `eval_run`/`eval_judgement`, log to MLflow.
-`--check-regression` compares against a prior run's `metrics_json` and can
-fail the invocation (used as a manual/scheduled gate, not part of `ci.yml`).
+**Serving and the pipeline API:** `apps/pipeline_api.py` (FR-025) runs each step, the whole pipeline and the stage models; the v1 serving, correction and evaluation workflows (the query endpoints, `corrections`, `cli/news_nlp_eval.py`) were removed by T-220 PR B.
 
 ## 7. Business Logic & Algorithms
 
-- **Sentiment**: FinBERT scored per chunk, aggregated as a token-weighted
-  average across the *entire* `body_text` (not just a lead chunk) — a
-  deliberate choice, unlike category (see below); the judge is scoped the
-  same way as of the 2026-09-08 fix (`docs/evaluation.md`).
+- **Sentiment** (the steps): the pair model and the relevance stack of `docs/sentiment_step.md` (FR-023).
 - **NER**: BIO-tag merge is **word-boundary aware**
   (`merge_bio_predictions`, fixed `82c5e6a`) — sub-token predictions are
   merged only within a single source word, so a numeral or partial token
   can no longer be emitted as a standalone entity.
-- **Category**: two-level hierarchical zero-shot NLI — level 1 scores 3
-  group hypotheses, level 2 scores only the leaf labels under the article's
-  top-2 groups (6 of 9 candidates, not all 9) against
-  `CATEGORY_PREMISE_MAX_TOKENS`-bounded title+lead-chunk premises. Chosen
-  over a flat 9-way pass because it raised true-positive recall on
-  under-served labels (`product_innovation`,
-  `partnerships_business_dev`, `leadership_governance`) at an accepted cost
-  in false-`other` reduction — see the calibration trade-off recorded in
-  `news_nlp/taxonomy.py` and `docs/legacy/category-taxonomy-v1.md`.
-- **`c_summary` gating**: only articles with a sentiment row **and** an
-  entity scoring `> 0.8` are summarized — a deliberate precision-over-recall
-  filter (constitution: AI behavior #4, "decision-support not authoritative
-  claims" — don't summarize what the pipeline itself is unsure contains a
-  notable entity).
-- **`sector_summary` composition is fully deterministic, not generative**
-  (as of 2026-09-14 — previously true for everything except one intro
-  sentence): `build_sector_facts` aggregates structured stats
-  (`facts_json`); member companies' `c_summary` text is copied verbatim
-  and ticker-attributed; `build_sector_intro_seed`'s own templated
-  sentence, built purely from aggregate statistics, IS `intro_text` —
-  no ticker, company name, or summary text ever reaches it, and no model
-  call happens at all, making cross-company blending structurally
-  impossible rather than merely policy (FR-005).
+- **Category** (the steps): the entailment model of step 7 over 12 labels (FR-022); the two-level zero-shot of v1 is in `docs/legacy/category-taxonomy-v1.md`.
 - **Self-healing schema drift**: `sector_summary.format_version`,
   `eval_run.strata_json`'s additive migration, and `article_category`'s
   `group_label`/`group_score` additive migration all follow the same
@@ -348,13 +280,7 @@ Governing principle: **fail loudly, never swallow silently**
   caught immediately, not after minutes of model loading.
 - No stage function catches and discards a model-inference exception to
   "keep the batch going" — a failure aborts the run rather than silently
-  producing an incomplete or wrong result set. (There is currently no
-  per-article try/except-and-skip in `pipeline.py`; a single malformed row
-  failing a stage fails the whole run — see §13 for whether that's the
-  right trade-off at scale.)
-- `news_nlp.corrections`' `Allowlist.check()` raises `ValueError` on any
-  field name outside a function's explicit allowed set — a caller cannot
-  silently no-op or corrupt an unrelated column via a typo'd field name.
+  producing an incomplete or wrong result set. (The steps record a failed item in `pipeline_step_state` and go on with the rest, FR-021; the v1 `pipeline.py` that aborted on one bad row was removed by T-220 PR B.)
 - `eval_run.status` is an explicit `running`/`ok`/`error` state machine with
   an `error` text column — an evaluation run that fails records *why*, it
   doesn't just vanish or leave a half-populated row masquerading as `ok`.
@@ -397,12 +323,7 @@ plainly that none exists (§14).
   builds a minimal `articles` table plus two-tier SOURCE/RESULTS fixtures;
   every model load is monkeypatched. No network, no GPU, no real HF
   download in `uv run pytest`.
-- **Coverage mapping**: `test_schema.py`/`test_db.py`/`test_corrections.py`/
-  `test_queries.py`/`test_sector_summary.py`/`test_env.py` are the vendored
-  `news_nlp` package's own unit tests (FR-006/007/009); `test_two_tier.py`
-  exercises the two-tier contract through `pipeline.run_pipeline` and the
-  FastAPI app (FR-007/008); `test_eval_*.py` cover `news_nlp.eval` with the
-  LLM and MLflow mocked (FR-010).
+- **Coverage mapping**: `test_schema.py`/`test_db.py`/`test_env.py` are the vendored `news_nlp` package's own unit tests (FR-006/007); the step tests (`test_*_step.py`, `test_steps.py`) and `test_pipeline_api.py` cover FR-020 to FR-025; `test_eval_*.py` cover the eval store, the tracking and the judges with the LLM and MLflow mocked; `test_revision_guard.py` pins the revisions.
 - **New requirement → new test first** (constitution: Quality & Testing
   #1) — a change implementing or altering an FR/NR above should land with a
   test that references the requirement ID in a comment or test name.
@@ -411,32 +332,11 @@ plainly that none exists (§14).
 - **Acceptance criteria in §2.3/§2.4 are the test spec** — each row should
   be directly expressible as one or more `pytest` assertions; a PR claiming
   to satisfy an FR/NR without a corresponding test is incomplete.
-- **Accuracy regression** (separate from `pytest`): `news_nlp_eval
-  --check-regression` against the recorded baseline (§9) is a manual/
-  scheduled gate today, not part of `ci.yml` — see §13 on wiring it in.
+- **Accuracy regression:** the CLI and the scheduled gate were removed by T-220 PR B; the step-7 judge is run by hand (`scripts/category_judge_2026_11_15.py`), T-222 rebuilds the rest.
 
-### Reproducing and validating the accuracy baseline
+### Reproducing the accuracy baseline
 
-To re-check a stage against the §9 baseline after a model, prompt, or
-threshold change (needs `$LLM_API_KEY`/`$LLM_MODEL`/`$LLM_URL`; no GPU
-required — this reads already-stored predictions, it doesn't re-run the
-pipeline):
-
-```bash
-# one stage
-uv run cli/news_nlp_eval.py --stage sentiment --sample-size 100
-
-# every stage the §9 baseline covers, failing if a headline metric dropped
-# more than --regression-tolerance (default 0.05) vs. the previous MLflow run
-uv run cli/news_nlp_eval.py --stage all --check-regression
-```
-
-`--check-regression` compares against **the previous MLflow run** under
-`news_nlp_eval/<stage>` (`--regression-tolerance`, default `0.05`) — there is
-no separate baseline file to maintain, and none should be invented; the
-baseline of record is the run IDs already logged in `docs/evaluation.md`.
-This remains a manually-invoked gate (§13, open question 8) — see that
-section for the tradeoffs of wiring it into `ci.yml`.
+The §9 baseline was produced by the eval CLI removed by T-220 PR B. The stored runs stay in the `eval_*` tables and in MLflow (experiment names `news_nlp_eval/<stage>`); to repeat one, check out commit `81294eb`.
 
 ## 11. Deployment Procedures
 
@@ -447,16 +347,13 @@ There is no formal CD pipeline for this repo yet; what exists:
    (by name, not pinned commit SHA — see §13).
 3. Configure `.env` (or real environment) with `$DATABASE_URL` /
    `$SOURCE_DATABASE_URL` (required for the text-reading stages; not
-   required for serving/`sector_summary`-only use — `docs/db-topology.md`).
+   required for the steps that read only the RESULTS store — `docs/db-topology.md`).
    Optionally `$HF_TOKEN` (read scope lifts anonymous Hub rate limits for
    step 2; write scope is required by `scripts/publish_*.py`).
-4. Run `uv run apps/news_nlp_api.py` (long-lived service, `:8003`) and/or
-   invoke `uv run cli/news_nlp_cli.py` on whatever cadence the batch run
-   needs (no scheduler is wired in today — see §13).
+4. Run `uv run apps/pipeline_api.py` (long-lived service, `:8003`) and/or `uv run cli/news_nlp_steps.py --step <step>` on whatever cadence the batch run needs (a scheduler is the owner's).
 5. CI gate before merge (`.github/workflows/ci.yml`, `master`/PRs):
    `uv sync --group dev --group eval` → `ruff check` → `ruff format --check`
-   → `mypy` → `pytest -q`. `.github/workflows/eval.yml` runs the real
-   LLM-as-judge evaluation separately and does not block merges.
+   → `mypy` → `pytest -q`. No workflow runs the real LLM-as-judge evaluation (`eval.yml` was removed by T-220 PR B).
 
 ## 12. Dependencies & Integrations
 
