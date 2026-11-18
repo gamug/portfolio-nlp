@@ -24,13 +24,21 @@ names it). It is the safety net of every destructive step below.
   that `portfolio_common.news_export.fetch_processed_articles` reads them; that package is not installed here, so this repository
   cannot check it. The owner's answer replaces that statement. The delivery note for the portfolio-financial-analysis team
   (`snapshow_delivery.md`, repository root) names only `news_snapshot`, `period_run`, `period_summary`, `period_item` and `sector`.
-* **Eval is rewired to the `news_*` tables** (not kept on `article_*`).
+* **The old eval stages are deleted, not rewired** (owner, 2026-11-18; on 2026-11-17 the decision was to rewire them to `news_*`, which turned out to be a redesign: see "A2 was dropped"). The eval store, the MLflow tracking and the blind step-7 judge stay.
 * **A new FastAPI comes first** (T-219): it serves each step, the whole pipeline and the FTI services. The v1 API
   (`apps/news_nlp_api.py`) reads only v1 tables and the Docker image serves it (`Dockerfile:106-109`), so the v1 tables cannot go
   while it exists. The depuration (T-220) starts after T-219 is merged.
 * **`snapshow_delivery.md` stays untracked** (the owner's local file). The golden check below uses a copy of its queries inside the tests.
 * **Old revisions are pruned**, keeping exactly: `scope-nli-8ff21e50796b`, `units5-d3e2cbfa830e`, `summary-llm-70cb6bb07292`,
   `companies-f349536cf701`, `sentiment-59863d15fc42`, `category-a23569dba86f`, `snapshot-c3a753affa5d`, `period-3b07b83ecec3`.
+* **Gates answered (owner, interactive session, 2026-11-18, after the Phase 0 listing below).** (1) `sector-417a93feb789` joins the keep list
+  (the only sector revision). (2) Of the periods **only `period-3b07b83ecec3` stays**; `period-ae014b56b055` (the delivery note's) and
+  `period-dd098e1c5b9f` are pruned, **after a new delivery note naming `period-3b07b83ecec3` goes to the upstream team** (the plan's rule
+  "the upstream team is told first"). (3) **Only `sentiment-59863d15fc42` and `category-a23569dba86f` stay**: `sentiment-5999fe131d8f` and
+  `category-65f33b55b26b` are pruned. Consequence, accepted: the 159,401 rows of `snapshot-c3a753affa5d` built on them keep their own text,
+  category and sentiment, but their `inputs` names revisions that no longer exist (the dry run lists them and does not refuse). A rerun of
+  the snapshot on the kept revisions was offered and **not** chosen; it stays available if the owner asks. The final keep list is nine
+  revisions: the eight above plus `sector-417a93feb789`.
 * The last bullet of the request, "chore code-tests", is read as: tests that only exercise deprecated code or tables are deleted;
   mixed tests are adapted to the kept tables; `tests/sets.py` is kept in step.
 
@@ -69,9 +77,9 @@ The stepped pipeline never reads `article_*`, `sector_summary` or `corrections` 
 `eval/sampling.py:54-60,267-358,411` samples from `article_*` and `sector_summary`; `eval/candidate.py:36-40` imports the FTI classes
 of `category_stage`, `ner_stage`, `sentiment_stage`, `summary_stage`; `eval/calibration_sample.py:134-135` joins `article_category`;
 `eval/__init__`, `runner`, `cli/news_nlp_eval.py`, `src/experiment.py` and `.github/workflows/eval.yml` follow.
-`eval/step_category.py` is already shaped for step 7. This is why the eval rewire (PR A) comes before the removal of the v1 code.
+`eval/step_category.py` is already shaped for step 7. This is why the old eval stages are deleted with the v1 code in PR B (the rewire was dropped) before the removal of the v1 code.
 
-### v1 code with no kept importer once eval is rewired
+### v1 code with no kept importer once the old eval stages are deleted
 
 `src/pipeline.py` (importers: the API, `cli/news_nlp_cli.py`, `src/setup.py:15`, tests), `pipeline_config.py`,
 `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp/queries.py`, `corrections.py`, `news_nlp/sector_summary/*`,
@@ -163,17 +171,11 @@ removes them).
    prunes a revision named in the delivery note while this is open.
 8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
-**PR A: the guard, then the eval rewire.**
-
-* A **revision guard test** first: it pins the revision of every step (the code hashes) and the inputs of the delivered snapshot and
-  period revisions. Any later edit that changes a revision fails CI. This is the protection of "do not break what is built".
-* A **golden check**: the SQL of `snapshow_delivery.md` (a copy in the tests) runs on a fixture, and the same SQL runs on the backup
-  copy before and after each destructive step and must return identical rows.
-* Then eval is rewired to `news_*`: sampling from `news_sentiment`, `news_category`, `news_company`, `news_summary`; scoring with
-  the v2 Inference classes; the `sector_summary` stage and the v1 zero-shot category stage leave `STAGES`;
-  `.github/workflows/eval.yml`, `cli/news_nlp_eval.py` and `docs/evaluation.md` follow. **Design point to settle first:** the key of
-  `eval_inference` is (article, task, experiment) and the v2 key is (item_kind, item_id, ticker). A sub-news maps to its article
-  through `sub_news`; the mapping must keep the stored eval history readable (additive columns only, SPEC.md:330-336).
+**PR A (A1, #211): the guard and the golden check.** A **revision guard test** pins the code each step hashes, the config files the revisions also hash, and the
+delivered snapshot revision; any later edit that changes a revision fails CI. A **golden check** holds the SQL of `snapshow_delivery.md` as code
+(`src/delivery_golden.py`): it runs on a fixture in the tests and, with `python -m delivery_golden`, on the backup copy before and after each destructive
+step, where it must return the same digest. **A2, the eval rewire, was dropped by the owner on 2026-11-18**: the old eval stages are deleted in PR B, not
+rewired; T-222 rebuilds an eval on `news_*` if wanted. The design that was dropped is in `docs/legacy/db_depuration_plan_a2_rewire_2026-11-18.md`.
 
 **PR B: remove the v1 code and its tests.** Delete the files listed above, rewire `src/setup.py` (it imports constants from
 `pipeline`), clean `news_nlp/__init__.py`, delete the only-v1 tests, adapt the mixed ones, update `tests/sets.py`. The hashed shared
@@ -227,6 +229,97 @@ after; the restore of the pre-apply backup onto a scratch file gives the same `-
 the listed tables (above); `--step <step> --status` on the backup copy shows the same
 counts; ruff, mypy and the full suite with `--group eval` pass; the live database is touched only by the owner, after a dry run.
 
+## Phase 0 listing of `nlp_backup.db` (read 2026-11-18, read-only and immutable; backup file of 2026-11-16 18:08, `integrity_check` = `ok`)
+
+The file is a copy of `nlp.db` (same size, same timestamp). **Revisions per table** (row counts):
+
+| Table | Revisions (rows) |
+|---|---|
+| `body_scope` | `scope-nli-8ff21e50796b` (309,972) |
+| `body_sector` | `sector-417a93feb789` (32,887): **the only one** |
+| `sub_news` | `units5-d3e2cbfa830e` (161,574), `units-5f831c298bcb` (165,192), `units4-d3e2cbfa830e` (7,311) |
+| `news_summary` | `summary-llm-70cb6bb07292` (254,607), `summary-7a9bd2062bc4` (433,266) |
+| `news_company` | `companies-f349536cf701` (363,939) |
+| `news_category` | `category-a23569dba86f` (226,139), `category-65f33b55b26b` (159,401), `category-981dacf6f68d` (10,355) |
+| `news_sentiment` | `sentiment-59863d15fc42` (226,139), `sentiment-5999fe131d8f` (159,401) |
+| `news_snapshot` | `snapshot-c3a753affa5d` (226,139), `snapshot-1b8ee113b05f` (159,401) |
+| `period_run` | `period-3b07b83ecec3` (85), `period-ae014b56b055` (85), `period-dd098e1c5b9f` (85) |
+
+v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_category` 459,112, `article_summary` 458,692,
+`sector_summary` 3,630, `eval_judgement` 48,403 (drop candidates). `company_sector` is empty; `sector` has 11 rows.
+
+**What the listing settles**
+
+1. **The sector gate.** One sector revision exists, `sector-417a93feb789`: name it in the keep list. The kept snapshot rows have an empty
+   `inputs.sector`, so no kept row reads another one.
+2. **The period gate.** `period-ae014b56b055` (written 2026-11-14 17:07) and `period-3b07b83ecec3` (2026-11-16 18:08, after the fold of
+   #204) are **both built on the delivered `snapshot-c3a753affa5d`**, with the same 85 periods ending 2026-11-02. They differ by the
+   fold: the delivery note describes the pre-fold counts. Pruning `ae014` changes what the upstream team's queries return (zero rows)
+   until a new delivery note names `period-3b07b83ecec3`. `period-dd098e1c5b9f` is built on `snapshot-1b8ee113b05f` (not delivered).
+3. **The sentiment gate, and a new one.** `sentiment-59863d15fc42` covers 226,139 pairs (the keep list); `sentiment-5999fe131d8f` (the
+   documented one) covers 159,401. **The delivered snapshot holds both:** 66,738 rows built on `sentiment-59863d15fc42` and
+   `category-a23569dba86f`, and **159,401 rows built on `sentiment-5999fe131d8f` and `category-65f33b55b26b`** (the rows keep their own
+   copy of the text, category and sentiment; `inputs` records the revisions). Pruning those two revisions, as the keep list says, leaves
+   159,401 delivered rows whose `inputs` name revisions that no longer exist: the dry run's refusal rule (a kept row that refers to a
+   pruned one) stops there. **Decided (owner, 2026-11-18): both are pruned and the dangling provenance in `inputs` is accepted; no snapshot rerun (see Decided).**
+4. `snapshot-1b8ee113b05f` has 159,401 rows and is not delivered: a prune candidate, once nothing kept refers to it.
+
+## Golden baseline on `nlp_backup.db` (run 2026-11-18, read-only and immutable)
+
+`PYTHONPATH=src uv run python -m delivery_golden --db /workspaces/thesis/data/nlp_backup.db --immutable --snapshot snapshot-c3a753affa5d --period <revision>`. This is the "before" of PR C: after a drop or a prune on the copy, the same command must print the same digest.
+
+**The file that produced it:** `nlp_backup.db`, 5,271,089,152 bytes, modified 2026-11-16 18:08:45 UTC, SHA-256 `4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, read with SQLite 3.40.1. **Reproducible:** the command was run three times for each period revision and printed the same digest every time.
+
+| Query of the note | `period-ae014b56b055` (the note) | `period-3b07b83ecec3` (kept) |
+|---|---|---|
+| `snapshot_date_sources` | 2 rows (14-21 s) | 2 rows (14 s) |
+| `company_news_in_a_range` | 74 rows (13 s) | 74 rows (13 s) |
+| `periods` | 85 | 85 |
+| `counts_per_company_category_period` | 27,725 | 34,253 |
+| `net_sentiment_per_company_period` | 15,099 | 17,777 |
+| `counts_per_sector` | 5,259 | 5,649 |
+| `news_a_period_counted` | 481 | 707 |
+| **digest** | **`bd104b26acea6f3f`** | **`2832f270e9a52457`** |
+
+**After the prune** (what a reviewer should see on the copy): for `period-3b07b83ecec3` the digest stays `2832f270e9a52457`. For `period-ae014b56b055` the five period queries return nothing and the two snapshot queries are unchanged, so the digest becomes **`9a71c0f4d9001a85`** (the command prints it as "digest if --period is pruned"). It is not the digest of seven empty results: the two snapshot queries read only the snapshot revision.
+
+The two snapshot queries take 13 to 20 seconds: `news_snapshot` has no index on `model_revision`, so they scan the table. PR C's prune (a `DELETE ... WHERE model_revision` per table) should expect full scans and run in one window.
+
+**Phase 0 gate (a), what is and is not done.** Done: `integrity_check` = `ok`, the SHA-256 above, the per-table revision listing. **Not done:** the per-table row counts of the backup against the live `nlp.db`; this work does not open the live file. It is the owner's step in the maintenance window (the SQLite backup API, then the counts), and PR C's script refuses to apply without it.
+
+## What the revisions read from `config/` (found by changing every key)
+
+Every key of every file in `config/` was changed one at a time and the revisions were recomputed (category, sentiment, summary local and API, companies, sector). Only these moved a revision, and only these are pinned in `tests/news_nlp/test_revision_guard.py`:
+
+| File | Keys that move a revision | Revision |
+|---|---|---|
+| `category_step.json` | `name`, `identity` | `category-` |
+| `pipeline_models.json` | `ner.model`, `ner.revision` | `companies-` |
+| `pipeline_models.json` | `c_summary.model`, `c_summary.revision` | `summary-` (local summariser) |
+| `published_models.json` | `relevance.repo`, `relevance.revision` | `companies-` |
+| `sentiment_step.json` | `identity` | `sentiment-` |
+| `sentiment_stack.json` | every key | `sentiment-` |
+| `sector_step.json` | every key | `sector-` |
+| `summary_prompt.md` | its bytes | `summary-llm-` |
+
+**No revision reads:** `attribution_model.json`, `category_model.json`, `scope_model.json`, the `sentiment`, `category` and `batch_size` entries of `pipeline_models.json`, the other entries of `published_models.json`, and the evidence, run and label keys of `category_step.json`. An edit of those (a new evidence figure, a published model) must not fail the guard, and does not. (The scope and cut revisions come from the model folder, not from `config/`; their pins only feed the status lines and `--fetch`.)
+
+## The delivered cut revision is not reproducible from the code
+
+The backup holds `units5-d3e2cbfa830e` (161,574 sub-news, written 2026-11-12 14:37 to 17:19 UTC). Recomputed from the pin of `config/attribution_model.json`, the universe of `urls.db` and the code, the cut revision is **`units5-4f682083d961`** today, and **`units5-858ec90552aa`** at the commit before `e7a6f02`. Neither is the delivered one, so the line-ending question cannot be settled from this data. What the history shows:
+
+* **`e7a6f02` (2026-11-12 23:10 -05:00, "step 3, the companies") edited `src/news_nlp/triage.py`, one of the five modules the cut hashes by bytes, hours after the cut ran.** That commit moved the cut revision from `units5-858ec90552aa` to `units5-4f682083d961`. A rerun of `--step cut` today would write `units5-4f682083d961` and cut the corpus again. Nothing reruns it: the later steps name the delivered cut explicitly (`--cut-revision units5-d3e2cbfa830e`).
+* Even before that commit the code does not give `d3e2cbfa830e` with today's pin and universe, so an input of that day (the identity of the local model folder, the universe at that moment) is not recoverable here. The same hash suffix sits under `units4-` and `units5-` in the backup.
+
+Consequence for the guard: its cut pin (`be358e64f554`) protects **today's** cut code, not the delivered revision. The owner decides whether that matters: the delivery note names the snapshot and the period only, and the cut revision is an input recorded in each row (`inputs`).
+
+## A2 was dropped (owner, 2026-11-18)
+
+Reading the code showed that rewiring the eval was a redesign of sampling, judges and metrics (the v1 judge knows 10 labels, `news_category` has 12; a `body` item is a
+hash, not an article id; 159,401 sub-news pairs come from 28,799 articles), not a change of table names. The owner chose to **delete** the old eval stages instead. PR B (#212)
+does it; what stays (the eval store, the MLflow tracking, the blind step-7 judge) and why is in its description and in T-220. **T-222** records the rebuild of an eval on `news_*`.
+The full analysis and the defaults proposed for the rewire are in `docs/legacy/db_depuration_plan_a2_rewire_2026-11-18.md`.
+
 ## Documents and tasks that cite a revision
 
 The prune removes the rows of every revision outside the keep list, and these documents cite such revisions (searched on master on
@@ -248,13 +341,11 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 
 ## Left open (gates; none blocks this planning PR, all block the prune)
 
-1. **The sector-step revision.** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
+1. **The sector-step revision (settled by the listing: `sector-417a93feb789`, the only one; the owner confirms).** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
    (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
    `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
-2. **The period revision.** The delivery note names `period-ae014b56b055`; the keep list says `period-3b07b83ecec3`. #204 changed
-   the period revision, so the second may be the one written after it, but that is not verified: the Phase 0 listing settles it. The
-   script never prunes a revision named in the delivery note unless the owner removes it from the note's list explicitly.
-3. **The sentiment revision** (above): `sentiment-5999fe131d8f` documented, `sentiment-59863d15fc42` in the list.
+2. **The period revision: answered (2026-11-18).** Only `period-3b07b83ecec3` stays; a new delivery note naming it goes to the upstream team before `period-ae014b56b055` is pruned.
+3. **The sentiment revision: answered (2026-11-18).** Only `sentiment-59863d15fc42` (and `category-a23569dba86f`) stay; the older two are pruned (see the Phase 0 listing).
 4. **`eval_judgement`:** confirm unused (read the code in PR A/B).
 5. **A flaky test in the group PR A adapts.** `tests/news_nlp/test_eval_calibration_judge.py::test_an_interrupt_cancels_the_queue_instead_of_paying_for_it`
    (`assert len(log) <= 3`) depends on timing (`time.sleep(0.05)` against a runner's speed): it failed on one CI run of this docs-only
