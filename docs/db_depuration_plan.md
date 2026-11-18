@@ -266,12 +266,14 @@ v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_
 
 ## Golden baseline on `nlp_backup.db` (run 2026-11-18, read-only and immutable)
 
-`PYTHONPATH=src python -m delivery_golden --db /workspaces/thesis/data/nlp_backup.db --immutable --snapshot snapshot-c3a753affa5d --period <revision>`. This is the "before" of PR C: after a drop or a prune on the copy, the same command must print the same digest.
+`PYTHONPATH=src uv run python -m delivery_golden --db /workspaces/thesis/data/nlp_backup.db --immutable --snapshot snapshot-c3a753affa5d --period <revision>`. This is the "before" of PR C: after a drop or a prune on the copy, the same command must print the same digest.
+
+**The file that produced it:** `nlp_backup.db`, 5,271,089,152 bytes, modified 2026-11-16 18:08:45 UTC, SHA-256 `4d65d5873f60d136898a556f6485a7dfa333761ed2cfabf6e68e5bccea6818f2`, read with SQLite 3.40.1. **Reproducible:** the command was run three times for each period revision and printed the same digest every time.
 
 | Query of the note | `period-ae014b56b055` (the note) | `period-3b07b83ecec3` (kept) |
 |---|---|---|
-| `snapshot_date_sources` | 2 rows (20.6 s) | 2 rows (14.1 s) |
-| `company_news_in_a_range` | 74 rows (12.9 s) | 74 rows (13.4 s) |
+| `snapshot_date_sources` | 2 rows (14-21 s) | 2 rows (14 s) |
+| `company_news_in_a_range` | 74 rows (13 s) | 74 rows (13 s) |
 | `periods` | 85 | 85 |
 | `counts_per_company_category_period` | 27,725 | 34,253 |
 | `net_sentiment_per_company_period` | 15,099 | 17,777 |
@@ -279,7 +281,37 @@ v1 tables: `article_entities` 16,436,161 rows, `article_sentiment` and `article_
 | `news_a_period_counted` | 481 | 707 |
 | **digest** | **`bd104b26acea6f3f`** | **`2832f270e9a52457`** |
 
-The two snapshot queries take 13 to 20 seconds: `news_snapshot` has no index on `model_revision`, so they scan the table. Not a problem for a check, but PR C's prune (a `DELETE ... WHERE model_revision` per table) should expect full scans and run in one window. After the prune, the digest of `period-ae014b56b055` is expected to change (no rows), and that of `period-3b07b83ecec3` must stay `2832f270e9a52457`.
+**After the prune** (what a reviewer should see on the copy): for `period-3b07b83ecec3` the digest stays `2832f270e9a52457`. For `period-ae014b56b055` the five period queries return nothing and the two snapshot queries are unchanged, so the digest becomes **`9a71c0f4d9001a85`** (the command prints it as "digest if --period is pruned"). It is not the digest of seven empty results: the two snapshot queries read only the snapshot revision.
+
+The two snapshot queries take 13 to 20 seconds: `news_snapshot` has no index on `model_revision`, so they scan the table. PR C's prune (a `DELETE ... WHERE model_revision` per table) should expect full scans and run in one window.
+
+**Phase 0 gate (a), what is and is not done.** Done: `integrity_check` = `ok`, the SHA-256 above, the per-table revision listing. **Not done:** the per-table row counts of the backup against the live `nlp.db`; this work does not open the live file. It is the owner's step in the maintenance window (the SQLite backup API, then the counts), and PR C's script refuses to apply without it.
+
+## What the revisions read from `config/` (found by changing every key)
+
+Every key of every file in `config/` was changed one at a time and the revisions were recomputed (category, sentiment, summary local and API, companies, sector). Only these moved a revision, and only these are pinned in `tests/news_nlp/test_revision_guard.py`:
+
+| File | Keys that move a revision | Revision |
+|---|---|---|
+| `category_step.json` | `name`, `identity` | `category-` |
+| `pipeline_models.json` | `ner.model`, `ner.revision` | `companies-` |
+| `pipeline_models.json` | `c_summary.model`, `c_summary.revision` | `summary-` (local summariser) |
+| `published_models.json` | `relevance.repo`, `relevance.revision` | `companies-` |
+| `sentiment_step.json` | `identity` | `sentiment-` |
+| `sentiment_stack.json` | every key | `sentiment-` |
+| `sector_step.json` | every key | `sector-` |
+| `summary_prompt.md` | its bytes | `summary-llm-` |
+
+**No revision reads:** `attribution_model.json`, `category_model.json`, `scope_model.json`, the `sentiment`, `category` and `batch_size` entries of `pipeline_models.json`, the other entries of `published_models.json`, and the evidence, run and label keys of `category_step.json`. An edit of those (a new evidence figure, a published model) must not fail the guard, and does not. (The scope and cut revisions come from the model folder, not from `config/`; their pins only feed the status lines and `--fetch`.)
+
+## The delivered cut revision is not reproducible from the code
+
+The backup holds `units5-d3e2cbfa830e` (161,574 sub-news, written 2026-11-12 14:37 to 17:19 UTC). Recomputed from the pin of `config/attribution_model.json`, the universe of `urls.db` and the code, the cut revision is **`units5-4f682083d961`** today, and **`units5-858ec90552aa`** at the commit before `e7a6f02`. Neither is the delivered one, so the line-ending question cannot be settled from this data. What the history shows:
+
+* **`e7a6f02` (2026-11-12 23:10 -05:00, "step 3, the companies") edited `src/news_nlp/triage.py`, one of the five modules the cut hashes by bytes, hours after the cut ran.** That commit moved the cut revision from `units5-858ec90552aa` to `units5-4f682083d961`. A rerun of `--step cut` today would write `units5-4f682083d961` and cut the corpus again. Nothing reruns it: the later steps name the delivered cut explicitly (`--cut-revision units5-d3e2cbfa830e`).
+* Even before that commit the code does not give `d3e2cbfa830e` with today's pin and universe, so an input of that day (the identity of the local model folder, the universe at that moment) is not recoverable here. The same hash suffix sits under `units4-` and `units5-` in the backup.
+
+Consequence for the guard: its cut pin (`be358e64f554`) protects **today's** cut code, not the delivered revision. The owner decides whether that matters: the delivery note names the snapshot and the period only, and the cut revision is an input recorded in each row (`inputs`).
 
 ## A2 was dropped (owner, 2026-11-18)
 

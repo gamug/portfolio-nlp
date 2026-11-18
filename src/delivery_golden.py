@@ -73,6 +73,15 @@ QUERIES: dict[str, str] = {
         WHERE i.model_revision = '{period}' AND i.period_end = '2026-08-31T19:00:00Z'""",
 }
 
+#: The queries that read a period revision: after that period is pruned they return nothing, the two that read only the snapshot do not change.
+PERIOD_QUERIES = (
+    "periods",
+    "counts_per_company_category_period",
+    "net_sentiment_per_company_period",
+    "counts_per_sector",
+    "news_a_period_counted",
+)
+
 #: The tables those queries read: the ones the depuration must keep for the upstream team.
 TABLES = ("news_snapshot", "period_run", "period_summary", "period_item", "sector")
 
@@ -95,9 +104,30 @@ def digest(results: dict[str, list[tuple[Any, ...]]]) -> str:
     ]
 
 
+def _refuse_if_live(path: Path) -> None:
+    """``immutable=1`` on a database that someone writes can return a half-written state with no error, so it is refused when the file looks live: a ``-wal``, ``-shm`` or
+    ``-journal`` file beside it (a writer is, or was, attached), or the path is the one ``DATABASE_URL`` / ``SOURCE_DATABASE_URL`` names (the store the pipeline writes or reads)."""
+    for suffix in ("-wal", "-shm", "-journal"):
+        if Path(f"{path}{suffix}").exists():
+            raise ValueError(
+                f"{path} has a {suffix} file beside it: it looks live, --immutable is refused (copy it with the SQLite backup API first)"
+            )
+    from news_nlp import env  # noqa: PLC0415 -- only the guard needs it
+
+    configured = {
+        p.resolve() for p in (env.results_db_path(), env.source_db_path()) if p is not None
+    }
+    if path.resolve() in configured:
+        raise ValueError(
+            f"{path} is the store named by DATABASE_URL or SOURCE_DATABASE_URL: --immutable is refused on a live store; run it on a copy"
+        )
+
+
 def open_read_only(path: Path, *, immutable: bool = False) -> sqlite3.Connection:
-    """A read-only connection. ``immutable`` tells SQLite the file cannot change (a backup copy): it takes no lock and needs no ``-wal`` / ``-shm`` file. **Never use it on a
-    database that is being written.**"""
+    """A read-only connection. ``immutable`` tells SQLite the file cannot change (a backup copy): it takes no lock and needs no ``-wal`` / ``-shm`` file. It is refused when
+    the file looks live (``_refuse_if_live``)."""
+    if immutable:
+        _refuse_if_live(path)
     uri = f"file:{path.resolve()}?mode=ro" + ("&immutable=1" if immutable else "")
     return sqlite3.connect(uri, uri=True)
 
@@ -115,7 +145,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="a backup copy that no one writes (no lock, no -wal/-shm)",
     )
     args = parser.parse_args(argv)
-    conn = open_read_only(args.db, immutable=args.immutable)
+    try:
+        conn = open_read_only(args.db, immutable=args.immutable)
+    except ValueError as exc:
+        parser.error(str(exc))
     try:
         results: dict[str, list[tuple[Any, ...]]] = {}
         for name, sql in QUERIES.items():
@@ -126,6 +159,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         conn.close()
     print(f"digest: {digest(results)}")
+    emptied = {name: ([] if name in PERIOD_QUERIES else rows) for name, rows in results.items()}
+    print(
+        f"digest if --period is pruned (its five period queries empty, the snapshot ones unchanged): {digest(emptied)}"
+    )
     return 0
 
 

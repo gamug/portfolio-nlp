@@ -145,3 +145,51 @@ def test_the_command_prints_each_query_and_the_digest_and_writes_nothing(
     assert "digest: " in out
     assert path.stat().st_mtime_ns == before  # read-only: the file was not touched
     assert not list(tmp_path.glob("results.db-*"))  # no -wal / -shm / -journal
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+def test_immutable_is_refused_when_a_writer_file_sits_beside_the_database(
+    conn: sqlite3.Connection, tmp_path: Path, suffix: str
+) -> None:
+    conn.close()
+    path = tmp_path / "results.db"
+    Path(f"{path}{suffix}").write_bytes(b"")
+    with pytest.raises(SystemExit):  # argparse's error exits with 2
+        golden.main(["--db", str(path), "--snapshot", SNAP, "--period", PERIOD, "--immutable"])
+    assert golden.open_read_only(path).execute("SELECT 1").fetchone() == (
+        1,
+    )  # without --immutable it is still readable
+
+
+@pytest.mark.parametrize("variable", ["DATABASE_URL", "SOURCE_DATABASE_URL"])
+def test_immutable_is_refused_on_the_store_the_pipeline_is_configured_with(
+    conn: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    conn.close()
+    path = tmp_path / "results.db"
+    monkeypatch.setenv(variable, str(path))
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        golden.open_read_only(path, immutable=True)
+
+
+def test_the_command_also_prints_the_digest_expected_after_the_period_is_pruned(
+    conn: sqlite3.Connection, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn.close()
+    path = tmp_path / "results.db"
+    golden.main(["--db", str(path), "--snapshot", SNAP, "--period", PERIOD])
+    printed = capsys.readouterr().out
+    expected = golden.digest(
+        {
+            n: ([] if n in golden.PERIOD_QUERIES else rows)
+            for n, rows in golden.run_all(golden.open_read_only(path), SNAP, PERIOD).items()
+        }
+    )
+    assert f"unchanged): {expected}" in printed
+    # and it is the digest the same database gives once that period's rows are gone
+    raw = sqlite3.connect(path)
+    for table in ("period_item", "period_summary", "period_run"):
+        raw.execute(f"DELETE FROM {table} WHERE model_revision = ?", (PERIOD,))  # noqa: S608 -- fixed table names
+    raw.commit()
+    raw.close()
+    assert _digest(golden.open_read_only(path)) == expected

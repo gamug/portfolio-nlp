@@ -1,4 +1,4 @@
-"""The revision guard (T-220, PR A): the code each step hashes into its revision, pinned.
+"""The revision guard (T-220, PR A): the code each step hashes into its revision, **and the values it reads from `config/`**, pinned.
 
 A revision is a hash of the code a step runs, so editing that code (even a comment-free refactor, even deleting a v1 class from a shared module) gives
 the step a new revision and makes every finished item pending again: a rerun of hours, and rows the delivery note names (``snapshow_delivery.md``)
@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(
     reason="the pins are hashes of code parsed by Python 3.12 (`ast.unparse`); run `uv run pytest` with the project's Python",
 )
 
-LINE_ENDINGS = " (the cut hashes the BYTES of five modules: check line endings first, `.gitattributes` keeps them LF; a CRLF checkout gives another revision)"
+LINE_ENDINGS = " (the cut hashes the BYTES of five modules: check line endings first, `.gitattributes` keeps them LF; a CRLF checkout gives another revision. The pin is of today's code: the delivered units5-d3e2cbfa830e is not reproducible, see docs/db_depuration_plan.md)"
 WHY = "this changes the revision of the step: finished items become pending and the delivered rows are no longer the current ones (T-220 guard)"
 
 #: What the delivery note names as the snapshot revision. The snapshot revision *is* the hash of its code, so it is checkable with no database.
@@ -109,36 +109,78 @@ def test_the_full_category_and_sentiment_revisions_are_the_pinned_ones() -> None
     assert sentiment.code_revision("S", "C", "N") == "sentiment-41a13b80709e", WHY
 
 
-#: SHA-256 (first 16 hex) of the bytes of each file of ``config/``. The revisions read the pins, the prompt and the model names from them, so a byte changed here is a new
-#: revision of a step. A new file in ``config/`` fails the test on purpose: decide whether a revision reads it, then add it.
-CONFIG_PINS = {
-    "attribution_model.json": "384a80b5bb0fd688",
-    "category_model.json": "f4c0b17c6415da17",
-    "category_step.json": "c784d55575cf79d6",
-    "pipeline_models.json": "e3cc80334dfa8dcb",
-    "published_models.json": "ef80a6289d108929",
-    "scope_model.json": "3a595038cf475dae",
-    "sector_step.json": "0852b547d363f13c",
-    "sentiment_stack.json": "f647b025cb1887ce",
-    "sentiment_step.json": "c81efc93b91e5d25",
-    "summary_prompt.md": "ce66b1385bb6c1d6",
+#: What the revisions read from ``config/``, found by **changing every key of every file one at a time** and recomputing the revisions (T-220, the manager's review
+#: of #211): only these values move a revision, so only these are pinned. Any other key (the evidence figures, the batch sizes, the sentiment/category/scope/attribution
+#: entries of the shared files, ``category_model.json``, ``attribution_model.json``, ``scope_model.json``) moved none, and an edit of them must not fail this test.
+#: The first value of each pair is the revision it moves.
+INPUTS: dict[str, dict[str, object]] = {
+    "category_step.json": {"category": ["name", "identity"]},
+    "pipeline_models.json": {
+        "companies": ["ner.model", "ner.revision"],
+        "summary_local": ["c_summary.model", "c_summary.revision"],
+    },
+    "published_models.json": {"companies": ["relevance.repo", "relevance.revision"]},
+    "sentiment_step.json": {"sentiment": ["identity"]},
 }
+#: Files that a revision reads **whole**: every key moves it. Pinned as the SHA-256 of the canonical JSON (parsed, so line endings do not matter).
+WHOLE_FILES = {"sector_step.json": "7ce25b9a97b9556c", "sentiment_stack.json": "a4329069a13c7084"}
+#: The pinned values of ``INPUTS``, in the order listed there.
+VALUES = {
+    "category_step.json": ["category-entailment-single-12", "4ac093410757bc50"],
+    "pipeline_models.json": [
+        "gamug/sec-bert-finer-ord-ner",
+        "ba7b9e43e4aa023ec5691f955b276dc58158354c",
+        "sshleifer/distilbart-cnn-12-6",
+        "a4f8f3ea906ed274767e9906dbaede7531d660ff",
+    ],
+    "published_models.json": [
+        "gamug/deberta-v3-company-relevance",
+        "8812c8bc551158f5aa6a9fc3f4ae1895e904e972",
+    ],
+    "sentiment_step.json": ["685a5f64f427a4ff"],
+}
+#: The summary prompt (``summary-llm-`` revision) is text, read as bytes.
+PROMPT_SHA = "ce66b1385bb6c1d6"
+#: Files no revision reads (status lines, ``--fetch``, research records). A new file in ``config/`` is in none of the lists, so it fails: decide which it is.
+NOT_READ = {"attribution_model.json", "category_model.json", "scope_model.json"}
+
+CONFIG = Path(__file__).resolve().parents[2] / "config"
 
 
-def test_the_config_files_the_revisions_read_are_the_pinned_bytes() -> None:
-    config = Path(__file__).resolve().parents[2] / "config"
-    found = {
-        p.name: hashlib.sha256(p.read_bytes()).hexdigest()[:16]
-        for p in config.iterdir()
-        if p.is_file()
-    }
-    assert set(found) == set(CONFIG_PINS), (
-        f"config/ changed its file list: {sorted(set(found) ^ set(CONFIG_PINS))}"
+def _dig(data: object, dotted: str) -> object:
+    for key in dotted.split("."):
+        data = data[key]  # type: ignore[index]
+    return data
+
+
+def test_every_file_of_config_is_classified() -> None:
+    files = {p.name for p in CONFIG.iterdir() if p.is_file()}
+    known = set(INPUTS) | set(WHOLE_FILES) | NOT_READ | {"summary_prompt.md"}
+    assert files == known, (
+        f"config/ changed its file list: {sorted(files ^ known)}; say whether a revision reads it"
     )
-    moved = sorted(name for name in CONFIG_PINS if found[name] != CONFIG_PINS[name])
-    assert not moved, (
-        f"{moved}: {WHY}; if the bytes differ only by line endings, `.gitattributes` keeps config/ LF"
+
+
+@pytest.mark.parametrize("name", sorted(INPUTS))
+def test_the_values_the_revisions_read_from_config_are_the_pinned_ones(name: str) -> None:
+    data = json.loads((CONFIG / name).read_text(encoding="utf-8"))
+    keys = [key for keys in INPUTS[name].values() for key in keys]  # type: ignore[attr-defined]
+    found = [_dig(data, key) for key in keys]
+    assert found == VALUES[name], f"config/{name}: {dict(zip(keys, found, strict=True))}: {WHY}"
+
+
+@pytest.mark.parametrize("name", sorted(WHOLE_FILES))
+def test_the_config_files_that_a_revision_reads_whole_are_the_pinned_ones(name: str) -> None:
+    canonical = json.dumps(json.loads((CONFIG / name).read_text(encoding="utf-8")), sort_keys=True)
+    assert hashlib.sha256(canonical.encode()).hexdigest()[:16] == WHOLE_FILES[name], (
+        f"config/{name}: {WHY}"
     )
+
+
+def test_the_summary_prompt_is_the_pinned_one() -> None:
+    assert (
+        hashlib.sha256((CONFIG / "summary_prompt.md").read_bytes()).hexdigest()[:16] == PROMPT_SHA
+    ), f"config/summary_prompt.md: {WHY} (line endings count: `.gitattributes`)"
 
 
 def test_ci_runs_the_guard_on_python_3_12() -> None:
