@@ -20,7 +20,7 @@ Las proporciones y los conteos quitados siguen en los documentos de los pasos (`
 | Paso | Qué se mide | ¿Tiene precisión y recall OVR por clase? | Cifra principal | ¿Conjunto reservado (held-out)? |
 |---|---|---|---|---|
 | Scope | una de 4 clases por texto (`single`, `multi`, `sector`, `out_of_scope`) | **Sí**, cuatro clases (sección 1.1) | acuerdo en el held-out 83.6% [78.1, 88.9]; recall de `out_of_scope` 53%; precisión en cuarentena 90.8% | Sí (200 textos, vistos muchas veces), más 225 leídos por el dueño |
-| Sector | el sector GICS de 2 dígitos asignado a un texto `sector` | **Solo precisión** (por sector, de 2 a 5 textos cada uno); el recall no se midió | 87.5% de los sectores asignados correctos (35 de 40) | Sí (un sorteo hecho después de construir el paso), un solo revisor |
+| Sector | el sector GICS de 2 dígitos asignado a un texto `sector` | **Solo precisión** (por sector, de 5 a 37 textos cada uno); el recall no se midió | 85.9% de los sectores asignados correctos (176 de 205, 357 respuestas); 96.7% (176 de 182) sin los 23 `no` que dicen que el texto no es de sector | Sí (dos sorteos hechos después de construir el paso, 2026-11-13 y 2026-11-18), un solo revisor |
 | Cut | las piezas ("sub-news") que el cut hace de un texto con varias empresas | **Sin clases.** Tres preguntas de sí/no por pieza (parecidas a una precisión) | 84.6% de las piezas fieles; 75.5% limpias | Sí (28 textos, 143 piezas) |
 | Empresa: NER | los tramos de organización que encuentra NER (y las empresas del universo que el matcher saca de ellos) | **Sin clases**: precisión, recall y F1 sobre 100 textos etiquetados por el dueño (321 organizaciones) | empresas del universo: precisión 90.1%, recall 95.4% con las etiquetas del dueño tal como están (92.6% / 95.5% con la superposición del desarrollador; recall 98.7% con `ner+text`); todas las organizaciones: 72.6% / 90.4% con la superposición | **Sí** (100 textos, un revisor; 14 etiquetas que no están en el texto, superposición: 9 reemplazadas, 1 conservada, 4 descartadas); además una corrida v1 juzgada por un LLM |
 | Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases | validación cruzada (809 resúmenes): precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5; **held-out (119 filas marcadas de 59 piezas, los textos que lee el paso): precisión 90.9%, recall 30.0%** | **Sí** (marcas parciales sobre piezas, un revisor); la validación cruzada no lo es |
@@ -134,6 +134,20 @@ no recibe sector (44% de los textos de sector no reciben ninguno, por diseño).
 | Lo mismo con la regla tal como es ahora (un empate no es coincidencia) | 39 | 35 (89.7%) | 76 a 96% |
 | Controles (se muestra el sector menos parecido) | 5 | 0 sí | |
 | Enviados a fuera de alcance y el dueño está de acuerdo | 12 | 7 (58%) | 32 a 81% |
+
+**El conjunto más grande (2026-11-19, `docs/sector_training.md`):** el dueño respondió 357 filas, las 57 de arriba más 300 sorteadas el 2026-11-18 (165 asignadas, 15 controles, 120 enviadas fuera). Dos medidas,
+sobre todo el archivo y sin los `no` cuya nota dice que el texto no es de sector (`general_economy`, `multi`, `single`, `out_of_scope`, inversión: errores del paso de scope):
+
+| Medida | Todo el archivo (357) | Sin los `no` de "no es de sector" |
+|---|---|---|
+| El sector asignado es correcto | 176/205 = 85.9% [80.4, 90.0] | 176/182 = 96.7% [93.0, 98.5] |
+| Dejados pasar por el margen | 134/150 = 89.3% | 134/138 = 97.1% |
+| Dejados pasar solo por el voto | 42/55 = 76.4% | 42/44 = 95.5% |
+| Controles con respuesta `yes` | 0/20 | 0/20 |
+| Enviados fuera y el dueño está de acuerdo | 101/132 = 76.5% [68.6, 82.9] (75.0% con dos respuestas contradictorias leídas como `no`) | no aplica (allí un `no` dice que el descarte fue un error) |
+
+Las 23 respuestas excluidas son el 11% de las filas asignadas. Cinco de las primeras 57 respuestas cambiaron desde el gold versionado, dos contradicen su propia nota y 28 `no` de enviados fuera no nombran sector,
+así que el costo de la compuerta sigue siendo una cota superior (como máximo una quinta parte de los sectores correctos); todo en `docs/sector_training.md`. Las marcas son archivos locales, aún no versionados.
 
 **Precisión por sector** (asignados en la prueba limpia, recalculada desde el archivo versionado; 40 filas): los conteos por sector son minúsculos y el documento dice que las
 cifras por sector **no son utilizables**. Se listan para que se vean, no para citarlas.
@@ -493,7 +507,7 @@ Cómo se mide: el juez es `deepseek-chat`, a ciegas de la etiqueta del modelo, c
 | Paso | Fuente |
 |---|---|
 | Scope | `docs/scope_training.md` (secciones 5, 6, 9); `data/scope_end_to_end_with81b.csv` y `gold/category_gold_v2_test.csv` (tabla por clase recalculada) |
-| Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (precisión por sector recalculada) |
+| Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `docs/sector_training.md` (357 respuestas); `gold/sector_validation.csv` (los primeros 57); `scripts/score_sector_fresh_2026_11_19.py` |
 | Cut | `docs/scope_training.md` secciones 8.1 y 8.3; `docs/extractor_training.md` (actualización del 2026-11-11, `units4` y `units5`); `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
 | Empresa: NER | `docs/ner_training.md` (el held-out de 100 textos); `docs/ner_results_2026_11_16/` (`ner_metrics.json`, `ner_errors.csv`); `scripts/ner_eval_2026_11_16.py`; `docs/evaluation.md` (línea base v1 de 2026-09, `ner`) |
 | Empresa: relevancia | `docs/companies_step.md` (tabla de umbrales); `docs/sentiment_training.md` ítem 6 (AUC 0.90); `docs/main_company_training.md` y `gold/main_company_marks.csv` (las marcas sobre piezas, el held-out, versionadas) |
@@ -508,7 +522,7 @@ Una tabla con las métricas generales de cada modelo, para mostrar los resultado
 | Paso | Modelo | Validación (entrenamiento) | Held-out | Barra y estado |
 |---|---|---|---|---|
 | Scope (paso 1) | dos clasificadores NLI afinados sobre `deberta-v3-base-zeroshot-v2.0` | — | acuerdo ponderado 83.6% [78.1, 88.9] (200 textos); precisión 90.8% en cuarentena (225); recall de `out_of_scope` 53% | 80%: se cumple por estimación puntual (extremo inferior 78.1) |
-| Sector (paso 4) | `bge-small-en-v1.5` con compuerta | — | 87.5% de los sectores asignados correctos (35 de 40); recall no medido | sin barra medida (D24 para subindustria no medida, T-167) |
+| Sector (paso 4) | `bge-small-en-v1.5` con compuerta | — | 85.9% de los sectores asignados correctos (176 de 205); 96.7% sin los `no` de "no es de sector"; recall no medido | sin barra medida (D24 para subindustria no medida, T-167) |
 | Cut (paso 1.2) | `units5` con el clasificador de pares (`gamug/FinBERT-news-attribution`) | — | 84.6% [77.8, 89.6] de piezas fieles; 75.5% limpias (143 piezas) | 80% fieles: la estimación pasa, el extremo inferior no |
 | NER (paso 3) | `gamug/sec-bert-finer-ord-ner` | juez LLM v1 (1,000 artículos): F1 de tramos 0.7418, ORG 0.75 | empresas del universo: P 92.6%, R 95.5%, F1 0.940 (R 98.7% con `ner+text`); todas las organizaciones: P 72.6%, R 90.4% (100 textos; la superposición sobre 14 etiquetas: 9 reemplazadas, 1 conservada, 4 descartadas); tal como están, universo P 90.1%, R 95.4% | sin barra |
 | Relevancia (paso 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; principal P 90.0%, R 94.7% (809 resúmenes) | AUC 0.663; principal P 90.9%, R 30.0% (119 filas de 59 piezas) | sin barra; el umbral de sub-news lo decide el dueño (T-170) |
