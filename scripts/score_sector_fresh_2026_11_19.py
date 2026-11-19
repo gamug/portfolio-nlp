@@ -1,8 +1,9 @@
 """Check and score the owner's answers on the two fresh sector draws, the 57 rows of 2026-11-13 and the 300 of 2026-11-18 (357 rows).
 
-    uv run scripts/score_sector_fresh_2026_11_19.py [--review data/sector_fresh_to_review_es.csv] [--key data/sector_fresh_key.csv] [--gold gold/sector_validation.csv]
+    uv run scripts/score_sector_fresh_2026_11_19.py --export   # once: data/ working files -> gold/sector_fresh_marks_2026_11_19.csv (+ texts)
+    uv run scripts/score_sector_fresh_2026_11_19.py            # scores the tracked marks
 
-The two files are the owner's working files (``data/`` is git-ignored); the run prints their SHA-256. Nothing is written. It prints:
+The owner's working files are in ``data/`` (git-ignored); ``--export`` copies the answers and the English texts to ``gold/``, and the scoring reads the tracked copy. Nothing is written. It prints:
 
 * consistency checks (unique ids, the answer column, the sector codes, the verdict against the key, the first 57 rows against the tracked gold);
 * the precision of the assigned sectors (controls apart) over the whole file, and again **without the ``no`` answers whose note says the text is not a
@@ -233,15 +234,65 @@ def ovr(rows: list[Row]) -> None:
     )
 
 
+MARKS = Path("gold/sector_fresh_marks_2026_11_19.csv")
+TEXTS = Path("gold/texts/sector_fresh_marks_texts_2026_11_19.csv")
+KEY_COLUMNS = ("status", "sector", "candidate", "shown", "control", "margin", "vote_sector")
+MARK_COLUMNS = (
+    "review_order",
+    "article_id",
+    *KEY_COLUMNS,
+    "model_sector_code",
+    "model_verdict",
+    "correct",
+    "right_sector",
+    "notes",
+)
+TEXT_COLUMNS = ("article_id", "ticker", "company", "pub_date", "source_domain", "title", "text")
+
+
+def write(path: Path, columns: tuple[str, ...], rows: list[Row]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(columns), extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def export(rows: list[Row]) -> None:
+    """Copy the owner's answers and the texts they are about to ``gold/`` (the Spanish aid and the unanswered columns are not copied)."""
+    write(MARKS, MARK_COLUMNS, [{**r, **{c: r["k_" + c] for c in KEY_COLUMNS}} for r in rows])
+    write(TEXTS, TEXT_COLUMNS, rows)
+    print(f"{len(rows)} rows -> {MARKS} and {TEXTS}")
+
+
+def from_marks(path: Path) -> list[Row]:
+    return [{**r, **{"k_" + c: r[c] for c in KEY_COLUMNS}} for r in read(path)]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--review", type=Path, default=Path("data/sector_fresh_to_review_es.csv"))
     parser.add_argument("--key", type=Path, default=Path("data/sector_fresh_key.csv"))
     parser.add_argument("--gold", type=Path, default=Path("gold/sector_validation.csv"))
+    parser.add_argument(
+        "--export",
+        action="store_true",
+        help="write the tracked copy of the answers and texts from --review and --key, then stop",
+    )
+    parser.add_argument(
+        "--marks",
+        type=Path,
+        default=MARKS,
+        help="the tracked answers (used when --export is not given)",
+    )
     args = parser.parse_args()
-    for p in (args.review, args.key):
-        print(f"{p}: sha256 {hashlib.sha256(p.read_bytes()).hexdigest()}")
-    rows = join(read(args.review), read(args.key))
+    if args.export:
+        for p in (args.review, args.key):
+            print(f"{p}: sha256 {hashlib.sha256(p.read_bytes()).hexdigest()}")
+        export(join(read(args.review), read(args.key)))
+        return
+    print(f"{args.marks}: sha256 {hashlib.sha256(args.marks.read_bytes()).hexdigest()}")
+    rows = from_marks(args.marks)
     checks(rows, read(args.gold))
     report("all 357 rows", rows)
     ovr(rows)

@@ -147,7 +147,7 @@ over the whole file and without the `no` answers whose note says the text is not
 | Sent out and the owner agrees | 101/132 = 76.5% [68.6, 82.9] (75.0% with two contradicting answers read as `no`) | not applicable (a `no` there says the drop was wrong) |
 
 The 23 excluded answers are 11% of the assigned rows. Five of the first 57 answers changed since the tracked gold, two of them contradict their own note, and 28 sent-out `no` name no sector,
-so the cost of the gate is still an upper bound (at most about a fifth of the right sectors); all in `docs/sector_training.md`. The marks are local files, not yet tracked.
+so the cost of the gate is still an upper bound (at most about a fifth of the right sectors); all in `docs/sector_training.md`. The marks are tracked in `gold/sector_fresh_marks_2026_11_19.csv`.
 
 **One vs rest per sector (2026-11-19, 337 rows without controls; `docs/sector_training.md`):** precision, and recall as an upper bound (the 28 sent-out `no` that name no sector can only lower it; the draw is not a corpus sample).
 

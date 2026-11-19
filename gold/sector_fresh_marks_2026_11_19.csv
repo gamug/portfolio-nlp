@@ -1,0 +1,358 @@
+﻿review_order,article_id,status,sector,candidate,shown,control,margin,vote_sector,model_sector_code,model_verdict,correct,right_sector,notes
+1,295973,assigned,35,35,35,no,0.0320,35,35,Health Care,yes,,
+2,465343,assigned,20,20,20,no,0.0074,20,20,Industrials,yes,,
+3,121693,assigned,25,25,25,no,0.0815,45,25,Consumer Discretionary,yes,,
+4,95843,assigned,25,25,25,no,0.0347,25,25,Consumer Discretionary,yes,,
+5,480713,assigned,60,60,60,no,0.0485,40,60,Real Estate,yes,,
+6,323283,assigned,25,25,25,no,0.0353,40,25,Consumer Discretionary,no,50,
+7,118103,assigned,50,50,50,no,0.0473,45,50,Communication Services,yes,,
+8,183243,assigned,50,50,50,no,0.0189,50,50,Communication Services,yes,,
+9,161513,assigned,40,40,40,no,0.0562,40,40,Financials,yes,,
+10,466193,assigned,45,45,45,no,0.0345,20,45,Information Technology,yes,,
+11,318883,assigned,55,55,55,no,0.0473,45,55,Utilities,yes,,
+12,480133,out_of_scope,,50,,no,0.0254,40,,OUT OF SCOPE (best guess: Communication Services),no,,
+13,263893,assigned,60,60,60,no,0.0466,40,60,Real Estate,yes,,
+14,106923,assigned,40,40,40,no,0.0046,40,40,Financials,yes,,
+15,115413,out_of_scope,,50,,no,0.0130,45,,OUT OF SCOPE (best guess: Communication Services),no,50,"Is a real sector news, not out_of_scope"
+16,128983,assigned,10,10,10,no,0.0666,40,10,Energy,yes,,
+17,340903,assigned,15,15,15,no,0.0532,15,15,Materials,yes,,
+18,159773,assigned,45,45,45,no,0.0245,45,45,Information Technology,yes,,
+19,119113,out_of_scope,,25,,no,0.0282,45,,OUT OF SCOPE (best guess: Consumer Discretionary),no,25,"Is a real sector news, not out_of_scope"
+20,324363,out_of_scope,,10,,no,0.0224,40,,OUT OF SCOPE (best guess: Energy),yes,10,"Is a real sector news, not out_of_scope"
+21,479723,assigned,55,55,55,no,0.0600,55,55,Utilities,yes,,
+22,291713,assigned,10,10,10,no,0.0558,40,10,Energy,yes,,
+23,105013,out_of_scope,,market_economy,,no,0.0415,40,,OUT OF SCOPE (looks like: market_economy),yes,,"Confirm out_of_scope, market_economy"
+24,1074563,out_of_scope,,35,,no,0.0131,25,,OUT OF SCOPE (best guess: Health Care),no,45,"Is a real sector news, not out_of_scope"
+25,157513,assigned,20,20,20,no,0.1066,20,20,Industrials,yes,,
+26,157833,assigned,20,20,25,yes,0.0443,20,25,Consumer Discretionary,no,,out_of_scope: unrelated
+27,285613,assigned,45,45,45,no,0.0351,45,45,Information Technology,yes,45,
+28,479413,assigned,10,10,50,yes,0.0731,,50,Communication Services,no,10,
+29,464913,out_of_scope,,market_economy,,no,0.0069,20,,OUT OF SCOPE (looks like: market_economy),yes,,
+30,169853,assigned,40,40,40,no,0.0179,40,40,Financials,yes,,
+31,166763,assigned,10,10,10,no,0.0442,10,10,Energy,yes,,
+32,469733,assigned,20,20,20,no,0.0696,20,20,Industrials,yes,,
+33,291613,assigned,35,35,35,no,0.0663,35,35,Health Care,yes,,
+34,266203,out_of_scope,,10,,no,0.0174,40,,OUT OF SCOPE (best guess: Energy),no,,
+35,187223,assigned,30,30,30,no,0.0151,30,30,Consumer Staples,no,25,
+36,325243,assigned,30,30,30,no,0.0695,30,30,Consumer Staples,yes,,
+37,326983,assigned,50,50,55,yes,0.0650,50,55,Utilities,no,50,
+38,263743,assigned,40,40,40,no,0.0072,40,40,Financials,no,,out_of_scope:investment_general
+39,275823,assigned,35,35,35,no,0.0493,35,35,Health Care,yes,,
+40,1111493,assigned,45,45,45,no,0.0164,45,45,Information Technology,yes,,
+41,413583,assigned,35,35,35,no,0.0435,30,35,Health Care,no,30,
+42,250433,out_of_scope,,55,,no,0.0095,30,,OUT OF SCOPE (best guess: Utilities),yes,,
+43,1080813,assigned,10,10,50,yes,0.0309,10,50,Communication Services,no,,"out_of_scope, market_economy"
+44,295283,assigned,15,15,15,no,0.0319,45,15,Materials,no,,"out_of_scope, market_economy"
+45,266663,assigned,60,60,60,no,0.0304,25,60,Real Estate,yes,,
+46,88283,out_of_scope,,50,,no,0.0029,25,,OUT OF SCOPE (best guess: Communication Services),yes,50,real sector
+47,323623,assigned,45,45,45,no,0.0458,40,45,Information Technology,yes,,
+48,220653,out_of_scope,,45,,no,0.0251,40,,OUT OF SCOPE (best guess: Information Technology),yes,,
+49,264223,assigned,25,25,25,no,0.0394,25,25,Consumer Discretionary,yes,,
+50,169143,out_of_scope,,20,,no,0.0133,40,,OUT OF SCOPE (best guess: Industrials),no,,
+51,177093,assigned,50,50,50,no,0.1000,50,50,Communication Services,yes,,
+52,453953,assigned,50,50,50,no,0.0544,50,50,Communication Services,yes,,
+53,157553,assigned,20,20,20,no,0.0414,20,20,Industrials,yes,,
+54,315213,assigned,35,35,55,yes,0.0696,35,55,Utilities,no,35,
+55,164683,assigned,15,15,15,no,0.0523,20,15,Materials,yes,,
+56,169413,assigned,40,40,40,no,0.0117,40,40,Financials,yes,,
+57,121113,assigned,25,25,25,no,0.0685,25,25,Consumer Discretionary,yes,,
+58,340998,assigned,45,45,45,no,0.0551,45,45,SECTOR: Information Technology,yes,,
+59,168218,out_of_scope,,20,,no,0.0109,,,OUT OF SCOPE (best guess: Industrials),yes,,
+60,166668,assigned,10,10,10,no,0.0846,10,10,SECTOR: Energy,yes,,
+61,303408,assigned,60,60,60,no,0.0919,25,60,SECTOR: Real Estate,yes,,
+62,475648,assigned,40,40,40,no,0.1206,40,40,SECTOR: Financials,yes,,Has no relevant information unless is about the tagged sector
+63,155928,assigned,40,40,30,yes,0.0413,40,30,SECTOR: Consumer Staples,no,,No sector news
+64,115878,assigned,50,50,50,no,0.0097,50,50,SECTOR: Communication Services,yes,,
+65,265128,assigned,45,45,45,no,0.0513,45,45,SECTOR: Information Technology,yes,,
+66,328758,out_of_scope,,45,,no,0.0011,,,OUT OF SCOPE (best guess: Information Technology),yes,,
+67,307878,out_of_scope,,35,,no,0.0073,40,,OUT OF SCOPE (best guess: Health Care),yes,,"This is very ambiguous, I tagged it as out of scope"
+68,302168,out_of_scope,,25,,no,0.0134,40,,OUT OF SCOPE (best guess: Consumer Discretionary),yes,,
+69,325398,assigned,10,10,10,no,0.0496,40,10,SECTOR: Energy,yes,,
+70,466208,assigned,20,20,20,no,0.0752,20,20,SECTOR: Industrials,yes,,
+71,424618,assigned,25,25,25,no,0.0561,,25,SECTOR: Consumer Discretionary,yes,,
+72,279238,out_of_scope,,30,,no,0.0016,25,,OUT OF SCOPE (best guess: Consumer Staples),no,,
+73,342318,assigned,45,45,45,no,0.0450,45,45,SECTOR: Information Technology,yes,,"Even when it start with Nvidia, the text become a sector one couse the huge quantity of companies named there"
+74,263968,out_of_scope,,40,,no,0.0143,,,OUT OF SCOPE (best guess: Financials),yes,,
+75,324618,assigned,10,10,10,no,0.0548,40,10,SECTOR: Energy,yes,,
+76,479438,assigned,10,10,50,yes,0.0528,,50,SECTOR: Communication Services,no,10,
+77,465398,out_of_scope,,20,,no,0.0148,,,OUT OF SCOPE (best guess: Industrials),yes,,
+78,95698,assigned,45,45,45,no,0.0185,45,45,SECTOR: Information Technology,yes,,
+79,323268,assigned,35,35,35,no,0.0595,40,35,SECTOR: Health Care,yes,,
+80,95208,assigned,25,25,25,no,0.0559,25,25,SECTOR: Consumer Discretionary,yes,,
+81,286768,assigned,45,45,45,no,0.0757,45,45,SECTOR: Information Technology,yes,,
+82,121218,assigned,45,45,45,no,0.0202,45,45,SECTOR: Information Technology,yes,,
+83,1095208,out_of_scope,,45,,no,0.0243,40,,OUT OF SCOPE (best guess: Information Technology),yes,,
+84,168898,out_of_scope,,45,,no,0.0256,,,OUT OF SCOPE (best guess: Information Technology),yes,,
+85,116648,assigned,50,50,50,no,0.0399,45,50,SECTOR: Communication Services,yes,,
+86,1076678,assigned,45,45,45,no,0.0756,50,45,SECTOR: Information Technology,yes,,
+87,324058,out_of_scope,,25,,no,0.0059,35,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,
+88,255428,out_of_scope,,market_economy,,no,0.0004,,,OUT OF SCOPE (looks like: market_economy),yes,,
+89,479818,assigned,10,10,10,no,0.0492,10,10,SECTOR: Energy,yes,,
+90,323758,assigned,45,45,45,no,0.0165,45,45,SECTOR: Information Technology,no,,More like general economy
+91,324348,assigned,50,50,50,no,0.0478,,50,SECTOR: Communication Services,yes,,
+92,480518,assigned,40,40,40,no,0.0122,40,40,SECTOR: Financials,yes,,
+93,265498,assigned,10,10,50,yes,0.0607,40,50,SECTOR: Communication Services,no,10,
+94,92328,assigned,25,25,25,no,0.0297,60,25,SECTOR: Consumer Discretionary,no,,Is more like out_of_scope
+95,116318,out_of_scope,,25,,no,0.0021,40,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,
+96,61218,out_of_scope,,50,,no,0.0144,25,,OUT OF SCOPE (best guess: Communication Services),yes,,"This is very ambiguous, I tagged it as out of scope"
+97,1101218,out_of_scope,,50,,no,0.0004,45,,OUT OF SCOPE (best guess: Communication Services),yes,,
+98,466268,assigned,20,20,20,no,0.0714,20,20,SECTOR: Industrials,yes,,
+99,303378,assigned,60,60,60,no,0.0552,25,60,SECTOR: Real Estate,yes,,
+100,328258,out_of_scope,,45,,no,0.0133,50,,OUT OF SCOPE (best guess: Information Technology),yes,,
+101,91918,assigned,55,55,55,no,0.0407,25,55,SECTOR: Utilities,yes,,
+102,425558,out_of_scope,,50,,no,0.0147,45,,OUT OF SCOPE (best guess: Communication Services),yes,,
+103,295778,assigned,10,10,10,no,0.0419,10,10,SECTOR: Energy,yes,,
+104,124138,out_of_scope,,30,,no,0.0081,45,,OUT OF SCOPE (best guess: Consumer Staples),yes,,
+105,121698,assigned,50,50,50,no,0.0395,45,50,SECTOR: Communication Services,yes,,
+106,131118,assigned,40,40,40,no,0.0068,40,40,SECTOR: Financials,yes,,
+107,154928,out_of_scope,,10,,no,0.0088,40,,OUT OF SCOPE (best guess: Energy),yes,,
+108,177008,out_of_scope,,market_economy,,no,0.0062,30,,OUT OF SCOPE (looks like: market_economy),yes,,"Is about a company, not a sector"
+109,477738,assigned,25,25,25,no,0.0485,30,25,SECTOR: Consumer Discretionary,yes,,
+110,284988,out_of_scope,,20,,no,0.0076,45,,OUT OF SCOPE (best guess: Industrials),yes,,
+111,439158,assigned,25,25,45,yes,0.0495,25,45,SECTOR: Information Technology,no,,More like general_economy
+112,473708,assigned,35,35,35,no,0.0704,35,35,SECTOR: Health Care,yes,,
+113,93888,out_of_scope,,50,,no,0.0088,45,,OUT OF SCOPE (best guess: Communication Services),yes,,
+114,263198,out_of_scope,,20,,no,0.0013,40,,OUT OF SCOPE (best guess: Industrials),yes,,"Even when is sector related, is more like multi"
+115,480058,assigned,25,25,45,yes,0.0268,25,45,SECTOR: Information Technology,no,25,
+116,323298,assigned,25,25,25,no,0.0531,40,25,SECTOR: Consumer Discretionary,no,,More like multi
+117,106838,assigned,40,40,40,no,0.0423,40,40,SECTOR: Financials,yes,,
+118,124788,assigned,45,45,45,no,0.0853,45,45,SECTOR: Information Technology,yes,,
+119,327108,assigned,50,50,50,no,0.0522,50,50,SECTOR: Communication Services,yes,,
+120,319868,assigned,45,45,45,no,0.0344,45,45,SECTOR: Information Technology,yes,,
+121,285168,out_of_scope,,40,,no,0.0164,,,OUT OF SCOPE (best guess: Financials),yes,,
+122,170668,assigned,35,35,35,no,0.0936,55,35,SECTOR: Health Care,yes,,
+123,264458,assigned,40,40,40,no,0.0152,40,40,SECTOR: Financials,yes,,This is a very ambiguos text. Seems like sector but can be general_economy
+124,1104718,assigned,45,45,45,no,0.0327,45,45,SECTOR: Information Technology,yes,,This is a very ambiguos text. Seems like sector but can be general_economy
+125,266928,assigned,45,45,45,no,0.0267,45,45,SECTOR: Information Technology,yes,,
+126,183198,assigned,45,45,45,no,0.0293,45,45,SECTOR: Information Technology,no,,More like general_economy
+127,157708,assigned,40,40,40,no,0.0050,40,40,SECTOR: Financials,no,,More like general_economy
+128,158418,assigned,20,20,35,yes,0.0777,20,35,SECTOR: Health Care,no,,single company
+129,323138,out_of_scope,,45,,no,0.0011,40,,OUT OF SCOPE (best guess: Information Technology),yes,,
+130,157508,assigned,20,20,20,no,0.0782,20,20,SECTOR: Industrials,yes,,
+131,262878,out_of_scope,,investment_activity,,no,0.0058,40,,OUT OF SCOPE (looks like: investment_activity),yes,,
+132,132408,assigned,50,50,50,no,0.0609,45,50,SECTOR: Communication Services,yes,,
+133,318498,assigned,45,45,45,no,0.0366,45,45,SECTOR: Information Technology,yes,,
+134,340898,out_of_scope,,55,,no,0.0019,15,,OUT OF SCOPE (best guess: Utilities),yes,,
+135,157188,assigned,20,20,20,no,0.0644,20,20,SECTOR: Industrials,yes,,
+136,169948,assigned,40,40,40,no,0.0872,40,40,SECTOR: Financials,yes,,
+137,168448,assigned,45,45,45,no,0.0034,45,45,SECTOR: Information Technology,yes,,
+138,169868,out_of_scope,,45,,no,0.0188,40,,OUT OF SCOPE (best guess: Information Technology),yes,,
+139,254958,out_of_scope,,10,,no,0.0233,25,,OUT OF SCOPE (best guess: Energy),yes,,The text is ambiguous. Seems like sector pero is more like economy
+140,145688,out_of_scope,,market_economy,,no,0.0098,25,,OUT OF SCOPE (looks like: market_economy),yes,,
+141,91088,out_of_scope,,45,,no,0.0287,,,OUT OF SCOPE (best guess: Information Technology),no,,
+142,169458,assigned,10,10,10,no,0.0689,40,10,SECTOR: Energy,yes,,
+143,303438,assigned,60,60,60,no,0.0801,25,60,SECTOR: Real Estate,yes,,
+144,296488,assigned,40,40,40,no,0.0591,40,40,SECTOR: Financials,yes,,
+145,167988,assigned,35,35,35,no,0.0380,35,35,SECTOR: Health Care,yes,,
+146,263168,out_of_scope,,55,,no,0.0109,40,,OUT OF SCOPE (best guess: Utilities),yes,,"Even when start with a very solid IA sector statements, migrate rapidly to economy topic"
+147,296558,assigned,40,40,40,no,0.0146,40,40,SECTOR: Financials,yes,,
+148,1111268,out_of_scope,,market_economy,,no,0.0064,45,,OUT OF SCOPE (looks like: market_economy),yes,,
+149,121878,assigned,50,50,50,no,0.0365,50,50,SECTOR: Communication Services,yes,,
+150,122838,out_of_scope,,35,,no,0.0049,45,,OUT OF SCOPE (best guess: Health Care),yes,,The technology sector scope is not enough to present relevant sector data
+151,413318,assigned,40,40,40,no,0.0333,40,40,SECTOR: Financials,yes,,
+152,91038,out_of_scope,,25,,no,0.0103,50,,OUT OF SCOPE (best guess: Consumer Discretionary),yes,,Is more like multi
+153,89608,assigned,45,45,45,no,0.0520,45,45,SECTOR: Information Technology,no,,More like out_of_scope
+154,297028,assigned,10,10,10,no,0.0389,40,10,SECTOR: Energy,yes,,This is a very ambiguos news
+155,296798,assigned,40,40,40,no,0.0356,,40,SECTOR: Financials,no,,More like out_of_scope
+156,161008,assigned,40,40,40,no,0.0205,40,40,SECTOR: Financials,yes,,
+157,296498,assigned,20,20,20,no,0.0010,20,20,SECTOR: Industrials,yes,,
+158,265148,out_of_scope,,45,,no,0.0228,40,,OUT OF SCOPE (best guess: Information Technology),no,,
+159,296758,assigned,25,25,35,yes,0.0664,,35,SECTOR: Health Care,no,25,
+160,169268,out_of_scope,,market_economy,,no,0.0323,40,,OUT OF SCOPE (looks like: market_economy),yes,,Even when is sector related should be tagged more like multi. BTW is a very ambiguos text
+161,466238,out_of_scope,,40,,no,0.0079,25,,OUT OF SCOPE (best guess: Financials),no,,
+162,322868,assigned,10,10,10,no,0.0640,10,10,SECTOR: Energy,yes,,
+163,1101198,assigned,45,45,45,no,0.0294,,45,SECTOR: Information Technology,no,,More like general_economy
+164,464658,out_of_scope,,investment_activity,,no,0.0218,,,OUT OF SCOPE (looks like: investment_activity),yes,,
+165,440248,out_of_scope,,60,,no,0.0143,25,,OUT OF SCOPE (best guess: Real Estate),yes,,
+166,170898,out_of_scope,,30,,no,0.0174,,,OUT OF SCOPE (best guess: Consumer Staples),yes,,
+167,464898,assigned,20,20,20,no,0.0150,20,20,SECTOR: Industrials,no,,More like single
+168,480888,assigned,40,40,40,no,0.0104,40,40,SECTOR: Financials,yes,,
+169,464938,assigned,25,25,25,no,0.0590,,25,SECTOR: Consumer Discretionary,yes,25,
+170,160498,out_of_scope,,60,,no,0.0052,20,,OUT OF SCOPE (best guess: Real Estate),yes,,
+171,325418,assigned,40,40,40,no,0.0494,40,40,SECTOR: Financials,yes,,
+172,94368,assigned,35,35,35,no,0.0038,35,35,SECTOR: Health Care,yes,,
+173,115838,assigned,50,50,50,no,0.0305,,50,SECTOR: Communication Services,yes,,
+174,61068,assigned,25,25,25,no,0.0435,25,25,SECTOR: Consumer Discretionary,yes,,Can be single also
+175,322978,assigned,55,55,55,no,0.0861,55,55,SECTOR: Utilities,yes,,
+176,1100998,assigned,60,60,60,no,0.0531,60,60,SECTOR: Real Estate,yes,,
+177,94748,out_of_scope,,market_economy,,no,0.0452,25,,OUT OF SCOPE (looks like: market_economy),yes,,
+178,480228,out_of_scope,,10,,no,0.0192,40,,OUT OF SCOPE (best guess: Energy),yes,,
+179,171798,out_of_scope,,market_economy,,no,0.0598,40,,OUT OF SCOPE (looks like: market_economy),no,,
+180,95548,assigned,25,25,25,no,0.0241,25,25,SECTOR: Consumer Discretionary,yes,,
+181,295738,assigned,35,35,35,no,0.0455,35,35,SECTOR: Health Care,yes,,
+182,88668,out_of_scope,,market_economy,,no,0.0098,50,,OUT OF SCOPE (looks like: market_economy),no,,
+183,165418,assigned,10,10,10,no,0.0316,20,10,SECTOR: Energy,no,,"Is more like ""multisector"" (something we don't have as category yet)"
+184,90538,out_of_scope,,45,,no,0.0196,,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like multi
+185,154818,assigned,40,40,35,yes,0.0657,40,35,SECTOR: Health Care,no,,More like general_economy
+186,159528,out_of_scope,,25,,no,0.0024,45,,OUT OF SCOPE (best guess: Consumer Discretionary),yes,,
+187,340688,assigned,25,25,25,no,0.0215,25,25,SECTOR: Consumer Discretionary,yes,,
+188,303418,assigned,60,60,60,no,0.0641,25,60,SECTOR: Real Estate,yes,,
+189,170938,assigned,30,30,30,no,0.0642,30,30,SECTOR: Consumer Staples,yes,,
+190,172038,assigned,50,50,50,no,0.0126,50,50,SECTOR: Communication Services,no,,More like out_of_scope
+191,302488,assigned,30,30,30,no,0.0166,30,30,SECTOR: Consumer Staples,yes,,
+192,172198,assigned,50,50,50,no,0.0727,50,50,SECTOR: Communication Services,yes,,
+193,166588,assigned,10,10,10,no,0.0101,10,10,SECTOR: Energy,yes,,
+194,323948,out_of_scope,,10,,no,0.0056,40,,OUT OF SCOPE (best guess: Energy),yes,,
+195,329248,assigned,50,50,50,no,0.0508,50,50,SECTOR: Communication Services,yes,,
+196,303388,assigned,60,60,60,no,0.0964,25,60,SECTOR: Real Estate,yes,,
+197,480408,out_of_scope,,unrelated,,no,0.0540,40,,OUT OF SCOPE (looks like: unrelated),yes,,
+198,166508,out_of_scope,,55,,no,0.0089,10,,OUT OF SCOPE (best guess: Utilities),yes,,The article speaks about two sectors and is very hard to find a relation to put a single one
+199,121068,out_of_scope,,25,,no,0.0202,45,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,
+200,319088,out_of_scope,,market_economy,,no,0.0341,,,OUT OF SCOPE (looks like: market_economy),yes,,"The first parto of the article seems like sector related, then, it turns into something werid difficult to tag"
+201,133368,out_of_scope,,market_economy,,no,0.0121,,,OUT OF SCOPE (looks like: market_economy),yes,,"Again, it seems clearly sector at the very begin and turn into something weird"
+202,158648,out_of_scope,,20,,no,0.0033,25,,OUT OF SCOPE (best guess: Industrials),no,,
+203,479758,out_of_scope,,55,,no,0.0156,45,,OUT OF SCOPE (best guess: Utilities),yes,,Is more like multi than sector
+204,163808,out_of_scope,,40,,no,0.0115,25,,OUT OF SCOPE (best guess: Financials),yes,,Is sector related but has no relevan information
+205,481038,assigned,40,40,40,no,0.0515,40,40,SECTOR: Financials,yes,,
+206,127918,out_of_scope,,market_economy,,no,0.0770,20,,OUT OF SCOPE (looks like: market_economy),yes,,
+207,423848,out_of_scope,,45,,no,0.0092,20,,OUT OF SCOPE (best guess: Information Technology),yes,,is more like multi
+208,266338,out_of_scope,,investment_activity,,no,0.0385,,,OUT OF SCOPE (looks like: investment_activity),yes,,"Even when is sector related, it doesn't have relevan information"
+209,155198,assigned,60,60,60,no,0.0294,40,60,SECTOR: Real Estate,yes,,
+210,233448,assigned,25,25,30,yes,0.0466,25,30,SECTOR: Consumer Staples,no,25,
+211,157248,assigned,20,20,20,no,0.0803,20,20,SECTOR: Industrials,yes,,
+212,129868,assigned,40,40,40,no,0.0347,40,40,SECTOR: Financials,yes,,
+213,159708,assigned,45,45,45,no,0.0158,45,45,SECTOR: Information Technology,yes,,
+214,262778,out_of_scope,,market_economy,,no,0.0096,40,,OUT OF SCOPE (looks like: market_economy),yes,,
+215,1075178,out_of_scope,,45,,no,0.0025,50,,OUT OF SCOPE (best guess: Information Technology),yes,,Has not financial relevan information
+216,412968,out_of_scope,,market_economy,,no,0.0346,20,,OUT OF SCOPE (looks like: market_economy),yes,,
+217,263728,out_of_scope,,55,,no,0.0025,40,,OUT OF SCOPE (best guess: Utilities),yes,,Like economical news
+218,128058,assigned,20,20,20,no,0.0059,20,20,SECTOR: Industrials,no,,More like general_economy
+219,470158,out_of_scope,,25,,no,0.0228,,,OUT OF SCOPE (best guess: Consumer Discretionary),yes,,Like multi
+220,479858,assigned,25,25,25,no,0.0476,40,25,SECTOR: Consumer Discretionary,yes,,
+221,145658,assigned,25,25,25,no,0.0045,25,25,SECTOR: Consumer Discretionary,yes,,Very dirty news
+222,157588,assigned,20,20,20,no,0.0215,20,20,SECTOR: Industrials,no,,More like general_economy
+223,475348,assigned,20,20,20,no,0.0386,45,20,SECTOR: Industrials,no,,More like general_economy
+224,129588,assigned,60,60,60,no,0.0874,60,60,SECTOR: Real Estate,yes,,
+225,263958,out_of_scope,,10,,no,0.0008,40,,OUT OF SCOPE (best guess: Energy),yes,,Like multi
+226,183358,out_of_scope,,investment_activity,,no,0.0028,50,,OUT OF SCOPE (looks like: investment_activity),yes,,
+227,169758,out_of_scope,,10,,no,0.0040,40,,OUT OF SCOPE (best guess: Energy),yes,,
+228,130078,assigned,60,60,60,no,0.0556,25,60,SECTOR: Real Estate,no,25,Very unclear text that start as the sector that was tagged
+229,327478,assigned,50,50,50,no,0.0904,50,50,SECTOR: Communication Services,yes,,
+230,159468,out_of_scope,,35,,no,0.0114,45,,OUT OF SCOPE (best guess: Health Care),yes,,
+231,1110648,assigned,25,25,25,no,0.0017,25,25,SECTOR: Consumer Discretionary,yes,,
+232,207968,assigned,25,25,25,no,0.0021,25,25,SECTOR: Consumer Discretionary,yes,,
+233,285728,assigned,40,40,40,no,0.0486,20,40,SECTOR: Financials,no,,More like general_investment
+234,209378,assigned,40,40,40,no,0.0541,20,40,SECTOR: Financials,no,,More like single
+235,302988,out_of_scope,,25,,no,0.0006,30,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,
+236,480048,out_of_scope,,45,,no,0.0166,40,,OUT OF SCOPE (best guess: Information Technology),no,,
+237,325208,assigned,45,45,45,no,0.0909,45,45,SECTOR: Information Technology,yes,,
+238,417018,out_of_scope,,55,,no,0.0117,30,,OUT OF SCOPE (best guess: Utilities),yes,,
+239,91318,out_of_scope,,market_economy,,no,0.0059,,,OUT OF SCOPE (looks like: market_economy),yes,,Is more like laboral market not aabout sector
+240,466188,assigned,20,20,20,no,0.0494,20,20,SECTOR: Industrials,yes,,
+241,96028,assigned,45,45,45,no,0.0407,45,45,SECTOR: Information Technology,yes,,
+242,92988,out_of_scope,,market_economy,,no,0.0260,,,OUT OF SCOPE (looks like: market_economy),yes,,
+243,319538,assigned,35,35,35,no,0.1013,45,35,SECTOR: Health Care,yes,,
+244,124338,assigned,50,50,10,yes,0.0599,45,10,SECTOR: Energy,no,50,
+245,473878,assigned,35,35,35,no,0.0442,35,35,SECTOR: Health Care,yes,,
+246,89328,out_of_scope,,55,,no,0.0011,,,OUT OF SCOPE (best guess: Utilities),yes,,
+247,173648,assigned,10,10,10,no,0.0719,10,10,SECTOR: Energy,yes,,Can also be categorized as multi
+248,479928,out_of_scope,,investment_activity,,no,0.0011,40,,OUT OF SCOPE (looks like: investment_activity),yes,,
+249,264188,assigned,10,10,10,no,0.0496,40,10,SECTOR: Energy,yes,,
+250,480508,assigned,40,40,40,no,0.0398,40,40,SECTOR: Financials,yes,,
+251,127998,out_of_scope,,market_economy,,no,0.0131,20,,OUT OF SCOPE (looks like: market_economy),yes,,
+252,480938,assigned,40,40,40,no,0.0327,40,40,SECTOR: Financials,yes,,
+253,320048,out_of_scope,,50,,no,0.0178,45,,OUT OF SCOPE (best guess: Communication Services),no,,
+254,264408,assigned,60,60,60,no,0.0728,40,60,SECTOR: Real Estate,yes,,
+255,323148,assigned,10,10,10,no,0.0631,40,10,SECTOR: Energy,yes,,
+256,340648,out_of_scope,,35,,no,0.0026,25,,OUT OF SCOPE (best guess: Health Care),no,,
+257,93208,out_of_scope,,45,,no,0.0157,50,,OUT OF SCOPE (best guess: Information Technology),no,,
+258,340058,assigned,20,20,20,no,0.0406,20,20,SECTOR: Industrials,yes,,
+259,157218,assigned,20,20,20,no,0.0964,20,20,SECTOR: Industrials,yes,,
+260,93348,assigned,25,25,25,no,0.0455,25,25,SECTOR: Consumer Discretionary,yes,,
+261,465238,out_of_scope,,45,,no,0.0167,,,OUT OF SCOPE (best guess: Information Technology),yes,,
+262,264808,out_of_scope,,investment_activity,,no,0.0066,40,,OUT OF SCOPE (looks like: investment_activity),yes,,Is like singlle
+263,93568,out_of_scope,,50,,no,0.0096,,,OUT OF SCOPE (best guess: Communication Services),yes,,"Even when is sector relate, has no relevant information"
+264,157998,assigned,20,20,20,no,0.0838,20,20,SECTOR: Industrials,yes,,
+265,263798,assigned,50,50,50,no,0.0218,50,50,SECTOR: Communication Services,yes,,
+266,295958,assigned,40,40,40,no,0.1096,40,40,SECTOR: Financials,yes,,
+267,314108,assigned,40,40,40,no,0.0235,40,40,SECTOR: Financials,no,,More like out_of_scope
+268,448618,assigned,25,25,25,no,0.0482,25,25,SECTOR: Consumer Discretionary,yes,,
+269,183368,out_of_scope,,45,,no,0.0222,25,,OUT OF SCOPE (best guess: Information Technology),yes,,Is like multi
+270,281128,out_of_scope,,10,,no,0.0049,25,,OUT OF SCOPE (best guess: Energy),yes,,
+271,266788,out_of_scope,,15,,no,0.0184,40,,OUT OF SCOPE (best guess: Materials),no,,
+272,325238,out_of_scope,,market_economy,,no,0.0513,40,,OUT OF SCOPE (looks like: market_economy),no,,
+273,481048,out_of_scope,,40,,no,0.0053,,,OUT OF SCOPE (best guess: Financials),yes,,More like economical news
+274,117858,assigned,40,40,40,no,0.0775,45,40,SECTOR: Financials,yes,,
+275,265218,assigned,10,10,10,no,0.0342,40,10,SECTOR: Energy,yes,,
+276,294068,assigned,35,35,35,no,0.0119,35,35,SECTOR: Health Care,yes,,
+277,155128,out_of_scope,,10,,no,0.0095,40,,OUT OF SCOPE (best guess: Energy),no,,"Even when it has a part of sector, it has a more diverse topic"
+278,123518,out_of_scope,,25,,no,0.0010,45,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,Is like single
+279,343618,out_of_scope,,45,,no,0.0076,,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like multi
+280,417278,assigned,30,30,30,no,0.0008,30,30,SECTOR: Consumer Staples,yes,,
+281,323408,out_of_scope,,10,,no,0.0284,40,,OUT OF SCOPE (best guess: Energy),yes,,Is like single
+282,323318,assigned,15,15,15,no,0.0455,40,15,SECTOR: Materials,yes,,
+283,138608,assigned,40,40,40,no,0.0521,40,40,SECTOR: Financials,yes,,
+284,296458,out_of_scope,,market_economy,,no,0.0637,45,,OUT OF SCOPE (looks like: market_economy),yes,,Is  veri ambiguous
+285,464948,assigned,20,20,45,yes,0.0406,20,45,SECTOR: Information Technology,no,,Is out_of_scope
+286,263418,assigned,45,45,45,no,0.0528,45,45,SECTOR: Information Technology,yes,,
+287,253198,assigned,25,25,60,yes,0.0534,25,60,SECTOR: Real Estate,no,25,
+288,179248,out_of_scope,,45,,no,0.0082,20,,OUT OF SCOPE (best guess: Information Technology),yes,,
+289,343528,out_of_scope,,45,,no,0.0274,,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like multi
+290,168508,assigned,45,45,45,no,0.0281,45,45,SECTOR: Information Technology,yes,,
+291,451658,assigned,30,30,30,no,0.0188,30,30,SECTOR: Consumer Staples,no,25,
+292,479478,out_of_scope,,10,,no,0.0022,35,,OUT OF SCOPE (best guess: Energy),yes,,
+293,480608,assigned,40,40,40,no,0.0080,40,40,SECTOR: Financials,yes,,
+294,466108,assigned,20,20,20,no,0.0159,20,20,SECTOR: Industrials,yes,,
+295,263888,out_of_scope,,45,,no,0.0265,50,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like multi
+296,88838,out_of_scope,,market_economy,,no,0.0053,50,,OUT OF SCOPE (looks like: market_economy),yes,,
+297,440108,assigned,25,25,25,no,0.0261,25,25,SECTOR: Consumer Discretionary,yes,,
+298,253288,assigned,25,25,25,no,0.0262,25,25,SECTOR: Consumer Discretionary,yes,,
+299,120308,out_of_scope,,market_economy,,no,0.0701,,,OUT OF SCOPE (looks like: market_economy),yes,,
+300,263688,assigned,10,10,10,no,0.0853,40,10,SECTOR: Energy,yes,,
+301,158668,assigned,20,20,20,no,0.1041,25,20,SECTOR: Industrials,yes,,Is in the borderline between out_of_scope and sector
+302,319098,assigned,45,45,45,no,0.0209,45,45,SECTOR: Information Technology,yes,,
+303,183248,out_of_scope,,45,,no,0.0274,50,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like multi
+304,341268,assigned,45,45,45,no,0.0614,45,45,SECTOR: Information Technology,yes,,Can be considered as single too
+305,436278,assigned,20,20,20,no,0.0401,20,20,SECTOR: Industrials,yes,,
+306,118388,assigned,40,40,40,no,0.0435,,40,SECTOR: Financials,yes,,
+307,95878,assigned,25,25,25,no,0.0316,25,25,SECTOR: Consumer Discretionary,yes,,
+308,139268,assigned,35,35,10,yes,0.0445,35,10,SECTOR: Energy,no,35,
+309,116018,out_of_scope,,investing_general,,no,0.0113,,,OUT OF SCOPE (looks like: investing_general),yes,,
+310,322918,assigned,45,45,45,no,0.0814,45,45,SECTOR: Information Technology,yes,,
+311,464878,out_of_scope,,25,,no,0.0029,20,,OUT OF SCOPE (best guess: Consumer Discretionary),yes,,
+312,443978,assigned,45,45,30,yes,0.0246,45,30,SECTOR: Consumer Staples,no,45,
+313,479698,out_of_scope,,45,,no,0.0161,40,,OUT OF SCOPE (best guess: Information Technology),yes,,
+314,477628,out_of_scope,,market_economy,,no,0.0107,,,OUT OF SCOPE (looks like: market_economy),yes,,
+315,119418,out_of_scope,,55,,no,0.0006,45,,OUT OF SCOPE (best guess: Utilities),yes,,
+316,92308,out_of_scope,,35,,no,0.0164,,,OUT OF SCOPE (best guess: Health Care),yes,,Is more like single
+317,1075238,assigned,55,55,55,no,0.1275,,55,SECTOR: Utilities,yes,,
+318,465948,assigned,20,20,20,no,0.0640,20,20,SECTOR: Industrials,yes,,"Is a orderline news, near out_of_scope"
+319,296278,out_of_scope,,10,,no,0.0173,40,,OUT OF SCOPE (best guess: Energy),yes,,Not relevant information
+320,479618,out_of_scope,,market_economy,,no,0.0243,40,,OUT OF SCOPE (looks like: market_economy),no,,
+321,170408,assigned,25,25,25,no,0.0072,25,25,SECTOR: Consumer Discretionary,no,,More like general_economy
+322,117048,assigned,45,45,45,no,0.0614,45,45,SECTOR: Information Technology,yes,,
+323,265088,assigned,20,20,20,no,0.0331,,20,SECTOR: Industrials,yes,,
+324,323418,out_of_scope,,60,,no,0.0086,40,,OUT OF SCOPE (best guess: Real Estate),yes,,
+325,286788,assigned,50,50,50,no,0.0483,50,50,SECTOR: Communication Services,yes,,
+326,94688,out_of_scope,,35,,no,0.0142,,,OUT OF SCOPE (best guess: Health Care),yes,,Not a real sector
+327,164418,out_of_scope,,15,,no,0.0227,20,,OUT OF SCOPE (best guess: Materials),no,,
+328,212178,out_of_scope,,45,,no,0.0059,30,,OUT OF SCOPE (best guess: Information Technology),yes,,Is more like mmulti
+329,479778,assigned,40,40,40,no,0.0629,40,40,SECTOR: Financials,yes,,
+330,326068,out_of_scope,,investment_activity,,no,0.0237,40,,OUT OF SCOPE (looks like: investment_activity),no,,
+331,263638,assigned,40,40,40,no,0.0388,40,40,SECTOR: Financials,yes,,"Is bank related, yes, but is also like laboral market"
+332,118908,assigned,15,15,15,no,0.0411,45,15,SECTOR: Materials,no,30,
+333,89598,assigned,45,45,45,no,0.0453,45,45,SECTOR: Information Technology,yes,,
+334,476178,out_of_scope,,25,,no,0.0007,,,OUT OF SCOPE (best guess: Consumer Discretionary),no,,
+335,295938,assigned,20,20,20,no,0.0248,20,20,SECTOR: Industrials,yes,,
+336,323528,assigned,40,40,40,no,0.0362,40,40,SECTOR: Financials,yes,,
+337,1111658,assigned,45,45,45,no,0.0767,40,45,SECTOR: Information Technology,no,,More like general_economy
+338,134118,assigned,40,40,40,no,0.0117,40,40,SECTOR: Financials,yes,,
+339,159168,assigned,35,35,35,no,0.0438,35,35,SECTOR: Health Care,yes,,
+340,131218,out_of_scope,,55,,no,0.0045,40,,OUT OF SCOPE (best guess: Utilities),yes,,Is more like multi
+341,1101398,assigned,45,45,45,no,0.0386,45,45,SECTOR: Information Technology,yes,,
+342,263378,assigned,40,40,40,no,0.0069,40,40,SECTOR: Financials,no,,More like out_of_scope
+343,296938,out_of_scope,,market_economy,,no,0.0262,40,,OUT OF SCOPE (looks like: market_economy),no,,
+344,129518,out_of_scope,,market_economy,,no,0.0037,40,,OUT OF SCOPE (looks like: market_economy),no,,
+345,124318,assigned,45,45,45,no,0.0063,45,45,SECTOR: Information Technology,yes,,
+346,214038,out_of_scope,,40,,no,0.0149,45,,OUT OF SCOPE (best guess: Financials),yes,,More like single
+347,265578,assigned,40,40,40,no,0.0501,40,40,SECTOR: Financials,yes,,
+348,297008,assigned,10,10,10,no,0.0460,,10,SECTOR: Energy,yes,,
+349,252148,assigned,25,25,25,no,0.1213,25,25,SECTOR: Consumer Discretionary,yes,,
+350,164498,out_of_scope,,45,,no,0.0068,20,,OUT OF SCOPE (best guess: Information Technology),yes,,More like multi
+351,323348,assigned,45,45,30,yes,0.0521,,30,SECTOR: Consumer Staples,no,,More like general_economy
+352,244638,out_of_scope,,20,,no,0.0181,45,,OUT OF SCOPE (best guess: Industrials),yes,,More like multi
+353,323328,assigned,30,30,30,no,0.0093,30,30,SECTOR: Consumer Staples,yes,,Can be also health related 35
+354,293308,assigned,35,35,35,no,0.0832,35,35,SECTOR: Health Care,yes,,
+355,168338,assigned,45,45,45,no,0.0178,45,45,SECTOR: Information Technology,no,,More like out_of_scope
+356,89248,out_of_scope,,10,,no,0.0053,50,,OUT OF SCOPE (best guess: Energy),yes,,Not a real market
+357,156648,assigned,20,20,20,no,0.0168,20,20,SECTOR: Industrials,yes,,

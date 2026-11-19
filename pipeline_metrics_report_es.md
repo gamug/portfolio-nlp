@@ -147,7 +147,7 @@ sobre todo el archivo y sin los `no` cuya nota dice que el texto no es de sector
 | Enviados fuera y el dueño está de acuerdo | 101/132 = 76.5% [68.6, 82.9] (75.0% con dos respuestas contradictorias leídas como `no`) | no aplica (allí un `no` dice que el descarte fue un error) |
 
 Las 23 respuestas excluidas son el 11% de las filas asignadas. Cinco de las primeras 57 respuestas cambiaron desde el gold versionado, dos contradicen su propia nota y 28 `no` de enviados fuera no nombran sector,
-así que el costo de la compuerta sigue siendo una cota superior (como máximo una quinta parte de los sectores correctos); todo en `docs/sector_training.md`. Las marcas son archivos locales, aún no versionados.
+así que el costo de la compuerta sigue siendo una cota superior (como máximo una quinta parte de los sectores correctos); todo en `docs/sector_training.md`. Las marcas están versionadas en `gold/sector_fresh_marks_2026_11_19.csv`.
 
 **Uno contra el resto por sector (2026-11-19, 337 filas sin controles; `docs/sector_training.md`):** precisión, y recall como cota superior (los 28 `no` de enviados fuera que no nombran sector solo pueden bajarlo; el sorteo no es una muestra del corpus).
 

@@ -17,8 +17,8 @@ The second draw takes **more sent-out rows than the corpus has** (120 of 300, ag
 sector the step likes least; a `yes` to one means a reviewer who agrees too soon. The owner answers `correct` (`yes` or `no`) and, when the sector is wrong or
 the text was dropped wrongly, `right_sector`. **For a sent-out row `yes` means the drop was right**; `sector_description` on those rows is only the step's best guess.
 
-Files (local, `data/` is git-ignored; the scorer prints their hashes): `data/sector_fresh_to_review_es.csv` sha256 `65eb7a4534ef110c32c865f87d7b7430c4a7ea67ea5e0325949c1a95944ff3ac`,
-`data/sector_fresh_key.csv` sha256 `6ba854206e6794b72fe79e1bc46fd2996f6945419c19873540ebcb8607ea959c`. Scorer: `scripts/score_sector_fresh_2026_11_19.py`.
+Working files (local, `data/` is git-ignored): `data/sector_fresh_to_review_es.csv` sha256 `65eb7a4534ef110c32c865f87d7b7430c4a7ea67ea5e0325949c1a95944ff3ac`,
+`data/sector_fresh_key.csv` sha256 `6ba854206e6794b72fe79e1bc46fd2996f6945419c19873540ebcb8607ea959c`. **Tracked copy:** `gold/sector_fresh_marks_2026_11_19.csv` (the answers and the step's key, sha256 `907a94c1b5dc95e4c0c51978cab61ddf8a0be718e6ab5e702bd827279976b27c`) and `gold/texts/sector_fresh_marks_texts_2026_11_19.csv` (the English texts). Scorer: `scripts/score_sector_fresh_2026_11_19.py` (reads the tracked copy; `--export` makes it from the working files). A change of an answer is a new file and a new row here, not an edit.
 The 300 new texts were translated into Spanish with DeepSeek (approved by the owner) as a reading aid; the English text is what the step reads.
 
 ## Consistency of the answers
@@ -111,4 +111,3 @@ assigned sector if `yes`; the `right_sector` if one is named; "no sector" if the
 
 - Confirm or correct rows 20 and 46.
 - Name the sector (or say there is none) for the 28 `no` sent-out rows listed above; that is what turns the gate's cost from an upper bound into a figure.
-- Whether these marks are tracked in `gold/` (as the other marks are) with their texts, so the figures can be reproduced from the repository.
