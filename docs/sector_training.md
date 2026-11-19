@@ -66,6 +66,34 @@ Wilson 95% intervals. Controls are left out of the assigned rows.
 | 55 | Utilities | 5/5 | 5/5 |
 | 60 | Real Estate | 12/13 | 12/13 |
 
+## One vs rest, per sector
+
+Each class against the rest, over the 337 rows that are not controls (a control is shown a sector the step did not give, so it is not the step's answer). A row's **true class** is what the owner's answer says: the
+assigned sector if `yes`; the `right_sector` if one is named; "no sector" if the drop was agreed, or if a `no` says the text is not a sector text. 28 sent-out `no` name no sector, so their true class is unknown.
+
+| GICS code | Sector | Assigned | Right | Precision [95%] | Precision without the not-a-sector `no` | Truly this sector (known) | Found | Recall, upper bound |
+|---|---|---|---|---|---|---|---|---|
+| 10 | Energy | 19 | 18 | 94.7% [75.4, 99.1] | 18/18 | 18 | 18 | 100.0% |
+| 15 | Materials | 5 | 3 | 60.0% [23.1, 88.2] | 3/4 | 3 | 3 | 100.0% |
+| 20 | Industrials | 25 | 21 | 84.0% [65.3, 93.6] | 21/21 | 21 | 21 | 100.0% |
+| 25 | Consumer Discretionary | 25 | 21 | 84.0% [65.3, 93.6] | 21/22 | 25 | 21 | 84.0% |
+| 30 | Consumer Staples | 7 | 5 | 71.4% [35.9, 91.8] | 5/7 | 7 | 5 | 71.4% |
+| 35 | Health Care | 15 | 14 | 93.3% [70.2, 98.8] | 14/15 | 14 | 14 | 100.0% |
+| 40 | Financials | 37 | 30 | 81.1% [65.8, 90.5] | 30/30 | 30 | 30 | 100.0% |
+| 45 | Information Technology | 36 | 30 | 83.3% [68.1, 92.1] | 30/30 | 31 | 30 | 96.8% |
+| 50 | Communication Services | 18 | 17 | 94.4% [74.2, 99.0] | 17/17 | 19 | 17 | 89.5% |
+| 55 | Utilities | 5 | 5 | 100.0% [56.6, 100.0] | 5/5 | 5 | 5 | 100.0% |
+| 60 | Real Estate | 13 | 12 | 92.3% [66.7, 98.6] | 12/13 | 12 | 12 | 100.0% |
+| — | **No sector** (sent out) | 132 | 101 | 76.5% [68.6, 82.9] | — | 124 | 101 | 81.5% |
+
+- **Precision** is the share of the texts given that sector that the owner accepts. Wilson intervals are wide (5 to 37 texts per sector); Materials (5), Consumer Staples (7) and Utilities (5) are not usable.
+- **Recall is an upper bound and not a measure of the step.** Of the texts known to belong to a sector, "found" counts those the step gave that sector. The draw takes the assigned rows round-robin over the sectors
+  and the sent-out rows at random, so it is not a sample of the corpus, and the 28 sent-out `no` that name no sector could belong to any of them (they can only lower the figures). The two sectors under 100% are the ones
+  named for a text the step gave another sector or dropped: Consumer Discretionary (4 missed), Consumer Staples (2), Information Technology (1), Communication Services (2).
+- **No sector** is the one class with a usable recall: precision 101/132 (the owner agrees to the drop) and recall 101/124 = 81.5%, the 23 texts the step gave a sector although the owner says they are not sector texts.
+  Weighted to the corpus rates of `docs/sector_step.md` (56 assigned, 44 sent out per 100): 84.3%.
+- The scorer prints the same table (`ovr`).
+
 ## What this shows and what it does not
 
 - **The sector choice is right in about 97% of the sector texts it is given** (176 of 182); it is right in 86% of what it assigns once the texts that are not sector texts count against it.

@@ -178,6 +178,61 @@ def report(label: str, rows: list[Row]) -> None:
             print(f"  {code}: {b[0]}/{b[1]} | {b[2]}/{b[3]}")
 
 
+NAMES = {
+    "10": "Energy", "15": "Materials", "20": "Industrials", "25": "Consumer Discretionary", "30": "Consumer Staples",
+    "35": "Health Care", "40": "Financials", "45": "Information Technology", "50": "Communication Services",
+    "55": "Utilities", "60": "Real Estate",
+}  # fmt: skip
+CORPUS_ASSIGNED, CORPUS_SENT = (
+    56,
+    44,
+)  # per 100 sector texts (docs/sector_step.md, "The clean test")
+
+
+def truth(r: Row) -> str | None:
+    """The sector the owner's answer says the text has: a code, ``none`` (no sector), or ``None`` when the answer does not say."""
+    if r["k_status"] == "assigned":
+        if r["correct"] == "yes":
+            return r["model_sector_code"]
+        if r["right_sector"]:
+            return r["right_sector"]
+        return "none" if not_a_sector(r) else None
+    if r["correct"] == "yes":
+        return "none"
+    return r["right_sector"] or None
+
+
+def ovr(rows: list[Row]) -> None:
+    """One-vs-rest precision and recall per sector, and for "no sector" (controls left out; they are not the step's answer)."""
+    rows = [r for r in rows if r["k_control"] == "no"]
+    pred = {
+        r["article_id"]: (r["model_sector_code"] if r["k_status"] == "assigned" else "none")
+        for r in rows
+    }
+    true = {r["article_id"]: truth(r) for r in rows}
+    unknown = sum(t is None for t in true.values())
+    print(
+        f"\nOne vs rest ({len(rows)} rows without controls; truth unknown for {unknown} sent-out rows):"
+    )
+    print("class | predicted | right | precision | truth known | found | recall, upper bound")
+    for c in [*NAMES, "none"]:
+        called = [a for a, v in pred.items() if v == c]
+        tp = sum(true[a] == c for a in called)
+        fn_known = sum(1 for a, t in true.items() if t == c and pred[a] != c)
+        up = tp / (tp + fn_known) if tp + fn_known else 0.0
+        print(
+            f"{c} {NAMES.get(c, 'no sector')} | {len(called)} | {tp} | {fmt(tp, len(called))} | {tp + fn_known} | {tp} | {100 * up:.1f}%"
+        )
+    sent = [r for r in rows if r["k_status"] == "out_of_scope"]
+    assigned = [r for r in rows if r["k_status"] == "assigned"]
+    tp = sum(true[r["article_id"]] == "none" for r in sent)
+    fn = sum(true[r["article_id"]] == "none" for r in assigned)
+    w_tp, w_fn = tp * CORPUS_SENT / len(sent), fn * CORPUS_ASSIGNED / len(assigned)
+    print(
+        f"no sector, weighted to the corpus rates ({CORPUS_ASSIGNED}/{CORPUS_SENT} per 100): recall {100 * w_tp / (w_tp + w_fn):.1f}% (sample {tp}/{tp + fn})"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--review", type=Path, default=Path("data/sector_fresh_to_review_es.csv"))
@@ -189,6 +244,7 @@ def main() -> None:
     rows = join(read(args.review), read(args.key))
     checks(rows, read(args.gold))
     report("all 357 rows", rows)
+    ovr(rows)
     report("the 300 rows of 2026-11-18", [r for r in rows if int(r["review_order"]) > FIRST_DRAW])
     report("the 57 rows of 2026-11-13", [r for r in rows if int(r["review_order"]) <= FIRST_DRAW])
 

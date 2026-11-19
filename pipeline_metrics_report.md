@@ -149,6 +149,23 @@ over the whole file and without the `no` answers whose note says the text is not
 The 23 excluded answers are 11% of the assigned rows. Five of the first 57 answers changed since the tracked gold, two of them contradict their own note, and 28 sent-out `no` name no sector,
 so the cost of the gate is still an upper bound (at most about a fifth of the right sectors); all in `docs/sector_training.md`. The marks are local files, not yet tracked.
 
+**One vs rest per sector (2026-11-19, 337 rows without controls; `docs/sector_training.md`):** precision, and recall as an upper bound (the 28 sent-out `no` that name no sector can only lower it; the draw is not a corpus sample).
+
+| GICS code | Sector | Assigned | Right | Precision [95%] | Precision without the not-a-sector `no` | Truly this sector (known) | Found | Recall, upper bound |
+|---|---|---|---|---|---|---|---|---|
+| 10 | Energy | 19 | 18 | 94.7% [75.4, 99.1] | 18/18 | 18 | 18 | 100.0% |
+| 15 | Materials | 5 | 3 | 60.0% [23.1, 88.2] | 3/4 | 3 | 3 | 100.0% |
+| 20 | Industrials | 25 | 21 | 84.0% [65.3, 93.6] | 21/21 | 21 | 21 | 100.0% |
+| 25 | Consumer Discretionary | 25 | 21 | 84.0% [65.3, 93.6] | 21/22 | 25 | 21 | 84.0% |
+| 30 | Consumer Staples | 7 | 5 | 71.4% [35.9, 91.8] | 5/7 | 7 | 5 | 71.4% |
+| 35 | Health Care | 15 | 14 | 93.3% [70.2, 98.8] | 14/15 | 14 | 14 | 100.0% |
+| 40 | Financials | 37 | 30 | 81.1% [65.8, 90.5] | 30/30 | 30 | 30 | 100.0% |
+| 45 | Information Technology | 36 | 30 | 83.3% [68.1, 92.1] | 30/30 | 31 | 30 | 96.8% |
+| 50 | Communication Services | 18 | 17 | 94.4% [74.2, 99.0] | 17/17 | 19 | 17 | 89.5% |
+| 55 | Utilities | 5 | 5 | 100.0% [56.6, 100.0] | 5/5 | 5 | 5 | 100.0% |
+| 60 | Real Estate | 13 | 12 | 92.3% [66.7, 98.6] | 12/13 | 12 | 12 | 100.0% |
+| — | **No sector** (sent out) | 132 | 101 | 76.5% [68.6, 82.9] | — | 124 | 101 | 81.5% |
+
 **Precision per sector** (assigned in the clean test, recomputed from the tracked file; 40 rows): the per-sector counts are tiny, and the doc says the
 per-sector figures are **not usable**. They are listed so they can be seen, not quoted.
 

@@ -149,6 +149,23 @@ sobre todo el archivo y sin los `no` cuya nota dice que el texto no es de sector
 Las 23 respuestas excluidas son el 11% de las filas asignadas. Cinco de las primeras 57 respuestas cambiaron desde el gold versionado, dos contradicen su propia nota y 28 `no` de enviados fuera no nombran sector,
 así que el costo de la compuerta sigue siendo una cota superior (como máximo una quinta parte de los sectores correctos); todo en `docs/sector_training.md`. Las marcas son archivos locales, aún no versionados.
 
+**Uno contra el resto por sector (2026-11-19, 337 filas sin controles; `docs/sector_training.md`):** precisión, y recall como cota superior (los 28 `no` de enviados fuera que no nombran sector solo pueden bajarlo; el sorteo no es una muestra del corpus).
+
+| Código GICS | Sector | Asignados | Correctos | Precisión [95%] | Precisión sin los `no` de "no es de sector" | Realmente de este sector (conocidos) | Encontrados | Recall, cota superior |
+|---|---|---|---|---|---|---|---|---|
+| 10 | Energy | 19 | 18 | 94.7% [75.4, 99.1] | 18/18 | 18 | 18 | 100.0% |
+| 15 | Materials | 5 | 3 | 60.0% [23.1, 88.2] | 3/4 | 3 | 3 | 100.0% |
+| 20 | Industrials | 25 | 21 | 84.0% [65.3, 93.6] | 21/21 | 21 | 21 | 100.0% |
+| 25 | Consumer Discretionary | 25 | 21 | 84.0% [65.3, 93.6] | 21/22 | 25 | 21 | 84.0% |
+| 30 | Consumer Staples | 7 | 5 | 71.4% [35.9, 91.8] | 5/7 | 7 | 5 | 71.4% |
+| 35 | Health Care | 15 | 14 | 93.3% [70.2, 98.8] | 14/15 | 14 | 14 | 100.0% |
+| 40 | Financials | 37 | 30 | 81.1% [65.8, 90.5] | 30/30 | 30 | 30 | 100.0% |
+| 45 | Information Technology | 36 | 30 | 83.3% [68.1, 92.1] | 30/30 | 31 | 30 | 96.8% |
+| 50 | Communication Services | 18 | 17 | 94.4% [74.2, 99.0] | 17/17 | 19 | 17 | 89.5% |
+| 55 | Utilities | 5 | 5 | 100.0% [56.6, 100.0] | 5/5 | 5 | 5 | 100.0% |
+| 60 | Real Estate | 13 | 12 | 92.3% [66.7, 98.6] | 12/13 | 12 | 12 | 100.0% |
+| — | **Sin sector** (enviados fuera) | 132 | 101 | 76.5% [68.6, 82.9] | — | 124 | 101 | 81.5% |
+
 **Precisión por sector** (asignados en la prueba limpia, recalculada desde el archivo versionado; 40 filas): los conteos por sector son minúsculos y el documento dice que las
 cifras por sector **no son utilizables**. Se listan para que se vean, no para citarlas.
 
