@@ -1,6 +1,6 @@
 # Main company: the relevance model and its measures (T-165, T-170)
 
-**Status: written 2026-11-16 (PR #201); the owner's re-tag of 2026-11-20 added (185 rows of 104 pieces, scenarios without the no-company and the missed-main pieces).** What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
+**Status: written 2026-11-16 (PR #201); the owner's re-tag of 2026-11-20 added (185 rows of 104 articles; per-article recall and precision as the headline, with the one-main limitation documented).** What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
 trained and chosen, and every measure of it that exists, with the owner's partial marks on sub-news (T-170) as the only check on the texts the step
 really reads. The step's own command, the revision and the dry run are in `docs/companies_step.md`; the labels the model learned from were made for the
 sentiment step (`docs/sentiment_training.md`, "A relevance model"). Percentages are of rows unless said otherwise (the same marks are quoted in percent in `pipeline_metrics_report.md`, section 3.3).
@@ -55,57 +55,43 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 
 ### Version of 2026-11-20 (current)
 
-**Dataset.** `gold/main_company_marks_2026_11_20.csv` (key `item_id#ticker`, band, relevance score, `text_hash`, the mark, `falta_la_principal`, the owner's notes) and `gold/texts/main_company_marks_texts_2026_11_20.csv`, built by `scripts/build_main_company_marks_2026_11_20.py` from the owner's working file `data/main_company/to_tag.csv` (local, git-ignored; scores and bands in `to_tag.strata.json`). **185 marked rows of 104 pieces of the `units5` cut: 145 `yes`, 40 `no`.** Every row is marked; no row is blank. The six relevance bands (0 to 0.1, 0.1 to 0.3, 0.3 to 0.5, 0.5 to 0.7, 0.7 to 0.9, 0.9 to 1, by the highest score of the piece) were drawn with 30 pieces each, seed 20261113; 8, 14, 15, 16, 22 and 29 pieces are left in them. SHA-256: `to_tag.csv` `97386a486e766fe848288e66087f95eb66fbce0658d98e19f2ee7cc0a8fa139d`, `to_tag.strata.json` `6e7f8d81d9feb6529528e4df0585bbd1ed88df32776715ea82e282ac2a9a3032` (unchanged), `gold/main_company_marks_2026_11_20.csv` `1205a302477ef651bac099ac1470a913b737be34c793f0dc84d770bae5fb5589`; the scorer prints the hash of the file it reads.
+**Dataset.** `gold/main_company_marks_2026_11_20.csv` (key `item_id#ticker`, band, relevance score, `text_hash`, the mark, `falta_la_principal`, the owner's notes) and `gold/texts/main_company_marks_texts_2026_11_20.csv`, built by `scripts/build_main_company_marks_2026_11_20.py` from the owner's working file `data/main_company/to_tag.csv` (local, git-ignored; scores and bands in `to_tag.strata.json`). **185 marked rows of 104 articles (pieces) of the `units5` cut: 145 `yes`, 40 `no`.** Every row is marked. The six relevance bands (0 to 0.1, 0.1 to 0.3, 0.3 to 0.5, 0.5 to 0.7, 0.7 to 0.9, 0.9 to 1, by the highest score of the article) were drawn with 30 articles each, seed 20261113; 8, 14, 15, 16, 22 and 29 articles are left in them. SHA-256: `to_tag.csv` `97386a486e766fe848288e66087f95eb66fbce0658d98e19f2ee7cc0a8fa139d`, `to_tag.strata.json` `6e7f8d81d9feb6529528e4df0585bbd1ed88df32776715ea82e282ac2a9a3032` (unchanged), `gold/main_company_marks_2026_11_20.csv` `1205a302477ef651bac099ac1470a913b737be34c793f0dc84d770bae5fb5589`; the scorer prints the hash of the file it reads.
 
-**What changed in the re-tag.** The same 104 pieces and 185 rows as the file it replaces, but 27 marks flipped and 26 `falta_la_principal` values changed. The owner's notes say three things, which the metrics now separate:
+**The one-main limitation, and what the metrics count.** The relevance model was trained to pick the one company a text is mainly about (the 809 summaries). The owner marks every company that is main in an article, so an article with several owner mains can only be found in part by a count of rows: an article with six owner mains, where the model names two, scores one third on rows although it found a main company. That is a limit of the design of the task, not an error of the model, and the metrics below do not count it against the model. Two rules follow:
 
-- **No company:** two pieces (`322112`, `335253`) are "not about any company". Scored with and without them.
-- **Main company missed or out of the S&P 500 universe:** 28 pieces. A piece is in this group when any of its rows has `falta_la_principal` `yes`, or a note says the main company is missing from the list or is out of the S&P 500 (`MISSED` in the scorer). The two sources disagree on 17 pieces: 16 have a note but `falta` `no` (for example "Exxon is missing"), and one (`402174`, "Very ambiguous and incomplete sentence") has `falta` `yes` without a note. Scored with and without them.
-- The owner's `falta_la_principal` is `yes` on 20 rows of 12 pieces; it is not used in any figure except as one of the sources of the missed group.
+- **Recall and precision are per article.** An article is *found* when the model's main company, the company at or over the threshold, is one the owner marked main. Recall = found articles / articles with an owner main. Precision = articles where the model's main company is one the owner accepts / articles where the model calls a main company.
+- **Row-level figures** (each owner main counts as one row) are kept as secondary figures, labelled as such. The not-main class is measured on rows: the owner's `no` is an explicit answer, so it is not affected by the limit.
 
-**Results, all 104 pieces** (`scripts/score_main_company_marks_2026_11_16.py`, which reads the tracked file; Wilson 95% intervals; unweighted):
+**Results per article** (`scripts/score_main_company_marks_2026_11_16.py`, which reads the tracked file; Wilson 95% intervals; unweighted):
 
-| Class | Rows | Precision | Recall |
+| Threshold | Article recall | Article precision | Articles the model calls main |
 |---|---|---|---|
-| Main (`yes`) at 0.5 | 145 | 92.2% [84.0, 96.4] (71/77) | 49.0% [41.0, 57.0] (71/145) |
-| Not main (`no`) at 0.5 | 40 | 31.5% (34/108) | 85.0% (34/40) |
-| Main at 0.1 | 145 | 91.1% [85.1, 94.8] (123/135) | 84.8% [78.1, 89.8] (123/145) |
-| Main at 0.2 | 145 | 90.4% [83.5, 94.5] (103/114) | 71.0% [63.2, 77.8] (103/145) |
-| Main at 0.3 | 145 | 91.2% [84.1, 95.3] (93/102) | 64.1% [56.1, 71.5] (93/145) |
-| Main at 0.7 | 145 | 93.2% [83.8, 97.3] (55/59) | 37.9% [30.4, 46.0] (55/145) |
+| 0.1 | 97.7% [92.1, 99.4] (86/88) | 89.6% [81.9, 94.2] (86/96) | 96 |
+| 0.2 | 88.6% [80.3, 93.7] (78/88) | 89.7% [81.5, 94.5] (78/87) | 87 |
+| 0.3 | 83.0% [73.8, 89.4] (73/88) | 89.0% [80.4, 94.1] (73/82) | 82 |
+| **0.5 (the step)** | **69.3% [59.0, 78.0] (61/88)** | **91.0% [81.8, 95.8] (61/67)** | 67 |
+| 0.7 | 53.4% [43.1, 63.5] (47/88) | 92.2% [81.5, 96.9] (47/51) | 51 |
 
-Not-main recall at the other thresholds: 70.0% (28/40) at 0.1, 72.5% (29/40) at 0.2, 77.5% (31/40) at 0.3, 90.0% (36/40) at 0.7.
+104 articles; 88 have an owner main (16 have none marked `yes`). Re-weighted by the size of each band (`POPULATION` in the scorer; 90.2% of the articles have an owner main): article recall 97.5% at 0.1, 90.9% at 0.3, 88.0% at 0.5 and 84.8% at 0.7; article precision 96.7%, 97.0%, 97.7% and 98.1%. The weights correct the band sizes, not the reasons for the removals of 2026-11-16.
 
-**Results by piece: the recall that does not depend on how many companies a piece has.** A piece counts as found when the model calls main at least one of the companies the owner marked main. 88 of the 104 pieces have an owner main (16 have none marked `yes`).
+- **Articles with one owner main** are found 35 of 50 times at 0.5 (70.0%); **articles with two or more** 26 of 38 (68.4%). The limit does not change the article recall.
+- **Article AUC** (the best relevance score of an article, articles with an owner main against articles without): **0.766 [0.662, 0.873]**, 88 against 16.
+- **By band** (share of `yes` rows, for reference): band 0, 2 of 11; band 1, 17 of 26; band 2, 24 of 31; band 3, 27 of 31; band 4, 26 of 32; band 5, 49 of 54.
 
-| Threshold | Found by the model | Pieces the model calls main | Agreed |
-|---|---|---|---|
-| 0.1 | 86 of 88 (97.7% [92.1, 99.4]) | 96 | 86 (89.6%) |
-| 0.2 | 78 of 88 (88.6% [80.3, 93.7]) | 87 | 78 (89.7%) |
-| 0.3 | 73 of 88 (83.0% [73.8, 89.4]) | 82 | 73 (89.0%) |
-| **0.5 (the step)** | **61 of 88 (69.3% [59.0, 78.0])** | 67 | 61 (91.0%) |
-| 0.7 | 47 of 88 (53.4% [43.1, 63.5]) | 51 | 47 (92.2%) |
+**Row-level figures** (secondary: each owner main counts as one row; 145 `yes`, 40 `no`). At 0.5: main precision 92.2% (71/77), main recall 49.0% [41.0, 57.0] (71/145), not-main recall 85.0% (34/40). Row recall is lower for the articles with several owner mains: 70.0% (35 of 50 rows) in articles with one owner main, 37.9% (36 of 95 rows) in articles with two or more. That is the limit above, shown in the numbers. Row AUC of the score for `yes` against `no`: **0.829 [0.730, 0.912]** (resampling articles; against 0.896 out of fold on summaries).
 
-- **Pieces with one owner main** are found 35 of 50 times at 0.5 (70.0%); **pieces with two or more** 26 of 38 (68.4%). The one-company training limit does not explain the gap.
-- **By band** (share of `yes` rows; band 0 has the lowest scores): band 0, 2 of 11; band 1, 17 of 26; band 2, 24 of 31; band 3, 27 of 31; band 4, 26 of 32; band 5, 49 of 54.
-- **Re-weighted by the size of each band** (`POPULATION` in the scorer; 90.2% of the pieces have an owner main): at 0.1, piece recall 97.5% and precision 96.7%; at 0.3, 90.9% and 97.0%; at 0.5, 88.0% and 97.7%; at 0.7, 84.8% and 98.1%. The weights correct the band sizes, not the reasons for the removals of 2026-11-16.
-- **AUC of the score for `yes` against `no`: 0.829 [0.730, 0.912]** (resampling pieces; unweighted), against 0.896 out of fold on summaries.
+**Scenarios: the same marks with two kinds of article left out.** The owner's proposal: articles with no company at all (`322112`, `335253`), and articles whose main company is missing from the list or out of the S&P 500 (28 articles, from a `falta_la_principal` `yes` on any row or a note; `MISSED` in the scorer). The second group is a failure of the model by definition, so leaving it out measures the model only where the main company is in the list; it is not a corpus rate. At 0.5:
 
-**Scenarios: the same marks with two kinds of piece left out.** The scenario figures are the owner's proposal: pieces with no company at all, and pieces whose main company is missing or out of the universe. The second group is the model's failure by definition, so leaving it out measures the model only where the main company is in the list; it is not a corpus rate.
-
-| Scenario | Pieces, rows (yes / no) | AUC [95%] | At 0.5: main P | At 0.5: main R | At 0.5: pieces found | At 0.5: not-main R |
+| Scenario | Articles, rows (yes / no) | Article recall | Article precision | Article AUC | Row recall | Row not-main recall |
 |---|---|---|---|---|---|---|
-| All pieces | 104, 185 (145 / 40) | 0.829 [0.730, 0.912] | 92.2% (71/77) | 49.0% (71/145) | 69.3% (61/88) | 85.0% (34/40) |
-| Without the no-company pieces | 102, 183 (145 / 38) | 0.845 [0.745, 0.925] | 93.4% (71/76) | 49.0% (71/145) | 69.3% (61/88) | 86.8% (33/38) |
-| Without the missed-main pieces | 76, 138 (125 / 13) | 0.910 [0.785, 0.989] | 98.5% (64/65) | 51.2% (64/125) | 73.0% (54/74) | 92.3% (12/13) |
-| Without both | 74, 136 (125 / 11) | 0.978 [0.952, 0.997] | 100.0% (64/64) | 51.2% (64/125) | 73.0% (54/74) | 100.0% (11/11) |
+| All | 104, 185 (145 / 40) | 69.3% (61/88) | 91.0% (61/67) | 0.766 | 49.0% (71/145) | 85.0% (34/40) |
+| Without no-company articles | 102, 183 (145 / 38) | 69.3% (61/88) | 92.4% (61/66) | 0.777 | 49.0% (71/145) | 86.8% (33/38) |
+| Without missed-main articles | 76, 138 (125 / 13) | 73.0% (54/74) | 98.2% (54/55) | n/a (74 against 2) | 51.2% (64/125) | 92.3% (12/13) |
+| Without both | 74, 136 (125 / 11) | 73.0% (54/74) | 100% (54/54) | n/a (74 against 0) | 51.2% (64/125) | 100% (11/11) |
 
-At 0.3 the same pattern holds: without the missed-main pieces, main precision 97.6% (81/83), recall 64.8% (81/125), pieces found 83.8% (62/74); all pieces, 91.2%, 64.1% and 83.0%.
-
-- **Removing the missed-main pieces removes 29 of the 40 `no` rows.** Without them 13 `no` rows remain and 11 without both exclusions. The not-main figures and the AUC of those scenarios rest on those few rows: the AUC of 0.978 of the last line is an upper bound of what 11 rows can show, not a finding.
-- **The missed-main pieces do not explain the low recall.** Leaving them out raises the row recall at 0.5 only from 49.0% to 51.2%, and the pieces found from 69.3% to 73.0%. Most of the misses are in pieces whose main company is in the list.
-- **Precision stays high** in every scenario (91% to 100% of rows at 0.1 to 0.7; on all pieces, 89% to 92% of the pieces the model calls main are agreed). A lower threshold finds more: 84.8% of rows and 97.7% of pieces at 0.1, against 49.0% and 69.3% at 0.5, at a cost of more `no` rows called main (12 of 40 at 0.1, 6 of 40 at 0.5).
-- **AUC 0.829 against 0.896 out of fold**: 6.7 points under, so the rule of T-170 still applies on the point estimate; its interval contains 0.896.
+- **Removing the missed-main articles removes 29 of the 40 `no` rows.** The not-main figures rest on 11 to 13 rows, and the article AUC has 2 or no articles without a main: both are not reported as findings for those scenarios.
+- **The missed-main articles do not explain the low recall.** Leaving them out moves article recall only from 69.3% to 73.0%.
+- At 0.3 the same holds: article recall 83.0% on all articles, 83.8% (62/74) without the missed-main articles; article precision 89.0% and 96.9%.
 
 ### Version of 2026-11-16 (earlier)
 
@@ -133,30 +119,30 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
 
 **The two versions together.**
 
-- **When the step names a main company it is almost always one the owner accepts**: precision 90.9% in the 2026-11-16 version, 92.2% in the 2026-11-20 one, at 0.5.
-- **At 0.5 it finds about half of the rows the owner calls main**: 30.0% in the first, 49.0% in the current. The rise comes from which pieces are in the file, not from the model: the 2026-11-16 marks covered 59 of the 180 pieces first drawn; the current file keeps 104 of them (8 to 29 per band). The piece-level recall is the measure that does not depend on the number of companies in a piece: 56.6% then, 69.3% now.
-- **The AUC went from 0.663 to 0.829**, with the same model. The 2026-11-16 AUC is on 19 `no` rows and 100 `yes`; the current one on 40 `no` and 145 `yes`. Both intervals are wide.
-
+- **When the step names a main company it is almost always one the owner accepts**: article precision 91.0% in the 2026-11-20 version, and the row precision of the 2026-11-16 version was 90.9%, at 0.5.
+- **At 0.5 the model finds about seven articles in ten with an owner main**: 56.6% of the 2026-11-16 articles (30 of 53), 69.3% of the 2026-11-20 articles (61 of 88). The article-level counts are the ones that do not depend on how many companies an article has; the row figures of the 2026-11-16 version (30.0% of 100 `yes` rows) are the same limit in another form.
+- **The AUC went from 0.663 to 0.829 on rows** (article AUC 0.766 on the current marks), with the same model. The 2026-11-16 AUC is on 19 `no` rows and 100 `yes`; the current one on 40 `no` and 145 `yes`. Both intervals are wide.
 
 ## Decision this evidence is for
 
-The rule of T-170 says that when the model's AUC on sub-news is more than 5 points under its 0.90 on summaries, sub-news get their own threshold chosen on the marked sub-news. The AUC on the current marks is 0.829 [0.730, 0.912] (0.663 on the 2026-11-16 marks), so the rule applies; **the owner decides** (a new revision of step 3, `docs/companies_step.md`) the threshold, or whether the model should be retrained on pieces. What the 185 rows add to the choice: precision on all pieces stays between 90% and 93% from 0.1 to 0.7, so a lower threshold costs little precision; the pieces found go from 69.3% at 0.5 to 83.0% at 0.3 and 97.7% at 0.1; the cost is the `no` rows called main (12 of 40 at 0.1, 6 of 40 at 0.5), and the not-main figures become unreliable once the missed-main pieces are left out. The sentiment step reads `news_company.is_main`, so this choice moves its input too.
+The rule of T-170 says that when the model's AUC on sub-news is more than 5 points under its 0.90 on summaries, sub-news get their own threshold chosen on the marked sub-news. The row AUC on the current marks is 0.829 [0.730, 0.912] (0.663 on the 2026-11-16 marks), 6.7 points under 0.896, so the rule applies on the point estimate; the article AUC of 0.766 is further under, but it is a different measure (one value per article), so it is reported beside it, not in its place. **The owner decides** (a new revision of step 3, `docs/companies_step.md`) the threshold, or whether the model should be retrained on articles. What the 185 rows add to the choice: article precision stays between 89% and 92% from 0.1 to 0.7, so a lower threshold costs little precision; article recall goes from 69.3% at 0.5 to 83.0% at 0.3 and 97.7% at 0.1; the cost is the `no` rows called main (12 of 40 at 0.1, 6 of 40 at 0.5), and the not-main figures become unreliable once the missed-main articles are left out. The sentiment step reads `news_company.is_main`, so this choice moves its input too.
 
 ## Limits
 
-- 104 pieces, one reader, 40 `no` rows (13 once the missed-main pieces are left out): the intervals are wide, the AUC of the scenarios especially, and the unweighted figures are not corpus rates.
-- The owner's `falta_la_principal` and the notes disagree on 17 pieces; the missed group uses both, so a different reading of "missed" moves the scenario figures.
-- The scenario without the missed-main pieces removes the model's failures by definition: its figures are what the model does where the main company is in the list, not what it does on the step's texts.
-- The 2026-11-16 subsection and the current one use different piece sets (the 2026-11-16 marks have 15 pieces the current file no longer has, and the current file has 60 pieces the earlier one did not); they are not one series.
+- 104 articles, one reader, 40 `no` rows (11 to 13 once the missed-main articles are left out): the intervals are wide, the AUC of the scenarios especially, and the unweighted figures are not corpus rates.
+- The one-main limitation is in the design of the task, not in the model: the owner's several mains are real, and the model was trained to pick one. The article metrics above do not count it; the row metrics do, and are labelled as secondary.
+- The owner's `falta_la_principal` and the notes disagree on 17 articles; the missed group uses both, so a different reading of "missed" moves the scenario figures.
+- The scenario without the missed-main articles removes the model's failures by definition: its figures are what the model does where the main company is in the list, not what it does on the step's texts.
+- The 2026-11-16 and 2026-11-20 marks cover different articles (the 2026-11-16 marks have 15 articles the current file no longer has, and the current file has 60 the earlier one did not); they are not one series.
 - The out-of-fold figures of the 809 summaries are not held out, and are not about sub-news.
-- No second reader, and no check of the share of pieces with no company named (the split between "no universe company" and "named in a form the matcher does not know" was not measured).
+- No second reader, and no check of the share of articles with no company named (the split between "no universe company" and "named in a form the matcher does not know" was not measured).
 - The marks are the owner's judgement of "main" under the file's definition, not a count of facts.
 
 ## Reproduce
 
 ```bash
 uv run scripts/build_main_company_marks_2026_11_20.py --data data   # gold/main_company_marks_2026_11_20.csv and its texts, from the local working file (refuses to overwrite); prints the differences with the 2026-11-16 marks
-uv run scripts/score_main_company_marks_2026_11_16.py                # the tables and scenarios of the current version, from gold/main_company_marks_2026_11_20.csv
+uv run scripts/score_main_company_marks_2026_11_16.py                # the per-article headline, the row figures and the scenarios, from gold/main_company_marks_2026_11_20.csv
 uv run scripts/score_main_company_marks_2026_11_16.py --thresholds 0.1,0.2,0.3,0.5,0.7
 uv run scripts/score_main_company_marks_2026_11_16.py --marks gold/main_company_marks.csv   # the 2026-11-16 version
 ```

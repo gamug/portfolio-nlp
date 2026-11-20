@@ -23,7 +23,7 @@ Las proporciones y los conteos quitados siguen en los documentos de los pasos (`
 | Sector | el sector GICS de 2 dígitos asignado a un texto `sector` | **Solo precisión** (por sector, de 2 a 5 textos cada uno); el recall no se midió | 87.5% de los sectores asignados correctos (35 de 40) | Sí (un sorteo hecho después de construir el paso), un solo revisor |
 | Cut | las piezas ("sub-news") que el cut hace de un texto con varias empresas | **Sin clases.** Tres preguntas de sí/no por pieza (parecidas a una precisión) | 84.6% de las piezas fieles; 75.5% limpias | Sí (28 textos, 143 piezas) |
 | Empresa: NER | los tramos de organización que encuentra NER (y las empresas del universo que el matcher saca de ellos) | **Sin clases**: precisión, recall y F1 sobre 100 textos etiquetados por el dueño (321 organizaciones) | empresas del universo: precisión 90.1%, recall 95.4% con las etiquetas del dueño tal como están (92.6% / 95.5% con la superposición del desarrollador; recall 98.7% con `ner+text`); todas las organizaciones: 72.6% / 90.4% con la superposición | **Sí** (100 textos, un revisor; 14 etiquetas que no están en el texto, superposición: 9 reemplazadas, 1 conservada, 4 descartadas); además una corrida v1 juzgada por un LLM |
-| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases | validación cruzada (809 resúmenes): precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5; **held-out (185 filas marcadas de 104 piezas, los textos que lee el paso): precisión 92.2%, recall 49.0% de las filas; 69.3% de las piezas con una principal del dueño encontradas (88.0% reponderado por tamaño de banda)** | **Sí** (marcas parciales sobre piezas, un revisor); la validación cruzada no lo es |
+| Empresa: relevancia (qué empresa es la principal) | si un par (texto, empresa) es "principal" | Sí, para las dos clases | validación cruzada (809 resúmenes): precisión de la empresa principal 90.0%, recall 94.7% con umbral 0.5; **held-out (185 filas marcadas de 104 artículos, los textos que lee el paso), por artículo: recall 69.3%, precisión 91.0% a 0.5 (recall 88.0% reponderado por tamaño de banda); filas: precisión 92.2%, recall 49.0%** | **Sí** (marcas parciales sobre piezas, un revisor); la validación cruzada no lo es |
 | Summarization | el resumen de un texto de más de unos 2,000 caracteres | **Sin clases.** Puntajes de un juez LLM (1 a 5) | **DeepSeek, el summarizer del paso desde T-206:** fidelidad 4.99, cobertura 4.54, alucinación 0.7% (300 artículos); el paso anterior con distilbart: 4.60, 3.24, 15.0% | El juez también es DeepSeek (calificó sus propios resúmenes); una recalificación a ciegas de 24 pares por el asistente (Claude) coincidió en términos generales (fidelidad 4.92, cobertura 4.75, alucinación 4%); no es un gold y es pequeña; la corrida sobre el corpus no se mide |
 | Sentiment | positivo, negativo, neutral para un par (texto, empresa) | **Sí**, tres clases | validación cruzada anidada (809 filas): puntaje 0.814, negativo P/R 0.747 / 0.748; **held-out (190 piezas reales): exactitud 73.7%, negativo 69.4% / 80.6%** | **Sí** (190 piezas, un lector); la validación cruzada no lo es |
 | Category | 14 etiquetas (6 grupos) para un par (texto, empresa); el modelo fijado en el paso lee 12; **planeado: 8 (7 medidas más `other`, no medida)** | **Sí**, por etiqueta (precisión y recall) | **oficial (decisión del dueño, 2026-11-17): 88.0% [83.8, 91.2] de coincidencia con un juez LLM a ciegas sobre 300 sub-news reales** (la etiqueta del modelo es la primera o la segunda del juez; el modelo aprendió las etiquetas del dueño, que el asistente revisó); con las cuatro etiquetas débiles movidas a `other`: 92.0% (94.4% sobre las 7 etiquetas medidas). Además: fuera de pliegue 91.5%, held-out 57.1%, 82.1% en 300 sub-news reales (etiquetas conjuntas), sobre las 7 etiquetas medidas (modelo de 12 etiquetas reasignado, no reentrenado) | La barra de 80% (D24) se **cumple** con la cifra oficial (88.0%) |
@@ -284,37 +284,41 @@ Con las 14 etiquetas tal como están (sin superposición): empresas del universo
 
 ### 3.2 Relevancia: si una empresa es "principal" en un texto (`gamug/deberta-v3-company-relevance`)
 
-Dos clases: principal y no principal. Una sola tabla: la validación cruzada (puntajes fuera de pliegue de los 809 resúmenes marcados, sin ponderar) y el held-out (las 185 filas que el dueño marcó sobre 104 piezas del corte `units5`, versión del 2026-11-20, sin ponderar salvo donde la fila diga reponderado: las bandas se muestrearon por igual, no son tasas del corpus). Intervalos de 95% donde se calcularon.
+Dos clases: principal y no principal. Una sola tabla: la validación cruzada (puntajes fuera de pliegue de los 809 resúmenes marcados, sin ponderar) y el held-out (las 185 filas que el dueño marcó sobre 104 artículos del corte `units5`, versión del 2026-11-20, sin ponderar salvo donde la fila diga reponderado: las bandas se muestrearon por igual, no son tasas del corpus). La recall y la precisión del held-out son **por artículo** (ver la limitación abajo). Intervalos de 95% donde se calcularon.
 
-| Medida | Validación cruzada (809 resúmenes) | Held-out (185 filas, 104 piezas) |
+| Medida | Validación cruzada (809 resúmenes) | Held-out (185 filas, 104 artículos) |
 |---|---|---|
-| AUC | 0.90 | **0.829** [0.730, 0.912] |
-| Principal a 0.5 (el paso): precisión | 90.0% | 92.2% [84.0, 96.4] (71/77) |
-| Principal a 0.5: recall | 94.7% | 49.0% [41.0, 57.0] (71/145) |
-| Piezas con una principal del dueño encontradas a 0.5 (basta un acierto) | no figura en el registro | 69.3% [59.0, 78.0] (61/88); reponderado por tamaño de banda 88.0% |
-| No principal a 0.5: precisión | no figura en el registro | 31.5% (34/108) |
-| No principal a 0.5: recall | 68.3% (1 menos 31.7% de filas no relevantes llamadas principales) | 85.0% (34/40) |
-| Principal a 0.1: precisión / recall | no figura en el registro | 91.1% [85.1, 94.8] / 84.8% [78.1, 89.8] |
-| Principal a 0.3: precisión / recall | 89.7% / 96.2% | 91.2% [84.1, 95.3] / 64.1% [56.1, 71.5] |
-| Principal a 0.7: precisión / recall | 91.1% / 92.3% | 93.2% [83.8, 97.3] / 37.9% [30.4, 46.0] |
-| Principal a 0.9: precisión / recall | 91.7% / 87.3% | no se calculó |
+| AUC, filas | 0.90 | **0.829** [0.730, 0.912] |
+| AUC, artículos (mejor puntaje de cada artículo) | no figura en el registro | 0.766 [0.662, 0.873] |
+| Recall por artículo a 0.5 (el paso): el titular | no figura en el registro | **69.3% [59.0, 78.0] (61/88)**; reponderado por tamaño de banda 88.0% |
+| Precisión por artículo a 0.5 | no figura en el registro | 91.0% [81.8, 95.8] (61/67) |
+| Recall por artículo a 0.1 / 0.3 / 0.7 | no figura en el registro | 97.7% (86/88) / 83.0% (73/88) / 53.4% (47/88) |
+| Principal a 0.5 (el paso): precisión, filas | 90.0% | 92.2% [84.0, 96.4] (71/77) |
+| Principal a 0.5: recall, filas | 94.7% | 49.0% [41.0, 57.0] (71/145) |
+| No principal a 0.5: precisión, filas | no figura en el registro | 31.5% (34/108) |
+| No principal a 0.5: recall, filas | 68.3% (1 menos 31.7% de filas no relevantes llamadas principales) | 85.0% (34/40) |
+| Principal a 0.3: precisión / recall, filas | 89.7% / 96.2% | 91.2% [84.1, 95.3] / 64.1% [56.1, 71.5] |
+| Principal a 0.7: precisión / recall, filas | 91.1% / 92.3% | 93.2% [83.8, 97.3] / 37.9% [30.4, 46.0] |
+| Principal a 0.9: precisión / recall, filas | 91.7% / 87.3% | no se calculó |
 
-Escenarios: las mismas marcas, sin dos tipos de piezas (ninguna empresa en absoluto; empresa principal faltante en la lista o fuera del universo S&P 500). Sin ponderar, a 0.5.
+**La limitación de una sola principal.** El modelo de relevancia se entrenó para elegir la única empresa de la que trata principalmente un texto. El dueño marca cada empresa principal de un artículo, así que un artículo con varias principales del dueño se puntúa por filas solo en parte: un artículo con seis principales del dueño donde el modelo nombra dos tiene una recall por filas de un tercio, aunque encontró una empresa principal. Es una limitación del diseño de la tarea, no un error del modelo. Por eso la recall y la precisión titulares cuentan **por artículo**: un artículo se encuentra cuando la empresa principal del modelo es una que el dueño marcó principal. Las cifras por filas quedan como cifras secundarias. La clase no principal se mide por filas, porque el `no` del dueño es una respuesta explícita.
 
-| Escenario (piezas, filas) | AUC | Principal: precisión | Principal: recall | Piezas encontradas | No principal: recall |
+Escenarios: las mismas marcas, sin los artículos de cada exclusión (ninguna empresa en absoluto; empresa principal faltante en la lista o fuera del universo S&P 500). Sin ponderar, a 0.5.
+
+| Escenario (artículos, filas) | Recall por artículo | Precisión por artículo | AUC por artículo | Recall por filas | Recall de no principal por filas |
 |---|---|---|---|---|---|
-| Todas (104, 185) | 0.829 | 92.2% (71/77) | 49.0% (71/145) | 69.3% (61/88) | 85.0% (34/40) |
-| Sin las piezas sin empresa (102, 183) | 0.845 | 93.4% (71/76) | 49.0% (71/145) | 69.3% (61/88) | 86.8% (33/38) |
-| Sin las piezas con principal faltante (76, 138) | 0.910 | 98.5% (64/65) | 51.2% (64/125) | 73.0% (54/74) | 92.3% (12/13) |
-| Sin ambas (74, 136) | 0.978 | 100.0% (64/64) | 51.2% (64/125) | 73.0% (54/74) | 100.0% (11/11) |
+| Todos (104, 185) | 69.3% (61/88) | 91.0% (61/67) | 0.766 | 49.0% (71/145) | 85.0% (34/40) |
+| Sin los artículos sin empresa (102, 183) | 69.3% (61/88) | 92.4% (61/66) | 0.777 | 49.0% (71/145) | 86.8% (33/38) |
+| Sin los artículos con principal faltante (76, 138) | 73.0% (54/74) | 98.2% (54/55) | n/a | 51.2% (64/125) | 92.3% (12/13) |
+| Sin ambos (74, 136) | 73.0% (54/74) | 100.0% (54/54) | n/a | 51.2% (64/125) | 100.0% (11/11) |
 
 **Qué dice y qué no dice.**
-- **Cuando el modelo declara principal a una empresa, casi siempre acierta** (precisión 0.92 a 0.5, de 0.91 a 0.93 de 0.1 a 0.7), pero **a 0.5 encuentra cerca de la mitad de las filas que el dueño llama principales** (recall 0.49). El held-out tiene un AUC de **0.829** [0.730, 0.912] contra 0.90 fuera de pliegue, más de 5 puntos por debajo: el disparador de la regla de T-170 (las sub-news tienen su propio umbral, elegido sobre las sub-news marcadas); la decisión es del dueño y sigue abierta (`docs/main_company_training.md`).
-- **Recall sin el límite de una sola empresa** (una pieza se encuentra cuando el modelo nombra al menos una de las empresas que el dueño marcó principales): 61 de 88 piezas a 0.5 (69.3%), 73 a 0.3 (83.0%), 86 a 0.1 (97.7%). Las piezas con una principal del dueño se encuentran 35 de 50 veces y las que tienen varias 26 de 38, así que el entrenamiento con una sola empresa no explica la brecha.
-- **El universo tampoco la explica**: 28 piezas tienen la empresa principal faltante en la lista o fuera del S&P 500 (las notas del dueño y `falta_la_principal`). Sin ellas, la recall de filas a 0.5 sube de 49.0% a 51.2%, y las piezas encontradas de 69.3% a 73.0%.
-- **Esos escenarios conservan pocas filas `no`**: sin las 28 piezas quedan 13 de las 40 filas `no`, así que la recall de no principal y el AUC de los dos últimos escenarios (0.910 y 0.978) descansan en muy pocas filas.
-- Las piezas con varias empresas pueden recibir varios `yes`, y el modelo se entrenó para elegir una: eso es una decisión, no un error del marcado.
-- Un solo lector, 40 filas `no`: los intervalos son anchos y las cifras no son tasas del corpus (las bandas se sortearon por igual, y 76 de las 180 piezas sorteadas ya no están en el archivo).
+- **Cuando el modelo declara principal a una empresa, casi siempre acierta** (precisión por artículo 91.0% a 0.5, de 89% a 92% de 0.1 a 0.7). **A 0.5 encuentra siete de cada diez artículos** con una principal del dueño (69.3%), y 97.7% a 0.1. El AUC por filas es **0.829** [0.730, 0.912] contra 0.90 fuera de pliegue, más de 5 puntos por debajo: el disparador de la regla de T-170 (las sub-news tienen su propio umbral, elegido sobre las sub-news marcadas); la decisión es del dueño y sigue abierta (`docs/main_company_training.md`).
+- **La limitación de una sola principal no explica la brecha**: los artículos con una principal del dueño se encuentran el 70.0% de las veces, los que tienen varias el 68.4%. La recall por filas es menor en los artículos con varias (37.9% frente a 70.0%), y eso es la limitación del diseño, que se ve en las cifras por filas.
+- **Las empresas faltantes tampoco explican la brecha**: 28 artículos tienen la empresa principal faltante en la lista o fuera del S&P 500. Sin ellos, la recall por artículo a 0.5 sube de 69.3% a 73.0%.
+- **Esos escenarios conservan pocas filas `no`**: sin los 28 artículos quedan 13 de las 40 filas `no`, así que la recall de no principal por filas y el AUC por artículo de los dos últimos escenarios descansan en muy pocas filas; el AUC por artículo no está definido cuando no queda ningún artículo sin principal.
+- Las varias principales del dueño son reales, y el modelo se entrenó para elegir una: es una decisión del diseño, no un error del marcado.
+- Un solo lector, 40 filas `no`: los intervalos son anchos y las cifras no son tasas del corpus (las bandas se sortearon por igual, y 76 de los 180 artículos sorteados al principio ya no están en el archivo).
 - No se midió la división entre "no se nombra ninguna empresa del universo" y "se nombra en una forma que el matcher no conoce". Los candidatos de texto de `ner+text` los revisó el desarrollador sobre unos pocos pares; ninguna de las dos cifras se conserva aquí.
 - Archivos: `gold/main_company_marks_2026_11_20.csv` (la versión anterior: `gold/main_company_marks.csv`), `gold/texts/main_company_marks_texts_2026_11_20.csv`, `scripts/score_main_company_marks_2026_11_16.py`; la cuenta completa es `docs/main_company_training.md`.
 
@@ -523,7 +527,7 @@ Una tabla con las métricas generales de cada modelo, para mostrar los resultado
 | Sector (paso 4) | `bge-small-en-v1.5` con compuerta | — | 87.5% de los sectores asignados correctos (35 de 40); recall no medido | sin barra medida (D24 para subindustria no medida, T-167) |
 | Cut (paso 1.2) | `units5` con el clasificador de pares (`gamug/FinBERT-news-attribution`) | — | 84.6% [77.8, 89.6] de piezas fieles; 75.5% limpias (143 piezas) | 80% fieles: la estimación pasa, el extremo inferior no |
 | NER (paso 3) | `gamug/sec-bert-finer-ord-ner` | juez LLM v1 (1,000 artículos): F1 de tramos 0.7418, ORG 0.75 | empresas del universo: P 92.6%, R 95.5%, F1 0.940 (R 98.7% con `ner+text`); todas las organizaciones: P 72.6%, R 90.4% (100 textos; la superposición sobre 14 etiquetas: 9 reemplazadas, 1 conservada, 4 descartadas); tal como están, universo P 90.1%, R 95.4% | sin barra |
-| Relevancia (paso 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; principal P 90.0%, R 94.7% (809 resúmenes) | AUC 0.829; principal P 92.2%, R 49.0% de las filas, 69.3% de las piezas encontradas (185 filas de 104 piezas) | sin barra; el umbral de sub-news lo decide el dueño (T-170) |
+| Relevancia (paso 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; principal P 90.0%, R 94.7% (809 resúmenes) | AUC 0.829 (filas); recall por artículo 69.3%, precisión por artículo 91.0% a 0.5 (185 filas de 104 artículos) | sin barra; el umbral de sub-news lo decide el dueño (T-170) |
 | Summarization (paso 2) | DeepSeek (`deepseek-chat`) | — | sin held-out; juez LLM sobre 300 artículos: fidelidad 4.99, cobertura 4.54, alucinación 0.7% (el juez también es DeepSeek) | sin barra; la corrida del corpus no se mide |
 | Sentiment (paso 6) | modelo de pares + stack (`gamug/FinBERT-company-sentiment`) | puntaje 0.814; negativo P/R 0.747 / 0.748 (809 filas) | exactitud 73.7% [67.0, 79.4]; negativo P 69.4%, R 80.6% (190 piezas) | 80% de acuerdo y 70% en el negativo (D32): **no se cumple** (exactitud, precisión de negativo) |
 | Category (paso 5) | fine-tune de entailment (`category-entailment-single-12`) | exactitud 91.5%, F1 macro 0.791 (975 filas de las 7 etiquetas medidas) | **juez sobre 300 sub-news reales (oficial): 88.0%**; exactitud 57.1% [46.5, 67.2] (84 filas, held-out); 82.1% en 235 sub-news reales (etiquetas conjuntas) | 80% (D24): **se cumple** con la cifra oficial del juez (88.0%, 300 sub-news reales); fijado por decisión del dueño; las cifras son del modelo de 12 etiquetas reasignado a la distribución planeada, no reentrenado (sección 6; 12 etiquetas: 87.8%, 54.1%, 71.3%) |

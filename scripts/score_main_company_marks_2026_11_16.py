@@ -166,11 +166,19 @@ def interval(
     """Percentile interval of ``stat`` by resampling whole pieces (the rows of a piece are not independent)."""
     items = list(group(rows).values())
     rng = random.Random(BOOTSTRAP_SEED)  # noqa: S311  (a seeded resample, not a secret)
-    values = sorted(
-        stat([r for it in rng.choices(items, k=len(items)) for r in it]) for _ in range(BOOTSTRAP)
-    )
-    lo = int(BOOTSTRAP * (1 - level) / 2)
-    return values[lo], values[BOOTSTRAP - 1 - lo]
+    values = [
+        v
+        for v in (
+            stat([r for it in rng.choices(items, k=len(items)) for r in it])
+            for _ in range(BOOTSTRAP)
+        )
+        if not math.isnan(v)
+    ]  # a resample without both classes has no AUC; it is left out
+    if not values:
+        return (float("nan"), float("nan"))
+    values.sort()
+    lo = int(len(values) * (1 - level) / 2)
+    return values[lo], values[len(values) - 1 - lo]
 
 
 def recall_rows(rows: list[Mark], threshold: float = 0.5) -> float:
@@ -225,23 +233,46 @@ def pct(x: int, n: int) -> str:
     return f"{100 * x / n:.1f}%" if n else "n/a"
 
 
+def article_auc(rows: list[Mark]) -> float:
+    """AUC of the best relevance score of a piece for "the piece has an owner main" against "it has none" (unweighted).
+
+    One value per piece, so the several owner mains of a piece count once; it is the article-level counterpart of ``auc``.
+    """
+    items = group(rows)
+    pos = [max(r.score for r in v) for v in items.values() if any(r.main for r in v)]
+    neg = [max(r.score for r in v) for v in items.values() if not any(r.main for r in v)]
+    if not pos or not neg:
+        return float("nan")
+    wins = sum(1.0 if a > b else 0.5 if a == b else 0.0 for a in pos for b in neg)
+    return wins / (len(pos) * len(neg))
+
+
+def article(rows: list[Mark], threshold: float) -> dict[str, int]:
+    """The per-article counts (the headline): a piece is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
+    return by_item(rows, threshold)
+
+
 def scenario_line(name: str, rows: list[Mark], thresholds: tuple[float, ...]) -> str:
     items = len(group(rows))
     yes = sum(r.main for r in rows)
     a = auc(rows)
+    aa = article_auc(rows)
     parts = []
     for t in thresholds:
         c = at_threshold(rows, t)
-        i = by_item(rows, t)
+        i = article(rows, t)
         parts.append(
-            f"at {t}: main P {pct(c['tp_main'], c['called_main'])} ({c['tp_main']}/{c['called_main']}), "
-            f"R {pct(c['tp_main'], c['yes'])} ({c['tp_main']}/{c['yes']}), "
-            f"pieces found {pct(i['found'], i['with_main'])} ({i['found']}/{i['with_main']}), "
+            f"at {t}: per article recall {pct(i['found'], i['with_main'])} ({i['found']}/{i['with_main']}), "
+            f"per article precision {pct(i['agreed'], i['called'])} ({i['agreed']}/{i['called']}); "
+            f"row level: main R {pct(c['tp_main'], c['yes'])} ({c['tp_main']}/{c['yes']}), main P {pct(c['tp_main'], c['called_main'])}, "
             f"not main R {pct(c['tp_not'], c['no'])} ({c['tp_not']}/{c['no']})"
         )
     a_txt = "n/a" if math.isnan(a) else f"{a:.3f}"
+    aa_txt = "n/a" if math.isnan(aa) else f"{aa:.3f}"
+    npos = sum(any(r.main for r in v) for v in group(rows).values())
+    aa_txt += f" ({npos} articles with an owner main against {items - npos} without)"
     return (
-        f"- {name}: {items} pieces, {len(rows)} rows ({yes} yes, {len(rows) - yes} no); AUC {a_txt}\n    "
+        f"- {name}: {items} pieces, {len(rows)} rows ({yes} yes, {len(rows) - yes} no); article AUC {aa_txt}; row AUC {a_txt}\n    "
         + "\n    ".join(parts)
     )
 
@@ -266,42 +297,55 @@ def main() -> None:
     print(
         f"marked rows {len(rows)} of {len({r.item for r in rows})} items: {sum(r.main for r in rows)} yes, {sum(not r.main for r in rows)} no"
     )
+    print(
+        "PER ARTICLE (the headline: a piece is found when the model's main company is one the owner marked main)"
+    )
+    for t in thresholds:
+        i = article(rows, t)
+        rlo, rhi = wilson(i["found"], i["with_main"])
+        plo, phi = wilson(i["agreed"], i["called"])
+        ilo, ihi = interval(rows, partial(hit_rate, threshold=t))
+        print(
+            f"article recall at {t}: {i['found']}/{i['with_main']} = {pct(i['found'], i['with_main'])} [Wilson {100 * rlo:.1f}, {100 * rhi:.1f}; resampling {100 * ilo:.1f}, {100 * ihi:.1f}]; "
+            f"article precision: {i['agreed']}/{i['called']} = {pct(i['agreed'], i['called'])} [Wilson {100 * plo:.1f}, {100 * phi:.1f}]; "
+            f"articles {i['items']}, with an owner main {i['with_main']}, called main by the model {i['called']}"
+        )
+    aa = article_auc(rows)
+    alo, ahi = interval(rows, article_auc)
+    print(
+        f"article AUC (best score of the piece, piece with an owner main against piece without): {aa:.3f} [{alo:.3f}, {ahi:.3f}] "
+        f"({sum(any(r.main for r in v) for v in group(rows).values())} pieces against {sum(not any(r.main for r in v) for v in group(rows).values())})"
+    )
+    for k, (f, n) in by_owner_mains(rows).items():
+        print(f"articles with {k} owner main at 0.5: found {f}/{n} ({pct(f, n)})")
+    for t in thresholds:
+        w = weighted(rows, t)
+        print(
+            f"article recall re-weighted by band size at {t}: {100 * w['recall']:.1f}%, article precision {100 * w['precision']:.1f}% "
+            f"(share of articles with an owner main {100 * w['with_main_share']:.1f}%)"
+        )
+    print(
+        "ROW LEVEL (each owner main counts; a multi-company article can only score its share of mains, see docs)"
+    )
     for t in thresholds:
         c = at_threshold(rows, t)
         lo, hi = wilson(c["tp_main"], c["called_main"])
         rlo, rhi = wilson(c["tp_main"], c["yes"])
         print(
-            f"threshold {t}: main P {c['tp_main']}/{c['called_main']} = {pct(c['tp_main'], c['called_main'])} [{100 * lo:.1f}, {100 * hi:.1f}], "
+            f"row threshold {t}: main P {c['tp_main']}/{c['called_main']} = {pct(c['tp_main'], c['called_main'])} [{100 * lo:.1f}, {100 * hi:.1f}], "
             f"R {c['tp_main']}/{c['yes']} = {pct(c['tp_main'], c['yes'])} [{100 * rlo:.1f}, {100 * rhi:.1f}]; "
             f"not main P {c['tp_not']}/{c['called_not']} = {pct(c['tp_not'], c['called_not'])}, R {c['tp_not']}/{c['no']} = {pct(c['tp_not'], c['no'])}"
         )
     alo, ahi = interval(rows, auc)
     print(
-        f"AUC of the score for yes against no: {auc(rows):.3f} [{alo:.3f}, {ahi:.3f}] (resampling pieces; the relevance model's out-of-fold AUC on summaries: 0.896)"
+        f"row AUC of the score for yes against no: {auc(rows):.3f} [{alo:.3f}, {ahi:.3f}] (resampling pieces; the relevance model's out-of-fold AUC on summaries: 0.896)"
     )
-    for t in thresholds:
-        i = by_item(rows, t)
-        flo, fhi = wilson(i["found"], i["with_main"])
-        rlo, rhi = interval(rows, partial(hit_rate, threshold=t))
-        print(
-            f"pieces at {t}: {i['items']}, with a main company {i['with_main']}, found by the model {i['found']} ({pct(i['found'], i['with_main'])}) "
-            f"[Wilson {100 * flo:.1f}, {100 * fhi:.1f}; resampling {100 * rlo:.1f}, {100 * rhi:.1f}]; "
-            f"model calls main on {i['called']}, agreed {i['agreed']} ({pct(i['agreed'], i['called'])})"
-        )
-    for k, (f, n) in by_owner_mains(rows).items():
-        print(f"pieces with {k} owner main at 0.5: found {f}/{n} ({pct(f, n)})")
     print("yes by band:", {b: f"{y}/{n}" for b, (y, n) in by_band(rows).items()})
-    print("pieces per band:", {b: len({r.item for r in rows if r.band == b}) for b in range(6)})
-    for t in thresholds:
-        w = weighted(rows, t)
-        print(
-            f"re-weighted by band size at {t}: share of pieces with an owner main {100 * w['with_main_share']:.1f}%, "
-            f"piece recall {100 * w['recall']:.1f}%, piece precision {100 * w['precision']:.1f}%"
-        )
+    print("articles per band:", {b: len({r.item for r in rows if r.band == b}) for b in range(6)})
     flags = piece_flags(rows)
     for kind in ("no_company", "missed"):
         ids = sorted(k for k, v in flags.items() if kind in v)
-        print(f"pieces flagged {kind}: {len(ids)} {ids}")
+        print(f"articles flagged {kind}: {len(ids)} {ids}")
     skip = set(args.exclude.split(",")) - {""}
     if skip:
         rest = [r for r in rows if r.item not in skip]

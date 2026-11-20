@@ -154,11 +154,13 @@ def test_the_builder_does_not_overwrite_the_gold(
 def test_the_doc_quotes_the_scored_figures() -> None:
     doc = (ROOT / "docs" / "main_company_training.md").read_text(encoding="utf-8")
     for pattern in (
-        "185 marked rows of 104 pieces",
-        "92.2% [84.0, 96.4] (71/77)",
+        "185 marked rows of 104 articles",
+        "main precision 92.2% (71/77)",
         "49.0% [41.0, 57.0] (71/145)",
-        "61 of 88 (69.3% [59.0, 78.0])",
-        "86 of 88 (97.7% [92.1, 99.4])",
+        "69.3% [59.0, 78.0] (61/88)",
+        "97.7% [92.1, 99.4] (86/88)",
+        "91.0% [81.8, 95.8] (61/67)",
+        "0.766 [0.662, 0.873]",
         "0.829 [0.730, 0.912]",
         "88.0%",
         "1205a302477ef651bac099ac1470a913b737be34c793f0dc84d770bae5fb5589",

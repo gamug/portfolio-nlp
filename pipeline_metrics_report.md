@@ -23,7 +23,7 @@ The removed shares and counts are still in the step documents (`docs/companies_s
 | Sector | the 2-digit GICS sector assigned to a `sector` text | **Precision only** (per sector, 2 to 5 texts each); recall not measured | 87.5% of the assigned sectors right (35 of 40) | Yes (a draw made after the step was built), one reviewer |
 | Cut | the pieces ("sub-news") the cut makes from a multi-company text | **No classes.** Three yes/no questions per piece (precision-like) | 84.6% of pieces faithful; 75.5% clean | Yes (28 texts, 143 pieces) |
 | Company: NER | the organisation spans NER finds (and the universe companies the matcher takes from them) | **No classes**: precision, recall and F1 on 100 texts tagged by the owner (321 organisations) | universe companies: precision 90.1%, recall 95.4% on the owner's labels as they are (92.6% / 95.5% with the developer's overlay; 98.7% recall with `ner+text`); all organisations: 72.6% / 90.4% with the overlay | **Yes** (100 texts, one reviewer; 14 labels not in the text, overlay: 9 replaced, 1 kept, 4 dropped); plus an older run judged by an LLM (v1) |
-| Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes | cross-validation (809 summaries): main-company precision 90.0%, recall 94.7% at threshold 0.5; **held-out (185 marked rows of 104 pieces, the texts the step reads): precision 92.2%, recall 49.0% of rows; 69.3% of the pieces with an owner main found (88.0% re-weighted by band size)** | **Yes** (partial marks on pieces, one reviewer); the cross-validation is not |
+| Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes | cross-validation (809 summaries): main-company precision 90.0%, recall 94.7% at threshold 0.5; **held-out (185 marked rows of 104 articles, the texts the step reads), per article: recall 69.3%, precision 91.0% at 0.5 (88.0% recall re-weighted by band size); rows: precision 92.2%, recall 49.0%** | **Yes** (partial marks on pieces, one reviewer); the cross-validation is not |
 | Summarization | the summary of a text over about 2,000 characters | **No classes.** LLM-judge scores (1 to 5) | **DeepSeek, the step's summariser since T-206:** faithfulness 4.99, coverage 4.54, hallucination 0.7% (300 articles); the earlier distilbart step: 4.60, 3.24, 15.0% | The judge is DeepSeek too (it graded its own summaries); a blind re-scoring of 24 pairs by the assistant (Claude) agreed in general terms (faithfulness 4.92, coverage 4.75, hallucination 4%); not a gold, and small; the corpus run is not measured |
 | Sentiment | positive, negative, neutral for a (text, company) pair | **Yes**, three classes | nested cross-validation (809 rows): score 0.814, negative P/R 0.747 / 0.748; **held-out (190 real pieces): accuracy 73.7%, negative 69.4% / 80.6%** | **Yes** (190 pieces, one reader); the cross-validation is not |
 | Category | 14 labels (6 groups) for a (text, company) pair; the model pinned in the step reads 12; **planned: 8 (7 measured plus `other`, not measured)** | **Yes**, per label (precision and recall) | **official (owner's decision, 2026-11-17): 88.0% [83.8, 91.2] agreement with a blind LLM judge on 300 real sub-news** (the model's label is the judge's first or second; the model learned the owner's tags, which the assistant reviewed); with the four weak labels moved to `other`: 92.0% (94.4% over the 7 measured labels). Also: out of fold 91.5%, held-out 57.1%, 82.1% on 300 real sub-news (joint tags), over the 7 measured labels (12-label model remapped, not retrained) | The 80% bar (D24) is **met** by the official figure (88.0%) |
@@ -284,37 +284,41 @@ With the 14 labels as they are (no overlay): universe companies 90.1% / 95.4% / 
 
 ### 3.2 Relevance: is a company "main" in a text (`gamug/deberta-v3-company-relevance`)
 
-Two classes: main and not main. One table: the cross-validation (out-of-fold scores of the 809 marked summaries, unweighted) and the held-out (the 185 rows the owner marked on 104 pieces of the `units5` cut, version of 2026-11-20, unweighted unless a row says re-weighted: the bands were sampled equally, they are not corpus rates). 95% intervals where computed.
+Two classes: main and not main. One table: the cross-validation (out-of-fold scores of the 809 marked summaries, unweighted) and the held-out (the 185 rows the owner marked on 104 articles of the `units5` cut, version of 2026-11-20; unweighted unless a row says re-weighted: the bands were sampled equally, they are not corpus rates). The held-out recall and precision are **per article** (see the limitation below). 95% intervals where computed.
 
-| Measure | Cross-validation (809 summaries) | Held-out (185 rows, 104 pieces) |
+| Measure | Cross-validation (809 summaries) | Held-out (185 rows, 104 articles) |
 |---|---|---|
-| AUC | 0.90 | **0.829** [0.730, 0.912] |
-| Main at 0.5 (the step): precision | 90.0% | 92.2% [84.0, 96.4] (71/77) |
-| Main at 0.5: recall | 94.7% | 49.0% [41.0, 57.0] (71/145) |
-| Pieces with an owner main found at 0.5 (one hit is enough) | not in the record | 69.3% [59.0, 78.0] (61/88); re-weighted by band size 88.0% |
-| Not main at 0.5: precision | not in the record | 31.5% (34/108) |
-| Not main at 0.5: recall | 68.3% (1 minus 31.7% of not-relevant rows called main) | 85.0% (34/40) |
-| Main at 0.1: precision / recall | not in the record | 91.1% [85.1, 94.8] / 84.8% [78.1, 89.8] |
-| Main at 0.3: precision / recall | 89.7% / 96.2% | 91.2% [84.1, 95.3] / 64.1% [56.1, 71.5] |
-| Main at 0.7: precision / recall | 91.1% / 92.3% | 93.2% [83.8, 97.3] / 37.9% [30.4, 46.0] |
-| Main at 0.9: precision / recall | 91.7% / 87.3% | not computed |
+| AUC, rows | 0.90 | **0.829** [0.730, 0.912] |
+| AUC, articles (best score of each article) | not in the record | 0.766 [0.662, 0.873] |
+| Article recall at 0.5 (the step): the headline | not in the record | **69.3% [59.0, 78.0] (61/88)**; re-weighted by band size 88.0% |
+| Article precision at 0.5 | not in the record | 91.0% [81.8, 95.8] (61/67) |
+| Article recall at 0.1 / 0.3 / 0.7 | not in the record | 97.7% (86/88) / 83.0% (73/88) / 53.4% (47/88) |
+| Main at 0.5 (the step): precision, rows | 90.0% | 92.2% [84.0, 96.4] (71/77) |
+| Main at 0.5: recall, rows | 94.7% | 49.0% [41.0, 57.0] (71/145) |
+| Not main at 0.5: precision, rows | not in the record | 31.5% (34/108) |
+| Not main at 0.5: recall, rows | 68.3% (1 minus 31.7% of not-relevant rows called main) | 85.0% (34/40) |
+| Main at 0.3: precision / recall, rows | 89.7% / 96.2% | 91.2% [84.1, 95.3] / 64.1% [56.1, 71.5] |
+| Main at 0.7: precision / recall, rows | 91.1% / 92.3% | 93.2% [83.8, 97.3] / 37.9% [30.4, 46.0] |
+| Main at 0.9: precision / recall, rows | 91.7% / 87.3% | not computed |
 
-Scenarios: the same marks, with the pieces of two kinds left out (no company at all; main company missing from the list or out of the S&P 500 universe). Unweighted, at 0.5.
+**The one-main limitation.** The relevance model was trained to pick the one company a text is mainly about. The owner marks every company that is main in an article, so an article with several owner mains is scored on rows only in part: an article with six owner mains where the model names two has a row recall of one third, although it found a main company. That is a limit of the design of the task, not an error of the model. The headline recall and precision therefore count **per article**: an article is found when the model's main company is one the owner marked main. The row figures stay as secondary figures. The not-main class is measured on rows, since the owner's `no` is an explicit answer.
 
-| Scenario (pieces, rows) | AUC | Main: precision | Main: recall | Pieces found | Not main: recall |
+Scenarios: the same marks, with the articles of each exclusion left out (no company at all; main company missing from the list or out of the S&P 500 universe). Unweighted, at 0.5.
+
+| Scenario (articles, rows) | Article recall | Article precision | Article AUC | Row recall | Row not-main recall |
 |---|---|---|---|---|---|
-| All (104, 185) | 0.829 | 92.2% (71/77) | 49.0% (71/145) | 69.3% (61/88) | 85.0% (34/40) |
-| Without no-company pieces (102, 183) | 0.845 | 93.4% (71/76) | 49.0% (71/145) | 69.3% (61/88) | 86.8% (33/38) |
-| Without missed-main pieces (76, 138) | 0.910 | 98.5% (64/65) | 51.2% (64/125) | 73.0% (54/74) | 92.3% (12/13) |
-| Without both (74, 136) | 0.978 | 100.0% (64/64) | 51.2% (64/125) | 73.0% (54/74) | 100.0% (11/11) |
+| All (104, 185) | 69.3% (61/88) | 91.0% (61/67) | 0.766 | 49.0% (71/145) | 85.0% (34/40) |
+| Without no-company articles (102, 183) | 69.3% (61/88) | 92.4% (61/66) | 0.777 | 49.0% (71/145) | 86.8% (33/38) |
+| Without missed-main articles (76, 138) | 73.0% (54/74) | 98.2% (54/55) | n/a | 51.2% (64/125) | 92.3% (12/13) |
+| Without both (74, 136) | 73.0% (54/74) | 100.0% (54/54) | n/a | 51.2% (64/125) | 100.0% (11/11) |
 
 **What it says and does not say.**
-- **When the model calls a company main it is almost always right** (precision 0.92 at 0.5, 0.91 to 0.93 from 0.1 to 0.7), but **at 0.5 it finds about half of the rows the owner calls main** (recall 0.49). The held-out has an AUC of **0.829** [0.730, 0.912] against 0.90 out of fold, more than 5 points under: the trigger of T-170's rule (sub-news get their own threshold, chosen on the marked sub-news); the decision is the owner's and is still open (`docs/main_company_training.md`).
-- **Recall without the one-company limit** (a piece is found when the model names at least one of the companies the owner marked main): 61 of 88 pieces at 0.5 (69.3%), 73 at 0.3 (83.0%), 86 at 0.1 (97.7%). Pieces with one owner main are found 35 of 50 times and pieces with several 26 of 38, so the one-company training does not explain the gap.
-- **The universe does not explain it either**: 28 pieces have their main company missing from the list or out of the S&P 500 (the owner's notes and `falta_la_principal`). Leaving them out raises the recall of rows at 0.5 from 49.0% to 51.2%, and the pieces found from 69.3% to 73.0%.
-- **Those scenarios keep few `no` rows**: without the 28 pieces, 13 of the 40 `no` rows remain, so the not-main recall and the AUC of the last two scenarios (0.910 and 0.978) rest on very few rows.
-- Pieces with several companies can get several `yes`, while the model was trained to choose one: that is a decision, not a marking error.
-- One reader, 40 `no` rows: the intervals are wide and the figures are not corpus rates (the bands were drawn evenly, and 76 of the 180 pieces first drawn are no longer in the file).
+- **When the model calls a company main it is almost always right** (article precision 91.0% at 0.5, 89% to 92% from 0.1 to 0.7). **At 0.5 it finds seven articles in ten** with an owner main (69.3%), and 97.7% at 0.1. The row AUC is **0.829** [0.730, 0.912] against 0.90 out of fold, more than 5 points under: the trigger of T-170's rule (sub-news get their own threshold, chosen on the marked sub-news); the decision is the owner's and is still open (`docs/main_company_training.md`).
+- **The one-main limit does not explain the gap**: articles with one owner main are found 70.0% of the time, articles with several 68.4%. Row recall is lower for the several-main articles (37.9% against 70.0%), and that is the limit of the design, shown in the row figures.
+- **The missed companies do not explain it either**: 28 articles have their main company missing from the list or out of the S&P 500. Leaving them out raises article recall at 0.5 from 69.3% to 73.0%.
+- **Those scenarios keep few `no` rows**: without the 28 articles 13 of the 40 `no` rows remain, so the row not-main recall and the article AUC of the last two scenarios rest on very few rows; the article AUC is not defined when no article without a main is left.
+- The owner's several mains are real, and the model was trained to pick one: that is a decision of the design, not a marking error.
+- One reader, 40 `no` rows: the intervals are wide and the figures are not corpus rates (the bands were drawn evenly, and 76 of the 180 articles first drawn are no longer in the file).
 - The split between "no universe company is named" and "one is named in a form the matcher does not know" was not measured. The text candidates of `ner+text` were reviewed by the developer on a few pairs; neither figure is kept here.
 - Files: `gold/main_company_marks_2026_11_20.csv` (the earlier version: `gold/main_company_marks.csv`), `gold/texts/main_company_marks_texts_2026_11_20.csv`, `scripts/score_main_company_marks_2026_11_16.py`; the full count is `docs/main_company_training.md`.
 
@@ -523,7 +527,7 @@ One table with the general metrics of every model, to show the results at a glan
 | Sector (step 4) | `bge-small-en-v1.5` with a gate | — | 87.5% of the assigned sectors right (35 of 40); recall not measured | no bar measured (D24 for the sub-industry is not measured, T-167) |
 | Cut (step 1.2) | `units5` with the pair classifier (`gamug/FinBERT-news-attribution`) | — | 84.6% [77.8, 89.6] of pieces faithful; 75.5% clean (143 pieces) | 80% faithful: the point estimate passes, the lower end does not |
 | NER (step 3) | `gamug/sec-bert-finer-ord-ner` | v1 LLM-judged run (1,000 articles): span F1 0.7418, ORG 0.75 | universe companies: P 92.6%, R 95.5%, F1 0.940 (R 98.7% with `ner+text`); all organisations: P 72.6%, R 90.4% (100 texts; the overlay on 14 labels: 9 replaced, 1 kept, 4 dropped); as they are, universe P 90.1%, R 95.4% | no bar |
-| Relevance (step 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; main P 90.0%, R 94.7% (809 summaries) | AUC 0.829; main P 92.2%, R 49.0% of rows, 69.3% of pieces found (185 rows of 104 pieces) | no bar; the sub-news threshold is the owner's decision (T-170) |
+| Relevance (step 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; main P 90.0%, R 94.7% (809 summaries) | AUC 0.829 (rows); article recall 69.3%, article precision 91.0% at 0.5 (185 rows of 104 articles) | no bar; the sub-news threshold is the owner's decision (T-170) |
 | Summarization (step 2) | DeepSeek (`deepseek-chat`) | — | no held-out; LLM judge on 300 articles: faithfulness 4.99, coverage 4.54, hallucination 0.7% (the judge is DeepSeek too) | no bar; the corpus run is not measured |
 | Sentiment (step 6) | pair model + stack (`gamug/FinBERT-company-sentiment`) | score 0.814; negative P/R 0.747 / 0.748 (809 rows) | accuracy 73.7% [67.0, 79.4]; negative P 69.4%, R 80.6% (190 pieces) | 80% agreement and 70% on the negative (D32): **not met** (accuracy, negative precision) |
 | Category (step 5) | entailment fine-tune (`category-entailment-single-12`) | accuracy 91.5%, macro F1 0.791 (975 rows of the 7 measured labels) | **judge on 300 real sub-news (official): 88.0%**; accuracy 57.1% [46.5, 67.2] (84 rows, held-out); 82.1% on 235 real sub-news (joint tags) | 80% (D24): **met** by the official judge figure (88.0%, 300 real sub-news); pinned by the owner's decision; figures are the 12-label model remapped to the planned distribution, not retrained (section 6; 12-label: 87.8%, 54.1%, 71.3%) |
