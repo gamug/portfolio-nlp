@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import build_val_gold_2026_11_16 as builder  # noqa: E402  (scripts/ is not a package)
-import score_main_company_marks_2026_11_16 as main_score  # noqa: E402
+import score_main_company_marks_2026_11_20 as main_score  # noqa: E402
 import score_sentiment_val190_2026_11_16 as sent_score  # noqa: E402
 
 csv.field_size_limit(sys.maxsize)
@@ -132,7 +132,7 @@ def test_main_company_figures_are_the_doc_figures() -> None:
         "called": 32,
         "agreed": 30,
     }
-    rest = [r for r in rows if r.item not in main_score.DEFAULT_EXCLUDE]
+    rest = [r for r in rows if r.item not in ("335155", "343149", "260642")]
     assert (len(rest), main_score.at_threshold(rest, 0.5)["yes"]) == (98, 79)
 
 
@@ -205,8 +205,8 @@ def test_the_docs_quote_the_scored_figures(doc: str, patterns: list[str]) -> Non
 # ---- the reports quote the same figures, and the two languages keep one structure ----
 
 REPORTS = {
-    "pipeline_metrics_report.md": ["(140 of 190)", "AUC of **0.663**"],
-    "pipeline_metrics_report_es.md": ["(140 de 190)", "AUC de **0.663**"],
+    "pipeline_metrics_report.md": ["(140 of 190)", "**0.829** [0.730, 0.912]"],
+    "pipeline_metrics_report_es.md": ["(140 de 190)", "**0.829** [0.730, 0.912]"],
 }
 REPORT_FIGURES = [
     "73.7% [67.0, 79.4]",
@@ -214,9 +214,10 @@ REPORT_FIGURES = [
     "69.4% [58.0, 78.9] (50/72)",
     "56.7% [39.2, 72.6] (17/30)",
     "80.0% [71.1, 86.7]",
-    "90.9% [76.4, 96.9] (30/33)",
-    "30.0% [21.9, 39.6] (30/100)",
-    "45.0% [35.6, 54.8] (45/100)",
+    "92.2% [84.0, 96.4] (71/77)",
+    "49.0% [41.0, 57.0] (71/145)",
+    "69.3% [59.0, 78.0] (61/88)",
+    "37.9% [30.4, 46.0]",
 ]
 
 
