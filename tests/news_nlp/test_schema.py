@@ -1,4 +1,4 @@
-"""news_nlp.schema: the 19 tables `init_schema` creates, its idempotency, that it brings no v1
+"""news_nlp.schema: the 19 tables `init_schema` creates (the lean `articles` is not among them: see the strict xfail at the end), its idempotency, that it brings no v1
 table back (T-220), and the `eval_run` additive migration.
 """
 
@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import news_nlp as db
+from news_nlp import db as news_db
 
 #: Exactly what ``init_schema`` creates (T-220, PR C2): the stepped pipeline's tables and the eval run-log tables. The v1 result tables are not created any more.
 _KEPT_TABLES = {
@@ -151,3 +152,38 @@ def test_the_join_keys_are_indexed_and_the_flags_are_checked(test_db_path: Path)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("INSERT INTO body_scope VALUES ('h','r','market','{}','title','t')")
     conn.close()
+
+
+def _source_with_one_article(path: Path) -> Path:
+    """A minimal SOURCE (the crawl database) that the pipeline connection accepts: schema version 5 and the columns it reads."""
+    raw = sqlite3.connect(path)
+    raw.execute(
+        "CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT, body_text TEXT, pub_date TEXT, "
+        "ticker TEXT, company TEXT, fetch_status TEXT, url TEXT, source TEXT, retrieved_at TEXT, extractor TEXT)"
+    )
+    raw.execute(
+        "INSERT INTO articles VALUES (1, 't', 'body text', '2026-01-01', NULL, NULL, 'ok', NULL, NULL, NULL, NULL)"
+    )
+    raw.execute("PRAGMA user_version=5")
+    raw.commit()
+    raw.close()
+    return path
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="a fresh RESULTS file has no lean `articles` table (init_schema does not create it); the first "
+    "_ensure_article_row copy then fails. Remove this mark when the table is created or the copy creates it.",
+)
+def test_a_fresh_results_file_takes_its_first_lean_article_row(tmp_path: Path) -> None:
+    source = _source_with_one_article(tmp_path / "urls.db")
+    results = tmp_path / "nlp.db"
+    conn = db.connect(results)
+    db.init_schema(conn)
+    conn.close()
+    pipeline = db.connect_pipeline(results, source)
+    try:
+        news_db._ensure_article_row(pipeline, 1)
+        assert pipeline.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+    finally:
+        pipeline.close()

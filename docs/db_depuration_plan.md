@@ -349,6 +349,8 @@ Run by the assistant at the owner's request ("run it yourself"), after a rehears
 
 **Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
 
+**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision is not recorded as answered by the owner; `sector-417a93feb789` is kept by the script but nothing in the repository says the owner chose it) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. The owner must say whether the live state is accepted as it is, and then either send the new note and record the sector answer, or restore the rollback (`nlp_backup.db`, the verified copy of the file before the purge). Until then this is an open item, not a closed one.
+
 ## Runbook: purge a database safely (what was done on 2026-11-18, now in the tool)
 
 The shape that protects a production file: **purge a local copy, verify, then swap**. Never `--apply` in place on the Windows drive (the tool refuses unless `--in-place`).
@@ -425,7 +427,7 @@ Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f827
   refuses it outside `--items sector`), and the rows themselves (the golden digest covers the delivered ones).
 * **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
   company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 tables
-  (the 19 of `init_schema` plus the lean `articles`, which the pipeline connection creates), `foreign_key_check` empty,
+  (the 19 of `init_schema` plus the lean `articles`, which was already in the file; a fresh RESULTS file has no `articles` table and the first lean-article copy fails there, see the open `xfail` in `tests/news_nlp/test_schema.py`), `foreign_key_check` empty,
   `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
 * **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
   was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is

@@ -35,7 +35,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `news_company`, `news_sentiment`, `news_category`, `news_snapshot`, `period_run`, `period_summary`, `period_item`, `sector`, `company_sector`, `pipeline_step_state`), the `eval_*` run-log tables (`eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion`; `news_nlp.eval`), all in `news_nlp.schema.SCHEMA`, and a lean `articles` subset (**no `body_text`**). The v1 result tables and the legacy `eval_judgement` were dropped on 2026-11-18 (T-220 PR C1); `init_schema` does not create them |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
