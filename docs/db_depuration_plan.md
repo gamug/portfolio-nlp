@@ -349,7 +349,7 @@ Run by the assistant at the owner's request ("run it yourself"), after a rehears
 
 **Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
 
-**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision is not recorded as answered by the owner; `sector-417a93feb789` is kept by the script but nothing in the repository says the owner chose it) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. The owner must say whether the live state is accepted as it is, and then either send the new note and record the sector answer, or restore the rollback (`nlp_backup.db`, the verified copy of the file before the purge). Until then this is an open item, not a closed one.
+**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision: the owner's answer is recorded in "Gates answered", item (1), 2026-11-18, so this is not open; an earlier version of this note said the opposite, and was wrong) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. The owner must say whether the live state is accepted as it is, and then either send the new note and record the sector answer, or restore the rollback (`nlp_backup.db`, the verified copy of the file before the purge). Until then this is an open item, not a closed one.
 
 ## Runbook: purge a database safely (what was done on 2026-11-18, now in the tool)
 
@@ -395,7 +395,7 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 
 ## Left open (gates; none blocks this planning PR, all block the prune)
 
-1. **The sector-step revision (settled by the listing: `sector-417a93feb789`, the only one; the owner confirms).** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
+1. **The sector-step revision: answered (2026-11-18, "Gates answered" item (1)).** `sector-417a93feb789`, the only one, is kept. Before that answer the keep list had none; `body_sector` would have lost every row and the kept snapshot reads it
    (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
    `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
 2. **The period revision: answered (2026-11-18).** Only `period-3b07b83ecec3` stays; a new delivery note naming it goes to the upstream team before `period-ae014b56b055` is pruned.
@@ -426,8 +426,8 @@ Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f827
   with their counts and dates). **Not compared:** the sector part of the snapshot status (run without `--sector-revision`; the CLI
   refuses it outside `--items sector`), and the rows themselves (the golden digest covers the delivered ones).
 * **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
-  company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 tables
-  (the 19 of `init_schema` plus the lean `articles`, which was already in the file; a fresh RESULTS file has no `articles` table and the first lean-article copy fails there, see the open `xfail` in `tests/news_nlp/test_schema.py`), `foreign_key_check` empty,
+  company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 user tables
+  (the 19 of `init_schema` plus the lean `articles`, which was already in the file; a fresh RESULTS file has no `articles` table and the first lean-article copy fails there, see the open `xfail` in `tests/news_nlp/test_schema.py`). Counted without SQLite's own `sqlite_*` tables (`sqlite_sequence`, `sqlite_stat1`). **Checked on the files themselves (2026-11-20, read-only, `immutable=1`):** the live `nlp.db` (purged) lists those 20 and the two `sqlite_*` tables; `nlp_backup.db` lists the same plus the six dropped tables (`article_category`, `article_entities`, `article_sentiment`, `article_summary`, `sector_summary`, `eval_judgement`). Neither file has an `article_entities_v1` or the `article_sentiment_v2_published_snapshot_2026_09_15` / `..._v4_experiment_2026_09_15` tables that the DDL file's header and the restore script name: the archival tables it mentions are not on the working store. `foreign_key_check` empty,
   `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
 * **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
   was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is
