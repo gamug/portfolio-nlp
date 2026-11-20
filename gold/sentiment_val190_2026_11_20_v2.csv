@@ -1,4 +1,4 @@
-key,article_id,item_id,ticker,batch,text_source,text_hash,predicted,predicted_score,relevance_score,pub_date,company_revision,sentiment_revision,summary_revision,sentiment,notes
+﻿key,article_id,item_id,ticker,batch,text_source,text_hash,predicted,predicted_score,relevance_score,pub_date,company_revision,sentiment_revision,summary_revision,sentiment,notes
 sn275891#IBM,92906,275891,IBM,90,original,abef8785b456082f7cff7d3f28307c73d299908bd48b0a3132b7e1311186cea0,positive,0.888,0.999,2020-01-31T17:45:06+0000,companies-f349536cf701,sentiment-5999fe131d8f,summary-7a9bd2062bc4,positive,
 sn362290#BIIB,296412,362290,BIIB,90,original,4563fc11fa2fcb2e12fdbf42da1f4e8824c6ecc4ed9be7b77eb78fa7e6e5fd6b,negative,0.911,1.000,2020-11-09T16:55:33+0000,companies-f349536cf701,sentiment-5999fe131d8f,summary-7a9bd2062bc4,negative,
 sn297601#TMUS,127395,297601,TMUS,90,original,da82bc312418cca363c0f486ad82fb21902cc0eb41375c1d7643549ece51fffc,neutral,0.517,0.890,2017-05-12T10:39:20+0000,companies-f349536cf701,sentiment-5999fe131d8f,summary-7a9bd2062bc4,neutral,
