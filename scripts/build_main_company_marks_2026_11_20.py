@@ -1,8 +1,8 @@
-"""Track the owner's second version of the main-company marks (``gold/main_company_marks_2026_11_19.csv`` and its texts).
+"""Track the owner's second version of the main-company marks (``gold/main_company_marks_2026_11_20.csv`` and its texts).
 
-    uv run scripts/build_main_company_marks_2026_11_19.py [--data data] [--gold gold]
+    uv run scripts/build_main_company_marks_2026_11_20.py [--data data] [--gold gold]
 
-Reads the owner's working file ``data/main_company/to_tag.csv`` (marked 2026-11-19) with ``to_tag.strata.json`` and writes the marked rows next to the
+Reads the owner's working file ``data/main_company/to_tag.csv`` (marked 2026-11-20) with ``to_tag.strata.json`` and writes the marked rows next to the
 2026-11-16 version, which is not touched (a new mark set is a new build and a new row of ``docs/main_company_training.md``, never an edit). It reuses
 ``build_val_gold_2026_11_16.main_company_rows`` (the same columns, text hash and checks), refuses to overwrite, and prints how the new set differs
 from the old one: rows kept, rows and pieces no longer in the file, new rows, and marks that changed. It also prints the SHA-256 of what it read.
@@ -18,8 +18,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_val_gold_2026_11_16 as old
 
-MARKS = "main_company_marks_2026_11_19.csv"
-TEXTS = "main_company_marks_texts_2026_11_19.csv"
+MARKS = "main_company_marks_2026_11_20.csv"
+TEXTS = "main_company_marks_texts_2026_11_20.csv"
 PREVIOUS = "main_company_marks.csv"
 
 
@@ -48,7 +48,7 @@ def main() -> None:
         if path.exists():
             raise SystemExit(f"{path} exists: nothing in gold/ is overwritten")
     marks, texts = old.main_company_rows(args.data)
-    old.check_unique(marks, "main_company_marks_2026_11_19")
+    old.check_unique(marks, "main_company_marks_2026_11_20")
     old.write(marks_path, old.MARK_COLUMNS, marks)
     old.write(texts_path, old.MARK_TEXT_COLUMNS, texts)
     yes = sum(r["es_principal"] == "yes" for r in marks)

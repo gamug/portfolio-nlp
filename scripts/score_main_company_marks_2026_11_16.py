@@ -1,13 +1,19 @@
 """Score the owner's partial main-company marks (T-170) against the relevance model of step 3.
 
-    uv run scripts/score_main_company_marks_2026_11_16.py [--marks gold/main_company_marks_2026_11_19.csv] [--exclude 335155,343149,260642]
+    uv run scripts/score_main_company_marks_2026_11_16.py [--marks gold/main_company_marks_2026_11_20.csv] [--thresholds 0.1,0.3,0.5]
 
-Reads the tracked marks (the owner's ``es_principal`` ``yes`` or ``no``, the relevance score of the pair and the relevance band of its item; the
-2026-11-16 version is ``gold/main_company_marks.csv``, the 2026-11-19 one ``gold/main_company_marks_2026_11_19.csv``, built by
-``build_main_company_marks_2026_11_19.py``). A pair is called main when its score is at the threshold or over it. Nothing is written. The pair and
-piece figures are unweighted (the six bands were drawn evenly, so they are not corpus rates), with the SHA-256 of the file scored; the last block
-re-weights the pieces by the size of their band in the corpus (``POPULATION``) and says what the owner's removals do to it.
-Used for ``docs/main_company_training.md``.
+Reads the tracked marks (the owner's ``es_principal`` ``yes`` or ``no``, ``falta_la_principal``, ``notes``, the relevance score of the pair and the
+relevance band of its item). The current version is ``gold/main_company_marks_2026_11_20.csv`` (built by ``build_main_company_marks_2026_11_20.py``);
+the 2026-11-16 version is ``gold/main_company_marks.csv``. A pair is called main when its score is at the threshold or over it. Nothing is written.
+
+Figures are unweighted (the six bands were drawn evenly, so they are not corpus rates) except the re-weighted block, which weights each band by its
+size in the corpus (``POPULATION``). The scenario block scores the same marks with two kinds of piece left out:
+
+* ``no_company``: a note says the text is not about any company (``NO_COMPANY``);
+* ``missed``: the owner's ``falta_la_principal`` is ``yes`` on a row of the piece, or a note says the main company is missing from the list or is
+  out of the S&P 500 universe (``MISSED``).
+
+The SHA-256 of the file scored is printed first. Used for ``docs/main_company_training.md``.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import csv
 import hashlib
 import math
 import random
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from functools import partial
@@ -28,8 +35,15 @@ THRESHOLDS = (0.3, 0.5, 0.7)
 POPULATION = {0: 13756, 1: 9724, 2: 4994, 3: 4980, 4: 12221, 5: 105945}
 BOOTSTRAP = 2000
 BOOTSTRAP_SEED = 20261119
-DEFAULT_MARKS = Path("gold/main_company_marks_2026_11_19.csv")
-DEFAULT_EXCLUDE = ("335155", "343149", "260642")  # lists of tickers and picks, every row `yes`
+DEFAULT_MARKS = Path("gold/main_company_marks_2026_11_20.csv")
+DEFAULT_EXCLUDE = ()
+#: The owner's notes that say the text is about no company at all (proposed for exclusion by the owner).
+NO_COMPANY = re.compile(r"not about any company", re.I)
+#: The owner's notes that say the main company is missing from the list, or is out of the S&P 500 universe.
+MISSED = re.compile(
+    r"missing|missed|not in (the )?text|not mentioned|out of S&P|not (a |an )?(in )?S&P|n't belong|not belong|does not belong",
+    re.I,
+)
 
 
 class Mark(NamedTuple):
@@ -38,6 +52,8 @@ class Mark(NamedTuple):
     main: bool
     score: float
     band: int
+    notes: str = ""
+    missing: bool = False  # falta_la_principal: the piece has a main company the list does not show
 
 
 def wilson(x: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -59,9 +75,36 @@ def load(path: Path) -> list[Mark]:
                 r["es_principal"] == "yes",
                 float(r["relevance_score"]),
                 int(r["band"]),
+                (r.get("notes") or "").strip(),
+                (r.get("falta_la_principal") or "").strip() == "yes",
             )
             for r in csv.DictReader(fh)
         ]
+
+
+def piece_flags(rows: list[Mark]) -> dict[str, set[str]]:
+    """The exclusions that apply to each piece (``no_company``, ``missed``)."""
+    flags: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if NO_COMPANY.search(r.notes):
+            flags[r.item].add("no_company")
+        elif r.missing or MISSED.search(r.notes):
+            flags[r.item].add("missed")
+    return flags
+
+
+def scenarios(rows: list[Mark]) -> dict[str, list[Mark]]:
+    flags = piece_flags(rows)
+
+    def keep(*drop: str) -> list[Mark]:
+        return [r for r in rows if not flags[r.item] & set(drop)]
+
+    return {
+        "all pieces": rows,
+        "without no-company pieces": keep("no_company"),
+        "without missed-main pieces": keep("missed"),
+        "without both": keep("no_company", "missed"),
+    }
 
 
 def at_threshold(rows: list[Mark], threshold: float) -> dict[str, int]:
@@ -78,10 +121,15 @@ def at_threshold(rows: list[Mark], threshold: float) -> dict[str, int]:
     }
 
 
-def by_item(rows: list[Mark], threshold: float = 0.5) -> dict[str, int]:
+def group(rows: list[Mark]) -> dict[str, list[Mark]]:
     items: dict[str, list[Mark]] = defaultdict(list)
     for r in rows:
         items[r.item].append(r)
+    return items
+
+
+def by_item(rows: list[Mark], threshold: float = 0.5) -> dict[str, int]:
+    items = group(rows)
     with_main = [k for k, v in items.items() if any(r.main for r in v)]
     called = [k for k, v in items.items() if any(r.score >= threshold for r in v)]
     return {
@@ -106,15 +154,10 @@ def auc(rows: list[Mark]) -> float:
     """ROC AUC of the relevance score for the owner's `yes` against `no` (ties count half); unweighted."""
     yes = [r.score for r in rows if r.main]
     no = [r.score for r in rows if not r.main]
+    if not yes or not no:
+        return float("nan")
     wins = sum(1.0 if y > n else 0.5 if y == n else 0.0 for y in yes for n in no)
     return wins / (len(yes) * len(no))
-
-
-def group(rows: list[Mark]) -> dict[str, list[Mark]]:
-    items: dict[str, list[Mark]] = defaultdict(list)
-    for r in rows:
-        items[r.item].append(r)
-    return items
 
 
 def interval(
@@ -182,11 +225,34 @@ def pct(x: int, n: int) -> str:
     return f"{100 * x / n:.1f}%" if n else "n/a"
 
 
+def scenario_line(name: str, rows: list[Mark], thresholds: tuple[float, ...]) -> str:
+    items = len(group(rows))
+    yes = sum(r.main for r in rows)
+    a = auc(rows)
+    parts = []
+    for t in thresholds:
+        c = at_threshold(rows, t)
+        i = by_item(rows, t)
+        parts.append(
+            f"at {t}: main P {pct(c['tp_main'], c['called_main'])} ({c['tp_main']}/{c['called_main']}), "
+            f"R {pct(c['tp_main'], c['yes'])} ({c['tp_main']}/{c['yes']}), "
+            f"pieces found {pct(i['found'], i['with_main'])} ({i['found']}/{i['with_main']}), "
+            f"not main R {pct(c['tp_not'], c['no'])} ({c['tp_not']}/{c['no']})"
+        )
+    a_txt = "n/a" if math.isnan(a) else f"{a:.3f}"
+    return (
+        f"- {name}: {items} pieces, {len(rows)} rows ({yes} yes, {len(rows) - yes} no); AUC {a_txt}\n    "
+        + "\n    ".join(parts)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--marks", type=Path, default=DEFAULT_MARKS)
     parser.add_argument(
-        "--exclude", default=",".join(DEFAULT_EXCLUDE), help="items to leave out in the last line"
+        "--exclude",
+        default=",".join(DEFAULT_EXCLUDE),
+        help="extra items to leave out of the all-pieces block",
     )
     parser.add_argument(
         "--thresholds",
@@ -224,6 +290,7 @@ def main() -> None:
         )
     for k, (f, n) in by_owner_mains(rows).items():
         print(f"pieces with {k} owner main at 0.5: found {f}/{n} ({pct(f, n)})")
+    print("yes by band:", {b: f"{y}/{n}" for b, (y, n) in by_band(rows).items()})
     print("pieces per band:", {b: len({r.item for r in rows if r.band == b}) for b in range(6)})
     for t in thresholds:
         w = weighted(rows, t)
@@ -231,15 +298,17 @@ def main() -> None:
             f"re-weighted by band size at {t}: share of pieces with an owner main {100 * w['with_main_share']:.1f}%, "
             f"piece recall {100 * w['recall']:.1f}%, piece precision {100 * w['precision']:.1f}%"
         )
-    print("yes by band:", {b: f"{y}/{n}" for b, (y, n) in by_band(rows).items()})
-    skip = set(args.exclude.split(","))
-    rest = [r for r in rows if r.item not in skip]
-    c = at_threshold(rest, 0.5)
-    print(
-        f"without the items {sorted(skip)}: {c['rows']} rows ({c['yes']} yes), main P {c['tp_main']}/{c['called_main']} = {pct(c['tp_main'], c['called_main'])}, "
-        f"R {c['tp_main']}/{c['yes']} = {pct(c['tp_main'], c['yes'])}; not main P {c['tp_not']}/{c['called_not']} = {pct(c['tp_not'], c['called_not'])}, "
-        f"R {c['tp_not']}/{c['no']} = {pct(c['tp_not'], c['no'])}"
-    )
+    flags = piece_flags(rows)
+    for kind in ("no_company", "missed"):
+        ids = sorted(k for k, v in flags.items() if kind in v)
+        print(f"pieces flagged {kind}: {len(ids)} {ids}")
+    skip = set(args.exclude.split(",")) - {""}
+    if skip:
+        rest = [r for r in rows if r.item not in skip]
+        print(f"extra exclusion {sorted(skip)}: {len(group(rest))} pieces, {len(rest)} rows")
+    print("scenarios (the same marks, with the pieces of each exclusion left out):")
+    for name, sub in scenarios(rows).items():
+        print(scenario_line(name, sub, thresholds))
 
 
 if __name__ == "__main__":
