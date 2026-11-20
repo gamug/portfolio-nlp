@@ -184,9 +184,9 @@ modules stay byte-identical (the guard proves it). The Docker retarget was done 
 **PR C: the schema, the drop and the prune.**
 
 * `schema.py`: remove the v1 DDL and its migrations; a test lists exactly the tables `init_schema` creates on a file that already has the
-  lean `articles` table (`schema.py` does not create it: the crawler side owns it and `db._ensure_article_row` fills it; the steps CLI
-  refuses a file without it, `cli/news_nlp_steps.py:591-595`). `eval_judgement` is still created at `schema.py:168`: it goes with the
-  v1 DDL if it is confirmed unused.
+  lean `articles` table. **Done (round 6 of #216):** `schema.py` creates the lean `articles` table (fixed definition, `IF NOT EXISTS`;
+  the crawler still owns the SOURCE table and `db._ensure_article_row` fills the RESULTS rows). The `--step cut` check for a missing
+  `articles` table was removed as unreachable. `eval_judgement` is no longer created (the v1 DDL is gone); it is in the purge's drop list.
 * **The sequence of the apply (one maintenance window of Phase 0, the owner at the keyboard):** (a) the scheduled run and the pipeline API stopped, a fresh
   backup verified (Phase 0 step 2), the dry runs of `--apply` and `--apply-prune` read and accepted; (b) `--apply` (the drop), its
   checks and the golden SQL; (c) a **second fresh backup**, verified, so that each step can be restored on its own; (d) `--apply-prune`,
@@ -349,7 +349,7 @@ Run by the assistant at the owner's request ("run it yourself"), after a rehears
 
 **Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
 
-**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision: the owner's answer is recorded in "Gates answered", item (1), 2026-11-18, so this is not open; an earlier version of this note said the opposite, and was wrong) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. The owner must say whether the live state is accepted as it is, and then either send the new note and record the sector answer, or restore the rollback (`nlp_backup.db`, the verified copy of the file before the purge). Until then this is an open item, not a closed one.
+**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision: the owner's answer is recorded in "Gates answered", item (1), 2026-11-18, so this is not open; an earlier version of this note said the opposite, and was wrong) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. Update (owner, 2026-11-20): the upstream team already knows about the change to `period-3b07b83ecec3`, so no new note is written; this item is closed on that point. What is left for the owner is the live state: accept the purged file as it is, or restore the rollback (`nlp_backup.db`, the verified copy of the file before the purge).
 
 ## Runbook: purge a database safely (what was done on 2026-11-18, now in the tool)
 
@@ -428,6 +428,7 @@ Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f827
   company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 user tables
   (the 19 of `init_schema` plus the lean `articles`, which was already in the file. A fresh RESULTS file had no `articles` table and the first lean-article copy failed there; from round 6 of #216 `init_schema` creates it, and the strict `xfail` is gone). Counted without SQLite's own `sqlite_*` tables (`sqlite_sequence`, `sqlite_stat1`). **Checked on the files themselves (2026-11-20, read-only, `immutable=1`):** the live `nlp.db` (purged) lists those 20 and the two `sqlite_*` tables; `nlp_backup.db` lists the same plus the six dropped tables (`article_category`, `article_entities`, `article_sentiment`, `article_summary`, `sector_summary`, `eval_judgement`). Neither file has an `article_entities_v1` or the `article_sentiment_v2_published_snapshot_2026_09_15` / `..._v4_experiment_2026_09_15` tables that the DDL file's header and the restore script name: the archival tables it mentions are not on the working store. `foreign_key_check` empty,
   `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
+* **`init_schema` on a copy of the purged file (round 6, 2026-11-20).** The purged `nlp.db` was copied with the SQLite backup API (the source opened read-only, `immutable=1`), and `init_schema` run on the copy with the round-6 code. Before and after: the `articles` definition is identical (`sqlite_master` text), 459,844 rows in `articles` both times, and 20 user tables both times. So `IF NOT EXISTS` leaves the purged file's `articles` as it is. The copy is a 1.63 GB scratch file, not in the repo.
 * **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
   was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is
   covered by three tests in `tests/news_nlp/test_db.py`.

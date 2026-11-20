@@ -63,6 +63,37 @@ def test_init_schema_creates_exactly_the_kept_tables_on_an_empty_file(tmp_path: 
     assert _tables(tmp_path / "fresh.db") == _KEPT_TABLES
 
 
+#: The lean ``articles`` columns, name and type, in order: the production RESULTS file's table as read on
+#: 2026-11-20 (the purged ``nlp.db`` of the owner's working store, read-only). A change here is a schema decision.
+_PRODUCTION_ARTICLES_COLUMNS = (
+    ("id", "INTEGER"),
+    ("ticker", "TEXT"),
+    ("company", "TEXT"),
+    ("gics_sector", "TEXT"),
+    ("gics_sub_industry", "TEXT"),
+    ("title", "TEXT"),
+    ("author", "TEXT"),
+    ("pub_date", "TEXT"),
+    ("word_count", "INTEGER"),
+    ("language", "TEXT"),
+    ("source_domain", "TEXT"),
+    ("extraction_method", "TEXT"),
+    ("fetch_status", "TEXT"),
+    ("http_status_code", "INTEGER"),
+    ("fetched_at", "TEXT"),
+)
+
+
+def test_the_lean_articles_table_has_the_production_columns(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "fresh.db")
+    db.init_schema(conn)
+    conn.close()
+    raw = sqlite3.connect(tmp_path / "fresh.db")
+    columns = tuple((r[1], r[2]) for r in raw.execute("PRAGMA table_info(articles)"))
+    raw.close()
+    assert columns == _PRODUCTION_ARTICLES_COLUMNS
+
+
 def test_init_schema_does_not_bring_the_v1_tables_back_on_a_purged_database(tmp_path: Path) -> None:
     """The first status run after the live purge re-created the six empty v1 tables (``init_schema`` ran the old DDL): this is what C2 stops."""
     path = tmp_path / "purged.db"
