@@ -2,7 +2,7 @@
 
 > **Note (T-220 PR B, 2026-11-18).** The v1 code named below (`pipeline.py`, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp.corrections`, the v1 eval stages) was removed; the v1 tables are dropped later by an owner-run script (`docs/db_depuration_plan.md`). Recover the code from git history, commit `81294eb`.
 
-**Status: written 2026-11-10; the section "Held-out check on 190 pieces of the real run" was added 2026-11-16 (PR #201).** What was tried to improve the sentiment "pair" model after PR #154's grid, in
+**Status: written 2026-11-10; the section "Held-out check on 190 pieces of the real run" was added 2026-11-16 (PR #201) and re-scored 2026-11-20 after the owner's re-tag (version 2).** What was tried to improve the sentiment "pair" model after PR #154's grid, in
 the order it was tried, with the figures. **It opens with the history** (how the tags were made, the databases, the
 assumptions, the metrics, and the story in seven steps); the sections after it are the detail. Every run is in MLflow (`mlruns/`, git-ignored, local) under the
 experiment named in each section. The scripts that produced the figures are `scripts/*_2026_11_10.py`
@@ -403,11 +403,11 @@ it as the candidate and score it once on the 180-text gold (T-148c4). One run of
 is the candidate or the command is repeated (the owner's choice; no selection among runs either way). The grid's `--final` run (450 rows, train slice
 only) stays the recorded run of the first D35 recipe.
 
-## Held-out check on 190 pieces of the real run (2026-11-16)
+## Held-out check on 190 pieces of the real run (2026-11-16; version 2 of 2026-11-20)
 
 The first held-out check of the sentiment step on texts that no model or setting saw: the step as it ran on the corpus, the pair model and stack of
 revision `sentiment-5999fe131d8f` (`gamug/FinBERT-company-sentiment@9a7b1eb3`), scored on **190 pieces tagged by the owner** (one reader) in two draws.
-The marks, their texts and the scorer are tracked: `gold/sentiment_val190.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`
+The marks, their texts and the scorer are tracked: `gold/sentiment_val190_2026_11_20_v2.csv` (current; the 2026-11-16 version `gold/sentiment_val190.csv` stays), `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py --gold …`
 (`scripts/build_val_gold_2026_11_16.py` builds the gold files from the local working files).
 
 | Item | First draw (90) | Second draw (100) |
@@ -416,54 +416,59 @@ The marks, their texts and the scorer are tracked: `gold/sentiment_val190.csv`, 
 | Draw | 30 per class the model predicted (10 stored summaries and 20 original short texts each), one text per article | simple random, one per article |
 | Pool | 57,826 candidates (positive 38,559, negative 18,847, neutral 420) | about 21,000 candidates |
 | Filters | 250 characters or more and two sentences; mostly letters; no ticker lists or disclosure lines; the company named in the text; English; no article of `gold/sentiment_gold.csv` or the training sets | the same, plus relevance 0.9 or more, 300 to 1,500 characters, the company named twice and within the first 100 characters, fewer than two analyst calls, no article of the first draw (and none of an earlier 200-text sample that was discarded and not committed) |
-| Tags | positive 39, negative 27, neutral 24 | positive 57, negative 35, neutral 8 |
+| Tags, version 2 (2026-11-16) | positive 36, negative 25, neutral 29 (39 / 27 / 24) | positive 58, negative 36, neutral 6 (57 / 35 / 8) |
 | Columns | `review_order`, `key`, `article_id`, `ticker`, `pub_date`, `title`, `text`, `spanish_title`, `spanish_text`, `company`, `sentiment`, `notes` (the prediction is in a separate `key.csv`, with a `batch` column) | the same |
 
 Texts are 250 to 1,626 characters (median about 400). The Spanish title and text are a reading aid (`news_nlp.translate`) and are not copied to `gold/`. One row is noted "company is not the main" and is kept.
 The scripts are `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py`; the working files stay local (`data/sentiment_val90/`, git-ignored).
 
-**Results by draw** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found; recall weighted gives each predicted class its pool size over the pieces drawn from it):
+**Migration of 2026-11-20 (version 2).** The owner re-read the pieces in `data/sentiment_val90/` and changed 11 tags (2026-11-16 → 2026-11-20): 7 positive or negative became neutral, and 4 neutral became positive or negative; one of the 4 was typed in Spanish (`positivo`) and is written as `positive`. The tracked gold is `gold/sentiment_val190_2026_11_20_v2.csv`; the 2026-11-16 file stays beside it, unchanged. **The re-read was done with the model's label visible.** Seven of the changes set neutral on pieces the model had already called neutral, so the neutral figures below are not a blind measure of the model; see the limit in "What it says".
 
-First draw, 90 (stratified by the prediction): accuracy 66.7% [56.4, 75.5] (60 of 90), weighted 74.4%.
+**Results by draw, version 2** (precision exact within each predicted class, Wilson 95% interval; recall in the sample is the share of the tagged class found; recall weighted gives each predicted class its pool size over the pieces drawn from it):
+
+First draw, 90 (stratified by the prediction): accuracy 75.6% [65.8, 83.3] (68 of 90), weighted 76.8%.
 
 | Class | Precision | Recall (sample) | Recall (weighted) |
 |---|---|---|---|
-| Positive | 80.0% [62.7, 90.5] (24/30) | 61.5% (24/39) | 88.8% |
-| Negative | 63.3% [45.5, 78.1] (19/30) | 70.4% (19/27) | 69.7% |
-| Neutral | 56.7% [39.2, 72.6] (17/30) | 70.8% (17/24) | 4.0% |
+| Positive | 83.3% [66.4, 92.7] (25/30) | 69.4% (25/36) | 87.8% |
+| Negative | 63.3% [45.5, 78.1] (19/30) | 76.0% (19/25) | 69.8% |
+| Neutral | 80.0% [62.7, 90.5] (24/30) | 82.8% (24/29) | 8.1% |
 
-Second draw, 100 (random, no weighting needed): accuracy 80.0% [71.1, 86.7] (80 of 100).
+Second draw, 100 (random, no weighting needed): accuracy 82.0% [73.3, 88.3] (82 of 100).
 
 | Class | Precision | Recall |
 |---|---|---|
-| Positive | 84.5% [73.1, 91.6] (49/58) | 86.0% [74.7, 92.7] (49/57) |
-| Negative | 73.8% [58.9, 84.7] (31/42) | 88.6% [74.0, 95.5] (31/35) |
-| Neutral | no call (0/0) | 0% [0.0, 32.4] (0/8) |
+| Positive | 86.2% [75.1, 92.8] (50/58) | 86.2% [75.1, 92.8] (50/58) |
+| Negative | 76.2% [61.5, 86.5] (32/42) | 88.9% [74.7, 95.6] (32/36) |
+| Neutral | no call (0/0) | 0% [0.0, 39.0] (0/6) |
 
-**The 190 pooled** (an approximation: the two draws have different pools, and the weighted figures treat them as samples of the first draw's pool of 57,826):
+**The 190 pooled**, version 2 (an approximation: the two draws have different pools, and the weighted figures treat them as samples of the first draw's pool of 57,826):
 
 | Class | Precision | Recall (sample) | Recall (weighted) | F1 (sample) | F1 (weighted) |
 |---|---|---|---|---|---|
-| Positive | 83.0% [73.8, 89.4] (73/88) | 76.0% [66.6, 83.5] (73/96) | 89.4% | 79.3% | 86.1% |
-| Negative | 69.4% [58.0, 78.9] (50/72) | 80.6% [69.1, 88.6] (50/62) | 78.6% | 74.6% | 73.7% |
-| Neutral | 56.7% [39.2, 72.6] (17/30) | 53.1% [36.4, 69.1] (17/32) | 4.4% | 54.8% | 8.2% |
+| Positive | 85.2% [76.3, 91.2] (75/88) | 79.8% [70.6, 86.7] (75/94) | 89.2% | 82.4% | 87.2% |
+| Negative | 70.8% [59.5, 80.1] (51/72) | 83.6% [72.4, 90.8] (51/61) | 79.1% | 76.7% | 74.7% |
+| Neutral | 80.0% [62.7, 90.5] (24/30) | 68.6% [52.0, 81.4] (24/35) | 8.2% | 73.8% | 14.9% |
 
-Accuracy: 73.7% [67.0, 79.4] (140 of 190); weighted to the pool 78.4%.
-Confusion (rows the model, columns the owner's tag; positive / negative / neutral): positive 73 / 8 / 7; negative 14 / 50 / 8; neutral 9 / 4 / 17.
+Accuracy: 78.9% [72.6, 84.1] (150 of 190); weighted to the pool 80.5%.
+Confusion (rows the model, columns the owner's tag; positive / negative / neutral): positive 75 / 8 / 5; negative 15 / 51 / 6; neutral 4 / 2 / 24.
 
-**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): the pooled accuracy, 73.7% [67.0, 79.4], is **under 80%** (78.4% weighted to the pool, also under); the second draw alone, 80.0% [71.1, 86.7], is at the bar by point estimate, with an interval that reaches well below it. Negative precision, 69.4% [58.0, 78.9], is **under 70%** by point estimate; negative recall, 80.6% [69.1, 88.6], is over it.
+**Change from the 2026-11-16 tags** (same model, same predictions; only the tags differ): pooled accuracy 73.7% → 78.9%; neutral precision 56.7% → 80.0%; neutral recall 53.1% → 68.6%; neutral weighted recall 4.4% → 8.2%; negative precision 69.4% → 70.8%; negative recall 80.6% → 83.6%; positive recall 76.0% → 79.8%.
+
+**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): the pooled accuracy, 78.9% [72.6, 84.1], is **under 80%** by point estimate (80.5% weighted to the pool, at the bar); the second draw alone, 82.0% [73.3, 88.3], is over it, with an interval that reaches below it. Negative precision, 70.8% [59.5, 80.1], and negative recall, 83.6% [72.4, 90.8], are both at or over 70%.
 
 **Relation to the pin decision.** This is not the D35 gate. The rule of D35 scores the 180-text gold on main pairs (T-148c4, T-193); that scoring has not been made and `config/pipeline_models.json` still names the v1 model. These 190 pieces were not drawn by D35's design; they measure the step as it ran on the corpus. They are evidence for the owner's decision; whether they replace the 180-gold scoring is the owner's to say.
 
 **What it says.**
-- **Positive** is the strongest class (precision 83.0%, weighted recall 89.4%).
-- **Negative** precision is under the bar in the pooled figure and over it in the cleaner second draw (73.8%); negative recall is over it in both.
-- **Neutral is almost never predicted**: the model calls 420 of the 57,826 pool texts neutral (0.7%), while the owner tagged neutral 16.8% of the 190 (32); so the weighted recall is 4.4%. Its precision (56.7%) is moderate. The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Tracked as T-212 (proposed; the owner decides the fix).
-- The second draw is easier (accuracy 80.0% against 66.7%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
+- **Positive** is the strongest class (precision 85.2%, weighted recall 89.2%).
+- **Negative** is at the bars in the pooled figures (precision 70.8%, recall 83.6%) and better in the cleaner second draw (76.2% precision).
+- **Neutral is under-predicted in the population.** The model calls 420 of the 57,826 pool texts neutral (0.7%), while the weighted recall of neutral is 8.2%: the model finds about one neutral text in twelve. Its precision on the 190 is 80.0%, but that figure moved with the re-tag (see the change above). The cross-validation of the pair model gave neutral recall 0.686; on real pieces it is far lower (the two do not measure the same thing: marked summaries against main pairs of pieces). Tracked as T-212 (proposed; the owner decides the fix).
+- **Limit of the neutral figures.** Seven of the eleven changes were made with the model's label visible and set neutral on the model's own neutral calls, so the neutral precision of 80% is partly the re-tag. A blind re-read of the same pieces is the measure that would separate the model from the tags. Until then, read the neutral precision as an upper estimate.
+- The second draw is easier (accuracy 82.0% against 75.6%): its filter makes the company the subject of the text, and the first draw also includes texts where it is mentioned in passing, which the model reads as a direction.
 
-**Limits.** The pooled set has 190 tags (positive 96, negative 62, neutral 32) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 32 tags and 30 calls, so its precision [39.2, 72.6] and recall [36.4, 69.1] are wide.
-The weighted recalls take their conditional shares from the 190 pieces and the class sizes from the first draw's pool of 57,826 (the two draws have different pools: an approximation). The neutral weighted recall of 4.4% is the neutral tags found among the positive-called pieces (7 of 88) and the negative-called ones (8 of 72), scaled by 38,559 and 18,847, plus the neutral-called ones (17 of 30, scaled by 420): it is a rate built from a few tags and is a pointer, not a measurement.
-The second draw is random and needs no weighting, but it holds only 8 neutral tags. The pool is the candidates after the filters, not the whole corpus; the pieces are distilbart-summary revision `summary-7a9bd2062bc4` (38 of the 190 are summaries; the DeepSeek summaries of the corpus run are not covered). One reader, no second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
+**Limits.** The pooled set has 190 tags (positive 94, negative 61, neutral 35) and 190 calls (88, 72, 30). **Positive and negative rest on more than 60 tags and more than 70 calls each; neutral is the thin class**: 35 tags and 30 calls, so its precision [62.7, 90.5] and recall [52.0, 81.4] are wide.
+The weighted recalls take their conditional shares from the 190 pieces and the class sizes from the first draw's pool of 57,826 (the two draws have different pools: an approximation). The neutral weighted recall of 8.2% is built from a few tags (the neutral tags among the positive-called and negative-called pieces, scaled by 38,559 and 18,847, plus the neutral-called ones scaled by 420): it is a pointer, not a measurement.
+The second draw is random and needs no weighting, but it holds only 6 neutral tags. The pool is the candidates after the filters, not the whole corpus; the pieces are distilbart-summary revision `summary-7a9bd2062bc4` (38 of the 190 are summaries; the DeepSeek summaries of the corpus run are not covered). One reader, no blind second reading; the line between neutral and a direction was not fixed beforehand and depends on the rule used.
 
 ## Limits of these figures (read before using them)
 
@@ -501,7 +506,7 @@ The second draw is random and needs no weighting, but it holds only 8 neutral ta
 
 ## Reproduce
 
-The held-out check on 190 pieces (section above) needs no MLflow and no model: `uv run scripts/score_sentiment_val190_2026_11_16.py` reads `gold/sentiment_val190.csv` and prints its tables
+The held-out check on 190 pieces (section above) needs no MLflow and no model: `uv run scripts/score_sentiment_val190_2026_11_16.py` reads `gold/sentiment_val190_2026_11_20_v2.csv` and prints its tables
 (`tests/news_nlp/test_val_gold_2026_11_16.py` checks that the figures of this page are the scored ones). The gold files are built from the local working files with
 `scripts/build_val_gold_2026_11_16.py`; the draws are `scripts/export_sentiment_val_2026_11_15.py` and `scripts/export_sentiment_val100_2026_11_15.py` (they need the RESULTS database: `--results-db` or `DATABASE_URL`).
 

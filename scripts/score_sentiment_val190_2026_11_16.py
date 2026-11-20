@@ -118,7 +118,9 @@ def report(rows: list[Piece], label: str, weighted: bool) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--gold", type=Path, default=Path("gold/sentiment_val190.csv"))
+    parser.add_argument(
+        "--gold", type=Path, default=Path("gold/sentiment_val190_2026_11_20_v2.csv")
+    )
     args = parser.parse_args()
     rows = load(args.gold)
     print(f"{args.gold}: sha256 {hashlib.sha256(args.gold.read_bytes()).hexdigest()}")
