@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import build_main_company_marks_2026_11_20 as builder  # noqa: E402  (scripts/ is not a package)
-import score_main_company_marks_2026_11_16 as score  # noqa: E402
+import score_main_company_marks_2026_11_20 as score  # noqa: E402
 
 csv.field_size_limit(sys.maxsize)
 GOLD = ROOT / "gold"

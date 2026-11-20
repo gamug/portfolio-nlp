@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import build_val_gold_2026_11_16 as builder  # noqa: E402  (scripts/ is not a package)
-import score_main_company_marks_2026_11_16 as main_score  # noqa: E402
+import score_main_company_marks_2026_11_20 as main_score  # noqa: E402
 import score_sentiment_val190_2026_11_16 as sent_score  # noqa: E402
 
 csv.field_size_limit(sys.maxsize)

@@ -62,7 +62,7 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 - **Recall and precision are per article.** An article is *found* when the model's main company, the company at or over the threshold, is one the owner marked main. Recall = found articles / articles with an owner main. Precision = articles where the model's main company is one the owner accepts / articles where the model calls a main company.
 - **Row-level figures** (each owner main counts as one row) are kept as secondary figures, labelled as such. The not-main class is measured on rows: the owner's `no` is an explicit answer, so it is not affected by the limit.
 
-**Results per article** (`scripts/score_main_company_marks_2026_11_16.py`, which reads the tracked file; Wilson 95% intervals; unweighted):
+**Results per article** (`scripts/score_main_company_marks_2026_11_20.py`, which reads the tracked file; Wilson 95% intervals for the counts; unweighted. The scorer also prints resampling intervals over the pieces; this doc quotes only the Wilson ones, so the two will not match in the last digit):
 
 | Threshold | Article recall | Article precision | Articles the model calls main |
 |---|---|---|---|
@@ -78,7 +78,7 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 - **Article AUC** (the best relevance score of an article, articles with an owner main against articles without): **0.766 [0.662, 0.873]**, 88 against 16.
 - **By band** (share of `yes` rows, for reference): band 0, 2 of 11; band 1, 17 of 26; band 2, 24 of 31; band 3, 27 of 31; band 4, 26 of 32; band 5, 49 of 54.
 
-**Row-level figures** (secondary: each owner main counts as one row; 145 `yes`, 40 `no`). At 0.5: main precision 92.2% (71/77), main recall 49.0% [41.0, 57.0] (71/145), not-main recall 85.0% (34/40). Row recall is lower for the articles with several owner mains: 70.0% (35 of 50 rows) in articles with one owner main, 37.9% (36 of 95 rows) in articles with two or more. That is the limit above, shown in the numbers. Row AUC of the score for `yes` against `no`: **0.829 [0.730, 0.912]** (resampling articles; against 0.896 out of fold on summaries).
+**Row-level figures** (secondary: each owner main counts as one row; 145 `yes`, 40 `no`). At 0.5: main precision 92.2% (71/77), main recall 49.0% [41.0, 57.0] (71/145), not-main recall 85.0% (34/40). Row recall at 0.5 is lower for the articles with several owner mains: 70.0% (35 of 50 rows) in articles with one owner main, 37.9% (36 of 95 rows) in articles with two or more. That is the limit above, shown in the numbers. Row AUC of the score for `yes` against `no`: **0.829 [0.730, 0.912]** (resampling articles; against 0.896 out of fold on summaries).
 
 **Scenarios: the same marks with two kinds of article left out.** The owner's proposal: articles with no company at all (`322112`, `335253`), and articles whose main company is missing from the list or out of the S&P 500 (28 articles, from a `falta_la_principal` `yes` on any row or a note; `MISSED` in the scorer). The second group is a failure of the model by definition, so leaving it out measures the model only where the main company is in the list; it is not a corpus rate. At 0.5:
 
@@ -142,9 +142,9 @@ The rule of T-170 says that when the model's AUC on sub-news is more than 5 poin
 
 ```bash
 uv run scripts/build_main_company_marks_2026_11_20.py --data data   # gold/main_company_marks_2026_11_20.csv and its texts, from the local working file (refuses to overwrite); prints the differences with the 2026-11-16 marks
-uv run scripts/score_main_company_marks_2026_11_16.py                # the per-article headline, the row figures and the scenarios, from gold/main_company_marks_2026_11_20.csv
-uv run scripts/score_main_company_marks_2026_11_16.py --thresholds 0.1,0.2,0.3,0.5,0.7
-uv run scripts/score_main_company_marks_2026_11_16.py --marks gold/main_company_marks.csv   # the 2026-11-16 version
+uv run scripts/score_main_company_marks_2026_11_20.py                # the per-article headline, the row figures and the scenarios, from gold/main_company_marks_2026_11_20.csv
+uv run scripts/score_main_company_marks_2026_11_20.py --thresholds 0.1,0.2,0.3,0.5,0.7
+uv run scripts/score_main_company_marks_2026_11_20.py --marks gold/main_company_marks.csv   # the 2026-11-16 version
 ```
 
 `tests/news_nlp/test_main_company_marks_2026_11_20.py` and `tests/news_nlp/test_val_gold_2026_11_16.py` check that the figures of this page are the scored ones.

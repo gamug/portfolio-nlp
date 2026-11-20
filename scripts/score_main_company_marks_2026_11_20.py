@@ -1,6 +1,6 @@
 """Score the owner's partial main-company marks (T-170) against the relevance model of step 3.
 
-    uv run scripts/score_main_company_marks_2026_11_16.py [--marks gold/main_company_marks_2026_11_20.csv] [--thresholds 0.1,0.3,0.5]
+    uv run scripts/score_main_company_marks_2026_11_20.py [--marks gold/main_company_marks_2026_11_20.csv] [--thresholds 0.1,0.3,0.5]
 
 Reads the tracked marks (the owner's ``es_principal`` ``yes`` or ``no``, ``falta_la_principal``, ``notes``, the relevance score of the pair and the
 relevance band of its item). The current version is ``gold/main_company_marks_2026_11_20.csv`` (built by ``build_main_company_marks_2026_11_20.py``);
