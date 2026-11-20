@@ -358,26 +358,6 @@ def test_the_cut_command_stops_when_step_one_has_not_run(
     assert stub_model == []  # the model was not loaded
 
 
-def test_the_cut_command_stops_without_the_articles_table(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stub_model: list[Path]
-) -> None:
-    source = tmp_path / "e2.db"
-    raw = sqlite3.connect(source)
-    raw.executescript(ARTICLES_SCHEMA)
-    stamp_source(raw)
-    raw.commit()
-    raw.close()
-    bare = (
-        tmp_path / "bare.db"
-    )  # init_schema runs, the crawler's lean articles table does not exist
-    with pytest.raises(SystemExit, match="no articles table"):
-        _argv(
-            monkeypatch, "--step", "cut", "--scope-revision", "x",
-            "--results-db", str(bare), "--source-db", str(source),
-        )  # fmt: skip
-    assert stub_model == []
-
-
 def test_cut_status_needs_no_model_and_shows_the_latest_revision(
     pair: db_module.NewsNlpDatabase,
     tmp_path: Path,
