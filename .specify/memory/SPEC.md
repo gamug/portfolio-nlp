@@ -91,7 +91,7 @@ or time into portfolio-level signals (`financial-analysis` and
 | **FR-003** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 category stage, two-level zero-shot (`article_category`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-004** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 `c_summary` stage (`article_summary`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-005** | **Removed (owner, T-220 PR B, 2026-11-18):** the `sector_summary` stage. Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
-| **FR-006** | Every stage is idempotent and resumable: it processes only rows missing from its own result table (or below `format_version`/needing a schema migration self-heal for `sector_summary`/`eval_run`/`article_category`). | Running the pipeline twice on unchanged input produces no duplicate or changed rows; a `sector_summary` row below `SECTOR_SUMMARY_FORMAT_VERSION` regenerates via `INSERT OR REPLACE` on the next run with no separate backfill script. |
+| **FR-006** | Every step is idempotent and resumable: it processes only the items that have no row (and no `pipeline_step_state` entry) at its own revision. | Running a step twice on unchanged input produces no duplicate or changed rows (`test_*_step.py`). The v1 `format_version` self-heal went with `sector_summary` (T-220). |
 | **FR-007** | The pipeline reads article text from a read-only-ATTACHed SOURCE store and writes results (plus a lean `articles` row per touched article) to a separate RESULTS store; SOURCE is never written. | `db.require_source_text` raises before any model loads if SOURCE is unset or has no usable `body_text` (constitution: Security & Data #2); an attached SOURCE is checked read-only before any query (`db.check_schema`: `PRAGMA user_version` at least 3 and the columns read, never cached, `test_schema_guard.py  # FR-007`; `POST /pipeline/run` answers 503 on a failure); a write attempt against schema `source` is not exercised by any code path (`grep` for `source\.` write statements returns none outside read paths). |
 | **FR-008** | **Removed (owner, T-220 PR B, 2026-11-18):** the v1 FastAPI service (`apps/news_nlp_api.py`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
 | **FR-009** | **Removed (owner, T-220 PR B, 2026-11-18):** manual corrections of the v1 tables (`news_nlp.corrections`). Full text: `archive/SPEC-rows-removed-by-the-v1-removal-2026-11-18.md`. | n/a |
@@ -193,13 +193,10 @@ row-by-row on first result write for that article).
 
 `require_source_text` verifies `articles.body_text` before a run (the run aborts if the column is absent or every row is blank, FR-007). The steps read what they need from SOURCE as their own docs say (`docs/*_step.md`); the table of what the v1 `sector_summary` read (`ticker`, `company`, `gics_*`, `pub_date`, `fetched_at`) was removed with the stage.
 
-**Rows for `article_sentiment`, `article_entities` (and its target columns), `article_category`, `article_summary`, `sector_summary` and `eval_judgement` describe tables that T-220 PR C drops; they stay here until it runs.**
+**The v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`) and the legacy `eval_judgement` were dropped on 2026-11-18 and are not created any more (T-220); their rows are in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.**
 
 | Table | Key | Notable columns | Written by |
 |---|---|---|---|
-| `article_sentiment` | `article_id` (PK) | `label`, `score`, `positive`/`negative`/`neutral`, `model_name`, `processed_at` | Stage 1 |
-| `article_entities` | `id` (PK, autoincrement) | `article_id` (FK, indexed), `entity_type` (`PER`/`LOC`/`ORG`), `text`, `start_char`/`end_char`, `score` | Stage 2 |
-| `article_entities` target columns (D39 (iii), approved 2026-11-10) | same key | adds nullable `sub_news_id` and `ticker`; **unused since 2026-11-13** (owner: step 3 does not store the raw NER spans, `news_company.mention_count` keeps the count); `score` stays the NER confidence | none |
 | `body_scope` (created by `init_schema()`, #162; approved 2026-11-10, D40) | `body_hash` (unique body, T-132), `classifier_revision` | `scope` (`single`/`multi`/`sector`/`out_of_scope`), per-class `score`s, `text_used` (`title` or `title+N`), `processed_at` | Step 1 |
 | `body_sector` (owner 2026-11-13) | `body_hash`, `classifier_revision` | `status`, `sector`, `candidate`, `margin`, `vote_sector`, `scores`, `votes`, `processed_at` | Sector |
 | `sub_news` (target, approved 2026-11-10) | `id` (PK) | `body_hash` (the unique body), `article_id` (FK: the lowest article id of the body's group, T-132), `segment_index`, `text`, `extractor_revision`; unique (`body_hash`, `segment_index`, `extractor_revision`); `id` is the `item_id` of a sub-news; a new revision writes new rows, the old ones are not read and their dependent steps are re-queued | Step 1 |
@@ -210,11 +207,7 @@ row-by-row on first result write for that article).
 | `news_category` (approved 2026-11-10; `--step category`, provisional) | (`item_kind`, `item_id`, `ticker`, `model_revision`), `ticker` as in `news_sentiment` | `label`, `score`, `group_label`/`group_score`, the per-slug scores (audit trail; plus the reserved key `_truncated_chunks`, FR-022), `model_name`, `processed_at` | Category |
 | `news_snapshot`, `period_summary`, `period_run`, `period_item`, `sector`, `company_sector` (built, T-195, T-196; FR-024) | keys and columns: `docs/snapshot_steps.md` | the same | Snapshot, Period |
 | `pipeline_step_state` (target, approved 2026-11-10, D39 (v)) | (`item_kind`, `item_id`, `step`, `model_revision`) | `status` (`pending`/`done`/`failed`/`skipped`/`review`), `attempts`, `error`, `started_at`, `finished_at`; `item_kind` is `body` (`item_id` = the **body hash**, T-132: a body under five tickers runs once), `sub_news` (`item_id` = `sub_news.id`) or `text_company` (`item_id` = `<item_kind>:<item_id>:<ticker>`: sentiment and category run per pair, so a text with two main companies has two rows); `item_id` is text | `cli/news_nlp_steps.py` |
-| `article_category` | `article_id` (PK) | `label` (9 slugs or `other`), `score`, `group_label`/`group_score` (level-1 hierarchy), 9 raw per-slug NLI scores (audit trail) | Stage 3 |
-| `article_summary` | `article_id` (PK) | `summary_text`, `num_chunks`, `model_name`, `processed_at` | Stage 4 (opt-in) |
-| `sector_summary` | `id` (PK); `UNIQUE(gics_sector, gics_sub_industry, week_start)` | `summary_text`, `facts_json` (structured, non-narrative), `intro_text` (deterministic template as of 2026-09-14, `model_name` reads `"deterministic-template"`), `format_version` (self-heal marker), `num_articles`/`num_companies` | Stage 5 (opt-in) |
 | `eval_run` | `id` (PK) | `stage`, `sample_size`, `judge_model`/`judge_url`, `code_version`, `mlflow_run_id`, `metrics_json`, `strata_json`, `status` | `news_nlp.eval` |
-| `eval_judgement` | `id` (PK) | `run_id` (FK), `article_id` (not FK-constrained — snapshot semantics), `bucket`, `verdict_json`, `correct`, `severity`, `rationale` | `news_nlp.eval` |
 
 **Category taxonomy** (`news_nlp.taxonomy`): 3 top-level groups →
 `corporate_actions`, and others documented in `docs/legacy/category-taxonomy-v1.md` →
@@ -259,15 +252,7 @@ their state; a rerun redoes nothing; no command runs every step.
   merged only within a single source word, so a numeral or partial token
   can no longer be emitted as a standalone entity.
 - **Category** (the steps): the entailment model of step 7 over 12 labels (FR-022); the two-level zero-shot of v1 is in `docs/legacy/category-taxonomy-v1.md`.
-- **Self-healing schema drift**: `sector_summary.format_version`,
-  `eval_run.strata_json`'s additive migration, and `article_category`'s
-  `group_label`/`group_score` additive migration all follow the same
-  pattern — `Database.ensure_columns` (no-op if already current), with
-  `sector_summary` additionally treating any row below the current
-  `SECTOR_SUMMARY_FORMAT_VERSION` as stale and regenerating it via
-  `INSERT OR REPLACE` on next run (no separate backfill script; contrast
-  `article_category`'s additive-only migration, which does **not**
-  auto-reprocess legacy rows — see §13).
+- **Schema drift** (after T-220): `init_schema` creates the 20 kept tables: the 19 of the stepped pipeline and the eval run-log, and the lean `articles` (fixed definition, `IF NOT EXISTS`: the owner's choice, 2026-11-20, from round 6 of #216; a fresh RESULTS file takes its first lean-article row). It runs two additive columns on `eval_run`, `strata_json` and `experiment` (`Database.ensure_columns`, a no-op if current). The v1 migrations (`sector_summary.format_version`, `article_category` `group_label`/`group_score`) are gone with their tables; text in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.
 
 ## 8. Error Handling & Resilience
 

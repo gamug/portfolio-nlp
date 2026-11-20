@@ -1,5 +1,5 @@
-"""news_nlp.schema: the five result tables, `init_schema` idempotency, the
-`sector_summary` self-heal migration, and the `fetch_pending_*` row shapes.
+"""news_nlp.schema: the 20 tables `init_schema` creates (the lean `articles` among them, T-220 PR C2 round 6), its idempotency, that it brings no v1
+table back (T-220), the fresh-file first lean-article row, and the `eval_run` additive migration.
 """
 
 from __future__ import annotations
@@ -8,29 +8,115 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from conftest import seed_article
 
 import news_nlp as db
-from news_nlp import schema
+from news_nlp import db as news_db
 
-_RESULT_TABLES = {
+#: Exactly what ``init_schema`` creates (T-220, PR C2): the lean ``articles`` table, the stepped pipeline's tables and the eval run-log tables. The v1 result tables are not created any more.
+_KEPT_TABLES = {
+    "articles",
+    "body_scope",
+    "body_sector",
+    "sub_news",
+    "news_summary",
+    "news_summary_call",
+    "news_company",
+    "news_sentiment",
+    "news_category",
+    "news_snapshot",
+    "period_run",
+    "period_summary",
+    "period_item",
+    "sector",
+    "company_sector",
+    "pipeline_step_state",
+    "eval_run",
+    "eval_inference",
+    "eval_verdict",
+    "eval_confusion",
+}
+_V1_TABLES = {
     "article_sentiment",
     "article_entities",
+    "article_category",
     "article_summary",
     "sector_summary",
-    "article_category",
+    "eval_judgement",
 }
 
-# news_nlp.eval run-log tables (see docs/evaluation.md)
-_EVAL_TABLES = {"eval_run", "eval_judgement", "eval_inference", "eval_verdict"}
+
+def _tables(path: Path) -> set[str]:
+    raw = sqlite3.connect(path)
+    names = {
+        r[0]
+        for r in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        if not r[0].startswith("sqlite_")
+    }
+    raw.close()
+    return names
 
 
-def test_init_schema_creates_every_result_table(test_db_path: Path) -> None:
-    conn = sqlite3.connect(test_db_path)
-    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+def test_init_schema_creates_exactly_the_kept_tables_on_an_empty_file(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "fresh.db")
+    db.init_schema(conn)
     conn.close()
-    assert names >= _RESULT_TABLES
-    assert names >= _EVAL_TABLES
+    assert _tables(tmp_path / "fresh.db") == _KEPT_TABLES
+
+
+#: The lean ``articles`` columns, name and type, in order: the production RESULTS file's table as read on
+#: 2026-11-20 (the purged ``nlp.db`` of the owner's working store, read-only). A change here is a schema decision.
+_PRODUCTION_ARTICLES_COLUMNS = (
+    ("id", "INTEGER"),
+    ("ticker", "TEXT"),
+    ("company", "TEXT"),
+    ("gics_sector", "TEXT"),
+    ("gics_sub_industry", "TEXT"),
+    ("title", "TEXT"),
+    ("author", "TEXT"),
+    ("pub_date", "TEXT"),
+    ("word_count", "INTEGER"),
+    ("language", "TEXT"),
+    ("source_domain", "TEXT"),
+    ("extraction_method", "TEXT"),
+    ("fetch_status", "TEXT"),
+    ("http_status_code", "INTEGER"),
+    ("fetched_at", "TEXT"),
+)
+
+
+def test_the_lean_articles_table_has_the_production_columns(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "fresh.db")
+    db.init_schema(conn)
+    conn.close()
+    raw = sqlite3.connect(tmp_path / "fresh.db")
+    columns = tuple((r[1], r[2]) for r in raw.execute("PRAGMA table_info(articles)"))
+    raw.close()
+    assert columns == _PRODUCTION_ARTICLES_COLUMNS
+
+
+def test_init_schema_does_not_bring_the_v1_tables_back_on_a_purged_database(tmp_path: Path) -> None:
+    """The first status run after the live purge re-created the six empty v1 tables (``init_schema`` ran the old DDL): this is what C2 stops."""
+    path = tmp_path / "purged.db"
+    conn = db.connect(path)
+    for _ in range(3):
+        db.init_schema(conn)
+    conn.close()
+    assert not _V1_TABLES & _tables(path)
+
+
+def test_init_schema_leaves_a_v1_table_that_is_still_there_alone(tmp_path: Path) -> None:
+    """It neither creates nor drops them: ``depurate_db`` is the only thing that drops."""
+    path = tmp_path / "old.db"
+    raw = sqlite3.connect(path)
+    raw.execute("CREATE TABLE article_sentiment (article_id INTEGER, label TEXT)")
+    raw.execute("INSERT INTO article_sentiment VALUES (1, 'positive')")
+    raw.commit()
+    raw.close()
+    conn = db.connect(path)
+    db.init_schema(conn)
+    conn.close()
+    kept = sqlite3.connect(path).execute("SELECT COUNT(*) FROM article_sentiment").fetchone()[0]
+    assert kept == 1
 
 
 def test_init_schema_is_idempotent(test_db_path: Path) -> None:
@@ -38,155 +124,6 @@ def test_init_schema_is_idempotent(test_db_path: Path) -> None:
     db.init_schema(conn)  # second and third calls must not raise
     db.init_schema(conn)
     conn.close()
-
-
-def test_migrate_sector_summary_schema_adds_missing_columns(tmp_path: Path) -> None:
-    path = tmp_path / "legacy.db"
-    # a pre-format_version sector_summary table, built the way the crawler /
-    # an older release would have -- raw sqlite3 is fine for test setup.
-    raw = sqlite3.connect(path)
-    raw.executescript(
-        """
-        CREATE TABLE sector_summary (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            gics_sector TEXT NOT NULL, gics_sub_industry TEXT NOT NULL,
-            week_start TEXT NOT NULL, week_end TEXT NOT NULL,
-            summary_text TEXT NOT NULL, num_articles INTEGER NOT NULL,
-            num_companies INTEGER NOT NULL, model_name TEXT NOT NULL,
-            processed_at TEXT NOT NULL,
-            UNIQUE (gics_sector, gics_sub_industry, week_start)
-        );
-        """
-    )
-    raw.commit()
-    raw.close()
-
-    conn = db.connect(path)
-    schema._migrate_sector_summary_schema(conn)
-    cols = set(conn.table_columns("sector_summary"))
-    conn.close()
-    assert {"format_version", "facts_json", "intro_text"} <= cols
-
-
-def test_migrate_sector_summary_schema_noop_when_table_absent(tmp_path: Path) -> None:
-    conn = db.connect(tmp_path / "empty.db")
-    schema._migrate_sector_summary_schema(conn)  # must not raise (table absent)
-    conn.close()
-
-
-def test_fetch_pending_articles_unpacks_as_two_tuple(conn: db.NewsNlpDatabase) -> None:
-    seed_article(conn, id=1, body_text="Body text.")
-    conn.commit()
-
-    rows = db.fetch_pending_articles(conn, "article_sentiment")
-    assert len(rows) == 1
-    article_id, body_text = rows[0]
-    assert article_id == 1
-    assert body_text == "Body text."
-
-
-def test_fetch_pending_category_articles_unpacks_as_three_tuple(conn: db.NewsNlpDatabase) -> None:
-    seed_article(conn, id=1, title="Test Title", body_text="Body text.")
-    conn.commit()
-
-    rows = db.fetch_pending_category_articles(conn)
-    assert len(rows) == 1
-    article_id, title, body_text = rows[0]
-    assert article_id == 1
-    assert title == "Test Title"
-    assert body_text == "Body text."
-
-
-def test_fetch_pending_articles_rejects_unknown_table(conn: db.NewsNlpDatabase) -> None:
-    with pytest.raises(ValueError, match="table must be one of"):
-        db.fetch_pending_articles(conn, "article_category")
-
-
-def test_fetch_pending_articles_sample_seed_is_reproducible_subset(
-    conn: db.NewsNlpDatabase,
-) -> None:
-    """A `sample_seed` draw is a genuine subset of the population (not the
-    first-`limit`-by-id backlog order) and reproducible for a repeated seed
-    -- see docs/evaluation.md's 2026-09-12 NER follow-up / PLAN.md Work item
-    3 T-025 for why this exists."""
-    for i in range(1, 21):
-        seed_article(conn, id=i, body_text=f"Body text {i}.")
-    conn.commit()
-
-    a = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=1)
-    b = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=1)
-    assert len(a) == 5
-    assert [r[0] for r in a] == [r[0] for r in b]  # same seed -> same ids, same order
-    assert set(r[0] for r in a) <= set(range(1, 21))  # a genuine subset of the population
-
-    plain = db.fetch_pending_articles(conn, "article_sentiment", limit=5)
-    assert [r[0] for r in plain] == [1, 2, 3, 4, 5]  # the backlog-order path, for contrast
-
-    other_seed = db.fetch_pending_articles(conn, "article_sentiment", limit=5, sample_seed=2)
-    assert [r[0] for r in a] != [r[0] for r in other_seed]  # a different seed draws differently
-
-
-def test_fetch_pending_articles_sample_seed_requires_limit(conn: db.NewsNlpDatabase) -> None:
-    seed_article(conn, id=1, body_text="Body text.")
-    conn.commit()
-    with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
-        db.fetch_pending_articles(conn, "article_sentiment", sample_seed=1)
-
-
-def test_fetch_pending_articles_sample_seed_caps_at_population(
-    conn: db.NewsNlpDatabase,
-) -> None:
-    for i in range(1, 4):
-        seed_article(conn, id=i, body_text=f"Body text {i}.")
-    conn.commit()
-
-    rows = db.fetch_pending_articles(conn, "article_sentiment", limit=1000, sample_seed=1)
-    assert len(rows) == 3  # fewer than `limit` only when the store holds too few
-
-
-def test_fetch_pending_sentiment_articles_unpacks_as_four_tuple(conn: db.NewsNlpDatabase) -> None:
-    seed_article(conn, id=1, company="Acme Corp", ticker="ACME", body_text="Body text.")
-    conn.commit()
-
-    rows = db.fetch_pending_sentiment_articles(conn)
-    assert len(rows) == 1
-    article_id, company, ticker, body_text = rows[0]
-    assert article_id == 1
-    assert company == "Acme Corp"
-    assert ticker == "ACME"
-    assert body_text == "Body text."
-
-
-def test_fetch_pending_sentiment_articles_sample_seed_is_reproducible_subset(
-    conn: db.NewsNlpDatabase,
-) -> None:
-    """Same seeded-sample contract as fetch_pending_articles's (T-025), now
-    exercised through the dedicated sentiment query (PLAN.md Work item 4
-    step 1 / TASKS.md T-034's resample)."""
-    for i in range(1, 21):
-        seed_article(conn, id=i, body_text=f"Body text {i}.")
-    conn.commit()
-
-    a = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=1)
-    b = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=1)
-    assert len(a) == 5
-    assert [r[0] for r in a] == [r[0] for r in b]
-    assert set(r[0] for r in a) <= set(range(1, 21))
-
-    plain = db.fetch_pending_sentiment_articles(conn, limit=5)
-    assert [r[0] for r in plain] == [1, 2, 3, 4, 5]
-
-    other_seed = db.fetch_pending_sentiment_articles(conn, limit=5, sample_seed=2)
-    assert [r[0] for r in a] != [r[0] for r in other_seed]
-
-
-def test_fetch_pending_sentiment_articles_sample_seed_requires_limit(
-    conn: db.NewsNlpDatabase,
-) -> None:
-    seed_article(conn, id=1, body_text="Body text.")
-    conn.commit()
-    with pytest.raises(ValueError, match="sample_seed requires a positive limit"):
-        db.fetch_pending_sentiment_articles(conn, sample_seed=1)
 
 
 _PIPELINE_TABLES = {
@@ -204,33 +141,8 @@ _PIPELINE_TABLES = {
 def test_init_schema_creates_the_stepped_pipeline_tables(test_db_path: Path) -> None:
     conn = sqlite3.connect(test_db_path)
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(article_entities)")}
     conn.close()
     assert names >= _PIPELINE_TABLES
-    assert {"sub_news_id", "ticker"} <= cols
-
-
-def test_an_existing_article_entities_gets_the_new_columns_once(tmp_path: Path) -> None:
-    path = tmp_path / "old.db"
-    raw = sqlite3.connect(path)
-    raw.execute(
-        "CREATE TABLE article_entities (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, "
-        "entity_type TEXT NOT NULL, text TEXT NOT NULL, start_char INTEGER NOT NULL, end_char INTEGER NOT NULL, "
-        "score REAL, model_name TEXT NOT NULL, processed_at TEXT NOT NULL)"
-    )
-    raw.execute("INSERT INTO article_entities VALUES (1, 1, 'ORG', 'Apple', 0, 5, 0.9, 'm', 't')")
-    raw.commit()
-    raw.close()
-    conn = db.connect(path)
-    db.init_schema(conn)
-    db.init_schema(conn)  # twice: no error, no duplicate column
-    conn.close()
-    check = sqlite3.connect(path)
-    cols = [r[1] for r in check.execute("PRAGMA table_info(article_entities)")]
-    row = check.execute("SELECT text, sub_news_id, ticker FROM article_entities").fetchone()
-    check.close()
-    assert cols.count("ticker") == 1 and cols.count("sub_news_id") == 1
-    assert row == ("Apple", None, None)  # the old row is kept, the new columns read NULL
 
 
 def test_each_new_table_keeps_one_row_for_the_same_key(test_db_path: Path) -> None:
@@ -266,7 +178,6 @@ def test_the_join_keys_are_indexed_and_the_flags_are_checked(test_db_path: Path)
     assert {
         "idx_sub_news_article_id",
         "idx_news_company_ticker",
-        "idx_article_entities_sub_news_id",
     } <= indexes
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("INSERT INTO news_company VALUES ('body','h','AAPL','r',0.9,2,1,'t')")
@@ -275,13 +186,31 @@ def test_the_join_keys_are_indexed_and_the_flags_are_checked(test_db_path: Path)
     conn.close()
 
 
-def test_the_v1_entity_write_and_corrections_work_with_the_new_columns(
-    conn: db.NewsNlpDatabase,
-) -> None:
-    seed_article(conn, 1)
-    conn.execute(
-        "INSERT INTO article_entities (article_id, entity_type, text, start_char, end_char, score, "
-        "model_name, processed_at) VALUES (1, 'ORG', 'Apple', 0, 5, 0.9, 'm', 't')"
+def _source_with_one_article(path: Path) -> Path:
+    """A minimal SOURCE (the crawl database) that the pipeline connection accepts: schema version 5 and the columns it reads."""
+    raw = sqlite3.connect(path)
+    raw.execute(
+        "CREATE TABLE articles (id INTEGER PRIMARY KEY, title TEXT, body_text TEXT, pub_date TEXT, "
+        "ticker TEXT, company TEXT, fetch_status TEXT, url TEXT, source TEXT, retrieved_at TEXT, extractor TEXT)"
     )
-    row = conn.execute("SELECT * FROM article_entities WHERE article_id = 1").fetchone()
-    assert row is not None and row[-2:] == (None, None)  # sub_news_id, ticker read back NULL
+    raw.execute(
+        "INSERT INTO articles VALUES (1, 't', 'body text', '2026-01-01', NULL, NULL, 'ok', NULL, NULL, NULL, NULL)"
+    )
+    raw.execute("PRAGMA user_version=5")
+    raw.commit()
+    raw.close()
+    return path
+
+
+def test_a_fresh_results_file_takes_its_first_lean_article_row(tmp_path: Path) -> None:
+    source = _source_with_one_article(tmp_path / "urls.db")
+    results = tmp_path / "nlp.db"
+    conn = db.connect(results)
+    db.init_schema(conn)
+    conn.close()
+    pipeline = db.connect_pipeline(results, source)
+    try:
+        news_db._ensure_article_row(pipeline, 1)
+        assert pipeline.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+    finally:
+        pipeline.close()

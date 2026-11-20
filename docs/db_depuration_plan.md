@@ -111,7 +111,7 @@ reads it (`news_category_stage.py:72`, validated there; `news_sentiment_stage.py
   records the depuration. No document requires the owner's approval of a schema change in general (`SPEC.md:575` is about T-138);
   dropping tables is new (the existing migrations, `schema.py:499-575`, are additive), so the owner's approval is asked here and
   recorded in the PR of T-220.
-* **T-131** (open: move aside the results of quarantined pairs, copying them to `<table>_removed` first, "never rename a whole table")
+* **T-131** (dropped by the owner on 2026-11-20: nothing is copied aside to `<table>_removed`; the verified backup replaces it. It was: move aside the results of quarantined pairs, copying them to `<table>_removed` first, "never rename a whole table")
   and the "old tables to v1" part of **T-150** (open, with the `portfolio_common.news_export` contract update) both concern the v1
   tables. If the v1 tables are dropped, T-131 is moot for them and that part of T-150 is superseded; the owner confirms when T-220
   closes. **T-189** (open: delete `category-981dacf6f68d`, drop `LEGACY_REVISIONS`) is overtaken by the prune for the first part (the
@@ -149,7 +149,7 @@ removes them).
 1. **Read-only listing of the revisions, first.** From the backup copy, for every table with a revision column: each distinct revision,
    its row count and its date range (`SELECT <col>, COUNT(*), MIN(<date>), MAX(<date>) FROM <table> GROUP BY <col>`; the column per
    table is in the table of PR C), plus `period_run.snapshot_revision` and the revisions inside `news_snapshot.inputs`. It is attached
-   to the PR. **The owner confirms the keep list against that listing, not from memory:** four of the eight revisions in the list
+   to the PR. **The keep list was checked against that listing (the owner's answers of 2026-11-18, "Gates answered"; the listing is the reference, not memory):** four of the eight revisions in the list
    (`sentiment-59863d15fc42`, `category-a23569dba86f`, `snapshot-c3a753affa5d`, `period-3b07b83ecec3`) and the delivery note's
    `period-ae014b56b055` appear in no tracked file, and the documents cite other ones (see below).
 2. **A maintenance window, then a fresh backup.** The daily 15:00 run writes to the live file, so a backup made earlier never equals
@@ -162,13 +162,13 @@ removes them).
    needs about the size of the database in free disk space (and a clean WAL): the free space is checked and written in the PR.
 4. **Owner approvals** recorded: the drop of the v1 tables, the rewording of the lines listed in "The rules that bind the work", the
    new PLAN decision.
-5. **The verified backup replaces the `<table>_removed` copies of T-131.** Those would add tables to a database that must hold only
-   kept ones. The owner accepts this or says otherwise.
+5. **T-131 dropped (owner, 2026-11-20):** the verified backup replaces the `<table>_removed` copies. Nothing is copied aside, so the
+   database holds only the kept tables.
 6. **The sector-step revision is named** (gate 1 of "Left open"): **the prune does not run until it is.**
-7. **The upstream team is told first.** If a kept revision differs from the one in the delivery note (`period-3b07b83ecec3` against
-   `period-ae014b56b055` today, or the snapshot), a **new delivery note with the new names goes to the upstream team before the
-   prune**, and the owner confirms they have moved to it (the note says that a changed revision means a new note). The script never
-   prunes a revision named in the delivery note while this is open.
+7. **The upstream team is aware (owner, 2026-11-20).** The owner states that portfolio-financial-analysis already knows about the change
+   to `period-3b07b83ecec3`, so no new delivery note file is written. This replaces the rule that a note reaches them before the prune,
+   which was not followed on 2026-11-18 (see the review note). The script still refuses to prune a revision named in the delivery note
+   unless the owner removes it from the note.
 8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
 **PR A (A1, #211): the guard and the golden check.** A **revision guard test** pins the code each step hashes, the config files the revisions also hash, and the
@@ -184,9 +184,9 @@ modules stay byte-identical (the guard proves it). The Docker retarget was done 
 **PR C: the schema, the drop and the prune.**
 
 * `schema.py`: remove the v1 DDL and its migrations; a test lists exactly the tables `init_schema` creates on a file that already has the
-  lean `articles` table (`schema.py` does not create it: the crawler side owns it and `db._ensure_article_row` fills it; the steps CLI
-  refuses a file without it, `cli/news_nlp_steps.py:591-595`). `eval_judgement` is still created at `schema.py:168`: it goes with the
-  v1 DDL if it is confirmed unused.
+  lean `articles` table. **Done (round 6 of #216):** `schema.py` creates the lean `articles` table (fixed definition, `IF NOT EXISTS`;
+  the crawler still owns the SOURCE table and `db._ensure_article_row` fills the RESULTS rows). The `--step cut` check for a missing
+  `articles` table was removed as unreachable. `eval_judgement` is no longer created (the v1 DDL is gone); it is in the purge's drop list.
 * **The sequence of the apply (one maintenance window of Phase 0, the owner at the keyboard):** (a) the scheduled run and the pipeline API stopped, a fresh
   backup verified (Phase 0 step 2), the dry runs of `--apply` and `--apply-prune` read and accepted; (b) `--apply` (the drop), its
   checks and the golden SQL; (c) a **second fresh backup**, verified, so that each step can be restored on its own; (d) `--apply-prune`,
@@ -349,6 +349,8 @@ Run by the assistant at the owner's request ("run it yourself"), after a rehears
 
 **Rollback:** copy `nlp_backup.db` over `nlp.db`. **Still to do:** PR C2 removes the v1 DDL and the v1 migrations from `schema.py` (a fresh database then has only the kept tables), and the documents that describe the v1 tables are updated.
 
+**Review note (round 3 of #216, 2026-11-18): the gates above were not all met before the live prune.** The prune ran in the purge with the owner's "run it yourself". Two of the plan's own gates were still open then: **gate 1** (the sector-step revision: the owner's answer is recorded in "Gates answered", item (1), 2026-11-18, so this is not open; an earlier version of this note said the opposite, and was wrong) and **rule 7** (no new delivery note naming `period-3b07b83ecec3` was sent upstream before `period-ae014b56b055` was pruned; the note in the repository is untracked and still names `period-ae014b56b055`). Gate 2 (the dangling `inputs`) has the owner's decision above. Update (owner, 2026-11-20): the upstream team already knows about the change to `period-3b07b83ecec3`, so no new note is written; this item is closed on that point. **Live state accepted by the owner (2026-11-20): the purged file stands as it is.** The rollback `nlp_backup.db` (the copy of the file before the purge; 5,271,089,152 bytes, mtime 2026-11-16 18:08, outside the repository at `/workspaces/thesis/data/`) is kept, not deleted and not written to, until the owner closes T-220. It is the only rollback: restoring it would undo the purge and the pruned revisions, and is a new decision.
+
 ## Runbook: purge a database safely (what was done on 2026-11-18, now in the tool)
 
 The shape that protects a production file: **purge a local copy, verify, then swap**. Never `--apply` in place on the Windows drive (the tool refuses unless `--in-place`).
@@ -383,7 +385,7 @@ The prune removes the rows of every revision outside the keep list, and these do
 | `sentiment-5999fe131d8f` (the 190-piece check of #201 was scored on it) | `docs/sentiment_training.md`, both pipeline reports |
 | `category-981dacf6f68d`, `category-65f33b55b26b` | `docs/category_step.md`, `docs/category_training.md`, `docs/category_results_2026_11_13/README.md` |
 | `units-...`, `units4-...` | `docs/scope_training.md`, `docs/summary_step.md` |
-| `sector-cf81d9b32565`, `sector-417a93feb789` | `docs/sector_step.md`, `docs/gold_datasets.md` |
+| `sector-cf81d9b32565` (pruned by the purge on 2026-11-18: the live `body_sector` holds only `sector-417a93feb789`, and no kept snapshot row names it), `sector-417a93feb789` (kept) | `docs/sector_step.md`, `docs/gold_datasets.md` |
 
 For each one PR C does one of two things, and the owner says which in the dry run: **(a)** the figure stays as history and the document
 gets one line ("revision pruned on <date>; the figure is as recorded"); or **(b)** the rows behind a figure that must stay
@@ -393,9 +395,8 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 
 ## Left open (gates; none blocks this planning PR, all block the prune)
 
-1. **The sector-step revision (settled by the listing: `sector-417a93feb789`, the only one; the owner confirms).** The owner's keep list has none; `body_sector` would lose every row and the kept snapshot reads it
-   (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
-   `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
+1. **The sector-step revision: answered (2026-11-18, "Gates answered" item (1)).** `sector-417a93feb789`, the only one, is kept. Before that answer the keep list had none; `body_sector` would have lost every row and the kept snapshot reads it
+   (`news_snapshot_stage.py:445`). The answer covers `sector-417a93feb789` only. `sector-cf81d9b32565` is not kept and is gone from the live `body_sector` (checked 2026-11-20); the docs that cite it are listed in the "Documents and tasks that cite a revision" table, and their line is PR C's to write.
 2. **The period revision: answered (2026-11-18).** Only `period-3b07b83ecec3` stays; a new delivery note naming it goes to the upstream team before `period-ae014b56b055` is pruned.
 3. **The sentiment revision: answered (2026-11-18).** Only `sentiment-59863d15fc42` (and `category-a23569dba86f`) stay; the older two are pruned (see the Phase 0 listing).
 4. **`eval_judgement`:** confirm unused (read the code in PR A/B).
@@ -407,3 +408,30 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
    image) is affected by the retarget in T-219.
 
 (Closed here, not open: `config/pipeline_models.json` stays, read by step 7.)
+
+## PR C2 check on the purged database (2026-11-18)
+
+Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f82792c7…`, the copy checked) and of `nlp_backup.db`
+(the file before the purge), with the C2 code (`init_schema` without the v1 tables).
+
+* **`--status` of the nine steps** (the kept revisions named, `--source-db` the crawl DB read-only) exits 0 on both:
+  `--step scope`; `--step cut`; `--step sector`; `--step summary --cut-revision units5-d3e2cbfa830e`; `--step companies --cut-revision units5-d3e2cbfa830e --summary-revision summary-llm-70cb6bb07292`;
+  `--step category` and `--step sentiment` (each `--summary-revision summary-llm-70cb6bb07292 --companies-revision companies-f349536cf701`);
+  `--step snapshot` (those three plus `--category-revision category-a23569dba86f --sentiment-revision sentiment-59863d15fc42`);
+  `--step period --snapshot-revision snapshot-c3a753affa5d`. **Compared by parsing the JSON of each output:** the entries and values that name a
+  pruned revision (`units-5f831c298bcb`, `units4-d3e2cbfa830e`, `summary-7a9bd2062bc4`, `category-65f33b55b26b`, `category-981dacf6f68d`,
+  `sentiment-5999fe131d8f`, `snapshot-1b8ee113b05f`, `period-ae014b56b055`, `period-dd098e1c5b9f`) are dropped from both, and **the rest is
+  equal in all nine**. Without that filter the diff has no line only in the purged copy (the backup's extra lines are those entries
+  with their counts and dates). **Not compared:** the sector part of the snapshot status (run without `--sector-revision`; the CLI
+  refuses it outside `--items sector`), and the rows themselves (the golden digest covers the delivered ones).
+* **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
+  company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 user tables
+  (the 19 of `init_schema` plus the lean `articles`, which was already in the file. A fresh RESULTS file had no `articles` table and the first lean-article copy failed there; from round 6 of #216 `init_schema` creates it, and the strict `xfail` is gone). Counted without SQLite's own `sqlite_*` tables (`sqlite_sequence`, `sqlite_stat1`). **Checked on the files themselves (2026-11-20, read-only, `immutable=1`):** the live `nlp.db` (purged) lists those 20 and the two `sqlite_*` tables; `nlp_backup.db` lists the same plus the six dropped tables (`article_category`, `article_entities`, `article_sentiment`, `article_summary`, `sector_summary`, `eval_judgement`). Neither file has an `article_entities_v1` or the `article_sentiment_v2_published_snapshot_2026_09_15` / `..._v4_experiment_2026_09_15` tables that the DDL file's header and the restore script name: the archival tables it mentions are not on the working store. `foreign_key_check` empty,
+  `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
+* **`init_schema` on a copy of the purged file (round 6, 2026-11-20).** The purged `nlp.db` was copied with the SQLite backup API (the source opened read-only, `immutable=1`), and `init_schema` run on the copy with the round-6 code. Before and after: the `articles` definition is identical (`sqlite_master` text), 459,844 rows in `articles` both times, and 20 user tables both times. So `IF NOT EXISTS` leaves the purged file's `articles` as it is. The copy is a 1.63 GB scratch file, not in the repo.
+* **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
+  was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is
+  covered by three tests in `tests/news_nlp/test_db.py`.
+* The snapshot status reports **159,401 rows "built from another" summary, category and sentiment revision**: the accepted
+  case of "Left open" (their `inputs` name pruned revisions).
+

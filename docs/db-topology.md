@@ -1,5 +1,7 @@
 # Database topology: the two-tier contract
 
+> **Update (T-220 PR C, 2026-11-18).** The v1 result tables were dropped from the working database and `init_schema` no longer creates them; a RESULTS store holds only the stepped pipeline's tables and the `eval_*` tables. Where this page names `article_*` or `sector_summary`, it describes the removed layout. The DDL is in `docs/legacy/schema_v1_tables_ddl_2026-11-18.sql`.
+
 > **Note (T-220 PR B, 2026-11-18).** The v1 code named below (`pipeline.py`, `apps/news_nlp_api.py`, `cli/news_nlp_cli.py`, `news_nlp.corrections`, the v1 eval stages) was removed; the v1 tables are dropped later by an owner-run script (`docs/db_depuration_plan.md`). Recover the code from git history, commit `81294eb`.
 
 The DB layer lives in **`src/news_nlp/`**, a local package owned by this repo
@@ -33,7 +35,7 @@ two environment variables and never conflated in code.
 | resolver | `news_nlp.env.source_db_path()` | `news_nlp.env.results_db_path()` |
 | default | none — **required** for the text-reading stages | `data/nlp.db` |
 | opened | read-only (`file:…?mode=ro`), `ATTACH`ed as schema `source` | read/write, schema `main` |
-| holds | `articles` **including `body_text`** (written by the upstream crawler) | the v1 result tables (`article_sentiment`, `article_entities`, `article_category`, `article_summary`, `sector_summary`), the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `pipeline_step_state`; `news_company`, `news_sentiment`, `news_category` created, not written yet) and a lean `articles` subset (**no `body_text`**), all in `news_nlp.schema.SCHEMA`, plus `news_nlp.eval`'s run-log tables — `eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion` (sentiment/category only); the legacy `eval_judgement` table is kept, superseded (see `docs/evaluation.md`) |
+| holds | `articles` **including `body_text`** (written by the upstream crawler) | the stepped pipeline's tables (`body_scope`, `body_sector`, `sub_news`, `news_summary`, `news_summary_call`, `news_company`, `news_sentiment`, `news_category`, `news_snapshot`, `period_run`, `period_summary`, `period_item`, `sector`, `company_sector`, `pipeline_step_state`), the `eval_*` run-log tables (`eval_run`, `eval_inference`, `eval_verdict`, `eval_confusion`; `news_nlp.eval`), all in `news_nlp.schema.SCHEMA`, and a lean `articles` subset (**no `body_text`**). The v1 result tables and the legacy `eval_judgement` were dropped on 2026-11-18 (T-220 PR C1); `init_schema` does not create them |
 | written by this repo | never | result rows, plus one lean `articles` row per processed article |
 
 Path resolution (`news_nlp.env`): an **absolute** value is used as-is; a
@@ -108,6 +110,8 @@ The stepped pipeline (`cli/news_nlp_steps.py`) opens the same connection, `news_
    that `articles` table has no `body_text` column or no non-empty `body_text`
    row — the common "pointed a text stage at the results store" mistake, which
    used to surface as a silent *"0 pending"*.
+
+> **History (T-220):** the next two paragraphs and the live-writer bullet below describe the v1 chain (`run_pipeline`, the `write_*` calls, the `sector_summary` stage, `test_sector_summary.py`), removed from the code and the database. What still holds today: the stepped pipeline's step 2 calls `db._ensure_article_row` (tests in `tests/news_nlp/test_db.py`) and reads `body_text` from SOURCE.
 
 The three `body_text` readers (`fetch_pending_articles`,
 `fetch_pending_category_articles`, `fetch_pending_company_summaries`) qualify
@@ -235,7 +239,7 @@ Created by `init_schema()` since #162; the schema was approved by the owner on 2
   work around this with `immutable=1`. This check is not a backup-safety
   guarantee either way — it cannot catch a checkpoint-torn copy; see
   `portfolio-common`'s `test_attach_does_not_catch_a_checkpoint_torn_copy`.
-- **A live-writer SOURCE is a moving target, not a snapshot.** The read-only
+- **A live-writer SOURCE is a moving target, not a snapshot.** *(History: the example below is the v1 chain's; the stepped pipeline reads its pending items once per step in the same way.)* The read-only
   attach does not freeze SOURCE: each statement sees whatever the writer has
   committed so far. This is observed SQLite connection behaviour, not a
   contract this repo promises, so wrapping a run in one read transaction would

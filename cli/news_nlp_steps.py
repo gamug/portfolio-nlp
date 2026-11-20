@@ -588,11 +588,7 @@ def main_cut(args: argparse.Namespace, conn: db.NewsNlpDatabase) -> None:
     scope_revision = args.scope_revision or steps.latest_classifier_revision(conn)
     if scope_revision is None:
         sys.exit("body_scope is empty: run --step scope first")
-    if not conn.table_columns("articles", schema="main"):
-        # sub_news references articles(id); the lean articles table is the crawler's, init_schema does not create it
-        sys.exit(
-            "the RESULTS store has no articles table: sub_news cannot reference an article (see schema.py)"
-        )
+    # sub_news references articles(id); init_schema creates the lean articles table (round 6 of #216), so no check is needed here
     from cut_stage import (  # noqa: PLC0415 -- loads torch
         DEFAULT_READING,
         UnitsExtractor,
