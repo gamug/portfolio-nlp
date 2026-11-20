@@ -119,9 +119,9 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
 
 **The two versions together.**
 
-- **When the step names a main company it is almost always one the owner accepts**: article precision 91.0% in the 2026-11-20 version, and the row precision of the 2026-11-16 version was 90.9%, at 0.5.
+- **When the step names a main company it is almost always one the owner accepts**: article precision at 0.5 is 91.0% in the 2026-11-20 version and 93.8% (30 of 32) in the 2026-11-16 version. The row precision of the 2026-11-16 version is 90.9% (30 of 33), a different measure, given only for reference.
 - **At 0.5 the model finds about seven articles in ten with an owner main**: 56.6% of the 2026-11-16 articles (30 of 53), 69.3% of the 2026-11-20 articles (61 of 88). The article-level counts are the ones that do not depend on how many companies an article has; the row figures of the 2026-11-16 version (30.0% of 100 `yes` rows) are the same limit in another form.
-- **The AUC went from 0.663 to 0.829 on rows** (article AUC 0.766 on the current marks), with the same model. The 2026-11-16 AUC is on 19 `no` rows and 100 `yes`; the current one on 40 `no` and 145 `yes`. Both intervals are wide.
+- **The row AUC is 0.663 [0.467, 0.835] on the 2026-11-16 marks and 0.829 [0.730, 0.912] on the 2026-11-20 marks.** The intervals overlap, and the samples differ (19 `no` and 100 `yes` against 40 and 145), so this is not a measured change in the model. The article AUC is 0.601 [0.333, 0.857] (2026-11-16, 53 articles with a main against 6) and 0.766 [0.662, 0.873] (2026-11-20, 88 against 16). The model is the same revision, `gamug/deberta-v3-company-relevance@8812c8bc`, in both.
 
 ## Decision this evidence is for
 
