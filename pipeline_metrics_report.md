@@ -20,7 +20,7 @@ The removed shares and counts are still in the step documents (`docs/companies_s
 | Step | What is measured | Has per-class OVR precision and recall? | Headline | Held out? |
 |---|---|---|---|---|
 | Scope | one of 4 classes per text (`single`, `multi`, `sector`, `out_of_scope`) | **Yes**, four classes (section 1.1) | held-out agreement 83.6% [78.1, 88.9]; `out_of_scope` recall 53%; quarantined precision 90.8% | Yes (200 texts, seen many times), plus 225 read by the owner |
-| Sector | the 2-digit GICS sector assigned to a `sector` text | **Precision only** (per sector, 2 to 5 texts each); recall not measured | 87.5% of the assigned sectors right (35 of 40) | Yes (a draw made after the step was built), one reviewer |
+| Sector | the 2-digit GICS sector assigned to a `sector` text | **Precision only** (per sector, 5 to 37 texts each); recall not measured | 85.9% of the assigned sectors right (176 of 205, 357 answers); 96.7% (176 of 182) without the 23 `no` that say the text is not a sector text | Yes (two draws made after the step was built, 2026-11-13 and 2026-11-18), one reviewer |
 | Cut | the pieces ("sub-news") the cut makes from a multi-company text | **No classes.** Three yes/no questions per piece (precision-like) | 84.6% of pieces faithful; 75.5% clean | Yes (28 texts, 143 pieces) |
 | Company: NER | the organisation spans NER finds (and the universe companies the matcher takes from them) | **No classes**: precision, recall and F1 on 100 texts tagged by the owner (321 organisations) | universe companies: precision 90.1%, recall 95.4% on the owner's labels as they are (92.6% / 95.5% with the developer's overlay; 98.7% recall with `ner+text`); all organisations: 72.6% / 90.4% with the overlay | **Yes** (100 texts, one reviewer; 14 labels not in the text, overlay: 9 replaced, 1 kept, 4 dropped); plus an older run judged by an LLM (v1) |
 | Company: relevance (which company is main) | is a (text, company) pair "main" | Yes, for the two classes | cross-validation (809 summaries): main-company precision 90.0%, recall 94.7% at threshold 0.5; **held-out (119 marked rows of 59 pieces, the texts the step reads): precision 90.9%, recall 30.0%** | **Yes** (partial marks on pieces, one reviewer); the cross-validation is not |
@@ -134,6 +134,37 @@ gets no sector (44% of the sector texts get none, by design).
 | The same under the rule as it is now (a tie is not agreement) | 39 | 35 (89.7%) | 76 to 96% |
 | Controls (least similar sector shown) | 5 | 0 yes | |
 | Sent out of scope and the owner agrees | 12 | 7 (58%) | 32 to 81% |
+
+**The larger set (2026-11-19, `docs/sector_training.md`):** the owner answered 357 rows, the 57 above plus 300 drawn on 2026-11-18 (165 assigned, 15 controls, 120 sent out). Two measures,
+over the whole file and without the `no` answers whose note says the text is not a sector text (`general_economy`, `multi`, `single`, `out_of_scope`, investing: errors of the scope step):
+
+| Measure | Whole file (357) | Without the not-a-sector `no` |
+|---|---|---|
+| Assigned sector is right | 176/205 = 85.9% [80.4, 90.0] | 176/182 = 96.7% [93.0, 98.5] |
+| Let through by the margin | 134/150 = 89.3% | 134/138 = 97.1% |
+| Let through by the vote only | 42/55 = 76.4% | 42/44 = 95.5% |
+| Controls answered `yes` | 0/20 | 0/20 |
+| Sent out and the owner agrees | 101/132 = 76.5% [68.6, 82.9] (75.0% with two contradicting answers read as `no`) | not applicable (a `no` there says the drop was wrong) |
+
+The 23 excluded answers are 11% of the assigned rows. Five of the first 57 answers changed since the tracked gold, two of them contradict their own note, and 28 sent-out `no` name no sector,
+so the cost of the gate is still an upper bound (at most about a fifth of the right sectors); all in `docs/sector_training.md`. The marks are tracked in `gold/sector_fresh_marks_2026_11_19.csv`.
+
+**One vs rest per sector (2026-11-19, 337 rows without controls; `docs/sector_training.md`):** precision, and recall as an upper bound (the 28 sent-out `no` that name no sector can only lower it; the draw is not a corpus sample).
+
+| GICS code | Sector | Assigned | Right | Precision [95%] | Precision without the not-a-sector `no` | Truly this sector (known) | Found | Recall, upper bound |
+|---|---|---|---|---|---|---|---|---|
+| 10 | Energy | 19 | 18 | 94.7% [75.4, 99.1] | 18/18 | 18 | 18 | 100.0% |
+| 15 | Materials | 5 | 3 | 60.0% [23.1, 88.2] | 3/4 | 3 | 3 | 100.0% |
+| 20 | Industrials | 25 | 21 | 84.0% [65.3, 93.6] | 21/21 | 21 | 21 | 100.0% |
+| 25 | Consumer Discretionary | 25 | 21 | 84.0% [65.3, 93.6] | 21/22 | 25 | 21 | 84.0% |
+| 30 | Consumer Staples | 7 | 5 | 71.4% [35.9, 91.8] | 5/7 | 7 | 5 | 71.4% |
+| 35 | Health Care | 15 | 14 | 93.3% [70.2, 98.8] | 14/15 | 14 | 14 | 100.0% |
+| 40 | Financials | 37 | 30 | 81.1% [65.8, 90.5] | 30/30 | 30 | 30 | 100.0% |
+| 45 | Information Technology | 36 | 30 | 83.3% [68.1, 92.1] | 30/30 | 31 | 30 | 96.8% |
+| 50 | Communication Services | 18 | 17 | 94.4% [74.2, 99.0] | 17/17 | 19 | 17 | 89.5% |
+| 55 | Utilities | 5 | 5 | 100.0% [56.6, 100.0] | 5/5 | 5 | 5 | 100.0% |
+| 60 | Real Estate | 13 | 12 | 92.3% [66.7, 98.6] | 12/13 | 12 | 12 | 100.0% |
+| — | **No sector** (sent out) | 132 | 101 | 76.5% [68.6, 82.9] | — | 124 | 101 | 81.5% |
 
 **Precision per sector** (assigned in the clean test, recomputed from the tracked file; 40 rows): the per-sector counts are tiny, and the doc says the
 per-sector figures are **not usable**. They are listed so they can be seen, not quoted.
@@ -493,7 +524,7 @@ How it is measured: the judge is `deepseek-chat`, blind to the model's label, ap
 | Step | Source |
 |---|---|
 | Scope | `docs/scope_training.md` (sections 5, 6, 9); `data/scope_end_to_end_with81b.csv` and `gold/category_gold_v2_test.csv` (per-class table recomputed) |
-| Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `gold/sector_validation.csv` (precision per sector recomputed) |
+| Sector | `docs/sector_step.md` ("The clean test", "What this does not show"); `docs/sector_training.md` (357 answers); `gold/sector_validation.csv` (the first 57); `scripts/score_sector_fresh_2026_11_19.py` |
 | Cut | `docs/scope_training.md` sections 8.1 and 8.3; `docs/extractor_training.md` (update of 2026-11-11, `units4` and `units5`); `gold/cut_sample_marks.csv`; `scripts/cut_sample_metrics_2026_11_12.py` |
 | Company: NER | `docs/ner_training.md` (the 100-text held-out); `docs/ner_results_2026_11_16/` (`ner_metrics.json`, `ner_errors.csv`); `scripts/ner_eval_2026_11_16.py`; `docs/evaluation.md` (v1 baseline of 2026-09, `ner`) |
 | Company: relevance | `docs/companies_step.md` (threshold table); `docs/sentiment_training.md` item 6 (AUC 0.90); `docs/main_company_training.md` and `gold/main_company_marks.csv` (the marks on pieces, the held-out, tracked) |
@@ -508,7 +539,7 @@ One table with the general metrics of every model, to show the results at a glan
 | Step | Model | Validation (training) | Held-out | Bar and status |
 |---|---|---|---|---|
 | Scope (step 1) | two NLI classifiers fine-tuned on `deberta-v3-base-zeroshot-v2.0` | — | weighted agreement 83.6% [78.1, 88.9] (200 texts); quarantined precision 90.8% (225); `out_of_scope` recall 53% | 80%: met by point estimate (lower end 78.1) |
-| Sector (step 4) | `bge-small-en-v1.5` with a gate | — | 87.5% of the assigned sectors right (35 of 40); recall not measured | no bar measured (D24 for the sub-industry is not measured, T-167) |
+| Sector (step 4) | `bge-small-en-v1.5` with a gate | — | 85.9% of the assigned sectors right (176 of 205); 96.7% without the not-a-sector `no`; recall not measured | no bar measured (D24 for the sub-industry is not measured, T-167) |
 | Cut (step 1.2) | `units5` with the pair classifier (`gamug/FinBERT-news-attribution`) | — | 84.6% [77.8, 89.6] of pieces faithful; 75.5% clean (143 pieces) | 80% faithful: the point estimate passes, the lower end does not |
 | NER (step 3) | `gamug/sec-bert-finer-ord-ner` | v1 LLM-judged run (1,000 articles): span F1 0.7418, ORG 0.75 | universe companies: P 92.6%, R 95.5%, F1 0.940 (R 98.7% with `ner+text`); all organisations: P 72.6%, R 90.4% (100 texts; the overlay on 14 labels: 9 replaced, 1 kept, 4 dropped); as they are, universe P 90.1%, R 95.4% | no bar |
 | Relevance (step 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; main P 90.0%, R 94.7% (809 summaries) | AUC 0.663; main P 90.9%, R 30.0% (119 rows of 59 pieces) | no bar; the sub-news threshold is the owner's decision (T-170) |
