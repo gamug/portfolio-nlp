@@ -149,7 +149,7 @@ removes them).
 1. **Read-only listing of the revisions, first.** From the backup copy, for every table with a revision column: each distinct revision,
    its row count and its date range (`SELECT <col>, COUNT(*), MIN(<date>), MAX(<date>) FROM <table> GROUP BY <col>`; the column per
    table is in the table of PR C), plus `period_run.snapshot_revision` and the revisions inside `news_snapshot.inputs`. It is attached
-   to the PR. **The owner confirms the keep list against that listing, not from memory:** four of the eight revisions in the list
+   to the PR. **The keep list was checked against that listing (the owner's answers of 2026-11-18, "Gates answered"; the listing is the reference, not memory):** four of the eight revisions in the list
    (`sentiment-59863d15fc42`, `category-a23569dba86f`, `snapshot-c3a753affa5d`, `period-3b07b83ecec3`) and the delivery note's
    `period-ae014b56b055` appear in no tracked file, and the documents cite other ones (see below).
 2. **A maintenance window, then a fresh backup.** The daily 15:00 run writes to the live file, so a backup made earlier never equals
@@ -385,7 +385,7 @@ The prune removes the rows of every revision outside the keep list, and these do
 | `sentiment-5999fe131d8f` (the 190-piece check of #201 was scored on it) | `docs/sentiment_training.md`, both pipeline reports |
 | `category-981dacf6f68d`, `category-65f33b55b26b` | `docs/category_step.md`, `docs/category_training.md`, `docs/category_results_2026_11_13/README.md` |
 | `units-...`, `units4-...` | `docs/scope_training.md`, `docs/summary_step.md` |
-| `sector-cf81d9b32565`, `sector-417a93feb789` | `docs/sector_step.md`, `docs/gold_datasets.md` |
+| `sector-cf81d9b32565` (pruned by the purge on 2026-11-18: the live `body_sector` holds only `sector-417a93feb789`, and no kept snapshot row names it), `sector-417a93feb789` (kept) | `docs/sector_step.md`, `docs/gold_datasets.md` |
 
 For each one PR C does one of two things, and the owner says which in the dry run: **(a)** the figure stays as history and the document
 gets one line ("revision pruned on <date>; the figure is as recorded"); or **(b)** the rows behind a figure that must stay
@@ -396,8 +396,7 @@ different run. The open tasks that name revisions (T-185, T-189, T-190, T-191, T
 ## Left open (gates; none blocks this planning PR, all block the prune)
 
 1. **The sector-step revision: answered (2026-11-18, "Gates answered" item (1)).** `sector-417a93feb789`, the only one, is kept. Before that answer the keep list had none; `body_sector` would have lost every row and the kept snapshot reads it
-   (`news_snapshot_stage.py:445`). The kept snapshot's `inputs` names one; the documents mention `sector-cf81d9b32565` and
-   `sector-417a93feb789`, which may be the earlier ones. The owner names the revision(s) from the Phase 0 listing.
+   (`news_snapshot_stage.py:445`). The answer covers `sector-417a93feb789` only. `sector-cf81d9b32565` is not kept and is gone from the live `body_sector` (checked 2026-11-20); the docs that cite it are listed in the "Documents and tasks that cite a revision" table, and their line is PR C's to write.
 2. **The period revision: answered (2026-11-18).** Only `period-3b07b83ecec3` stays; a new delivery note naming it goes to the upstream team before `period-ae014b56b055` is pruned.
 3. **The sentiment revision: answered (2026-11-18).** Only `sentiment-59863d15fc42` (and `category-a23569dba86f`) stay; the older two are pruned (see the Phase 0 listing).
 4. **`eval_judgement`:** confirm unused (read the code in PR A/B).

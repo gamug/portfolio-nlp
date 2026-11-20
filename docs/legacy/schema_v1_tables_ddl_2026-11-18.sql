@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS article_sentiment (
 
 -- On the working RESULTS store, `article_entities_v1` may exist alongside
 -- this table -- not part of this DDL (nothing here creates or migrates it).
+-- Checked 2026-11-20: `article_entities_v1` is on neither the 2026-11-18 live RESULTS file nor `nlp_backup.db`.
 -- It's a one-time archival rename of the pre-2026-09-10-fix
 -- `article_entities` (`scripts/resample_ner_2026_09_12.py`,
 -- docs/evaluation.md's 2026-09-12 "T-025 executed" follow-up): the
