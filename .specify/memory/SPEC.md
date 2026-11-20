@@ -252,7 +252,7 @@ their state; a rerun redoes nothing; no command runs every step.
   merged only within a single source word, so a numeral or partial token
   can no longer be emitted as a standalone entity.
 - **Category** (the steps): the entailment model of step 7 over 12 labels (FR-022); the two-level zero-shot of v1 is in `docs/legacy/category-taxonomy-v1.md`.
-- **Schema drift** (after T-220): `init_schema` creates the 20 kept tables: the 19 of the stepped pipeline and the eval run-log, and the lean `articles` (fixed definition, `IF NOT EXISTS`, from round 6 of #216; a fresh RESULTS file takes its first lean-article row). It runs two additive columns on `eval_run`, `strata_json` and `experiment` (`Database.ensure_columns`, a no-op if current). The v1 migrations (`sector_summary.format_version`, `article_category` `group_label`/`group_score`) are gone with their tables; text in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.
+- **Schema drift** (after T-220): `init_schema` creates the 20 kept tables: the 19 of the stepped pipeline and the eval run-log, and the lean `articles` (fixed definition, `IF NOT EXISTS`: the owner's choice, 2026-11-20, from round 6 of #216; a fresh RESULTS file takes its first lean-article row). It runs two additive columns on `eval_run`, `strata_json` and `experiment` (`Database.ensure_columns`, a no-op if current). The v1 migrations (`sector_summary.format_version`, `article_category` `group_label`/`group_score`) are gone with their tables; text in `archive/SPEC-v1-table-rows-removed-2026-11-18.md`.
 
 ## 8. Error Handling & Resilience
 
