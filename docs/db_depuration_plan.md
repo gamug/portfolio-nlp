@@ -111,7 +111,7 @@ reads it (`news_category_stage.py:72`, validated there; `news_sentiment_stage.py
   records the depuration. No document requires the owner's approval of a schema change in general (`SPEC.md:575` is about T-138);
   dropping tables is new (the existing migrations, `schema.py:499-575`, are additive), so the owner's approval is asked here and
   recorded in the PR of T-220.
-* **T-131** (open: move aside the results of quarantined pairs, copying them to `<table>_removed` first, "never rename a whole table")
+* **T-131** (dropped by the owner on 2026-11-20: nothing is copied aside to `<table>_removed`; the verified backup replaces it. It was: move aside the results of quarantined pairs, copying them to `<table>_removed` first, "never rename a whole table")
   and the "old tables to v1" part of **T-150** (open, with the `portfolio_common.news_export` contract update) both concern the v1
   tables. If the v1 tables are dropped, T-131 is moot for them and that part of T-150 is superseded; the owner confirms when T-220
   closes. **T-189** (open: delete `category-981dacf6f68d`, drop `LEGACY_REVISIONS`) is overtaken by the prune for the first part (the
@@ -162,13 +162,13 @@ removes them).
    needs about the size of the database in free disk space (and a clean WAL): the free space is checked and written in the PR.
 4. **Owner approvals** recorded: the drop of the v1 tables, the rewording of the lines listed in "The rules that bind the work", the
    new PLAN decision.
-5. **The verified backup replaces the `<table>_removed` copies of T-131.** Those would add tables to a database that must hold only
-   kept ones. The owner accepts this or says otherwise.
+5. **T-131 dropped (owner, 2026-11-20):** the verified backup replaces the `<table>_removed` copies. Nothing is copied aside, so the
+   database holds only the kept tables.
 6. **The sector-step revision is named** (gate 1 of "Left open"): **the prune does not run until it is.**
-7. **The upstream team is told first.** If a kept revision differs from the one in the delivery note (`period-3b07b83ecec3` against
-   `period-ae014b56b055` today, or the snapshot), a **new delivery note with the new names goes to the upstream team before the
-   prune**, and the owner confirms they have moved to it (the note says that a changed revision means a new note). The script never
-   prunes a revision named in the delivery note while this is open.
+7. **The upstream team is aware (owner, 2026-11-20).** The owner states that portfolio-financial-analysis already knows about the change
+   to `period-3b07b83ecec3`, so no new delivery note file is written. This replaces the rule that a note reaches them before the prune,
+   which was not followed on 2026-11-18 (see the review note). The script still refuses to prune a revision named in the delivery note
+   unless the owner removes it from the note.
 8. **Order: satisfied on 2026-11-17.** #199 (`7e3b6b3`) and #204 (`a435e20`) are on master, so the guard below pins the revisions as they are now; a later change of a step's code before T-220 starts is a new revision and the guard is re-pinned then.
 
 **PR A (A1, #211): the guard and the golden check.** A **revision guard test** pins the code each step hashes, the config files the revisions also hash, and the
@@ -426,7 +426,7 @@ Run on scratch copies of the live `nlp.db` after the swap (SHA-256 `bcd7dfe3f827
   refuses it outside `--items sector`), and the rows themselves (the golden digest covers the delivered ones).
 * **Two steps run for real** on the purged copy (they need no model, GPU or API): `--step snapshot` (written 0, waiting 0, 226,139
   company rows) and `--step period --catch-up` (0 periods to do). Afterwards **no v1 table had come back**: 20 user tables
-  (the 19 of `init_schema` plus the lean `articles`, which was already in the file; a fresh RESULTS file has no `articles` table and the first lean-article copy fails there, see the open `xfail` in `tests/news_nlp/test_schema.py`). Counted without SQLite's own `sqlite_*` tables (`sqlite_sequence`, `sqlite_stat1`). **Checked on the files themselves (2026-11-20, read-only, `immutable=1`):** the live `nlp.db` (purged) lists those 20 and the two `sqlite_*` tables; `nlp_backup.db` lists the same plus the six dropped tables (`article_category`, `article_entities`, `article_sentiment`, `article_summary`, `sector_summary`, `eval_judgement`). Neither file has an `article_entities_v1` or the `article_sentiment_v2_published_snapshot_2026_09_15` / `..._v4_experiment_2026_09_15` tables that the DDL file's header and the restore script name: the archival tables it mentions are not on the working store. `foreign_key_check` empty,
+  (the 19 of `init_schema` plus the lean `articles`, which was already in the file. A fresh RESULTS file had no `articles` table and the first lean-article copy failed there; from round 6 of #216 `init_schema` creates it, and the strict `xfail` is gone). Counted without SQLite's own `sqlite_*` tables (`sqlite_sequence`, `sqlite_stat1`). **Checked on the files themselves (2026-11-20, read-only, `immutable=1`):** the live `nlp.db` (purged) lists those 20 and the two `sqlite_*` tables; `nlp_backup.db` lists the same plus the six dropped tables (`article_category`, `article_entities`, `article_sentiment`, `article_summary`, `sector_summary`, `eval_judgement`). Neither file has an `article_entities_v1` or the `article_sentiment_v2_published_snapshot_2026_09_15` / `..._v4_experiment_2026_09_15` tables that the DDL file's header and the restore script name: the archival tables it mentions are not on the working store. `foreign_key_check` empty,
   `quick_check` ok, golden digest `2832f270e9a52457` (and `9a71c0f4d9001a85` with the period pruned).
 * **Not run:** `scope`, `cut`, `summary`, `companies`, `category`, `sentiment` as work (they need models or the API; their status
   was read, and with nothing pending they would not run either). The lean-article upsert of the cut (`_ensure_article_row`) is

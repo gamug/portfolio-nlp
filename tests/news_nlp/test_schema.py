@@ -1,5 +1,5 @@
-"""news_nlp.schema: the 19 tables `init_schema` creates (the lean `articles` is not among them: see the strict xfail at the end), its idempotency, that it brings no v1
-table back (T-220), and the `eval_run` additive migration.
+"""news_nlp.schema: the 20 tables `init_schema` creates (the lean `articles` among them, T-220 PR C2 round 6), its idempotency, that it brings no v1
+table back (T-220), the fresh-file first lean-article row, and the `eval_run` additive migration.
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ import pytest
 import news_nlp as db
 from news_nlp import db as news_db
 
-#: Exactly what ``init_schema`` creates (T-220, PR C2): the stepped pipeline's tables and the eval run-log tables. The v1 result tables are not created any more.
+#: Exactly what ``init_schema`` creates (T-220, PR C2): the lean ``articles`` table, the stepped pipeline's tables and the eval run-log tables. The v1 result tables are not created any more.
 _KEPT_TABLES = {
+    "articles",
     "body_scope",
     "body_sector",
     "sub_news",
@@ -170,11 +171,6 @@ def _source_with_one_article(path: Path) -> Path:
     return path
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a fresh RESULTS file has no lean `articles` table (init_schema does not create it); the first "
-    "_ensure_article_row copy then fails. Remove this mark when the table is created or the copy creates it.",
-)
 def test_a_fresh_results_file_takes_its_first_lean_article_row(tmp_path: Path) -> None:
     source = _source_with_one_article(tmp_path / "urls.db")
     results = tmp_path / "nlp.db"

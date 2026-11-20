@@ -5,8 +5,7 @@ The v1 result tables (``article_sentiment``, ``article_entities``, ``article_cat
 created any more** (T-220, PR C2): they were dropped from the working database by ``depurate_db``, and their DDL is kept as a record in
 ``docs/legacy/schema_v1_tables_ddl_2026-11-18.sql``. ``init_schema`` neither creates nor drops them, so a database that still has them keeps them until ``depurate_db`` runs.
 
-Does **not** create ``articles`` -- that table is owned by the crawler on the SOURCE side; on the RESULTS side a lean, ``body_text``-free subset is populated row-by-row by
-``news_nlp.db._ensure_article_row``.
+Creates the lean ``articles`` table (every SOURCE column except ``body_text``, the 15 columns of the production file, fixed here so a new file has it). The crawler owns the full ``articles`` table on the SOURCE side and is not changed; the RESULTS rows are copied row-by-row by ``news_nlp.db._ensure_article_row``. The table is ``IF NOT EXISTS``, so a file that already has it is not touched.
 
 The one engine-specific token in the DDL -- the auto-increment primary key spelling -- comes from ``conn.dialect`` (``portfolio_common.db``); the multi-statement run goes
 through ``Database.create_schema`` / ``Database.ensure_columns``. Nothing here names a database engine.
@@ -149,6 +148,27 @@ CREATE TABLE IF NOT EXISTS eval_confusion (
 CREATE INDEX IF NOT EXISTS idx_eval_confusion_run_id ON eval_confusion(run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_confusion_experiment_task
     ON eval_confusion(experiment, task);
+
+-- Lean article rows (FR-007): a body_text-free copy of the SOURCE `articles` row, written by
+-- news_nlp.db._ensure_article_row so that a result row's REFERENCES articles(id) holds. Columns are the
+-- production file's (the 2026-11-20 check of nlp.db); the copy takes the columns both sides share.
+CREATE TABLE IF NOT EXISTS articles (
+    id                INTEGER PRIMARY KEY,
+    ticker            TEXT,
+    company           TEXT,
+    gics_sector       TEXT,
+    gics_sub_industry TEXT,
+    title             TEXT,
+    author            TEXT,
+    pub_date          TEXT,
+    word_count        INTEGER,
+    language          TEXT,
+    source_domain     TEXT,
+    extraction_method TEXT,
+    fetch_status      TEXT,
+    http_status_code  INTEGER,
+    fetched_at        TEXT
+);
 
 -- Stepped pipeline (PLAN D39/D40, SPEC target tables; T-162). One table per step, all RESULTS tables.
 -- A body is identified by its hash (T-132). `item_id` is text: the hash for a body, `sub_news.id` for a
