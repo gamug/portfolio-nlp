@@ -215,14 +215,19 @@ def ovr(rows: list[Row]) -> None:
     print(
         f"\nOne vs rest ({len(rows)} rows without controls; truth unknown for {unknown} sent-out rows):"
     )
-    print("class | predicted | right | precision | truth known | found | recall, upper bound")
+    print(
+        "class | predicted | right | precision | unknown among predicted (no sector named, counted as wrong) "
+        "| truth known (true class) | found | recall, upper bound"
+    )
     for c in [*NAMES, "none"]:
         called = [a for a, v in pred.items() if v == c]
         tp = sum(true[a] == c for a in called)
+        unknown_called = sum(true[a] is None for a in called)
         fn_known = sum(1 for a, t in true.items() if t == c and pred[a] != c)
         up = tp / (tp + fn_known) if tp + fn_known else 0.0
         print(
-            f"{c} {NAMES.get(c, 'no sector')} | {len(called)} | {tp} | {fmt(tp, len(called))} | {tp + fn_known} | {tp} | {100 * up:.1f}%"
+            f"{c} {NAMES.get(c, 'no sector')} | {len(called)} | {tp} | {fmt(tp, len(called))} | {unknown_called} "
+            f"| {tp + fn_known} | {tp} | {100 * up:.1f}%"
         )
     sent = [r for r in rows if r["k_status"] == "out_of_scope"]
     assigned = [r for r in rows if r["k_status"] == "assigned"]

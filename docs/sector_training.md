@@ -69,7 +69,7 @@ Wilson 95% intervals. Controls are left out of the assigned rows.
 ## One vs rest, per sector
 
 Each class against the rest, over the 337 rows that are not controls (a control is shown a sector the step did not give, so it is not the step's answer). A row's **true class** is what the owner's answer says: the
-assigned sector if `yes`; the `right_sector` if one is named; "no sector" if the drop was agreed, or if a `no` says the text is not a sector text. 28 sent-out `no` name no sector, so their true class is unknown.
+assigned sector if `yes`; the `right_sector` if one is named; "no sector" if the drop was agreed, or if a `no` says the text is not a sector text. 28 sent-out `no` name no sector, so their true class is unknown. The 28 are the 31 sent-out rows the owner would keep (6 of the first draw, 25 of the second) minus the 3 of the first draw that name another sector; the scorer's table shows them in the `unknown` column of the `none` row.
 
 | GICS code | Sector | Assigned | Right | Precision [95%] | Precision without the not-a-sector `no` | Truly this sector (known) | Found | Recall, upper bound |
 |---|---|---|---|---|---|---|---|---|
