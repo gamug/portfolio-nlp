@@ -3,7 +3,7 @@
     uv run scripts/score_sector_fresh_2026_11_19.py --export   # once: data/ working files -> gold/sector_fresh_marks_2026_11_19.csv (+ texts)
     uv run scripts/score_sector_fresh_2026_11_19.py            # scores the tracked marks
 
-The owner's working files are in ``data/`` (git-ignored); ``--export`` copies the answers and the English texts to ``gold/``, and the scoring reads the tracked copy. Nothing is written. It prints:
+The owner's working files are in ``data/`` (git-ignored). ``--export`` needs them: it copies the answers and the English texts to ``gold/`` once, prints the SHA-256 of its two inputs, and stops. Every later run reads only the tracked copy, which is the source; scoring writes nothing. It prints:
 
 * consistency checks (unique ids, the answer column, the sector codes, the verdict against the key, the first 57 rows against the tracked gold);
 * the precision of the assigned sectors (controls apart) over the whole file, and again **without the ``no`` answers whose note says the text is not a
