@@ -459,7 +459,7 @@ Confusion (rows the model, columns the owner's tag; positive / negative / neutra
 
 **Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): the pooled accuracy, 78.9% [72.6, 84.1], is **under 80%** by point estimate; the second draw alone, 82.0% [73.3, 88.3], is over it, with an interval that reaches below it. Negative precision, 70.8% [59.5, 80.1], and negative recall, 83.6% [72.4, 90.8], are both at or over 70%.
 
-**Relation to the pin decision.** This is not the D35 gate. The rule of D35 scores the 180-text gold on main pairs (T-148c4, T-193); that scoring has not been made and `config/pipeline_models.json` still names the v1 model. These 190 pieces were not drawn by D35's design; they measure the step as it ran on the corpus. They are evidence for the owner's decision; whether they replace the 180-gold scoring is the owner's to say.
+**Relation to the pin decision.** This is not the D35 gate. The rule of D35 scores the 180-text gold on main pairs (T-148c4); that scoring has not been made and `config/pipeline_models.json` still names the v1 model. These 190 pieces were not drawn by D35's design; they measure the step as it ran on the corpus. They are evidence for the owner's decision; whether they replace the 180-gold scoring is the owner's to say.
 
 **What it says.**
 - **Positive** is the strongest class in the sample (precision 85.2%, recall 79.8%).
