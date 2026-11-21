@@ -65,6 +65,21 @@ def test_the_earlier_version_is_not_touched() -> None:
     }
 
 
+def test_the_single_pick_is_the_headline_of_2026_11_21(rows: list[score.Mark]) -> None:
+    # decided by the owner on 2026-11-21: the model names one main per piece (its top row); recall counts only that pick
+    s = score.single_pick(rows)
+    assert s == {"items": 104, "with_main": 88, "found": 88, "called": 104, "agreed": 88}
+    assert round(100 * score.single_pick_recall(rows), 1) == 100.0
+    # no resample of pieces can fall below 100%: the recall cannot reject the model on these marks (the doc says so)
+    lo, hi = score.interval(rows, score.single_pick_recall)
+    assert (round(lo, 3), round(hi, 3)) == (1.0, 1.0)
+    # the top row is unique in every piece, so the tie rule never decides a pick
+    items = score.group(rows)
+    assert all(
+        sum(r.score == max(v, key=lambda r: r.score).score for r in v) == 1 for v in items.values()
+    )
+
+
 def test_the_scored_figures_are_the_doc_figures(rows: list[score.Mark]) -> None:
     c = score.at_threshold(rows, 0.5)
     assert (c["tp_main"], c["called_main"], c["yes"]) == (71, 77, 145)
@@ -163,11 +178,14 @@ def test_the_doc_quotes_the_scored_figures() -> None:
         "0.766 [0.662, 0.873]",
         "0.829 [0.730, 0.912]",
         "88.0%",
+        "100.0% [95.8, 100.0] (88/88)",
+        "84.6% [76.5, 90.3] (88/104)",
+        "Decision, 2026-11-21",
         "1205a302477ef651bac099ac1470a913b737be34c793f0dc84d770bae5fb5589",
         "97386a486e766fe848288e66087f95eb66fbce0658d98e19f2ee7cc0a8fa139d",
     ):
         assert pattern in doc, pattern
     for name in ("pipeline_metrics_report.md", "pipeline_metrics_report_es.md"):
         text = (ROOT / name).read_text(encoding="utf-8")
-        for pattern in ("(61/88)", "(71/145)", "0.829", "(71/77)"):
+        for pattern in ("(61/88)", "(71/145)", "0.829", "(71/77)", "(88/88)", "(88/104)"):
             assert pattern in text, f"{name}: {pattern}"

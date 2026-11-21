@@ -7,10 +7,10 @@ relevance band of its item). The current version is ``gold/main_company_marks_20
 the 2026-11-16 version is ``gold/main_company_marks.csv``. A pair is called main when its score is at the threshold or over it. Nothing is written.
 
 Figures are unweighted (the six bands were drawn evenly, so they are not corpus rates) except the re-weighted block, which weights each band by its
-size in the corpus (``POPULATION``). The scenario block scores the same marks with two kinds of piece left out:
+size in the corpus (``POPULATION``). The scenario block scores the same marks with two kinds of article left out:
 
 * ``no_company``: a note says the text is not about any company (``NO_COMPANY``);
-* ``missed``: the owner's ``falta_la_principal`` is ``yes`` on a row of the piece, or a note says the main company is missing from the list or is
+* ``missed``: the owner's ``falta_la_principal`` is ``yes`` on a row of the article, or a note says the main company is missing from the list or is
   out of the S&P 500 universe (``MISSED``).
 
 The SHA-256 of the file scored is printed first. Used for ``docs/main_company_training.md``.
@@ -83,7 +83,7 @@ def load(path: Path) -> list[Mark]:
 
 
 def piece_flags(rows: list[Mark]) -> dict[str, set[str]]:
-    """The exclusions that apply to each piece (``no_company``, ``missed``)."""
+    """The exclusions that apply to each article (``no_company``, ``missed``)."""
     flags: dict[str, set[str]] = defaultdict(set)
     for r in rows:
         if NO_COMPANY.search(r.notes):
@@ -163,7 +163,7 @@ def auc(rows: list[Mark]) -> float:
 def interval(
     rows: list[Mark], stat: Callable[[list[Mark]], float], level: float = 0.95
 ) -> tuple[float, float]:
-    """Percentile interval of ``stat`` by resampling whole pieces (the rows of a piece are not independent)."""
+    """Percentile interval of ``stat`` by resampling whole articles (the rows of an article are not independent)."""
     items = list(group(rows).values())
     rng = random.Random(BOOTSTRAP_SEED)  # noqa: S311  (a seeded resample, not a secret)
     values = [
@@ -192,7 +192,7 @@ def hit_rate(rows: list[Mark], threshold: float = 0.5) -> float:
 
 
 def weighted(rows: list[Mark], threshold: float) -> dict[str, float]:
-    """Piece-level recall and precision with each band weighted by its corpus size (a band with no piece is skipped)."""
+    """Piece-level recall and precision with each band weighted by its corpus size (a band with no article is skipped)."""
     items = group(rows)
     band = {k: v[0].band for k, v in items.items()}
     with_main = found = called = agreed = 0.0
@@ -217,7 +217,7 @@ def weighted(rows: list[Mark], threshold: float) -> dict[str, float]:
 
 
 def by_owner_mains(rows: list[Mark], threshold: float = 0.5) -> dict[str, tuple[int, int]]:
-    """Pieces with one owner main against pieces with two or more: (found, pieces) for each."""
+    """Articles with one owner main against articles with two or more: (found, articles) for each."""
     out = {"one": [0, 0], "several": [0, 0]}
     for rs in group(rows).values():
         n = sum(r.main for r in rs)
@@ -234,9 +234,9 @@ def pct(x: int, n: int) -> str:
 
 
 def article_auc(rows: list[Mark]) -> float:
-    """AUC of the best relevance score of a piece for "the piece has an owner main" against "it has none" (unweighted).
+    """AUC of the best relevance score of an article for "the article has an owner main" against "it has none" (unweighted).
 
-    One value per piece, so the several owner mains of a piece count once; it is the article-level counterpart of ``auc``.
+    One value per article, so the several owner mains of an article count once; it is the article-level counterpart of ``auc``.
     """
     items = group(rows)
     pos = [max(r.score for r in v) for v in items.values() if any(r.main for r in v)]
@@ -247,8 +247,32 @@ def article_auc(rows: list[Mark]) -> float:
     return wins / (len(pos) * len(neg))
 
 
+def single_pick(rows: list[Mark]) -> dict[str, int]:
+    """The decided headline (2026-11-21): the model names one main company per article, its top-scoring row.
+
+    ``with_main``: articles with at least one owner main. ``found``: of those, the top row is one the owner marked main (the
+    only pick the model makes is counted; a second or third owner main is not asked for). ``called``: every article, because the
+    model always names one; ``agreed``: the top row is an owner main. Ties go to the first row of the article.
+    """
+    items = group(rows)
+    tops = {k: max(v, key=lambda r: r.score) for k, v in items.items()}
+    with_main = [k for k, v in items.items() if any(r.main for r in v)]
+    return {
+        "items": len(items),
+        "with_main": len(with_main),
+        "found": sum(1 for k in with_main if tops[k].main),
+        "called": len(items),
+        "agreed": sum(1 for k in items if tops[k].main),
+    }
+
+
+def single_pick_recall(rows: list[Mark]) -> float:
+    c = single_pick(rows)
+    return c["found"] / c["with_main"] if c["with_main"] else 0.0
+
+
 def article(rows: list[Mark], threshold: float) -> dict[str, int]:
-    """The per-article counts (the headline): a piece is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
+    """The per-article threshold counts (secondary; the headline is ``single_pick``): an article is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
     return by_item(rows, threshold)
 
 
@@ -297,8 +321,20 @@ def main() -> None:
     print(
         f"marked rows {len(rows)} of {len({r.item for r in rows})} items: {sum(r.main for r in rows)} yes, {sum(not r.main for r in rows)} no"
     )
+    s = single_pick(rows)
+    slo, shi = wilson(s["found"], s["with_main"])
+    plo2, phi2 = wilson(s["agreed"], s["called"])
+    rlo2, rhi2 = interval(rows, single_pick_recall)
     print(
-        "PER ARTICLE (the headline: a piece is found when the model's main company is one the owner marked main)"
+        "HEADLINE, decided 2026-11-21 (the model's single main pick: the top-scoring row of each piece)"
+    )
+    print(
+        f"single-pick recall: {s['found']}/{s['with_main']} = {pct(s['found'], s['with_main'])} [Wilson {100 * slo:.1f}, {100 * shi:.1f}; resampling {100 * rlo2:.1f}, {100 * rhi2:.1f}]; "
+        f"single-pick precision: {s['agreed']}/{s['called']} = {pct(s['agreed'], s['called'])} [Wilson {100 * plo2:.1f}, {100 * phi2:.1f}]; "
+        f"pieces {s['items']}, with an owner main {s['with_main']}"
+    )
+    print(
+        "PER ARTICLE, threshold rule (secondary: a piece is found when any row at or over the threshold is an owner main)"
     )
     for t in thresholds:
         i = article(rows, t)
