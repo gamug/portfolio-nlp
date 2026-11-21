@@ -272,7 +272,7 @@ def single_pick_recall(rows: list[Mark]) -> float:
 
 
 def article(rows: list[Mark], threshold: float) -> dict[str, int]:
-    """The per-article counts (the headline): a piece is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
+    """The per-article threshold counts (secondary; the headline is ``single_pick``): a piece is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
     return by_item(rows, threshold)
 
 

@@ -62,7 +62,7 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 - **Recall and precision are per article, and the headline is the single pick** (decided 2026-11-21): the model's one main company per piece is its top-scoring row. An article is *found* when that pick is one the owner marked main. The threshold definition, where an article is found when the company at or over the threshold is one the owner marked main, is kept as secondary. Recall = found articles / articles with an owner main. Precision = articles where the model's main company is one the owner accepts / articles where the model calls a main company.
 - **Row-level figures** (each owner main counts as one row) are kept as secondary figures, labelled as such. The not-main class is measured on rows: the owner's `no` is an explicit answer, so it is not affected by the limit.
 
-**Results per article** (`scripts/score_main_company_marks_2026_11_20.py`, which reads the tracked file; Wilson 95% intervals for the counts; unweighted. The scorer also prints resampling intervals over the pieces; this doc quotes only the Wilson ones, so the two will not match in the last digit):
+**Results per article: the single pick (headline) and the threshold rule (secondary)** (`scripts/score_main_company_marks_2026_11_20.py`, which reads the tracked file; Wilson 95% intervals for the counts; unweighted. The scorer also prints resampling intervals over the pieces; this doc quotes only the Wilson ones, so the two will not match in the last digit):
 
 **Decision, 2026-11-21 (the owner's instruction; this is the trace of the headline).** The relevance model names one main company per text, so the headline is now the model's **single pick**: the top-scoring row of each piece. A piece is found when that pick is one of the companies the owner marked main; the model is not asked for a second or third owner main it was not built to name. The owner asked for at least 70% recall, and the single-pick recall meets it (100.0%, 88 of 88). The threshold rule (any row at or over 0.5, which is what the step does on every row) stays as a secondary figure.
 
@@ -83,7 +83,7 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 | 0.1 | 97.7% [92.1, 99.4] (86/88) | 89.6% [81.9, 94.2] (86/96) | 96 |
 | 0.2 | 88.6% [80.3, 93.7] (78/88) | 89.7% [81.5, 94.5] (78/87) | 87 |
 | 0.3 | 83.0% [73.8, 89.4] (73/88) | 89.0% [80.4, 94.1] (73/82) | 82 |
-| **0.5 (the step)** | **69.3% [59.0, 78.0] (61/88)** | **91.0% [81.8, 95.8] (61/67)** | 67 |
+| 0.5 (the step; secondary) | 69.3% [59.0, 78.0] (61/88) | 91.0% [81.8, 95.8] (61/67) | 67 |
 | 0.7 | 53.4% [43.1, 63.5] (47/88) | 92.2% [81.5, 96.9] (47/51) | 51 |
 
 104 articles; 88 have an owner main (16 have none marked `yes`). Re-weighted by the size of each band (`POPULATION` in the scorer; 90.2% of the articles have an owner main): article recall 97.5% at 0.1, 90.9% at 0.3, 88.0% at 0.5 and 84.8% at 0.7; article precision 96.7%, 97.0%, 97.7% and 98.1%. The weights correct the band sizes, not the reasons for the removals of 2026-11-16.
@@ -156,7 +156,7 @@ The rule of T-170 says that when the model's AUC on sub-news is more than 5 poin
 
 ```bash
 uv run scripts/build_main_company_marks_2026_11_20.py --data data   # gold/main_company_marks_2026_11_20.csv and its texts, from the local working file (refuses to overwrite); prints the differences with the 2026-11-16 marks
-uv run scripts/score_main_company_marks_2026_11_20.py                # the per-article headline, the row figures and the scenarios, from gold/main_company_marks_2026_11_20.csv
+uv run scripts/score_main_company_marks_2026_11_20.py                # the single-pick headline, the per-article threshold figures, the row figures and the scenarios, from gold/main_company_marks_2026_11_20.csv
 uv run scripts/score_main_company_marks_2026_11_20.py --thresholds 0.1,0.2,0.3,0.5,0.7
 uv run scripts/score_main_company_marks_2026_11_20.py --marks gold/main_company_marks.csv   # the 2026-11-16 version
 ```
