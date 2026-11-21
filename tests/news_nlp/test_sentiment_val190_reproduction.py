@@ -2,7 +2,8 @@
 `models/sentiment_pair_all/final`, identity 685a5f64f427a4ff) read with the step's own code and the stack of `config/sentiment_stack.json`,
 against the `predicted` column of the version-2 gold. It needs the model folder, which is git-ignored, so it is skipped without it (CI).
 Known mismatch, kept on purpose: `sn289407#CAT` (the stack gives negative 0.545 against positive 0.453; the stored label is positive; the
-cause is not diagnosed)."""
+cause is not diagnosed). The folder's identity is checked against `config/sentiment_step.json` first, as the step does, and the model runs on
+CPU (the device of the recorded run; a GPU may round differently)."""
 
 from __future__ import annotations
 
@@ -29,7 +30,11 @@ def test_the_step_reading_reproduces_the_stored_labels() -> None:
         rows = list(csv.DictReader(fh))
     with TEXTS.open(encoding="utf-8-sig", newline="") as fh:
         texts = {r["key"]: r for r in csv.DictReader(fh)}
-    scorer = step.SentimentScorer(folder=MODEL)
+    import torch  # noqa: PLC0415 -- loads torch
+
+    pinned = step.pin()["identity"]
+    scorer = step.SentimentScorer(folder=MODEL, device=torch.device("cpu"))
+    assert scorer.identity() == pinned, (scorer.identity(), pinned)
     probs = scorer.probabilities(
         [(texts[r["key"]]["text"], texts[r["key"]]["company"]) for r in rows]
     )
