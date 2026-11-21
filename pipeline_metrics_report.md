@@ -430,7 +430,7 @@ The pair model reads `[company] [SEP] [text chunk]` and averages the chunk proba
 
 Selected on 2026-11-10 (the 190-piece held-out came after, and took no part in the selection): the pair model started from the project's endpoint `gamug/FinBERT-financial-news`, trained on all 809 rows plus the 341 replay sentences, stacked with the fine-tuned relevance model. The pin is not decided: it waits on the 180-text gold by the rule of D35.
 
-**Metrics of the stack (the step), validation and held-out in a single table.** Precision (P) and recall (R) one-vs-rest; the held-out carries 95% Wilson intervals and the weighted recall (each predicted class weighs the size of its universe of 57,826 candidates of the first draw, an approximation because the two draws have different universes).
+**Metrics of the stack (the step), validation and held-out in a single table.** Precision (P) and recall (R) one-vs-rest; the held-out carries 95% Wilson intervals.
 
 | Measure | Nested cross-validation (809 rows, weighted) | Held-out (190 pieces of the real run) |
 |---|---|---|
@@ -560,5 +560,5 @@ One table with the general metrics of every model, to show the results at a glan
 | NER (step 3) | `gamug/sec-bert-finer-ord-ner` | v1 LLM-judged run (1,000 articles): span F1 0.7418, ORG 0.75 | universe companies: P 92.6%, R 95.5%, F1 0.940 (R 98.7% with `ner+text`); all organisations: P 72.6%, R 90.4% (100 texts; the overlay on 14 labels: 9 replaced, 1 kept, 4 dropped); as they are, universe P 90.1%, R 95.4% | no bar |
 | Relevance (step 3) | `gamug/deberta-v3-company-relevance` | AUC 0.90; main P 90.0%, R 94.7% (809 summaries) | AUC 0.829 (rows); article recall 69.3%, article precision 91.0% at 0.5 (185 rows of 104 articles) | no bar; the sub-news threshold is the owner's decision (T-170) |
 | Summarization (step 2) | DeepSeek (`deepseek-chat`) | — | no held-out; LLM judge on 300 articles: faithfulness 4.99, coverage 4.54, hallucination 0.7% (the judge is DeepSeek too) | no bar; the corpus run is not measured |
-| Sentiment (step 6) | pair model + stack (`gamug/FinBERT-company-sentiment`) | score 0.814; negative P/R 0.747 / 0.748 (809 rows) | accuracy 78.9% [72.6, 84.1]; negative P 70.8%, R 83.6% (190 pieces) | 80% agreement and 70% on the negative (D32): **not met** (pooled accuracy 78.9%; 80.5% weighted) |
+| Sentiment (step 6) | pair model + stack (`gamug/FinBERT-company-sentiment`) | score 0.814; negative P/R 0.747 / 0.748 (809 rows) | accuracy 78.9% [72.6, 84.1]; negative P 70.8%, R 83.6% (190 pieces) | 80% agreement and 70% on the negative (D32): **not met** (pooled accuracy 78.9%) |
 | Category (step 5) | entailment fine-tune (`category-entailment-single-12`) | accuracy 91.5%, macro F1 0.791 (975 rows of the 7 measured labels) | **judge on 300 real sub-news (official): 88.0%**; accuracy 57.1% [46.5, 67.2] (84 rows, held-out); 82.1% on 235 real sub-news (joint tags) | 80% (D24): **met** by the official judge figure (88.0%, 300 real sub-news); pinned by the owner's decision; figures are the 12-label model remapped to the planned distribution, not retrained (section 6; 12-label: 87.8%, 54.1%, 71.3%) |
