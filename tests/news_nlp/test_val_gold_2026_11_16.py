@@ -84,7 +84,7 @@ def test_sentiment_counts_are_the_ones_the_docs_quote(sentiment: list[dict[str, 
 def test_sentiment_figures_are_the_doc_figures() -> None:
     rows = sent_score.load(GOLD / "sentiment_val190.csv")
     assert sent_score.accuracy(rows) == (140, 190)
-    table = sent_score.class_table(rows, weighted=True)
+    table = sent_score.class_table(rows)
     assert (table["positive"]["tp"], table["positive"]["called"], table["positive"]["tagged"]) == (
         73,
         88,
@@ -100,8 +100,6 @@ def test_sentiment_figures_are_the_doc_figures() -> None:
         30,
         32,
     )
-    assert round(100 * table["neutral"]["recall_weighted"], 1) == 4.4
-    assert round(100 * sent_score.accuracy_weighted(rows), 1) == 78.4
     second = [r for r in rows if r.batch == "100"]
     assert sent_score.accuracy(second) == (80, 100)
     assert sent_score.confusion(rows) == {
@@ -175,12 +173,11 @@ def _doc(name: str) -> str:
         (
             "sentiment_training.md",
             [
-                "73.7% [67.0, 79.4] (140 of 190)",
-                "83.0% [73.8, 89.4] (73/88)",
-                "69.4% [58.0, 78.9] (50/72)",
-                "56.7% [39.2, 72.6] (17/30)",
-                "| 4.4% |",
-                "80.0% [71.1, 86.7]",
+                "78.9% [72.6, 84.1] (150 of 190)",
+                "85.2% [76.3, 91.2] (75/88)",
+                "70.8% [59.5, 80.1] (51/72)",
+                "80.0% [62.7, 90.5] (24/30)",
+                "82.0% [73.3, 88.3]",
             ],
         ),
         (
@@ -205,15 +202,15 @@ def test_the_docs_quote_the_scored_figures(doc: str, patterns: list[str]) -> Non
 # ---- the reports quote the same figures, and the two languages keep one structure ----
 
 REPORTS = {
-    "pipeline_metrics_report.md": ["(140 of 190)", "**0.829** [0.730, 0.912]"],
-    "pipeline_metrics_report_es.md": ["(140 de 190)", "**0.829** [0.730, 0.912]"],
+    "pipeline_metrics_report.md": ["(150 of 190)", "**0.829** [0.730, 0.912]"],
+    "pipeline_metrics_report_es.md": ["(150 de 190)", "**0.829** [0.730, 0.912]"],
 }
 REPORT_FIGURES = [
-    "73.7% [67.0, 79.4]",
-    "83.0% [73.8, 89.4] (73/88)",
-    "69.4% [58.0, 78.9] (50/72)",
-    "56.7% [39.2, 72.6] (17/30)",
-    "80.0% [71.1, 86.7]",
+    "78.9% [72.6, 84.1]",
+    "85.2% [76.3, 91.2] (75/88)",
+    "70.8% [59.5, 80.1] (51/72)",
+    "80.0% [62.7, 90.5] (24/30)",
+    "82.0% [73.3, 88.3]",
     "92.2% [84.0, 96.4] (71/77)",
     "49.0% [41.0, 57.0] (71/145)",
     "69.3% [59.0, 78.0] (61/88)",

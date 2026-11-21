@@ -124,7 +124,7 @@ The text of a period says how many of its snapshots are **late** (dated before t
 ## Not decided here
 
 * `companies_mentioned` and its floor (T-198): out of scope for now.
-* Which revisions of the steps the first real run pins: it needs sentiment and category run on the real store (the owner's runs; T-192 and T-193 only validate them, they are not run tasks).
+* Which revisions of the steps the first real run pins: it needs sentiment and category run on the real store (the owner's runs; T-192 only validates them, they are not run tasks).
 * Whether a company text with no sentiment because of a skip is retried by hand or left (the list in `--status` is what the owner reads).
 * Extra sectors (T-199): none for now; only the 11 GICS sectors exist.
 * Whether `product_innovation` (and the other three) stays folded into `other` in the period summary (T-216): the numbers are in "Weak categories".

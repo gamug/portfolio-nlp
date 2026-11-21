@@ -74,12 +74,12 @@ part of it, so a run stopped and resumed after such an edit resumes. A step 2 or
 ## What the figures are, and what is not done
 
 * **0.814** is the score of the stack on the nested cross-validation (weighted, D37) over the 809 marked rows: **not held out**, and of **the whole
-  marked population, other-company pairs included**; the step scores main pairs only, so the figure is not a measure of that population. T-148c4 and T-193
+  marked population, other-company pairs included**; the step scores main pairs only, so the figure is not a measure of that population. T-148c4
   must score it on main pairs. The pair model alone
-  gets 0.737 and the pinned v1 model 0.648 on the same slice. The 180-text gold has not been scored with the stack (T-148c4, T-193), so the
+  gets 0.737 and the pinned v1 model 0.648 on the same slice. The 180-text gold has not been scored with the stack (T-148c4), so the
   pin rule of D35 has not been applied and `config/pipeline_models.json` still names the v1 model. This step runs the owner's selected candidate; it
   does not decide the pin.
-* **A held-out check exists since 2026-11-16** (`docs/sentiment_training.md`, "Held-out check on 190 pieces of the real run", `gold/sentiment_val190.csv`): the step as it ran on the corpus, scored on 190 pieces the owner tagged, gets accuracy 73.7% [67.0, 79.4] (under the D32 bar of 80%), negative precision 69.4% and recall 80.6%, and it almost never says neutral (weighted recall 4.4%). It is not the D35 gate: the 180-text gold is still not scored.
+* **A held-out check exists since 2026-11-16, re-scored 2026-11-20** (`docs/sentiment_training.md`, "Held-out check on 190 pieces of the real run", `gold/sentiment_val190_2026_11_20_v2.csv`): the step as it ran on the corpus, scored on 190 pieces the owner tagged (version 2 after the owner's re-tag, made with the model's label visible), gets accuracy 78.9% [72.6, 84.1] (under the D32 bar of 80% by point estimate), negative precision 70.8% and recall 83.6%, and its neutral precision is 80.0% on the re-tagged pieces. No population recall of neutral is claimed: the sample cannot estimate it. It is not the D35 gate: the 180-text gold is still not scored.
 * The strict nesting of the relevance model was not done (accepted by the owner as a limit, `docs/sentiment_training.md`, "Published").
 * The final models are more confident than the fold models the stack was fitted on; the effect is not measured. The check against the 0.862 mean
   confidence is the first thing T-148c4 does.
