@@ -11,7 +11,7 @@ folder named in ``config/sentiment_step.json`` (git-ignored; its copy on the pri
 downloads a model, and it refuses a folder whose identity is not the pinned one.
 
 What the stack's figures are, and are not: 0.814 on the nested cross-validation (weighted, D37), not held out; the 180-text gold has not been scored
-with it, so the pin of ``config/pipeline_models.json`` is still the v1 model (T-148c4, T-193). The strict nesting of the relevance model was not done
+with it, so the pin of ``config/pipeline_models.json`` is still the v1 model (T-148c4). The strict nesting of the relevance model was not done
 (``docs/sentiment_training.md``, "Published"). Models load on the first text, so ``--status`` and the tests need none; CUDA when there is one, the CPU
 otherwise (constitution, Pipeline models 2).
 
