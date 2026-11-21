@@ -84,7 +84,7 @@ def test_sentiment_counts_are_the_ones_the_docs_quote(sentiment: list[dict[str, 
 def test_sentiment_figures_are_the_doc_figures() -> None:
     rows = sent_score.load(GOLD / "sentiment_val190.csv")
     assert sent_score.accuracy(rows) == (140, 190)
-    table = sent_score.class_table(rows, weighted=True)
+    table = sent_score.class_table(rows)
     assert (table["positive"]["tp"], table["positive"]["called"], table["positive"]["tagged"]) == (
         73,
         88,
@@ -100,8 +100,6 @@ def test_sentiment_figures_are_the_doc_figures() -> None:
         30,
         32,
     )
-    assert round(100 * table["neutral"]["recall_weighted"], 1) == 4.4
-    assert round(100 * sent_score.accuracy_weighted(rows), 1) == 78.4
     second = [r for r in rows if r.batch == "100"]
     assert sent_score.accuracy(second) == (80, 100)
     assert sent_score.confusion(rows) == {
@@ -179,7 +177,6 @@ def _doc(name: str) -> str:
                 "85.2% [76.3, 91.2] (75/88)",
                 "70.8% [59.5, 80.1] (51/72)",
                 "80.0% [62.7, 90.5] (24/30)",
-                "| 8.2% |",
                 "82.0% [73.3, 88.3]",
             ],
         ),

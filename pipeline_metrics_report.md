@@ -410,7 +410,7 @@ The label is **what a text says about one company**, not the sentiment of its se
 | Replay | 341 sentences drawn of 925 eligible (those that name their article's company) | | | read as a pair with that company, mixed into every training set |
 | **Held-out** (`gold/sentiment_val190_2026_11_20_v2.csv`, version 2; the 2026-11-16 version `gold/sentiment_val190.csv` stays) | 190 pieces of the corpus run, two draws (90 + 100); never training data | 94 positive, 61 negative, 35 neutral (version 2; 96 / 62 / 32 before the 2026-11-20 re-tag) | `key`, `article_id`, `item_id`, `ticker`, `batch`, `text_source`, `text_hash`, `predicted`, `predicted_score`, `relevance_score`, `pub_date`, the three revisions, `sentiment`, `notes`; the texts are in `gold/texts/sentiment_val190_texts.csv` | pieces (sub-news) of the stored summary step (`summary-7a9bd2062bc4`), with a main company of the company step and a sentiment score; not summaries of articles: 38 are distilbart summaries, the rest original short texts; draw 1 (90): 30 per predicted class, no text of the training sets or the gold; draw 2 (100): simple random, a stricter filter (relevance 0.9 or more, the company named twice and early); the model's own call is kept apart from the owner's tag |
 
-The draws balance the classes the old model predicted, not the true classes, so every figure is weighted by the pool size of the predicted class over the texts drawn from it. Together the two training sets give 809 pair rows. No text of the gold or of a held-out set is in any training set or in the replay.
+The draws balance the classes the old model predicted, not the true classes, so the held-out figures describe the sample. They are not weighted to the pool, and the sample does not estimate the corpus. Together the two training sets give 809 pair rows. No text of the gold or of a held-out set is in any training set or in the replay.
 Sector, market and economy texts (46 rows) are tagged for their scope and left out of the pair model.
 
 ### Model selection
@@ -434,21 +434,21 @@ Selected on 2026-11-10 (the 190-piece held-out came after, and took no part in t
 
 | Measure | Nested cross-validation (809 rows, weighted) | Held-out (190 pieces of the real run) |
 |---|---|---|
-| Positive: P / R | 0.807 / 0.855 | P 85.2% [76.3, 91.2] (75/88); R 79.8% [70.6, 86.7] (75/94); weighted R 89.2% |
-| Negative: P / R | 0.747 / 0.748 | P 70.8% [59.5, 80.1] (51/72); R 83.6% [72.4, 90.8] (51/61); weighted R 79.1% |
-| Neutral: P / R | 0.787 / 0.686 | P 80.0% [62.7, 90.5] (24/30); R 68.6% [52.0, 81.4] (24/35); weighted R 8.2% (before the re-tag: P 56.7%, R 53.1%, weighted R 4.4%) |
+| Positive: P / R | 0.807 / 0.855 | P 85.2% [76.3, 91.2] (75/88); R 79.8% [70.6, 86.7] (75/94) |
+| Negative: P / R | 0.747 / 0.748 | P 70.8% [59.5, 80.1] (51/72); R 83.6% [72.4, 90.8] (51/61) |
+| Neutral: P / R | 0.787 / 0.686 | P 80.0% [62.7, 90.5] (24/30); R 68.6% [52.0, 81.4] (24/35); before the re-tag: P 56.7%, R 53.1% |
 | Macro P / R | 0.780 / 0.763 | not computed |
 | Macro ROC OVR | 0.898 | not computed |
-| Score (D37) / accuracy | score **0.814** | accuracy **78.9%** [72.6, 84.1] (150 of 190); 80.5% weighted to the universe |
+| Score (D37) / accuracy | score **0.814** | accuracy **78.9%** [72.6, 84.1] (150 of 190) |
 
 The intermediate candidates (pair model alone 0.737, with the gate 0.789) and the pinned v1 model (0.648) are in the selection table above; the stack gains +0.077 [+0.057, +0.095] over the pair model alone.
 
-**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): in the cross-validation the negative is above them (0.747 / 0.748). In the held-out the accuracy, 78.9%, is **under 80%** by point estimate (80.5% weighted); the negative precision, 70.8%, and the recall, 83.6%, clear 70%.
+**Against the bars of D32** (80% agreement; negative precision and recall of at least 70%): in the cross-validation the negative is above them (0.747 / 0.748). In the held-out the accuracy, 78.9%, is **under 80%** by point estimate; the negative precision, 70.8%, and the recall, 83.6%, clear 70%.
 
 **Limits.**
 - **The cross-validation is not held out**, so it is optimistic; the final models are more confident than the fold models the stack was fitted on (not measured). The held-out is lower, but **the two do not measure the same thing** (marked summaries, other-company pairs included, against main pairs of pieces of the real run), so the gap is not a measure of the optimism.
-- **Neutral is under-predicted** in the run: the model calls 420 of the 57,826 texts of the universe neutral (0.7%), and its weighted recall for neutral is 8.2%, so about one neutral text in twelve is found. The re-tag of 2026-11-20 changed 11 tags, 7 of them onto neutral calls the model had already made, so the neutral precision of 80% is partly the re-tag and not a blind measure. Recorded as T-212 (proposed; the owner decides the fix). Neutral is also the weakest class on its own (recall 0.44 without the relevance model): the model hears a company and a polarity but does not tell whether the text is about the company.
-- **The two draws of the held-out differ**: the first (90, stratified by the prediction) gives accuracy 75.6% [65.8, 83.3] (76.8% weighted) and the second (100, random with a filter that makes the company the topic) 82.0% [73.3, 88.3]; neutral has 35 tags and 30 calls, with wide intervals. The 190 are of the distilbart summary revision; the DeepSeek summaries of the corpus run are not covered. One reader, no blind second reading; the line between neutral and a direction was not fixed in advance.
+- **Neutral: the population share is not measured.** The model calls 420 of the 57,826 candidate texts neutral (0.7%). The 190 pieces cannot say how many neutral texts the pool holds or how many the model finds, so no population recall is reported. The re-tag of 2026-11-20 changed 11 tags, 7 of them onto neutral calls the model had already made, so the neutral precision of 80% is partly the re-tag and not a blind measure. Recorded as T-212 (proposed; the owner decides the fix). Neutral is also the weakest class on its own (recall 0.44 without the relevance model): the model hears a company and a polarity but does not tell whether the text is about the company.
+- **The two draws of the held-out differ**: the first (90, stratified by the prediction) gives accuracy 75.6% [65.8, 83.3] and the second (100, random with a filter that makes the company the topic) 82.0% [73.3, 88.3]; neutral has 35 tags and 30 calls, with wide intervals. The 190 are of the distilbart summary revision; the DeepSeek summaries of the corpus run are not covered. One reader, no blind second reading; the line between neutral and a direction was not fixed in advance.
 - **It is not the gate of D35** (the 180-text gold on main pairs, T-148c4, T-193): `config/pipeline_models.json` still names the v1 model; the held-out is evidence for the owner's decision. Marks, texts and scorer are tracked: `gold/sentiment_val190_2026_11_20_v2.csv`, `gold/texts/sentiment_val190_texts.csv`, `scripts/score_sentiment_val190_2026_11_16.py`.
 - A shuffled-relevance control adds at most +0.005, so the gain of the stack is real information, not noise.
 - The step reads summaries of at most about 2,000 characters, as chunks of at most the room the company leaves in 512 tokens, and averages the chunk probabilities. A sector text gets no sentiment (D42).
