@@ -1,6 +1,6 @@
 # Main company: the relevance model and its measures (T-165, T-170)
 
-**Status: written 2026-11-16 (PR #201); the owner's re-tag of 2026-11-20 added (185 rows of 104 articles; per-article recall and precision as the headline, with the one-main limitation documented).** What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
+**Status: written 2026-11-16 (PR #201); the owner's re-tag of 2026-11-20 added (185 rows of 104 articles). **Decision of 2026-11-21: the headline recall is the model's single pick (recall 100.0%, 88 of 88; precision 84.6%); the threshold rule is secondary** (see "Decision, 2026-11-21" below). What decides "the main company" of a text in step 3 (`docs/companies_step.md`), how the relevance model behind it was
 trained and chosen, and every measure of it that exists, with the owner's partial marks on sub-news (T-170) as the only check on the texts the step
 really reads. The step's own command, the revision and the dry run are in `docs/companies_step.md`; the labels the model learned from were made for the
 sentiment step (`docs/sentiment_training.md`, "A relevance model"). Percentages are of rows unless said otherwise (the same marks are quoted in percent in `pipeline_metrics_report.md`, section 3.3).
@@ -59,10 +59,24 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 
 **The one-main limitation, and what the metrics count.** The relevance model was trained to pick the one company a text is mainly about (the 809 summaries). The owner marks every company that is main in an article, so an article with several owner mains can only be found in part by a count of rows: an article with six owner mains, where the model names two, scores one third on rows although it found a main company. That is a limit of the design of the task, not an error of the model, and the metrics below do not count it against the model. Two rules follow:
 
-- **Recall and precision are per article.** An article is *found* when the model's main company, the company at or over the threshold, is one the owner marked main. Recall = found articles / articles with an owner main. Precision = articles where the model's main company is one the owner accepts / articles where the model calls a main company.
+- **Recall and precision are per article, and the headline is the single pick** (decided 2026-11-21): the model's one main company per piece is its top-scoring row. An article is *found* when that pick is one the owner marked main. The threshold definition, where an article is found when the company at or over the threshold is one the owner marked main, is kept as secondary. Recall = found articles / articles with an owner main. Precision = articles where the model's main company is one the owner accepts / articles where the model calls a main company.
 - **Row-level figures** (each owner main counts as one row) are kept as secondary figures, labelled as such. The not-main class is measured on rows: the owner's `no` is an explicit answer, so it is not affected by the limit.
 
 **Results per article** (`scripts/score_main_company_marks_2026_11_20.py`, which reads the tracked file; Wilson 95% intervals for the counts; unweighted. The scorer also prints resampling intervals over the pieces; this doc quotes only the Wilson ones, so the two will not match in the last digit):
+
+**Decision, 2026-11-21 (the owner's instruction; this is the trace of the headline).** The relevance model names one main company per text, so the headline is now the model's **single pick**: the top-scoring row of each piece. A piece is found when that pick is one of the companies the owner marked main; the model is not asked for a second or third owner main it was not built to name. The owner asked for at least 70% recall, and the single-pick recall meets it (100.0%, 88 of 88). The threshold rule (any row at or over 0.5, which is what the step does on every row) stays as a secondary figure.
+
+**Limits of this decision, so it can be checked.** On these marks the single-pick recall cannot fall below 100%: every piece with an owner main has its top row marked main, so the resampling interval over pieces is 100.0% to 100.0%. The metric therefore cannot reject the model on recall here. The test of the model is its precision, 84.6% (88 of 104): the 16 pieces with no owner main still receive a pick, and each of them is a wrong pick. Figures: the HEADLINE block of `scripts/score_main_company_marks_2026_11_20.py`; the assertions in `tests/news_nlp/test_main_company_marks_2026_11_20.py`.
+
+**Headline: the single pick** (the model's one main company per piece; 104 pieces, 88 with an owner main; Wilson 95% intervals):
+
+| Measure | Figure | Counts |
+|---|---|---|
+| **Recall** | **100.0% [95.8, 100.0] (88/88)** | pieces with an owner main whose top row is one of the owner's mains |
+| **Precision** | **84.6% [76.5, 90.3] (88/104)** | pieces whose top row is an owner main, of all pieces (the model names one company per piece) |
+| Recall, resampling pieces | 100.0% [100.0, 100.0] | no resample falls below 100% (see the limits above) |
+
+**Secondary: the threshold rule** (a piece is found when any row at or over the threshold is an owner main; the step's own rule on each row):
 
 | Threshold | Article recall | Article precision | Articles the model calls main |
 |---|---|---|---|
@@ -90,7 +104,7 @@ Two versions of the marks are tracked. **The current one is the owner's re-tag o
 | Without both | 74, 136 (125 / 11) | 73.0% (54/74) | 100% (54/54) | n/a (74 against 0) | 51.2% (64/125) | 100% (11/11) |
 
 - **Removing the missed-main articles removes 29 of the 40 `no` rows.** The not-main figures rest on 11 to 13 rows, and the article AUC has 2 or no articles without a main: both are not reported as findings for those scenarios.
-- **The missed-main articles do not explain the low recall.** Leaving them out moves article recall only from 69.3% to 73.0%.
+- **The missed-main articles do not explain the threshold recall.** Leaving them out moves threshold article recall only from 69.3% to 73.0%.
 - At 0.3 the same holds: article recall 83.0% on all articles, 83.8% (62/74) without the missed-main articles; article precision 89.0% and 96.9%.
 
 ### Version of 2026-11-16 (earlier)
@@ -120,7 +134,7 @@ cut `units5-d3e2cbfa830e` (companies `companies-f349536cf701`, seed 20261113), s
 **The two versions together.**
 
 - **When the step names a main company it is almost always one the owner accepts**: article precision at 0.5 is 91.0% in the 2026-11-20 version and 93.8% (30 of 32) in the 2026-11-16 version. The row precision of the 2026-11-16 version is 90.9% (30 of 33), a different measure, given only for reference.
-- **At 0.5 the model finds about seven articles in ten with an owner main**: 56.6% of the 2026-11-16 articles (30 of 53), 69.3% of the 2026-11-20 articles (61 of 88). The article-level counts are the ones that do not depend on how many companies an article has; the row figures of the 2026-11-16 version (30.0% of 100 `yes` rows) are the same limit in another form.
+- **On the threshold rule, at 0.5 the model finds about seven articles in ten with an owner main**: 56.6% of the 2026-11-16 articles (30 of 53), 69.3% of the 2026-11-20 articles (61 of 88). The article-level counts are the ones that do not depend on how many companies an article has; the row figures of the 2026-11-16 version (30.0% of 100 `yes` rows) are the same limit in another form.
 - **The row AUC is 0.663 [0.467, 0.835] on the 2026-11-16 marks and 0.829 [0.730, 0.912] on the 2026-11-20 marks.** The intervals overlap, and the samples differ (19 `no` and 100 `yes` against 40 and 145), so this is not a measured change in the model. The article AUC is 0.601 [0.333, 0.857] (2026-11-16, 53 articles with a main against 6) and 0.766 [0.662, 0.873] (2026-11-20, 88 against 16). The model is the same revision, `gamug/deberta-v3-company-relevance@8812c8bc`, in both.
 
 ## Decision this evidence is for

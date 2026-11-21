@@ -247,6 +247,30 @@ def article_auc(rows: list[Mark]) -> float:
     return wins / (len(pos) * len(neg))
 
 
+def single_pick(rows: list[Mark]) -> dict[str, int]:
+    """The decided headline (2026-11-21): the model names one main company per piece, its top-scoring row.
+
+    ``with_main``: pieces with at least one owner main. ``found``: of those, the top row is one the owner marked main (the
+    only pick the model makes is counted; a second or third owner main is not asked for). ``called``: every piece, because the
+    model always names one; ``agreed``: the top row is an owner main. Ties go to the first row of the piece.
+    """
+    items = group(rows)
+    tops = {k: max(v, key=lambda r: r.score) for k, v in items.items()}
+    with_main = [k for k, v in items.items() if any(r.main for r in v)]
+    return {
+        "items": len(items),
+        "with_main": len(with_main),
+        "found": sum(1 for k in with_main if tops[k].main),
+        "called": len(items),
+        "agreed": sum(1 for k in items if tops[k].main),
+    }
+
+
+def single_pick_recall(rows: list[Mark]) -> float:
+    c = single_pick(rows)
+    return c["found"] / c["with_main"] if c["with_main"] else 0.0
+
+
 def article(rows: list[Mark], threshold: float) -> dict[str, int]:
     """The per-article counts (the headline): a piece is found when the model's main company (its score at or over the threshold) is one the owner marked main."""
     return by_item(rows, threshold)
@@ -297,8 +321,20 @@ def main() -> None:
     print(
         f"marked rows {len(rows)} of {len({r.item for r in rows})} items: {sum(r.main for r in rows)} yes, {sum(not r.main for r in rows)} no"
     )
+    s = single_pick(rows)
+    slo, shi = wilson(s["found"], s["with_main"])
+    plo2, phi2 = wilson(s["agreed"], s["called"])
+    rlo2, rhi2 = interval(rows, single_pick_recall)
     print(
-        "PER ARTICLE (the headline: a piece is found when the model's main company is one the owner marked main)"
+        "HEADLINE, decided 2026-11-21 (the model's single main pick: the top-scoring row of each piece)"
+    )
+    print(
+        f"single-pick recall: {s['found']}/{s['with_main']} = {pct(s['found'], s['with_main'])} [Wilson {100 * slo:.1f}, {100 * shi:.1f}; resampling {100 * rlo2:.1f}, {100 * rhi2:.1f}]; "
+        f"single-pick precision: {s['agreed']}/{s['called']} = {pct(s['agreed'], s['called'])} [Wilson {100 * plo2:.1f}, {100 * phi2:.1f}]; "
+        f"pieces {s['items']}, with an owner main {s['with_main']}"
+    )
+    print(
+        "PER ARTICLE, threshold rule (secondary: a piece is found when any row at or over the threshold is an owner main)"
     )
     for t in thresholds:
         i = article(rows, t)
